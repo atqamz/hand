@@ -18,6 +18,31 @@ func TestCompareAcceptsOnlyExactReviewedEvidence(t *testing.T) {
 	}
 }
 
+func TestCompareRejectsDuplicateBaselinePackages(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		conflict bool
+	}{
+		{name: "identical adjacent paths"},
+		{name: "conflicting adjacent paths", conflict: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseline := fixtureBaseline()
+			duplicate := baseline.Packages[0]
+			if tc.conflict {
+				duplicate.Mutants = append([]baselineMutation(nil), duplicate.Mutants...)
+				duplicate.Mutants[0].Outcome = "LIVED"
+			}
+			baseline.Packages = append(baseline.Packages, duplicate)
+
+			err := compare(baseline, fixtureResult("KILLED", "LIVED"), "github.com/example/hand", "./internal/age", "v0.6.0", "test")
+			if err == nil || !strings.Contains(err.Error(), "duplicate baseline package") {
+				t.Fatalf("compare error = %v, want duplicate baseline package rejection", err)
+			}
+		})
+	}
+}
+
 func TestCompareAcceptsV060MutatorNames(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

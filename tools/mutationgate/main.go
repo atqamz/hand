@@ -167,6 +167,9 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 	if result.GoModule != module {
 		return fmt.Errorf("result module %q, want %q", result.GoModule, module)
 	}
+	if err := validateBaselinePackages(baseline.Packages); err != nil {
+		return err
+	}
 	baselinePackage, ok := matchingPackage(baseline.Packages, packagePath)
 	if !ok {
 		return fmt.Errorf("baseline has no package %q", packagePath)
@@ -267,6 +270,17 @@ func matchingPackage(packages []baselinePackage, path string) (baselinePackage, 
 		}
 	}
 	return baselinePackage{}, false
+}
+
+func validateBaselinePackages(packages []baselinePackage) error {
+	seen := make(map[string]struct{}, len(packages))
+	for _, candidate := range packages {
+		if _, exists := seen[candidate.Path]; exists {
+			return fmt.Errorf("duplicate baseline package %q", candidate.Path)
+		}
+		seen[candidate.Path] = struct{}{}
+	}
+	return nil
 }
 
 func identity(file string, line, column int, operator string) string {

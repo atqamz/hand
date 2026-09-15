@@ -96,7 +96,7 @@ that:
   in the suppression list - which is exactly what "fails the gate" routes to.
 
 The suppression list is reviewed maintenance, not free: someone has to positively assert equivalence
-to add an entry, and that assertion can be wrong. That cost is accepted because it is rare (one entry
+to add an entry, and that assertion can be wrong. That cost is accepted because it is rare (three entries
 after this whole sweep) and because the alternative - a threshold - fails silently in exactly the case
 that matters most.
 
