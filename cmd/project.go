@@ -20,7 +20,6 @@ import (
 	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
-	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -402,11 +401,7 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			locator := source.input
 			normalizedHTTPS := false
-			if source.remote {
-				if runtime, err := toolchain.Resolve(); err == nil && !runtime.SupportsGitTransport("https") {
-					locator, normalizedHTTPS = normalizeProjectHTTPSLocator(locator)
-				}
-			} else {
+			if !source.remote {
 				locator = source.locator
 			}
 
@@ -438,7 +433,22 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			var cloneErr error
 			if source.remote {
-				cloneErr = gitClone(locator, clonePath)
+				out, err := gitCloneOutput(locator, clonePath)
+				if err != nil {
+					normalized, ok := normalizeProjectHTTPSLocator(locator)
+					if !ok || !missingHTTPSRemoteHelper(out) {
+						cloneErr = diagnoseCloneFailure(locator, out)
+					} else if err := os.RemoveAll(clonePath); err != nil {
+						cloneErr = errors.Join(diagnoseCloneFailure(locator, out), fmt.Errorf("remove incomplete clone: %w", err))
+					} else if err := reserveCloneDestination(clonePath); err != nil {
+						cloneErr = err
+					} else if out, err := gitCloneOutput(normalized, clonePath); err != nil {
+						cloneErr = diagnoseCloneFailure(normalized, out)
+					} else {
+						locator = normalized
+						normalizedHTTPS = true
+					}
+				}
 			} else {
 				cloneErr = gitCloneLocal(source.root, clonePath)
 			}
@@ -632,12 +642,13 @@ func diagnoseCloneFailure(url string, out []byte) error {
 	return fmt.Errorf("git clone failed: %s", string(out))
 }
 
-func gitClone(url, dest string) error {
-	out, err := runManagedCore(context.Background(), "git", "", "clone", url, dest)
-	if err != nil {
-		return diagnoseCloneFailure(url, out)
-	}
-	return nil
+func missingHTTPSRemoteHelper(out []byte) bool {
+	m := gitRemoteHelperMissing.FindSubmatch(out)
+	return m != nil && string(m[1]) == "https"
+}
+
+func gitCloneOutput(url, dest string) ([]byte, error) {
+	return runManagedCore(context.Background(), "git", "", "clone", url, dest)
 }
 
 func noMistakesInit(clonePath string) error {

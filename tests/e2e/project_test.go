@@ -5,7 +5,11 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +17,181 @@ import (
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/toolchain"
 )
+
+func TestProjectAddPreservesHTTPSWhenGitInsteadOfRoutesIt(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	redirectGitRemote(t, input, remote)
+	t.Setenv("GIT_SSH_COMMAND", "false")
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code != 0 {
+		t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
+	}
+	if strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add stdout = %q, want original HTTPS locator", added.stdout)
+	}
+	projects, err := project.List(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].URL != input {
+		t.Fatalf("project.List = %+v, want URL %q", projects, input)
+	}
+	if got := runGitIn(t, filepath.Join(home, "projects", "repo"), "config", "--get", "remote.origin.url"); got != input+"\n" {
+		t.Fatalf("clone origin = %q, want %q", got, input)
+	}
+}
+
+func TestProjectAddRetriesRecognizedHTTPSAfterMissingHelper(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	ssh := "git@github.com:owner/repo.git"
+	redirectGitRemote(t, ssh, remote)
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	cloneLog := replaceManagedGit(t, home, input, "git: 'remote-https' is not a git command. See 'git --help'.")
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code != 0 {
+		t.Fatalf("project add: exit %d, stderr %q", added.code, added.stderr)
+	}
+	if !strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add stdout = %q, want visible fallback explanation", added.stdout)
+	}
+	clonePath := filepath.Join(home, "projects", "repo")
+	if _, err := os.Stat(filepath.Join(clonePath, "partial")); !os.IsNotExist(err) {
+		t.Fatalf("partial original clone remains after retry: %v", err)
+	}
+	if got := runGitIn(t, clonePath, "config", "--get", "remote.origin.url"); got != ssh+"\n" {
+		t.Fatalf("clone origin = %q, want %q", got, ssh)
+	}
+	if got, err := os.ReadFile(cloneLog); err != nil || string(got) != input+"\n"+ssh+"\n" {
+		t.Fatalf("clone attempts = %q, %v; want original then SSH", got, err)
+	}
+}
+
+func TestProjectAddDoesNotRetryOtherCloneFailures(t *testing.T) {
+	input := "https://github.com/owner/repo.git"
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	cloneLog := replaceManagedGit(t, home, input, "fatal: Authentication failed")
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code == 0 || !strings.Contains(added.stderr, "Authentication failed") {
+		t.Fatalf("project add = %+v, want original authentication failure", added)
+	}
+	if _, err := os.Stat(filepath.Join(home, "projects", "repo")); !os.IsNotExist(err) {
+		t.Fatalf("incomplete clone remains after non-helper failure: %v", err)
+	}
+	if got, err := os.ReadFile(cloneLog); err != nil || string(got) != input+"\n" {
+		t.Fatalf("clone attempts = %q, %v; want only original HTTPS", got, err)
+	}
+}
+
+func TestProjectAddDoesNotRetryUnrecognizedHTTPSAfterMissingHelper(t *testing.T) {
+	for _, input := range []string{
+		"https://example.com/owner/repo.git",
+		"https://github.com/owner/repo.git?ref=main",
+	} {
+		t.Run(input, func(t *testing.T) {
+			dir := binDir(t)
+			writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+			home := newHome(t)
+			cloneLog := replaceManagedGit(t, home, input, "git: 'remote-https' is not a git command. See 'git --help'.")
+
+			added := runHand(t, home, "project", "add", input, "--mode", "direct-pr", "--name", "retry")
+			if added.code == 0 || !strings.Contains(added.stderr, "git-remote-https") {
+				t.Fatalf("project add = %+v, want existing missing-helper diagnosis", added)
+			}
+			if got, err := os.ReadFile(cloneLog); err != nil || string(got) != input+"\n" {
+				t.Fatalf("clone attempts = %q, %v; want only original HTTPS", got, err)
+			}
+		})
+	}
+}
+
+func replaceManagedGit(t *testing.T, home, original, failure string) string {
+	t.Helper()
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID)
+	gitPath := filepath.Join(bundle, "git", "git")
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloneLog := filepath.Join(t.TempDir(), "clones")
+	body := fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"${seen_clone:-}\" = 1 ]; then source=$arg; break; fi\n  [ \"$arg\" = clone ] && seen_clone=1\ndone\ndest=\"\"\nfor arg in \"$@\"; do dest=$arg; done\n[ \"${source:-}\" ] && printf '%%s\\n' \"$source\" >> %q\nif [ \"${source:-}\" = %q ]; then\n  mkdir -p \"$dest\"\n  : > \"$dest/partial\"\n  echo %q >&2\n  exit 1\nfi\nexec %q \"$@\"\n", cloneLog, original, failure, git)
+	if err := os.WriteFile(gitPath, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestPath := filepath.Join(bundle, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest toolchain.Target
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(body))
+	component := manifest.Components["git"]
+	for i := range component.Files {
+		if component.Files[i].Path == "git" {
+			component.Files[i].SHA256 = fmt.Sprintf("%x", digest)
+		}
+	}
+	manifest.Components["git"] = component
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	currentPath := filepath.Join(home, ".secondhand", "runtime", "current.json")
+	data, err = os.ReadFile(currentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var current toolchain.Current
+	if err := json.Unmarshal(data, &current); err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest := sha256.Sum256(mustMarshal(t, manifest))
+	current.ManifestSHA256 = fmt.Sprintf("%x", manifestDigest)
+	data, err = json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(currentPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cloneLog
+}
+
+func mustMarshal(t *testing.T, target toolchain.Target) []byte {
+	t.Helper()
+	data, err := json.Marshal(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
 
 func TestProjectAddNormalizesRecognizedHTTPSWhenRuntimeLacksHelper(t *testing.T) {
 	for _, test := range []struct {
@@ -27,12 +206,12 @@ func TestProjectAddNormalizesRecognizedHTTPSWhenRuntimeLacksHelper(t *testing.T)
 			remote := filepath.Join(t.TempDir(), "remote")
 			initGitRepo(t, remote)
 			runGitIn(t, remote, "config", "receive.denyCurrentBranch", "updateInstead")
-			redirectGitRemote(t, test.input, remote)
 			redirectGitRemote(t, test.origin, remote)
 
 			dir := binDir(t)
 			writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
 			home := newHome(t)
+			replaceManagedGit(t, home, test.input, "git: 'remote-https' is not a git command. See 'git --help'.")
 
 			added := runHand(t, home, "project", "add", test.input, "--mode", "direct-pr")
 			if added.code != 0 {
