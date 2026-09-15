@@ -29,8 +29,8 @@ func observeCanonicalV19HerdrWorkerWake(
 	alive, aliveErr := processAlive(executorKey.ProcessID)
 	observed.ProcessAlive = alive
 	if aliveErr == nil && !alive {
-		observed.State = canonicalV19HerdrWorkerWakeCeased
-		observed.Reason = "exact provider Executor PID is absent"
+		observed.State = canonicalV19HerdrWorkerWakeUnknown
+		observed.Reason = "provider Executor PID is absent, but Herdr v0.8.2 cannot prove exact execution identity"
 		return finalizeCanonicalV19HerdrWorkerWakeObservation(current, observed)
 	}
 
@@ -156,8 +156,8 @@ func observeCanonicalV19HerdrWorkerWake(
 			observed.Reason = "exact provider Executor PID remains live but is absent from exact pane foreground process evidence"
 			return finalizeCanonicalV19HerdrWorkerWakeObservation(current, observed)
 		}
-		observed.State = canonicalV19HerdrWorkerWakeCeased
-		observed.Reason = "exact provider Executor PID is absent"
+		observed.State = canonicalV19HerdrWorkerWakeUnknown
+		observed.Reason = "provider Executor PID is absent, but Herdr v0.8.2 cannot prove exact execution identity"
 		return finalizeCanonicalV19HerdrWorkerWakeObservation(current, observed)
 	}
 	if info.ForegroundProcessGroupID != executorKey.ProcessGroup {

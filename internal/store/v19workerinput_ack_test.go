@@ -6,6 +6,67 @@ import (
 	"testing"
 )
 
+func TestCreateCanonicalV19WorkerInputAcknowledgementRefusesMissingCallerAttestationWithoutInsert(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	workerInput := canonicalV19WorkerInputCreateInput(launch, "worker-input-unattested-ack", "successor input", "digest-unattested-ack")
+	if _, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home, workerInput); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerInputAcknowledgementCreateInput{
+			WorkerInputID: workerInput.ID, ExecutorBindingID: launch.BindingID,
+			ObservedAt: "2026-09-09T02:18:00Z", EvidenceDigest: "unattested-observation",
+		})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unattested WorkerInput acknowledgement error = %v, want attestation refusal", err)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var acknowledgements int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM worker_input_acknowledgement WHERE worker_input_id=?`, workerInput.ID).Scan(&acknowledgements); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgements != 0 {
+		t.Fatalf("unattested WorkerInput acknowledgement rows = %d, want 0", acknowledgements)
+	}
+}
+
+func TestCreateCanonicalV19WorkerInputAcknowledgementRefusesStaleCallerAttestationWithoutInsert(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	workerInput := canonicalV19WorkerInputCreateInput(launch, "worker-input-successor-ack", "successor input", "digest-successor-ack")
+	if _, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home, workerInput); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := CreateCanonicalV19WorkerInputAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerInputAcknowledgementCreateInput{
+			WorkerInputID: workerInput.ID, ExecutorBindingID: launch.BindingID,
+			ObservedAt: "2026-09-09T02:18:30Z", EvidenceDigest: "stale-observation",
+			callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: "executor-binding-predecessor"},
+		})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("stale WorkerInput acknowledgement error = %v, want attestation refusal", err)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var acknowledgements int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM worker_input_acknowledgement WHERE worker_input_id=?`, workerInput.ID).Scan(&acknowledgements); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgements != 0 {
+		t.Fatalf("stale WorkerInput acknowledgement rows = %d, want 0", acknowledgements)
+	}
+}
+
 func TestCreateCanonicalV19WorkerInputAcknowledgementPersistsExactEvidence(t *testing.T) {
 	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
 	workerInput := canonicalV19WorkerInputCreateInput(launch, "worker-input-ack-1", "instruction", "digest-input-ack-1")
@@ -151,5 +212,6 @@ func canonicalV19WorkerInputAcknowledgementCreateInput(
 	return CanonicalV19WorkerInputAcknowledgementCreateInput{
 		WorkerInputID: workerInputID, ExecutorBindingID: executorBindingID,
 		ObservedAt: "2026-09-09T02:19:00Z", EvidenceDigest: "worker-observed-input",
+		callerAttestation: &canonicalV19WorkerInputCallerAttestation{executorBindingID: executorBindingID},
 	}
 }
