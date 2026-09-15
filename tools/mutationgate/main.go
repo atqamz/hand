@@ -26,7 +26,6 @@ type baselinePackage struct {
 	Total        int           `json:"total"`
 	Killed       int           `json:"killed"`
 	Lived        int           `json:"lived"`
-	NotCovered   int           `json:"not_covered"`
 	Suppressions []suppression `json:"suppressions"`
 }
 
@@ -164,7 +163,7 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 		counts["NOT VIABLE"] != result.MutantsNotViable || counts["NOT COVERED"] != result.MutantsNotCovered {
 		return errors.New("incomplete results: aggregate counts do not match mutant inventory")
 	}
-	if baselinePackage.Total != result.MutantsTotal || baselinePackage.Killed != result.MutantsKilled || baselinePackage.Lived != result.MutantsLived || baselinePackage.NotCovered != result.MutantsNotCovered {
+	if baselinePackage.Total != result.MutantsTotal || baselinePackage.Killed != result.MutantsKilled || baselinePackage.Lived != result.MutantsLived {
 		return errors.New("mutation inventory differs from reviewed baseline")
 	}
 	suppressed := make(map[string]struct{})
@@ -217,6 +216,9 @@ func resultDigest(result gremlinsResult) string {
 	entries := make([]string, 0)
 	for _, file := range result.Files {
 		for _, mutant := range file.Mutations {
+			if mutant.Status == "NOT COVERED" {
+				continue
+			}
 			entries = append(entries, identity(file.Filename, mutant.Line, mutant.Column, mutant.Type)+"\t"+mutant.Status)
 		}
 	}

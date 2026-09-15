@@ -15,6 +15,17 @@ func TestCompareAcceptsOnlyExactReviewedEvidence(t *testing.T) {
 	}
 }
 
+func TestCompareDoesNotBlockNotCoveredOnlyGrowth(t *testing.T) {
+	result := fixtureResult("KILLED", "LIVED")
+	result.MutantsNotCovered = 1
+	result.Files[0].Mutations = append(result.Files[0].Mutations, mutation{
+		Line: 12, Column: 2, Type: "CONDITIONALS_BOUNDARY", Status: "NOT COVERED",
+	})
+	if err := compare(fixtureBaseline(), result, "github.com/example/hand", "./internal/age", "v0.6.0", "test"); err != nil {
+		t.Fatalf("compare NOT COVERED-only growth: %v", err)
+	}
+}
+
 func TestCompareRejectsInconclusiveAndChangedEvidence(t *testing.T) {
 	cases := []struct {
 		name   string

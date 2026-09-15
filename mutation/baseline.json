@@ -9,16 +9,14 @@
       "total": 2,
       "killed": 2,
       "lived": 0,
-      "not_covered": 0,
       "suppressions": []
     },
     {
       "path": "./internal/age",
-      "digest": "sha256:6404444c7ea675a262e02a01fd16701dee7e444ba2cb1e25c7df4b25bf51a76a",
+      "digest": "sha256:4644741bba917a51d3520c1c0c13d2cb9a43a1fbb0dc5c59da299540c5ae9b7b",
       "total": 2,
       "killed": 2,
       "lived": 0,
-      "not_covered": 7,
       "suppressions": []
     },
     {
@@ -27,16 +25,14 @@
       "total": 6,
       "killed": 6,
       "lived": 0,
-      "not_covered": 0,
       "suppressions": []
     },
     {
       "path": "./internal/completion",
-      "digest": "sha256:ec4d64d031093e86e9de8a7b1db75bc31873eea7cf61e41bacae7e3f43901343",
+      "digest": "sha256:e1624fd71911b0de0ee5f051cdfc5d7d11b365310962fdf16a6b81ce53202d86",
       "total": 33,
       "killed": 30,
       "lived": 3,
-      "not_covered": 1,
       "suppressions": [
         {
           "file": "completion.go",
@@ -63,11 +59,10 @@
     },
     {
       "path": "./internal/registry",
-      "digest": "sha256:36d8293f9356777e0b3ca68fd6eb8da822d89a87c8ff78eca7ac9a91800b0e70",
+      "digest": "sha256:794f03f1faa980f16426946f9d32af9dbfbd58554e29a23f14d10ae535cce028",
       "total": 106,
       "killed": 106,
       "lived": 0,
-      "not_covered": 10,
       "suppressions": []
     }
   ]

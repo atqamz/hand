@@ -53,6 +53,12 @@ jobs:
       - name: Summarize mutation evidence
         if: always()
         run: |
+          {
+            echo "source: $(git rev-parse HEAD)"
+            echo "tool: github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+            echo "tags: test"
+            echo "package: ${{ matrix.package }}"
+          } >> "$GITHUB_STEP_SUMMARY"
           if test -s mutation-results/results.json; then
             jq -c '{go_module, mutants_total, mutants_killed, mutants_lived, mutants_not_covered, elapsed_time}' mutation-results/results.json | tee -a "$GITHUB_STEP_SUMMARY"
           else
@@ -97,6 +103,12 @@ jobs:
       - name: Summarize mutation evidence
         if: always()
         run: |
+          {
+            echo "source: $(git rev-parse HEAD)"
+            echo "tool: github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
+            echo "tags: test"
+            echo "package: ${{ matrix.package }}"
+          } >> "$GITHUB_STEP_SUMMARY"
           if test -s mutation-results/results.json; then
             jq -c '{go_module, mutants_total, mutants_killed, mutants_lived, mutants_not_covered, elapsed_time}' mutation-results/results.json | tee -a "$GITHUB_STEP_SUMMARY"
           else

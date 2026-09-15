@@ -100,10 +100,11 @@ actual gate, measured rather than assumed, is decided in
 `docs/adr/mutation-score-gates-the-packages-cheap-enough-to-block-on.md`.
 
 CI runs `make mutation-gate` on every pull request and `main` push for `shellquote`, `age`, `axi`,
-`completion`, and `registry`. It compares the complete, sorted mutant identity/outcome inventory to
-`mutation/baseline.json`; a baseline change is reviewed evidence, never a generated repair. `LIVED`
-is allowed only for an exact suppression with its falsifiable rationale. `NOT COVERED` remains visible
-but is not a behavioral survivor. `store` and `runtime` run on the scheduled non-blocking job, which
+`completion`, and `registry`. It compares the complete, sorted behavioral mutant identity/outcome
+inventory (`KILLED`, `LIVED`, and `NOT VIABLE`) to `mutation/baseline.json`; a baseline change is
+reviewed evidence, never a generated repair. `LIVED` is allowed only for an exact suppression with
+its falsifiable rationale. `NOT COVERED` remains visible in raw evidence and summaries, but does not
+block on its own. `store` and `runtime` run on the scheduled non-blocking job, which
 uploads the same raw evidence without opening issues or comments.
 
 ### Package scope
