@@ -474,14 +474,18 @@ func integrationRelativePath(root, path string) (string, error) {
 }
 
 func openDirectIntegrationRoot(root string) (*os.Root, error) {
-	info, err := os.Lstat(root)
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return nil, err
 	}
 	if integrationPathIsIndirect(info) || !info.IsDir() {
 		return nil, fmt.Errorf("integration store %s is not a direct directory", root)
 	}
-	handle, err := os.OpenRoot(root)
+	handle, err := os.OpenRoot(resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +625,7 @@ func atomicWriteIntegrationFile(rootHandle *os.Root, root, path, prefix string, 
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return err
 	}
-	return parent.Rename(temporary, filepath.Base(relative))
+	return renameIntegrationRoot(parent, temporary, filepath.Base(relative))
 }
 
 func removeIntegrationFile(rootHandle *os.Root, root, path string) error {

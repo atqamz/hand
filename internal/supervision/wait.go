@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/orientation"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -34,6 +35,17 @@ var (
 			return "", err
 		}
 		return hex.EncodeToString(id[:]), nil
+	}
+	acquireWaiterGenerationLease = func(generation, fleetID, leaseID, evidence string) (func() error, error) {
+		store, err := toolchain.DefaultStore()
+		if err != nil {
+			return nil, err
+		}
+		lease, err := store.AcquireLease(toolchain.LeaseRequest{Generation: generation, LeaseID: leaseID, FleetID: fleetID, Consumer: "supervision-waiter", Evidence: evidence})
+		if err != nil {
+			return nil, err
+		}
+		return lease.Close, nil
 	}
 )
 
@@ -158,6 +170,13 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	if err != nil {
 		return nil, fmt.Errorf("create waiter identity: %w", err)
 	}
+	var releaseGenerationLease func() error
+	if cfg.RuntimeGeneration != "" && os.Getenv("SECONDHAND_HOME") != "" {
+		releaseGenerationLease, err = acquireWaiterGenerationLease(cfg.RuntimeGeneration, fleetID, waiterID, cfg.Host+":"+cfg.RuntimeSession)
+		if err != nil {
+			return nil, fmt.Errorf("claim runtime generation lease: %w", err)
+		}
+	}
 	now := time.Now()
 	lease := 3 * interval
 	record := AttachmentRecord{
@@ -191,6 +210,9 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		ClearAttachment(w.Home, record)
 		cancel(errors.New("supervision bridge stopped"))
 		<-guard.donec
+		if releaseGenerationLease != nil {
+			_ = releaseGenerationLease()
+		}
 	})
 	go func() {
 		defer close(guard.donec)

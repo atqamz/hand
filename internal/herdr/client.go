@@ -100,6 +100,22 @@ func resolveManagedRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
 	return reconcileManagedRuntime(store, runtime, generation)
 }
 
+func resolveManagedRuntimeReadOnly(store *toolchain.Store) (toolchain.Runtime, error) {
+	runtime, err := selectRuntime(store)
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	generation, err := managedGenerationID(store)
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	expected := filepath.Join(store.Root, "runtime", "bundles", generation)
+	if filepath.Clean(runtime.BundleDir) != filepath.Clean(expected) {
+		return toolchain.Runtime{}, fmt.Errorf("selected runtime generation is not deterministic: %s", generation)
+	}
+	return runtime, nil
+}
+
 func NewClient() *Client {
 	return &Client{executable: "herdr"}
 }
@@ -127,7 +143,7 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
-	runtime, err := resolveManagedRuntime(store)
+	runtime, err := resolveManagedRuntimeReadOnly(store)
 	if err != nil {
 		if legacyHerdrFallback {
 			return NewClient()

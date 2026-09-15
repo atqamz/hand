@@ -165,6 +165,19 @@ func TestGenerationRejectsSymlinkedBundleParent(t *testing.T) {
 	}
 }
 
+func TestOpenDirectRuntimeRootAllowsConfiguredRootSymlink(t *testing.T) {
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "configured-home")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	h, err := openDirectRuntimeRoot(link)
+	if err != nil {
+		t.Fatalf("open configured root symlink: %v", err)
+	}
+	defer h.Close()
+}
+
 func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "secondhand")

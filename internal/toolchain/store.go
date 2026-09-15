@@ -1207,14 +1207,18 @@ func runtimeRelativePath(root, path string) (string, error) {
 }
 
 func openDirectRuntimeRoot(root string) (*os.Root, error) {
-	info, err := os.Lstat(root)
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return nil, err
 	}
 	if runtimePathIsIndirect(info) || !info.IsDir() {
 		return nil, fmt.Errorf("runtime store %s is not a direct directory", root)
 	}
-	handle, err := os.OpenRoot(root)
+	handle, err := os.OpenRoot(resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -1367,7 +1371,7 @@ func atomicWriteRuntimeFile(rootHandle *os.Root, root, path, prefix string, data
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return err
 	}
-	return parent.Rename(temporary, filepath.Base(relative))
+	return renameRuntimeRoot(parent, temporary, filepath.Base(relative))
 }
 
 func mkdirTempRuntime(rootHandle *os.Root, root, parentPath, prefix string) (string, error) {
