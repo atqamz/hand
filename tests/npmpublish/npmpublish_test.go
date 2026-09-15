@@ -293,6 +293,7 @@ func TestPublishTargetRefusesOIDCPublicationBehindAShadowingAuthToken(t *testing
 	if !strings.Contains(string(out), "shadow OIDC") {
 		t.Fatalf("output = %s, want it to name the shadowing auth config", out)
 	}
+	assertBoundedShadowDiagnostic(t, out)
 	if containsCall(readCallsLog(t, state), "publish") {
 		t.Fatal("a shadowing classic auth token must never reach npm publish")
 	}
@@ -314,6 +315,7 @@ func TestPublishTargetRefusesOIDCPublicationWhenConfigPipeGetsSIGPIPE(t *testing
 	if !strings.Contains(string(out), "shadow OIDC") {
 		t.Fatalf("output = %s, want bounded shadowing-auth diagnostic", out)
 	}
+	assertBoundedShadowDiagnostic(t, out)
 	if containsCall(readCallsLog(t, state), "publish") {
 		t.Fatal("a shadowing classic auth token must never reach npm publish when grep exits early")
 	}
@@ -449,6 +451,16 @@ func onlyPublishCall(t *testing.T, calls []string) string {
 func firstLine(out []byte) string {
 	line, _, _ := strings.Cut(string(out), "\n")
 	return strings.TrimSpace(line)
+}
+
+func assertBoundedShadowDiagnostic(t *testing.T, out []byte) {
+	t.Helper()
+	if len(out) > 1024 {
+		t.Fatalf("diagnostic length = %d, want at most 1024 bytes", len(out))
+	}
+	if strings.Contains(string(out), "(protected)") {
+		t.Fatalf("diagnostic exposed npm config content: %s", out)
+	}
 }
 
 func exitCode(t *testing.T, err error) int {
