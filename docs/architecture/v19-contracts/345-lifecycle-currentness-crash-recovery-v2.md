@@ -424,12 +424,14 @@ require no unresolved prepared|submitted|uncertain external operation
 require no open direct or inbound TaskHold
 require no unresolved AttemptBackoff
 require no open WorktreeBinding, SessionBinding, or ExecutorBinding
-require no handling-worthy unacknowledged WorkerReport
+require no unacknowledged WorkerReport in exact handling-worthy state paused|blocked|needs-decision|done|failed
 require no open Decision
 require no open Repair targeting the Project/Task lineage or its exact resources/effects
 insert exactly one TaskArchive fact
 COMMIT
 ```
+
+The six WorkerReport states divide exactly at this archive boundary. `working` is a progress Claim; once its exact Task/Plan/Attempt lineage is terminal, an unacknowledged `working` report is historical evidence and does not block archive. `paused`, `blocked`, `needs-decision`, `done`, and `failed` are the complete handling-worthy set and block archive until the exact report is acknowledged. Archive never fabricates that acknowledgement, and every report remains visible in exact history.
 
 Positive database predicates do not prove Git/filesystem/provider state. Required external observations are collected under #346, bound into the archive evidence, and revalidated at the mutation boundary. Missing, stale, contradictory, or unknown ownership/liveness evidence refuses archival.
 

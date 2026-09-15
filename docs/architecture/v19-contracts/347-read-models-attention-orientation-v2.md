@@ -13,7 +13,7 @@ supersedes_blob: 72a9905c84e376b8cd5a07ff2c0643b244e97d14
 
 This repository snapshot is the revision-2 candidate that supersedes the original #347 snapshot when the permanent manifest anchor names this content. The original file remains immutable historical evidence. The GitHub issue is a tracker/discussion surface; comments are not normative architecture state.
 
-Revision 2 adds the exact WorkerReport source-witness boundary proved by PR #581 and Task archive projection rules for atqamz/hand#301. Every prior read-model, WorkerInput, Attention, and orientation rule remains unchanged.
+Revision 2 adds the exact WorkerReport source-witness boundary required by PR #581 and Task archive projection rules for atqamz/hand#301. Every prior read-model, WorkerInput, Attention, and orientation rule remains unchanged.
 
 Normative for #339. Read models are disposable, deterministic projections over #344 canonical rows plus explicitly timestamped #346 observations. They never become a second workflow database and never authorize mutation.
 
@@ -207,6 +207,8 @@ Task archive is derived from the single exact `task_archive` fact owned by #344/
 Default active Task views may omit an archived terminal Task. Exact detail, requested history, audit, metrics, upgrade/cutover, and unresolved-safety views retain the Task, every Plan/Attempt, and all descendant evidence. No read rewrites lifecycle or creates archive/acknowledgement evidence.
 
 Archive membership and unresolved-obligation visibility are separate predicates. If handling-worthy WorkerReport, Decision, Repair, external-operation, or other evidence appears after archive, canonical Attention/history must still surface it. The archive fact remains intact and Task/Plan/Attempt lifecycle remains terminal.
+
+For archive and post-archive Attention, handling-worthy unacknowledged WorkerReport states are exactly `paused`, `blocked`, `needs-decision`, `done`, and `failed`. An unacknowledged `working` report on terminal Task lineage is historical progress evidence: archive may proceed, while exact detail/history retains the report and its lack of acknowledgement. No read or archive path fabricates acknowledgement.
 
 Every default projection that filters archive membership must use exact relational anti-join/existence against `task_archive.task_id`. Presentation state, cached lists, filesystem location, report state, or missing runtime resources never substitute for that fact.
 
@@ -452,6 +454,7 @@ Presentation refresh is mutation-free.
 - [ ] FleetSnapshot represents all active Tasks and unresolved safety obligations.
 - [ ] Default active projection may omit archived terminal Tasks only through exact `task_archive` membership.
 - [ ] Exact detail/history remains available, and handling-worthy evidence appended after archive remains visible without lifecycle reopen.
+- [ ] Historical unacknowledged `working` WorkerReport does not block archive; each unacknowledged `paused|blocked|needs-decision|done|failed` report does.
 - [ ] Snapshot/orient DB work is set-oriented and indexed, including current/unacknowledged WorkerInput and open-obligation hot paths.
 - [ ] `hand orient` remains bounded and does not scan full report/input/obligation history by design.
 - [ ] Attention remains pure deterministic derivation with exact identity/currentness.
