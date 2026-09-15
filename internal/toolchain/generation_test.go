@@ -178,6 +178,26 @@ func TestOpenDirectRuntimeRootAllowsConfiguredRootSymlink(t *testing.T) {
 	defer func() { _ = h.Close() }()
 }
 
+func TestRuntimeVerificationStageIgnoresTMPDIR(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "runtime"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h, err := openDirectRuntimeRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = h.Close() }()
+	t.Setenv("TMPDIR", filepath.Join(root, "does-not-exist"))
+	stage, err := mkdirTempRuntime(h, root, filepath.Join(root, "runtime"), ".verify-")
+	if err != nil {
+		t.Fatalf("rooted verification stage: %v", err)
+	}
+	if err := removeAllRuntimePath(h, root, stage); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRuntimeFileAccessRemainsAnchoredAcrossRootReplacement(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "secondhand")

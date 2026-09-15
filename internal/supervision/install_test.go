@@ -429,6 +429,15 @@ func TestCodexOwnsItsCanonicalWindowsCommand(t *testing.T) {
 	}
 }
 
+func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
+	exe := "/home/o'connor/hand"
+	handler := codexStopHandler(exe)
+	exact, owned, unknown := codexOwned(handler, exe)
+	if !exact || !owned || unknown {
+		t.Fatalf("apostrophe hook ownership = %t, %t, %t", exact, owned, unknown)
+	}
+}
+
 func TestCodexWindowsCommandExecutesPathWithSpaces(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("cmd.exe execution is Windows-only")

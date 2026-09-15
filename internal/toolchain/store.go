@@ -956,11 +956,11 @@ func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, 
 	if !info.Mode().IsRegular() {
 		return errors.New("retained artifact is not a regular file")
 	}
-	temporary, err := os.MkdirTemp(filepath.Join(root, "runtime"), ".verify-")
+	temporary, err := mkdirTempRuntime(rootHandle, root, filepath.Join(root, "runtime"), ".verify-")
 	if err != nil {
 		return fmt.Errorf("create artifact verification directory: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(temporary) }()
+	defer func() { _ = removeAllRuntimePath(rootHandle, root, temporary) }()
 	retainedCopy, err := os.OpenFile(filepath.Join(temporary, "artifact"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("create retained artifact verification copy: %w", err)
