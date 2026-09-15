@@ -49,15 +49,18 @@ func TestCIPushCannotPublish(t *testing.T) {
 	}
 }
 
-func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T) {
-	jobs := loadWorkflowJobs(t, "ci.yaml")
-	cheap, ok := jobs["mutation"]
+func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) {
+	ciJobs := loadWorkflowJobs(t, "ci.yaml")
+	cheap, ok := ciJobs["mutation"]
 	if !ok {
 		t.Fatal("ci workflow has no always-on mutation job")
 	}
-	expensive, ok := jobs["mutation-expensive"]
+	if _, ok := ciJobs["mutation-expensive"]; ok {
+		t.Fatal("ci workflow must not schedule expensive mutation evidence")
+	}
+	expensive, ok := loadWorkflowJobs(t, "mutation-expensive.yaml")["mutation-expensive"]
 	if !ok {
-		t.Fatal("ci workflow has no expensive mutation job")
+		t.Fatal("dedicated workflow has no expensive mutation job")
 	}
 	if expensive.ContinueOnError != true {
 		t.Fatal("expensive mutation job must stay non-blocking")
@@ -66,7 +69,12 @@ func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workflow := string(data)
+	ciWorkflow := string(data)
+	expensiveData, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "mutation-expensive.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expensiveWorkflow := string(expensiveData)
 	for _, packagePath := range []string{
 		"./internal/shellquote",
 		"./internal/age",
@@ -74,12 +82,12 @@ func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T)
 		"./internal/registry",
 		"./internal/completion",
 	} {
-		if !strings.Contains(workflow, packagePath) {
+		if !strings.Contains(ciWorkflow, packagePath) {
 			t.Errorf("always-on mutation job does not name %s", packagePath)
 		}
 	}
 	for _, packagePath := range []string{"./internal/store", "./internal/runtime"} {
-		if !strings.Contains(workflow, packagePath) {
+		if !strings.Contains(expensiveWorkflow, packagePath) {
 			t.Errorf("expensive mutation job does not name %s", packagePath)
 		}
 	}
@@ -90,57 +98,46 @@ func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T)
 			}
 		}
 	}
-	if !strings.Contains(workflow, "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0") {
-		t.Errorf("mutation workflow does not pin gremlins v0.6.0")
+	if !strings.Contains(ciWorkflow, "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0") ||
+		!strings.Contains(expensiveWorkflow, "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0") {
+		t.Error("mutation workflows do not pin gremlins v0.6.0")
 	}
 	for _, evidence := range []string{"source: $(git rev-parse HEAD)", "tags: test", "package: ${{ matrix.package }}", "elapsed_time"} {
-		if !strings.Contains(workflow, evidence) {
-			t.Errorf("mutation workflow does not report %q", evidence)
+		if !strings.Contains(ciWorkflow, evidence) || !strings.Contains(expensiveWorkflow, evidence) {
+			t.Errorf("mutation workflows do not report %q", evidence)
 		}
 	}
-	if strings.Contains(workflow, "name: mutation-${{ matrix.package }}") {
+	if !strings.Contains(expensiveWorkflow, "[.files[].mutations[] | select(.status == \"TIMED OUT\")] | length") {
+		t.Error("expensive mutation workflow does not summarize timed-out mutants")
+	}
+	if strings.Contains(ciWorkflow, "name: mutation-${{ matrix.package }}") ||
+		strings.Contains(expensiveWorkflow, "name: mutation-expensive-${{ matrix.package }}") {
 		t.Error("artifact names cannot contain package-path slashes")
 	}
 }
 
-func TestMutationExpensiveDispatchRequiresExplicitOptIn(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
+func TestMutationExpensiveWorkflowSchedulesAndPermitsManualRuns(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "mutation-expensive.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var document struct {
-		On struct {
-			WorkflowDispatch struct {
-				Inputs map[string]struct {
-					Default  *bool  `yaml:"default"`
-					Required bool   `yaml:"required"`
-					Type     string `yaml:"type"`
-				} `yaml:"inputs"`
-			} `yaml:"workflow_dispatch"`
-		} `yaml:"on"`
 		Jobs map[string]workflowJobDef `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatalf("parse ci.yaml: %v", err)
 	}
-	input, ok := document.On.WorkflowDispatch.Inputs["run_expensive_mutation"]
-	if !ok {
-		t.Fatal("ci workflow dispatch has no run_expensive_mutation input")
-	}
-	if input.Required {
-		t.Fatal("run_expensive_mutation must remain optional")
-	}
-	if input.Default == nil || *input.Default {
-		t.Fatal("run_expensive_mutation default must explicitly remain false")
-	}
-	if input.Type != "boolean" {
-		t.Fatalf("run_expensive_mutation type = %q, want boolean", input.Type)
+	if !strings.Contains(string(data), "workflow_dispatch:") {
+		t.Fatal("expensive mutation workflow must permit manual runs")
 	}
 	expensive, ok := document.Jobs["mutation-expensive"]
 	if !ok {
-		t.Fatal("ci workflow has no expensive mutation job")
+		t.Fatal("expensive mutation workflow has no expensive mutation job")
 	}
-	if got, want := expensive.If, "github.event_name == 'schedule' || inputs.run_expensive_mutation"; got != want {
-		t.Fatalf("expensive mutation job if = %q, want %q", got, want)
+	if expensive.If != "" {
+		t.Fatalf("expensive mutation job if = %q, want no condition", expensive.If)
+	}
+	if !strings.Contains(string(data), "schedule:") {
+		t.Fatal("expensive mutation workflow has no schedule")
 	}
 }

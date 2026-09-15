@@ -5,18 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
-  schedule:
-    - cron: "17 3 * * *"
   # Lets the self-heal workflow (vendorhash-selfheal.yaml) re-run CI on a Dependabot
   # branch after it pushes a corrected vendorHash: a GITHUB_TOKEN push does not start a
   # new run on its own, so that workflow dispatches one explicitly.
   workflow_dispatch:
-    inputs:
-      run_expensive_mutation:
-        description: Run non-blocking store and runtime mutation evidence.
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -75,56 +67,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: mutation-${{ matrix.name }}
-          path: mutation-results/results.json
-          if-no-files-found: warn
-          retention-days: 14
-
-  mutation-expensive:
-    name: Mutation expensive (${{ matrix.package }})
-    if: github.event_name == 'schedule' || inputs.run_expensive_mutation
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - package: ./internal/store
-            name: store
-            flags: --workers=2 --test-cpu=1 --timeout-coefficient=5
-          - package: ./internal/runtime
-            name: runtime
-            flags: --workers=2 --test-cpu=1 --timeout-coefficient=9
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install pinned gremlins
-        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
-      - name: Run non-blocking mutation evidence
-        run: |
-          mkdir -p mutation-results
-          make mutation PKG="${{ matrix.package }}" GREMLINS_FLAGS="${{ matrix.flags }} -o mutation-results/results.json"
-      - name: Summarize mutation evidence
-        if: always()
-        run: |
-          {
-            echo "source: $(git rev-parse HEAD)"
-            echo "tool: github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"
-            echo "tags: test"
-            echo "package: ${{ matrix.package }}"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if test -s mutation-results/results.json; then
-            jq -c '{go_module, mutants_total, mutants_killed, mutants_lived, mutants_not_covered, elapsed_time}' mutation-results/results.json | tee -a "$GITHUB_STEP_SUMMARY"
-          else
-            echo 'Mutation evidence was missing or incomplete.' | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Upload mutation evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: mutation-expensive-${{ matrix.name }}
           path: mutation-results/results.json
           if-no-files-found: warn
           retention-days: 14
