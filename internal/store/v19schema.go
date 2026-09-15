@@ -15,12 +15,12 @@ import (
 const (
 	canonicalV19SchemaVersion = 19
 
-	canonicalV19GzipBytes  = 11612
-	canonicalV19DDLBytes   = 109144
-	canonicalV19GzipSHA256 = "19d03a1476ff6b7d3f6131d094a606ad0067f08f47541adf1d581dc6249d8bf4"
-	canonicalV19DDLSHA256  = "2af1fb976f0ef53fe067930773577e52a7cff66035c309d93c7e59972e9fa56e"
+	canonicalV19GzipBytes  = 11622
+	canonicalV19DDLBytes   = 109227
+	canonicalV19GzipSHA256 = "465ebf6c1203a66558f2562660d67c3c40f44afc03982115177544c4bacb9f20"
+	canonicalV19DDLSHA256  = "bd1081a14f3d5c52803aab40865dd489b3528c71d3ed801ea9560438ae5c8892"
 
-	canonicalV19SchemaFingerprint      = "955afb83a0fd1703778728621ba658848af87990fa746f0de0013d163e9157e9"
+	canonicalV19SchemaFingerprint      = "067f7ea28694f3dadf9cbc8e5b6e50fe42e77f7b36aaeb33fc121ef9772a1c8e"
 	canonicalV19PriorSchemaFingerprint = "8726f0875845d610553928e6bb56fc5566019a6667d81e29a94ee3d3d45ef3b8"
 	canonicalV19TableCount             = 56
 	canonicalV19IndexCount             = 38

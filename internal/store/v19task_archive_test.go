@@ -121,14 +121,6 @@ func TestCanonicalV19TaskArchiveRejectsUnresolvedTaskObligations(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"WorkerReport": func(t *testing.T, db *sql.DB) {
-			_, err := db.Exec(`INSERT INTO worker_report(
-				id,attempt_id,source_prefix_digest,source_end_offset,report_state,note,created_at
-			) VALUES('report-1','attempt-1','prefix-1',1,'done','review me','2026-09-15T01:01:00Z')`)
-			if err != nil {
-				t.Fatal(err)
-			}
-		},
 	}
 
 	for name, addObligation := range tests {
@@ -137,6 +129,40 @@ func TestCanonicalV19TaskArchiveRejectsUnresolvedTaskObligations(t *testing.T) {
 			db := canonicalV19TaskArchiveOpen(t, home)
 			defer func() { _ = db.Close() }()
 			addObligation(t, db)
+			canonicalV19ExpectTaskArchiveRejected(t, db, "task-1")
+		})
+	}
+}
+
+func TestCanonicalV19TaskArchiveAllowsHistoricalUnacknowledgedWorkingReport(t *testing.T) {
+	home := canonicalV19TaskArchiveTerminalFixture(t)
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	canonicalV19InsertUnacknowledgedWorkerReport(t, db, "working")
+
+	canonicalV19InsertTaskArchive(t, db, "task-1")
+
+	var archiveCount, reportCount int
+	if err := db.QueryRow(`SELECT
+		(SELECT count(*) FROM task_archive WHERE task_id='task-1'),
+		(SELECT count(*) FROM worker_report WHERE id='report-1')`).Scan(
+		&archiveCount, &reportCount,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if archiveCount != 1 || reportCount != 1 {
+		t.Fatalf("archive/report rows = %d/%d, want 1/1", archiveCount, reportCount)
+	}
+}
+
+func TestCanonicalV19TaskArchiveRejectsHandlingWorthyUnacknowledgedReportStates(t *testing.T) {
+	for _, reportState := range []string{"paused", "blocked", "needs-decision", "done", "failed"} {
+		t.Run(reportState, func(t *testing.T) {
+			home := canonicalV19TaskArchiveTerminalFixture(t)
+			db := canonicalV19TaskArchiveOpen(t, home)
+			defer func() { _ = db.Close() }()
+			canonicalV19InsertUnacknowledgedWorkerReport(t, db, reportState)
+
 			canonicalV19ExpectTaskArchiveRejected(t, db, "task-1")
 		})
 	}
@@ -263,6 +289,16 @@ func canonicalV19InsertTaskArchive(t *testing.T, db *sql.DB, taskID string) {
 	if _, err := db.Exec(`INSERT INTO task_archive(task_id,actor_kind,actor_ref,archived_at,reason,evidence_digest)
 		VALUES(?,'operator','operator-1','2026-09-15T01:02:03Z','completed and reconciled',?)`,
 		taskID, canonicalV19TaskArchiveDigest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func canonicalV19InsertUnacknowledgedWorkerReport(t *testing.T, db *sql.DB, reportState string) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO worker_report(
+		id,attempt_id,source_prefix_digest,source_end_offset,report_state,note,created_at
+	) VALUES('report-1','attempt-1','prefix-1',1,?,'review me','2026-09-15T01:01:00Z')`,
+		reportState); err != nil {
 		t.Fatal(err)
 	}
 }
