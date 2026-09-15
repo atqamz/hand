@@ -61,6 +61,9 @@ func TestGitTransportAvailableSearchesManagedAndInheritedPath(t *testing.T) {
 }
 
 func TestGitTransportAvailableReturnsErrorForUnknownManagedPathEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports a file-as-directory lookup as path-not-found")
+	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
