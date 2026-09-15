@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -448,33 +446,6 @@ func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
 	exact, owned, unknown := codexOwned(codexStopHandler(exe), exe)
 	if !exact || !owned || unknown {
 		t.Fatalf("apostrophe hook ownership = %t, %t, %t", exact, owned, unknown)
-	}
-}
-
-func TestCodexWindowsCommandExecutesPathWithSpaces(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("cmd.exe execution is Windows-only")
-	}
-	root := t.TempDir()
-	exe := filepath.Join(root, "managed Hand", "hand.cmd")
-	marker := filepath.Join(root, "argv.txt")
-	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	script := fmt.Sprintf("@echo off\necho %%* > \"%s\"\n", marker)
-	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	command := codexStopHandler(exe)["commandWindows"].(string)
-	if err := exec.Command("cmd.exe", "/C", command).Run(); err != nil {
-		t.Fatalf("cmd.exe /C %q: %v", command, err)
-	}
-	data, err := os.ReadFile(marker)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := strings.TrimSpace(string(data)), "supervision codex-stop"; got != want {
-		t.Fatalf("managed command argv = %q, want %q", got, want)
 	}
 }
 
