@@ -105,6 +105,7 @@ func TestProjectAddNormalizesEffectiveHTTPSWithoutHelper(t *testing.T) {
 	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
 	home := newHome(t)
 	cloneLog := replaceManagedGit(t, home, input, input, "git: 'remote-https' is not a git command. See 'git --help'.")
+	isolateNoHTTPSHelperSearch(t, home, dir)
 
 	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
 	if added.code != 0 {
@@ -236,6 +237,41 @@ func replaceManagedGit(t *testing.T, home, original, effective string, failureLi
 	return cloneLog
 }
 
+// These fixtures model a selected Git with no HTTPS helper. Keep every directory Runtime.Process
+// searches helper-free while retaining the fake treehouse and hermetic shell/Git support paths.
+func isolateNoHTTPSHelperSearch(t *testing.T, home, fakeBin string) {
+	t.Helper()
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execPath := t.TempDir()
+	t.Setenv("GIT_EXEC_PATH", execPath)
+	path := fakeBin + string(os.PathListSeparator) + hermeticPath
+	t.Setenv("PATH", path)
+
+	dirs := append([]string{
+		execPath,
+		filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git"),
+	}, filepath.SplitList(path)...)
+	helper := "git-remote-https"
+	if runtime.GOOS == "windows" {
+		helper += ".exe"
+	}
+	for _, dir := range dirs {
+		info, err := os.Stat(filepath.Join(dir, helper))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("inspect HTTPS helper in %q: %v", dir, err)
+		}
+		if info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode()&0o111 != 0) {
+			t.Fatalf("no-helper fixture exposes executable %s in %q", helper, dir)
+		}
+	}
+}
+
 func mustMarshal(t *testing.T, target toolchain.Target) []byte {
 	t.Helper()
 	data, err := json.Marshal(target)
@@ -264,6 +300,7 @@ func TestProjectAddNormalizesRecognizedHTTPSWhenRuntimeLacksHelper(t *testing.T)
 			writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
 			home := newHome(t)
 			replaceManagedGit(t, home, test.input, test.input, "git: 'remote-https' is not a git command. See 'git --help'.")
+			isolateNoHTTPSHelperSearch(t, home, dir)
 
 			added := runHand(t, home, "project", "add", test.input, "--mode", "direct-pr")
 			if added.code != 0 {
