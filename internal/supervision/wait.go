@@ -182,7 +182,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	guardCtx, cancel := context.WithCancelCause(ctx)
 	guard := &bridgeGuard{
 		ctx: guardCtx, cancel: cancel,
-		stopc: make(chan struct{}), errc: make(chan error, 1),
+		stopc: make(chan struct{}), donec: make(chan struct{}), errc: make(chan error, 1),
 		home: w.Home, host: cfg.Host, runtime: runtime,
 		record: record, lease: lease,
 	}
@@ -190,8 +190,10 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		close(guard.stopc)
 		ClearAttachment(w.Home, record)
 		cancel(errors.New("supervision bridge stopped"))
+		<-guard.donec
 	})
 	go func() {
+		defer close(guard.donec)
 		heartbeats, stopHeartbeat := bridgeHeartbeat(interval)
 		defer stopHeartbeat()
 		for {
@@ -383,6 +385,7 @@ type bridgeGuard struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 	stopc  chan struct{}
+	donec  chan struct{}
 	stop   func()
 	errc   chan error
 

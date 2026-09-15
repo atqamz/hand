@@ -386,7 +386,8 @@ func TestManagedFleetHerdrStartsThroughExactGenerationGuardian(t *testing.T) {
 	root := t.TempDir()
 	guardian := filepath.Join(root, "managed hand guardian")
 	argsPath := filepath.Join(root, "args")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\n", argsPath)
+	argsTempPath := argsPath + ".tmp"
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nmv %q %q\n", argsTempPath, argsTempPath, argsPath)
 	if err := os.WriteFile(guardian, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
