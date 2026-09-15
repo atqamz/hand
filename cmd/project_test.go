@@ -884,6 +884,25 @@ func TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText(t *testing.T) {
 	}
 }
 
+func TestMissingHTTPSRemoteHelperRequiresStandaloneGitDiagnostic(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		out  string
+		want bool
+	}{
+		{name: "lf", out: "git: 'remote-https' is not a git command.\n", want: true},
+		{name: "crlf", out: "git: 'remote-https' is not a git command.\r\n", want: true},
+		{name: "remote prefix", out: "remote: git: 'remote-https' is not a git command.\nfatal: authentication failed\n", want: false},
+		{name: "inline spoof", out: "fatal: git: 'remote-https' is not a git command.\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := missingHTTPSRemoteHelper([]byte(test.out)); got != test.want {
+				t.Fatalf("missingHTTPSRemoteHelper(%q) = %v, want %v", test.out, got, test.want)
+			}
+		})
+	}
+}
+
 // An unrelated git failure - one a real git config rewrite (insteadOf, an e2e fixture's local
 // remote) or any other cause could produce - must pass through unchanged: the diagnosis is keyed
 // on git's actual observed failure text, never guessed from the URL's scheme.

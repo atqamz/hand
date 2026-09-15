@@ -98,6 +98,30 @@ func TestProjectAddDoesNotRetryOtherCloneFailures(t *testing.T) {
 	}
 }
 
+func TestProjectAddDoesNotRetrySpoofedMissingHelperOutput(t *testing.T) {
+	remote := filepath.Join(t.TempDir(), "remote")
+	initGitRepo(t, remote)
+	input := "https://github.com/owner/repo.git"
+	ssh := "git@github.com:owner/repo.git"
+	redirectGitRemote(t, ssh, remote)
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	cloneLog := replaceManagedGit(t, home, input,
+		"remote: git: 'remote-https' is not a git command. See 'git --help'.",
+		"fatal: authentication failed",
+	)
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code == 0 || !strings.Contains(added.stderr, "authentication failed") {
+		t.Fatalf("project add = %+v, want original failure without fallback", added)
+	}
+	if got, err := os.ReadFile(cloneLog); err != nil || string(got) != input+"\n" {
+		t.Fatalf("clone attempts = %q, %v; want only original HTTPS", got, err)
+	}
+}
+
 func TestProjectAddDoesNotRetryUnrecognizedHTTPSAfterMissingHelper(t *testing.T) {
 	for _, input := range []string{
 		"https://example.com/owner/repo.git",
@@ -120,7 +144,7 @@ func TestProjectAddDoesNotRetryUnrecognizedHTTPSAfterMissingHelper(t *testing.T)
 	}
 }
 
-func replaceManagedGit(t *testing.T, home, original, failure string) string {
+func replaceManagedGit(t *testing.T, home, original string, failureLines ...string) string {
 	t.Helper()
 	lock, err := toolchain.LoadLock()
 	if err != nil {
@@ -133,7 +157,11 @@ func replaceManagedGit(t *testing.T, home, original, failure string) string {
 		t.Fatal(err)
 	}
 	cloneLog := filepath.Join(t.TempDir(), "clones")
-	body := fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"${seen_clone:-}\" = 1 ]; then source=$arg; break; fi\n  [ \"$arg\" = clone ] && seen_clone=1\ndone\ndest=\"\"\nfor arg in \"$@\"; do dest=$arg; done\n[ \"${source:-}\" ] && printf '%%s\\n' \"$source\" >> %q\nif [ \"${source:-}\" = %q ]; then\n  mkdir -p \"$dest\"\n  : > \"$dest/partial\"\n  echo %q >&2\n  exit 1\nfi\nexec %q \"$@\"\n", cloneLog, original, failure, git)
+	failure := ""
+	for _, line := range failureLines {
+		failure += fmt.Sprintf("  echo %q >&2\n", line)
+	}
+	body := fmt.Sprintf("#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"${seen_clone:-}\" = 1 ]; then source=$arg; break; fi\n  [ \"$arg\" = clone ] && seen_clone=1\ndone\ndest=\"\"\nfor arg in \"$@\"; do dest=$arg; done\n[ \"${source:-}\" ] && printf '%%s\\n' \"$source\" >> %q\nif [ \"${source:-}\" = %q ]; then\n  mkdir -p \"$dest\"\n  : > \"$dest/partial\"\n%s  exit 1\nfi\nexec %q \"$@\"\n", cloneLog, original, failure, git)
 	if err := os.WriteFile(gitPath, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -630,7 +630,7 @@ func validateProjectMode(mode string) error {
 
 // Git's own plumbing error for a missing remote-<scheme> helper: unambiguous, since git emits
 // this exact text only when the helper binary cannot be found at all (hand#440).
-var gitRemoteHelperMissing = regexp.MustCompile(`git: 'remote-([A-Za-z0-9+.-]+)' is not a git command\.`)
+var gitRemoteHelperMissing = regexp.MustCompile(`(?m)^git: 'remote-([A-Za-z0-9+.-]+)' is not a git command\.(?: See 'git --help'\.)?\r?$`)
 
 // Matched against the clone attempt's actual output rather than guessed from the URL, so a
 // URL git config rewrites (insteadOf, an e2e fixture's local remote) is judged by what git
