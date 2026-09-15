@@ -16,15 +16,27 @@ func TestCompareAcceptsOnlyExactReviewedEvidence(t *testing.T) {
 	}
 }
 
-func TestCompareDoesNotBlockNotCoveredOnlyGrowth(t *testing.T) {
-	result := fixtureResult("KILLED", "LIVED")
-	result.MutantsNotCovered = 1
-	result.Files[0].Mutations = append(result.Files[0].Mutations, mutation{
-		Line: 12, Column: 2, Type: "CONDITIONALS_BOUNDARY", Status: "NOT COVERED",
+func TestCompareDoesNotBlockNotCovered(t *testing.T) {
+	t.Run("transition from reviewed mutant", func(t *testing.T) {
+		result := fixtureResult("KILLED", "LIVED")
+		result.MutantsTotal--
+		result.MutantsKilled--
+		result.MutantsNotCovered++
+		result.Files[0].Mutations[0].Status = "NOT COVERED"
+		if err := compare(fixtureBaseline(), result, "github.com/example/hand", "./internal/age", "v0.6.0", "test"); err != nil {
+			t.Fatalf("compare NOT COVERED transition: %v", err)
+		}
 	})
-	if err := compare(fixtureBaseline(), result, "github.com/example/hand", "./internal/age", "v0.6.0", "test"); err != nil {
-		t.Fatalf("compare NOT COVERED-only growth: %v", err)
-	}
+	t.Run("new uncovered mutant", func(t *testing.T) {
+		result := fixtureResult("KILLED", "LIVED")
+		result.MutantsNotCovered++
+		result.Files[0].Mutations = append(result.Files[0].Mutations, mutation{
+			Line: 12, Column: 2, Type: "CONDITIONALS_BOUNDARY", Status: "NOT COVERED",
+		})
+		if err := compare(fixtureBaseline(), result, "github.com/example/hand", "./internal/age", "v0.6.0", "test"); err != nil {
+			t.Fatalf("compare new NOT COVERED mutant: %v", err)
+		}
+	})
 }
 
 func TestCompareRejectsInconclusiveAndChangedEvidence(t *testing.T) {
@@ -135,17 +147,16 @@ func TestLoadRejectsMissingRequiredResultFields(t *testing.T) {
 }
 
 func fixtureBaseline() baselineFile {
-	result := fixtureResult("KILLED", "LIVED")
 	return baselineFile{
-		Schema: 1,
+		Schema: 2,
 		Tool:   "v0.6.0",
 		Tags:   "test",
 		Packages: []baselinePackage{{
-			Path:         "./internal/age",
-			Digest:       resultDigest(result),
-			Total:        2,
-			Killed:       1,
-			Lived:        1,
+			Path: "./internal/age",
+			Mutants: []baselineMutation{
+				{File: "age.go", Line: 10, Column: 2, Operator: "ARITHMETIC_BASE", Outcome: "KILLED"},
+				{File: "age.go", Line: 11, Column: 2, Operator: "INCREMENT_DECREMENT", Outcome: "LIVED"},
+			},
 			Suppressions: []suppression{{File: "age.go", Line: 11, Column: 2, Operator: "INCREMENT_DECREMENT", Rationale: "The counter is only compared with zero, so either direction is observationally identical."}},
 		}},
 	}

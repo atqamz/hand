@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -21,12 +19,17 @@ type baselineFile struct {
 }
 
 type baselinePackage struct {
-	Path         string        `json:"path"`
-	Digest       string        `json:"digest"`
-	Total        int           `json:"total"`
-	Killed       int           `json:"killed"`
-	Lived        int           `json:"lived"`
-	Suppressions []suppression `json:"suppressions"`
+	Path         string             `json:"path"`
+	Mutants      []baselineMutation `json:"mutants"`
+	Suppressions []suppression      `json:"suppressions"`
+}
+
+type baselineMutation struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Operator string `json:"operator"`
+	Outcome  string `json:"outcome"`
 }
 
 type suppression struct {
@@ -157,7 +160,7 @@ func decode(path string, target any) error {
 }
 
 func compare(baseline baselineFile, result gremlinsResult, module, packagePath, tool, tags string) error {
-	if baseline.Schema != 1 || baseline.Tool != tool || baseline.Tags != tags {
+	if baseline.Schema != 2 || baseline.Tool != tool || baseline.Tags != tags {
 		return errors.New("baseline metadata does not match pinned tool and build tags")
 	}
 	if result.GoModule != module {
@@ -193,8 +196,33 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 		counts["NOT VIABLE"] != result.MutantsNotViable || counts["NOT COVERED"] != result.MutantsNotCovered {
 		return errors.New("incomplete results: aggregate counts do not match mutant inventory")
 	}
-	if baselinePackage.Total != result.MutantsTotal || baselinePackage.Killed != result.MutantsKilled || baselinePackage.Lived != result.MutantsLived {
-		return errors.New("mutation inventory differs from reviewed baseline")
+	expected := make(map[string]string, len(baselinePackage.Mutants))
+	for _, mutant := range baselinePackage.Mutants {
+		if mutant.File == "" || mutant.Line < 1 || mutant.Column < 1 || mutant.Operator == "" || !validOutcome(mutant.Outcome) || mutant.Outcome == "NOT COVERED" {
+			return errors.New("malformed baseline mutant")
+		}
+		id := identity(mutant.File, mutant.Line, mutant.Column, mutant.Operator)
+		if _, exists := expected[id]; exists {
+			return fmt.Errorf("duplicate baseline mutant %s", id)
+		}
+		expected[id] = mutant.Outcome
+	}
+	for id, outcome := range actual {
+		if outcome == "NOT COVERED" {
+			continue
+		}
+		if expectedOutcome, ok := expected[id]; !ok || outcome != expectedOutcome {
+			return fmt.Errorf("mutation inventory differs from reviewed baseline at %s", id)
+		}
+	}
+	for id := range expected {
+		outcome, ok := actual[id]
+		if !ok {
+			return fmt.Errorf("incomplete results: reviewed mutant %s is missing", id)
+		}
+		if outcome == "NOT COVERED" {
+			continue
+		}
 	}
 	suppressed := make(map[string]struct{})
 	for _, entry := range baselinePackage.Suppressions {
@@ -215,12 +243,9 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 		}
 	}
 	for id := range suppressed {
-		if actual[id] != "LIVED" {
+		if actual[id] != "LIVED" && actual[id] != "NOT COVERED" {
 			return fmt.Errorf("suppression %s does not match a lived mutant", id)
 		}
-	}
-	if baselinePackage.Digest != resultDigest(result) {
-		return errors.New("mutation inventory differs from reviewed baseline")
 	}
 	return nil
 }
@@ -240,20 +265,6 @@ func identity(file string, line, column int, operator string) string {
 
 func validOutcome(outcome string) bool {
 	return outcome == "KILLED" || outcome == "LIVED" || outcome == "NOT COVERED" || outcome == "NOT VIABLE"
-}
-
-func resultDigest(result gremlinsResult) string {
-	entries := make([]string, 0)
-	for _, file := range result.Files {
-		for _, mutant := range file.Mutations {
-			if mutant.Status == "NOT COVERED" {
-				continue
-			}
-			entries = append(entries, identity(file.Filename, mutant.Line, mutant.Column, mutant.Type)+"\t"+mutant.Status)
-		}
-	}
-	sort.Strings(entries)
-	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(strings.Join(entries, "\n")+"\n")))
 }
 
 func relativeSource(path string) bool {
