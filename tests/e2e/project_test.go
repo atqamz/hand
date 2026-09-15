@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -295,6 +296,40 @@ func TestProjectAddNormalizesRecognizedHTTPSWhenRuntimeLacksHelper(t *testing.T)
 				t.Fatalf("push through stored SSH origin did not update remote: %v", err)
 			}
 		})
+	}
+}
+
+func TestProjectAddPreservesHTTPSWhenGitBinHelperFollowsNonExecutableExecPathHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows helper executability is determined by the .exe suffix")
+	}
+	input := "https://github.com/owner/repo.git"
+	execPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(execPath, "git-remote-https"), []byte("not executable"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "git-bin-https-helper-ran")
+
+	dir := binDir(t)
+	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
+	home := newHome(t)
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git-remote-https")
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\n: > "+marker+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_EXEC_PATH", execPath)
+	t.Setenv("GIT_SSH_COMMAND", "false")
+
+	added := runHand(t, home, "project", "add", input, "--mode", "direct-pr")
+	if added.code == 0 || strings.Contains(added.stdout, "Normalized HTTPS locator") {
+		t.Fatalf("project add = %+v, want original HTTPS attempt without normalization", added)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("managed Git did not fall through to executable GitBin HTTPS helper: %v", err)
 	}
 }
 

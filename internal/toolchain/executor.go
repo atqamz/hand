@@ -171,8 +171,8 @@ func (r Runtime) SupportsGitTransport(scheme string) bool {
 	return true
 }
 
-// GitTransportAvailable asks this Runtime's Git for the exec path it will use before inspecting
-// the helper there. An inspection error is distinct from a known absent helper.
+// GitTransportAvailable asks this Runtime's Git for its exec path, then mirrors its helper search
+// through the managed PATH. An inspection error is distinct from a known absent helper.
 func (r Runtime) GitTransportAvailable(ctx context.Context, scheme string) (bool, error) {
 	spec, err := r.Process(r.GitPath, "--exec-path")
 	if err != nil {
@@ -186,7 +186,21 @@ func (r Runtime) GitTransportAvailable(ctx context.Context, scheme string) (bool
 	if !filepath.IsAbs(execPath) {
 		return false, fmt.Errorf("managed Git exec path %q is not absolute", execPath)
 	}
-	path := filepath.Join(execPath, executableName("git-remote-"+scheme))
+	paths := append([]string{execPath}, filepath.SplitList(environmentValue(spec.Env, "PATH"))...)
+	for _, dir := range paths {
+		available, err := gitRemoteHelperAvailable(dir, scheme)
+		if err != nil {
+			return false, err
+		}
+		if available {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func gitRemoteHelperAvailable(dir, scheme string) (bool, error) {
+	path := filepath.Join(dir, executableName("git-remote-"+scheme))
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -201,6 +215,16 @@ func (r Runtime) GitTransportAvailable(ctx context.Context, scheme string) (bool
 		return false, nil
 	}
 	return true, nil
+}
+
+func environmentValue(env []string, name string) string {
+	for _, item := range env {
+		key, value, hasValue := strings.Cut(item, "=")
+		if hasValue && strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 func requireExecutable(path string) error {
