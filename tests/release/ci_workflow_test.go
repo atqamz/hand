@@ -93,4 +93,7 @@ func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T)
 	if !strings.Contains(workflow, "github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0") {
 		t.Errorf("mutation workflow does not pin gremlins v0.6.0")
 	}
+	if strings.Contains(workflow, "name: mutation-${{ matrix.package }}") {
+		t.Error("artifact names cannot contain package-path slashes")
+	}
 }

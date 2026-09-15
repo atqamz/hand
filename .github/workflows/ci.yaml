@@ -24,14 +24,19 @@ jobs:
       matrix:
         include:
           - package: ./internal/shellquote
+            name: shellquote
             flags: ""
           - package: ./internal/age
+            name: age
             flags: ""
           - package: ./internal/axi
+            name: axi
             flags: ""
           - package: ./internal/completion
+            name: completion
             flags: --timeout-coefficient=100
           - package: ./internal/registry
+            name: registry
             flags: --workers=4 --test-cpu=1 --timeout-coefficient=20
     steps:
       - uses: actions/checkout@v7
@@ -57,7 +62,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-${{ matrix.package }}
+          name: mutation-${{ matrix.name }}
           path: mutation-results/results.json
           if-no-files-found: warn
           retention-days: 14
@@ -72,8 +77,10 @@ jobs:
       matrix:
         include:
           - package: ./internal/store
+            name: store
             flags: --workers=2 --test-cpu=1 --timeout-coefficient=5
           - package: ./internal/runtime
+            name: runtime
             flags: --workers=2 --test-cpu=1 --timeout-coefficient=9
     steps:
       - uses: actions/checkout@v7
@@ -99,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-expensive-${{ matrix.package }}
+          name: mutation-expensive-${{ matrix.name }}
           path: mutation-results/results.json
           if-no-files-found: warn
           retention-days: 14
