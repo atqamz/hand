@@ -95,6 +95,48 @@ func TestReconcileCanonicalV19HerdrWorkerWakeSubmittedBecomesUncertainWithoutRep
 	}
 }
 
+func TestReconcileCanonicalV19HerdrWorkerWakePreparedSettlementRejectsConcurrentSubmit(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-prepared-submit-race")
+	submitted := false
+	deps := canonicalV19HerdrWorkerWakeDeps{
+		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now: func() time.Time {
+			if !submitted {
+				submitted = true
+				if _, err := SubmitCanonicalV19WorkerWake(context.Background(), fixture.Home, request.OperationID,
+					"2026-09-09T06:16:00Z", "submitted-worker-wake-race"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return time.Date(2026, 9, 9, 6, 17, 0, 0, time.UTC)
+		},
+	}
+	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("prepared WorkerWake after concurrent submit = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed raced WorkerWake = %q, %v, want stable uncertain unsupported error", state, err)
+	}
+	if client.promptCalls != 0 {
+		t.Fatalf("raced WorkerWake provider calls = %d, want 0", client.promptCalls)
+	}
+	second := CanonicalV19WorkerWakePrepareInput{
+		OperationID:           "operation-herdr-worker-wake-after-submit-race",
+		OperationKey:          "operation-key-operation-herdr-worker-wake-after-submit-race",
+		ExecutorBindingID:     request.ExecutorBindingID,
+		PendingThroughOrdinal: request.PendingThroughOrdinal,
+		WakeReason:            request.WakeReason,
+		DoorbellDigest:        request.DoorbellDigest,
+		CreatedAt:             "2026-09-09T06:18:00Z",
+	}
+	if _, err := PrepareCanonicalV19WorkerWake(context.Background(), fixture.Home, second); !errors.Is(err, ErrCanonicalV19WorkerWakeConflict) {
+		t.Fatalf("WorkerWake claim after raced submit error = %v, want unresolved claim conflict", err)
+	}
+}
+
 func TestObserveCanonicalV19HerdrWorkerWakeTreatsPIDAbsenceAsUnknown(t *testing.T) {
 	fixture, request, executorKey, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-pid-absence")
 	client.targetAlive = false

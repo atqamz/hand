@@ -97,6 +97,46 @@ func TestReconcileCanonicalV19HerdrInterruptSubmittedBecomesUncertainWithoutRepl
 	}
 }
 
+func TestReconcileCanonicalV19HerdrInterruptPreparedSettlementRejectsConcurrentSubmit(t *testing.T) {
+	fixture, request, _, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-prepared-submit-race")
+	submitted := false
+	deps := canonicalV19HerdrInterruptDeps{
+		clientFor:    func(string) canonicalV19HerdrInterruptClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now: func() time.Time {
+			if !submitted {
+				submitted = true
+				if _, err := SubmitCanonicalV19Interrupt(context.Background(), fixture.Home, request.OperationID,
+					"2026-09-08T04:16:00Z", "submitted-interrupt-race"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return time.Date(2026, 9, 8, 4, 17, 0, 0, time.UTC)
+		},
+	}
+	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("prepared Interrupt after concurrent submit = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed raced Interrupt = %q, %v, want stable uncertain unsupported error", state, err)
+	}
+	if client.sendCalls != 0 {
+		t.Fatalf("raced Interrupt provider calls = %d, want 0", client.sendCalls)
+	}
+	second := CanonicalV19InterruptPrepareInput{
+		OperationID:       "operation-herdr-interrupt-after-submit-race",
+		OperationKey:      "operation-key-operation-herdr-interrupt-after-submit-race",
+		ExecutorBindingID: request.ExecutorBindingID,
+		ReasonCode:        request.ReasonCode,
+		CreatedAt:         "2026-09-08T04:18:00Z",
+	}
+	if _, err := PrepareCanonicalV19Interrupt(context.Background(), fixture.Home, second); !errors.Is(err, ErrCanonicalV19InterruptConflict) {
+		t.Fatalf("Interrupt claim after raced submit error = %v, want unresolved claim conflict", err)
+	}
+}
+
 func TestObserveCanonicalV19HerdrInterruptTreatsPIDAbsenceAndInventoryFailureAsUnknown(t *testing.T) {
 	tests := []struct {
 		name  string

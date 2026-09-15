@@ -116,6 +116,48 @@ func TestReconcileCanonicalV19HerdrLaunchSubmittedBecomesUncertainWithoutReplay(
 	}
 }
 
+func TestReconcileCanonicalV19HerdrLaunchPreparedSettlementRejectsConcurrentSubmit(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-prepared-submit-race", canonicalV19HerdrLiteralEnvironment())
+	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
+	submitted := false
+	deps := canonicalV19HerdrLaunchDeps{
+		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
+		now: func() time.Time {
+			if !submitted {
+				submitted = true
+				if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
+					"2026-09-08T04:16:00Z", "submitted-launch-race"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return time.Date(2026, 9, 8, 4, 17, 0, 0, time.UTC)
+		},
+	}
+	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("prepared Launch after concurrent submit = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed raced Launch = %q, %v, want stable uncertain unsupported error", state, err)
+	}
+	if client.runCalls != 0 {
+		t.Fatalf("raced Launch provider calls = %d, want 0", client.runCalls)
+	}
+	second := CanonicalV19LaunchPrepareInput{
+		OperationID:      "operation-herdr-launch-after-submit-race",
+		OperationKey:     "operation-key-operation-herdr-launch-after-submit-race",
+		AttemptID:        request.AttemptID,
+		SessionBindingID: request.SessionBindingID,
+		BindingID:        "executor-binding-after-submit-race",
+		Spec:             request.Spec,
+		CreatedAt:        "2026-09-08T04:18:00Z",
+	}
+	if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, second); !errors.Is(err, ErrCanonicalV19LaunchConflict) {
+		t.Fatalf("Launch claim after raced submit error = %v, want unresolved claim conflict", err)
+	}
+}
+
 func TestObserveCanonicalV19HerdrLaunchNeverCreatesIdentityFromPIDArgvAndCwd(t *testing.T) {
 	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-observation-only", canonicalV19HerdrLiteralEnvironment())
 	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)

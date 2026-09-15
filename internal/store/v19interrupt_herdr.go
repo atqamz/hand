@@ -119,10 +119,21 @@ func reconcileCanonicalV19HerdrInterrupt(
 	if current.Current.State == "uncertain" {
 		return current.Current.State, unsupportedErr
 	}
-	state := "uncertain"
 	if current.Current.State == "prepared" {
-		state = "no-effect"
+		if err := classifyCanonicalV19InterruptPreparedNoEffect(ctx, homeDir, CanonicalV19InterruptTransitionInput{
+			OperationID:    operationID,
+			State:          "no-effect",
+			ObservedAt:     canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt),
+			EvidenceDigest: canonicalV19HerdrUnsupportedEvidenceDigest("Interrupt", operationID, request.RequestDigest, "no-effect"),
+		}); err == nil {
+			return "no-effect", unsupportedErr
+		} else if errors.Is(err, ErrCanonicalV19InterruptTransition) {
+			return reconcileCanonicalV19HerdrInterrupt(ctx, homeDir, operationID, deps)
+		} else {
+			return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: persist unsupported no-effect transition: %w", err)
+		}
 	}
+	state := "uncertain"
 	if err := ClassifyCanonicalV19Interrupt(ctx, homeDir, CanonicalV19InterruptTransitionInput{
 		OperationID:    operationID,
 		State:          state,
@@ -132,6 +143,59 @@ func reconcileCanonicalV19HerdrInterrupt(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: persist unsupported %s transition: %w", state, err)
 	}
 	return state, unsupportedErr
+}
+
+func classifyCanonicalV19InterruptPreparedNoEffect(
+	ctx context.Context,
+	homeDir string,
+	input CanonicalV19InterruptTransitionInput,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := validateCanonicalV19InterruptTransitionInput(input); err != nil {
+		return err
+	}
+	if input.State != "no-effect" {
+		return fmt.Errorf("classify canonical v19 Interrupt: prepared settlement requires no-effect state")
+	}
+	sqlDB, err := openCanonicalV19Writer(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return canonicalV19InterruptWriteError("classify", "begin writer", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("classify canonical v19 Interrupt: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE external_operation
+		SET state='no-effect',state_changed_at=?,state_evidence_digest=?,finalized_at=?
+		WHERE id=? AND kind='interrupt' AND state='prepared'`, input.ObservedAt, input.EvidenceDigest,
+		input.ObservedAt, input.OperationID)
+	if err != nil {
+		return canonicalV19InterruptConstraintError("classify", "settle prepared exact operation", input.OperationID, err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return canonicalV19InterruptWriteError("classify", "count prepared state transition", err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("classify canonical v19 Interrupt: %w: operation %q was not prepared", ErrCanonicalV19InterruptTransition, input.OperationID)
+	}
+	if err := tx.Commit(); err != nil {
+		return canonicalV19InterruptWriteError("classify", "commit writer", err)
+	}
+	committed = true
+	return nil
 }
 
 func observeCanonicalV19HerdrInterrupt(
