@@ -132,6 +132,11 @@ func IngestCanonicalV19WorkerReport(
 	if err := markCanonicalV19WorkerReportCheckpointUncertain(homeDir, witness.AttemptID); err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
+	if err := injectCanonicalV19WorkerReportCheckpointFault(
+		ctx, canonicalV19WorkerReportCheckpointAfterUncertain,
+	); err != nil {
+		return CanonicalV19WorkerReport{}, err
+	}
 	if err := insertCanonicalV19WorkerReport(ctx, tx, report); err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
@@ -139,6 +144,11 @@ func IngestCanonicalV19WorkerReport(
 		return CanonicalV19WorkerReport{}, canonicalV19WorkerReportWriteError("commit writer", err)
 	}
 	committed = true
+	if err := injectCanonicalV19WorkerReportCheckpointFault(
+		ctx, canonicalV19WorkerReportCheckpointAfterCommit,
+	); err != nil {
+		return CanonicalV19WorkerReport{}, err
+	}
 	if err := writeCanonicalV19WorkerReportCheckpointTail(homeDir, report); err != nil {
 		return CanonicalV19WorkerReport{}, err
 	}
@@ -237,10 +247,13 @@ func ReplayCanonicalV19WorkerReports(
 			currentBindings[reports[i].ExecutorBindingID] = true
 		}
 	}
-	if len(existing) < len(reports) {
-		if err := markCanonicalV19WorkerReportCheckpointUncertain(homeDir, attemptID); err != nil {
-			return nil, err
-		}
+	if err := markCanonicalV19WorkerReportCheckpointUncertain(homeDir, attemptID); err != nil {
+		return nil, err
+	}
+	if err := injectCanonicalV19WorkerReportCheckpointFault(
+		ctx, canonicalV19WorkerReportCheckpointAfterUncertain,
+	); err != nil {
+		return nil, err
 	}
 	for i := len(existing); i < len(reports); i++ {
 		if err := insertCanonicalV19WorkerReport(ctx, tx, reports[i]); err != nil {
@@ -251,6 +264,11 @@ func ReplayCanonicalV19WorkerReports(
 		return nil, canonicalV19WorkerReportWriteError("commit replay writer", err)
 	}
 	committed = true
+	if err := injectCanonicalV19WorkerReportCheckpointFault(
+		ctx, canonicalV19WorkerReportCheckpointAfterCommit,
+	); err != nil {
+		return nil, err
+	}
 	if len(reports) == 0 {
 		if err := removeCanonicalV19WorkerReportCheckpoint(homeDir, attemptID); err != nil {
 			return nil, err

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -289,6 +290,96 @@ func TestReplayCanonicalV19WorkerReportsRebuildsMissingAndCorruptCheckpoint(t *t
 	witnesses = append(witnesses, next)
 	if _, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIngestCanonicalV19WorkerReportFaultBoundariesLeaveCheckpointSafe(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		stage       canonicalV19WorkerReportCheckpointFaultStage
+		wantReports int
+	}{
+		{name: "after durable uncertain marker", stage: canonicalV19WorkerReportCheckpointAfterUncertain, wantReports: 1},
+		{name: "after database commit", stage: canonicalV19WorkerReportCheckpointAfterCommit, wantReports: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+			witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "", []string{"working: first\n"})
+			reports, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next := canonicalV19WorkerReportWitness(t, attemptID, "", "done: second\n",
+				"2026-09-15T11:03:00Z", &reports[len(reports)-1])
+			injected := errors.New("injected checkpoint boundary failure")
+			ctx := context.WithValue(context.Background(), canonicalV19WorkerReportCheckpointFaultKey{},
+				func(stage canonicalV19WorkerReportCheckpointFaultStage) error {
+					if stage == test.stage {
+						return injected
+					}
+					return nil
+				})
+			if _, err := IngestCanonicalV19WorkerReport(ctx, fixture.Home, next); !errors.Is(err, injected) {
+				t.Fatalf("faulted append error = %v, want %v", err, injected)
+			}
+			if count := canonicalV19WorkerReportCount(t, fixture.Home, attemptID); count != test.wantReports {
+				t.Fatalf("WorkerReport rows after fault = %d, want %d", count, test.wantReports)
+			}
+			if _, _, err := readCanonicalV19WorkerReportCheckpoint(fixture.Home, attemptID); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) {
+				t.Fatalf("checkpoint after fault error = %v, want %v", err, ErrCanonicalV19WorkerReportWitnessUnproven)
+			}
+			if test.wantReports == 2 {
+				witnesses = append(witnesses, next)
+			}
+			if _, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestReplayCanonicalV19WorkerReportsMarksStaleCheckpointUncertainBeforeRepair(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "",
+		[]string{"working: first\n", "done: second\n"})
+	reports, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCanonicalV19WorkerReportCheckpointTail(fixture.Home, reports[0]); err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected replay repair failure")
+	ctx := context.WithValue(context.Background(), canonicalV19WorkerReportCheckpointFaultKey{},
+		func(stage canonicalV19WorkerReportCheckpointFaultStage) error {
+			if stage == canonicalV19WorkerReportCheckpointAfterUncertain {
+				return injected
+			}
+			return nil
+		})
+	if _, err := ReplayCanonicalV19WorkerReports(ctx, fixture.Home, attemptID, witnesses); !errors.Is(err, injected) {
+		t.Fatalf("faulted checkpoint repair error = %v, want %v", err, injected)
+	}
+	if _, _, err := readCanonicalV19WorkerReportCheckpoint(fixture.Home, attemptID); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) {
+		t.Fatalf("checkpoint after repair fault error = %v, want %v", err, ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+}
+
+func TestIngestCanonicalV19WorkerReportRejectsOversizedCheckpointBoundedly(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	witnesses := canonicalV19WorkerReportWitnessChain(t, attemptID, "", []string{"working: first\n"})
+	reports, err := ReplayCanonicalV19WorkerReports(context.Background(), fixture.Home, attemptID, witnesses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(canonicalV19WorkerReportCheckpointPath(fixture.Home, attemptID),
+		make([]byte, canonicalV19WorkerReportCheckpointMaxBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	next := canonicalV19WorkerReportWitness(t, attemptID, "", "done: second\n",
+		"2026-09-15T11:04:00Z", &reports[len(reports)-1])
+	if _, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home, next); !errors.Is(err, ErrCanonicalV19WorkerReportWitnessUnproven) || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized checkpoint error = %v, want bounded unproven error", err)
 	}
 }
 
