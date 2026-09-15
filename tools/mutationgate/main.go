@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,6 +173,7 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 	}
 	actual := make(map[string]string)
 	counts := map[string]int{}
+	statistics := map[string]int{}
 	for _, file := range result.Files {
 		if !relativeSource(file.Filename) {
 			return fmt.Errorf("result file %q is not a package-relative source path", file.Filename)
@@ -183,18 +185,26 @@ func compare(baseline baselineFile, result gremlinsResult, module, packagePath, 
 			if !validOutcome(mutant.Status) || mutant.Line < 1 || mutant.Column < 1 || mutant.Type == "" {
 				return fmt.Errorf("malformed mutant at %s", file.Filename)
 			}
+			statistic, ok := mutatorStatistic(mutant.Type)
+			if !ok {
+				return fmt.Errorf("malformed mutant at %s", file.Filename)
+			}
 			id := identity(file.Filename, mutant.Line, mutant.Column, mutant.Type)
 			if _, exists := actual[id]; exists {
 				return fmt.Errorf("duplicate mutant %s", id)
 			}
 			actual[id] = mutant.Status
 			counts[mutant.Status]++
+			statistics[statistic]++
 		}
 	}
 	if counts["KILLED"]+counts["LIVED"]+counts["NOT VIABLE"] != result.MutantsTotal ||
 		counts["KILLED"] != result.MutantsKilled || counts["LIVED"] != result.MutantsLived ||
 		counts["NOT VIABLE"] != result.MutantsNotViable || counts["NOT COVERED"] != result.MutantsNotCovered {
 		return errors.New("incomplete results: aggregate counts do not match mutant inventory")
+	}
+	if err := validateMetadata(result, statistics); err != nil {
+		return err
 	}
 	expected := make(map[string]string, len(baselinePackage.Mutants))
 	for _, mutant := range baselinePackage.Mutants {
@@ -265,6 +275,47 @@ func identity(file string, line, column int, operator string) string {
 
 func validOutcome(outcome string) bool {
 	return outcome == "KILLED" || outcome == "LIVED" || outcome == "NOT COVERED" || outcome == "NOT VIABLE"
+}
+
+func validateMetadata(result gremlinsResult, statistics map[string]int) error {
+	if result.GoModule == "" || !finitePercent(result.TestEfficacy) || !finitePercent(result.MutationsCoverage) ||
+		math.IsNaN(result.ElapsedTime) || math.IsInf(result.ElapsedTime, 0) || result.ElapsedTime <= 0 {
+		return errors.New("invalid result metadata")
+	}
+	efficacy := 0.0
+	if result.MutantsKilled > 0 {
+		efficacy = float64(result.MutantsKilled) / float64(result.MutantsKilled+result.MutantsLived) * 100
+	}
+	coverage := 0.0
+	if result.MutantsKilled+result.MutantsLived > 0 {
+		coverage = float64(result.MutantsKilled+result.MutantsLived) / float64(result.MutantsKilled+result.MutantsLived+result.MutantsNotCovered) * 100
+	}
+	if !sameFloat(result.TestEfficacy, efficacy) || !sameFloat(result.MutationsCoverage, coverage) || len(result.Statistics) != len(statistics) {
+		return errors.New("invalid result metadata")
+	}
+	for name, count := range statistics {
+		if result.Statistics[name] != count {
+			return errors.New("invalid result metadata")
+		}
+	}
+	return nil
+}
+
+func finitePercent(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0 && value <= 100
+}
+
+func sameFloat(got, want float64) bool {
+	return math.Abs(got-want) <= 1e-9
+}
+
+func mutatorStatistic(mutator string) (string, bool) {
+	switch mutator {
+	case "ARITHMETIC_BASE", "CONDITIONALS_NEGATION", "CONDITIONALS_BOUNDARY", "INCREMENT_DECREMENT", "INVERT_ASSIGNMENTS", "INVERT_BITWISE", "INVERT_BITWISE_ASSIGNMENTS", "INVERT_LOGICAL", "INVERT_LOOP_CTRL", "INVERT_NEGATIVES", "REMOVE_SELF_ASSIGNMENTS":
+		return strings.ToLower(mutator), true
+	default:
+		return "", false
+	}
 }
 
 func relativeSource(path string) bool {
