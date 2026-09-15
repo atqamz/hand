@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,6 +98,42 @@ func TestLoadRejectsMalformedEvidence(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsMissingRequiredResultFields(t *testing.T) {
+	data, err := json.Marshal(fixtureResult("KILLED", "LIVED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{
+		"go_module", "files", "test_efficacy", "mutations_coverage", "mutants_total",
+		"mutants_killed", "mutants_lived", "mutants_not_viable", "mutants_not_covered",
+		"elapsed_time", "mutator_statistics",
+	} {
+		t.Run(field, func(t *testing.T) {
+			missing := make(map[string]json.RawMessage, len(fields)-1)
+			for key, value := range fields {
+				if key != field {
+					missing[key] = value
+				}
+			}
+			path := filepath.Join(t.TempDir(), "results.json")
+			data, err := json.Marshal(missing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadResult(path); err == nil || !strings.Contains(err.Error(), "missing required result field") {
+				t.Fatalf("loadResult error = %v, want missing required result field", err)
+			}
+		})
+	}
+}
+
 func fixtureBaseline() baselineFile {
 	result := fixtureResult("KILLED", "LIVED")
 	return baselineFile{
@@ -120,6 +157,7 @@ func fixtureResult(first, second string) gremlinsResult {
 		MutantsTotal:  2,
 		MutantsKilled: boolToInt(first == "KILLED") + boolToInt(second == "KILLED"),
 		MutantsLived:  boolToInt(first == "LIVED") + boolToInt(second == "LIVED"),
+		Statistics:    map[string]int{},
 		Files: []resultFile{{
 			Filename: "age.go",
 			Mutations: []mutation{

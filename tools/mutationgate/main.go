@@ -51,6 +51,20 @@ type gremlinsResult struct {
 	Statistics        map[string]int `json:"mutator_statistics"`
 }
 
+type requiredGremlinsResult struct {
+	GoModule          *string         `json:"go_module"`
+	Files             *[]resultFile   `json:"files"`
+	TestEfficacy      *float64        `json:"test_efficacy"`
+	MutationsCoverage *float64        `json:"mutations_coverage"`
+	MutantsTotal      *int            `json:"mutants_total"`
+	MutantsKilled     *int            `json:"mutants_killed"`
+	MutantsLived      *int            `json:"mutants_lived"`
+	MutantsNotViable  *int            `json:"mutants_not_viable"`
+	MutantsNotCovered *int            `json:"mutants_not_covered"`
+	ElapsedTime       *float64        `json:"elapsed_time"`
+	Statistics        *map[string]int `json:"mutator_statistics"`
+}
+
 type resultFile struct {
 	Filename  string     `json:"file_name"`
 	Mutations []mutation `json:"mutations"`
@@ -99,11 +113,27 @@ func loadBaseline(path string) (baselineFile, error) {
 }
 
 func loadResult(path string) (gremlinsResult, error) {
-	var result gremlinsResult
+	var result requiredGremlinsResult
 	if err := decode(path, &result); err != nil {
 		return gremlinsResult{}, fmt.Errorf("decode results: %w", err)
 	}
-	return result, nil
+	return result.value()
+}
+
+func (result requiredGremlinsResult) value() (gremlinsResult, error) {
+	if result.GoModule == nil || result.Files == nil || result.TestEfficacy == nil ||
+		result.MutationsCoverage == nil || result.MutantsTotal == nil || result.MutantsKilled == nil ||
+		result.MutantsLived == nil || result.MutantsNotViable == nil || result.MutantsNotCovered == nil ||
+		result.ElapsedTime == nil || result.Statistics == nil {
+		return gremlinsResult{}, errors.New("missing required result field")
+	}
+	return gremlinsResult{
+		GoModule: *result.GoModule, Files: *result.Files, TestEfficacy: *result.TestEfficacy,
+		MutationsCoverage: *result.MutationsCoverage, MutantsTotal: *result.MutantsTotal,
+		MutantsKilled: *result.MutantsKilled, MutantsLived: *result.MutantsLived,
+		MutantsNotViable: *result.MutantsNotViable, MutantsNotCovered: *result.MutantsNotCovered,
+		ElapsedTime: *result.ElapsedTime, Statistics: *result.Statistics,
+	}, nil
 }
 
 func decode(path string, target any) error {
