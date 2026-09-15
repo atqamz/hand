@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -401,7 +402,9 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			locator := source.input
 			normalizedHTTPS := false
-			if !source.remote {
+			if source.remote {
+				locator, normalizedHTTPS = normalizeProjectHTTPSForClone(locator)
+			} else {
 				locator = source.locator
 			}
 
@@ -435,19 +438,7 @@ func newProjectAddCmd() *cobra.Command {
 			if source.remote {
 				out, err := gitCloneOutput(locator, clonePath)
 				if err != nil {
-					normalized, ok := normalizeProjectHTTPSLocator(locator)
-					if !ok || !missingHTTPSRemoteHelper(out) {
-						cloneErr = diagnoseCloneFailure(locator, out)
-					} else if err := os.RemoveAll(clonePath); err != nil {
-						cloneErr = errors.Join(diagnoseCloneFailure(locator, out), fmt.Errorf("remove incomplete clone: %w", err))
-					} else if err := reserveCloneDestination(clonePath); err != nil {
-						cloneErr = err
-					} else if out, err := gitCloneOutput(normalized, clonePath); err != nil {
-						cloneErr = diagnoseCloneFailure(normalized, out)
-					} else {
-						locator = normalized
-						normalizedHTTPS = true
-					}
+					cloneErr = diagnoseCloneFailure(locator, out)
 				}
 			} else {
 				cloneErr = gitCloneLocal(source.root, clonePath)
@@ -642,9 +633,22 @@ func diagnoseCloneFailure(url string, out []byte) error {
 	return fmt.Errorf("git clone failed: %s", string(out))
 }
 
-func missingHTTPSRemoteHelper(out []byte) bool {
-	m := gitRemoteHelperMissing.FindSubmatch(out)
-	return m != nil && string(m[1]) == "https"
+// git ls-remote --get-url applies url.<base>.insteadOf without contacting the remote. Only an
+// unchanged HTTPS locator plus an observed absent helper permits SSH normalization.
+func normalizeProjectHTTPSForClone(locator string) (string, bool) {
+	normalized, recognized := normalizeProjectHTTPSLocator(locator)
+	if !recognized {
+		return locator, false
+	}
+	runtime, err := toolchain.Resolve()
+	if err != nil || runtime.SupportsGitTransport("https") {
+		return locator, false
+	}
+	out, err := runManagedCore(context.Background(), "git", "", "ls-remote", "--get-url", locator)
+	if err != nil || strings.TrimSpace(string(out)) != locator {
+		return locator, false
+	}
+	return normalized, true
 }
 
 func gitCloneOutput(url, dest string) ([]byte, error) {

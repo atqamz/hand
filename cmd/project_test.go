@@ -884,7 +884,7 @@ func TestDiagnoseCloneFailureReadsTheSchemeFromGitsOwnText(t *testing.T) {
 	}
 }
 
-func TestMissingHTTPSRemoteHelperRequiresStandaloneGitDiagnostic(t *testing.T) {
+func TestGitRemoteHelperMissingRequiresStandaloneGitDiagnostic(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		out  string
@@ -896,8 +896,8 @@ func TestMissingHTTPSRemoteHelperRequiresStandaloneGitDiagnostic(t *testing.T) {
 		{name: "inline spoof", out: "fatal: git: 'remote-https' is not a git command.\n", want: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := missingHTTPSRemoteHelper([]byte(test.out)); got != test.want {
-				t.Fatalf("missingHTTPSRemoteHelper(%q) = %v, want %v", test.out, got, test.want)
+			if got := gitRemoteHelperMissing.MatchString(test.out); got != test.want {
+				t.Fatalf("gitRemoteHelperMissing.MatchString(%q) = %v, want %v", test.out, got, test.want)
 			}
 		})
 	}
