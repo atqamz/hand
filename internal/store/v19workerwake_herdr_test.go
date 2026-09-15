@@ -19,8 +19,12 @@ func TestReconcileCanonicalV19HerdrWorkerWakeFailsClosedForLegacyBindingBeforePr
 	}
 
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("unqualified Herdr WorkerWake = %q, %v, want prepared unsupported error", state, err)
+	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr WorkerWake = %q, %v, want no-effect unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "no-effect" || err != nil {
+		t.Fatalf("replayed no-effect Herdr WorkerWake = %q, %v, want stable terminal state", state, err)
 	}
 	if client.promptCalls != 0 {
 		t.Fatalf("agent prompt calls = %d, want 0", client.promptCalls)
@@ -31,12 +35,63 @@ func TestReconcileCanonicalV19HerdrWorkerWakeFailsClosedForLegacyBindingBeforePr
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
+	var operationState, finalizedAt string
+	if err := db.sql.QueryRow(`SELECT state,finalized_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState, &finalizedAt); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "no-effect" {
+		t.Fatalf("persisted WorkerWake state = %q, want no-effect", operationState)
+	}
+	if finalizedAt == "" {
+		t.Fatal("no-effect WorkerWake lacks terminal timestamp")
+	}
+	second := CanonicalV19WorkerWakePrepareInput{
+		OperationID:           "operation-herdr-worker-wake-after-no-effect",
+		OperationKey:          "operation-key-operation-herdr-worker-wake-after-no-effect",
+		ExecutorBindingID:     request.ExecutorBindingID,
+		PendingThroughOrdinal: request.PendingThroughOrdinal,
+		WakeReason:            request.WakeReason,
+		DoorbellDigest:        request.DoorbellDigest,
+		CreatedAt:             "2026-09-09T06:15:00Z",
+	}
+	if _, err := PrepareCanonicalV19WorkerWake(context.Background(), fixture.Home, second); err != nil {
+		t.Fatalf("WorkerWake after terminal no-effect remained blocked: %v", err)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrWorkerWakeSubmittedBecomesUncertainWithoutReplay(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-submitted-unsupported")
+	if _, err := SubmitCanonicalV19WorkerWake(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-09T06:12:00Z", "submitted-worker-wake-unsupported"); err != nil {
+		t.Fatal(err)
+	}
+	deps := canonicalV19HerdrWorkerWakeDeps{
+		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now:          func() time.Time { return time.Date(2026, 9, 9, 6, 13, 0, 0, time.UTC) },
+	}
+	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("submitted Herdr WorkerWake = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed Herdr WorkerWake = %q, %v, want terminal uncertain unsupported error", state, err)
+	}
+	if client.promptCalls != 0 {
+		t.Fatalf("provider WorkerWake calls = %d, want 0", client.promptCalls)
+	}
 	var operationState string
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
 	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
 		t.Fatal(err)
 	}
-	if operationState != "prepared" {
-		t.Fatalf("persisted WorkerWake state = %q, want prepared", operationState)
+	if operationState != "uncertain" {
+		t.Fatalf("persisted WorkerWake state = %q, want uncertain", operationState)
 	}
 }
 

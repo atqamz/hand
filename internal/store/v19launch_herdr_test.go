@@ -36,8 +36,12 @@ func TestReconcileCanonicalV19HerdrLaunchFailsClosedBeforeProviderMutation(t *te
 	}
 
 	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("unqualified Herdr Launch = %q, %v, want prepared unsupported error", state, err)
+	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr Launch = %q, %v, want no-effect unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "no-effect" || err != nil {
+		t.Fatalf("replayed no-effect Herdr Launch = %q, %v, want stable terminal state", state, err)
 	}
 	if clientForCalls != 0 || client.runCalls != 0 {
 		t.Fatalf("provider calls = client %d, run %d, want 0/0", clientForCalls, client.runCalls)
@@ -48,16 +52,67 @@ func TestReconcileCanonicalV19HerdrLaunchFailsClosedBeforeProviderMutation(t *te
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	var operationState string
-	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+	var operationState, finalizedAt string
+	if err := db.sql.QueryRow(`SELECT state,finalized_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState, &finalizedAt); err != nil {
 		t.Fatal(err)
 	}
 	var bindings int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM executor_binding WHERE launch_operation_id=?`, request.OperationID).Scan(&bindings); err != nil {
 		t.Fatal(err)
 	}
-	if operationState != "prepared" || bindings != 0 {
-		t.Fatalf("persisted Launch state/bindings = %q/%d, want prepared/0", operationState, bindings)
+	if operationState != "no-effect" || bindings != 0 {
+		t.Fatalf("persisted Launch state/bindings = %q/%d, want no-effect/0", operationState, bindings)
+	}
+	if finalizedAt == "" {
+		t.Fatal("no-effect Launch lacks terminal timestamp")
+	}
+	second := CanonicalV19LaunchPrepareInput{
+		OperationID:      "operation-herdr-launch-after-no-effect",
+		OperationKey:     "operation-key-operation-herdr-launch-after-no-effect",
+		AttemptID:        request.AttemptID,
+		SessionBindingID: request.SessionBindingID,
+		BindingID:        "executor-binding-after-no-effect",
+		Spec:             request.Spec,
+		CreatedAt:        "2026-09-08T04:15:00Z",
+	}
+	if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, second); err != nil {
+		t.Fatalf("Launch after terminal no-effect remained blocked: %v", err)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrLaunchSubmittedBecomesUncertainWithoutReplay(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-submitted-unsupported", canonicalV19HerdrLiteralEnvironment())
+	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
+	if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-08T04:10:00Z", "submitted-launch-unsupported"); err != nil {
+		t.Fatal(err)
+	}
+	deps := canonicalV19HerdrLaunchDeps{
+		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
+		now:       func() time.Time { return time.Date(2026, 9, 8, 4, 11, 0, 0, time.UTC) },
+	}
+	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("submitted Herdr Launch = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed Herdr Launch = %q, %v, want terminal uncertain unsupported error", state, err)
+	}
+	if client.runCalls != 0 {
+		t.Fatalf("provider Launch calls = %d, want 0", client.runCalls)
+	}
+	var operationState string
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "uncertain" {
+		t.Fatalf("persisted Launch state = %q, want uncertain", operationState)
 	}
 }
 

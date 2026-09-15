@@ -115,7 +115,23 @@ func reconcileCanonicalV19HerdrWorkerWake(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: %w: adapter %q is not %q",
 			ErrCanonicalV19WorkerWakeNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
 	}
-	return current.Current.State, canonicalV19HerdrCapabilityUnsupported(
+	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"WorkerWake", "exact live execution identity",
 	)
+	if current.Current.State == "uncertain" {
+		return current.Current.State, unsupportedErr
+	}
+	state := "uncertain"
+	if current.Current.State == "prepared" {
+		state = "no-effect"
+	}
+	if err := ClassifyCanonicalV19WorkerWake(ctx, homeDir, CanonicalV19WorkerWakeTransitionInput{
+		OperationID:    operationID,
+		State:          state,
+		ObservedAt:     canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt),
+		EvidenceDigest: canonicalV19HerdrUnsupportedEvidenceDigest("WorkerWake", operationID, request.RequestDigest, state),
+	}); err != nil {
+		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: persist unsupported %s transition: %w", state, err)
+	}
+	return state, unsupportedErr
 }

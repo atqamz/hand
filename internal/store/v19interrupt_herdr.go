@@ -113,9 +113,25 @@ func reconcileCanonicalV19HerdrInterrupt(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: adapter %q is not %q",
 			ErrCanonicalV19InterruptNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
 	}
-	return current.Current.State, canonicalV19HerdrCapabilityUnsupported(
+	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Interrupt", "exact execution identity and positive cessation evidence",
 	)
+	if current.Current.State == "uncertain" {
+		return current.Current.State, unsupportedErr
+	}
+	state := "uncertain"
+	if current.Current.State == "prepared" {
+		state = "no-effect"
+	}
+	if err := ClassifyCanonicalV19Interrupt(ctx, homeDir, CanonicalV19InterruptTransitionInput{
+		OperationID:    operationID,
+		State:          state,
+		ObservedAt:     canonicalV19HerdrSessionTimestampAfter(deps.now(), current.Current.StateChangedAt),
+		EvidenceDigest: canonicalV19HerdrUnsupportedEvidenceDigest("Interrupt", operationID, request.RequestDigest, state),
+	}); err != nil {
+		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: persist unsupported %s transition: %w", state, err)
+	}
+	return state, unsupportedErr
 }
 
 func observeCanonicalV19HerdrInterrupt(

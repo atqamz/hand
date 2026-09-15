@@ -19,8 +19,12 @@ func TestReconcileCanonicalV19HerdrInterruptFailsClosedWithoutExactExecutionProo
 	}
 
 	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("unqualified Herdr Interrupt = %q, %v, want prepared unsupported error", state, err)
+	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr Interrupt = %q, %v, want no-effect unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "no-effect" || err != nil {
+		t.Fatalf("replayed no-effect Herdr Interrupt = %q, %v, want stable terminal state", state, err)
 	}
 	if client.sendCalls != 0 {
 		t.Fatalf("pane send-keys calls = %d, want 0", client.sendCalls)
@@ -31,16 +35,65 @@ func TestReconcileCanonicalV19HerdrInterruptFailsClosedWithoutExactExecutionProo
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	var operationState string
-	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+	var operationState, finalizedAt string
+	if err := db.sql.QueryRow(`SELECT state,finalized_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState, &finalizedAt); err != nil {
 		t.Fatal(err)
 	}
 	var terminations int
 	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM executor_binding_termination WHERE interrupt_operation_id=?`, request.OperationID).Scan(&terminations); err != nil {
 		t.Fatal(err)
 	}
-	if operationState != "prepared" || terminations != 0 {
-		t.Fatalf("persisted Interrupt state/terminations = %q/%d, want prepared/0", operationState, terminations)
+	if operationState != "no-effect" || terminations != 0 {
+		t.Fatalf("persisted Interrupt state/terminations = %q/%d, want no-effect/0", operationState, terminations)
+	}
+	if finalizedAt == "" {
+		t.Fatal("no-effect Interrupt lacks terminal timestamp")
+	}
+	second := CanonicalV19InterruptPrepareInput{
+		OperationID:       "operation-herdr-interrupt-after-no-effect",
+		OperationKey:      "operation-key-operation-herdr-interrupt-after-no-effect",
+		ExecutorBindingID: request.ExecutorBindingID,
+		ReasonCode:        request.ReasonCode,
+		CreatedAt:         "2026-09-08T04:15:00Z",
+	}
+	if _, err := PrepareCanonicalV19Interrupt(context.Background(), fixture.Home, second); err != nil {
+		t.Fatalf("Interrupt after terminal no-effect remained blocked: %v", err)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrInterruptSubmittedBecomesUncertainWithoutReplay(t *testing.T) {
+	fixture, request, _, client := canonicalV19HerdrInterruptFixture(t, "operation-herdr-interrupt-submitted-unsupported")
+	if _, err := SubmitCanonicalV19Interrupt(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-08T04:12:00Z", "submitted-interrupt-unsupported"); err != nil {
+		t.Fatal(err)
+	}
+	deps := canonicalV19HerdrInterruptDeps{
+		clientFor:    func(string) canonicalV19HerdrInterruptClient { return client },
+		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		now:          func() time.Time { return time.Date(2026, 9, 8, 4, 13, 0, 0, time.UTC) },
+	}
+	state, err := reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("submitted Herdr Interrupt = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrInterrupt(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed Herdr Interrupt = %q, %v, want terminal uncertain unsupported error", state, err)
+	}
+	if client.sendCalls != 0 {
+		t.Fatalf("provider Interrupt calls = %d, want 0", client.sendCalls)
+	}
+	var operationState string
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "uncertain" {
+		t.Fatalf("persisted Interrupt state = %q, want uncertain", operationState)
 	}
 }
 
