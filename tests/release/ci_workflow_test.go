@@ -102,3 +102,45 @@ func TestMutationWorkflowGatesCheapPackagesAndReportsExpensiveOnes(t *testing.T)
 		t.Error("artifact names cannot contain package-path slashes")
 	}
 }
+
+func TestMutationExpensiveDispatchRequiresExplicitOptIn(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		On struct {
+			WorkflowDispatch struct {
+				Inputs map[string]struct {
+					Default  *bool  `yaml:"default"`
+					Required bool   `yaml:"required"`
+					Type     string `yaml:"type"`
+				} `yaml:"inputs"`
+			} `yaml:"workflow_dispatch"`
+		} `yaml:"on"`
+		Jobs map[string]workflowJobDef `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatalf("parse ci.yaml: %v", err)
+	}
+	input, ok := document.On.WorkflowDispatch.Inputs["run_expensive_mutation"]
+	if !ok {
+		t.Fatal("ci workflow dispatch has no run_expensive_mutation input")
+	}
+	if input.Required {
+		t.Fatal("run_expensive_mutation must remain optional")
+	}
+	if input.Default == nil || *input.Default {
+		t.Fatal("run_expensive_mutation default must explicitly remain false")
+	}
+	if input.Type != "boolean" {
+		t.Fatalf("run_expensive_mutation type = %q, want boolean", input.Type)
+	}
+	expensive, ok := document.Jobs["mutation-expensive"]
+	if !ok {
+		t.Fatal("ci workflow has no expensive mutation job")
+	}
+	if got, want := expensive.If, "github.event_name == 'schedule' || inputs.run_expensive_mutation"; got != want {
+		t.Fatalf("expensive mutation job if = %q, want %q", got, want)
+	}
+}

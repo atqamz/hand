@@ -11,6 +11,12 @@ on:
   # branch after it pushes a corrected vendorHash: a GITHUB_TOKEN push does not start a
   # new run on its own, so that workflow dispatches one explicitly.
   workflow_dispatch:
+    inputs:
+      run_expensive_mutation:
+        description: Run non-blocking store and runtime mutation evidence.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -75,7 +81,7 @@ jobs:
 
   mutation-expensive:
     name: Mutation expensive (${{ matrix.package }})
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || inputs.run_expensive_mutation
     continue-on-error: true
     runs-on: ubuntu-latest
     strategy:
