@@ -2,11 +2,18 @@ package supervision
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/atqamz/hand/internal/atomicfile"
 )
@@ -41,9 +48,9 @@ func claudeStopHandler(exe string) map[string]any {
 // Classifies an existing Stop handler: exact matches the canonical handler,
 // owned is a superseded Hand version (including earlier shell-form entries),
 // and neither means foreign content.
-func claudeOwned(handler map[string]any, exe string) (exact bool, owned bool) {
+func claudeOwned(handler map[string]any, exe string) (exact bool, owned bool, unknown bool) {
 	if handler["type"] != "command" {
-		return false, false
+		return false, false, false
 	}
 	rawArgs, hasArgs := handler["args"].([]any)
 	command, _ := handler["command"].(string)
@@ -52,30 +59,109 @@ func claudeOwned(handler map[string]any, exe string) (exact bool, owned bool) {
 		for _, arg := range rawArgs {
 			s, ok := arg.(string)
 			if !ok {
-				return false, false
+				return false, false, false
 			}
 			args = append(args, s)
 		}
 		if !sameStrings(args, ClaudeStopArgs) {
-			return false, false
+			return false, false, false
 		}
-		if command != exe {
-			return false, false
+		if command != exe && !sameExecutableObject(command, exe) && !sameManagedExecutableLineage(command, exe) {
+			return false, false, true
 		}
-		return sameHandler(handler, claudeStopHandler(exe)), true
+		return sameHandler(handler, claudeStopHandler(exe)), true, false
 	}
 	// Legacy shell form from earlier integration generations: ownership means
 	// this binary followed by our subcommand tokens in the command string.
 	first, rest := splitFirstToken(command)
 	unquoted := unquoteToken(first)
-	base := filepath.Base(unquoted)
-	if first == "" || rest == "" || (unquoted != exe && base != "hand" && base != "hand.exe") {
-		return false, false
+	if first == "" || rest != "supervision claude-stop" {
+		return false, false, false
 	}
-	if strings.HasPrefix(rest, "supervision claude-stop") {
-		return false, true
+	if unquoted == exe || sameExecutableObject(unquoted, exe) {
+		return false, true, false
 	}
-	return false, false
+	if sameManagedExecutableLineage(unquoted, exe) {
+		return false, true, false
+	}
+	return false, false, true
+}
+
+func sameExecutableObject(first, second string) bool {
+	firstInfo, firstErr := os.Stat(first)
+	secondInfo, secondErr := os.Stat(second)
+	if firstErr != nil || secondErr != nil || !firstInfo.Mode().IsRegular() || !secondInfo.Mode().IsRegular() {
+		return false
+	}
+	if os.SameFile(firstInfo, secondInfo) {
+		return true
+	}
+	firstDigest, firstErr := executableDigest(first)
+	secondDigest, secondErr := executableDigest(second)
+	return firstErr == nil && secondErr == nil && firstDigest == secondDigest
+}
+
+func executableDigest(path string) ([sha256.Size]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest, nil
+}
+
+func sameManagedExecutableLineage(first, second string) bool {
+	firstRoot := filepath.Dir(filepath.Dir(first))
+	secondRoot := filepath.Dir(filepath.Dir(second))
+	if filepath.Base(firstRoot) != "hand-generations" || !samePath(firstRoot, secondRoot) {
+		return false
+	}
+	return verifiedManagedExecutable(firstRoot, first) && verifiedManagedExecutable(secondRoot, second)
+}
+
+func verifiedManagedExecutable(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return false
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) != 2 || len(parts[0]) != sha256.Size*2 || (parts[1] != "hand" && parts[1] != "hand.exe") {
+		return false
+	}
+	if _, err := hex.DecodeString(parts[0]); err != nil {
+		return false
+	}
+	for _, candidate := range []string{root, filepath.Dir(path), path} {
+		info, err := os.Lstat(candidate)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	digest, err := executableDigest(path)
+	return err == nil && strings.EqualFold(fmt.Sprintf("%x", digest), parts[0])
+}
+
+func samePath(first, second string) bool {
+	if filepath.Clean(first) == filepath.Clean(second) {
+		return true
+	}
+	return runtime.GOOS == "windows" && strings.EqualFold(filepath.Clean(first), filepath.Clean(second))
+}
+
+// ExecutableGeneration identifies the immutable bytes behind a managed Hand
+// executable, independent of the path or alias used to invoke it.
+func ExecutableGeneration(path string) (string, error) {
+	digest, err := executableDigest(path)
+	if err != nil {
+		return "", fmt.Errorf("identify managed Hand executable: %w", err)
+	}
+	return fmt.Sprintf("sha256:%x", digest), nil
 }
 
 func sameStrings(a, b []string) bool {
@@ -101,15 +187,23 @@ func splitFirstToken(command string) (first, rest string) {
 	if trimmed == "" {
 		return "", ""
 	}
-	if trimmed[0] == '"' || trimmed[0] == '\'' {
-		end := strings.IndexByte(trimmed[1:], trimmed[0])
-		if end < 0 {
-			return trimmed, ""
+	quoted := byte(0)
+	for i := 0; i < len(trimmed); i++ {
+		switch trimmed[i] {
+		case '\\':
+			i++
+		case '\'', '"':
+			switch quoted {
+			case 0:
+				quoted = trimmed[i]
+			case trimmed[i]:
+				quoted = 0
+			}
+		case ' ', '\t':
+			if quoted == 0 {
+				return trimmed[:i], strings.TrimSpace(trimmed[i:])
+			}
 		}
-		return trimmed[:end+2], strings.TrimLeft(trimmed[end+2:], " \t")
-	}
-	if i := strings.IndexAny(trimmed, " \t"); i >= 0 {
-		return trimmed[:i], strings.TrimSpace(trimmed[i+1:])
 	}
 	return trimmed, ""
 }
@@ -117,8 +211,32 @@ func splitFirstToken(command string) (first, rest string) {
 // Strips one matching layer of surrounding shell quotes so quoted-path
 // ownership checks compare real paths.
 func unquoteToken(token string) string {
-	if len(token) >= 2 && (token[0] == '"' || token[0] == '\'') && token[len(token)-1] == token[0] {
+	if len(token) >= 2 && token[0] == '"' && token[len(token)-1] == '"' {
+		if unquoted, err := strconv.Unquote(token); err == nil {
+			return unquoted
+		}
+		// cmd.exe's quoted Windows path keeps ordinary backslashes literal;
+		// strconv.Unquote quite correctly rejects those non-Go escapes.
 		return token[1 : len(token)-1]
+	}
+	if len(token) >= 2 && token[0] == '\'' && token[len(token)-1] == '\'' {
+		var out strings.Builder
+		quoted := false
+		for i := 0; i < len(token); {
+			if token[i] == '\'' {
+				quoted = !quoted
+				i++
+				continue
+			}
+			if token[i] == '\\' && !quoted && i+1 < len(token) {
+				out.WriteByte(token[i+1])
+				i += 2
+				continue
+			}
+			out.WriteByte(token[i])
+			i++
+		}
+		return out.String()
 	}
 	return token
 }
@@ -200,7 +318,8 @@ func mergeClaudeSettings(path, exe string) (mergeState, error) {
 
 	canonical := claudeStopHandler(exe)
 	filtered := make([]any, 0, len(groups))
-	replaced := false
+	ownedCount := 0
+	exactCount := 0
 	for i, group := range groups {
 		entry, ok := group.(map[string]any)
 		if !ok {
@@ -220,15 +339,19 @@ func mergeClaudeSettings(path, exe string) (mergeState, error) {
 				err := fmt.Errorf("%s: hooks.Stop[%d].hooks[%d] is not an object, refusing to overwrite it", path, i, j)
 				return mergeState{State: "conflict", Detail: err.Error()}, err
 			}
-			exact, owned := claudeOwned(handler, exe)
+			exact, owned, unknown := claudeOwned(handler, exe)
+			if unknown {
+				err := fmt.Errorf("%s: hooks.Stop[%d].hooks[%d] names supervision claude-stop but its executable identity is unknown or different; refusing to adopt it", path, i, j)
+				return mergeState{State: "conflict", Detail: err.Error()}, err
+			}
 			if !owned {
 				kept = append(kept, handler)
 				continue
 			}
 			groupChanged = true
-			replaced = true
+			ownedCount++
 			if exact {
-				replaced = false
+				exactCount++
 			}
 		}
 		if groupChanged {
@@ -241,20 +364,15 @@ func mergeClaudeSettings(path, exe string) (mergeState, error) {
 		filtered = append(filtered, entry)
 	}
 
-	if !replaced {
-		state := checkClaudeSettings(path, exe)
-		if state.State == "installed" {
-			return mergeState{State: "unchanged", Detail: state.Detail}, nil
-		}
-		filtered = append(filtered, map[string]any{"hooks": []any{canonical}})
-	} else {
-		filtered = append(filtered, map[string]any{"hooks": []any{canonical}})
+	if ownedCount == 1 && exactCount == 1 {
+		return mergeState{State: "unchanged"}, nil
 	}
+	filtered = append(filtered, map[string]any{"hooks": []any{canonical}})
 	hooks["Stop"] = filtered
 	if err := writeJSONSettings(path, settings); err != nil {
 		return mergeState{State: "conflict", Detail: err.Error()}, err
 	}
-	if replaced {
+	if ownedCount > 0 {
 		return mergeState{State: "replaced"}, nil
 	}
 	return mergeState{State: "installed"}, nil
@@ -286,7 +404,7 @@ func checkClaudeSettings(path, exe string) mergeState {
 		return mergeState{State: "absent"}
 	}
 	found := "absent"
-	for _, group := range groups {
+	for i, group := range groups {
 		entry, ok := group.(map[string]any)
 		if !ok {
 			continue
@@ -295,32 +413,37 @@ func checkClaudeSettings(path, exe string) mergeState {
 		if !ok {
 			continue
 		}
-		for _, raw := range handlers {
+		for j, raw := range handlers {
 			handler, ok := raw.(map[string]any)
 			if !ok {
 				continue
 			}
-			exact, owned := claudeOwned(handler, exe)
+			exact, owned, unknown := claudeOwned(handler, exe)
+			if unknown {
+				return mergeState{State: "conflict", Detail: fmt.Sprintf("hooks.Stop[%d].hooks[%d] names supervision claude-stop but its executable identity is unknown or different", i, j)}
+			}
 			if !owned {
 				continue
 			}
 			if exact {
-				return mergeState{State: "installed"}
+				found = "installed"
+				continue
 			}
-			found = "stale"
+			if found != "installed" {
+				found = "stale"
+			}
 		}
 	}
 	return mergeState{State: found}
 }
 
-// The canonical Codex Stop group entry: upstream embeds arguments in the
-// command string, so both platform variants are shell-quoted here; async
-// keeps it background work owned by the Codex hook lifecycle.
+// commandWindows is passed to cmd.exe /C, so keep its executable token in
+// cmd.exe's ordinary quoted-path form; doubling separators changes the path.
 func codexStopHandler(exe string) map[string]any {
 	return map[string]any{
 		"type":           "command",
 		"command":        shellquoteQuote(exe) + " supervision codex-stop",
-		"commandWindows": windowsQuote(exe) + " supervision codex-stop",
+		"commandWindows": windowsCommand(exe),
 		"async":          true,
 		"timeout":        1860,
 	}
@@ -331,29 +454,46 @@ func shellquoteQuote(value string) string {
 }
 
 func windowsQuote(value string) string {
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(value, `\`, `\\`), `"`, `\"`) + `"`
+	return `"` + value + `"`
+}
+
+func windowsCommand(exe string) string {
+	if !strings.Contains(exe, "%") {
+		return windowsQuote(exe) + " supervision codex-stop"
+	}
+	script := "& '" + strings.ReplaceAll(exe, "'", "''") + "' supervision codex-stop; exit $LASTEXITCODE"
+	encoded := utf16.Encode([]rune(script))
+	data := make([]byte, len(encoded)*2)
+	for i, value := range encoded {
+		data[2*i] = byte(value)
+		data[2*i+1] = byte(value >> 8)
+	}
+	return "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand " + base64.StdEncoding.EncodeToString(data)
 }
 
 func codexHooksPath(home string) string { return filepath.Join(home, ".codex", "hooks.json") }
 
 // Classifies one existing Stop handler against this binary's codex-stop
 // entrypoint.
-func codexOwned(handler map[string]any, exe string) (exact bool, owned bool) {
+func codexOwned(handler map[string]any, exe string) (exact bool, owned bool, unknown bool) {
 	if handler["type"] != "command" {
-		return false, false
+		return false, false, false
 	}
 	canonical := codexStopHandler(exe)
 	command, _ := handler["command"].(string)
 	if !codexCommandTokens(command, exe) {
-		return false, false
+		if codexCommandShape(command) {
+			return false, false, true
+		}
+		return false, false, false
 	}
-	if windows, _ := handler["commandWindows"].(string); windows != "" && !codexCommandTokens(windows, exe) {
-		return false, false
+	if windows, _ := handler["commandWindows"].(string); windows != "" && windows != canonical["commandWindows"] && !codexCommandTokens(windows, exe) {
+		return false, false, true
 	}
 	if _, isAsync := handler["async"].(bool); !isAsync {
-		return false, true
+		return false, true, false
 	}
-	return sameHandler(handler, canonical), true
+	return sameHandler(handler, canonical), true, false
 }
 
 func codexCommandTokens(command, exe string) bool {
@@ -362,8 +502,12 @@ func codexCommandTokens(command, exe string) bool {
 		return false
 	}
 	unquoted := unquoteToken(first)
-	base := filepath.Base(unquoted)
-	return unquoted == exe || base == "hand" || base == "hand.exe"
+	return unquoted == exe || sameExecutableObject(unquoted, exe) || sameManagedExecutableLineage(unquoted, exe)
+}
+
+func codexCommandShape(command string) bool {
+	first, rest := splitFirstToken(command)
+	return first != "" && rest == "supervision codex-stop"
 }
 
 // InstallCodexHooks merges the Hand-owned async Stop group into the
@@ -408,7 +552,8 @@ func mergeCodexHooks(path, exe string) (mergeState, error) {
 		return mergeState{State: "conflict", Detail: err.Error()}, err
 	}
 
-	replaced := false
+	ownedCount := 0
+	exactCount := 0
 	filtered := make([]any, 0, len(groups)+1)
 	for i, group := range groups {
 		entry, ok := group.(map[string]any)
@@ -429,15 +574,19 @@ func mergeCodexHooks(path, exe string) (mergeState, error) {
 				err := fmt.Errorf("%s: hooks.Stop[%d].hooks[%d] is not an object, refusing to overwrite it", path, i, j)
 				return mergeState{State: "conflict", Detail: err.Error()}, err
 			}
-			exact, owned := codexOwned(handler, exe)
+			exact, owned, unknown := codexOwned(handler, exe)
+			if unknown {
+				err := fmt.Errorf("%s: hooks.Stop[%d].hooks[%d] names supervision codex-stop but its executable identity is unknown or different; refusing to adopt it", path, i, j)
+				return mergeState{State: "conflict", Detail: err.Error()}, err
+			}
 			if !owned {
 				kept = append(kept, handler)
 				continue
 			}
 			groupChanged = true
-			replaced = true
+			ownedCount++
 			if exact {
-				replaced = false
+				exactCount++
 			}
 		}
 		switch {
@@ -449,17 +598,15 @@ func mergeCodexHooks(path, exe string) (mergeState, error) {
 		}
 	}
 
-	if !replaced {
-		if inspectCodexHandlers(groups, exe) == "installed" {
-			return mergeState{State: "unchanged"}, nil
-		}
+	if ownedCount == 1 && exactCount == 1 {
+		return mergeState{State: "unchanged"}, nil
 	}
 	filtered = append(filtered, map[string]any{"hooks": []any{codexStopHandler(exe)}})
 	hooks["Stop"] = filtered
 	if err := writeJSONSettings(path, settings); err != nil {
 		return mergeState{State: "conflict", Detail: err.Error()}, err
 	}
-	if replaced {
+	if ownedCount > 0 {
 		return mergeState{State: "replaced"}, nil
 	}
 	return mergeState{State: "installed"}, nil
@@ -498,7 +645,7 @@ func inspectCodexHooks(path, exe string) mergeState {
 		return mergeState{State: "absent"}
 	}
 	state := "absent"
-	for _, group := range groups {
+	for i, group := range groups {
 		entry, ok := group.(map[string]any)
 		if !ok {
 			continue
@@ -507,47 +654,28 @@ func inspectCodexHooks(path, exe string) mergeState {
 		if !ok {
 			continue
 		}
-		for _, raw := range handlers {
+		for j, raw := range handlers {
 			handler, ok := raw.(map[string]any)
 			if !ok {
 				continue
 			}
-			exact, owned := codexOwned(handler, exe)
+			exact, owned, unknown := codexOwned(handler, exe)
+			if unknown {
+				return mergeState{State: "conflict", Detail: fmt.Sprintf("hooks.Stop[%d].hooks[%d] names supervision codex-stop but its executable identity is unknown or different", i, j)}
+			}
 			if !owned {
 				continue
 			}
 			if exact {
-				return mergeState{State: "installed"}
-			}
-			state = "stale"
-		}
-	}
-	return mergeState{State: state}
-}
-
-func inspectCodexHandlers(groups []any, exe string) string {
-	state := "absent"
-	for _, group := range groups {
-		entry, ok := group.(map[string]any)
-		if !ok {
-			continue
-		}
-		handlers, _ := entry["hooks"].([]any)
-		for _, raw := range handlers {
-			handler, ok := raw.(map[string]any)
-			if !ok {
+				state = "installed"
 				continue
 			}
-			exact, owned := codexOwned(handler, exe)
-			if exact {
-				return "installed"
-			}
-			if owned {
+			if state != "installed" {
 				state = "stale"
 			}
 		}
 	}
-	return state
+	return mergeState{State: state}
 }
 
 // CheckHostAssets reports managed asset states for one host without writing.

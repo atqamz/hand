@@ -47,11 +47,58 @@ func (e *ComposerBusyError) Detail() string {
 }
 
 type Client struct {
-	session    string
-	executable string
-	env        []string
-	childEnv   []string
-	initErr    error
+	session           string
+	executable        string
+	guardian          string
+	runtimeGeneration string
+	fleetID           string
+	env               []string
+	childEnv          []string
+	initErr           error
+	store             *toolchain.Store
+}
+
+var ensureDeterministicRuntime = func(ctx context.Context, store *toolchain.Store) (toolchain.Runtime, error) {
+	return store.Ensure(ctx, "", "")
+}
+
+var selectRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
+	return store.Selected("", "")
+}
+
+var managedGenerationID = func(store *toolchain.Store) (string, error) {
+	return store.GenerationID("", "")
+}
+
+func reconcileManagedRuntime(ctx context.Context, store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
+	expectedBundle := filepath.Join(store.Root, "runtime", "bundles", generation)
+	if filepath.Clean(selected.BundleDir) == filepath.Clean(expectedBundle) {
+		return selected, nil
+	}
+	return ensureDeterministicRuntime(ctx, store)
+}
+
+func runtimeSelectionExists(store *toolchain.Store) bool {
+	_, err := os.Stat(filepath.Join(store.Root, "runtime", "current.json"))
+	return err == nil
+}
+
+func resolveManagedRuntime(ctx context.Context, store *toolchain.Store) (toolchain.Runtime, error) {
+	runtime, err := selectRuntime(store)
+	if err != nil && runtimeSelectionExists(store) {
+		runtime, err = ensureDeterministicRuntime(ctx, store)
+		if err != nil {
+			return toolchain.Runtime{}, fmt.Errorf("materialize deterministic runtime generation: %w", err)
+		}
+	}
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	generation, err := managedGenerationID(store)
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	return reconcileManagedRuntime(ctx, store, runtime, generation)
 }
 
 func NewClient() *Client {
@@ -81,11 +128,15 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
-	runtime, err := store.Selected("", "")
+	runtime, err := selectRuntime(store)
 	if err != nil {
 		if legacyHerdrFallback {
 			return NewClient()
 		}
+		return &Client{initErr: err}
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
 		return &Client{initErr: err}
 	}
 	env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
@@ -102,6 +153,13 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
+	guardian, err := os.Executable()
+	if err != nil {
+		return &Client{initErr: fmt.Errorf("resolve Hand runtime guardian: %w", err)}
+	}
+	client.guardian = guardian
+	client.store = store
+	client.runtimeGeneration = generation
 	client.childEnv = []string{"PATH=" + environmentValue(env, "PATH")}
 	return client
 }
@@ -294,13 +352,34 @@ func (c *Client) startServer(ctx context.Context) error {
 		return err
 	}
 	executable := c.executable
+	args := c.wireArgs("server")
+	if c.guardian != "" {
+		if c.store != nil {
+			runtime, err := resolveManagedRuntime(ctx, c.store)
+			if err != nil {
+				return fmt.Errorf("materialize managed runtime for server: %w", err)
+			}
+			c.runtimeGeneration, err = c.store.GenerationID("", "")
+			if err != nil {
+				return err
+			}
+			c.executable = runtime.HerdrPath
+			materialized, err := c.store.MaterializeHandExecutable(c.guardian)
+			if err != nil {
+				return fmt.Errorf("materialize Hand runtime guardian: %w", err)
+			}
+			c.guardian = materialized
+		}
+		executable = c.guardian
+		args = []string{"runtime", "herdr-server", "--fleet-id", c.fleetID, "--generation", c.runtimeGeneration, "--session", c.session}
+	}
 	if executable == "" {
 		executable = "herdr"
 	}
 	if !filepath.IsAbs(executable) {
 		return fmt.Errorf("managed Herdr executable %s must be an absolute path", pathdisplay.Context(executable))
 	}
-	cmd := exec.Command(executable, c.wireArgs("server")...)
+	cmd := exec.Command(executable, args...)
 	parentEnv := c.env
 	if parentEnv == nil {
 		parentEnv = os.Environ()

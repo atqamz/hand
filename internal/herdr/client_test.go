@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 func writeFakeHerdr(t *testing.T, responses ...faketool.HerdrResponse) {
@@ -51,6 +53,82 @@ func TestNamedSessionPrefixesHerdrInvocation(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "--session hand-f-fleet workspace list") {
 		t.Fatalf("calls = %q, want named session before command", calls)
+	}
+}
+
+func TestReconcileManagedRuntimeMaterializesLegacySelection(t *testing.T) {
+	store := &toolchain.Store{Root: t.TempDir()}
+	selected := toolchain.Runtime{BundleDir: filepath.Join(store.Root, "runtime", "bundles", "legacy-20260915")}
+	var called bool
+	original := ensureDeterministicRuntime
+	ensureDeterministicRuntime = func(_ context.Context, got *toolchain.Store) (toolchain.Runtime, error) {
+		called = got == store
+		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
+	}
+	t.Cleanup(func() { ensureDeterministicRuntime = original })
+	got, err := reconcileManagedRuntime(context.Background(), store, selected, "deterministic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || got.BundleDir != filepath.Join(store.Root, "runtime", "bundles", "deterministic") {
+		t.Fatalf("reconciled runtime = %#v, materializer called = %t; want deterministic generation", got, called)
+	}
+}
+
+func TestResolveManagedRuntimeRepairsInvalidLegacySelection(t *testing.T) {
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &toolchain.Store{Root: t.TempDir(), Lock: lock}
+	if err := os.MkdirAll(filepath.Join(store.Root, "runtime"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root, "runtime", "current.json"), []byte(`{"legacy":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selectedOriginal := selectRuntime
+	ensureOriginal := ensureDeterministicRuntime
+	generationOriginal := managedGenerationID
+	selectRuntime = func(*toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{}, errors.New("legacy bundle is invalid")
+	}
+	ensureDeterministicRuntime = func(_ context.Context, got *toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
+	}
+	managedGenerationID = func(*toolchain.Store) (string, error) { return "deterministic", nil }
+	t.Cleanup(func() {
+		selectRuntime = selectedOriginal
+		ensureDeterministicRuntime = ensureOriginal
+		managedGenerationID = generationOriginal
+	})
+	if got, err := resolveManagedRuntime(context.Background(), store); err != nil || !strings.HasSuffix(got.BundleDir, filepath.Join("bundles", "deterministic")) {
+		t.Fatalf("resolve legacy selection = %#v, %v; want deterministic materialization", got, err)
+	}
+}
+
+func TestResolveManagedRuntimePropagatesCancellation(t *testing.T) {
+	store := &toolchain.Store{Root: t.TempDir()}
+	selectedOriginal := selectRuntime
+	ensureOriginal := ensureDeterministicRuntime
+	generationOriginal := managedGenerationID
+	selectRuntime = func(*toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{BundleDir: filepath.Join(store.Root, "runtime", "bundles", "legacy")}, nil
+	}
+	ensureDeterministicRuntime = func(ctx context.Context, _ *toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{}, ctx.Err()
+	}
+	managedGenerationID = func(*toolchain.Store) (string, error) { return "deterministic", nil }
+	t.Cleanup(func() {
+		selectRuntime = selectedOriginal
+		ensureDeterministicRuntime = ensureOriginal
+		managedGenerationID = generationOriginal
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := resolveManagedRuntime(ctx, store); !errors.Is(err, context.Canceled) {
+		t.Fatalf("resolve canceled runtime = %v, want context cancellation", err)
 	}
 }
 

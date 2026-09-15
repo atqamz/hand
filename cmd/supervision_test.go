@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,9 +13,51 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/toolchain"
+	"github.com/atqamz/hand/internal/watcher"
 )
+
+type waiterGenerationStoreStub struct {
+	ensured bool
+}
+
+type blockingWaiterGenerationStore struct{}
+
+func (*blockingWaiterGenerationStore) Ensure(ctx context.Context, _, _ string) (toolchain.Runtime, error) {
+	<-ctx.Done()
+	return toolchain.Runtime{}, ctx.Err()
+}
+
+func (store *waiterGenerationStoreStub) Ensure(context.Context, string, string) (toolchain.Runtime, error) {
+	store.ensured = true
+	return toolchain.Runtime{BundleDir: filepath.Join("runtime", "bundles", "deterministic")}, nil
+}
+
+func TestWaiterToolchainGenerationMaterializesBeforeLeasing(t *testing.T) {
+	store := new(waiterGenerationStoreStub)
+	generation, err := waiterToolchainGenerationFrom(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.ensured || generation != "deterministic" {
+		t.Fatalf("waiter generation = %q, ensured = %t; want the materialized deterministic bundle", generation, store.ensured)
+	}
+}
+
+func TestSupervisionWaitTimeoutCoversGenerationMaterialization(t *testing.T) {
+	ctx, cancel := supervisionWaitContext(context.Background(), time.Millisecond)
+	defer cancel()
+	_, err := waiterToolchainGenerationFrom(ctx, new(blockingWaiterGenerationStore))
+	if err == nil {
+		t.Fatal("generation materialization outlived the wait timeout")
+	}
+	if cause := supervisionContextError(ctx, err); !errors.Is(cause, watcher.ErrNoEvent) {
+		t.Fatalf("materialization timeout = %v, want ErrNoEvent", cause)
+	}
+}
 
 func setupSupervisionHome(t *testing.T) string {
 	t.Helper()
@@ -221,6 +266,52 @@ func TestInitExclusivelyOwnsStaticIntegrationRepair(t *testing.T) {
 	kept, readErr := os.ReadFile(filepath.Join(home, ".opencode", "plugins", "hand-supervisor-wake.js"))
 	if readErr != nil || string(kept) != foreign {
 		t.Fatalf("foreign file changed by refused init: %q, %v", kept, readErr)
+	}
+}
+
+func TestInitInstallsCodexHookForManagedGeneration(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+
+	results, conflicts := installSupervisorBridgesForInit(home, exe)
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %v", conflicts)
+	}
+	found := false
+	for _, result := range results {
+		if result.Host == harness.Codex {
+			found = true
+			if result.State != "installed" {
+				t.Fatalf("codex install state = %q, want installed", result.State)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("hand init omitted the Fleet-local Codex Stop hook")
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Hooks struct {
+			Stop []struct {
+				Hooks []struct {
+					Command        string `json:"command"`
+					CommandWindows string `json:"commandWindows"`
+				} `json:"hooks"`
+			} `json:"Stop"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Hooks.Stop) != 1 || len(config.Hooks.Stop[0].Hooks) != 1 {
+		t.Fatalf("unexpected Codex Stop hook shape: %s", data)
+	}
+	hook := config.Hooks.Stop[0].Hooks[0]
+	if !strings.Contains(hook.Command, exe) || !strings.Contains(hook.CommandWindows, exe) {
+		t.Fatalf("codex hook does not retain managed generation %q: %s", exe, data)
 	}
 }
 

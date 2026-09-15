@@ -1,9 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
 
 	"github.com/atqamz/hand/internal/axi"
+	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +19,83 @@ func newRuntimeCmd() *cobra.Command {
 		Short: "Inspect and repair the private core runtime",
 		Args:  usageArgs(cobra.NoArgs),
 	}
-	cmd.AddCommand(newRuntimeStatusCmd(), newRuntimeEnsureCmd(), newWorkerInputCmd())
+	cmd.AddCommand(newRuntimeStatusCmd(), newRuntimeEnsureCmd(), newRuntimeHerdrServerCmd(), newWorkerInputCmd())
+	return cmd
+}
+
+// Keeps the exact runtime-generation lease live for the detached Herdr
+// server. The parent Hand process is the cross-platform kernel-lock holder.
+func newRuntimeHerdrServerCmd() *cobra.Command {
+	var fleetID, generation, session string
+	cmd := &cobra.Command{
+		Use:    "herdr-server",
+		Short:  "Run a managed Herdr server under its runtime-generation lease",
+		Hidden: true,
+		Args:   usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if session != herdr.SessionName(fleetID) {
+				return fmt.Errorf("herdr session %q does not match fleet %q", session, fleetID)
+			}
+			store, err := toolchain.DefaultStore()
+			if err != nil {
+				return err
+			}
+			runtime, err := store.Generation(generation, "", "")
+			if err != nil {
+				return err
+			}
+			lease, err := store.AcquireLease(toolchain.LeaseRequest{
+				Generation: generation,
+				LeaseID:    "herdr-server:" + session,
+				FleetID:    fleetID,
+				Consumer:   "herdr-server",
+				Evidence:   "session=" + session,
+			})
+			if err != nil {
+				return err
+			}
+			executable, err := os.Executable()
+			if err != nil {
+				return errors.Join(fmt.Errorf("resolve Hand runtime guardian: %w", err), lease.Close())
+			}
+			handGeneration, err := supervision.ExecutableGeneration(executable)
+			if err != nil {
+				return errors.Join(err, lease.Close())
+			}
+			handLease, err := store.AcquireHandLease(toolchain.LeaseRequest{
+				Generation: handGeneration,
+				LeaseID:    "herdr-guardian:" + session,
+				FleetID:    fleetID,
+				Consumer:   "runtime-guardian",
+				Evidence:   "session=" + session,
+			})
+			if err != nil {
+				return errors.Join(err, lease.Close())
+			}
+			releaseLeases := func() error { return errors.Join(handLease.Close(), lease.Close()) }
+			if err := protectRuntimeGuardian(); err != nil {
+				return errors.Join(fmt.Errorf("protect runtime guardian lifetime: %w", err), releaseLeases())
+			}
+			env, err := toolchain.ManagedEnvironment(os.Environ(), runtime.GitBin)
+			if err != nil {
+				return errors.Join(err, releaseLeases())
+			}
+			server := exec.CommandContext(cmd.Context(), runtime.HerdrPath, "--session", session, "server")
+			server.Env = env
+			server.Stdin, server.Stdout, server.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			if err := lease.StartChild(server); err != nil {
+				return errors.Join(err, releaseLeases())
+			}
+			runErr := server.Wait()
+			return errors.Join(runErr, releaseLeases())
+		},
+	}
+	cmd.Flags().StringVar(&fleetID, "fleet-id", "", "canonical Fleet identity")
+	cmd.Flags().StringVar(&generation, "generation", "", "exact runtime generation")
+	cmd.Flags().StringVar(&session, "session", "", "exact Fleet Herdr session")
+	_ = cmd.MarkFlagRequired("fleet-id")
+	_ = cmd.MarkFlagRequired("generation")
+	_ = cmd.MarkFlagRequired("session")
 	return cmd
 }
 

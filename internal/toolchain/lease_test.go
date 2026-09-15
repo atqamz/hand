@@ -1,0 +1,489 @@
+package toolchain
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+const testFleetID = "f_0123456789abcdef0123456789abcdef"
+
+func TestManagedHandLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	source := filepath.Join(t.TempDir(), executableName("hand"))
+	if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := store.MaterializeHandExecutable(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := "sha256:" + filepath.Base(filepath.Dir(managed))
+	request := LeaseRequest{
+		Generation: generation,
+		LeaseID:    "waiter:session-1",
+		FleetID:    testFleetID,
+		Consumer:   "supervision-waiter",
+		Evidence:   "host=codex;session=session-1",
+	}
+	lease, err := store.AcquireHandLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filepath.ToSlash(lease.RecordPath()), "/runtime/hand-references/"+strings.TrimPrefix(generation, "sha256:")+"/") {
+		t.Fatalf("Hand lease record path = %q, want exact Hand generation namespace", lease.RecordPath())
+	}
+	if _, err := store.AcquireHandLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("second Hand lease acquisition = %v, want ErrLeaseHeld", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: generation,
+		LeaseID:    "herdr:" + testFleetID,
+		FleetID:    testFleetID,
+		Consumer:   "herdr-server",
+		Evidence:   "session=hand-" + testFleetID,
+	}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Close() })
+
+	raw, err := os.ReadFile(lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"schema": LeaseSchema, "generation": generation, "lease_id": request.LeaseID,
+		"fleet_id": testFleetID, "consumer": request.Consumer, "evidence": request.Evidence,
+	} {
+		if got, _ := record[key].(string); got != want {
+			t.Fatalf("record[%q] = %q, want %q", key, got, want)
+		}
+	}
+	for _, forbidden := range []string{"pid", "cwd", "executable", "process_path"} {
+		if _, ok := record[forbidden]; ok {
+			t.Fatalf("lease record uses diagnostic-only %q as ownership evidence", forbidden)
+		}
+	}
+
+	if _, err := store.AcquireLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("second acquisition = %v, want ErrLeaseHeld", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("graceful release left record: %v", err)
+	}
+	if _, err := os.Stat(lease.LockPath()); err != nil {
+		t.Fatalf("permanent lock rendezvous was removed: %v", err)
+	}
+}
+
+func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: generation,
+		LeaseID:    "waiter-one",
+		LockScope:  "waiter:fleet:host:session:generation:slot-0",
+		FleetID:    testFleetID,
+		Consumer:   "supervision-waiter",
+		Evidence:   "host=codex;session=session-1",
+	}
+	first, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(first.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record leaseRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.LockScope != request.LockScope {
+		t.Fatalf("durable lock scope = %q, %v; want %q", record.LockScope, err, request.LockScope)
+	}
+	secondRequest := request
+	secondRequest.LeaseID = "waiter-two"
+	if _, err := store.AcquireLease(secondRequest); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("second holder in stable lock scope = %v, want ErrLeaseHeld", err)
+	}
+	firstRecord, firstLock := first.RecordPath(), first.LockPath()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireLease(secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RecordPath() == firstRecord || second.LockPath() != firstLock {
+		t.Fatalf("record/lock paths = %q/%q then %q/%q; want unique records sharing one stable lock", firstRecord, firstLock, second.RecordPath(), second.LockPath())
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(firstLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
+		t.Fatalf("stable lease scope left %v, want one permanent rendezvous", entries)
+	}
+}
+
+func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireLease(LeaseRequest{
+		Generation: generation, LeaseID: "herdr:root-replacement", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=root-replacement",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Dir(store.Root)
+	moved := filepath.Join(parent, "moved-secondhand")
+	if err := os.Rename(store.Root, moved); err != nil {
+		if runtime.GOOS == "windows" {
+			if closeErr := lease.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			return
+		}
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(lease.RecordPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lease.RecordPath(), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(store.Root, lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, relative)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("acquired-root lease record was not retired: %v", err)
+	}
+	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
+	}
+}
+
+func TestGenerationResolvesExactBundleWithoutSelection(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	runtime, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(store.Root, "runtime", currentName)); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := store.Generation(generation, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.BundleDir != runtime.BundleDir {
+		t.Fatalf("resolved bundle = %q, want %q", resolved.BundleDir, runtime.BundleDir)
+	}
+	if _, err := store.Generation("foreign-generation", "", ""); err == nil {
+		t.Fatal("foreign generation resolved")
+	}
+}
+
+func TestTwoFleetsHoldOneExactGenerationConcurrently(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	runtime, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []LeaseRequest{
+		{Generation: generation, LeaseID: "herdr:fleet-a", FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=fleet-a"},
+		{Generation: generation, LeaseID: "herdr:fleet-b", FleetID: "f_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Consumer: "herdr-server", Evidence: "session=fleet-b"},
+	}
+	leases := make([]*Lease, 0, len(requests))
+	for _, request := range requests {
+		lease, err := store.AcquireLease(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leases = append(leases, lease)
+	}
+	t.Cleanup(func() {
+		for _, lease := range leases {
+			_ = lease.Close()
+		}
+	})
+	if err := os.Remove(filepath.Join(store.Root, "runtime", currentName)); err != nil {
+		t.Fatal(err)
+	}
+	adopted, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.BundleDir != runtime.BundleDir {
+		t.Fatalf("adopted bundle = %q, want shared generation %q", adopted.BundleDir, runtime.BundleDir)
+	}
+	for _, lease := range leases {
+		if _, err := os.Stat(lease.RecordPath()); err != nil {
+			t.Fatalf("ensure removed live Fleet reference: %v", err)
+		}
+	}
+}
+
+func TestRuntimeLeaseCrashResidueIsRetainedAndRecoverableOnlyAfterLockRelease(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	runtime, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{Generation: generation, LeaseID: "waiter:session-1", FleetID: testFleetID, Consumer: "supervision-waiter", Evidence: "host=claude;session=session-1"}
+	crashed, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordPath := crashed.RecordPath()
+	if err := abandonLeaseForTest(crashed); err != nil {
+		t.Fatal(err)
+	}
+
+	currentPath := filepath.Join(store.Root, "runtime", currentName)
+	if err := os.Remove(currentPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"pools/foreign-live/sentinel", "integrations/github/gh/payloads/live/sentinel"} {
+		path := filepath.Join(store.Root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("retain"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	adopted, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adopted.BundleDir != runtime.BundleDir {
+		t.Fatalf("adopted bundle = %q, want %q", adopted.BundleDir, runtime.BundleDir)
+	}
+	if _, err := os.Stat(recordPath); err != nil {
+		t.Fatalf("ensure removed crash lease residue: %v", err)
+	}
+	for _, rel := range []string{"pools/foreign-live/sentinel", "integrations/github/gh/payloads/live/sentinel"} {
+		if _, err := os.Stat(filepath.Join(store.Root, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("ensure removed %s: %v", rel, err)
+		}
+	}
+
+	recovered, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatalf("recover exact crash residue after kernel lock release: %v", err)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeLeaseRemainsHeldByManagedChildAfterGuardianDeath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows couples the runtime child to its guardian with a kill-on-close job")
+	}
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{Generation: generation, LeaseID: "herdr:fleet-a", FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=fleet-a"}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(t.TempDir(), "ready")
+	child := exec.Command(os.Args[0], "-test.run=^TestRuntimeLeaseManagedChildProcess$")
+	child.Env = append(os.Environ(), "HAND_RUNTIME_LEASE_CHILD=1", "HAND_RUNTIME_LEASE_READY="+ready)
+	if err := lease.StartChild(child); err != nil {
+		t.Fatal(err)
+	}
+	waitForGenerationHelper(t, ready)
+	waited := false
+	t.Cleanup(func() {
+		if !waited {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
+	if err := abandonLeaseForTest(lease); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("acquire after guardian death = %v, want child-held ErrLeaseHeld", err)
+	}
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+	waited = true
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		recovered, err := store.AcquireLease(request)
+		if err == nil {
+			if err := recovered.Close(); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		if !errors.Is(err, ErrLeaseHeld) || time.Now().After(deadline) {
+			t.Fatalf("recover after managed child exit = %v", err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestRuntimeLeaseManagedChildProcess(t *testing.T) {
+	if os.Getenv("HAND_RUNTIME_LEASE_CHILD") != "1" {
+		return
+	}
+	if err := os.WriteFile(os.Getenv("HAND_RUNTIME_LEASE_READY"), nil, 0o600); err != nil {
+		os.Exit(2)
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
+func TestRuntimeLeaseMalformedAndForeignResidueFailClosed(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{Generation: generation, LeaseID: "consumer:one", FleetID: testFleetID, Consumer: "supervision-waiter", Evidence: "session=one"}
+
+	residue, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := residue.RecordPath()
+	if err := abandonLeaseForTest(residue); err != nil {
+		t.Fatal(err)
+	}
+	foreign := request
+	foreign.FleetID = "f_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if _, err := store.AcquireLease(foreign); !errors.Is(err, ErrLeaseMetadataUnknown) {
+		t.Fatalf("foreign Fleet reuse = %v, want ErrLeaseMetadataUnknown", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("foreign Fleet check removed residue: %v", err)
+	}
+
+	malformed := []byte("{truncated")
+	if err := os.WriteFile(path, malformed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AcquireLease(request); !errors.Is(err, ErrLeaseMetadataUnknown) {
+		t.Fatalf("malformed residue = %v, want ErrLeaseMetadataUnknown", err)
+	}
+	kept, err := os.ReadFile(path)
+	if err != nil || string(kept) != string(malformed) {
+		t.Fatalf("malformed residue changed: %q, %v", kept, err)
+	}
+}
+
+func abandonLeaseForTest(lease *Lease) error {
+	lease.closed = true
+	return errors.Join(lease.lock.Close(), lease.rootHandle.Close())
+}
+
+func TestRuntimeLeaseRejectsUnverifiedIdentityInputs(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := LeaseRequest{Generation: generation, LeaseID: "lease-1", FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=one"}
+	for name, mutate := range map[string]func(*LeaseRequest){
+		"generation": func(request *LeaseRequest) { request.Generation = "g_unknown" },
+		"lease":      func(request *LeaseRequest) { request.LeaseID = "bad\x00lease" },
+		"lock scope": func(request *LeaseRequest) { request.LockScope = "bad\x00scope" },
+		"fleet":      func(request *LeaseRequest) { request.FleetID = "f_reused-pid" },
+		"consumer":   func(request *LeaseRequest) { request.Consumer = "" },
+		"evidence":   func(request *LeaseRequest) { request.Evidence = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := valid
+			mutate(&request)
+			if _, err := store.AcquireLease(request); err == nil {
+				t.Fatal("invalid lease request was accepted")
+			}
+		})
+	}
+}

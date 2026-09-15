@@ -87,6 +87,8 @@ func appendSupervisionDiagnostics(doc *axi.Doc, ctx context.Context, fleetHome s
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "unknown"
+	} else {
+		exe = currentSupervisionExecutable(exe)
 	}
 	status, err := supervision.IntegrationStatus(ctx, supervision.StatusInput{
 		Home:      fleetHome,

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -115,6 +116,39 @@ func TestWatchNamesALiveSupervisionBridgeHolderAndOffersNoTakeover(t *testing.T)
 	if strings.Contains(refused.stderr, "for cooperative replacement") {
 		t.Fatalf("watch stderr %q, want --takeover never offered against a holder that cannot honor it", refused.stderr)
 	}
+}
+
+func TestRepeatedExactSessionGenerationReapsPredecessorWaiter(t *testing.T) {
+	home := seedOneTaskHome(t)
+	env := []string{"HAND_RUNTIME_SESSION=exact-session"}
+	first := startHandBackgroundEnv(t, home, env, "supervision", "wait", "--host", "claude", "--timeout", "10s")
+	firstAttachment := waitForSupervisionAttachment(t, home, "")
+
+	second := startHandBackgroundEnv(t, home, env, "supervision", "wait", "--host", "claude", "--timeout", "500ms")
+	secondAttachment := waitForSupervisionAttachment(t, home, firstAttachment.WaiterID)
+	if secondAttachment.Generation != firstAttachment.Generation || secondAttachment.Runtime != firstAttachment.Runtime {
+		t.Fatalf("successor scope = %#v, predecessor = %#v", secondAttachment, firstAttachment)
+	}
+	if got := second.waitForExit(t, 5*time.Second, "bounded successor checkpoint"); got.code != 4 {
+		t.Fatalf("successor exit = %d, want 4 checkpoint (stderr %q)", got.code, got.stderr)
+	}
+	if got := first.waitForExit(t, 5*time.Second, "exact-generation successor"); got.code != 3 {
+		t.Fatalf("predecessor exit = %d, want 3 owned-elsewhere (stderr %q)", got.code, got.stderr)
+	}
+}
+
+func waitForSupervisionAttachment(t *testing.T, home, previousWaiter string) supervision.AttachmentRecord {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		record := supervision.ReadAttachment(home)
+		if record != nil && record.WaiterID != "" && record.WaiterID != previousWaiter && record.Generation != "" && record.Fresh(time.Now()) {
+			return *record
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("supervision attachment successor did not appear")
+	return supervision.AttachmentRecord{}
 }
 
 // Gives the watcher one task to poll, so the coherent-owner wait is waiting on a loop that has really

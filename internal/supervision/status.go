@@ -10,14 +10,6 @@ import (
 	"github.com/atqamz/hand/internal/watcher"
 )
 
-func osExecutableOrUnknown() string {
-	exe, err := os.Executable()
-	if err != nil || exe == "" {
-		return "unknown"
-	}
-	return exe
-}
-
 func osEnv(key string) string { return os.Getenv(key) }
 
 // Capability states for unattended Supervisor turn delivery. A product may
@@ -160,7 +152,7 @@ func IntegrationStatus(ctx context.Context, in StatusInput) (Status, error) {
 			status.RuntimeIdentity = "identified"
 			status.RuntimeDetail = threadID
 		}
-		status.Integration = inspectCodexHooks(codexHooksPath(in.Home), osExecutableOrUnknown()).State
+		status.Integration = inspectCodexHooks(codexHooksPath(in.Home), in.Exe).State
 		probeErr := ProbeCodexQueue(ctx, RunCommand)
 		switch {
 		case status.Integration != "installed" && status.Integration != "unchanged":

@@ -3,6 +3,9 @@ package supervision
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/orientation"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -22,6 +26,39 @@ var (
 	acquireWatcherOwnership = watcher.AcquireBridgeContext
 	runWatcherUntilEvent    = watcher.RunUntilEvent
 	watcherAttached         = watcher.IsAttached
+	bridgeHeartbeat         = func(interval time.Duration) (<-chan time.Time, func()) {
+		ticker := time.NewTicker(interval)
+		return ticker.C, ticker.Stop
+	}
+	newWaiterIdentity = func() (string, error) {
+		var id [16]byte
+		if _, err := rand.Read(id[:]); err != nil {
+			return "", err
+		}
+		return hex.EncodeToString(id[:]), nil
+	}
+	acquireWaiterGenerationLease = func(generation, fleetID, leaseID, lockScope, evidence string) (func() error, error) {
+		store, err := toolchain.DefaultStore()
+		if err != nil {
+			return nil, err
+		}
+		lease, err := store.AcquireLease(toolchain.LeaseRequest{Generation: generation, LeaseID: leaseID, LockScope: lockScope, FleetID: fleetID, Consumer: "supervision-waiter", Evidence: evidence})
+		if err != nil {
+			return nil, err
+		}
+		return lease.Close, nil
+	}
+	acquireWaiterHandGenerationLease = func(generation, fleetID, leaseID, lockScope, evidence string) (func() error, error) {
+		store, err := toolchain.DefaultStore()
+		if err != nil {
+			return nil, err
+		}
+		lease, err := store.AcquireHandLease(toolchain.LeaseRequest{Generation: generation, LeaseID: leaseID, LockScope: lockScope, FleetID: fleetID, Consumer: "supervision-waiter", Evidence: evidence})
+		if err != nil {
+			return nil, err
+		}
+		return lease.Close, nil
+	}
 )
 
 // WaitConfig carries the host name and everything the watcher boundary needs
@@ -33,10 +70,16 @@ type WaitConfig struct {
 	// OpenCode session ID, a Codex thread). It scopes the bridge-attachment
 	// record so a secondary runtime defers instead of stealing.
 	RuntimeSession string
-	PollInterval   time.Duration
-	StaleThreshold time.Duration
-	ParkedBounds   watcher.ParkedBounds
-	Timeout        time.Duration
+	// RuntimeGeneration identifies the immutable Hand runtime generation
+	// executing this waiter.
+	RuntimeGeneration string
+	// LeaseGeneration identifies the distinct immutable toolchain bundle used
+	// by this waiter.
+	LeaseGeneration string
+	PollInterval    time.Duration
+	StaleThreshold  time.Duration
+	ParkedBounds    watcher.ParkedBounds
+	Timeout         time.Duration
 }
 
 // Wake is one coalesced delivery: every currently eligible episode collapses
@@ -67,7 +110,7 @@ const WakeSchema = "hand.supervision.wake.v1"
 // Wait blocks until at least one current actionable episode is claimed by a
 // runtime that provably still holds THE Fleet Supervisor bridge, then returns
 // the coalesced wake. Typed watcher results pass through unchanged.
-func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
+func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (wake Wake, err error) {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadlineCause(ctx, time.Now().Add(cfg.Timeout),
@@ -87,7 +130,12 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (Wake, error) {
 	if err != nil {
 		return Wake{}, err
 	}
-	defer guard.stop()
+	defer func() {
+		if closeErr := guard.stop(); closeErr != nil {
+			diagnosisErr := w.Ledger.MarkBridgeError(cfg.Host, "release generation leases: "+closeErr.Error())
+			err = errors.Join(err, fmt.Errorf("release generation leases: %w", closeErr), diagnosisErr)
+		}
+	}()
 
 	if len(eligible) > 0 {
 		// Acquisition just proved ownership under the same lock; claiming
@@ -132,13 +180,43 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	runtime := cfg.RuntimeSession
 	if runtime == "" {
-		runtime = fmt.Sprintf("pid:%d", os.Getpid())
+		runtime = "unidentified"
+	}
+	generation := cfg.RuntimeGeneration
+	if generation == "" {
+		generation = "unidentified"
+	}
+	waiterID, err := newWaiterIdentity()
+	if err != nil {
+		return nil, fmt.Errorf("create waiter identity: %w", err)
+	}
+	var releaseGenerationLease func() error
+	leaseGeneration := cfg.LeaseGeneration
+	if (leaseGeneration == "") != (cfg.RuntimeGeneration == "") {
+		return nil, errors.New("supervision waiter requires both Hand and toolchain generation identities")
+	}
+	if leaseGeneration != "" {
+		releaseGenerationLease, err = acquireWaiterGenerationLeases(cfg, fleetID, waiterID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	releaseLease := func(cause error) error {
+		if releaseGenerationLease == nil {
+			return cause
+		}
+		if err := releaseGenerationLease(); err != nil {
+			return errors.Join(cause, fmt.Errorf("release runtime generation lease: %w", err))
+		}
+		return cause
 	}
 	now := time.Now()
 	lease := 3 * interval
 	record := AttachmentRecord{
 		Host:        cfg.Host,
 		Runtime:     runtime,
+		Generation:  generation,
+		WaiterID:    waiterID,
 		PID:         os.Getpid(),
 		FleetID:     fleetID,
 		StartedAt:   now,
@@ -147,27 +225,33 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 	}
 	acquired, err := AcquireAttachment(w.Home, record)
 	if err != nil {
-		return nil, fmt.Errorf("claim bridge attachment: %w", err)
+		return nil, releaseLease(fmt.Errorf("claim bridge attachment: %w", err))
 	}
 	if !acquired {
-		return nil, ErrBridgeOwned
+		return nil, releaseLease(ErrBridgeOwned)
 	}
 
 	guardCtx, cancel := context.WithCancelCause(ctx)
 	guard := &bridgeGuard{
 		ctx: guardCtx, cancel: cancel,
-		stopc: make(chan struct{}), errc: make(chan error, 1),
+		stopc: make(chan struct{}), donec: make(chan struct{}), errc: make(chan error, 1),
 		home: w.Home, host: cfg.Host, runtime: runtime,
 		record: record, lease: lease,
 	}
-	guard.stop = sync.OnceFunc(func() {
+	guard.stop = sync.OnceValue(func() error {
 		close(guard.stopc)
-		ClearAttachment(w.Home, cfg.Host, runtime)
+		ClearAttachment(w.Home, record)
 		cancel(errors.New("supervision bridge stopped"))
+		<-guard.donec
+		if releaseGenerationLease != nil {
+			return releaseGenerationLease()
+		}
+		return nil
 	})
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		defer close(guard.donec)
+		heartbeats, stopHeartbeat := bridgeHeartbeat(interval)
+		defer stopHeartbeat()
 		for {
 			select {
 			case <-guard.stopc:
@@ -176,7 +260,7 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 				return
 			case <-guardCtx.Done():
 				return
-			case <-ticker.C:
+			case <-heartbeats:
 				if proofErr := guard.prove(); proofErr != nil {
 					guard.errc <- proofErr
 					cancel(proofErr)
@@ -186,6 +270,54 @@ func acquireBridge(ctx context.Context, w Waiter, cfg WaitConfig, fleetID string
 		}
 	}()
 	return guard, nil
+}
+
+// Two stable slots let one successor retain the exact generations while it
+// retires its predecessor without growing the permanent lock namespace.
+const waiterLeaseSlots = 2
+
+func acquireWaiterGenerationLeases(cfg WaitConfig, fleetID, waiterID string) (func() error, error) {
+	evidence := cfg.Host + ":" + cfg.RuntimeSession
+	var busyErr error
+	for slot := range waiterLeaseSlots {
+		lockScope := waiterLeaseLockScope(fleetID, cfg, slot)
+		releaseToolchain, err := acquireWaiterGenerationLease(cfg.LeaseGeneration, fleetID, waiterID, lockScope, evidence)
+		if err != nil {
+			busyErr = fmt.Errorf("claim runtime generation lease: %w", err)
+			if errors.Is(err, toolchain.ErrLeaseHeld) {
+				continue
+			}
+			return nil, busyErr
+		}
+		releaseHand, err := acquireWaiterHandGenerationLease(cfg.RuntimeGeneration, fleetID, waiterID, lockScope, evidence)
+		if err != nil {
+			claimErr := fmt.Errorf("claim managed Hand generation lease: %w", err)
+			releaseErr := releaseToolchain()
+			if errors.Is(err, toolchain.ErrLeaseHeld) && releaseErr == nil {
+				busyErr = claimErr
+				continue
+			}
+			return nil, errors.Join(claimErr, releaseErr)
+		}
+		return func() error {
+			return errors.Join(releaseHand(), releaseToolchain())
+		}, nil
+	}
+	return nil, busyErr
+}
+
+func waiterLeaseLockScope(fleetID string, cfg WaitConfig, slot int) string {
+	runtime := cfg.RuntimeSession
+	if runtime == "" {
+		runtime = "unidentified"
+	}
+	generation := cfg.RuntimeGeneration
+	if generation == "" {
+		generation = "unidentified"
+	}
+	record := AttachmentRecord{FleetID: fleetID, Host: cfg.Host, Runtime: runtime, Generation: generation}
+	digest := sha256.Sum256([]byte(ownerScope(record) + "\x00" + cfg.LeaseGeneration + fmt.Sprintf("\x00%d", slot)))
+	return "supervision-waiter:" + hex.EncodeToString(digest[:])
 }
 
 // Proves current bridge ownership by refreshing this exact owner's record
@@ -357,7 +489,8 @@ type bridgeGuard struct {
 	ctx    context.Context
 	cancel context.CancelCauseFunc
 	stopc  chan struct{}
-	stop   func()
+	donec  chan struct{}
+	stop   func() error
 	errc   chan error
 
 	home    string
