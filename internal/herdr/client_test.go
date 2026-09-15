@@ -88,15 +88,18 @@ func TestResolveManagedRuntimeRepairsInvalidLegacySelection(t *testing.T) {
 	}
 	selectedOriginal := selectRuntime
 	ensureOriginal := ensureDeterministicRuntime
+	generationOriginal := managedGenerationID
 	selectRuntime = func(*toolchain.Store) (toolchain.Runtime, error) {
 		return toolchain.Runtime{}, errors.New("legacy bundle is invalid")
 	}
 	ensureDeterministicRuntime = func(got *toolchain.Store) (toolchain.Runtime, error) {
 		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
 	}
+	managedGenerationID = func(*toolchain.Store) (string, error) { return "deterministic", nil }
 	t.Cleanup(func() {
 		selectRuntime = selectedOriginal
 		ensureDeterministicRuntime = ensureOriginal
+		managedGenerationID = generationOriginal
 	})
 	if got, err := resolveManagedRuntime(store); err != nil || !strings.HasSuffix(got.BundleDir, filepath.Join("bundles", "deterministic")) {
 		t.Fatalf("resolve legacy selection = %#v, %v; want deterministic materialization", got, err)

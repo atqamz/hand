@@ -65,6 +65,10 @@ var selectRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
 	return store.Selected("", "")
 }
 
+var managedGenerationID = func(store *toolchain.Store) (string, error) {
+	return store.GenerationID("", "")
+}
+
 func reconcileManagedRuntime(store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
 	expectedBundle := filepath.Join(store.Root, "runtime", "bundles", generation)
 	if filepath.Clean(selected.BundleDir) == filepath.Clean(expectedBundle) {
@@ -89,7 +93,7 @@ func resolveManagedRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
 	if err != nil {
 		return toolchain.Runtime{}, err
 	}
-	generation, err := store.GenerationID("", "")
+	generation, err := managedGenerationID(store)
 	if err != nil {
 		return toolchain.Runtime{}, err
 	}
