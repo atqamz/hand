@@ -329,7 +329,7 @@ func (s *Store) selectGeneration(current Current) error {
 
 func (s *Store) installComponent(ctx context.Context, rootHandle *os.Root, stage, name string, component Component) error {
 	dir := filepath.Join(stage, name)
-	if err := ensureRuntimeDirectory(s.Root, dir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, dir, 0o700); err != nil {
 		return err
 	}
 	artifact, artifactPath, err := createTempRuntimeFile(rootHandle, s.Root, stage, ".artifact-", 0o600)
@@ -356,7 +356,7 @@ func (s *Store) installComponent(ctx context.Context, rootHandle *os.Root, stage
 		return err
 	}
 	artifactDir := filepath.Join(stage, "artifacts")
-	if err := ensureRuntimeDirectory(s.Root, artifactDir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, artifactDir, 0o700); err != nil {
 		return fmt.Errorf("create runtime artifact store: %w", err)
 	}
 	if err := renameRuntimePath(rootHandle, s.Root, artifactPath, filepath.Join(artifactDir, name)); err != nil {

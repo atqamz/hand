@@ -27,15 +27,19 @@ var (
 type LeaseRequest struct {
 	Generation string
 	LeaseID    string
-	FleetID    string
-	Consumer   string
-	Evidence   string
+	// LockScope bounds permanent lock rendezvous independently of the unique
+	// holder record. Empty preserves the one-holder/one-lock default.
+	LockScope string
+	FleetID   string
+	Consumer  string
+	Evidence  string
 }
 
 type leaseRecord struct {
 	Schema     string    `json:"schema"`
 	Generation string    `json:"generation"`
 	LeaseID    string    `json:"lease_id"`
+	LockScope  string    `json:"lock_scope,omitempty"`
 	FleetID    string    `json:"fleet_id"`
 	Consumer   string    `json:"consumer"`
 	Evidence   string    `json:"evidence"`
@@ -131,10 +135,18 @@ func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease
 			_ = rootHandle.Close()
 		}
 	}()
-	key := sha256.Sum256([]byte(request.LeaseID))
-	name := hex.EncodeToString(key[:])
-	recordPath := filepath.Join(referenceRoot, name+".json")
-	lockPath := filepath.Join(referenceRoot, name+".lock")
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.LeaseID
+	}
+	recordIdentity := request.LeaseID
+	if request.LockScope != "" {
+		recordIdentity = request.LockScope + "\x00" + request.LeaseID
+	}
+	recordKey := sha256.Sum256([]byte(recordIdentity))
+	lockKey := sha256.Sum256([]byte(lockScope))
+	recordPath := filepath.Join(referenceRoot, hex.EncodeToString(recordKey[:])+".json")
+	lockPath := filepath.Join(referenceRoot, hex.EncodeToString(lockKey[:])+".lock")
 	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open runtime generation lease lock: %w", err)
@@ -148,7 +160,7 @@ func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease
 	}
 
 	record := leaseRecord{
-		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID,
+		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope,
 		FleetID: request.FleetID, Consumer: request.Consumer, Evidence: request.Evidence,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -193,6 +205,11 @@ func (request LeaseRequest) validate() error {
 			return err
 		}
 	}
+	if request.LockScope != "" {
+		if err := validateLeaseText("lock scope", request.LockScope, 512); err != nil {
+			return err
+		}
+	}
 	if len(request.FleetID) != 34 || !strings.HasPrefix(request.FleetID, "f_") {
 		return fmt.Errorf("runtime generation lease has invalid Fleet identity %q", request.FleetID)
 	}
@@ -216,13 +233,13 @@ func (record leaseRecord) validate() error {
 		return ErrLeaseMetadataUnknown
 	}
 	return (LeaseRequest{
-		Generation: record.Generation, LeaseID: record.LeaseID, FleetID: record.FleetID,
+		Generation: record.Generation, LeaseID: record.LeaseID, LockScope: record.LockScope, FleetID: record.FleetID,
 		Consumer: record.Consumer, Evidence: record.Evidence,
 	}).validate()
 }
 
 func (record leaseRecord) sameIdentity(other leaseRecord) bool {
-	return record.Schema == other.Schema && record.Generation == other.Generation && record.LeaseID == other.LeaseID &&
+	return record.Schema == other.Schema && record.Generation == other.Generation && record.LeaseID == other.LeaseID && record.LockScope == other.LockScope &&
 		record.FleetID == other.FleetID && record.Consumer == other.Consumer && record.Evidence == other.Evidence
 }
 

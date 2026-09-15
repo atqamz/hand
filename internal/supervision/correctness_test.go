@@ -18,6 +18,7 @@ import (
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/orientation"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -193,13 +194,13 @@ func TestBridgeAttachmentFailureReleasesGenerationLease(t *testing.T) {
 	var releases atomic.Int64
 	originalLease := acquireWaiterGenerationLease
 	originalHandLease := acquireWaiterHandGenerationLease
-	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
 		return func() error {
 			releases.Add(1)
 			return releaseErr
 		}, nil
 	}
-	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) {
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
 		return func() error { return nil }, nil
 	}
 	t.Cleanup(func() {
@@ -233,13 +234,13 @@ func TestBridgeOwnershipRefusalReleasesGenerationLease(t *testing.T) {
 	var releases atomic.Int64
 	originalLease := acquireWaiterGenerationLease
 	originalHandLease := acquireWaiterHandGenerationLease
-	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) {
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
 		return func() error {
 			releases.Add(1)
 			return releaseErr
 		}, nil
 	}
-	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) {
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
 		return func() error { return nil }, nil
 	}
 	t.Cleanup(func() {
@@ -265,15 +266,17 @@ func TestWaitHoldsBothGenerationLeasesAndSurfacesReleaseFailure(t *testing.T) {
 	home := t.TempDir()
 	ledger := OpenLedger(home)
 	releaseErr := errors.New("release exact Hand generation")
-	var toolchainGeneration, handGeneration string
+	var toolchainGeneration, handGeneration, toolchainLockScope, handLockScope string
 	originalLease := acquireWaiterGenerationLease
 	originalHandLease := acquireWaiterHandGenerationLease
-	acquireWaiterGenerationLease = func(generation, _, _, _ string) (func() error, error) {
+	acquireWaiterGenerationLease = func(generation, _, _, lockScope, _ string) (func() error, error) {
 		toolchainGeneration = generation
+		toolchainLockScope = lockScope
 		return func() error { return nil }, nil
 	}
-	acquireWaiterHandGenerationLease = func(generation, _, _, _ string) (func() error, error) {
+	acquireWaiterHandGenerationLease = func(generation, _, _, lockScope, _ string) (func() error, error) {
 		handGeneration = generation
+		handLockScope = lockScope
 		return func() error { return releaseErr }, nil
 	}
 	t.Cleanup(func() {
@@ -297,6 +300,9 @@ func TestWaitHoldsBothGenerationLeasesAndSurfacesReleaseFailure(t *testing.T) {
 	if toolchainGeneration != "runtime-a" || handGeneration != "sha256:hand-a" {
 		t.Fatalf("leased toolchain=%q Hand=%q, want both exact generations", toolchainGeneration, handGeneration)
 	}
+	if toolchainLockScope == "" || handLockScope != toolchainLockScope {
+		t.Fatalf("lease lock scopes = %q/%q, want one stable paired scope", toolchainLockScope, handLockScope)
+	}
 	if ledger.BridgeErroredBefore("codex", BridgeFailureCooldown) {
 		t.Fatal("generation lease release failure was not recorded in bridge diagnostics")
 	}
@@ -313,6 +319,117 @@ func TestBridgeRequiresBothGenerationIdentities(t *testing.T) {
 				t.Fatalf("err = %v, want paired-generation refusal", err)
 			}
 		})
+	}
+}
+
+func TestWaiterLeaseLockScopeIsStableAndExact(t *testing.T) {
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	first := waiterLeaseLockScope("f_1", cfg, 0)
+	if second := waiterLeaseLockScope("f_1", cfg, 0); second != first {
+		t.Fatalf("same exact waiter scope changed from %q to %q", first, second)
+	}
+	otherSession := cfg
+	otherSession.RuntimeSession = "session-b"
+	if got := waiterLeaseLockScope("f_1", otherSession, 0); got == first {
+		t.Fatalf("different runtime session reused lock scope %q", got)
+	}
+	if got := waiterLeaseLockScope("f_1", cfg, 1); got == first {
+		t.Fatalf("takeover slots share lock scope %q", got)
+	}
+}
+
+func TestRepeatedWaitersReuseLeaseLockScopeWithUniqueHolders(t *testing.T) {
+	home := t.TempDir()
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	ids := []string{"waiter-one", "waiter-two"}
+	var holders, scopes []string
+	originalWaiterID := newWaiterIdentity
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	newWaiterIdentity = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	acquireWaiterGenerationLease = func(_, _, holder, lockScope, _ string) (func() error, error) {
+		holders = append(holders, holder)
+		scopes = append(scopes, lockScope)
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		newWaiterIdentity = originalWaiterID
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	for range 2 {
+		guard, err := acquireBridge(context.Background(), Waiter{Home: home}, cfg, "f_1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := guard.stop(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(holders) != 2 || holders[0] == holders[1] || len(scopes) != 2 || scopes[0] != scopes[1] {
+		t.Fatalf("holders/scopes = %v/%v, want unique holders sharing a stable lock scope", holders, scopes)
+	}
+}
+
+func TestWaiterLeaseUsesSecondStableSlotDuringTakeover(t *testing.T) {
+	home := t.TempDir()
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	slot0 := waiterLeaseLockScope("f_1", cfg, 0)
+	slot1 := waiterLeaseLockScope("f_1", cfg, 1)
+	var toolchainScopes, handScopes []string
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(_, _, _, lockScope, _ string) (func() error, error) {
+		toolchainScopes = append(toolchainScopes, lockScope)
+		if lockScope == slot0 {
+			return nil, toolchain.ErrLeaseHeld
+		}
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(_, _, _, lockScope, _ string) (func() error, error) {
+		handScopes = append(handScopes, lockScope)
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	guard, err := acquireBridge(context.Background(), Waiter{Home: home}, cfg, "f_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.stop(); err != nil {
+		t.Fatal(err)
+	}
+	if len(toolchainScopes) != 2 || toolchainScopes[0] != slot0 || toolchainScopes[1] != slot1 {
+		t.Fatalf("toolchain lock scopes = %v, want bounded slot fallback", toolchainScopes)
+	}
+	if len(handScopes) != 1 || handScopes[0] != slot1 {
+		t.Fatalf("Hand lock scopes = %v, want paired second slot", handScopes)
 	}
 }
 
@@ -831,8 +948,12 @@ func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
 		ids = ids[1:]
 		return id, nil
 	}
-	acquireWaiterGenerationLease = func(string, string, string, string) (func() error, error) { return func() error { return nil }, nil }
-	acquireWaiterHandGenerationLease = func(string, string, string, string) (func() error, error) { return func() error { return nil }, nil }
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
 	bridgeHeartbeat = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
 	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
 	watcherAttached = func(string) (bool, error) { return false, nil }

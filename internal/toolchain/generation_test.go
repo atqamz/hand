@@ -270,6 +270,40 @@ func TestInstalledComponentVerificationRemainsAnchoredAcrossRootReplacement(t *t
 	}
 }
 
+func TestInstallComponentRemainsAnchoredAcrossRootReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	store, _ := generationStoreFixture(t)
+	target, err := store.Lock.Target("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(store.Root, "runtime", ".staging-test")
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rootHandle, err := openDirectRuntimeRoot(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+
+	moved := store.Root + "-moved"
+	if err := os.Rename(store.Root, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.installComponent(context.Background(), rootHandle, stage, "herdr", target.Components["herdr"]); err != nil {
+		t.Fatalf("install component followed the replacement root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, "runtime", ".staging-test", "artifacts", "herdr")); err != nil {
+		t.Fatalf("retained artifact missing from acquired root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(store.Root, "runtime")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("component setup wrote through replacement root: %v", err)
+	}
+}
+
 func TestConcurrentEnsureConvergesColdAndWithoutSelection(t *testing.T) {
 	store, requests := generationStoreFixture(t)
 	ensureTogether := func() [2]Runtime {

@@ -107,6 +107,63 @@ func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
 	}
 }
 
+func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: generation,
+		LeaseID:    "waiter-one",
+		LockScope:  "waiter:fleet:host:session:generation:slot-0",
+		FleetID:    testFleetID,
+		Consumer:   "supervision-waiter",
+		Evidence:   "host=codex;session=session-1",
+	}
+	first, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(first.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record leaseRecord
+	if err := json.Unmarshal(raw, &record); err != nil || record.LockScope != request.LockScope {
+		t.Fatalf("durable lock scope = %q, %v; want %q", record.LockScope, err, request.LockScope)
+	}
+	secondRequest := request
+	secondRequest.LeaseID = "waiter-two"
+	if _, err := store.AcquireLease(secondRequest); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("second holder in stable lock scope = %v, want ErrLeaseHeld", err)
+	}
+	firstRecord, firstLock := first.RecordPath(), first.LockPath()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AcquireLease(secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RecordPath() == firstRecord || second.LockPath() != firstLock {
+		t.Fatalf("record/lock paths = %q/%q then %q/%q; want unique records sharing one stable lock", firstRecord, firstLock, second.RecordPath(), second.LockPath())
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(firstLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
+		t.Fatalf("stable lease scope left %v, want one permanent rendezvous", entries)
+	}
+}
+
 func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	store, _ := generationStoreFixture(t)
 	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
@@ -416,6 +473,7 @@ func TestRuntimeLeaseRejectsUnverifiedIdentityInputs(t *testing.T) {
 	for name, mutate := range map[string]func(*LeaseRequest){
 		"generation": func(request *LeaseRequest) { request.Generation = "g_unknown" },
 		"lease":      func(request *LeaseRequest) { request.LeaseID = "bad\x00lease" },
+		"lock scope": func(request *LeaseRequest) { request.LockScope = "bad\x00scope" },
 		"fleet":      func(request *LeaseRequest) { request.FleetID = "f_reused-pid" },
 		"consumer":   func(request *LeaseRequest) { request.Consumer = "" },
 		"evidence":   func(request *LeaseRequest) { request.Evidence = "" },

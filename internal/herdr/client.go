@@ -58,8 +58,8 @@ type Client struct {
 	store             *toolchain.Store
 }
 
-var ensureDeterministicRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
-	return store.Ensure(context.Background(), "", "")
+var ensureDeterministicRuntime = func(ctx context.Context, store *toolchain.Store) (toolchain.Runtime, error) {
+	return store.Ensure(ctx, "", "")
 }
 
 var selectRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
@@ -70,12 +70,12 @@ var managedGenerationID = func(store *toolchain.Store) (string, error) {
 	return store.GenerationID("", "")
 }
 
-func reconcileManagedRuntime(store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
+func reconcileManagedRuntime(ctx context.Context, store *toolchain.Store, selected toolchain.Runtime, generation string) (toolchain.Runtime, error) {
 	expectedBundle := filepath.Join(store.Root, "runtime", "bundles", generation)
 	if filepath.Clean(selected.BundleDir) == filepath.Clean(expectedBundle) {
 		return selected, nil
 	}
-	return ensureDeterministicRuntime(store)
+	return ensureDeterministicRuntime(ctx, store)
 }
 
 func runtimeSelectionExists(store *toolchain.Store) bool {
@@ -83,10 +83,10 @@ func runtimeSelectionExists(store *toolchain.Store) bool {
 	return err == nil
 }
 
-func resolveManagedRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
+func resolveManagedRuntime(ctx context.Context, store *toolchain.Store) (toolchain.Runtime, error) {
 	runtime, err := selectRuntime(store)
 	if err != nil && runtimeSelectionExists(store) {
-		runtime, err = ensureDeterministicRuntime(store)
+		runtime, err = ensureDeterministicRuntime(ctx, store)
 		if err != nil {
 			return toolchain.Runtime{}, fmt.Errorf("materialize deterministic runtime generation: %w", err)
 		}
@@ -98,7 +98,7 @@ func resolveManagedRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
 	if err != nil {
 		return toolchain.Runtime{}, err
 	}
-	return reconcileManagedRuntime(store, runtime, generation)
+	return reconcileManagedRuntime(ctx, store, runtime, generation)
 }
 
 func NewClient() *Client {
@@ -355,7 +355,7 @@ func (c *Client) startServer(ctx context.Context) error {
 	args := c.wireArgs("server")
 	if c.guardian != "" {
 		if c.store != nil {
-			runtime, err := resolveManagedRuntime(c.store)
+			runtime, err := resolveManagedRuntime(ctx, c.store)
 			if err != nil {
 				return fmt.Errorf("materialize managed runtime for server: %w", err)
 			}
