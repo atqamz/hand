@@ -55,6 +55,7 @@ type Client struct {
 	env               []string
 	childEnv          []string
 	initErr           error
+	store             *toolchain.Store
 }
 
 var ensureDeterministicRuntime = func(store *toolchain.Store) (toolchain.Runtime, error) {
@@ -173,6 +174,7 @@ func NewManagedClient() *Client {
 		return &Client{initErr: fmt.Errorf("resolve Hand runtime guardian: %w", err)}
 	}
 	client.guardian = guardian
+	client.store = store
 	client.runtimeGeneration = generation
 	client.childEnv = []string{"PATH=" + environmentValue(env, "PATH")}
 	return client
@@ -368,24 +370,22 @@ func (c *Client) startServer(ctx context.Context) error {
 	executable := c.executable
 	args := c.wireArgs("server")
 	if c.guardian != "" {
-		store, err := toolchain.DefaultStore()
-		if err != nil {
-			return err
+		if c.store != nil {
+			runtime, err := resolveManagedRuntime(c.store)
+			if err != nil {
+				return fmt.Errorf("materialize managed runtime for server: %w", err)
+			}
+			c.runtimeGeneration, err = c.store.GenerationID("", "")
+			if err != nil {
+				return err
+			}
+			c.executable = runtime.HerdrPath
+			materialized, err := c.store.MaterializeHandExecutable(c.guardian)
+			if err != nil {
+				return fmt.Errorf("materialize Hand runtime guardian: %w", err)
+			}
+			c.guardian = materialized
 		}
-		runtime, err := resolveManagedRuntime(store)
-		if err != nil {
-			return fmt.Errorf("materialize managed runtime for server: %w", err)
-		}
-		c.runtimeGeneration, err = store.GenerationID("", "")
-		if err != nil {
-			return err
-		}
-		c.executable = runtime.HerdrPath
-		materialized, err := store.MaterializeHandExecutable(c.guardian)
-		if err != nil {
-			return fmt.Errorf("materialize Hand runtime guardian: %w", err)
-		}
-		c.guardian = materialized
 		executable = c.guardian
 		args = []string{"runtime", "herdr-server", "--fleet-id", c.fleetID, "--generation", c.runtimeGeneration, "--session", c.session}
 	}

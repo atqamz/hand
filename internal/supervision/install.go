@@ -185,15 +185,22 @@ func splitFirstToken(command string) (first, rest string) {
 	if trimmed == "" {
 		return "", ""
 	}
-	if trimmed[0] == '"' || trimmed[0] == '\'' {
-		end := strings.IndexByte(trimmed[1:], trimmed[0])
-		if end < 0 {
-			return trimmed, ""
+	quoted := byte(0)
+	for i := 0; i < len(trimmed); i++ {
+		switch trimmed[i] {
+		case '\\':
+			i++
+		case '\'', '"':
+			if quoted == 0 {
+				quoted = trimmed[i]
+			} else if quoted == trimmed[i] {
+				quoted = 0
+			}
+		case ' ', '\t':
+			if quoted == 0 {
+				return trimmed[:i], strings.TrimSpace(trimmed[i:])
+			}
 		}
-		return trimmed[:end+2], strings.TrimLeft(trimmed[end+2:], " \t")
-	}
-	if i := strings.IndexAny(trimmed, " \t"); i >= 0 {
-		return trimmed[:i], strings.TrimSpace(trimmed[i+1:])
 	}
 	return trimmed, ""
 }
@@ -210,7 +217,14 @@ func unquoteToken(token string) string {
 		return token[1 : len(token)-1]
 	}
 	if len(token) >= 2 && token[0] == '\'' && token[len(token)-1] == '\'' {
-		return token[1 : len(token)-1]
+		var out strings.Builder
+		quoted := false
+		for i := 0; i < len(token) {
+			if token[i] == '\'' { quoted = !quoted; i++; continue }
+			if token[i] == '\\' && !quoted && i+1 < len(token) { out.WriteByte(token[i+1]); i += 2; continue }
+			out.WriteByte(token[i]); i++
+		}
+		return out.String()
 	}
 	return token
 }

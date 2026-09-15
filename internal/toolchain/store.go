@@ -956,7 +956,7 @@ func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, 
 	if !info.Mode().IsRegular() {
 		return errors.New("retained artifact is not a regular file")
 	}
-	temporary, err := os.MkdirTemp("", "hand-runtime-verify-")
+	temporary, err := os.MkdirTemp(filepath.Join(root, "runtime"), ".verify-")
 	if err != nil {
 		return fmt.Errorf("create artifact verification directory: %w", err)
 	}
