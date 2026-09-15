@@ -80,7 +80,7 @@ can kill a mutation that changes nothing observable. Three ways to answer what t
 that:
 
 - **A suppression list** (the decision here): the checked-in baseline records this exact mutant -
-  `internal/completion/completion.go:149:11`, `INCREMENT_DECREMENT` - as an accepted `LIVED`, with the
+  `internal/completion/completion.go:154:11`, `INCREMENT_DECREMENT` - as an accepted `LIVED`, with the
   reason inline (why it is equivalent, not merely why it was tolerated). A new, different survivor
   anywhere in the package is not in that list, so it fails the gate on its own merits. Adding an entry
   is a normal reviewed code change to the baseline file, which is where a human judges "is this
