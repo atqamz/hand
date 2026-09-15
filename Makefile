@@ -1,4 +1,4 @@
-.PHONY: build test fmt lint e2e contract contract-live install clean vendorhash mutation
+.PHONY: build test fmt lint e2e contract contract-live install clean vendorhash mutation mutation-gate
 
 VERSION ?= dev
 CHANNEL ?= dev
@@ -38,6 +38,12 @@ mutation:
 	@command -v gremlins >/dev/null 2>&1 || { echo "gremlins not found; see CONTRIBUTING.md's Mutation testing section for the install command" >&2; exit 1; }
 	go clean -testcache
 	gremlins unleash --tags=test $(GREMLINS_FLAGS) $(PKG)
+
+mutation-gate:
+	@test -n "$(PKG)" || { echo "usage: make mutation-gate PKG=./internal/foo RESULTS=results.json [GREMLINS_FLAGS='...']" >&2; exit 1; }
+	@test -n "$(RESULTS)" || { echo "RESULTS is required" >&2; exit 1; }
+	$(MAKE) mutation PKG=$(PKG) GREMLINS_FLAGS='$(GREMLINS_FLAGS) -o $(RESULTS)'
+	go run ./tools/mutationgate -baseline mutation/baseline.json -results "$(RESULTS)" -module github.com/atqamz/hand -package "$(PKG)"
 
 # FAKE_VENDOR_HASH is nixpkgs' lib.fakeHash: a well-formed sha256 SRI hash that
 # no real fixed-output derivation will ever produce, so the build below is
