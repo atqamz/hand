@@ -266,6 +266,78 @@ func TestLoadRejectsDuplicateObjectMembers(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsNonExactObjectMemberSpelling(t *testing.T) {
+	result, err := json.Marshal(fixtureResult("KILLED", "LIVED"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := json.Marshal(fixtureBaseline())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		data string
+		load func(string) error
+	}{
+		{
+			name: "top-level result module",
+			data: strings.Replace(string(result), `"go_module"`, `"GO_MODULE"`, 1),
+			load: func(path string) error {
+				_, err := loadResult(path)
+				return err
+			},
+		},
+		{
+			name: "nested mutation status",
+			data: strings.Replace(string(result), `"status"`, `"STATUS"`, 1),
+			load: func(path string) error {
+				_, err := loadResult(path)
+				return err
+			},
+		},
+		{
+			name: "nested baseline package path",
+			data: strings.Replace(string(baseline), `"path"`, `"PATH"`, 1),
+			load: func(path string) error {
+				_, err := loadBaseline(path)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "evidence.json")
+			if err := os.WriteFile(path, []byte(tc.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.load(path); err == nil || !strings.Contains(err.Error(), "unexpected JSON object member") {
+				t.Fatalf("load error = %v, want exact member spelling rejection", err)
+			}
+		})
+	}
+}
+
+func TestLoadPreservesArbitraryMutatorStatisticKeys(t *testing.T) {
+	result := fixtureResult("KILLED", "LIVED")
+	result.Statistics = map[string]int{"future_mutator": 2}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "results.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadResult(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Statistics["future_mutator"] != 2 {
+		t.Fatalf("mutator statistic = %d, want 2", loaded.Statistics["future_mutator"])
+	}
+}
+
 func TestLoadRejectsMissingRequiredResultFields(t *testing.T) {
 	data, err := json.Marshal(fixtureResult("KILLED", "LIVED"))
 	if err != nil {

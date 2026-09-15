@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -146,7 +147,7 @@ func decode(path string, target any) error {
 	if err != nil {
 		return err
 	}
-	if err := rejectDuplicateObjectMembers(data); err != nil {
+	if err := validateJSONMembers(data, reflect.TypeOf(target)); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -163,9 +164,9 @@ func decode(path string, target any) error {
 	return nil
 }
 
-func rejectDuplicateObjectMembers(data []byte) error {
+func validateJSONMembers(data []byte, target reflect.Type) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+	if err := validateJSONValue(decoder, target); err != nil {
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
@@ -177,7 +178,10 @@ func rejectDuplicateObjectMembers(data []byte) error {
 	return nil
 }
 
-func rejectDuplicateObjectMembersValue(decoder *json.Decoder) error {
+func validateJSONValue(decoder *json.Decoder, target reflect.Type) error {
+	for target.Kind() == reflect.Pointer {
+		target = target.Elem()
+	}
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -189,6 +193,10 @@ func rejectDuplicateObjectMembersValue(decoder *json.Decoder) error {
 	switch delimiter {
 	case '{':
 		members := map[string]struct{}{}
+		fields := jsonFields(target)
+		if fields == nil && (target.Kind() != reflect.Map || target.Key().Kind() != reflect.String) {
+			return errors.New("unexpected JSON object")
+		}
 		for decoder.More() {
 			token, err := decoder.Token()
 			if err != nil {
@@ -202,15 +210,28 @@ func rejectDuplicateObjectMembersValue(decoder *json.Decoder) error {
 				return fmt.Errorf("duplicate JSON object member %q", member)
 			}
 			members[member] = struct{}{}
-			if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+			var valueType reflect.Type
+			if fields != nil {
+				var ok bool
+				valueType, ok = fields[member]
+				if !ok {
+					return fmt.Errorf("unexpected JSON object member %q", member)
+				}
+			} else {
+				valueType = target.Elem()
+			}
+			if err := validateJSONValue(decoder, valueType); err != nil {
 				return err
 			}
 		}
 		_, err = decoder.Token()
 		return err
 	case '[':
+		if target.Kind() != reflect.Slice && target.Kind() != reflect.Array {
+			return errors.New("unexpected JSON array")
+		}
 		for decoder.More() {
-			if err := rejectDuplicateObjectMembersValue(decoder); err != nil {
+			if err := validateJSONValue(decoder, target.Elem()); err != nil {
 				return err
 			}
 		}
@@ -219,6 +240,25 @@ func rejectDuplicateObjectMembersValue(decoder *json.Decoder) error {
 	default:
 		return errors.New("invalid JSON delimiter")
 	}
+}
+
+func jsonFields(target reflect.Type) map[string]reflect.Type {
+	if target.Kind() != reflect.Struct {
+		return nil
+	}
+	fields := make(map[string]reflect.Type, target.NumField())
+	for index := 0; index < target.NumField(); index++ {
+		field := target.Field(index)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		fields[name] = field.Type
+	}
+	return fields
 }
 
 func compare(baseline baselineFile, result gremlinsResult, module, packagePath, tool, tags string) error {
