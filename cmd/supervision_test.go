@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -270,7 +271,24 @@ func TestInitInstallsCodexHookForManagedGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(data, []byte(exe)) {
+	var config struct {
+		Hooks struct {
+			Stop []struct {
+				Hooks []struct {
+					Command        string `json:"command"`
+					CommandWindows string `json:"commandWindows"`
+				} `json:"hooks"`
+			} `json:"Stop"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Hooks.Stop) != 1 || len(config.Hooks.Stop[0].Hooks) != 1 {
+		t.Fatalf("unexpected Codex Stop hook shape: %s", data)
+	}
+	hook := config.Hooks.Stop[0].Hooks[0]
+	if !strings.Contains(hook.Command, exe) || !strings.Contains(hook.CommandWindows, exe) {
 		t.Fatalf("codex hook does not retain managed generation %q: %s", exe, data)
 	}
 }
