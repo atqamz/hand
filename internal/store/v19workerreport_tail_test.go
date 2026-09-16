@@ -7,9 +7,15 @@ import (
 )
 
 func TestCanonicalV19WorkerReportTailRejectsCheckpointRollbackFork(t *testing.T) {
+	type sourceBoundary struct {
+		id, digest string
+		offset     int
+	}
+
+	ctx := context.Background()
 	fixture := canonicalV19AttemptWriterFixture(t)
 	attempt := canonicalV19AttemptWriterInput("attempt-worker-report-tail", "plan-root")
-	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, attempt); err != nil {
+	if _, err := CreateCanonicalV19Attempt(ctx, fixture.Home, attempt); err != nil {
 		t.Fatal(err)
 	}
 
@@ -19,10 +25,7 @@ func TestCanonicalV19WorkerReportTailRejectsCheckpointRollbackFork(t *testing.T)
 	}
 	defer func() { _ = db.Close() }()
 
-	for _, report := range []struct {
-		id, digest string
-		offset     int
-	}{
+	for _, report := range []sourceBoundary{
 		{id: "R1", digest: "prefix-r1", offset: 10},
 		{id: "R2", digest: "prefix-r2", offset: 20},
 	} {
@@ -34,30 +37,76 @@ func TestCanonicalV19WorkerReportTailRejectsCheckpointRollbackFork(t *testing.T)
 		}
 	}
 
-	// A restored R1 checkpoint cannot authorize a fork after canonical R2.
-	result, err := db.Exec(`INSERT INTO worker_report(
-		id,attempt_id,source_prefix_digest,source_end_offset,report_state,note,created_at
-	)
-	SELECT ?,?,?,?,?,?,?
-	WHERE EXISTS (
-		SELECT 1
-		FROM (
-			SELECT id,source_prefix_digest,source_end_offset
-			FROM worker_report
-			WHERE attempt_id=?
-			ORDER BY source_end_offset DESC,id
-			LIMIT 1
-		) AS tail
-		WHERE tail.id=? AND tail.source_prefix_digest=? AND tail.source_end_offset=?
-	)`, "R-FORK", attempt.ID, "prefix-fork", 30, "failed", "fork", "2026-09-16T00:01:00Z",
-		attempt.ID, "R1", "prefix-r1", 10)
+	checkpoint := sourceBoundary{id: "R1", digest: "prefix-r1", offset: 10}
+	conn, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows, err := result.RowsAffected(); err != nil {
+	defer func() { _ = conn.Close() }()
+
+	// Reproduce PR #581's checkpoint-only failure: restored R1 is syntactically
+	// valid and still exists, so it authorizes a distinct-offset fork after R2.
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
 		t.Fatal(err)
-	} else if rows != 0 {
-		t.Fatalf("rollback-fork rows inserted = %d, want 0", rows)
+	}
+	var predecessor sourceBoundary
+	if err := conn.QueryRowContext(ctx, `SELECT id,source_prefix_digest,source_end_offset
+		FROM worker_report WHERE id=?`, checkpoint.id).Scan(
+		&predecessor.id, &predecessor.digest, &predecessor.offset,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if predecessor != checkpoint {
+		t.Fatalf("restored checkpoint predecessor = %#v, want %#v", predecessor, checkpoint)
+	}
+	if _, err := conn.ExecContext(ctx, `INSERT INTO worker_report(
+		id,attempt_id,source_prefix_digest,source_end_offset,report_state,note,created_at
+	) VALUES(?,?,?,?,?,?,?)`, "R-FORK", attempt.ID, "prefix-fork", 30,
+		"failed", "fork", "2026-09-16T00:01:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	var checkpointOnlyCount int
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM worker_report WHERE attempt_id=?`, attempt.ID).
+		Scan(&checkpointOnlyCount); err != nil {
+		t.Fatal(err)
+	}
+	if checkpointOnlyCount != 3 {
+		t.Fatalf("checkpoint-only WorkerReport rows = %d, want reproduced fork count 3", checkpointOnlyCount)
+	}
+	if _, err := conn.ExecContext(ctx, `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+
+	// The relocked writer compares the same checkpoint tuple with the exact
+	// relational tail while holding its writer transaction. R2 wins, so R1
+	// cannot authorize the fork.
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	var tail sourceBoundary
+	if err := conn.QueryRowContext(ctx, `SELECT id,source_prefix_digest,source_end_offset
+		FROM worker_report
+		WHERE attempt_id=?
+		ORDER BY source_end_offset DESC,id
+		LIMIT 1`, attempt.ID).Scan(&tail.id, &tail.digest, &tail.offset); err != nil {
+		t.Fatal(err)
+	}
+	if tail == checkpoint {
+		t.Fatal("restored R1 checkpoint unexpectedly equals canonical relational tail")
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatal(err)
+	}
+	var rowsAfterRelock int
+	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM worker_report WHERE attempt_id=?`, attempt.ID).
+		Scan(&rowsAfterRelock); err != nil {
+		t.Fatal(err)
+	}
+	if rowsAfterRelock != 2 {
+		t.Fatalf("WorkerReport rows after relational-tail refusal = %d, want 2", rowsAfterRelock)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
 	}
 
 	rows, err := db.Query(`EXPLAIN QUERY PLAN
