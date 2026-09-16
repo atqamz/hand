@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -248,6 +249,120 @@ func TestLegacyV18CutoverGateAndFreezeExcludeIndependentWriters(t *testing.T) {
 			t.Fatalf("independent writer after archive alias refusal = %q, want busy", got)
 		}
 	})
+}
+
+func TestLegacyV18CutoverManifestAliasRefusalPreservesIndependentWriterExclusion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("closing an unrelated descriptor does not release Windows LockFileEx locks")
+	}
+
+	for _, phase := range []string{"archive validation", "manifest read", "manifest reuse", "manifest candidate"} {
+		t.Run(phase, func(t *testing.T) {
+			home := createLegacyV18CutoverTestSource(t)
+			setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
+			gate, err := acquireLegacyV18CutoverGate(context.Background(), home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if gate != nil {
+					_ = gate.Close()
+				}
+			}()
+
+			archive, err := promoteLegacyV18CutoverArchiveCandidate(home, gate.archiveCandidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fleetID, err := legacyV18CutoverFleetID(sqliteConnQueryer{ctx: context.Background(), conn: gate.conn})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := LegacyV18CutoverManifestInput{
+				FleetID:    fleetID,
+				ImportedAt: "2026-09-16T00:00:00Z",
+				Projects:   []LegacyV18CutoverManifestProjectInput{},
+			}
+			manifest, err := buildLegacyV18CutoverManifest(home, archive, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload = append(payload, '\n')
+			artifact := legacyV18CutoverManifestArtifact{
+				MigrationID: archive.MigrationID,
+				Path:        legacyV18CutoverManifestPath(home, archive.MigrationID),
+				SHA256:      canonicalV19SHA256(payload),
+				ImportedAt:  input.ImportedAt,
+			}
+
+			var aliasPath string
+			var exercise func() error
+			switch phase {
+			case "archive validation":
+				aliasPath = archive.Path
+				exercise = func() error {
+					_, err := buildLegacyV18CutoverManifest(home, archive, input)
+					return err
+				}
+			case "manifest read":
+				artifact, err = writeLegacyV18CutoverManifest(home, archive, input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				aliasPath = artifact.Path
+				exercise = func() error {
+					_, err := stabilizeLegacyV18CutoverManifestInput(home, archive, input)
+					return err
+				}
+			case "manifest reuse":
+				artifact, err = writeLegacyV18CutoverManifest(home, archive, input)
+				if err != nil {
+					t.Fatal(err)
+				}
+				aliasPath = artifact.Path
+				exercise = func() error {
+					_, err := reuseExactLegacyV18CutoverManifest(gate.source, artifact.Path, payload, artifact.SHA256)
+					return err
+				}
+			case "manifest candidate":
+				aliasPath = legacyV18CutoverManifestCandidatePath(home, archive.MigrationID)
+				exercise = func() error {
+					return prepareLegacyV18CutoverManifestCandidate(gate.source, aliasPath, payload, artifact.SHA256)
+				}
+			default:
+				t.Fatalf("unknown phase %q", phase)
+			}
+
+			if err := os.Remove(aliasPath); err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if err := os.Link(Path(home), aliasPath); err != nil {
+				t.Skipf("platform cannot create hard-link alias: %v", err)
+			}
+			exerciseErr := exercise()
+			if got := runLegacyV18CutoverWriteOnceProcess(t, home); got != "busy" {
+				t.Fatalf("independent writer after %s alias refusal = %q, want busy; refusal error=%v", phase, got, exerciseErr)
+			}
+			if exerciseErr == nil {
+				t.Fatalf("%s accepted an artifact aliased to the active source", phase)
+			}
+
+			if err := os.Remove(aliasPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := gate.Close(); err != nil {
+				t.Fatal(err)
+			}
+			gate = nil
+			if got := runLegacyV18CutoverWriteOnceProcess(t, home); got != "committed" {
+				t.Fatalf("independent writer after %s refusal cleanup = %q, want committed", phase, got)
+			}
+		})
+	}
 }
 
 func TestLegacyV18CutoverProductionPhasesExcludeIndependentWriters(t *testing.T) {

@@ -13,6 +13,7 @@ type legacyV18CutoverOriginalArchive struct {
 	Directory   string
 	Path        string
 	SHA256      string
+	source      *legacyV18CutoverPinnedSource
 }
 
 func legacyV18CutoverOriginalArchiveDir(homeDir, migrationID string) string {
@@ -53,6 +54,7 @@ func promoteLegacyV18CutoverArchiveCandidate(homeDir string, candidate legacyV18
 		Directory:   legacyV18CutoverOriginalArchiveDir(homeDir, candidate.MigrationID),
 		Path:        legacyV18CutoverOriginalArchivePath(homeDir, candidate.MigrationID),
 		SHA256:      candidate.SHA256,
+		source:      candidate.source,
 	}
 	if err := ensureLegacyV18CutoverArchiveDirectory(archive.Directory); err != nil {
 		return legacyV18CutoverOriginalArchive{}, err

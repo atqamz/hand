@@ -222,6 +222,28 @@ func (s *legacyV18CutoverPinnedSource) distinctArtifactSHA256(path, role string)
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
+func (s *legacyV18CutoverPinnedSource) readDistinctArtifact(path, role string) ([]byte, error) {
+	file, info, err := s.openDistinctArtifact(path, role, os.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	payload, readErr := io.ReadAll(io.NewSectionReader(file, 0, info.Size()))
+	if readErr == nil && int64(len(payload)) != info.Size() {
+		readErr = fmt.Errorf("read bytes=%d, want %d", len(payload), info.Size())
+	}
+	if readErr == nil {
+		readErr = s.validateDistinctArtifact(path, role, file, info)
+	}
+	closeErr := file.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close legacy v18 cutover %s: %w", role, closeErr)
+	}
+	return payload, nil
+}
+
 func (s *legacyV18CutoverPinnedSource) syncDistinctArtifact(path, role string) error {
 	file, info, err := s.openDistinctArtifact(path, role, os.O_RDWR)
 	if err != nil {
@@ -239,6 +261,27 @@ func (s *legacyV18CutoverPinnedSource) syncDistinctArtifact(path, role string) e
 		return fmt.Errorf("close legacy v18 cutover %s: %w", role, closeErr)
 	}
 	return nil
+}
+
+func legacyV18CutoverArtifactSHA256(source *legacyV18CutoverPinnedSource, path, role string) (string, error) {
+	if source == nil || source.file == nil {
+		return legacyV18CutoverFileSHA256(path)
+	}
+	return source.distinctArtifactSHA256(path, role)
+}
+
+func readLegacyV18CutoverArtifact(source *legacyV18CutoverPinnedSource, path, role string) ([]byte, error) {
+	if source == nil || source.file == nil {
+		return os.ReadFile(path)
+	}
+	return source.readDistinctArtifact(path, role)
+}
+
+func syncLegacyV18CutoverArtifact(source *legacyV18CutoverPinnedSource, path, role string) error {
+	if source == nil || source.file == nil {
+		return syncLegacyV18CutoverFile(path)
+	}
+	return source.syncDistinctArtifact(path, role)
 }
 
 func (s *legacyV18CutoverPinnedSource) Close() error {
