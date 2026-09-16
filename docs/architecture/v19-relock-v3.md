@@ -50,14 +50,14 @@ python3 /tmp/hand-v19-proof-v3.py /tmp/hand-v19-v3.sql --json
 
 Reconstructed proof runner:
 
-- byte count: `64716`
-- SHA-256: `1b0c90d492e3984814b635d9c13ed81ab63766f0e4175d9daaf1231d8e7d7d24`
+- byte count: `68756`
+- SHA-256: `508c77b0c6ecec11736eada2bd1d4298ac0ea8196602b0cdea78240f93945990`
 
 Stored compressed proof runner:
 
-- byte count: `12763`
-- SHA-256: `5498181b9fca65c46e8b80f07f2493f48d18261d0204661d3feb643f6d56bdf1`
-- Git blob SHA-1: `827ce0399c8c9b3e8636f4cc158545f76587a7e4`
+- byte count: `13350`
+- SHA-256: `af7e8750a266f599d199ca315850229747b7a4edbdf0b4a2fef52246fcb706ef`
+- Git blob SHA-1: `2170cabc5a4ad409c71f2369a489964fde3bee4f`
 
 Relock proof result on SQLite `3.53.4`: `PASS`.
 
