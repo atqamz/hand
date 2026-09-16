@@ -50,6 +50,45 @@ func TestNonblockingLockReportsErrBusyAgainstAnotherHandle(t *testing.T) {
 	}
 }
 
+func TestSharedLocksAllowMultipleHoldersAndBlockExclusiveLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+	first, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = first.Close() }()
+	if err := LockShared(first, false); err != nil {
+		t.Fatalf("first shared lock: %v", err)
+	}
+
+	second, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = second.Close() }()
+	if err := LockShared(second, false); err != nil {
+		t.Fatalf("second shared lock: %v", err)
+	}
+
+	exclusive, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = exclusive.Close() }()
+	if err := Lock(exclusive, false); err != ErrBusy {
+		t.Fatalf("exclusive lock while shared holders are live = %v, want ErrBusy", err)
+	}
+	if err := Unlock(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unlock(second); err != nil {
+		t.Fatal(err)
+	}
+	if err := Lock(exclusive, false); err != nil {
+		t.Fatalf("exclusive lock after shared holders exited: %v", err)
+	}
+}
+
 func TestUnlockThenAnotherHandleCanLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
 	first, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)

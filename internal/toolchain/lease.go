@@ -103,10 +103,19 @@ func (s *Store) AcquireLease(request LeaseRequest) (*Lease, error) {
 	if request.Generation != generation {
 		return nil, fmt.Errorf("runtime generation lease names %q, want exact generation %q", request.Generation, generation)
 	}
-	if _, err := s.Generation(request.Generation, "", ""); err != nil {
+	target, err := s.Lock.Target("", "")
+	if err != nil {
 		return nil, err
 	}
-	return s.acquireLease(request, filepath.Join(s.Root, "runtime", "references", generation))
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return nil, fmt.Errorf("open runtime generation reference store: %w", err)
+	}
+	if _, _, err := s.generationAt(rootHandle, filepath.Join("bundles", generation), currentTargetName("", ""), target); err != nil {
+		_ = rootHandle.Close()
+		return nil, fmt.Errorf("validate runtime generation %s: %w", generation, err)
+	}
+	return s.acquireLeaseAt(rootHandle, request, filepath.Join(s.Root, "runtime", "references", generation))
 }
 
 // AcquireHandLease retains one exact managed Hand executable generation.
@@ -114,20 +123,68 @@ func (s *Store) AcquireHandLease(request LeaseRequest) (*Lease, error) {
 	if err := request.validate(); err != nil {
 		return nil, err
 	}
-	if _, err := s.HandGeneration(request.Generation); err != nil {
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return nil, fmt.Errorf("open managed Hand generation reference store: %w", err)
+	}
+	if _, err := s.handGenerationAt(rootHandle, request.Generation); err != nil {
+		_ = rootHandle.Close()
 		return nil, err
 	}
 	digest := strings.TrimPrefix(request.Generation, "sha256:")
-	return s.acquireLease(request, filepath.Join(s.Root, "runtime", "hand-references", digest))
+	return s.acquireLeaseAt(rootHandle, request, filepath.Join(s.Root, "runtime", "hand-references", digest))
 }
 
-func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease, error) {
-	if err := ensureRuntimeDirectory(s.Root, referenceRoot, 0o700); err != nil {
-		return nil, fmt.Errorf("create runtime generation reference store: %w", err)
+// RuntimeLeaseHeld proves that the exact runtime generation lease record and
+// its kernel lock are both live.
+func (s *Store) RuntimeLeaseHeld(request LeaseRequest) (bool, error) {
+	if err := request.validate(); err != nil {
+		return false, err
+	}
+	generation, err := s.GenerationID("", "")
+	if err != nil {
+		return false, err
+	}
+	if request.Generation != generation {
+		return false, fmt.Errorf("runtime generation lease names %q, want exact generation %q", request.Generation, generation)
+	}
+	target, err := s.Lock.Target("", "")
+	if err != nil {
+		return false, err
 	}
 	rootHandle, err := openDirectRuntimeRoot(s.Root)
 	if err != nil {
-		return nil, fmt.Errorf("open runtime generation reference store: %w", err)
+		return false, err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	if _, _, err := s.generationAt(rootHandle, filepath.Join("bundles", generation), currentTargetName("", ""), target); err != nil {
+		return false, fmt.Errorf("validate runtime generation %s: %w", generation, err)
+	}
+	return s.leaseHeldAt(rootHandle, request, filepath.Join(s.Root, "runtime", "references", generation))
+}
+
+// HandLeaseHeld proves that the exact managed Hand generation lease record
+// and its kernel lock are both live.
+func (s *Store) HandLeaseHeld(request LeaseRequest) (bool, error) {
+	if err := request.validate(); err != nil {
+		return false, err
+	}
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	if _, err := s.handGenerationAt(rootHandle, request.Generation); err != nil {
+		return false, err
+	}
+	digest := strings.TrimPrefix(request.Generation, "sha256:")
+	return s.leaseHeldAt(rootHandle, request, filepath.Join(s.Root, "runtime", "hand-references", digest))
+}
+
+func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, referenceRoot string) (*Lease, error) {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, referenceRoot, 0o700); err != nil {
+		_ = rootHandle.Close()
+		return nil, fmt.Errorf("create runtime generation reference store: %w", err)
 	}
 	retainRoot := false
 	defer func() {
@@ -135,18 +192,7 @@ func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease
 			_ = rootHandle.Close()
 		}
 	}()
-	lockScope := request.LockScope
-	if lockScope == "" {
-		lockScope = request.LeaseID
-	}
-	recordIdentity := request.LeaseID
-	if request.LockScope != "" {
-		recordIdentity = request.LockScope + "\x00" + request.LeaseID
-	}
-	recordKey := sha256.Sum256([]byte(recordIdentity))
-	lockKey := sha256.Sum256([]byte(lockScope))
-	recordPath := filepath.Join(referenceRoot, hex.EncodeToString(recordKey[:])+".json")
-	lockPath := filepath.Join(referenceRoot, hex.EncodeToString(lockKey[:])+".lock")
+	recordPath, lockPath := leasePaths(request, referenceRoot)
 	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open runtime generation lease lock: %w", err)
@@ -192,6 +238,70 @@ func (s *Store) acquireLease(request LeaseRequest, referenceRoot string) (*Lease
 	}
 	retainRoot = true
 	return &Lease{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, lockPath: lockPath, lock: lock}, nil
+}
+
+func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, referenceRoot string) (bool, error) {
+	recordPath, lockPath := leasePaths(request, referenceRoot)
+	record, err := readLeaseRecord(rootHandle, s.Root, recordPath)
+	if errors.Is(err, os.ErrNotExist) {
+		_, held, lockErr := probeLeaseLock(rootHandle, s.Root, lockPath)
+		if lockErr != nil || held {
+			if lockErr == nil {
+				lockErr = errors.New("live kernel lock has no durable lease record")
+			}
+			return false, fmt.Errorf("%w: generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, lockPath, lockErr)
+		}
+		return false, nil
+	}
+	if err != nil || record.validate() != nil || !record.sameIdentity(leaseRecord{
+		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope,
+		FleetID: request.FleetID, Consumer: request.Consumer, Evidence: request.Evidence,
+	}) {
+		return false, fmt.Errorf("%w: generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, recordPath)
+	}
+	exists, held, err := probeLeaseLock(rootHandle, s.Root, lockPath)
+	if err != nil || !exists {
+		if err == nil {
+			err = os.ErrNotExist
+		}
+		return false, fmt.Errorf("%w: generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, lockPath, err)
+	}
+	return held, nil
+}
+
+func probeLeaseLock(rootHandle *os.Root, root, lockPath string) (exists, held bool, err error) {
+	lock, _, err := openRuntimeFile(rootHandle, root, lockPath, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	if err := filelock.Lock(lock, false); err != nil {
+		closeErr := lock.Close()
+		if errors.Is(err, filelock.ErrBusy) && closeErr == nil {
+			return true, true, nil
+		}
+		return true, false, errors.Join(err, closeErr)
+	}
+	if err := errors.Join(filelock.Unlock(lock), lock.Close()); err != nil {
+		return true, false, err
+	}
+	return true, false, nil
+}
+
+func leasePaths(request LeaseRequest, referenceRoot string) (string, string) {
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.LeaseID
+	}
+	recordIdentity := request.LeaseID
+	if request.LockScope != "" {
+		recordIdentity = request.LockScope + "\x00" + request.LeaseID
+	}
+	recordKey := sha256.Sum256([]byte(recordIdentity))
+	lockKey := sha256.Sum256([]byte(lockScope))
+	return filepath.Join(referenceRoot, hex.EncodeToString(recordKey[:])+".json"), filepath.Join(referenceRoot, hex.EncodeToString(lockKey[:])+".lock")
 }
 
 func (request LeaseRequest) validate() error {

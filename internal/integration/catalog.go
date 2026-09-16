@@ -67,10 +67,6 @@ type Store struct {
 	Root string
 }
 
-// A fixed pool preserves normal overlap without minting a permanent lock path
-// for every short-lived integration process.
-const payloadReferenceLockSlots = 8
-
 func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, error) {
 	capability, ok := find(id)
 	if !ok {
@@ -107,29 +103,17 @@ func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, e
 }
 
 func acquireRunReference(store *Store, id, path, referenceID, fleetID, role string) (*PayloadReference, error) {
-	var busyErr error
-	for slot := range payloadReferenceLockSlots {
-		reference, err := store.AcquireReference(id, path, PayloadReferenceRequest{
-			ReferenceID: referenceID,
-			LockScope:   payloadReferenceLockScope(id, fleetID, role, slot),
-			FleetID:     fleetID,
-			Consumer:    "integration-process",
-			Evidence:    "role=" + role + ";capability=" + id,
-		})
-		if err == nil {
-			return reference, nil
-		}
-		busyErr = err
-		if !errors.Is(err, ErrPayloadReferenceHeld) {
-			return nil, err
-		}
-	}
-	return nil, busyErr
+	return store.AcquireReference(id, path, PayloadReferenceRequest{
+		ReferenceID: referenceID,
+		LockScope:   payloadReferenceLockScope(id),
+		FleetID:     fleetID,
+		Consumer:    "integration-process",
+		Evidence:    "role=" + role + ";capability=" + id,
+	})
 }
 
-func payloadReferenceLockScope(id, fleetID, role string, slot int) string {
-	digest := sha256.Sum256([]byte(id + "\x00" + fleetID + "\x00" + role + fmt.Sprintf("\x00%d", slot)))
-	return "integration-process:" + hex.EncodeToString(digest[:])
+func payloadReferenceLockScope(id string) string {
+	return "integration-process:" + id
 }
 
 func payloadFleetID() (string, error) {
@@ -629,6 +613,14 @@ func readIntegrationFile(rootHandle *os.Root, root, path string) ([]byte, error)
 }
 
 func atomicWriteIntegrationFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	return atomicPublishIntegrationFile(rootHandle, root, path, prefix, data, perm, true)
+}
+
+func atomicCreateIntegrationFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	return atomicPublishIntegrationFile(rootHandle, root, path, prefix, data, perm, false)
+}
+
+func atomicPublishIntegrationFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode, replace bool) error {
 	relative, err := integrationRelativePath(root, path)
 	if err != nil {
 		return err
@@ -659,7 +651,10 @@ func atomicWriteIntegrationFile(rootHandle *os.Root, root, path, prefix string, 
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return err
 	}
-	return renameIntegrationRoot(parent, temporary, filepath.Base(relative))
+	if replace {
+		return renameIntegrationRoot(parent, temporary, filepath.Base(relative))
+	}
+	return parent.Link(temporary, filepath.Base(relative))
 }
 
 func removeIntegrationFile(rootHandle *os.Root, root, path string) error {

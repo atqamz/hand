@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,19 +104,19 @@ func TestPayloadReferenceReusesStableLockScopeAcrossUniqueHolders(t *testing.T) 
 	}
 	secondRequest := request
 	secondRequest.ReferenceID = "run-two"
-	if _, err := store.AcquireReference("github/gh", path, secondRequest); !errors.Is(err, ErrPayloadReferenceHeld) {
-		t.Fatalf("second holder in stable lock scope = %v, want ErrPayloadReferenceHeld", err)
-	}
-	firstRecord, firstLock := first.RecordPath(), first.LockPath()
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
 	second, err := store.AcquireReference("github/gh", path, secondRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
+	firstRecord, firstLock := first.RecordPath(), first.LockPath()
 	if second.RecordPath() == firstRecord || second.LockPath() != firstLock {
 		t.Fatalf("record/lock paths = %q/%q then %q/%q; want unique records sharing one stable lock", firstRecord, firstLock, second.RecordPath(), second.LockPath())
+	}
+	if _, err := store.AcquireReference("github/gh", path, request); !errors.Is(err, ErrPayloadReferenceHeld) {
+		t.Fatalf("duplicate holder identity = %v, want ErrPayloadReferenceHeld", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
 	}
 	if err := second.Close(); err != nil {
 		t.Fatal(err)
@@ -126,6 +127,66 @@ func TestPayloadReferenceReusesStableLockScopeAcrossUniqueHolders(t *testing.T) 
 	}
 	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
 		t.Fatalf("stable reference scope left %v, want one permanent rendezvous", entries)
+	}
+}
+
+func TestPayloadReferenceConcurrentDuplicateIdentityHasOneHolder(t *testing.T) {
+	store, path := installReferenceFixture(t)
+	request := PayloadReferenceRequest{
+		ReferenceID: "duplicate-run", LockScope: "integration:shared",
+		FleetID: integrationTestFleetID, Consumer: "integration-process", Evidence: "capability=github/gh",
+	}
+	const contenders = 16
+	start := make(chan struct{})
+	results := make(chan struct {
+		reference *PayloadReference
+		err       error
+	}, contenders)
+	for range contenders {
+		go func() {
+			<-start
+			reference, err := store.AcquireReference("github/gh", path, request)
+			results <- struct {
+				reference *PayloadReference
+				err       error
+			}{reference: reference, err: err}
+		}()
+	}
+	close(start)
+	var references []*PayloadReference
+	for range contenders {
+		result := <-results
+		if result.err == nil {
+			references = append(references, result.reference)
+			continue
+		}
+		if !errors.Is(result.err, ErrPayloadReferenceHeld) {
+			t.Fatalf("duplicate identity acquisition: %v", result.err)
+		}
+	}
+	for _, reference := range references {
+		_ = reference.Close()
+	}
+	if len(references) != 1 {
+		t.Fatalf("live holders with one durable identity = %d, want 1", len(references))
+	}
+}
+
+func TestAcquireRunReferenceAllowsMoreThanEightLiveHolders(t *testing.T) {
+	store, path := installReferenceFixture(t)
+	const holders = 9
+	references := make([]*PayloadReference, 0, holders)
+	t.Cleanup(func() {
+		for _, reference := range references {
+			_ = reference.Close()
+		}
+	})
+	for index := range holders {
+		reference, err := acquireRunReference(store, "github/gh", path, fmt.Sprintf("run-%d", index), integrationTestFleetID, "worker")
+		if err != nil {
+			t.Fatalf("acquire live holder %d: %v", index+1, err)
+		}
+		references = append(references, reference)
 	}
 }
 

@@ -153,6 +153,16 @@ func (s *Store) Selected(goos, goarch string) (Runtime, error) {
 }
 
 func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error) {
+	return s.ensure(ctx, goos, goarch, true)
+}
+
+// MaterializeGeneration verifies or publishes the exact deterministic
+// generation without changing the mutable selection projection.
+func (s *Store) MaterializeGeneration(ctx context.Context, goos, goarch string) (Runtime, error) {
+	return s.ensure(ctx, goos, goarch, false)
+}
+
+func (s *Store) ensure(ctx context.Context, goos, goarch string, selectCurrent bool) (Runtime, error) {
 	if s.HTTPClient == nil {
 		s.HTTPClient = http.DefaultClient
 	}
@@ -193,8 +203,10 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, err
 	}
 	if selected, current, err := s.generationAt(rootHandle, bundleName, targetName, target); err == nil {
-		if err := s.selectGenerationAt(rootHandle, current); err != nil {
-			return Runtime{}, err
+		if selectCurrent {
+			if err := s.selectGenerationAt(rootHandle, current); err != nil {
+				return Runtime{}, err
+			}
 		}
 		return selected, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -245,8 +257,10 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		if validationErr != nil {
 			return Runtime{}, fmt.Errorf("%w: exact runtime generation %s already exists but is invalid and will not be rewritten: %v", ErrRuntimeNotReady, bundleName, validationErr)
 		}
-		if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
-			return Runtime{}, err
+		if selectCurrent {
+			if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
+				return Runtime{}, err
+			}
 		}
 		return winner, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -254,8 +268,10 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 	}
 	if err := renameRuntimePath(rootHandle, s.Root, stage, bundle); err != nil {
 		if winner, winnerCurrent, validationErr := s.generationAt(rootHandle, bundleName, targetName, target); validationErr == nil {
-			if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
-				return Runtime{}, err
+			if selectCurrent {
+				if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
+					return Runtime{}, err
+				}
 			}
 			return winner, nil
 		}
@@ -266,8 +282,10 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 	if err != nil {
 		return Runtime{}, fmt.Errorf("verify published runtime generation: %w", err)
 	}
-	if err := s.selectGenerationAt(rootHandle, current); err != nil {
-		return Runtime{}, err
+	if selectCurrent {
+		if err := s.selectGenerationAt(rootHandle, current); err != nil {
+			return Runtime{}, err
+		}
 	}
 	return validated, nil
 }

@@ -107,6 +107,90 @@ func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
 	}
 }
 
+func TestLeaseHeldRequiresMatchingRecordAndLiveKernelLock(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: generation, LeaseID: "herdr-server:hand-f_test", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=hand-f_test",
+	}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held, err := store.RuntimeLeaseHeld(request); err != nil || !held {
+		t.Fatalf("live runtime lease held = %t, %v; want true", held, err)
+	}
+	if err := abandonLeaseForTest(lease); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := store.RuntimeLeaseHeld(request); err != nil || held {
+		t.Fatalf("stale runtime lease held = %t, %v; want false", held, err)
+	}
+}
+
+func TestRuntimeLeaseHeldTreatsMissingMetadataWithLiveLockAsUnknown(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: generation, LeaseID: "herdr-server:hand-f_test", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=hand-f_test",
+	}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Close() })
+	if err := os.Remove(lease.RecordPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	if held, err := store.RuntimeLeaseHeld(request); held || !errors.Is(err, ErrLeaseMetadataUnknown) {
+		t.Fatalf("live runtime lock without metadata = %t, %v; want false, ErrLeaseMetadataUnknown", held, err)
+	}
+}
+
+func TestHandLeaseHeldRequiresMatchingRecordAndLiveKernelLock(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	source := filepath.Join(t.TempDir(), executableName("hand"))
+	if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := store.MaterializeHandExecutable(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{
+		Generation: "sha256:" + filepath.Base(filepath.Dir(managed)), LeaseID: "herdr-guardian:hand-f_test",
+		FleetID: testFleetID, Consumer: "runtime-guardian", Evidence: "session=hand-f_test",
+	}
+	lease, err := store.AcquireHandLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if held, err := store.HandLeaseHeld(request); err != nil || !held {
+		t.Fatalf("live Hand lease held = %t, %v; want true", held, err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := store.HandLeaseHeld(request); err != nil || held {
+		t.Fatalf("retired Hand lease held = %t, %v; want false", held, err)
+	}
+}
+
 func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
 	store, _ := generationStoreFixture(t)
 	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
@@ -213,6 +297,117 @@ func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	}
 	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
 		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
+	}
+}
+
+func TestLeaseAcquisitionRemainsAnchoredToValidatedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootHandle, err := openDirectRuntimeRoot(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.Lock.Target("", "")
+	if err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	if _, _, err := store.generationAt(rootHandle, filepath.Join("bundles", generation), currentTargetName("", ""), target); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	moved := store.Root + "-moved"
+	if err := os.Rename(store.Root, moved); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(store.Root, "runtime"), 0o700); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	lease, err := store.acquireLeaseAt(rootHandle, LeaseRequest{
+		Generation: generation, LeaseID: "anchored-acquire", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=anchored",
+	}, filepath.Join(store.Root, "runtime", "references", generation))
+	if err != nil {
+		_ = rootHandle.Close()
+		t.Fatalf("lease acquisition followed replacement root: %v", err)
+	}
+	relative, err := filepath.Rel(store.Root, lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, relative)); err != nil {
+		t.Fatalf("lease record missing from validated root: %v", err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lease record written through replacement root: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHandLeaseAcquisitionRemainsAnchoredToValidatedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows denies replacement of an open rooted directory")
+	}
+	store, _ := generationStoreFixture(t)
+	source := filepath.Join(t.TempDir(), executableName("hand"))
+	if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	managed, err := store.MaterializeHandExecutable(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := "sha256:" + filepath.Base(filepath.Dir(managed))
+	rootHandle, err := openDirectRuntimeRoot(store.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.handGenerationAt(rootHandle, generation); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	moved := store.Root + "-moved"
+	if err := os.Rename(store.Root, moved); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(store.Root, "runtime"), 0o700); err != nil {
+		_ = rootHandle.Close()
+		t.Fatal(err)
+	}
+	lease, err := store.acquireLeaseAt(rootHandle, LeaseRequest{
+		Generation: generation, LeaseID: "anchored-hand-acquire", FleetID: testFleetID,
+		Consumer: "runtime-guardian", Evidence: "session=anchored",
+	}, filepath.Join(store.Root, "runtime", "hand-references", strings.TrimPrefix(generation, "sha256:")))
+	if err != nil {
+		_ = rootHandle.Close()
+		t.Fatalf("Hand lease acquisition followed replacement root: %v", err)
+	}
+	relative, err := filepath.Rel(store.Root, lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, relative)); err != nil {
+		t.Fatalf("Hand lease record missing from validated root: %v", err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Hand lease record written through replacement root: %v", err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

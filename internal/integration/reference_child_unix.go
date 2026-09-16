@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !darwin
 
 package integration
 
@@ -9,7 +9,7 @@ import (
 	"runtime"
 )
 
-func startChildWithPayloadReference(cmd *exec.Cmd, lock, executable *os.File, _ string) error {
+func startChildWithPayloadReference(cmd *exec.Cmd, lock, executable *os.File, _ *os.Root, _, _, _ string) error {
 	executableFD := 3 + len(cmd.ExtraFiles)
 	cmd.ExtraFiles = append(cmd.ExtraFiles, executable, lock)
 	directory := "/dev/fd"

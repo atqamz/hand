@@ -60,6 +60,32 @@ func TestEnsureAdoptsDeterministicGenerationWithoutSelection(t *testing.T) {
 	}
 }
 
+func TestMaterializeGenerationDoesNotChangeSelection(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	currentPath := filepath.Join(store.Root, "runtime", currentName)
+	if err := os.MkdirAll(filepath.Dir(currentPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	foreign := []byte("foreign release selection\n")
+	if err := os.WriteFile(currentPath, foreign, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := store.MaterializeGeneration(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(runtime.BundleDir) == "" {
+		t.Fatal("materialized generation has no exact identity")
+	}
+	after, err := os.ReadFile(currentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(foreign) {
+		t.Fatalf("materialization changed selection to %q, want %q", after, foreign)
+	}
+}
+
 func TestEnsureIgnoresMalformedStaleAndReplacedSelection(t *testing.T) {
 	store, requests := generationStoreFixture(t)
 	want, err := store.Ensure(context.Background(), "", "")

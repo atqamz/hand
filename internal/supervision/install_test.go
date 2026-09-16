@@ -440,6 +440,17 @@ func TestCodexCanonicalWindowsCommandHidesLiteralPercentPathFromCmd(t *testing.T
 	}
 }
 
+func TestCodexRecognizesEncodedWindowsCommandAcrossManagedUpgrade(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "%TEAM%", "runtime", "hand-generations")
+	oldExe := writeManagedTestExecutable(t, root, []byte("old managed Hand generation"))
+	newExe := writeManagedTestExecutable(t, root, []byte("new managed Hand generation"))
+	handler := codexStopHandler(oldExe)
+	exact, owned, unknown := codexOwned(handler, newExe)
+	if exact || !owned || unknown {
+		t.Fatalf("encoded Windows upgrade ownership = %t, %t, %t; want false, true, false", exact, owned, unknown)
+	}
+}
+
 func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
 	exe := "/home/o'connor/hand"
 	home := t.TempDir()

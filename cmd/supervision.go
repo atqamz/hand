@@ -39,7 +39,7 @@ func waiterRuntimeGeneration() (string, error) {
 }
 
 type waiterGenerationStore interface {
-	Ensure(context.Context, string, string) (toolchain.Runtime, error)
+	MaterializeGeneration(context.Context, string, string) (toolchain.Runtime, error)
 }
 
 func waiterToolchainGeneration(ctx context.Context) (string, error) {
@@ -51,7 +51,7 @@ func waiterToolchainGeneration(ctx context.Context) (string, error) {
 }
 
 func waiterToolchainGenerationFrom(ctx context.Context, store waiterGenerationStore) (string, error) {
-	runtime, err := store.Ensure(ctx, "", "")
+	runtime, err := store.MaterializeGeneration(ctx, "", "")
 	if err != nil {
 		return "", err
 	}

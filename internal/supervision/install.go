@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf16"
@@ -487,7 +488,7 @@ func codexOwned(handler map[string]any, exe string) (exact bool, owned bool, unk
 		}
 		return false, false, false
 	}
-	if windows, _ := handler["commandWindows"].(string); windows != "" && windows != canonical["commandWindows"] && !codexCommandTokens(windows, exe) {
+	if windows, _ := handler["commandWindows"].(string); windows != "" && windows != canonical["commandWindows"] && !codexWindowsCommandTokens(windows, exe) {
 		return false, false, true
 	}
 	if _, isAsync := handler["async"].(bool); !isAsync {
@@ -503,6 +504,58 @@ func codexCommandTokens(command, exe string) bool {
 	}
 	unquoted := unquoteToken(first)
 	return unquoted == exe || sameExecutableObject(unquoted, exe) || sameManagedExecutableLineage(unquoted, exe)
+}
+
+func codexWindowsCommandTokens(command, exe string) bool {
+	if codexCommandTokens(command, exe) {
+		return true
+	}
+	const prefix = "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+	encoded, ok := strings.CutPrefix(command, prefix)
+	if !ok || encoded == "" {
+		return false
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(data)%2 != 0 {
+		return false
+	}
+	units := make([]uint16, len(data)/2)
+	for i := range units {
+		units[i] = uint16(data[2*i]) | uint16(data[2*i+1])<<8
+	}
+	runes := utf16.Decode(units)
+	if !slices.Equal(utf16.Encode(runes), units) {
+		return false
+	}
+	const scriptPrefix = "& '"
+	const scriptSuffix = "' supervision codex-stop; exit $LASTEXITCODE"
+	script := string(runes)
+	quoted, ok := strings.CutPrefix(script, scriptPrefix)
+	if !ok {
+		return false
+	}
+	quoted, ok = strings.CutSuffix(quoted, scriptSuffix)
+	if !ok {
+		return false
+	}
+	path, ok := unquotePowerShellSingleQuoted(quoted)
+	return ok && (path == exe || sameExecutableObject(path, exe) || sameManagedExecutableLineage(path, exe))
+}
+
+func unquotePowerShellSingleQuoted(value string) (string, bool) {
+	var result strings.Builder
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\'' {
+			result.WriteByte(value[i])
+			continue
+		}
+		if i+1 >= len(value) || value[i+1] != '\'' {
+			return "", false
+		}
+		result.WriteByte('\'')
+		i++
+	}
+	return result.String(), true
 }
 
 func codexCommandShape(command string) bool {

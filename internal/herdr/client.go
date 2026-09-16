@@ -400,6 +400,59 @@ func (c *Client) startServer(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) serverLeaseOwned(ctx context.Context) (bool, error) {
+	if c == nil {
+		return false, nil
+	}
+	// Explicit test-build clients model the provider protocol, not a detached
+	// production guardian process.
+	if legacyHerdrFallback && c.store == nil && c.guardian == "" && c.executable != "" {
+		return true, nil
+	}
+	if c.store == nil || c.guardian == "" || c.runtimeGeneration == "" || c.fleetID == "" || c.session == "" {
+		return false, nil
+	}
+	if c.initErr != nil {
+		return false, c.initErr
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	runtimeHeld, err := c.store.RuntimeLeaseHeld(toolchain.LeaseRequest{
+		Generation: c.runtimeGeneration,
+		LeaseID:    "herdr-server:" + c.session,
+		FleetID:    c.fleetID,
+		Consumer:   "herdr-server",
+		Evidence:   "session=" + c.session,
+	})
+	if err != nil || !runtimeHeld {
+		return runtimeHeld, err
+	}
+	managed, err := c.store.HandExecutableGeneration(c.guardian)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	handGeneration := "sha256:" + filepath.Base(filepath.Dir(managed))
+	return c.store.HandLeaseHeld(toolchain.LeaseRequest{
+		Generation: handGeneration,
+		LeaseID:    "herdr-guardian:" + c.session,
+		FleetID:    c.fleetID,
+		Consumer:   "runtime-guardian",
+		Evidence:   "session=" + c.session,
+	})
+}
+
+func (c *Client) stopServer(ctx context.Context) error {
+	_, stderr, err := c.runContext(ctx, "server", "stop")
+	if err != nil {
+		return fmt.Errorf("herdr server stop: %w: %s", err, stderr)
+	}
+	return nil
+}
+
 func (c *Client) attach(ctx context.Context) error {
 	if c == nil {
 		return errors.New("managed Herdr client is unavailable")

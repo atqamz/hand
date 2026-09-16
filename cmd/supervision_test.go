@@ -26,12 +26,12 @@ type waiterGenerationStoreStub struct {
 
 type blockingWaiterGenerationStore struct{}
 
-func (*blockingWaiterGenerationStore) Ensure(ctx context.Context, _, _ string) (toolchain.Runtime, error) {
+func (*blockingWaiterGenerationStore) MaterializeGeneration(ctx context.Context, _, _ string) (toolchain.Runtime, error) {
 	<-ctx.Done()
 	return toolchain.Runtime{}, ctx.Err()
 }
 
-func (store *waiterGenerationStoreStub) Ensure(context.Context, string, string) (toolchain.Runtime, error) {
+func (store *waiterGenerationStoreStub) MaterializeGeneration(context.Context, string, string) (toolchain.Runtime, error) {
 	store.ensured = true
 	return toolchain.Runtime{BundleDir: filepath.Join("runtime", "bundles", "deterministic")}, nil
 }

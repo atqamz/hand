@@ -72,7 +72,7 @@ func (s *Store) MaterializeHandExecutable(source string) (string, error) {
 		return "", err
 	}
 	if _, err := rootHandle.Lstat(generationRelative); err == nil {
-		if err := validateHandGeneration(s.Root, managed, digest); err != nil {
+		if err := validateHandGenerationAt(rootHandle, s.Root, managed, digest); err != nil {
 			return "", fmt.Errorf("existing managed Hand generation %s is invalid and will not be rewritten: %w", digest, err)
 		}
 		return managed, nil
@@ -80,13 +80,13 @@ func (s *Store) MaterializeHandExecutable(source string) (string, error) {
 		return "", fmt.Errorf("inspect managed Hand generation: %w", err)
 	}
 	if err := renameRuntimePath(rootHandle, s.Root, stage, generation); err != nil {
-		if validationErr := validateHandGeneration(s.Root, managed, digest); validationErr == nil {
+		if validationErr := validateHandGenerationAt(rootHandle, s.Root, managed, digest); validationErr == nil {
 			return managed, nil
 		}
 		return "", fmt.Errorf("publish managed Hand generation: %w", err)
 	}
 	stage = ""
-	if err := validateHandGeneration(s.Root, managed, digest); err != nil {
+	if err := validateHandGenerationAt(rootHandle, s.Root, managed, digest); err != nil {
 		return "", fmt.Errorf("verify published managed Hand generation: %w", err)
 	}
 	return managed, nil
@@ -112,6 +112,15 @@ func (s *Store) HandExecutableGeneration(source string) (string, error) {
 
 // HandGeneration resolves and verifies one exact managed Hand generation.
 func (s *Store) HandGeneration(generation string) (string, error) {
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	return s.handGenerationAt(rootHandle, generation)
+}
+
+func (s *Store) handGenerationAt(rootHandle *os.Root, generation string) (string, error) {
 	digest, ok := strings.CutPrefix(generation, "sha256:")
 	if !ok || len(digest) != sha256.Size*2 {
 		return "", fmt.Errorf("invalid managed Hand generation %q", generation)
@@ -120,18 +129,13 @@ func (s *Store) HandGeneration(generation string) (string, error) {
 		return "", fmt.Errorf("invalid managed Hand generation %q", generation)
 	}
 	managed := filepath.Join(s.Root, "runtime", "hand-generations", digest, executableName("hand"))
-	if err := validateHandGeneration(s.Root, managed, digest); err != nil {
+	if err := validateHandGenerationAt(rootHandle, s.Root, managed, digest); err != nil {
 		return "", err
 	}
 	return managed, nil
 }
 
-func validateHandGeneration(root, path, digest string) error {
-	rootHandle, err := openDirectRuntimeRoot(root)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rootHandle.Close() }()
+func validateHandGenerationAt(rootHandle *os.Root, root, path, digest string) error {
 	file, info, err := openRuntimeFile(rootHandle, root, path, os.O_RDONLY, 0)
 	if err != nil {
 		return err
