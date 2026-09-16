@@ -3,8 +3,10 @@ package toolchain
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/filelock"
 	"github.com/atqamz/hand/internal/secondhand"
 )
@@ -152,30 +153,34 @@ func (s *Store) Selected(goos, goarch string) (Runtime, error) {
 }
 
 func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error) {
-	target, err := s.Lock.Target(goos, goarch)
-	if err != nil {
-		return Runtime{}, err
-	}
-	targetName := goos + "/" + goarch
-	if goos == "" || goarch == "" {
-		targetName = currentTargetName(goos, goarch)
-	}
-	if selected, err := s.Selected(goos, goarch); err == nil && selected.ID == s.Lock.RuntimeID {
-		return selected, nil
-	}
+	return s.ensure(ctx, goos, goarch, true)
+}
+
+// MaterializeGeneration verifies or publishes the exact deterministic
+// generation without changing the mutable selection projection.
+func (s *Store) MaterializeGeneration(ctx context.Context, goos, goarch string) (Runtime, error) {
+	return s.ensure(ctx, goos, goarch, false)
+}
+
+func (s *Store) ensure(ctx context.Context, goos, goarch string, selectCurrent bool) (Runtime, error) {
 	if s.HTTPClient == nil {
 		s.HTTPClient = http.DefaultClient
 	}
 	if s.MaxArtifact <= 0 {
 		s.MaxArtifact = maxArtifact
 	}
-	if err := os.MkdirAll(filepath.Join(s.Root, "runtime", "bundles"), 0o700); err != nil {
+	if err := ensureRuntimeDirectory(s.Root, filepath.Join(s.Root, "runtime", "bundles"), 0o700); err != nil {
 		return Runtime{}, fmt.Errorf("create runtime bundle store: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(s.Root, "runtime", "locks"), 0o700); err != nil {
+	if err := ensureRuntimeDirectory(s.Root, filepath.Join(s.Root, "runtime", "locks"), 0o700); err != nil {
 		return Runtime{}, fmt.Errorf("create runtime lock store: %w", err)
 	}
-	lockFile, err := os.OpenFile(filepath.Join(s.Root, "runtime", "locks", "selection.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return Runtime{}, fmt.Errorf("open runtime store: %w", err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	lockFile, _, err := openRuntimeFile(rootHandle, s.Root, filepath.Join(s.Root, "runtime", "locks", "selection.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("open runtime selection lock: %w", err)
 	}
@@ -184,36 +189,45 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 		return Runtime{}, fmt.Errorf("lock runtime selection: %w", err)
 	}
 	defer func() { _ = filelock.Unlock(lockFile) }()
-	if selected, err := s.Selected(goos, goarch); err == nil && selected.ID == s.Lock.RuntimeID {
+
+	if err := s.Lock.Validate(); err != nil {
+		return Runtime{}, fmt.Errorf("revalidate runtime lock: %w", err)
+	}
+	target, err := s.Lock.Target(goos, goarch)
+	if err != nil {
+		return Runtime{}, err
+	}
+	targetName := currentTargetName(goos, goarch)
+	bundleName, err := generationBundleName(s.Lock.RuntimeID, targetName, target)
+	if err != nil {
+		return Runtime{}, err
+	}
+	if selected, current, err := s.generationAt(rootHandle, bundleName, targetName, target); err == nil {
+		if selectCurrent {
+			if err := s.selectGenerationAt(rootHandle, current); err != nil {
+				return Runtime{}, err
+			}
+		}
 		return selected, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Runtime{}, fmt.Errorf("%w: exact runtime generation %s is invalid and will not be rewritten: %v", ErrRuntimeNotReady, bundleName, err)
 	}
 
-	stage, err := os.MkdirTemp(filepath.Join(s.Root, "runtime"), ".staging-")
+	stage, err := mkdirTempRuntime(rootHandle, s.Root, filepath.Join(s.Root, "runtime"), ".staging-")
 	if err != nil {
 		return Runtime{}, fmt.Errorf("create runtime staging directory: %w", err)
 	}
 	defer func() {
 		if stage != "" {
-			_ = os.RemoveAll(stage)
+			_ = removeAllRuntimePath(rootHandle, s.Root, stage)
 		}
 	}()
 	for name, component := range target.Components {
-		if err := s.installComponent(ctx, stage, name, component); err != nil {
+		if err := s.installComponent(ctx, rootHandle, stage, name, component); err != nil {
 			return Runtime{}, fmt.Errorf("install %s: %w", name, err)
 		}
 	}
-	bundleName := filepath.Join("bundles", fmt.Sprintf("%s-%d", s.Lock.RuntimeID, time.Now().UnixNano()))
-	bundle := filepath.Join(s.Root, "runtime", bundleName)
-	if _, err := os.Stat(bundle); err == nil {
-		return Runtime{}, fmt.Errorf("runtime bundle path already exists: %s", bundle)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Runtime{}, fmt.Errorf("inspect runtime bundle: %w", err)
-	}
-	if err := os.Rename(stage, bundle); err != nil {
-		return Runtime{}, fmt.Errorf("publish runtime bundle: %w", err)
-	}
-	stage = ""
-	installedTarget, err := targetWithFileDigests(bundle, target)
+	installedTarget, err := targetWithFileDigestsRooted(rootHandle, s.Root, stage, target)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("digest installed runtime files: %w", err)
 	}
@@ -225,60 +239,144 @@ func (s *Store) Ensure(ctx context.Context, goos, goarch string) (Runtime, error
 	if err != nil {
 		return Runtime{}, fmt.Errorf("encode installed runtime manifest: %w", err)
 	}
-	if err := atomicfile.Write(filepath.Join(bundle, manifestName), ".manifest-", append(manifestData, '\n'), 0o600); err != nil {
-		return Runtime{}, fmt.Errorf("publish runtime manifest: %w", err)
+	if err := atomicWriteRuntimeFile(rootHandle, s.Root, filepath.Join(stage, manifestName), ".manifest-", append(manifestData, '\n'), 0o600); err != nil {
+		return Runtime{}, fmt.Errorf("publish staged runtime manifest: %w", err)
 	}
 	current := Current{Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName, Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, SelectedAt: time.Now().UTC()}
-	validated, err := s.runtimeFromCurrent(current, targetName, target)
+	if _, err := s.runtimeFromBundleAt(rootHandle, current, stage, targetName, target); err != nil {
+		return Runtime{}, fmt.Errorf("verify staged runtime generation: %w", err)
+	}
+
+	bundle := filepath.Join(s.Root, "runtime", bundleName)
+	bundleRelative, err := runtimeRelativePath(s.Root, bundle)
 	if err != nil {
 		return Runtime{}, err
 	}
-	data, err := json.MarshalIndent(current, "", "  ")
-	if err != nil {
-		return Runtime{}, fmt.Errorf("encode selected runtime: %w", err)
+	if _, err := rootHandle.Lstat(bundleRelative); err == nil {
+		winner, winnerCurrent, validationErr := s.generationAt(rootHandle, bundleName, targetName, target)
+		if validationErr != nil {
+			return Runtime{}, fmt.Errorf("%w: exact runtime generation %s already exists but is invalid and will not be rewritten: %v", ErrRuntimeNotReady, bundleName, validationErr)
+		}
+		if selectCurrent {
+			if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
+				return Runtime{}, err
+			}
+		}
+		return winner, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Runtime{}, fmt.Errorf("inspect runtime bundle: %w", err)
 	}
-	if err := atomicfile.Write(filepath.Join(s.Root, "runtime", currentName), ".current-", append(data, '\n'), 0o600); err != nil {
-		return Runtime{}, fmt.Errorf("publish selected runtime: %w", err)
+	if err := renameRuntimePath(rootHandle, s.Root, stage, bundle); err != nil {
+		if winner, winnerCurrent, validationErr := s.generationAt(rootHandle, bundleName, targetName, target); validationErr == nil {
+			if selectCurrent {
+				if err := s.selectGenerationAt(rootHandle, winnerCurrent); err != nil {
+					return Runtime{}, err
+				}
+			}
+			return winner, nil
+		}
+		return Runtime{}, fmt.Errorf("publish runtime bundle: %w", err)
+	}
+	stage = ""
+	validated, current, err := s.generationAt(rootHandle, bundleName, targetName, target)
+	if err != nil {
+		return Runtime{}, fmt.Errorf("verify published runtime generation: %w", err)
+	}
+	if selectCurrent {
+		if err := s.selectGenerationAt(rootHandle, current); err != nil {
+			return Runtime{}, err
+		}
 	}
 	return validated, nil
 }
 
-func (s *Store) installComponent(ctx context.Context, stage, name string, component Component) error {
+func generationBundleName(runtimeID, targetName string, target Target) (string, error) {
+	digest, err := targetDigest(target)
+	if err != nil {
+		return "", err
+	}
+	generation := sha256.Sum256([]byte(runtimeID + "\x00" + targetName + "\x00" + digest))
+	return filepath.Join("bundles", runtimeID+"-"+hex.EncodeToString(generation[:])), nil
+}
+
+func (s *Store) generation(bundleName, targetName string, target Target) (Runtime, Current, error) {
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return Runtime{}, Current{}, err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	return s.generationAt(rootHandle, bundleName, targetName, target)
+}
+
+func (s *Store) generationAt(rootHandle *os.Root, bundleName, targetName string, target Target) (Runtime, Current, error) {
+	bundle, err := safeJoin(filepath.Join(s.Root, "runtime"), bundleName)
+	if err != nil {
+		return Runtime{}, Current{}, err
+	}
+	manifestData, err := readRuntimeFile(rootHandle, s.Root, filepath.Join(bundle, manifestName))
+	if err != nil {
+		return Runtime{}, Current{}, err
+	}
+	var installed Target
+	if err := decodeTargetManifest(manifestData, &installed); err != nil {
+		return Runtime{}, Current{}, fmt.Errorf("decode runtime generation manifest: %w", err)
+	}
+	manifestDigest, err := targetDigest(installed)
+	if err != nil {
+		return Runtime{}, Current{}, err
+	}
+	current := Current{
+		Schema: s.Lock.Schema, RuntimeID: s.Lock.RuntimeID, Target: targetName,
+		Bundle: filepath.ToSlash(bundleName), ManifestSHA256: manifestDigest, SelectedAt: time.Now().UTC(),
+	}
+	runtime, err := s.runtimeFromBundleAt(rootHandle, current, bundle, targetName, target)
+	return runtime, current, err
+}
+
+func (s *Store) selectGenerationAt(rootHandle *os.Root, current Current) error {
+	data, err := json.MarshalIndent(current, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode selected runtime: %w", err)
+	}
+	if err := atomicWriteRuntimeFile(rootHandle, s.Root, filepath.Join(s.Root, "runtime", currentName), ".current-", append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("publish selected runtime: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) installComponent(ctx context.Context, rootHandle *os.Root, stage, name string, component Component) error {
 	dir := filepath.Join(stage, name)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, dir, 0o700); err != nil {
 		return err
 	}
-	artifact, err := os.CreateTemp(stage, ".artifact-")
+	artifact, artifactPath, err := createTempRuntimeFile(rootHandle, s.Root, stage, ".artifact-", 0o600)
 	if err != nil {
 		return err
 	}
-	artifactPath := artifact.Name()
-	defer func() { _ = os.Remove(artifactPath) }()
-	if err := download(ctx, s.HTTPClient, component.URL, artifact, s.MaxArtifact); err != nil {
+	defer func() { _ = removeRuntimeFile(rootHandle, s.Root, artifactPath) }()
+	hash := sha256.New()
+	if err := download(ctx, s.HTTPClient, component.URL, io.MultiWriter(artifact, hash), s.MaxArtifact); err != nil {
 		_ = artifact.Close()
 		return err
 	}
-	if err := artifact.Close(); err != nil {
+	if err := errors.Join(artifact.Sync(), artifact.Close()); err != nil {
 		return fmt.Errorf("close downloaded artifact: %w", err)
 	}
-	digest, err := fileDigest(artifactPath)
-	if err != nil {
-		return err
-	}
+	digest := hex.EncodeToString(hash.Sum(nil))
 	if digest != component.SHA256 {
 		return fmt.Errorf("SHA-256 mismatch: got %s, want %s", digest, component.SHA256)
 	}
-	if err := extract(artifactPath, dir, component); err != nil {
+	if err := extractRuntime(rootHandle, s.Root, artifactPath, dir, component); err != nil {
 		return err
 	}
-	if err := verifyComponent(dir, component); err != nil {
+	if err := verifyRuntimeComponent(rootHandle, s.Root, dir, component); err != nil {
 		return err
 	}
 	artifactDir := filepath.Join(stage, "artifacts")
-	if err := os.MkdirAll(artifactDir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, artifactDir, 0o700); err != nil {
 		return fmt.Errorf("create runtime artifact store: %w", err)
 	}
-	if err := os.Rename(artifactPath, filepath.Join(artifactDir, name)); err != nil {
+	if err := renameRuntimePath(rootHandle, s.Root, artifactPath, filepath.Join(artifactDir, name)); err != nil {
 		return fmt.Errorf("retain verified runtime artifact: %w", err)
 	}
 	artifactPath = ""
@@ -312,6 +410,136 @@ func download(ctx context.Context, client *http.Client, rawURL string, dst io.Wr
 	return nil
 }
 
+func extractRuntime(rootHandle *os.Root, root, artifact, destination string, component Component) error {
+	destination, err := componentRootPath(destination, component.Root)
+	if err != nil {
+		return err
+	}
+	if err := ensureRuntimeDirectoryAt(rootHandle, root, destination, 0o700); err != nil {
+		return err
+	}
+	input, info, err := openRuntimeFile(rootHandle, root, artifact, os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = input.Close() }()
+	switch component.Format {
+	case "binary":
+		file := component.Files[0]
+		path, err := safeJoin(destination, file.Path)
+		if err != nil {
+			return err
+		}
+		if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		output, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(output, input)
+		closeErr := output.Close()
+		return errors.Join(copyErr, closeErr)
+	case "tar.gz":
+		gz, err := gzip.NewReader(input)
+		if err != nil {
+			return fmt.Errorf("open gzip archive: %w", err)
+		}
+		defer func() { _ = gz.Close() }()
+		return extractRuntimeTar(rootHandle, root, gz, destination)
+	case "zip":
+		archive, err := zip.NewReader(input, info.Size())
+		if err != nil {
+			return fmt.Errorf("open zip archive: %w", err)
+		}
+		seen := map[string]struct{}{}
+		for _, entry := range archive.File {
+			path, err := safeJoin(destination, entry.Name)
+			if err != nil {
+				return err
+			}
+			if _, ok := seen[path]; ok {
+				return fmt.Errorf("archive contains duplicate destination %q", entry.Name)
+			}
+			seen[path] = struct{}{}
+			if entry.FileInfo().IsDir() {
+				if err := ensureRuntimeDirectoryAt(rootHandle, root, path, 0o700); err != nil {
+					return err
+				}
+				continue
+			}
+			if entry.Mode()&os.ModeSymlink != 0 || entry.Mode()&os.ModeIrregular != 0 {
+				return fmt.Errorf("archive entry %q is not a regular file", entry.Name)
+			}
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
+				return err
+			}
+			entryInput, err := entry.Open()
+			if err != nil {
+				return err
+			}
+			output, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+			if err == nil {
+				_, err = io.Copy(output, entryInput)
+				closeErr := output.Close()
+				if err == nil {
+					err = closeErr
+				}
+			}
+			_ = entryInput.Close()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported runtime artifact format %q", component.Format)
+	}
+}
+
+func extractRuntimeTar(rootHandle *os.Root, root string, input io.Reader, destination string) error {
+	seen := map[string]struct{}{}
+	reader := tar.NewReader(input)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read tar archive: %w", err)
+		}
+		path, err := safeJoin(destination, header.Name)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[path]; ok {
+			return fmt.Errorf("archive contains duplicate destination %q", header.Name)
+		}
+		seen[path] = struct{}{}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, path, 0o700); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := ensureRuntimeDirectoryAt(rootHandle, root, filepath.Dir(path), 0o700); err != nil {
+				return err
+			}
+			output, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(output, reader)
+			closeErr := output.Close()
+			if err := errors.Join(copyErr, closeErr); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("archive entry %q is not a regular file or directory", header.Name)
+		}
+	}
+}
+
 func extract(artifact, destination string, component Component) error {
 	destination, err := componentRoot(destination, component.Root)
 	if err != nil {
@@ -327,14 +555,21 @@ func extract(artifact, destination string, component Component) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
-		data, err := os.ReadFile(artifact)
+		input, err := os.Open(artifact)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, data, 0o700); err != nil {
+		defer func() { _ = input.Close() }()
+		output, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+		if err != nil {
 			return err
 		}
-		return nil
+		_, copyErr := io.Copy(output, input)
+		closeErr := output.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
 	case "tar.gz":
 		file, err := os.Open(artifact)
 		if err != nil {
@@ -444,8 +679,8 @@ func extractTar(input io.Reader, destination string) error {
 	}
 }
 
-func verifyComponent(root string, component Component) error {
-	root, err := componentRoot(root, component.Root)
+func verifyRuntimeComponent(rootHandle *os.Root, storeRoot, root string, component Component) error {
+	root, err := componentRootPath(root, component.Root)
 	if err != nil {
 		return err
 	}
@@ -454,10 +689,11 @@ func verifyComponent(root string, component Component) error {
 		if err != nil {
 			return err
 		}
-		info, err := os.Lstat(path)
+		file, info, err := openRuntimeFile(rootHandle, storeRoot, path, os.O_RDONLY, 0)
 		if err != nil {
 			return fmt.Errorf("required file %s is missing: %w", expected.Path, err)
 		}
+		_ = file.Close()
 		if expected.Regular && !info.Mode().IsRegular() {
 			return fmt.Errorf("required file %s is not regular", expected.Path)
 		}
@@ -494,6 +730,32 @@ func targetWithFileDigests(bundle string, target Target) (Target, error) {
 	return installed, nil
 }
 
+func targetWithFileDigestsRooted(rootHandle *os.Root, root, bundle string, target Target) (Target, error) {
+	installed := target
+	installed.Components = make(map[string]Component, len(target.Components))
+	for name, component := range target.Components {
+		installedComponent := component
+		installedComponent.Files = append([]ExpectedFile(nil), component.Files...)
+		componentDir, err := componentRootPath(filepath.Join(bundle, name), component.Root)
+		if err != nil {
+			return Target{}, err
+		}
+		for index, expected := range component.Files {
+			path, err := safeJoin(componentDir, expected.Path)
+			if err != nil {
+				return Target{}, err
+			}
+			digest, err := digestRuntimeFile(rootHandle, root, path)
+			if err != nil {
+				return Target{}, fmt.Errorf("digest %s: %w", expected.Path, err)
+			}
+			installedComponent.Files[index].SHA256 = digest
+		}
+		installed.Components[name] = installedComponent
+	}
+	return installed, nil
+}
+
 func componentRoot(destination, root string) (string, error) {
 	path, err := componentRootPath(destination, root)
 	if err != nil {
@@ -517,7 +779,12 @@ func componentRootPath(destination, root string) (string, error) {
 }
 
 func (s *Store) readCurrent() (Current, error) {
-	data, err := os.ReadFile(filepath.Join(s.Root, "runtime", currentName))
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return Current{}, err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	data, err := readRuntimeFile(rootHandle, s.Root, filepath.Join(s.Root, "runtime", currentName))
 	if err != nil {
 		return Current{}, err
 	}
@@ -546,20 +813,34 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	if err != nil {
 		return Runtime{}, fmt.Errorf("%w: selected runtime bundle path is invalid: %v", ErrRuntimeNotReady, err)
 	}
+	return s.runtimeFromBundle(current, bundle, targetName, target)
+}
+
+func (s *Store) runtimeFromBundle(current Current, bundle, targetName string, target Target) (Runtime, error) {
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err != nil {
+		return Runtime{}, fmt.Errorf("%w: open runtime store: %v", ErrRuntimeNotReady, err)
+	}
+	defer func() { _ = rootHandle.Close() }()
+	return s.runtimeFromBundleAt(rootHandle, current, bundle, targetName, target)
+}
+
+func (s *Store) runtimeFromBundleAt(rootHandle *os.Root, current Current, bundle, targetName string, target Target) (Runtime, error) {
 	manifestPath := filepath.Join(bundle, manifestName)
-	manifestInfo, err := os.Lstat(manifestPath)
+	manifestFile, manifestInfo, err := openRuntimeFile(rootHandle, s.Root, manifestPath, os.O_RDONLY, 0)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("%w: selected runtime manifest is missing: %v", ErrRuntimeNotReady, err)
 	}
+	defer func() { _ = manifestFile.Close() }()
 	if !manifestInfo.Mode().IsRegular() {
 		return Runtime{}, fmt.Errorf("%w: selected runtime manifest is not a regular file", ErrRuntimeNotReady)
 	}
-	manifestData, err := os.ReadFile(manifestPath)
+	manifestData, err := io.ReadAll(manifestFile)
 	if err != nil {
 		return Runtime{}, fmt.Errorf("%w: read selected runtime manifest: %v", ErrRuntimeNotReady, err)
 	}
 	var installed Target
-	if err := json.Unmarshal(manifestData, &installed); err != nil {
+	if err := decodeTargetManifest(manifestData, &installed); err != nil {
 		return Runtime{}, fmt.Errorf("%w: decode selected runtime manifest: %v", ErrRuntimeNotReady, err)
 	}
 	installedDigest, err := targetDigest(installed)
@@ -575,10 +856,10 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	}
 	paths := map[string]*string{}
 	for name, component := range target.Components {
-		if err := verifyInstalledComponentAgainstArtifact(bundle, name, component); err != nil {
+		if err := verifyInstalledComponentAgainstArtifact(rootHandle, s.Root, bundle, name, component); err != nil {
 			return Runtime{}, fmt.Errorf("%w: selected runtime component %s failed immutable artifact verification: %v", ErrRuntimeNotReady, name, err)
 		}
-		if err := verifyComponent(filepath.Join(bundle, name), component); err != nil {
+		if err := verifyRuntimeComponent(rootHandle, s.Root, filepath.Join(bundle, name), component); err != nil {
 			return Runtime{}, fmt.Errorf("%w: selected runtime component %s is incomplete: %v", ErrRuntimeNotReady, name, err)
 		}
 		installedComponent, ok := installed.Components[name]
@@ -589,16 +870,22 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 		if err != nil {
 			return Runtime{}, err
 		}
+		if err := validateRuntimePathAt(rootHandle, s.Root, bundle, componentDir); err != nil {
+			return Runtime{}, fmt.Errorf("%w: selected runtime component %s path is not direct: %v", ErrRuntimeNotReady, name, err)
+		}
 		for index, file := range component.Files {
 			path, err := safeJoin(componentDir, file.Path)
 			if err != nil {
 				return Runtime{}, err
 			}
+			if err := validateRuntimePathAt(rootHandle, s.Root, bundle, path); err != nil {
+				return Runtime{}, fmt.Errorf("%w: selected runtime file %s path is not direct: %v", ErrRuntimeNotReady, file.Path, err)
+			}
 			installedFile := installedComponent.Files[index]
 			if installedFile.Path != file.Path || installedFile.SHA256 == "" {
 				return Runtime{}, fmt.Errorf("%w: selected runtime file digest is missing for %s", ErrRuntimeNotReady, file.Path)
 			}
-			got, err := fileDigest(path)
+			got, err := digestRuntimeFile(rootHandle, s.Root, path)
 			if err != nil {
 				return Runtime{}, fmt.Errorf("%w: digest selected runtime file %s: %v", ErrRuntimeNotReady, file.Path, err)
 			}
@@ -635,7 +922,7 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 		return Runtime{}, fmt.Errorf("%w: selected runtime has no Herdr executable", ErrRuntimeNotReady)
 	}
 	templateDir := filepath.Join(s.Root, "runtime", "git-templates")
-	if err := os.MkdirAll(templateDir, 0o700); err != nil {
+	if err := ensureRuntimeDirectoryAt(rootHandle, s.Root, templateDir, 0o700); err != nil {
 		templateDir = ""
 	}
 	return Runtime{
@@ -653,35 +940,43 @@ func (s *Store) runtimeFromCurrent(current Current, targetName string, target Ta
 	}, nil
 }
 
-func verifyInstalledComponentAgainstArtifact(bundle, name string, component Component) error {
+func verifyInstalledComponentAgainstArtifact(rootHandle *os.Root, root, bundle, name string, component Component) error {
 	if runtimeFixtureAllowed {
 		return nil
 	}
 	artifact := filepath.Join(bundle, "artifacts", name)
-	info, err := os.Lstat(artifact)
+	input, info, err := openRuntimeFile(rootHandle, root, artifact, os.O_RDONLY, 0)
 	if err != nil {
 		return fmt.Errorf("read retained artifact: %w", err)
 	}
+	defer func() { _ = input.Close() }()
 	if !info.Mode().IsRegular() {
 		return errors.New("retained artifact is not a regular file")
 	}
-	digest, err := fileDigest(artifact)
-	if err != nil {
-		return err
-	}
-	if digest != component.SHA256 {
-		return fmt.Errorf("retained artifact digest mismatch: got %s, want %s", digest, component.SHA256)
-	}
-	temporary, err := os.MkdirTemp(filepath.Dir(bundle), ".runtime-verify-")
+	temporary, err := mkdirTempRuntime(rootHandle, root, filepath.Join(root, "runtime"), ".verify-")
 	if err != nil {
 		return fmt.Errorf("create artifact verification directory: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(temporary) }()
+	defer func() { _ = removeAllRuntimePath(rootHandle, root, temporary) }()
+	retainedCopy, _, err := openRuntimeFile(rootHandle, root, filepath.Join(temporary, "artifact"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create retained artifact verification copy: %w", err)
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(retainedCopy, hash), input)
+	closeErr := retainedCopy.Close()
+	if err := errors.Join(copyErr, closeErr); err != nil {
+		return fmt.Errorf("copy retained artifact for verification: %w", err)
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	if digest != component.SHA256 {
+		return fmt.Errorf("retained artifact digest mismatch: got %s, want %s", digest, component.SHA256)
+	}
 	extracted := filepath.Join(temporary, name)
-	if err := extract(artifact, extracted, component); err != nil {
+	if err := extractRuntime(rootHandle, root, filepath.Join(temporary, "artifact"), extracted, component); err != nil {
 		return fmt.Errorf("extract retained artifact: %w", err)
 	}
-	if err := verifyComponent(extracted, component); err != nil {
+	if err := verifyRuntimeComponent(rootHandle, root, extracted, component); err != nil {
 		return fmt.Errorf("verify retained artifact files: %w", err)
 	}
 	for _, expected := range component.Files {
@@ -701,11 +996,11 @@ func verifyInstalledComponentAgainstArtifact(bundle, name string, component Comp
 		if err != nil {
 			return err
 		}
-		installedDigest, err := fileDigest(installedPath)
+		installedDigest, err := digestRuntimeFile(rootHandle, root, installedPath)
 		if err != nil {
 			return err
 		}
-		extractedDigest, err := fileDigest(extractedPath)
+		extractedDigest, err := digestRuntimeFile(rootHandle, root, extractedPath)
 		if err != nil {
 			return err
 		}
@@ -723,6 +1018,18 @@ func targetDigest(target Target) (string, error) {
 	}
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+func decodeTargetManifest(data []byte, target *Target) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return errors.New("runtime generation manifest has trailing data")
+	}
+	return nil
 }
 
 func targetDigestWithoutFileDigests(target Target) string {
@@ -775,6 +1082,387 @@ func safeJoin(root, name string) (string, error) {
 		return "", fmt.Errorf("archive path %q escapes staging directory", name)
 	}
 	return path, nil
+}
+
+func ensureRuntimeDirectory(root, path string, perm os.FileMode) error {
+	if err := os.MkdirAll(root, perm); err != nil {
+		return err
+	}
+	rootHandle, err := openDirectRuntimeRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	return ensureRuntimeDirectoryAt(rootHandle, root, path, perm)
+}
+
+func ensureRuntimeDirectoryAt(rootHandle *os.Root, root, path string, perm os.FileMode) error {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	parts := []string(nil)
+	if relative != "." {
+		parts = strings.Split(relative, string(filepath.Separator))
+	}
+	current := rootHandle
+	defer func() {
+		if current != rootHandle {
+			_ = current.Close()
+		}
+	}()
+	for _, part := range parts {
+		info, inspectErr := current.Lstat(part)
+		if errors.Is(inspectErr, os.ErrNotExist) {
+			if mkdirErr := current.Mkdir(part, perm); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+				return mkdirErr
+			}
+			info, inspectErr = current.Lstat(part)
+		}
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if runtimePathIsIndirect(info) || !info.IsDir() {
+			return fmt.Errorf("runtime directory %s is not a direct directory", filepath.Join(root, relative))
+		}
+		next, err := current.OpenRoot(part)
+		if err != nil {
+			return err
+		}
+		opened, err := next.Stat(".")
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("runtime directory %s changed while opening it", filepath.Join(root, relative))
+		}
+		if current != rootHandle {
+			_ = current.Close()
+		}
+		current = next
+	}
+	return nil
+}
+
+func validateRuntimePathAt(rootHandle *os.Root, storeRoot, root, path string) error {
+	if _, err := runtimeRelativePath(root, path); err != nil {
+		return err
+	}
+	relative, err := runtimeRelativePath(storeRoot, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return nil
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	current := rootHandle
+	defer func() {
+		if current != rootHandle {
+			_ = current.Close()
+		}
+	}()
+	for index, part := range parts {
+		info, err := current.Lstat(part)
+		if err != nil {
+			return err
+		}
+		if runtimePathIsIndirect(info) {
+			return fmt.Errorf("runtime path component %s is indirect", filepath.Join(root, filepath.Join(parts[:index+1]...)))
+		}
+		if index == len(parts)-1 {
+			return nil
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("runtime path component %s is not a directory", filepath.Join(root, filepath.Join(parts[:index+1]...)))
+		}
+		next, err := current.OpenRoot(part)
+		if err != nil {
+			return err
+		}
+		opened, err := next.Stat(".")
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("runtime path component %s changed while opening it", filepath.Join(root, filepath.Join(parts[:index+1]...)))
+		}
+		if current != rootHandle {
+			_ = current.Close()
+		}
+		current = next
+	}
+	return nil
+}
+
+func runtimeRelativePath(root, path string) (string, error) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("runtime path %q escapes store %q", path, root)
+	}
+	return relative, nil
+}
+
+func openDirectRuntimeRoot(root string) (*os.Root, error) {
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if runtimePathIsIndirect(info) || !info.IsDir() {
+		return nil, fmt.Errorf("runtime store %s is not a direct directory", root)
+	}
+	handle, err := os.OpenRoot(resolved)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := handle.Stat(".")
+	if err != nil || !os.SameFile(info, opened) {
+		_ = handle.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("runtime store %s changed while opening it", root)
+	}
+	return handle, nil
+}
+
+func openDirectRuntimeSubroot(rootHandle *os.Root, relative string) (*os.Root, bool, error) {
+	if relative == "." || relative == "" {
+		return rootHandle, false, nil
+	}
+	current := rootHandle
+	owned := false
+	for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		info, err := current.Lstat(part)
+		if err != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, err
+		}
+		if runtimePathIsIndirect(info) || !info.IsDir() {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, fmt.Errorf("runtime path component %s is not a direct directory", part)
+		}
+		next, err := current.OpenRoot(part)
+		if err != nil {
+			if owned {
+				_ = current.Close()
+			}
+			return nil, false, err
+		}
+		opened, err := next.Stat(".")
+		if err != nil || !os.SameFile(info, opened) {
+			_ = next.Close()
+			if owned {
+				_ = current.Close()
+			}
+			if err != nil {
+				return nil, false, err
+			}
+			return nil, false, fmt.Errorf("runtime path component %s changed while opening it", part)
+		}
+		if owned {
+			_ = current.Close()
+		}
+		current = next
+		owned = true
+	}
+	return current, owned, nil
+}
+
+func openRuntimeFile(rootHandle *os.Root, root, path string, flag int, perm os.FileMode) (*os.File, os.FileInfo, error) {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	if relative == "." {
+		return nil, nil, fmt.Errorf("runtime file path names the store root")
+	}
+	parent, owned, err := openDirectRuntimeSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return nil, nil, err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	leaf := filepath.Base(relative)
+	expected, inspectErr := parent.Lstat(leaf)
+	if inspectErr == nil && runtimePathIsIndirect(expected) {
+		return nil, nil, fmt.Errorf("runtime path component %s is indirect", path)
+	}
+	if inspectErr != nil && !errors.Is(inspectErr, os.ErrNotExist) {
+		return nil, nil, inspectErr
+	}
+	file, err := parent.OpenFile(leaf, flag, perm)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := file.Stat()
+	if err != nil || runtimePathIsIndirect(opened) || expected != nil && !os.SameFile(expected, opened) {
+		_ = file.Close()
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("runtime path component %s changed while opening it", path)
+	}
+	return file, opened, nil
+}
+
+func readRuntimeFile(rootHandle *os.Root, root, path string) ([]byte, error) {
+	file, _, err := openRuntimeFile(rootHandle, root, path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return io.ReadAll(file)
+}
+
+func digestRuntimeFile(rootHandle *os.Root, root, path string) (string, error) {
+	file, _, err := openRuntimeFile(rootHandle, root, path, os.O_RDONLY, 0)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func atomicWriteRuntimeFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return fmt.Errorf("runtime file path names the store root")
+	}
+	parent, owned, err := openDirectRuntimeSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	var nonce [16]byte
+	if _, err := cryptorand.Read(nonce[:]); err != nil {
+		return err
+	}
+	temporary := prefix + hex.EncodeToString(nonce[:])
+	file, err := parent.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Remove(temporary) }()
+	_, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	return renameRuntimeRoot(parent, temporary, filepath.Base(relative))
+}
+
+func mkdirTempRuntime(rootHandle *os.Root, root, parentPath, prefix string) (string, error) {
+	relative, err := runtimeRelativePath(root, parentPath)
+	if err != nil {
+		return "", err
+	}
+	parent, owned, err := openDirectRuntimeSubroot(rootHandle, relative)
+	if err != nil {
+		return "", err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	for range 100 {
+		var nonce [16]byte
+		if _, err := cryptorand.Read(nonce[:]); err != nil {
+			return "", err
+		}
+		name := prefix + hex.EncodeToString(nonce[:])
+		if err := parent.Mkdir(name, 0o700); err == nil {
+			return filepath.Join(parentPath, name), nil
+		} else if !errors.Is(err, os.ErrExist) {
+			return "", err
+		}
+	}
+	return "", errors.New("allocate unique runtime staging directory")
+}
+
+func createTempRuntimeFile(rootHandle *os.Root, root, parentPath, prefix string, perm os.FileMode) (*os.File, string, error) {
+	for range 100 {
+		var nonce [16]byte
+		if _, err := cryptorand.Read(nonce[:]); err != nil {
+			return nil, "", err
+		}
+		path := filepath.Join(parentPath, prefix+hex.EncodeToString(nonce[:]))
+		file, _, err := openRuntimeFile(rootHandle, root, path, os.O_CREATE|os.O_EXCL|os.O_RDWR, perm)
+		if err == nil {
+			return file, path, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", err
+		}
+	}
+	return nil, "", errors.New("allocate unique runtime staging file")
+}
+
+func removeAllRuntimePath(rootHandle *os.Root, root, path string) error {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return errors.New("refusing to remove runtime store root")
+	}
+	return rootHandle.RemoveAll(relative)
+}
+
+func removeRuntimeFile(rootHandle *os.Root, root, path string) error {
+	relative, err := runtimeRelativePath(root, path)
+	if err != nil {
+		return err
+	}
+	if relative == "." {
+		return errors.New("refusing to remove runtime store root")
+	}
+	parent, owned, err := openDirectRuntimeSubroot(rootHandle, filepath.Dir(relative))
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = parent.Close() }()
+	}
+	return parent.Remove(filepath.Base(relative))
+}
+
+func renameRuntimePath(rootHandle *os.Root, root, oldPath, newPath string) error {
+	oldRelative, err := runtimeRelativePath(root, oldPath)
+	if err != nil {
+		return err
+	}
+	if oldRelative == "." {
+		return errors.New("refusing to rename runtime store root")
+	}
+	newRelative, err := runtimeRelativePath(root, newPath)
+	if err != nil {
+		return err
+	}
+	if newRelative == "." {
+		return errors.New("refusing to replace runtime store root")
+	}
+	return renameRuntimeRoot(rootHandle, oldRelative, newRelative)
 }
 
 func currentTargetName(goos, goarch string) string {

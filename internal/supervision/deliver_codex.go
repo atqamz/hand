@@ -18,6 +18,10 @@ const CodexThreadEnv = "CODEX_THREAD_ID"
 // degraded, never as healthy.
 var ErrUnsupported = errors.New("unsupported host integration")
 
+// ErrCodexExecutableUnavailable distinguishes a hermetic/static integration
+// from a live Codex runtime whose queue primitive was rejected.
+var ErrCodexExecutableUnavailable = errors.New("codex executable is unavailable on PATH")
+
 // CommandRunner executes one structured argv with env additions and returns
 // combined output. exec.CommandContext with an argv slice is the only allowed
 // shape: no shell concatenation anywhere in a delivery path.
@@ -39,6 +43,9 @@ func RunCommand(ctx context.Context, exe string, argv []string, env []string) (s
 func ProbeCodexQueue(ctx context.Context, run CommandRunner) error {
 	out, err := run(ctx, "codex", []string{"queue", "--help"}, nil)
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return fmt.Errorf("%w: %w", ErrUnsupported, ErrCodexExecutableUnavailable)
+		}
 		return fmt.Errorf("%w: codex queue is unavailable: %s", ErrUnsupported, firstLine(out))
 	}
 	for _, flag := range []string{"--thread", "--message"} {

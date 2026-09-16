@@ -11,7 +11,16 @@ import (
 // Lock takes an exclusive advisory lock on file. With block false it returns
 // ErrBusy immediately if another process already holds it, instead of waiting.
 func Lock(file *os.File, block bool) error {
-	flags := syscall.LOCK_EX
+	return lock(file, block, syscall.LOCK_EX)
+}
+
+// LockShared takes a shared advisory lock on file. Multiple shared holders may
+// coexist, while an exclusive Lock conflicts with all of them.
+func LockShared(file *os.File, block bool) error {
+	return lock(file, block, syscall.LOCK_SH)
+}
+
+func lock(file *os.File, block bool, flags int) error {
 	if !block {
 		flags |= syscall.LOCK_NB
 	}

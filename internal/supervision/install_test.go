@@ -1,7 +1,10 @@
 package supervision
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -156,15 +159,134 @@ func TestClaudeStopHookUsesExecFormAsyncRewake(t *testing.T) {
 	}
 }
 
+func TestClaudeStopHookDeduplicatesExactExecutableCopies(t *testing.T) {
+	first := writeTestExecutable(t, "first", []byte("exact managed hand generation"))
+	second := writeTestExecutable(t, "second", []byte("exact managed hand generation"))
+	home := t.TempDir()
+	if _, err := InstallClaudeStopHook(home, first); err != nil {
+		t.Fatal(err)
+	}
+	result, err := InstallClaudeStopHook(home, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != "replaced" {
+		t.Fatalf("alias install = %#v, want one exact generation replacing its other path", result)
+	}
+
+	commands := claudeStopCommands(t, filepath.Join(home, ".claude", "settings.json"))
+	if !reflect.DeepEqual(commands, []string{second}) {
+		t.Fatalf("Stop commands = %q, want one canonical path %q", commands, second)
+	}
+}
+
+func TestExecutableGenerationIsContentAddressedAcrossPaths(t *testing.T) {
+	first := writeTestExecutable(t, "first-generation", []byte("same generation"))
+	alias := writeTestExecutable(t, "alias-generation", []byte("same generation"))
+	foreign := writeTestExecutable(t, "foreign-generation", []byte("different generation"))
+	firstGeneration, err := ExecutableGeneration(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasGeneration, err := ExecutableGeneration(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignGeneration, err := ExecutableGeneration(foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstGeneration != aliasGeneration {
+		t.Fatalf("same bytes yielded %q and %q", firstGeneration, aliasGeneration)
+	}
+	if firstGeneration == foreignGeneration {
+		t.Fatalf("different bytes yielded one generation %q", firstGeneration)
+	}
+}
+
+func TestClaudeStopHookRefusesDifferentAndUnknownHandObjects(t *testing.T) {
+	current := writeTestExecutable(t, "current", []byte("current managed hand generation"))
+	home := t.TempDir()
+	if _, err := InstallClaudeStopHook(home, current); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	before, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, candidate := range map[string]string{
+		"different": writeTestExecutable(t, "different", []byte("different hand generation")),
+		"unknown":   filepath.Join(t.TempDir(), "missing-hand"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := InstallClaudeStopHook(home, candidate)
+			if err == nil || result.State != "conflict" {
+				t.Fatalf("install = %#v, %v; want fail-closed conflict", result, err)
+			}
+			after, readErr := os.ReadFile(settingsPath)
+			if readErr != nil || !bytes.Equal(after, before) {
+				t.Fatalf("conflict changed settings: %q, %v", after, readErr)
+			}
+		})
+	}
+}
+
+func TestStopHooksUpgradeVerifiedManagedHandGeneration(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "runtime", "hand-generations")
+	oldExe := writeManagedTestExecutable(t, root, []byte("old managed Hand generation"))
+	newExe := writeManagedTestExecutable(t, root, []byte("new managed Hand generation"))
+	for name, install := range map[string]func(string, string) (InstallResult, error){
+		"claude": InstallClaudeStopHook,
+		"codex":  InstallCodexHooks,
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if _, err := install(home, oldExe); err != nil {
+				t.Fatal(err)
+			}
+			result, err := install(home, newExe)
+			if err != nil || result.State != "replaced" {
+				t.Fatalf("managed generation upgrade = %#v, %v; want replaced", result, err)
+			}
+		})
+	}
+}
+
+func TestClaudeStopHookDoesNotClaimLegacyHandlerByBasename(t *testing.T) {
+	home := t.TempDir()
+	foreign := writeTestExecutable(t, "foreign", []byte("foreign executable"))
+	current := writeTestExecutable(t, "current", []byte("managed hand generation"))
+	path := filepath.Join(home, ".claude", "settings.json")
+	writeSettingsJSON(t, path, map[string]any{"hooks": map[string]any{"Stop": []any{
+		map[string]any{"hooks": []any{map[string]any{"type": "command", "command": shellquoteQuote(foreign) + " supervision claude-stop"}}},
+	}}})
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := InstallClaudeStopHook(home, current)
+	if err == nil || result.State != "conflict" {
+		t.Fatalf("legacy foreign basename install = %#v, %v; want conflict", result, err)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil || !bytes.Equal(after, before) {
+		t.Fatalf("legacy foreign handler changed: %q, %v", after, readErr)
+	}
+}
+
 func TestClaudeStopHookPreservesForeignAndUpgradesOwnedLegacy(t *testing.T) {
 	home := t.TempDir()
+	oldExe := writeTestExecutable(t, "old", []byte("same managed hand generation"))
+	newExe := writeTestExecutable(t, "new", []byte("same managed hand generation"))
 	foreign := map[string]any{
 		"type":    "command",
 		"command": "/usr/bin/operator-own-tool --flag",
 	}
 	legacy := map[string]any{
 		"type":    "command",
-		"command": "'/old/path/hand' supervision claude-stop",
+		"command": shellquoteQuote(oldExe) + " supervision claude-stop",
 	}
 	writeSettingsJSON(t, filepath.Join(home, ".claude", "settings.json"), map[string]any{
 		"permissions": map[string]any{"allow": []string{"Bash(ls*)"}},
@@ -174,7 +296,7 @@ func TestClaudeStopHookPreservesForeignAndUpgradesOwnedLegacy(t *testing.T) {
 		},
 	})
 
-	result, err := InstallClaudeStopHook(home, "/new/install/hand")
+	result, err := InstallClaudeStopHook(home, newExe)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +311,7 @@ func TestClaudeStopHookPreservesForeignAndUpgradesOwnedLegacy(t *testing.T) {
 	if !strings.Contains(text, "/usr/bin/operator-own-tool --flag") || !strings.Contains(text, `"PreToolUse"`) {
 		t.Fatalf("settings lost foreign operator content:\n%s", text)
 	}
-	if strings.Contains(text, "/old/path/hand") {
+	if strings.Contains(text, oldExe) {
 		t.Fatalf("stale Hand-owned entry survived:\n%s", text)
 	}
 	if !strings.Contains(text, `"asyncRewake": true`) {
@@ -294,6 +416,63 @@ func TestCodexHooksMergeIsFleetLocalIdempotentAndForeignSafe(t *testing.T) {
 	}
 }
 
+func TestCodexOwnsItsCanonicalWindowsCommand(t *testing.T) {
+	exe := `C:\Program Files\Hand\hand.exe`
+	if got, want := codexStopHandler(exe)["commandWindows"], `"C:\Program Files\Hand\hand.exe" supervision codex-stop`; got != want {
+		t.Fatalf("commandWindows = %q, want cmd.exe path quoting %q", got, want)
+	}
+	exact, owned, unknown := codexOwned(codexStopHandler(exe), exe)
+	if !exact || !owned || unknown {
+		t.Fatalf("codexOwned(canonical Windows command) = %t, %t, %t; want true, true, false", exact, owned, unknown)
+	}
+}
+
+func TestCodexCanonicalWindowsCommandHidesLiteralPercentPathFromCmd(t *testing.T) {
+	exe := `C:\stores\%TEAM%\hand.exe`
+	handler := codexStopHandler(exe)
+	command := handler["commandWindows"].(string)
+	if strings.Contains(command, `%TEAM%`) {
+		t.Fatalf("commandWindows exposes executable path to cmd.exe expansion: %q", command)
+	}
+	exact, owned, unknown := codexOwned(handler, exe)
+	if !exact || !owned || unknown {
+		t.Fatalf("codexOwned(encoded Windows command) = %t, %t, %t; want true, true, false", exact, owned, unknown)
+	}
+}
+
+func TestCodexRecognizesEncodedWindowsCommandAcrossManagedUpgrade(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "%TEAM%", "runtime", "hand-generations")
+	oldExe := writeManagedTestExecutable(t, root, []byte("old managed Hand generation"))
+	newExe := writeManagedTestExecutable(t, root, []byte("new managed Hand generation"))
+	handler := codexStopHandler(oldExe)
+	exact, owned, unknown := codexOwned(handler, newExe)
+	if exact || !owned || unknown {
+		t.Fatalf("encoded Windows upgrade ownership = %t, %t, %t; want false, true, false", exact, owned, unknown)
+	}
+}
+
+func TestCodexOwnsApostrophePathIdempotently(t *testing.T) {
+	exe := "/home/o'connor/hand"
+	home := t.TempDir()
+	first, err := InstallCodexHooks(home, exe)
+	if err != nil || first.State == "conflict" {
+		t.Fatalf("first install = %#v, %v", first, err)
+	}
+	path := codexHooksPath(home)
+	second, err := InstallCodexHooks(home, exe)
+	if err != nil || second.State == "conflict" {
+		t.Fatalf("second install = %#v, %v", second, err)
+	}
+	after, _ := os.ReadFile(path)
+	if strings.Count(string(after), `"type": "command"`) != 1 {
+		t.Fatalf("apostrophe install not idempotent: %q", after)
+	}
+	exact, owned, unknown := codexOwned(codexStopHandler(exe), exe)
+	if !exact || !owned || unknown {
+		t.Fatalf("apostrophe hook ownership = %t, %t, %t", exact, owned, unknown)
+	}
+}
+
 func writeSettingsJSON(t *testing.T, path string, body map[string]any) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -306,4 +485,56 @@ func writeSettingsJSON(t *testing.T, path string, body map[string]any) {
 	if err := os.WriteFile(path, encoded, 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeTestExecutable(t *testing.T, directory string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), directory, "hand")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeManagedTestExecutable(t *testing.T, root string, data []byte) string {
+	t.Helper()
+	digest := sha256.Sum256(data)
+	path := filepath.Join(root, fmt.Sprintf("%x", digest), "hand")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func claudeStopCommands(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	hooks, _ := settings["hooks"].(map[string]any)
+	groups, _ := hooks["Stop"].([]any)
+	for _, rawGroup := range groups {
+		group, _ := rawGroup.(map[string]any)
+		handlers, _ := group["hooks"].([]any)
+		for _, rawHandler := range handlers {
+			handler, _ := rawHandler.(map[string]any)
+			if args, ok := handler["args"].([]any); ok && reflect.DeepEqual(args, []any{"supervision", "claude-stop"}) {
+				command, _ := handler["command"].(string)
+				commands = append(commands, command)
+			}
+		}
+	}
+	return commands
 }

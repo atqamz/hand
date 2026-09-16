@@ -76,6 +76,8 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "unknown"
+	} else {
+		exe = currentSupervisionExecutable(exe)
 	}
 	detection, err := harness.DetectCurrent()
 	if err != nil {

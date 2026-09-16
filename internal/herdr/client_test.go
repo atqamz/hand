@@ -1,15 +1,22 @@
 package herdr
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/launch"
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 func writeFakeHerdr(t *testing.T, responses ...faketool.HerdrResponse) {
@@ -52,6 +59,170 @@ func TestNamedSessionPrefixesHerdrInvocation(t *testing.T) {
 	if !strings.Contains(string(calls), "--session hand-f-fleet workspace list") {
 		t.Fatalf("calls = %q, want named session before command", calls)
 	}
+}
+
+func TestReconcileManagedRuntimeMaterializesLegacySelection(t *testing.T) {
+	store := &toolchain.Store{Root: t.TempDir()}
+	selected := toolchain.Runtime{BundleDir: filepath.Join(store.Root, "runtime", "bundles", "legacy-20260915")}
+	var called bool
+	original := ensureDeterministicRuntime
+	ensureDeterministicRuntime = func(_ context.Context, got *toolchain.Store) (toolchain.Runtime, error) {
+		called = got == store
+		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
+	}
+	t.Cleanup(func() { ensureDeterministicRuntime = original })
+	got, err := reconcileManagedRuntime(context.Background(), store, selected, "deterministic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !called || got.BundleDir != filepath.Join(store.Root, "runtime", "bundles", "deterministic") {
+		t.Fatalf("reconciled runtime = %#v, materializer called = %t; want deterministic generation", got, called)
+	}
+}
+
+func TestResolveManagedRuntimeRepairsInvalidLegacySelection(t *testing.T) {
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &toolchain.Store{Root: t.TempDir(), Lock: lock}
+	if err := os.MkdirAll(filepath.Join(store.Root, "runtime"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Root, "runtime", "current.json"), []byte(`{"legacy":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selectedOriginal := selectRuntime
+	ensureOriginal := ensureDeterministicRuntime
+	generationOriginal := managedGenerationID
+	selectRuntime = func(*toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{}, errors.New("legacy bundle is invalid")
+	}
+	ensureDeterministicRuntime = func(_ context.Context, got *toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{BundleDir: filepath.Join(got.Root, "runtime", "bundles", "deterministic")}, nil
+	}
+	managedGenerationID = func(*toolchain.Store) (string, error) { return "deterministic", nil }
+	t.Cleanup(func() {
+		selectRuntime = selectedOriginal
+		ensureDeterministicRuntime = ensureOriginal
+		managedGenerationID = generationOriginal
+	})
+	if got, err := resolveManagedRuntime(context.Background(), store); err != nil || !strings.HasSuffix(got.BundleDir, filepath.Join("bundles", "deterministic")) {
+		t.Fatalf("resolve legacy selection = %#v, %v; want deterministic materialization", got, err)
+	}
+}
+
+func TestResolveManagedRuntimePropagatesCancellation(t *testing.T) {
+	store := &toolchain.Store{Root: t.TempDir()}
+	selectedOriginal := selectRuntime
+	ensureOriginal := ensureDeterministicRuntime
+	generationOriginal := managedGenerationID
+	selectRuntime = func(*toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{BundleDir: filepath.Join(store.Root, "runtime", "bundles", "legacy")}, nil
+	}
+	ensureDeterministicRuntime = func(ctx context.Context, _ *toolchain.Store) (toolchain.Runtime, error) {
+		return toolchain.Runtime{}, ctx.Err()
+	}
+	managedGenerationID = func(*toolchain.Store) (string, error) { return "deterministic", nil }
+	t.Cleanup(func() {
+		selectRuntime = selectedOriginal
+		ensureDeterministicRuntime = ensureOriginal
+		managedGenerationID = generationOriginal
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := resolveManagedRuntime(ctx, store); !errors.Is(err, context.Canceled) {
+		t.Fatalf("resolve canceled runtime = %v, want context cancellation", err)
+	}
+}
+
+func TestManagedServerOwnershipRequiresBothExactGuardianLeases(t *testing.T) {
+	store := managedServerLeaseStore(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	runtimeGeneration, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardianSource := filepath.Join(t.TempDir(), managedExecutableName("hand"))
+	if err := os.WriteFile(guardianSource, []byte("exact guardian"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guardian, err := store.MaterializeHandExecutable(guardianSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fleetID = "f_0123456789abcdef0123456789abcdef"
+	session := SessionName(fleetID)
+	client := &Client{store: store, guardian: guardian, runtimeGeneration: runtimeGeneration, fleetID: fleetID, session: session}
+	runtimeLease, err := store.AcquireLease(toolchain.LeaseRequest{
+		Generation: runtimeGeneration, LeaseID: "herdr-server:" + session, FleetID: fleetID,
+		Consumer: "herdr-server", Evidence: "session=" + session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = runtimeLease.Close() }()
+	if owned, err := client.serverLeaseOwned(context.Background()); err != nil || owned {
+		t.Fatalf("runtime-only guardian ownership = %t, %v; want false", owned, err)
+	}
+	handLease, err := store.AcquireHandLease(toolchain.LeaseRequest{
+		Generation: "sha256:" + filepath.Base(filepath.Dir(guardian)), LeaseID: "herdr-guardian:" + session, FleetID: fleetID,
+		Consumer: "runtime-guardian", Evidence: "session=" + session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := client.serverLeaseOwned(context.Background()); err != nil || !owned {
+		t.Fatalf("fully leased guardian ownership = %t, %v; want true", owned, err)
+	}
+	if err := handLease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := client.serverLeaseOwned(context.Background()); err != nil || owned {
+		t.Fatalf("retired Hand guardian ownership = %t, %v; want false", owned, err)
+	}
+}
+
+func managedServerLeaseStore(t *testing.T) *toolchain.Store {
+	t.Helper()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = w.Write([]byte("fixture-" + filepath.Base(request.URL.Path)))
+	}))
+	t.Cleanup(server.Close)
+	components := make(map[string]toolchain.Component, 3)
+	for _, name := range []string{"git", "treehouse", "herdr"} {
+		body := []byte("fixture-" + name)
+		digest := sha256.Sum256(body)
+		components[name] = toolchain.Component{
+			Name: name, Version: "test", Revision: "test", URL: server.URL + "/" + name,
+			SHA256: hex.EncodeToString(digest[:]), Format: "binary", Root: ".",
+			Files: []toolchain.ExpectedFile{{Path: managedExecutableName(name), Executable: true, Regular: true}},
+		}
+	}
+	lock := toolchain.Lock{Schema: 1, GeneratedBy: "herdr-test", Targets: map[string]toolchain.Target{
+		runtime.GOOS + "/" + runtime.GOARCH: {Components: components},
+	}}
+	var err error
+	lock.RuntimeID, err = lock.DeterministicID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := toolchain.NewStore(t.TempDir(), lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.HTTPClient = server.Client()
+	return store
+}
+
+func managedExecutableName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
 }
 
 func TestFindWorkspaceByLabelFound(t *testing.T) {
