@@ -1,0 +1,42 @@
+name: Chat review kit
+
+on:
+  push:
+    branches: [review/chat-20260921]
+    paths: [.github/workflows/chat-review-kit.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Snapshot public source and verified Go dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/hand-review-kit
+          git bundle create /tmp/hand-review-kit/hand.bundle --all
+          go mod download
+          go mod download modernc.org/sqlite@v1.59.0 modernc.org/libc@v1.75.7
+          go version > /tmp/hand-review-kit/toolchain.txt
+          git show-ref > /tmp/hand-review-kit/refs.txt
+          tar -C "$(go env GOROOT)" -czf /tmp/hand-review-kit/go.tar.gz .
+          tar -C "$(go env GOMODCACHE)" -czf /tmp/hand-review-kit/modules.tar.gz .
+          (cd /tmp/hand-review-kit && sha256sum hand.bundle go.tar.gz modules.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hand-chat-review-kit
+          path: /tmp/hand-review-kit/
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
