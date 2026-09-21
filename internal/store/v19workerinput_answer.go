@@ -142,8 +142,12 @@ func requireCanonicalV19AnswerWorkerInputSource(
 		WHERE d.id=? AND da.id=?
 		  AND ((d.scope_kind='attempt' AND d.attempt_id=a.id) OR
 		       (d.scope_kind='plan' AND d.plan_id=a.plan_id) OR
-		       (d.scope_kind='task' AND d.task_id=p.task_id))`,
-		input.AttemptID, input.DecisionID, input.AnswerID).Scan(&decisionID, &answerID)
+		       (d.scope_kind='task' AND d.task_id=p.task_id))
+		  AND (d.triggering_worker_report_id IS NULL OR EXISTS (
+		      SELECT 1 FROM worker_report r WHERE r.id=d.triggering_worker_report_id
+		        AND r.attempt_id=a.id AND (r.executor_binding_id IS NULL OR r.executor_binding_id=?)
+		  ))`,
+		input.AttemptID, input.DecisionID, input.AnswerID, input.ExecutorBindingID).Scan(&decisionID, &answerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: Answer %q / Decision %q does not exactly scope to Attempt %q",
 			ErrCanonicalV19WorkerInputConflict, input.AnswerID, input.DecisionID, input.AttemptID)
