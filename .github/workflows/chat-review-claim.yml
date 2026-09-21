@@ -1,0 +1,200 @@
+name: Chat wake claim review
+
+on:
+  push:
+    branches: [review/chat-20260921]
+    paths: [.github/workflows/chat-review-claim.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-claim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: df91c6956ebd5e37735a52dc2687d9be086386f1
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install -g npm@12.0.2
+      - name: Integrate the reviewed dependency candidates
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c manual-review-claim
+          git merge --no-ff --no-edit fd9a1439b4f0605314e621901e9301e50c52104b
+          git merge --no-ff --no-edit 72088b1ae4be9a0160fa17d86010f213d0ac2765
+      - name: Add deterministic real-Wait handover regression
+        shell: python
+        run: |
+          from pathlib import Path
+          Path('internal/supervision/wait_claim_test.go').write_text(r'''package supervision
+
+          import (
+              "context"
+              "encoding/json"
+              "errors"
+              "os"
+              "testing"
+              "time"
+
+              "github.com/atqamz/hand/internal/filelock"
+              "github.com/atqamz/hand/internal/orientation"
+          )
+
+          func TestWaitSerializesHandoverWithWakeClaim(t *testing.T) {
+              home := t.TempDir()
+              originalRuntimeLease := acquireWaiterGenerationLease
+              originalHandLease := acquireWaiterHandGenerationLease
+              acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
+                  return func() error { return nil }, nil
+              }
+              acquireWaiterHandGenerationLease = acquireWaiterGenerationLease
+              t.Cleanup(func() {
+                  acquireWaiterGenerationLease = originalRuntimeLease
+                  acquireWaiterHandGenerationLease = originalHandLease
+              })
+              ledger := OpenLedger(home)
+              checked, held := false, false
+              // The existing clock hook runs inside the actual ledger write lock.
+              // Try the real attachment lock there, without sleeps or new production hooks.
+              ledger.now = func() time.Time {
+                  checked = true
+                  lock, err := os.OpenFile(attachmentLockPath(home), os.O_RDWR, 0)
+                  if err != nil { t.Fatal(err) }
+                  err = filelock.Lock(lock, false)
+                  if errors.Is(err, filelock.ErrBusy) {
+                      held = true
+                      if err := lock.Close(); err != nil { t.Fatal(err) }
+                      return time.Now()
+                  }
+                  if err != nil { _ = lock.Close(); t.Fatal(err) }
+                  if err := errors.Join(filelock.Unlock(lock), lock.Close()); err != nil { t.Fatal(err) }
+                  data, err := os.ReadFile(attachmentPath(home))
+                  if err != nil { t.Fatal(err) }
+                  var successor AttachmentRecord
+                  if err := json.Unmarshal(data, &successor); err != nil { t.Fatal(err) }
+                  successor.WaiterID += "-successor"
+                  if acquired, err := AcquireAttachment(home, successor); err != nil || !acquired {
+                      t.Fatalf("handover positive control = %t, %v", acquired, err)
+                  }
+                  return time.Now()
+              }
+              wake, err := Wait(context.Background(), Waiter{
+                  Home: home, Ledger: ledger,
+                  ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{
+                      actionableEvidence("task-1", "episode-1", "blocked"),
+                  }}),
+              }, WaitConfig{
+                  Host: "codex", RuntimeSession: "session-a", RuntimeGeneration: "hand-a",
+                  LeaseGeneration: "runtime-a", PollInterval: time.Hour,
+              })
+              if err != nil || len(wake.Episodes) != 1 { t.Fatalf("wake = %+v, %v", wake, err) }
+              if !checked || !held { t.Fatal("wake claim admitted attachment handover during ledger commit") }
+          }
+          ''')
+      - name: Prove RED through the real Wait entry point
+        shell: bash
+        run: |
+          gofmt -w internal/supervision/wait_claim_test.go
+          set +e
+          go test -tags=test -run '^TestWaitSerializesHandoverWithWakeClaim$' -count=1 ./internal/supervision > /tmp/claim-red.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/claim-red.log
+          test "$result" -ne 0
+          grep -q 'wake claim admitted attachment handover during ledger commit' /tmp/claim-red.log
+      - name: Serialize ownership and ledger publication with existing attachment lock
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          path = Path('internal/supervision/wait.go')
+          text = path.read_text()
+          assert text.count('claimAndDeliver(w, cfg, wake, ') == 3
+          text = text.replace('claimAndDeliver(w, cfg, wake, ', 'claimAndDeliver(guard, w, wake, ')
+          pattern = r'^(\t+)if proofErr := guard\.prove\(\); proofErr != nil \{\n\1\treturn Wake\{\}, proofErr\n\1}\n'
+          text, count = re.subn(pattern, '', text, flags=re.M)
+          assert count == 2
+          before = '''func claimAndDeliver(w Waiter, cfg WaitConfig, wake Wake, all []Episode) (Wake, bool, error) {
+          \tclaimed, claimErr := w.Ledger.ClaimEligible(all)'''
+          after = '''func claimAndDeliver(guard *bridgeGuard, w Waiter, wake Wake, all []Episode) (Wake, bool, error) {
+          \tvar claimed []Episode
+          \tclaimErr := mutateAttachment(w.Home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
+          \t\tif existing == nil || holderKey(*existing) != holderKey(guard.record) {
+          \t\t\treturn nil, false, ErrBridgeOwned
+          \t\t}
+          \t\tvar err error
+          \t\tclaimed, err = w.Ledger.ClaimEligible(all)
+          \t\treturn nil, false, err
+          \t})'''
+          assert text.count(before) == 1
+          text = text.replace(before, after)
+          text = text.replace('''\t\t// Acquisition just proved ownership under the same lock; claiming
+          \t\t// immediately keeps that proof contiguous with the claim boundary.''', '''\t\t// Ownership and eligibility are checked under the same handover lock.''')
+          text = text.replace('''// Proves current bridge ownership by refreshing this exact owner's record
+          // under the attachment lock. Runs at every claim boundary after any blocking
+          // wait so a successful ClaimEligible implies ownership held at that instant.''', '''// Refreshes the exact owner's heartbeat under the attachment lock.
+          // Wake claims retain that same lock through ledger publication.''')
+          text = text.replace('// Every claim re-proves bridge ownership under the attachment lock first.', '// Every claim retains the attachment lock through ledger publication.')
+          text = text.replace('''\t\t\t// Claim-boundary proof: a watcher cycle can sit through an entire
+          \t\t\t// ownership handover; the episode must go to whoever owns the
+          \t\t\t// bridge NOW, and this runtime must not consume it stale.''', '''\t\t\t// A watcher cycle may span a handover; only the current exact holder
+          \t\t\t// may commit a claim under the attachment lock.''')
+          text = text.replace('// Performs the atomic eligibility-and-request transaction. Won=false means', '// Serializes exact-holder proof and ledger commit with attachment handovers. Won=false means')
+          path.write_text(text)
+      - name: Add stale-holder non-consumption control
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('internal/supervision/wait_claim_test.go')
+          text = path.read_text().replace('"context"', '"bytes"\n "context"')
+          text += r'''
+          func TestClaimLeavesEpisodeForExactSuccessor(t *testing.T) {
+              home := t.TempDir()
+              now := time.Now()
+              record := AttachmentRecord{Host: "codex", Runtime: "session-a", Generation: "hand-a", WaiterID: "old", FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute)}
+              if acquired, err := AcquireAttachment(home, record); err != nil || !acquired { t.Fatalf("acquire = %t, %v", acquired, err) }
+              old := &bridgeGuard{home: home, record: record, lease: time.Minute}
+              if err := old.prove(); err != nil { t.Fatal(err) }
+              successor := record
+              successor.WaiterID = "new"
+              if acquired, err := AcquireAttachment(home, successor); err != nil || !acquired { t.Fatalf("handover = %t, %v", acquired, err) }
+              before, err := os.ReadFile(attachmentPath(home))
+              if err != nil { t.Fatal(err) }
+              evidence := orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{actionableEvidence("task-1", "episode-1", "blocked")}}
+              episodes := FromEvidence(evidence)
+              waiter := Waiter{Home: home, Ledger: OpenLedger(home)}
+              wake := Wake{Host: "codex", FleetID: "f_1"}
+              if result, won, err := claimAndDeliver(old, waiter, wake, episodes); !errors.Is(err, ErrBridgeOwned) || won || len(result.Episodes) != 0 { t.Fatalf("stale claim = %+v, %t, %v", result, won, err) }
+              if got := waiter.Ledger.Eligible(episodes); len(got) != 1 { t.Fatalf("stale holder consumed successor episode: %+v", got) }
+              current := &bridgeGuard{home: home, record: successor, lease: time.Minute}
+              if result, won, err := claimAndDeliver(current, waiter, wake, episodes); err != nil || !won || len(result.Episodes) != 1 { t.Fatalf("successor claim = %+v, %t, %v", result, won, err) }
+              after, err := os.ReadFile(attachmentPath(home))
+              if err != nil || !bytes.Equal(before, after) { t.Fatalf("claim rewrote attachment: %v", err) }
+          }
+          '''
+          path.write_text(text)
+      - name: Verify GREEN on the integrated repository
+        shell: bash
+        run: |
+          gofmt -w internal/supervision/wait.go internal/supervision/wait_claim_test.go
+          git diff --check
+          go test -tags=test -race -run '^(TestWaitSerializesHandoverWithWakeClaim|TestClaimLeavesEpisodeForExactSuccessor)$' -count=20 ./internal/supervision
+          go test -tags=test -race -timeout=20m ./cmd ./internal/herdr ./internal/toolchain ./internal/supervision ./internal/integration
+          go test -tags=e2e,test -count=1 -timeout=15m ./tests/e2e
+          go vet -tags=test ./cmd ./internal/herdr ./internal/toolchain ./internal/supervision ./internal/integration
+          make contract
+      - name: Publish verified candidate branch only
+        run: |
+          git add internal/supervision/wait.go internal/supervision/wait_claim_test.go
+          git commit -m 'fix(supervision): fence wake claims with exact attachment ownership' -m 'Hold the existing attachment lock from holder validation through ledger publication. Remove detached pre-claim proofs and cover a deterministic takeover during real Wait plus successor-only consumption. No new lock, schema or production test hook.' -m 'Refs #519'
+          git push origin HEAD:refs/heads/review/prepared-claim-20260921
+          echo "CANDIDATE_CLAIM=$(git rev-parse HEAD)"
