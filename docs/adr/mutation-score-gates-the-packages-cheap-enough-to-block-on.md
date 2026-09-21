@@ -10,10 +10,11 @@
 Phase 7 of atqamz/hand#442 ran gremlins v0.6.0 against the seven packages phases 1 through 6 added
 invariant-driven property or model tests to: `internal/shellquote`, `internal/age`, `internal/axi`,
 `internal/registry`, `internal/completion`, `internal/store`, `internal/runtime`. Every package
-scored 100% test efficacy except `internal/completion` (86.96%, three LIVED mutants: two real gaps
-filed as atqamz/hand#498, one - `migrated++` versus `migrated--` in `MigrateProjectIdentity` - an
-equivalent mutant no test can ever kill, since the value it changes is only ever compared against
-zero). Real, measured wall-clock, sequentially, on an otherwise-quiet 22-core host:
+scored 100% test efficacy except `internal/completion` (86.96%, three LIVED mutants). At this ADR's
+measurement, two were real gaps filed as atqamz/hand#498 and one - `migrated++` versus
+`migrated--` in `MigrateProjectIdentity` - was equivalent. The issue later landed; the current
+reviewed baseline has three equivalents, adding the two initial Scanner buffer capacities in `List`
+and `FindAttempt`. Real, measured wall-clock, sequentially, on an otherwise-quiet 22-core host:
 
 | package | mutants | wall-clock |
 |---|---|---|
@@ -79,7 +80,7 @@ can kill a mutation that changes nothing observable. Three ways to answer what t
 that:
 
 - **A suppression list** (the decision here): the checked-in baseline records this exact mutant -
-  `internal/completion/completion.go:149:11`, `INCREMENT_DECREMENT` - as an accepted `LIVED`, with the
+  `internal/completion/completion.go:154:11`, `INCREMENT_DECREMENT` - as an accepted `LIVED`, with the
   reason inline (why it is equivalent, not merely why it was tolerated). A new, different survivor
   anywhere in the package is not in that list, so it fails the gate on its own merits. Adding an entry
   is a normal reviewed code change to the baseline file, which is where a human judges "is this
@@ -95,17 +96,16 @@ that:
   in the suppression list - which is exactly what "fails the gate" routes to.
 
 The suppression list is reviewed maintenance, not free: someone has to positively assert equivalence
-to add an entry, and that assertion can be wrong. That cost is accepted because it is rare (one entry
+to add an entry, and that assertion can be wrong. That cost is accepted because it is rare (three entries
 after this whole sweep) and because the alternative - a threshold - fails silently in exactly the case
 that matters most.
 
-**`internal/completion`'s baseline is not generated yet.** Two of its three current survivors are
-atqamz/hand#498's real, open findings, not accepted equivalences. Generating the baseline from
-today's tree would record both as accepted `LIVED` alongside the genuine equivalent mutant, which
-turns a still-open bug into gate policy indistinguishable from the one entry that actually belongs
-there. `completion` joins the always-on gate only once atqamz/hand#498 lands and both survivors come
-back `KILLED`, at which point its baseline has exactly one entry: the equivalent mutant. See
-Consequences for the general rule this is one case of.
+**`internal/completion` joins the always-on gate after atqamz/hand#498 landed.** Its reviewed
+baseline records three individually justified equivalents: the migration counter and the two Scanner
+initial-buffer capacities. The buffer suppressions do not cover `maxRecordBytes`; Scanner grows its
+initial buffer to that maximum, so allocation capacity and the observable record limit are different
+mutations. A baseline still never accepts an unreviewed survivor merely because it is present when
+the file is written.
 
 **`internal/store` and `internal/runtime` do not gate on every push.** At an estimated 8-20 minutes
 apiece on CI-sized hardware, blocking every PR - including ones that touch neither package - on this
@@ -139,8 +139,7 @@ of this decision first.
 
 ## Consequences
 
-Four packages get a real, cheap, always-on regression check the moment the workflow lands;
-`internal/completion` joins them once atqamz/hand#498 lands, not before. The two expensive packages
+All five cheap packages get a real, cheap, always-on regression check when the workflow lands. The two expensive packages
 keep the protection phase 7 already gave them (both at 100% today) without an ongoing CI tax, at the
 cost of a regression there surfacing on the next scheduled run or touching PR rather than immediately
 - an accepted latency given neither package is currently in a bad state to begin with.

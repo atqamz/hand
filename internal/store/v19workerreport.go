@@ -442,18 +442,20 @@ func requireCanonicalV19WorkerReportAppendTail(
 	if err != nil {
 		return err
 	}
+	var tail CanonicalV19WorkerReportPredecessor
+	err = tx.QueryRowContext(ctx, `SELECT id,source_prefix_digest,source_end_offset
+		FROM worker_report WHERE attempt_id=? ORDER BY source_end_offset DESC LIMIT 1`,
+		witness.AttemptID).Scan(&tail.WorkerReportID, &tail.SourcePrefixDigest, &tail.SourceEndOffset)
+	noTail := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !noTail {
+		return canonicalV19WorkerReportWriteError("read canonical source tail", err)
+	}
 	if witness.Predecessor == nil {
 		if found {
 			return fmt.Errorf("%w: root witness would replace checkpointed Attempt source history",
 				ErrCanonicalV19WorkerReportConflict)
 		}
-		var exists int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
-			SELECT 1 FROM worker_report WHERE attempt_id=? LIMIT 1
-		)`, witness.AttemptID).Scan(&exists); err != nil {
-			return canonicalV19WorkerReportWriteError("read root source boundary", err)
-		}
-		if exists != 0 {
+		if !noTail {
 			return fmt.Errorf("%w: existing Attempt source history requires full replay",
 				ErrCanonicalV19WorkerReportWitnessUnproven)
 		}
@@ -462,6 +464,10 @@ func requireCanonicalV19WorkerReportAppendTail(
 	if !found {
 		return fmt.Errorf("%w: exact WorkerReport tail checkpoint is missing",
 			ErrCanonicalV19WorkerReportWitnessUnproven)
+	}
+	if noTail || *witness.Predecessor != tail || witness.SourceEndOffset <= tail.SourceEndOffset {
+		return fmt.Errorf("%w: predecessor WorkerReport %q is not the exact canonical source tail",
+			ErrCanonicalV19WorkerReportConflict, witness.Predecessor.WorkerReportID)
 	}
 	if checkpoint.WorkerReportID != witness.Predecessor.WorkerReportID ||
 		checkpoint.SourcePrefixDigest != witness.Predecessor.SourcePrefixDigest ||
