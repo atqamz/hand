@@ -96,10 +96,10 @@ func validateLegacyV18CutoverOriginalArchiveForManifest(homeDir string, archive 
 	if err := requireLegacyV18CutoverDirectRegularFile(archive.Path, "original archive"); err != nil {
 		return err
 	}
-	if err := syncLegacyV18CutoverFile(archive.Path); err != nil {
+	if err := syncLegacyV18CutoverArtifact(archive.source, archive.Path, "original archive"); err != nil {
 		return fmt.Errorf("build legacy v18 cutover manifest: flush original archive: %w", err)
 	}
-	digest, err := legacyV18CutoverFileSHA256(archive.Path)
+	digest, err := legacyV18CutoverArtifactSHA256(archive.source, archive.Path, "original archive")
 	if err != nil {
 		return fmt.Errorf("build legacy v18 cutover manifest: hash original archive: %w", err)
 	}

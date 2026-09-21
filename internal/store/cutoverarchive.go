@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +18,7 @@ type legacyV18CutoverArchiveCandidate struct {
 	MigrationID string
 	Path        string
 	SHA256      string
+	source      *legacyV18CutoverPinnedSource
 }
 
 // This versioned deterministic identity binds one exact Fleet to the original
@@ -64,7 +64,7 @@ func legacyV18CutoverArchiveCandidatePath(homeDir, migrationID string) string {
 	return filepath.Join(homeDir, "state", ".v19-cutover-"+migrationID+"-original.db.candidate")
 }
 
-func prepareLegacyV18CutoverArchiveCandidate(homeDir, fleetID, sourceSHA256 string) (legacyV18CutoverArchiveCandidate, error) {
+func prepareLegacyV18CutoverArchiveCandidate(homeDir string, source *legacyV18CutoverPinnedSource, fleetID, sourceSHA256 string) (legacyV18CutoverArchiveCandidate, error) {
 	migrationID, err := legacyV18CutoverMigrationIdentity(fleetID, sourceSHA256)
 	if err != nil {
 		return legacyV18CutoverArchiveCandidate{}, err
@@ -73,14 +73,15 @@ func prepareLegacyV18CutoverArchiveCandidate(homeDir, fleetID, sourceSHA256 stri
 		MigrationID: migrationID,
 		Path:        legacyV18CutoverArchiveCandidatePath(homeDir, migrationID),
 		SHA256:      sourceSHA256,
+		source:      source,
 	}
-	if err := writeLegacyV18CutoverArchiveCandidate(Path(homeDir), candidate.Path, sourceSHA256); err != nil {
+	if err := writeLegacyV18CutoverArchiveCandidate(source, candidate.Path, sourceSHA256); err != nil {
 		return legacyV18CutoverArchiveCandidate{}, err
 	}
 	return candidate, nil
 }
 
-func writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, expectedSHA256 string) error {
+func writeLegacyV18CutoverArchiveCandidate(source *legacyV18CutoverPinnedSource, candidatePath, expectedSHA256 string) error {
 	if err := validateLegacyV18CutoverSHA256(expectedSHA256); err != nil {
 		return err
 	}
@@ -88,7 +89,7 @@ func writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, expectedSH
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("legacy v18 cutover archive candidate %s is not a direct regular file", candidatePath)
 		}
-		digest, err := legacyV18CutoverFileSHA256(candidatePath)
+		digest, err := source.distinctArtifactSHA256(candidatePath, "archive candidate")
 		if err != nil {
 			return fmt.Errorf("hash existing legacy v18 cutover archive candidate: %w", err)
 		}
@@ -102,11 +103,6 @@ func writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, expectedSH
 		return fmt.Errorf("inspect legacy v18 cutover archive candidate: %w", err)
 	}
 
-	input, err := os.Open(sourcePath)
-	if err != nil {
-		return fmt.Errorf("open legacy v18 cutover source for archive candidate: %w", err)
-	}
-	defer func() { _ = input.Close() }()
 	output, err := os.OpenFile(candidatePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create legacy v18 cutover archive candidate: %w", err)
@@ -121,7 +117,7 @@ func writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, expectedSH
 			_ = os.Remove(candidatePath)
 		}
 	}()
-	if _, err := io.Copy(output, input); err != nil {
+	if err := source.copyTo(output); err != nil {
 		return fmt.Errorf("copy legacy v18 cutover archive candidate: %w", err)
 	}
 	if err := output.Sync(); err != nil {
@@ -133,7 +129,7 @@ func writeLegacyV18CutoverArchiveCandidate(sourcePath, candidatePath, expectedSH
 	}
 	closed = true
 
-	digest, err := legacyV18CutoverFileSHA256(candidatePath)
+	digest, err := source.distinctArtifactSHA256(candidatePath, "archive candidate")
 	if err != nil {
 		return fmt.Errorf("reopen and hash legacy v18 cutover archive candidate: %w", err)
 	}

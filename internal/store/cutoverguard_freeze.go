@@ -115,7 +115,7 @@ func stabilizeLegacyV18CutoverManifestInput(homeDir string, archive legacyV18Cut
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return LegacyV18CutoverManifestInput{}, fmt.Errorf("freeze held legacy v18 cutover guard: existing recovery manifest %s is not a direct regular file", path)
 	}
-	payload, err := os.ReadFile(path)
+	payload, err := readLegacyV18CutoverArtifact(archive.source, path, "manifest")
 	if err != nil {
 		return LegacyV18CutoverManifestInput{}, fmt.Errorf("freeze held legacy v18 cutover guard: read existing recovery manifest: %w", err)
 	}
@@ -129,7 +129,7 @@ func stabilizeLegacyV18CutoverManifestInput(homeDir string, archive legacyV18Cut
 		SHA256:      canonicalV19SHA256(payload),
 		ImportedAt:  persisted.ImportedAt,
 	}
-	if _, err := readLegacyV18CutoverManifest(homeDir, artifact); err != nil {
+	if _, err := readLegacyV18CutoverManifestWithSource(homeDir, artifact, archive.source); err != nil {
 		return LegacyV18CutoverManifestInput{}, fmt.Errorf("freeze held legacy v18 cutover guard: validate existing recovery manifest: %w", err)
 	}
 

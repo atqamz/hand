@@ -3,10 +3,13 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 )
+
+var errLegacyV18CutoverManifestMismatch = errors.New("legacy v18 cutover manifest content mismatch")
 
 func writeLegacyV18CutoverManifest(homeDir string, archive legacyV18CutoverOriginalArchive, input LegacyV18CutoverManifestInput) (legacyV18CutoverManifestArtifact, error) {
 	manifest, err := buildLegacyV18CutoverManifest(homeDir, archive, input)
@@ -25,20 +28,20 @@ func writeLegacyV18CutoverManifest(homeDir string, archive legacyV18CutoverOrigi
 		ImportedAt:  manifest.ImportedAt,
 	}
 
-	if reused, err := reuseExactLegacyV18CutoverManifest(artifact.Path, payload, artifact.SHA256); err != nil {
+	if reused, err := reuseExactLegacyV18CutoverManifest(archive.source, artifact.Path, payload, artifact.SHA256); err != nil {
 		return legacyV18CutoverManifestArtifact{}, err
 	} else if reused {
 		return artifact, nil
 	}
 
 	candidatePath := legacyV18CutoverManifestCandidatePath(homeDir, archive.MigrationID)
-	if err := prepareLegacyV18CutoverManifestCandidate(candidatePath, payload, artifact.SHA256); err != nil {
+	if err := prepareLegacyV18CutoverManifestCandidate(archive.source, candidatePath, payload, artifact.SHA256); err != nil {
 		return legacyV18CutoverManifestArtifact{}, err
 	}
 	if err := publishLegacyV18CutoverManifest(candidatePath, artifact.Path); err != nil {
 		return legacyV18CutoverManifestArtifact{}, fmt.Errorf("publish legacy v18 cutover manifest: %w", err)
 	}
-	if err := verifyExactLegacyV18CutoverManifest(artifact.Path, payload, artifact.SHA256); err != nil {
+	if err := verifyExactLegacyV18CutoverManifest(archive.source, artifact.Path, payload, artifact.SHA256); err != nil {
 		return legacyV18CutoverManifestArtifact{}, err
 	}
 	if _, err := os.Lstat(candidatePath); !os.IsNotExist(err) {
@@ -50,7 +53,7 @@ func writeLegacyV18CutoverManifest(homeDir string, archive legacyV18CutoverOrigi
 	return artifact, nil
 }
 
-func reuseExactLegacyV18CutoverManifest(manifestPath string, payload []byte, digest string) (bool, error) {
+func reuseExactLegacyV18CutoverManifest(source *legacyV18CutoverPinnedSource, manifestPath string, payload []byte, digest string) (bool, error) {
 	info, err := os.Lstat(manifestPath)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -61,31 +64,33 @@ func reuseExactLegacyV18CutoverManifest(manifestPath string, payload []byte, dig
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return false, fmt.Errorf("legacy v18 cutover manifest %s is not a direct regular file", manifestPath)
 	}
-	if err := verifyExactLegacyV18CutoverManifest(manifestPath, payload, digest); err != nil {
+	if err := verifyExactLegacyV18CutoverManifest(source, manifestPath, payload, digest); err != nil {
 		return false, fmt.Errorf("existing legacy v18 cutover manifest differs from deterministic evidence: %w", err)
 	}
-	if err := syncLegacyV18CutoverFile(manifestPath); err != nil {
+	if err := syncLegacyV18CutoverArtifact(source, manifestPath, "manifest"); err != nil {
 		return false, fmt.Errorf("flush existing legacy v18 cutover manifest: %w", err)
 	}
 	if err := syncLegacyV18CutoverDirectoryParent(manifestPath); err != nil {
 		return false, fmt.Errorf("flush existing legacy v18 cutover manifest directory: %w", err)
 	}
-	if err := verifyExactLegacyV18CutoverManifest(manifestPath, payload, digest); err != nil {
+	if err := verifyExactLegacyV18CutoverManifest(source, manifestPath, payload, digest); err != nil {
 		return false, fmt.Errorf("revalidate existing legacy v18 cutover manifest: %w", err)
 	}
 	return true, nil
 }
 
-func prepareLegacyV18CutoverManifestCandidate(candidatePath string, payload []byte, digest string) error {
+func prepareLegacyV18CutoverManifestCandidate(source *legacyV18CutoverPinnedSource, candidatePath string, payload []byte, digest string) error {
 	if info, err := os.Lstat(candidatePath); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return fmt.Errorf("legacy v18 cutover manifest candidate %s is not a direct regular file", candidatePath)
 		}
-		if err := verifyExactLegacyV18CutoverManifest(candidatePath, payload, digest); err == nil {
-			if err := syncLegacyV18CutoverFile(candidatePath); err != nil {
+		if err := verifyExactLegacyV18CutoverManifest(source, candidatePath, payload, digest); err == nil {
+			if err := syncLegacyV18CutoverArtifact(source, candidatePath, "manifest candidate"); err != nil {
 				return fmt.Errorf("flush existing legacy v18 cutover manifest candidate: %w", err)
 			}
 			return nil
+		} else if source != nil && source.file != nil && !errors.Is(err, errLegacyV18CutoverManifestMismatch) {
+			return fmt.Errorf("validate existing legacy v18 cutover manifest candidate: %w", err)
 		}
 		if err := os.Remove(candidatePath); err != nil {
 			return fmt.Errorf("remove mismatched legacy v18 cutover manifest candidate: %w", err)
@@ -119,22 +124,22 @@ func prepareLegacyV18CutoverManifestCandidate(candidatePath string, payload []by
 	if err := syncLegacyV18CutoverDirectoryParent(candidatePath); err != nil {
 		return fmt.Errorf("flush legacy v18 cutover manifest candidate directory: %w", err)
 	}
-	return verifyExactLegacyV18CutoverManifest(candidatePath, payload, digest)
+	return verifyExactLegacyV18CutoverManifest(source, candidatePath, payload, digest)
 }
 
-func verifyExactLegacyV18CutoverManifest(manifestPath string, payload []byte, digest string) error {
+func verifyExactLegacyV18CutoverManifest(source *legacyV18CutoverPinnedSource, manifestPath string, payload []byte, digest string) error {
 	if err := requireLegacyV18CutoverDirectRegularFile(manifestPath, "manifest"); err != nil {
 		return err
 	}
-	got, err := os.ReadFile(manifestPath)
+	got, err := readLegacyV18CutoverArtifact(source, manifestPath, "manifest")
 	if err != nil {
 		return fmt.Errorf("read legacy v18 cutover manifest: %w", err)
 	}
 	if !bytes.Equal(got, payload) {
-		return fmt.Errorf("manifest bytes differ from deterministic payload")
+		return fmt.Errorf("%w: bytes differ from deterministic payload", errLegacyV18CutoverManifestMismatch)
 	}
 	if gotDigest := canonicalV19SHA256(got); gotDigest != digest {
-		return fmt.Errorf("manifest digest=%s, want %s", gotDigest, digest)
+		return fmt.Errorf("%w: digest=%s, want %s", errLegacyV18CutoverManifestMismatch, gotDigest, digest)
 	}
 	return nil
 }
