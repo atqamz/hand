@@ -48,6 +48,11 @@ the supervisor-authored brief without the old appendix lets provisioning deliver
 through the selected harness's normal channel. A marker mentioned only in ordinary prose does not
 suppress the generated appendix.
 
+Boundary recognition includes LF, CRLF, and mixed line endings at their original byte offsets.
+Converting a brief's line endings must not hide an earlier appendix behind a later valid LF block.
+Equality still compares the original suffix byte-for-byte: edited line endings refuse even when the
+launch options match. Preparation never normalizes or rewrites operator text to make it pass.
+
 Switching from grok or pi to an argument-based harness does not bypass this validation. Only grok
 and pi append a missing block; every other supported harness leaves the brief untouched. An absent
 brief retains the argument-based path's existing no-append behavior, not a readiness claim. Other

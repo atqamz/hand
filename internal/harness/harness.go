@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"slices"
-	"strings"
 
 	"github.com/atqamz/hand/internal/agentsmd"
 	"github.com/atqamz/hand/internal/atomicfile"
@@ -369,7 +368,10 @@ func AppendPromptToBrief(name string, o Options) error {
 		}
 		return fmt.Errorf("read brief for launch statement: %w", err)
 	}
-	start := strings.Index(string(data), "\n\n---\n\n"+brief.AppendMarker)
+	start := -1
+	if boundary := regexp.MustCompile(`\r?\n\r?\n---\r?\n\r?\n` + regexp.QuoteMeta(brief.AppendMarker)).FindIndex(data); boundary != nil {
+		start = boundary[0]
+	}
 	if start < 0 && !appendMissing {
 		return nil
 	}

@@ -220,3 +220,50 @@ func TestAppendPromptToBriefArgumentHarnessRefusesInspectionFailure(t *testing.T
 		})
 	}
 }
+
+func TestAppendPromptToBriefRejectsChangedLineEndings(t *testing.T) {
+	for _, name := range Names() {
+		for _, variant := range []string{"CRLF", "mixed", "CRLF before current LF", "unchanged options"} {
+			t.Run(name+"/"+variant, func(t *testing.T) {
+				dir := t.TempDir()
+				o := Options{Brief: filepath.Join(dir, "brief.md"), ReportPath: filepath.Join(dir, "old.status"), Kind: state.KindShip}
+				body := "Préserve the operator's text.\n"
+				if err := os.WriteFile(o.Brief, []byte(body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := AppendPromptToBrief(Grok, o); err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(o.Brief)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if variant != "unchanged options" {
+					o.ReportPath = filepath.Join(dir, "current.status")
+					o.Kind = state.KindScout
+				}
+				before := strings.ReplaceAll(string(data), "\n", "\r\n")
+				switch variant {
+				case "mixed":
+					before = strings.Replace(string(data), "\n\n---\n\n", "\n\r\n---\n\r\n", 1)
+				case "CRLF before current LF":
+					current, err := launchStatement(o)
+					if err != nil {
+						t.Fatal(err)
+					}
+					before += fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, current)
+				}
+				if err := os.WriteFile(o.Brief, []byte(before), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := AppendPromptToBrief(name, o); err == nil || !strings.Contains(err.Error(), "rewrite the supervisor brief") {
+					t.Fatalf("changed line endings hid a launch appendix: %v", err)
+				}
+				after, err := os.ReadFile(o.Brief)
+				if err != nil || string(after) != before {
+					t.Fatalf("refusal changed brief bytes: %v", err)
+				}
+			})
+		}
+	}
+}

@@ -15,9 +15,16 @@ import (
 )
 
 func TestProvisionRejectsInheritedLaunchAppendixBeforeBuildAndRecovers(t *testing.T) {
-	for _, previous := range []string{harness.Grok, harness.Pi} {
+	for _, previous := range []struct {
+		harness string
+		crlf    bool
+	}{
+		{harness: harness.Grok},
+		{harness: harness.Pi},
+		{harness: harness.Grok, crlf: true},
+	} {
 		for _, cleanupFails := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s-to-claude/cleanup-fails=%t", previous, cleanupFails), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s-to-claude/crlf=%t/cleanup-fails=%t", previous.harness, previous.crlf, cleanupFails), func(t *testing.T) {
 				home, attempt := provisioningFixture(t)
 				briefPath := filepath.Join(home, "data", "task-1", "brief.md")
 				body, err := os.ReadFile(briefPath)
@@ -29,7 +36,7 @@ func TestProvisionRejectsInheritedLaunchAppendixBeforeBuildAndRecovers(t *testin
 					t.Fatal(err)
 				}
 				oldReportPath := reportPath + ".previous"
-				if err := harness.AppendPromptToBrief(previous, harness.Options{
+				if err := harness.AppendPromptToBrief(previous.harness, harness.Options{
 					Brief: briefPath, ReportPath: oldReportPath, Kind: state.KindScout,
 				}); err != nil {
 					t.Fatal(err)
@@ -37,6 +44,12 @@ func TestProvisionRejectsInheritedLaunchAppendixBeforeBuildAndRecovers(t *testin
 				before, err := os.ReadFile(briefPath)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if previous.crlf {
+					before = bytes.ReplaceAll(before, []byte("\n"), []byte("\r\n"))
+					if err := os.WriteFile(briefPath, before, 0o644); err != nil {
+						t.Fatal(err)
+					}
 				}
 
 				fake := &provisionHerdr{}
