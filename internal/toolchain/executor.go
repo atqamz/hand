@@ -182,7 +182,10 @@ func (r Runtime) GitTransportAvailable(ctx context.Context, scheme string) (bool
 	if err != nil {
 		return false, err
 	}
-	execPath := strings.TrimSpace(string(out))
+	execPath := strings.TrimSuffix(string(out), "\n")
+	if runtime.GOOS == "windows" {
+		execPath = strings.TrimSuffix(execPath, "\r")
+	}
 	if !filepath.IsAbs(execPath) {
 		return false, fmt.Errorf("managed Git exec path %q is not absolute", execPath)
 	}
