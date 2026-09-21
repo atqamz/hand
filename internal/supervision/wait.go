@@ -138,9 +138,8 @@ func Wait(ctx context.Context, w Waiter, cfg WaitConfig) (wake Wake, err error) 
 	}()
 
 	if len(eligible) > 0 {
-		// Acquisition just proved ownership under the same lock; claiming
-		// immediately keeps that proof contiguous with the claim boundary.
-		wake, won, claimErr := claimAndDeliver(w, cfg, wake, allEpisodes)
+		// Ownership and eligibility are checked under the same handover lock.
+		wake, won, claimErr := claimAndDeliver(guard, w, wake, allEpisodes)
 		if claimErr != nil || won {
 			return wake, claimErr
 		}
@@ -320,9 +319,8 @@ func waiterLeaseLockScope(fleetID string, cfg WaitConfig, slot int) string {
 	return "supervision-waiter:" + hex.EncodeToString(digest[:])
 }
 
-// Proves current bridge ownership by refreshing this exact owner's record
-// under the attachment lock. Runs at every claim boundary after any blocking
-// wait so a successful ClaimEligible implies ownership held at that instant.
+// Refreshes the exact owner's heartbeat under the attachment lock.
+// Wake claims retain that same lock through ledger publication.
 func (g *bridgeGuard) prove() error {
 	ours, err := RefreshAttachment(g.home, g.record, g.lease)
 	if err != nil {
@@ -363,7 +361,7 @@ func waitStep(guard *bridgeGuard, d time.Duration) error {
 
 // Serves the case where another watcher owns the fleet home: stealing its
 // ownership would break that arm, so this wait levels on evidence instead.
-// Every claim re-proves bridge ownership under the attachment lock first.
+// Every claim retains the attachment lock through ledger publication.
 func pollUntilEligible(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig) (Wake, error) {
 	for {
 		if err := waitStep(guard, intervalOr(cfg.PollInterval)); err != nil {
@@ -376,10 +374,7 @@ func pollUntilEligible(ctx context.Context, guard *bridgeGuard, w Waiter, cfg Wa
 		if len(eligible) == 0 {
 			continue
 		}
-		if proofErr := guard.prove(); proofErr != nil {
-			return Wake{}, proofErr
-		}
-		wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
+		wake, won, claimErr := claimAndDeliver(guard, w, wake, eligible)
 		if claimErr != nil || won {
 			return wake, claimErr
 		}
@@ -418,13 +413,9 @@ func waitOwned(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig
 			return Wake{}, catchUpErr
 		}
 		if len(eligible) > 0 {
-			// Claim-boundary proof: a watcher cycle can sit through an entire
-			// ownership handover; the episode must go to whoever owns the
-			// bridge NOW, and this runtime must not consume it stale.
-			if proofErr := guard.prove(); proofErr != nil {
-				return Wake{}, proofErr
-			}
-			wake, won, claimErr := claimAndDeliver(w, cfg, wake, eligible)
+			// A watcher cycle may span a handover; only the current exact holder
+			// may commit a claim under the attachment lock.
+			wake, won, claimErr := claimAndDeliver(guard, w, wake, eligible)
 			if claimErr != nil || won {
 				return wake, claimErr
 			}
@@ -441,11 +432,19 @@ func waitOwned(ctx context.Context, guard *bridgeGuard, w Waiter, cfg WaitConfig
 	}
 }
 
-// Performs the atomic eligibility-and-request transaction. Won=false means
+// Serializes exact-holder proof and ledger commit with attachment handovers. Won=false means
 // another waiter claimed inside the transaction: callers keep waiting and
 // never answer an empty success.
-func claimAndDeliver(w Waiter, cfg WaitConfig, wake Wake, all []Episode) (Wake, bool, error) {
-	claimed, claimErr := w.Ledger.ClaimEligible(all)
+func claimAndDeliver(guard *bridgeGuard, w Waiter, wake Wake, all []Episode) (Wake, bool, error) {
+	var claimed []Episode
+	claimErr := mutateAttachment(w.Home, func(existing *AttachmentRecord) (*AttachmentRecord, bool, error) {
+		if existing == nil || holderKey(*existing) != holderKey(guard.record) {
+			return nil, false, ErrBridgeOwned
+		}
+		var err error
+		claimed, err = w.Ledger.ClaimEligible(all)
+		return nil, false, err
+	})
 	if claimErr != nil {
 		return Wake{}, false, claimErr
 	}
