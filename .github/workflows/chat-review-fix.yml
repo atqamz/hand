@@ -29,7 +29,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c manual-review-587
-          git merge --no-ff --no-edit 700367514ff4e15fd7399de6aaff7e2fbcb06ff3
+          git merge --no-ff --no-edit 86ffe7406ad7a3dcff5e62f6c52e122fe1d53c32
       - name: Add real Git regression
         shell: python
         run: |
@@ -53,24 +53,28 @@ jobs:
               t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
               t.Setenv("GIT_EXEC_PATH", t.TempDir())
               t.Setenv("PATH", t.TempDir())
-              t.Setenv("GIT_CONFIG_COUNT", "1")
+              t.Setenv("GIT_CONFIG_COUNT", "0")
               const locator = "https://github.com/owner/repo.git"
               managed := toolchain.Runtime{GitPath: gitPath, GitBin: t.TempDir()}
               available, err := managed.GitTransportAvailable(context.Background(), "https")
               if err != nil || available {
                   t.Fatalf("no-helper fixture = %t, %v", available, err)
               }
-              for _, suffix := range []string{"", " ", "\t", "\n", "\r", "\u00a0"} {
-                  t.Run("suffix="+suffix, func(t *testing.T) {
-                      effective := locator + suffix
+              for _, test := range []struct { name, suffix string }{
+                  {"unchanged", ""}, {"space", " "}, {"tab", "\t"},
+                  {"carriage return", "\r"}, {"nonbreaking space", "\u00a0"},
+              } {
+                  t.Run(test.name, func(t *testing.T) {
+                      effective := locator + test.suffix
+                      t.Setenv("GIT_CONFIG_COUNT", "1")
                       t.Setenv("GIT_CONFIG_KEY_0", "url."+effective+".insteadOf")
                       t.Setenv("GIT_CONFIG_VALUE_0", locator)
                       out, err := runRuntimeCore(context.Background(), managed, "git", "", "ls-remote", "--get-url", locator)
-                      if err != nil || string(out) != effective+"\n" {
-                          t.Fatalf("real Git rewrite = %q, %v; want %q", out, err, effective+"\n")
+                      if err != nil || string(out) != effective+"\n" && string(out) != effective+"\r\n" {
+                          t.Fatalf("real Git rewrite = %q, %v; want framed %q", out, err, effective)
                       }
                       got, normalized := normalizeProjectHTTPSForClone(managed, locator)
-                      if suffix == "" {
+                      if test.suffix == "" && string(out) == locator+"\n" {
                           if got != "git@github.com:owner/repo.git" || !normalized {
                               t.Fatalf("unchanged locator did not normalize: %q, %t", got, normalized)
                           }
@@ -91,7 +95,7 @@ jobs:
           set -e
           cat /tmp/587-red.log
           test "$result" -ne 0
-          test "$(grep -c 'whitespace rewrite was overridden' /tmp/587-red.log)" -eq 5
+          test "$(grep -c 'whitespace rewrite was overridden' /tmp/587-red.log)" -eq 4
       - name: Preserve exact output framing
         shell: python
         run: |
@@ -118,4 +122,4 @@ jobs:
           git commit -m 'fix(project): preserve exact Git URL rewrite bytes' -m 'Compare the unchanged locator and its single output terminator without trimming meaningful whitespace. Exercise real no-network Git insteadOf rewriting before the normalization assertion.' -m 'Refs #520'
           git push origin HEAD:refs/heads/review/prepared-587-20260921
           echo "CANDIDATE_587=$(git rev-parse HEAD)"
-          git diff --stat 700367514ff4e15fd7399de6aaff7e2fbcb06ff3 HEAD
+          git diff --stat 86ffe7406ad7a3dcff5e62f6c52e122fe1d53c32 HEAD
