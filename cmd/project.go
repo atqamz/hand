@@ -658,7 +658,7 @@ func normalizeProjectHTTPSForClone(runtime toolchain.Runtime, locator string) (s
 		return locator, false
 	}
 	out, err := runRuntimeCore(context.Background(), runtime, "git", "", "ls-remote", "--get-url", locator)
-	if err != nil || strings.TrimSpace(string(out)) != locator {
+	if err != nil || string(out) != locator+"\n" {
 		return locator, false
 	}
 	return normalized, true
