@@ -53,7 +53,6 @@ type FleetHerdr struct {
 	observeFn   func(context.Context) SessionObservation
 	ownershipFn func(context.Context) (bool, error)
 	startFn     func(context.Context) error
-	stopFn      func(context.Context) error
 	attachFn    func(context.Context) error
 	lockFn      func(context.Context) (func(), error)
 
@@ -139,13 +138,9 @@ func (f *FleetHerdr) ensureLocked(ctx context.Context) error {
 		if owned {
 			return nil
 		}
-		if err := f.stop(ctx); err != nil {
-			return sessionEnsureError(observation, fmt.Errorf("stop unowned Fleet Herdr session: %w", err))
-		}
-		if err := f.waitStopped(ctx); err != nil {
-			return err
-		}
-		return f.startAndWait(ctx)
+		// Missing leases for this caller do not authorize stopping a live
+		// session, which may still belong to an earlier Hand generation.
+		return sessionEnsureError(observation, ErrSessionUnowned)
 	case SessionUnknown:
 		return sessionEnsureError(observation, ErrSessionUnknown)
 	case SessionIncompatible:
@@ -212,45 +207,6 @@ func (f *FleetHerdr) waitReady(ctx context.Context) error {
 	}
 }
 
-func (f *FleetHerdr) waitStopped(ctx context.Context) error {
-	timeout := f.startTimeout
-	if timeout <= 0 {
-		timeout = defaultHerdrStartTimeout
-	}
-	interval := f.pollInterval
-	if interval <= 0 {
-		interval = defaultHerdrPollInterval
-	}
-	deadline := time.Now().Add(timeout)
-	var last SessionObservation
-	for {
-		last = f.Observe(ctx)
-		switch last.State {
-		case SessionStopped:
-			return nil
-		case SessionRunningCompatible:
-		case SessionUnknown:
-		case SessionIncompatible:
-			return sessionEnsureError(last, ErrSessionIncompatible)
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if time.Now().After(deadline) {
-			return sessionEnsureError(last, ErrEnsureTimeout)
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
 func (f *FleetHerdr) owned(ctx context.Context) (bool, error) {
 	if f.ownershipFn != nil {
 		return f.ownershipFn(ctx)
@@ -259,16 +215,6 @@ func (f *FleetHerdr) owned(ctx context.Context) (bool, error) {
 		return false, errors.New("managed Herdr client is unavailable")
 	}
 	return f.client.serverLeaseOwned(ctx)
-}
-
-func (f *FleetHerdr) stop(ctx context.Context) error {
-	if f.stopFn != nil {
-		return f.stopFn(ctx)
-	}
-	if f.client == nil {
-		return errors.New("managed Herdr client is unavailable")
-	}
-	return f.client.stopServer(ctx)
 }
 
 func (f *FleetHerdr) start(ctx context.Context) error {

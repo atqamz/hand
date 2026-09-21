@@ -445,14 +445,6 @@ func (c *Client) serverLeaseOwned(ctx context.Context) (bool, error) {
 	})
 }
 
-func (c *Client) stopServer(ctx context.Context) error {
-	_, stderr, err := c.runContext(ctx, "server", "stop")
-	if err != nil {
-		return fmt.Errorf("herdr server stop: %w: %s", err, stderr)
-	}
-	return nil
-}
-
 func (c *Client) attach(ctx context.Context) error {
 	if c == nil {
 		return errors.New("managed Herdr client is unavailable")

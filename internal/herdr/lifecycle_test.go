@@ -30,43 +30,24 @@ func testFleetHerdr(observe func(context.Context) SessionObservation, start func
 	}
 }
 
-func TestFleetHerdrEnsureRestartsRunningSessionWithoutGuardianLeases(t *testing.T) {
+func TestFleetHerdrEnsureRefusesRunningSessionWithoutGuardianLeases(t *testing.T) {
 	setFleetHerdrHome(t)
-	var running atomic.Bool
-	var owned atomic.Bool
-	var stops atomic.Int32
 	var starts atomic.Int32
-	running.Store(true)
 	h := testFleetHerdr(func(context.Context) SessionObservation {
-		if running.Load() {
-			return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
-		}
-		return SessionObservation{Name: "hand-f_test", State: SessionStopped}
-	}, func(context.Context) error {
-		starts.Add(1)
-		owned.Store(true)
-		running.Store(true)
-		return nil
-	}, nil)
-	h.ownershipFn = func(context.Context) (bool, error) { return owned.Load(), nil }
-	h.stopFn = func(context.Context) error {
-		stops.Add(1)
-		running.Store(false)
-		return nil
+		return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
+	}, func(context.Context) error { starts.Add(1); return nil }, nil)
+	h.ownershipFn = func(context.Context) (bool, error) { return false, nil }
+	if err := h.Ensure(context.Background()); !errors.Is(err, ErrSessionUnowned) {
+		t.Fatalf("Ensure() = %v, want ErrSessionUnowned", err)
 	}
-
-	if err := h.Ensure(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if stops.Load() != 1 || starts.Load() != 1 {
-		t.Fatalf("stop/start calls = %d/%d, want 1/1", stops.Load(), starts.Load())
+	if starts.Load() != 0 {
+		t.Fatal("Ensure restarted a running unowned session")
 	}
 }
 
 func TestFleetHerdrEnsureFailsClosedWhenGuardianLeaseProofIsUnknown(t *testing.T) {
 	setFleetHerdrHome(t)
 	proofErr := errors.New("guardian lease proof unavailable")
-	var stops atomic.Int32
 	var starts atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
 		return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
@@ -75,16 +56,12 @@ func TestFleetHerdrEnsureFailsClosedWhenGuardianLeaseProofIsUnknown(t *testing.T
 		return nil
 	}, nil)
 	h.ownershipFn = func(context.Context) (bool, error) { return false, proofErr }
-	h.stopFn = func(context.Context) error {
-		stops.Add(1)
-		return nil
-	}
 
 	if err := h.Ensure(context.Background()); !errors.Is(err, proofErr) {
 		t.Fatalf("Ensure() = %v, want guardian proof error", err)
 	}
-	if stops.Load() != 0 || starts.Load() != 0 {
-		t.Fatalf("unknown proof stop/start calls = %d/%d, want 0/0", stops.Load(), starts.Load())
+	if starts.Load() != 0 {
+		t.Fatalf("unknown proof start calls = %d, want zero", starts.Load())
 	}
 }
 
@@ -129,22 +106,15 @@ func TestFleetHerdrEnsureDoesNotStopWhenLiveGuardianLeaseMetadataIsMissing(t *te
 		t.Fatal(err)
 	}
 
-	var stops atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
 		return SessionObservation{Name: session, State: SessionRunningCompatible}
 	}, func(context.Context) error { return nil }, nil)
 	h.ownershipFn = client.serverLeaseOwned
-	h.stopFn = func(context.Context) error {
-		stops.Add(1)
-		return nil
-	}
 
 	if err := h.Ensure(context.Background()); !errors.Is(err, toolchain.ErrLeaseMetadataUnknown) {
 		t.Fatalf("Ensure() = %v, want ErrLeaseMetadataUnknown", err)
 	}
-	if got := stops.Load(); got != 0 {
-		t.Fatalf("stop calls = %d, want zero", got)
-	}
+
 }
 
 func setFleetHerdrHome(t *testing.T) {

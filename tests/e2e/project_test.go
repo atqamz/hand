@@ -171,11 +171,7 @@ func TestProjectAddDoesNotRetryUnrecognizedHTTPSAfterMissingHelper(t *testing.T)
 
 func replaceManagedGit(t *testing.T, home, original, effective string, failureLines ...string) string {
 	t.Helper()
-	lock, err := toolchain.LoadLock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bundle := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID)
+	bundle := seededRuntimeBundle(t, home)
 	gitPath := filepath.Join(bundle, "git", "git")
 	git, err := exec.LookPath("git")
 	if err != nil {
@@ -241,10 +237,6 @@ func replaceManagedGit(t *testing.T, home, original, effective string, failureLi
 // searches helper-free while retaining the fake treehouse and hermetic shell/Git support paths.
 func isolateNoHTTPSHelperSearch(t *testing.T, home, fakeBin string) {
 	t.Helper()
-	lock, err := toolchain.LoadLock()
-	if err != nil {
-		t.Fatal(err)
-	}
 	execPath := t.TempDir()
 	t.Setenv("GIT_EXEC_PATH", execPath)
 	path := fakeBin + string(os.PathListSeparator) + hermeticPath
@@ -252,7 +244,7 @@ func isolateNoHTTPSHelperSearch(t *testing.T, home, fakeBin string) {
 
 	dirs := append([]string{
 		execPath,
-		filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git"),
+		filepath.Join(seededRuntimeBundle(t, home), "git"),
 	}, filepath.SplitList(path)...)
 	helper := "git-remote-https"
 	if runtime.GOOS == "windows" {
@@ -350,11 +342,7 @@ func TestProjectAddPreservesHTTPSWhenGitBinHelperFollowsNonExecutableExecPathHel
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
 	home := newHome(t)
-	lock, err := toolchain.LoadLock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	helper := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git-remote-https")
+	helper := filepath.Join(seededRuntimeBundle(t, home), "git", "git-remote-https")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\n: > "+marker+"\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -379,11 +367,7 @@ func TestProjectAddPreservesHTTPSWhenRuntimeSupportsIt(t *testing.T) {
 	dir := binDir(t)
 	writeFakeTreehouse(t, dir, filepath.Join(t.TempDir(), "unused-worktree"))
 	home := newHome(t)
-	lock, err := toolchain.LoadLock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	helper := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git-remote-https")
+	helper := filepath.Join(seededRuntimeBundle(t, home), "git", "git-remote-https")
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -409,11 +393,7 @@ func TestProjectAddPreservesHTTPSWhenRuntimeSupportsIt(t *testing.T) {
 
 func runRuntimeGitIn(t *testing.T, home, dir string, args ...string) {
 	t.Helper()
-	lock, err := toolchain.LoadLock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	gitBin := filepath.Join(home, ".secondhand", "runtime", "bundles", lock.RuntimeID, "git", "git")
+	gitBin := filepath.Join(seededRuntimeBundle(t, home), "git", "git")
 	spec, err := (toolchain.Runtime{GitBin: filepath.Dir(gitBin)}).Process(gitBin, args...)
 	if err != nil {
 		t.Fatal(err)
@@ -557,4 +537,22 @@ func TestLocalProjectLifecycle(t *testing.T) {
 	if got := runGitIn(t, filepath.Join(home, "projects", "blank"), "log", "-1", "--format=%s"); got != "chore: initialize project\n" {
 		t.Fatalf("created baseline = %q", got)
 	}
+}
+
+func seededRuntimeBundle(t *testing.T, home string) string {
+	t.Helper()
+	lock, err := toolchain.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(home, ".secondhand")
+	store, err := toolchain.NewStore(root, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "runtime", "bundles", generation)
 }
