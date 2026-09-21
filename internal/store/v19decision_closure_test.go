@@ -12,35 +12,35 @@ func TestCanonicalV19DecisionClosureIsExactAndDoesNotReopen(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
 			question := canonicalV19DecisionTestInput("attempt")
-			if err := CreateCanonicalV19Decision(nil, fixture.Home, question); err != nil {
+			if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
 				t.Fatal(err)
 			}
 			closure := CanonicalV19DecisionCloseInput{
 				DecisionID: question.ID, Reason: reason, ClosedAt: "2026-09-21T10:00:00Z", EvidenceDigest: "explicit-closure-evidence",
 			}
 			if reason == "stale" {
-				if err := CloseCanonicalV19Decision(nil, fixture.Home, closure); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+				if err := CloseCanonicalV19Decision(context.Background(), fixture.Home, closure); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 					t.Fatalf("current question labelled stale = %v", err)
 				}
-				if err := TerminalizeCanonicalV19Attempt(nil, fixture.Home, CanonicalV19AttemptTerminalizeInput{
+				if err := TerminalizeCanonicalV19Attempt(context.Background(), fixture.Home, CanonicalV19AttemptTerminalizeInput{
 					AttemptID: question.AttemptID, Lifecycle: "failed", TerminalAt: "2026-09-21T09:59:00Z",
 				}); err != nil {
 					t.Fatal(err)
 				}
 			}
 			for range 2 {
-				if err := CloseCanonicalV19Decision(nil, fixture.Home, closure); err != nil {
+				if err := CloseCanonicalV19Decision(context.Background(), fixture.Home, closure); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if err := CreateCanonicalV19Decision(nil, fixture.Home, question); err != nil {
+			if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
 				t.Fatalf("historical replay: %v", err)
 			}
-			if err := CreateCanonicalV19DecisionAnswer(nil, fixture.Home, canonicalV19DecisionTestAnswer(question.ID)); !errors.Is(err, ErrCanonicalV19DecisionNotCurrent) {
+			if err := CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, canonicalV19DecisionTestAnswer(question.ID)); !errors.Is(err, ErrCanonicalV19DecisionNotCurrent) {
 				t.Fatalf("Answer after closure = %v", err)
 			}
 			closure.EvidenceDigest += "-different"
-			if err := CloseCanonicalV19Decision(nil, fixture.Home, closure); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+			if err := CloseCanonicalV19Decision(context.Background(), fixture.Home, closure); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 				t.Fatalf("conflicting closure = %v", err)
 			}
 			canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision`, 1)
@@ -53,7 +53,7 @@ func TestCanonicalV19DecisionClosureIsExactAndDoesNotReopen(t *testing.T) {
 func TestCanonicalV19DecisionAnswerAndClosureHaveOneWinner(t *testing.T) {
 	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
 	question := canonicalV19DecisionTestInput("attempt")
-	if err := CreateCanonicalV19Decision(nil, fixture.Home, question); err != nil {
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
@@ -61,10 +61,10 @@ func TestCanonicalV19DecisionAnswerAndClosureHaveOneWinner(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, action := range []func() error{
 		func() error {
-			return CreateCanonicalV19DecisionAnswer(nil, fixture.Home, canonicalV19DecisionTestAnswer(question.ID))
+			return CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, canonicalV19DecisionTestAnswer(question.ID))
 		},
 		func() error {
-			return CloseCanonicalV19Decision(nil, fixture.Home, CanonicalV19DecisionCloseInput{
+			return CloseCanonicalV19Decision(context.Background(), fixture.Home, CanonicalV19DecisionCloseInput{
 				DecisionID: question.ID, Reason: "cancelled", ClosedAt: "2026-09-21T10:00:00Z", EvidenceDigest: "operator-cancelled",
 			})
 		},
@@ -97,9 +97,9 @@ func TestCanonicalV19DecisionConcurrentExactReplayConverges(t *testing.T) {
 	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
 	question := canonicalV19DecisionTestInput("attempt")
 	for _, action := range []func() error{
-		func() error { return CreateCanonicalV19Decision(nil, fixture.Home, question) },
+		func() error { return CreateCanonicalV19Decision(context.Background(), fixture.Home, question) },
 		func() error {
-			return CreateCanonicalV19DecisionAnswer(nil, fixture.Home, canonicalV19DecisionTestAnswer(question.ID))
+			return CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, canonicalV19DecisionTestAnswer(question.ID))
 		},
 	} {
 		start := make(chan struct{})
@@ -129,7 +129,7 @@ func TestCanonicalV19DecisionConcurrentExactReplayConverges(t *testing.T) {
 func TestCanonicalV19DecisionCanceledWriterDoesNotInferStaleness(t *testing.T) {
 	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
 	question := canonicalV19DecisionTestInput("attempt")
-	if err := CreateCanonicalV19Decision(nil, fixture.Home, question); err != nil {
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())

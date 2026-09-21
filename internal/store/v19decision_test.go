@@ -19,7 +19,7 @@ func TestCanonicalV19DecisionRecordsExactScopesWithoutImplicitAuthority(t *testi
 			input := canonicalV19DecisionTestInput(scope)
 			input.TriggeringWorkerReportID = report.ID
 			for range 2 {
-				if err := CreateCanonicalV19Decision(nil, fixture.Home, input); err != nil {
+				if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, input); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -40,7 +40,7 @@ func TestCanonicalV19DecisionRecordsExactScopesWithoutImplicitAuthority(t *testi
 			canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision`, 1)
 			canonicalV19DecisionAssertUnchangedWork(t, fixture.Home)
 			input.Question += " changed"
-			if err := CreateCanonicalV19Decision(nil, fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+			if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 				t.Fatalf("changed replay = %v", err)
 			}
 		})
@@ -66,7 +66,7 @@ func TestCanonicalV19DecisionRejectsInvalidScopeAndQuestionBeforeOpeningHome(t *
 		t.Run(name, func(t *testing.T) {
 			input := canonicalV19DecisionTestInput("attempt")
 			change(&input)
-			if err := CreateCanonicalV19Decision(nil, t.TempDir(), input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+			if err := CreateCanonicalV19Decision(context.Background(), t.TempDir(), input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 				t.Fatalf("invalid input = %v", err)
 			}
 		})
@@ -75,31 +75,31 @@ func TestCanonicalV19DecisionRejectsInvalidScopeAndQuestionBeforeOpeningHome(t *
 
 func TestCanonicalV19DecisionRejectsForeignAndMissingTriggerLineage(t *testing.T) {
 	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
-	report, err := IngestCanonicalV19WorkerReport(nil, fixture.Home,
+	report, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
 		canonicalV19WorkerReportWitness(t, attemptID, "", "needs-decision: original\n", "2026-09-21T09:00:00Z", nil))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A second real Task is still current but does not own this report.
 	task := CanonicalV19TaskCreateInput{ID: "task-2", ProjectID: "project-1", Goal: "Separate work", GoalDigest: "digest-task-2", CreatedAt: "2026-09-21T09:00:00Z"}
-	if _, err := CreateCanonicalV19Task(nil, fixture.Home, task); err != nil {
+	if _, err := CreateCanonicalV19Task(context.Background(), fixture.Home, task); err != nil {
 		t.Fatal(err)
 	}
 	for _, scope := range []string{"task", "plan", "attempt"} {
 		input := canonicalV19DecisionTestInput(scope)
 		input.TriggeringWorkerReportID = "missing-report"
-		if err := CreateCanonicalV19Decision(nil, fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+		if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 			t.Fatalf("%s missing trigger = %v", scope, err)
 		}
 	}
 	input := canonicalV19DecisionTestInput("task")
 	input.TaskID, input.TriggeringWorkerReportID = task.ID, report.ID
-	if err := CreateCanonicalV19Decision(nil, fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionConflict) {
 		t.Fatalf("foreign Task report = %v", err)
 	}
 	input = canonicalV19DecisionTestInput("attempt")
 	input.TaskID = task.ID
-	if err := CreateCanonicalV19Decision(nil, fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionNotCurrent) {
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19DecisionNotCurrent) {
 		t.Fatalf("foreign Task/Plan lineage = %v", err)
 	}
 	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision`, 0)
@@ -108,20 +108,20 @@ func TestCanonicalV19DecisionRejectsForeignAndMissingTriggerLineage(t *testing.T
 func TestCanonicalV19DecisionAndHoldRemainIndependent(t *testing.T) {
 	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
 	hold := canonicalV19TaskHoldWriterInput("standalone-hold")
-	if _, err := CreateCanonicalV19TaskHold(nil, fixture.Home, hold); err != nil {
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), fixture.Home, hold); err != nil {
 		t.Fatal(err)
 	}
 	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision`, 0)
 	question := canonicalV19DecisionTestInput("task")
-	if err := CreateCanonicalV19Decision(nil, fixture.Home, question); err != nil {
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
 		t.Fatal(err)
 	}
 	hold.ID, hold.DecisionID = "linked-hold", question.ID
-	if _, err := CreateCanonicalV19TaskHold(nil, fixture.Home, hold); err != nil {
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), fixture.Home, hold); err != nil {
 		t.Fatal(err)
 	}
 	answer := canonicalV19DecisionTestAnswer(question.ID)
-	if err := CreateCanonicalV19DecisionAnswer(nil, fixture.Home, answer); err != nil {
+	if err := CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, answer); err != nil {
 		t.Fatal(err)
 	}
 	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM task_hold`, 2)
@@ -138,13 +138,13 @@ func TestCanonicalV19DecisionPermitsExplicitPostArchiveTaskQuestion(t *testing.T
 	}
 	input := canonicalV19DecisionTestInput("task")
 	input.Question = "May the retained historical artifact be published?"
-	if err := CreateCanonicalV19Decision(nil, home, input); err != nil {
+	if err := CreateCanonicalV19Decision(context.Background(), home, input); err != nil {
 		t.Fatal(err)
 	}
 	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM decision d
 		WHERE NOT EXISTS (SELECT 1 FROM decision_answer a WHERE a.decision_id=d.id)
 		AND NOT EXISTS (SELECT 1 FROM decision_closure c WHERE c.decision_id=d.id)`, 1)
-	if err := CreateCanonicalV19DecisionAnswer(nil, home, canonicalV19DecisionTestAnswer(input.ID)); err != nil {
+	if err := CreateCanonicalV19DecisionAnswer(context.Background(), home, canonicalV19DecisionTestAnswer(input.ID)); err != nil {
 		t.Fatal(err)
 	}
 	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_archive`, 1)
