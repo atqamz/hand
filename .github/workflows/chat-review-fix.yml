@@ -1,0 +1,121 @@
+name: Chat manual review fix
+
+on:
+  push:
+    branches: [review/chat-20260921]
+    paths: [.github/workflows/chat-review-fix.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-587:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 8438b8492869ec70e20cb09a6d3c59984c1eca46
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm install -g npm@12.0.2
+      - name: Integrate reviewed main without rewriting branch history
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c manual-review-587
+          git merge --no-ff --no-edit 700367514ff4e15fd7399de6aaff7e2fbcb06ff3
+      - name: Add real Git regression
+        shell: python
+        run: |
+          from pathlib import Path
+          Path('cmd/project_https_rewrite_test.go').write_text(r'''package cmd
+
+          import (
+              "context"
+              "os"
+              "os/exec"
+              "testing"
+
+              "github.com/atqamz/hand/internal/toolchain"
+          )
+
+          func TestNormalizeProjectHTTPSPreservesWhitespaceRewrite(t *testing.T) {
+              gitPath, err := exec.LookPath("git")
+              if err != nil { t.Fatal(err) }
+              t.Chdir(t.TempDir())
+              t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+              t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+              t.Setenv("GIT_EXEC_PATH", t.TempDir())
+              t.Setenv("PATH", t.TempDir())
+              t.Setenv("GIT_CONFIG_COUNT", "1")
+              const locator = "https://github.com/owner/repo.git"
+              managed := toolchain.Runtime{GitPath: gitPath, GitBin: t.TempDir()}
+              available, err := managed.GitTransportAvailable(context.Background(), "https")
+              if err != nil || available {
+                  t.Fatalf("no-helper fixture = %t, %v", available, err)
+              }
+              for _, suffix := range []string{"", " ", "\t", "\n", "\r", "\u00a0"} {
+                  t.Run("suffix="+suffix, func(t *testing.T) {
+                      effective := locator + suffix
+                      t.Setenv("GIT_CONFIG_KEY_0", "url."+effective+".insteadOf")
+                      t.Setenv("GIT_CONFIG_VALUE_0", locator)
+                      out, err := runRuntimeCore(context.Background(), managed, "git", "", "ls-remote", "--get-url", locator)
+                      if err != nil || string(out) != effective+"\n" {
+                          t.Fatalf("real Git rewrite = %q, %v; want %q", out, err, effective+"\n")
+                      }
+                      got, normalized := normalizeProjectHTTPSForClone(managed, locator)
+                      if suffix == "" {
+                          if got != "git@github.com:owner/repo.git" || !normalized {
+                              t.Fatalf("unchanged locator did not normalize: %q, %t", got, normalized)
+                          }
+                      } else if got != locator || normalized {
+                          t.Fatalf("whitespace rewrite was overridden: %q, normalized=%t", got, normalized)
+                      }
+                  })
+              }
+          }
+          ''')
+      - name: Prove RED on the prior implementation
+        shell: bash
+        run: |
+          gofmt -w cmd/project_https_rewrite_test.go
+          set +e
+          go test -tags=test -run '^TestNormalizeProjectHTTPSPreservesWhitespaceRewrite$' -count=1 ./cmd > /tmp/587-red.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/587-red.log
+          test "$result" -ne 0
+          test "$(grep -c 'whitespace rewrite was overridden' /tmp/587-red.log)" -eq 5
+      - name: Preserve exact output framing
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('cmd/project.go')
+          text = path.read_text()
+          before = 'if err != nil || strings.TrimSpace(string(out)) != locator {'
+          after = 'if err != nil || string(out) != locator+"\\n" {'
+          assert text.count(before) == 1
+          path.write_text(text.replace(before, after))
+      - name: Verify GREEN on actual production packages
+        shell: bash
+        run: |
+          gofmt -w cmd/project.go cmd/project_https_rewrite_test.go
+          git diff --check
+          go test -tags=test -race -run '^TestNormalizeProjectHTTPSPreservesWhitespaceRewrite$' -count=20 ./cmd
+          go test -tags=test -race -timeout=20m ./cmd ./internal/toolchain
+          go vet -tags=test ./cmd ./internal/toolchain
+          make contract
+      - name: Publish verified candidate branch only
+        shell: bash
+        run: |
+          git add cmd/project.go cmd/project_https_rewrite_test.go
+          git commit -m 'fix(project): preserve exact Git URL rewrite bytes' -m 'Compare the unchanged locator and its single output terminator without trimming meaningful whitespace. Exercise real no-network Git insteadOf rewriting before the normalization assertion.' -m 'Refs #520'
+          git push origin HEAD:refs/heads/review/prepared-587-20260921
+          echo "CANDIDATE_587=$(git rev-parse HEAD)"
+          git diff --stat 700367514ff4e15fd7399de6aaff7e2fbcb06ff3 HEAD
