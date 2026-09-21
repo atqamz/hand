@@ -381,12 +381,13 @@ func appendLaunchStatement(o Options) error {
 	if err != nil {
 		return fmt.Errorf("read brief for launch statement: %w", err)
 	}
-	// Also gates the append: a brief already carrying the marker (a resumed or reopened attempt
-	// re-provisioning the same file) is left alone rather than growing a second copy.
-	if strings.Contains(string(data), brief.AppendMarker) {
+	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
+	if start := strings.Index(string(data), "\n\n---\n\n"+brief.AppendMarker); start >= 0 {
+		if string(data[start:]) != appendix {
+			return fmt.Errorf("stale or edited Hand launch appendix in %s; rewrite the supervisor brief without that appendix before provisioning", o.Brief)
+		}
 		return nil
 	}
-	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
 	if err := atomicfile.Write(o.Brief, ".brief-append-", append(data, appendix...), info.Mode().Perm()); err != nil {
 		return fmt.Errorf("append launch statement to brief: %w", err)
 	}
