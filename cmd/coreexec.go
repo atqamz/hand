@@ -26,6 +26,10 @@ func runManagedCore(ctx context.Context, name, dir string, args ...string) ([]by
 		}
 		return nil, fmt.Errorf("resolve managed %s: %w", name, err)
 	}
+	return runRuntimeCore(ctx, managed, name, dir, args...)
+}
+
+func runRuntimeCore(ctx context.Context, managed toolchain.Runtime, name, dir string, args ...string) ([]byte, error) {
 	var path string
 	switch name {
 	case "git":

@@ -93,33 +93,52 @@ func TestValidateCanonicalV19SchemaRejectsDrift(t *testing.T) {
 }
 
 func TestValidateCanonicalV19SchemaRejectsPriorExactFingerprint(t *testing.T) {
-	home := t.TempDir()
-	sqlDB, err := open(Path(home))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = sqlDB.Close() }()
+	for _, test := range []struct {
+		name        string
+		fingerprint string
+		downgrade   string
+	}{
+		{
+			name:        "revision 2",
+			fingerprint: canonicalV19PriorSchemaFingerprintV2,
+			downgrade:   `DROP INDEX worker_report_attempt_source_order`,
+		},
+		{
+			name:        "revision 1",
+			fingerprint: canonicalV19PriorSchemaFingerprintV1,
+			downgrade: `DROP INDEX worker_report_attempt_source_order;
+				DROP TRIGGER task_archive_insert_guard;
+				DROP TRIGGER task_archive_no_update;
+				DROP TRIGGER task_archive_no_delete;
+				DROP TABLE task_archive`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			sqlDB, err := open(Path(home))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = sqlDB.Close() }()
 
-	if err := createCanonicalV19Schema(sqlDB); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := sqlDB.Exec(`DROP TRIGGER task_archive_insert_guard;
-		DROP TRIGGER task_archive_no_update;
-		DROP TRIGGER task_archive_no_delete;
-		DROP TABLE task_archive`); err != nil {
-		t.Fatal(err)
-	}
-	identity, err := inspectCanonicalV19Identity(sqlDB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const priorFingerprint = "8726f0875845d610553928e6bb56fc5566019a6667d81e29a94ee3d3d45ef3b8"
-	if identity.Fingerprint != priorFingerprint {
-		t.Fatalf("reconstructed prior fingerprint = %s, want %s", identity.Fingerprint, priorFingerprint)
-	}
-	err = validateCanonicalV19Schema(sqlDB)
-	if !errors.Is(err, ErrCanonicalV19SchemaMismatch) || !strings.Contains(err.Error(), "prior v19 fingerprint") {
-		t.Fatalf("prior v19 validation error = %v, want explicit fail-closed mismatch", err)
+			if err := createCanonicalV19Schema(sqlDB); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sqlDB.Exec(test.downgrade); err != nil {
+				t.Fatal(err)
+			}
+			identity, err := inspectCanonicalV19Identity(sqlDB)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if identity.Fingerprint != test.fingerprint {
+				t.Fatalf("reconstructed prior fingerprint = %s, want %s", identity.Fingerprint, test.fingerprint)
+			}
+			err = validateCanonicalV19Schema(sqlDB)
+			if !errors.Is(err, ErrCanonicalV19SchemaMismatch) || !strings.Contains(err.Error(), "prior v19 fingerprint") {
+				t.Fatalf("prior v19 validation error = %v, want explicit fail-closed mismatch", err)
+			}
+		})
 	}
 }
 

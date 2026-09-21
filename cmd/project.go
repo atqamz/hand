@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/project"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/spf13/cobra"
 )
 
@@ -52,6 +53,8 @@ type repointResult struct {
 var setProjectOrigin = setOriginURL
 
 var setProjectURL = project.SetURL
+
+var resolveProjectRuntime = toolchain.Resolve
 
 func newProjectSetURLCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -399,6 +402,19 @@ func newProjectAddCmd() *cobra.Command {
 			if err := validateProjectName(name); err != nil {
 				return err
 			}
+			locator := source.input
+			normalizedHTTPS := false
+			var runtime toolchain.Runtime
+			runtimeReady := false
+			if source.remote {
+				runtime, err = resolveProjectRuntime()
+				if err == nil {
+					locator, normalizedHTTPS = normalizeProjectHTTPSForClone(runtime, locator)
+					runtimeReady = true
+				}
+			} else {
+				locator = source.locator
+			}
 
 			release, err := state.Lock(fleetHome, "project:"+name)
 			if err != nil {
@@ -428,7 +444,15 @@ func newProjectAddCmd() *cobra.Command {
 			}
 			var cloneErr error
 			if source.remote {
-				cloneErr = gitClone(source.input, clonePath)
+				var out []byte
+				if runtimeReady {
+					out, err = gitCloneOutputWithRuntime(runtime, locator, clonePath)
+				} else {
+					out, err = gitCloneOutput(locator, clonePath)
+				}
+				if err != nil {
+					cloneErr = diagnoseCloneFailure(locator, out)
+				}
 			} else {
 				cloneErr = gitCloneLocal(source.root, clonePath)
 			}
@@ -451,10 +475,6 @@ func newProjectAddCmd() *cobra.Command {
 				return cleanupCloneAfterFailure(clonePath, err)
 			}
 
-			locator := source.input
-			if !source.remote {
-				locator = source.locator
-			}
 			if err := project.Add(fleetHome, project.Project{Name: name, URL: locator, Mode: mode}); err != nil {
 				if project.IsRegistrationRollbackError(err) {
 					return fmt.Errorf("%w; managed repository retained at %s for registry repair", err, clonePath)
@@ -468,6 +488,9 @@ func newProjectAddCmd() *cobra.Command {
 			doc.Field("mode", mode)
 			doc.Field("url", locator)
 			doc.Field("clone", clonePath)
+			if normalizedHTTPS {
+				doc.Help("Normalized HTTPS locator to SSH because the selected Git has no HTTPS transport helper")
+			}
 			if !source.remote {
 				doc.Field("source", source.input)
 				doc.Field("default_branch", source.defaultBranch)
@@ -611,7 +634,7 @@ func validateProjectMode(mode string) error {
 
 // Git's own plumbing error for a missing remote-<scheme> helper: unambiguous, since git emits
 // this exact text only when the helper binary cannot be found at all (hand#440).
-var gitRemoteHelperMissing = regexp.MustCompile(`git: 'remote-([A-Za-z0-9+.-]+)' is not a git command\.`)
+var gitRemoteHelperMissing = regexp.MustCompile(`(?m)^git: 'remote-([A-Za-z0-9+.-]+)' is not a git command\.(?: See 'git --help'\.)?\r?$`)
 
 // Matched against the clone attempt's actual output rather than guessed from the URL, so a
 // URL git config rewrites (insteadOf, an e2e fixture's local remote) is judged by what git
@@ -623,12 +646,30 @@ func diagnoseCloneFailure(url string, out []byte) error {
 	return fmt.Errorf("git clone failed: %s", string(out))
 }
 
-func gitClone(url, dest string) error {
-	out, err := runManagedCore(context.Background(), "git", "", "clone", url, dest)
-	if err != nil {
-		return diagnoseCloneFailure(url, out)
+// git ls-remote --get-url applies url.<base>.insteadOf without contacting the remote. Only an
+// unchanged HTTPS locator plus an observed absent helper permits SSH normalization.
+func normalizeProjectHTTPSForClone(runtime toolchain.Runtime, locator string) (string, bool) {
+	normalized, recognized := normalizeProjectHTTPSLocator(locator)
+	if !recognized {
+		return locator, false
 	}
-	return nil
+	httpsReady, err := runtime.GitTransportAvailable(context.Background(), "https")
+	if err != nil || httpsReady {
+		return locator, false
+	}
+	out, err := runRuntimeCore(context.Background(), runtime, "git", "", "ls-remote", "--get-url", locator)
+	if err != nil || string(out) != locator+"\n" {
+		return locator, false
+	}
+	return normalized, true
+}
+
+func gitCloneOutput(url, dest string) ([]byte, error) {
+	return runManagedCore(context.Background(), "git", "", "clone", url, dest)
+}
+
+func gitCloneOutputWithRuntime(runtime toolchain.Runtime, url, dest string) ([]byte, error) {
+	return runRuntimeCore(context.Background(), runtime, "git", "", "clone", url, dest)
 }
 
 func noMistakesInit(clonePath string) error {
