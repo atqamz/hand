@@ -18,7 +18,7 @@ func TestPromoteLegacyV18CutoverArchiveCandidatePublishesExactOriginalArchive(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
+	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, openLegacyV18CutoverTestPinnedSource(t, Path(home)), "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,8 @@ func TestPromoteLegacyV18CutoverArchiveCandidateReusesExactExistingArchive(t *te
 		t.Fatal(err)
 	}
 	fleetID := "f_" + strings.Repeat("0", 31) + "1"
-	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, fleetID, sourceDigest)
+	source := openLegacyV18CutoverTestPinnedSource(t, Path(home))
+	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, source, fleetID, sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestPromoteLegacyV18CutoverArchiveCandidateReusesExactExistingArchive(t *te
 		t.Fatal(err)
 	}
 
-	candidate, err = prepareLegacyV18CutoverArchiveCandidate(home, fleetID, sourceDigest)
+	candidate, err = prepareLegacyV18CutoverArchiveCandidate(home, source, fleetID, sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestPromoteLegacyV18CutoverArchiveCandidateRefusesMismatchedExistingArchive
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
+	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, openLegacyV18CutoverTestPinnedSource(t, Path(home)), "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +124,27 @@ func TestPromoteLegacyV18CutoverArchiveCandidateRefusesMismatchedExistingArchive
 	}
 	if string(got) != "different evidence" {
 		t.Fatalf("mismatched archive was overwritten: %q", got)
+	}
+}
+
+func TestPromoteLegacyV18CutoverArchiveCandidateRefusesActiveSourceAlias(t *testing.T) {
+	home := createLegacyV18CutoverTestSource(t)
+	sourceDigest, err := legacyV18CutoverFileSHA256(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrationID, err := legacyV18CutoverMigrationIdentity("f_"+strings.Repeat("0", 31)+"1", sourceDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidatePath := legacyV18CutoverArchiveCandidatePath(home, migrationID)
+	source := openLegacyV18CutoverTestPinnedSource(t, Path(home))
+	if err := os.Link(Path(home), candidatePath); err != nil {
+		t.Skipf("platform cannot create hard-link alias: %v", err)
+	}
+	candidate := legacyV18CutoverArchiveCandidate{MigrationID: migrationID, Path: candidatePath, SHA256: sourceDigest, source: source}
+	if _, err := promoteLegacyV18CutoverArchiveCandidate(home, candidate); err == nil {
+		t.Fatal("promotion accepted an archive candidate aliased to the active source")
 	}
 }
 
@@ -152,7 +174,7 @@ func TestPromoteLegacyV18CutoverArchiveCandidateRefusesNonDirectoryArchivePath(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
+	candidate, err := prepareLegacyV18CutoverArchiveCandidate(home, openLegacyV18CutoverTestPinnedSource(t, Path(home)), "f_"+strings.Repeat("0", 31)+"1", sourceDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
