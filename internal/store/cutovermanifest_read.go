@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 )
 
 func readLegacyV18CutoverManifest(homeDir string, artifact legacyV18CutoverManifestArtifact) (legacyV18CutoverManifest, error) {
+	return readLegacyV18CutoverManifestWithSource(homeDir, artifact, nil)
+}
+
+func readLegacyV18CutoverManifestWithSource(homeDir string, artifact legacyV18CutoverManifestArtifact, source *legacyV18CutoverPinnedSource) (legacyV18CutoverManifest, error) {
 	if err := validateLegacyV18CutoverMigrationID(artifact.MigrationID); err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("read legacy v18 cutover manifest: %w", err)
 	}
@@ -27,13 +30,13 @@ func readLegacyV18CutoverManifest(homeDir string, artifact legacyV18CutoverManif
 	if err := requireLegacyV18CutoverDirectRegularFile(artifact.Path, "manifest"); err != nil {
 		return legacyV18CutoverManifest{}, err
 	}
-	if err := syncLegacyV18CutoverFile(artifact.Path); err != nil {
+	if err := syncLegacyV18CutoverArtifact(source, artifact.Path, "manifest"); err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("read legacy v18 cutover manifest: flush manifest: %w", err)
 	}
 	if err := syncLegacyV18CutoverDirectoryParent(artifact.Path); err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("read legacy v18 cutover manifest: flush manifest directory: %w", err)
 	}
-	payload, err := os.ReadFile(artifact.Path)
+	payload, err := readLegacyV18CutoverArtifact(source, artifact.Path, "manifest")
 	if err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("read legacy v18 cutover manifest: %w", err)
 	}

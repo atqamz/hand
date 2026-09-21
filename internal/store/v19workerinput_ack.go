@@ -16,6 +16,7 @@ type CanonicalV19WorkerInputAcknowledgementCreateInput struct {
 	ExecutorBindingID string
 	ObservedAt        string
 	EvidenceDigest    string
+	callerAttestation *canonicalV19WorkerInputCallerAttestation
 }
 
 // CanonicalV19WorkerInputAcknowledgement is immutable proof that one Worker observed one exact WorkerInput.
@@ -27,8 +28,9 @@ type CanonicalV19WorkerInputAcknowledgement struct {
 	EvidenceDigest    string
 }
 
-// CreateCanonicalV19WorkerInputAcknowledgement appends exact Worker drain evidence.
-// Historical exact attachment remains valid after executor terminalization; no successor is retargeted.
+// CreateCanonicalV19WorkerInputAcknowledgement appends exact Worker drain evidence only
+// after trusted caller attestation matches the target ExecutorBinding. Historical exact
+// attachment remains valid after executor terminalization; no successor is retargeted.
 func CreateCanonicalV19WorkerInputAcknowledgement(
 	ctx context.Context,
 	homeDir string,
@@ -39,6 +41,9 @@ func CreateCanonicalV19WorkerInputAcknowledgement(
 	}
 	if err := validateCanonicalV19WorkerInputAcknowledgementCreateInput(input); err != nil {
 		return CanonicalV19WorkerInputAcknowledgement{}, err
+	}
+	if err := requireCanonicalV19WorkerInputCallerAttestation(input.ExecutorBindingID, input.callerAttestation); err != nil {
+		return CanonicalV19WorkerInputAcknowledgement{}, fmt.Errorf("create canonical v19 WorkerInputAcknowledgement: %w", err)
 	}
 
 	sqlDB, err := openCanonicalV19Writer(homeDir)

@@ -2,7 +2,7 @@
 
 - Date: 2026-08-28
 - Status: accepted
-- Issues: atqamz/hand#418
+- Issues: atqamz/hand#418, atqamz/hand#579 (case D)
 - PRs: none
 
 ## Context
@@ -24,8 +24,8 @@ operator-decision rule text every prompt-capable harness gets - via `launchState
 function both paths call - to the brief file itself, at provision time, before the launch command
 runs. The block is wrapped in a `---`-delimited appendix with an explicit marker sentence naming it
 as hand's text, not the supervisor's brief, echoing the tone the front-matter disclaimer already
-uses for the brief's own leading block. The append is idempotent (checked by marker presence) so a
-reopen or resume that re-provisions the same brief file does not grow a second copy.
+uses for the brief's own leading block. Exact appendix equality makes the append idempotent, so a
+reopen or resume with the same launch statement does not grow a second copy or rewrite the file.
 
 `CarriesPrompt` changes meaning from "takes a CLI prompt argument" to "receives the report path and
 operator-decision rule by some channel". grok and pi now return `true`: `internal/harness/harness.go`
@@ -37,6 +37,39 @@ provisioning path, which already owns `briefPath` - immediately before `Build`. 
 called from reconcile's `reconciliationActionConfirmLaunch` arm to reconstruct already-persisted
 launch evidence for pane-text comparison; that arm observes and must not write, so it must never
 reach the append, and it does not, because the append is not inside `Build`.
+
+## Launch currentness correction (2026-09-21)
+
+Marker presence alone did not prove the report channel or worker authority still matched a reused
+brief. Preparation for every supported harness recognizes the existing appendix boundary and compares its entire
+suffix with the statement generated from the current launch options. A stale, edited, or duplicated
+appendix refuses before the worker is built or launched, leaving every brief byte intact. Rewriting
+the supervisor-authored brief without the old appendix lets provisioning deliver the current statement
+through the selected harness's normal channel. A marker mentioned only in ordinary prose does not
+suppress the generated appendix.
+
+Boundary recognition includes LF, CRLF, and mixed line endings at their original byte offsets.
+Converting a brief's line endings must not hide an earlier appendix behind a later valid LF block.
+Equality still compares the original suffix byte-for-byte: edited line endings refuse even when the
+launch options match. Preparation never normalizes or rewrites operator text to make it pass.
+
+Switching from grok or pi to an argument-based harness does not bypass this validation. Only grok
+and pi append a missing block; every other supported harness leaves the brief untouched. An absent
+brief retains the argument-based path's existing no-append behavior, not a readiness claim. Other
+inspection failures refuse instead of being treated as absence. Exact appendix equality remains a
+read-only no-op even when the selected harness changes.
+
+The provisioning regression exercises inherited grok/pi instructions followed by a Claude launch,
+using the existing runtime fixture and real harness builder. Stale instructions refuse before Build
+or provider launch. Successful cleanup clears only returned worktree evidence; failed cleanup keeps
+that exact ownership evidence visible. An explicit brief rewrite can resume the same provisioning
+Attempt with the current report channel and worker authority. These fixture-backed assertions do not
+prove a real harness obeys the instructions.
+
+This intentionally refuses rather than replacing an arbitrary suffix: text added after the generated
+block may belong to the operator. Existing provisioning failure cleanup remains responsible for any
+already-acquired worktree. This is a narrow case-D safety guard, not proof of provider delivery,
+WorkerReport ingestion, or canonical v19 Fleet/Attempt identity; those obligations remain separate.
 
 ## Rejected alternatives
 

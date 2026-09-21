@@ -37,7 +37,7 @@ type legacyV18CutoverFrozenBridge struct {
 
 func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *legacyV18CutoverGate, archive legacyV18CutoverOriginalArchive) (legacyV18CutoverFrozenBridge, error) {
 	bridge := legacyV18CutoverFrozenBridge{}
-	if gate == nil || gate.conn == nil || gate.db == nil {
+	if gate == nil || gate.conn == nil || gate.db == nil || gate.source == nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: EXCLUSIVE gate is not held")
 	}
 	if err := validateLegacyV18CutoverMigrationID(archive.MigrationID); err != nil {
@@ -59,7 +59,7 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	if err := requireLegacyV18CutoverDirectRegularFile(archive.Path, "original archive"); err != nil {
 		return bridge, err
 	}
-	archiveDigest, err := legacyV18CutoverFileSHA256(archive.Path)
+	archiveDigest, err := gate.source.distinctArtifactSHA256(archive.Path, "original archive")
 	if err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: hash original archive: %w", err)
 	}
@@ -86,7 +86,7 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	if expectedMigrationID != archive.MigrationID {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: migration identity=%s, want %s from exact Fleet/source evidence", archive.MigrationID, expectedMigrationID)
 	}
-	activeDigest, err := legacyV18CutoverFileSHA256(Path(homeDir))
+	activeDigest, err := gate.source.sha256()
 	if err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: hash active source: %w", err)
 	}
@@ -174,20 +174,7 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 }
 
 func closeCommittedLegacyV18CutoverGate(gate *legacyV18CutoverGate) error {
-	var firstErr error
-	if gate.conn != nil {
-		if err := gate.conn.Close(); err != nil {
-			firstErr = err
-		}
-		gate.conn = nil
-	}
-	if gate.db != nil {
-		if err := gate.db.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		gate.db = nil
-	}
-	return firstErr
+	return closeLegacyV18CutoverGateResources(gate, false)
 }
 
 func legacyV18CutoverFreezeTriggerName(table, operation string) string {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 
@@ -12,178 +11,20 @@ import (
 	"github.com/atqamz/hand/internal/launch"
 )
 
-func TestReconcileCanonicalV19HerdrLaunchSucceedsWithExactStructuredSpecAndReruns(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-success", canonicalV19HerdrLiteralEnvironment())
-	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	client.requireSubmittedAtRun = true
-	deps := canonicalV19HerdrLaunchDeps{
-		clientFor: func(sessionName string) canonicalV19HerdrLaunchClient {
-			if sessionName != key.SessionName {
-				t.Fatalf("Herdr session = %q, want %q", sessionName, key.SessionName)
-			}
-			return client
-		},
-		now: func() time.Time { return time.Date(2026, 9, 8, 3, 15, 0, 0, time.UTC) },
+func TestCanonicalV19HerdrProcessMatchKeepsExecutablePathsDistinct(t *testing.T) {
+	spec := CanonicalV19LaunchSpec{
+		Executable: "/trusted/codex", Arguments: []string{"exec"}, Cwd: "/worktree",
 	}
-
-	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("reconcile Herdr Launch = %q, %v", state, err)
+	process := herdr.Process{
+		PID: 4300, Argv: []string{"/other/codex", "exec"}, Cwd: "/worktree",
 	}
-	if client.runCalls != 1 {
-		t.Fatalf("pane run calls = %d, want 1", client.runCalls)
-	}
-	wantSpec := launch.LaunchSpec{
-		Executable: request.Spec.Executable,
-		Args:       append([]string(nil), request.Spec.Arguments...),
-		Env:        map[string]string{"HAND_ROLE": "worker", "TOKEN": "literal-token"},
-		Cwd:        request.Spec.Cwd,
-	}
-	if !reflect.DeepEqual(client.lastSpec, wantSpec) {
-		t.Fatalf("provider LaunchSpec = %#v, want %#v", client.lastSpec, wantSpec)
-	}
-
-	db, err := openReadOnly(fixture.Home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var operationState, providerKey string
-	if err := db.sql.QueryRow(`SELECT o.state,e.provider_executor_key
-		FROM external_operation o JOIN executor_binding e ON e.launch_operation_id=o.id
-		WHERE o.id=?`, request.OperationID).Scan(&operationState, &providerKey); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	if operationState != "succeeded" {
-		t.Fatalf("operation state = %q, want succeeded", operationState)
-	}
-	executorKey, err := parseCanonicalV19HerdrExecutorProviderKey(providerKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if executorKey.SessionName != key.SessionName || executorKey.WorkspaceID != key.WorkspaceID ||
-		executorKey.TabID != key.TabID || executorKey.PaneID != key.PaneID ||
-		executorKey.ProcessGroup != canonicalV19HerdrLaunchTestProcessGroup ||
-		executorKey.ProcessID != canonicalV19HerdrLaunchTestProcessID || len(executorKey.ProcessDigest) != 64 {
-		t.Fatalf("provider Executor key = %#v", executorKey)
-	}
-
-	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("terminal rerun = %q, %v", state, err)
-	}
-	if client.runCalls != 1 {
-		t.Fatalf("pane run calls after terminal rerun = %d, want 1", client.runCalls)
+	if canonicalV19HerdrProcessMatchesLaunch(process, spec) {
+		t.Fatal("same-basename foreign executable matched exact LaunchSpec")
 	}
 }
 
-func TestReconcileSubmittedCanonicalV19HerdrLaunchObservesExistingTargetWithoutReplay(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-submitted-running", canonicalV19HerdrLiteralEnvironment())
-	if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
-		"2026-09-08T03:10:00Z", "launch-submitted-before-crash"); err != nil {
-		t.Fatal(err)
-	}
-	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	client.startTarget(request.Spec)
-	deps := canonicalV19HerdrLaunchDeps{
-		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
-		now:       func() time.Time { return time.Date(2026, 9, 8, 3, 16, 0, 0, time.UTC) },
-	}
-
-	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("submitted running recovery = %q, %v", state, err)
-	}
-	if client.runCalls != 0 {
-		t.Fatalf("pane run calls = %d, want 0", client.runCalls)
-	}
-}
-
-func TestReconcileSubmittedCanonicalV19HerdrLaunchDoesNotBlindReplay(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-submitted-ready", canonicalV19HerdrLiteralEnvironment())
-	if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
-		"2026-09-08T03:10:00Z", "launch-submitted-before-crash"); err != nil {
-		t.Fatal(err)
-	}
-	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	deps := canonicalV19HerdrLaunchDeps{
-		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
-		now:       func() time.Time { return time.Date(2026, 9, 8, 3, 17, 0, 0, time.UTC) },
-	}
-
-	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("submitted recovery = %q, %v, want uncertain error", state, err)
-	}
-	if client.runCalls != 0 {
-		t.Fatalf("pane run calls = %d, want 0", client.runCalls)
-	}
-	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "uncertain" || err == nil {
-		t.Fatalf("uncertain recovery = %q, %v, want uncertain error", state, err)
-	}
-	if client.runCalls != 0 {
-		t.Fatalf("pane run calls after uncertain recovery = %d, want 0", client.runCalls)
-	}
-}
-
-func TestReconcileCanonicalV19HerdrLaunchLostResponseWithExactProcessSucceeds(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-lost-response", canonicalV19HerdrLiteralEnvironment())
-	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	client.runErr = errors.New("provider response lost after pane run")
-	deps := canonicalV19HerdrLaunchDeps{
-		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
-		now:       func() time.Time { return time.Date(2026, 9, 8, 3, 18, 0, 0, time.UTC) },
-	}
-
-	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if err != nil || state != "succeeded" {
-		t.Fatalf("lost-response Launch = %q, %v", state, err)
-	}
-	if client.runCalls != 1 {
-		t.Fatalf("pane run calls = %d, want 1", client.runCalls)
-	}
-}
-
-func TestReconcileCanonicalV19HerdrLaunchProcessNotStartedIsNoEffect(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-no-effect", canonicalV19HerdrLiteralEnvironment())
-	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	client.mutateOnRun = false
-	client.runErr = &herdr.ExecError{Started: false, Err: errors.New("Herdr executable did not start")}
-	deps := canonicalV19HerdrLaunchDeps{
-		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
-		now:       func() time.Time { return time.Date(2026, 9, 8, 3, 19, 0, 0, time.UTC) },
-	}
-
-	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("process-not-started Launch = %q, %v, want no-effect diagnostic", state, err)
-	}
-	if client.runCalls != 1 {
-		t.Fatalf("pane run calls = %d, want 1", client.runCalls)
-	}
-	db, err := openReadOnly(fixture.Home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var bindings int
-	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM executor_binding WHERE launch_operation_id=?`, request.OperationID).Scan(&bindings); err != nil {
-		_ = db.Close()
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	if bindings != 0 {
-		t.Fatalf("ExecutorBinding rows = %d, want 0", bindings)
-	}
-}
-
-func TestReconcilePreparedCanonicalV19HerdrLaunchRejectsSecretRefBeforeMutation(t *testing.T) {
-	environment := canonicalV19HerdrLiteralEnvironment()
-	environment["TOKEN"] = CanonicalV19LaunchEnvironmentValue{
-		ValueKind: "secret-ref", ValueMaterial: "secret://worker/token", ValueDigest: "digest-secret-value",
-	}
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-secret-ref", environment)
+func TestReconcileCanonicalV19HerdrLaunchFailsClosedBeforeProviderMutation(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-unsupported", canonicalV19HerdrLiteralEnvironment())
 	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
 	clientForCalls := 0
 	deps := canonicalV19HerdrLaunchDeps{
@@ -191,35 +32,144 @@ func TestReconcilePreparedCanonicalV19HerdrLaunchRejectsSecretRefBeforeMutation(
 			clientForCalls++
 			return client
 		},
-		now: func() time.Time { return time.Date(2026, 9, 8, 3, 20, 0, 0, time.UTC) },
+		now: func() time.Time { return time.Date(2026, 9, 8, 3, 14, 0, 0, time.UTC) },
 	}
 
 	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || err == nil {
-		t.Fatalf("secret-ref Launch = %q, %v, want prepared error", state, err)
+	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("unqualified Herdr Launch = %q, %v, want no-effect unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "no-effect" || err != nil {
+		t.Fatalf("replayed no-effect Herdr Launch = %q, %v, want stable terminal state", state, err)
 	}
 	if clientForCalls != 0 || client.runCalls != 0 {
-		t.Fatalf("provider calls before secret resolution = client %d, run %d, want 0/0", clientForCalls, client.runCalls)
+		t.Fatalf("provider calls = client %d, run %d, want 0/0", clientForCalls, client.runCalls)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var operationState, finalizedAt string
+	if err := db.sql.QueryRow(`SELECT state,finalized_at FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState, &finalizedAt); err != nil {
+		t.Fatal(err)
+	}
+	var bindings int
+	if err := db.sql.QueryRow(`SELECT COUNT(*) FROM executor_binding WHERE launch_operation_id=?`, request.OperationID).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "no-effect" || bindings != 0 {
+		t.Fatalf("persisted Launch state/bindings = %q/%d, want no-effect/0", operationState, bindings)
+	}
+	if finalizedAt == "" {
+		t.Fatal("no-effect Launch lacks terminal timestamp")
+	}
+	second := CanonicalV19LaunchPrepareInput{
+		OperationID:      "operation-herdr-launch-after-no-effect",
+		OperationKey:     "operation-key-operation-herdr-launch-after-no-effect",
+		AttemptID:        request.AttemptID,
+		SessionBindingID: request.SessionBindingID,
+		BindingID:        "executor-binding-after-no-effect",
+		Spec:             request.Spec,
+		CreatedAt:        "2026-09-08T04:15:00Z",
+	}
+	if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, second); err != nil {
+		t.Fatalf("Launch after terminal no-effect remained blocked: %v", err)
 	}
 }
 
-func TestReconcilePreparedCanonicalV19HerdrLaunchRefusesProviderMismatch(t *testing.T) {
-	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-mismatch", canonicalV19HerdrLiteralEnvironment())
+func TestReconcileCanonicalV19HerdrLaunchSubmittedBecomesUncertainWithoutReplay(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-submitted-unsupported", canonicalV19HerdrLiteralEnvironment())
 	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
-	pane := client.panes[key.PaneID]
-	pane.Cwd = t.TempDir()
-	client.panes[key.PaneID] = pane
+	if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
+		"2026-09-08T04:10:00Z", "submitted-launch-unsupported"); err != nil {
+		t.Fatal(err)
+	}
 	deps := canonicalV19HerdrLaunchDeps{
 		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
-		now:       func() time.Time { return time.Date(2026, 9, 8, 3, 21, 0, 0, time.UTC) },
+		now:       func() time.Time { return time.Date(2026, 9, 8, 4, 11, 0, 0, time.UTC) },
 	}
-
 	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
-	if state != "prepared" || err == nil {
-		t.Fatalf("provider mismatch Launch = %q, %v, want prepared error", state, err)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("submitted Herdr Launch = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed Herdr Launch = %q, %v, want terminal uncertain unsupported error", state, err)
 	}
 	if client.runCalls != 0 {
-		t.Fatalf("pane run calls = %d, want 0", client.runCalls)
+		t.Fatalf("provider Launch calls = %d, want 0", client.runCalls)
+	}
+	var operationState string
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, request.OperationID).Scan(&operationState); err != nil {
+		t.Fatal(err)
+	}
+	if operationState != "uncertain" {
+		t.Fatalf("persisted Launch state = %q, want uncertain", operationState)
+	}
+}
+
+func TestReconcileCanonicalV19HerdrLaunchPreparedSettlementRejectsConcurrentSubmit(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-prepared-submit-race", canonicalV19HerdrLiteralEnvironment())
+	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
+	submitted := false
+	deps := canonicalV19HerdrLaunchDeps{
+		clientFor: func(string) canonicalV19HerdrLaunchClient { return client },
+		now: func() time.Time {
+			if !submitted {
+				submitted = true
+				if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, request.OperationID,
+					"2026-09-08T04:16:00Z", "submitted-launch-race"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			return time.Date(2026, 9, 8, 4, 17, 0, 0, time.UTC)
+		},
+	}
+	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("prepared Launch after concurrent submit = %q, %v, want uncertain unsupported error", state, err)
+	}
+	state, err = reconcileCanonicalV19HerdrLaunch(context.Background(), fixture.Home, request.OperationID, deps)
+	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("replayed raced Launch = %q, %v, want stable uncertain unsupported error", state, err)
+	}
+	if client.runCalls != 0 {
+		t.Fatalf("raced Launch provider calls = %d, want 0", client.runCalls)
+	}
+	second := CanonicalV19LaunchPrepareInput{
+		OperationID:      "operation-herdr-launch-after-submit-race",
+		OperationKey:     "operation-key-operation-herdr-launch-after-submit-race",
+		AttemptID:        request.AttemptID,
+		SessionBindingID: request.SessionBindingID,
+		BindingID:        "executor-binding-after-submit-race",
+		Spec:             request.Spec,
+		CreatedAt:        "2026-09-08T04:18:00Z",
+	}
+	if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, second); !errors.Is(err, ErrCanonicalV19LaunchConflict) {
+		t.Fatalf("Launch claim after raced submit error = %v, want unresolved claim conflict", err)
+	}
+}
+
+func TestObserveCanonicalV19HerdrLaunchNeverCreatesIdentityFromPIDArgvAndCwd(t *testing.T) {
+	fixture, request, key := canonicalV19HerdrLaunchFixture(t, "operation-herdr-launch-observation-only", canonicalV19HerdrLiteralEnvironment())
+	client := newCanonicalV19HerdrLaunchFakeClient(t, fixture.Home, request, key)
+	client.startTarget(request.Spec)
+	current, err := readCanonicalV19HerdrLaunchCurrent(context.Background(), fixture.Home, request.OperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observed := observeCanonicalV19HerdrLaunch(context.Background(), current, client)
+	if observed.State != canonicalV19HerdrLaunchUnknown || observed.ProviderExecutorKey != "" {
+		t.Fatalf("PID/argv/cwd observation = %q with provider key %q, want unknown without identity", observed.State, observed.ProviderExecutorKey)
 	}
 }
 
@@ -294,6 +244,7 @@ type canonicalV19HerdrLaunchFakeClient struct {
 	request               CanonicalV19LaunchRequest
 	sessionName           string
 	workspaces            []herdr.Workspace
+	workspaceErr          error
 	tabs                  map[string][]herdr.Tab
 	panes                 map[string]herdr.Pane
 	processInfo           herdr.ProcessInfo
@@ -339,6 +290,9 @@ func (f *canonicalV19HerdrLaunchFakeClient) ObserveSession(context.Context) herd
 }
 
 func (f *canonicalV19HerdrLaunchFakeClient) WorkspaceListContext(context.Context) ([]herdr.Workspace, error) {
+	if f.workspaceErr != nil {
+		return nil, f.workspaceErr
+	}
 	return append([]herdr.Workspace(nil), f.workspaces...), nil
 }
 
