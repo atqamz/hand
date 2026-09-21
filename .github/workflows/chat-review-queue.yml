@@ -1,0 +1,38 @@
+name: Retire superseded chat merge CI
+
+on:
+  push:
+    branches: [review/chat-20260921]
+    paths: [.github/workflows/chat-review-queue.yml]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  retire-superseded:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Cancel only superseded main-push CI from this review
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import json, os, urllib.request
+          root = 'https://api.github.com/repos/atqamz/hand/'
+          headers = {'Authorization': 'Bearer '+os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
+          def get(path):
+              with urllib.request.urlopen(urllib.request.Request(root+path, headers=headers), timeout=30) as response:
+                  return json.load(response)
+          latest = get('git/ref/heads/main')['object']['sha']
+          for sha in ('650a7c616ac6da55a1d7a6653d4ef8cc34333140', '700367514ff4e15fd7399de6aaff7e2fbcb06ff3'):
+              comparison = get('compare/'+sha+'...'+latest)
+              assert comparison['status'] == 'ahead' and comparison['behind_by'] == 0, 'not a superseded ancestor'
+              for run in get('actions/runs?head_sha='+sha+'&event=push&per_page=100')['workflow_runs']:
+                  if run['name'] != 'CI' or run['event'] != 'push' or run['head_branch'] != 'main' or run['head_sha'] != sha or run['status'] not in ('queued', 'in_progress'):
+                      continue
+                  request = urllib.request.Request(root+'actions/runs/'+str(run['id'])+'/cancel', data=b'', headers=headers, method='POST')
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      print('Cancelled superseded main CI', run['id'], sha, response.status)
+          print('Preserved all PR CI runs, release workflows and current main', latest)
