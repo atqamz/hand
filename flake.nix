@@ -17,7 +17,7 @@
             pname = "hand";
             inherit version;
             src = ./.;
-            vendorHash = "sha256-ZrUBysM9rEKDyrkpMgjX0cd+qX+VhSHZYNEIt6TuJrA=";
+            vendorHash = "sha256-WZWp5Nzec/6TmmQ3g4R861mL0s/04LN8YxtFe7zLwvE=";
             checkFlags = [ "-tags=test" ];
             ldflags = [ "-s" "-w" "-X main.version=v${version}" "-X main.channel=stable" "-X main.commit=" "-X main.distribution=nix" ];
             nativeCheckInputs = [ pkgs.git pkgs.gh pkgs.jq ]; # test suite execs git, gh, and jq directly
