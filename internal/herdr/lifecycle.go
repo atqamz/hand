@@ -23,6 +23,7 @@ const (
 var (
 	ErrSessionUnknown      = errors.New("fleet Herdr session observation is unknown")
 	ErrSessionIncompatible = errors.New("fleet Herdr session is incompatible")
+	ErrSessionUnowned      = errors.New("fleet Herdr session lacks matching live guardian leases")
 	ErrEnsureTimeout       = errors.New("timed out waiting for Fleet Herdr session")
 )
 
@@ -49,20 +50,23 @@ type FleetHerdr struct {
 	session string
 	client  *Client
 
-	observeFn func(context.Context) SessionObservation
-	startFn   func(context.Context) error
-	attachFn  func(context.Context) error
-	lockFn    func(context.Context) (func(), error)
+	observeFn   func(context.Context) SessionObservation
+	ownershipFn func(context.Context) (bool, error)
+	startFn     func(context.Context) error
+	attachFn    func(context.Context) error
+	lockFn      func(context.Context) (func(), error)
 
 	startTimeout time.Duration
 	pollInterval time.Duration
 }
 
 func NewFleetHerdr(fleetID string) *FleetHerdr {
+	client := NewManagedSessionClient(SessionName(fleetID))
+	client.fleetID = fleetID
 	return &FleetHerdr{
 		fleetID:      fleetID,
 		session:      SessionName(fleetID),
-		client:       NewManagedSessionClient(SessionName(fleetID)),
+		client:       client,
 		startTimeout: defaultHerdrStartTimeout,
 		pollInterval: defaultHerdrPollInterval,
 	}
@@ -105,19 +109,19 @@ func (f *FleetHerdr) Ensure(ctx context.Context) error {
 	observation := f.Observe(ctx)
 	switch observation.State {
 	case SessionRunningCompatible:
-		return nil
+		return f.ensureLocked(ctx)
 	case SessionUnknown:
 		return sessionEnsureError(observation, ErrSessionUnknown)
 	case SessionIncompatible:
 		return sessionEnsureError(observation, ErrSessionIncompatible)
 	case SessionStopped:
-		return f.ensureStopped(ctx)
+		return f.ensureLocked(ctx)
 	default:
 		return sessionEnsureError(observation, ErrSessionUnknown)
 	}
 }
 
-func (f *FleetHerdr) ensureStopped(ctx context.Context) error {
+func (f *FleetHerdr) ensureLocked(ctx context.Context) error {
 	release, err := f.acquireStartLock(ctx)
 	if err != nil {
 		return fmt.Errorf("coordinate Fleet Herdr start: %w", err)
@@ -127,22 +131,35 @@ func (f *FleetHerdr) ensureStopped(ctx context.Context) error {
 	observation := f.Observe(ctx)
 	switch observation.State {
 	case SessionRunningCompatible:
-		return nil
+		owned, err := f.owned(ctx)
+		if err != nil {
+			return sessionEnsureError(observation, fmt.Errorf("prove Fleet Herdr guardian ownership: %w", err))
+		}
+		if owned {
+			return nil
+		}
+		// Missing leases for this caller do not authorize stopping a live
+		// session, which may still belong to an earlier Hand generation.
+		return sessionEnsureError(observation, ErrSessionUnowned)
 	case SessionUnknown:
 		return sessionEnsureError(observation, ErrSessionUnknown)
 	case SessionIncompatible:
 		return sessionEnsureError(observation, ErrSessionIncompatible)
 	case SessionStopped:
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := f.start(ctx); err != nil {
-			return fmt.Errorf("start Fleet Herdr session %q: %w", f.session, err)
-		}
-		return f.waitReady(ctx)
+		return f.startAndWait(ctx)
 	default:
 		return sessionEnsureError(observation, ErrSessionUnknown)
 	}
+}
+
+func (f *FleetHerdr) startAndWait(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := f.start(ctx); err != nil {
+		return fmt.Errorf("start Fleet Herdr session %q: %w", f.session, err)
+	}
+	return f.waitReady(ctx)
 }
 
 func (f *FleetHerdr) waitReady(ctx context.Context) error {
@@ -160,6 +177,13 @@ func (f *FleetHerdr) waitReady(ctx context.Context) error {
 		last = f.Observe(ctx)
 		switch last.State {
 		case SessionRunningCompatible:
+			owned, err := f.owned(ctx)
+			if err != nil {
+				return sessionEnsureError(last, fmt.Errorf("prove Fleet Herdr guardian ownership: %w", err))
+			}
+			if !owned {
+				return sessionEnsureError(last, ErrSessionUnowned)
+			}
 			return nil
 		case SessionUnknown, SessionStopped:
 		case SessionIncompatible:
@@ -181,6 +205,16 @@ func (f *FleetHerdr) waitReady(ctx context.Context) error {
 		case <-timer.C:
 		}
 	}
+}
+
+func (f *FleetHerdr) owned(ctx context.Context) (bool, error) {
+	if f.ownershipFn != nil {
+		return f.ownershipFn(ctx)
+	}
+	if f.client == nil {
+		return false, errors.New("managed Herdr client is unavailable")
+	}
+	return f.client.serverLeaseOwned(ctx)
 }
 
 func (f *FleetHerdr) start(ctx context.Context) error {

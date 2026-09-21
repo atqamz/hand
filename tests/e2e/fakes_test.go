@@ -59,8 +59,12 @@ func binDir(t *testing.T) string {
 func writeFakeBin(t *testing.T, dir, name, caseBody string) {
 	t.Helper()
 	script := "#!/bin/sh\n" + caseBody
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if name == "herdr" {
+		t.Setenv("HAND_TEST_HERDR_PATH", path)
 	}
 }
 

@@ -23,7 +23,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		Short:   "You lead. hand runs the crew.",
 		Version: info.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "build-info" || cmd.Name() == "adopt" {
+			if cmd.Name() == "build-info" || cmd.Name() == "adopt" || cmd.CommandPath() == "hand runtime herdr-server" {
 				return nil
 			}
 			if cmd.Name() == "fleet" {

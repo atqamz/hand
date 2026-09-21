@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/pathdisplay"
 	"github.com/atqamz/hand/internal/state"
@@ -274,11 +275,16 @@ type backgroundHand struct {
 }
 
 func startHandBackground(t *testing.T, home string, args ...string) *backgroundHand {
+	return startHandBackgroundEnv(t, home, nil, args...)
+}
+
+func startHandBackgroundEnv(t *testing.T, home string, extraEnv []string, args ...string) *backgroundHand {
 	t.Helper()
 	seedPrivateRuntime(t, home)
 	cmd := exec.Command(handBin, args...)
 	cmd.Dir = home
-	cmd.Env = handProcessEnv("SECONDHAND_HOME=" + filepath.Join(home, ".secondhand"))
+	extraEnv = append(extraEnv, "SECONDHAND_HOME="+filepath.Join(home, ".secondhand"))
+	cmd.Env = handProcessEnv(extraEnv...)
 	stdout := &syncBuffer{}
 	stderr := &syncBuffer{}
 	cmd.Stdout = stdout
@@ -308,8 +314,36 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle := filepath.Join(root, "runtime", "bundles", lock.RuntimeID)
-	artifacts := filepath.Join(bundle, "artifacts")
+	components := make(map[string]toolchain.Component, len(target.Components))
+	for name, component := range target.Components {
+		component.Files = append([]toolchain.ExpectedFile(nil), component.Files...)
+		components[name] = component
+	}
+	target.Components = components
+	store, err := toolchain.NewStore(root, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(root, "runtime", "bundles", generation)
+	if _, err := store.Generation(generation, "", ""); err == nil {
+		selectSeededRuntime(t, root, lock, generation)
+		return
+	} else if !errors.Is(err, os.ErrNotExist) && !strings.Contains(err.Error(), "manifest is missing") {
+		t.Fatalf("existing E2E runtime generation is invalid and will not be rewritten: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "runtime", "bundles"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := os.MkdirTemp(filepath.Join(root, "runtime"), ".e2e-runtime-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(stage) })
+	artifacts := filepath.Join(stage, "artifacts")
 	if err := os.MkdirAll(artifacts, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +352,7 @@ func seedPrivateRuntime(t *testing.T, home string) {
 			t.Fatal(err)
 		}
 		for index, expected := range component.Files {
-			path := filepath.Join(bundle, name, filepath.FromSlash(expected.Path))
+			path := filepath.Join(stage, name, filepath.FromSlash(expected.Path))
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -357,16 +391,41 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(targetData)
-	manifestPath := filepath.Join(bundle, "manifest.json")
+	manifestPath := filepath.Join(stage, "manifest.json")
 	if err := os.WriteFile(manifestPath, append(targetData, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Rename(stage, bundle); err != nil {
+		if _, validationErr := store.Generation(generation, "", ""); validationErr != nil {
+			t.Fatalf("publish E2E runtime generation: %v (winner validation: %v)", err, validationErr)
+		}
+	}
+	if _, err := store.Generation(generation, "", ""); err != nil {
+		t.Fatalf("verify E2E runtime generation: %v", err)
+	}
+	selectSeededRuntime(t, root, lock, generation)
+}
+
+func selectSeededRuntime(t *testing.T, root string, lock toolchain.Lock, generation string) {
+	t.Helper()
+	manifest, err := os.ReadFile(filepath.Join(root, "runtime", "bundles", generation, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var installed toolchain.Target
+	if err := json.Unmarshal(manifest, &installed); err != nil {
+		t.Fatal(err)
+	}
+	targetData, err := json.Marshal(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(targetData)
 	current := toolchain.Current{
 		Schema:         lock.Schema,
 		RuntimeID:      lock.RuntimeID,
 		Target:         currentTargetNameForTest(),
-		Bundle:         filepath.ToSlash(filepath.Join("bundles", lock.RuntimeID)),
+		Bundle:         filepath.ToSlash(filepath.Join("bundles", generation)),
 		ManifestSHA256: fmt.Sprintf("%x", digest),
 		SelectedAt:     time.Now().UTC(),
 	}
@@ -377,7 +436,7 @@ func seedPrivateRuntime(t *testing.T, home string) {
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, "runtime", "current.json")), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "runtime", "current.json"), append(data, '\n'), 0o600); err != nil {
+	if err := atomicfile.Write(filepath.Join(root, "runtime", "current.json"), ".current-", append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

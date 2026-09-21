@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/toolchain"
 )
 
 func testFleetHerdr(observe func(context.Context) SessionObservation, start func(context.Context) error, attach func(context.Context) error) *FleetHerdr {
@@ -22,9 +24,97 @@ func testFleetHerdr(observe func(context.Context) SessionObservation, start func
 		observeFn:    observe,
 		startFn:      start,
 		attachFn:     attach,
+		ownershipFn:  func(context.Context) (bool, error) { return true, nil },
 		startTimeout: 50 * time.Millisecond,
 		pollInterval: time.Millisecond,
 	}
+}
+
+func TestFleetHerdrEnsureRefusesRunningSessionWithoutGuardianLeases(t *testing.T) {
+	setFleetHerdrHome(t)
+	var starts atomic.Int32
+	h := testFleetHerdr(func(context.Context) SessionObservation {
+		return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
+	}, func(context.Context) error { starts.Add(1); return nil }, nil)
+	h.ownershipFn = func(context.Context) (bool, error) { return false, nil }
+	if err := h.Ensure(context.Background()); !errors.Is(err, ErrSessionUnowned) {
+		t.Fatalf("Ensure() = %v, want ErrSessionUnowned", err)
+	}
+	if starts.Load() != 0 {
+		t.Fatal("Ensure restarted a running unowned session")
+	}
+}
+
+func TestFleetHerdrEnsureFailsClosedWhenGuardianLeaseProofIsUnknown(t *testing.T) {
+	setFleetHerdrHome(t)
+	proofErr := errors.New("guardian lease proof unavailable")
+	var starts atomic.Int32
+	h := testFleetHerdr(func(context.Context) SessionObservation {
+		return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
+	}, func(context.Context) error {
+		starts.Add(1)
+		return nil
+	}, nil)
+	h.ownershipFn = func(context.Context) (bool, error) { return false, proofErr }
+
+	if err := h.Ensure(context.Background()); !errors.Is(err, proofErr) {
+		t.Fatalf("Ensure() = %v, want guardian proof error", err)
+	}
+	if starts.Load() != 0 {
+		t.Fatalf("unknown proof start calls = %d, want zero", starts.Load())
+	}
+}
+
+func TestFleetHerdrEnsureDoesNotStopWhenLiveGuardianLeaseMetadataIsMissing(t *testing.T) {
+	setFleetHerdrHome(t)
+	store := managedServerLeaseStore(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	runtimeGeneration, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardianSource := filepath.Join(t.TempDir(), managedExecutableName("hand"))
+	if err := os.WriteFile(guardianSource, []byte("exact guardian"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guardian, err := store.MaterializeHandExecutable(guardianSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const fleetID = "f_0123456789abcdef0123456789abcdef"
+	session := SessionName(fleetID)
+	client := &Client{store: store, guardian: guardian, runtimeGeneration: runtimeGeneration, fleetID: fleetID, session: session}
+	runtimeLease, err := store.AcquireLease(toolchain.LeaseRequest{
+		Generation: runtimeGeneration, LeaseID: "herdr-server:" + session, FleetID: fleetID,
+		Consumer: "herdr-server", Evidence: "session=" + session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtimeLease.Close() })
+	handLease, err := store.AcquireHandLease(toolchain.LeaseRequest{
+		Generation: "sha256:" + filepath.Base(filepath.Dir(guardian)), LeaseID: "herdr-guardian:" + session, FleetID: fleetID,
+		Consumer: "runtime-guardian", Evidence: "session=" + session,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = handLease.Close() })
+	if err := os.Remove(runtimeLease.RecordPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	h := testFleetHerdr(func(context.Context) SessionObservation {
+		return SessionObservation{Name: session, State: SessionRunningCompatible}
+	}, func(context.Context) error { return nil }, nil)
+	h.ownershipFn = client.serverLeaseOwned
+
+	if err := h.Ensure(context.Background()); !errors.Is(err, toolchain.ErrLeaseMetadataUnknown) {
+		t.Fatalf("Ensure() = %v, want ErrLeaseMetadataUnknown", err)
+	}
+
 }
 
 func setFleetHerdrHome(t *testing.T) {
@@ -33,6 +123,7 @@ func setFleetHerdrHome(t *testing.T) {
 }
 
 func TestFleetHerdrEnsureReadyDoesNotStart(t *testing.T) {
+	setFleetHerdrHome(t)
 	var starts atomic.Int32
 	h := testFleetHerdr(func(context.Context) SessionObservation {
 		return SessionObservation{Name: "hand-f_test", State: SessionRunningCompatible}
@@ -376,6 +467,36 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 	}
 	if got := values["HERDR_TEST_CREDENTIAL"]; got != "keep" {
 		t.Fatalf("server credential = %q, want keep", got)
+	}
+}
+
+func TestManagedFleetHerdrStartsThroughExactGenerationGuardian(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the shell fixture is POSIX-only")
+	}
+	root := t.TempDir()
+	guardian := filepath.Join(root, "managed hand guardian")
+	argsPath := filepath.Join(root, "args")
+	argsTempPath := argsPath + ".tmp"
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nmv %q %q\n", argsTempPath, argsTempPath, argsPath)
+	if err := os.WriteFile(guardian, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{
+		session: "hand-f_0123456789abcdef0123456789abcdef", executable: filepath.Join(root, "herdr"),
+		guardian: guardian, fleetID: "f_0123456789abcdef0123456789abcdef", runtimeGeneration: "runtime-deadbeef",
+	}
+	if err := client.startServer(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForTestFile(t, argsPath)
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"runtime", "herdr-server", "--fleet-id", client.fleetID, "--generation", client.runtimeGeneration, "--session", client.session}
+	if got := strings.Fields(string(args)); strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("guardian argv = %q, want %q", got, want)
 	}
 }
 

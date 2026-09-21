@@ -2,6 +2,7 @@ package supervision
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/orientation"
+	"github.com/atqamz/hand/internal/toolchain"
 	"github.com/atqamz/hand/internal/watcher"
 )
 
@@ -182,6 +184,255 @@ func TestSecondaryRuntimeCannotStealAnAttachedBridge(t *testing.T) {
 	}
 }
 
+func TestBridgeAttachmentFailureReleasesGenerationLease(t *testing.T) {
+	notDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(notDirectory, []byte("occupied"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	releaseErr := errors.New("release generation lease")
+	var releases atomic.Int64
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error {
+			releases.Add(1)
+			return releaseErr
+		}, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	_, err := acquireBridge(context.Background(), Waiter{Home: notDirectory}, WaitConfig{
+		Host:              "claude",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "hand-generation-a",
+		LeaseGeneration:   "runtime-generation-a",
+	}, "f_1")
+	if err == nil || !strings.Contains(err.Error(), "claim bridge attachment") || !errors.Is(err, releaseErr) {
+		t.Fatalf("err = %v, want attachment and lease-release failures", err)
+	}
+	if got := releases.Load(); got != 1 {
+		t.Fatalf("lease releases = %d, want one", got)
+	}
+}
+
+func TestBridgeOwnershipRefusalReleasesGenerationLease(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	writeAttachmentRecord(t, home, AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-a",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	})
+
+	releaseErr := errors.New("release generation lease")
+	var releases atomic.Int64
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error {
+			releases.Add(1)
+			return releaseErr
+		}, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	_, err := acquireBridge(context.Background(), Waiter{Home: home}, WaitConfig{
+		Host:              "claude",
+		RuntimeSession:    "session-b",
+		RuntimeGeneration: "hand-generation-b",
+		LeaseGeneration:   "runtime-generation-b",
+	}, "f_1")
+	if !errors.Is(err, ErrBridgeOwned) || !errors.Is(err, releaseErr) {
+		t.Fatalf("err = %v, want bridge-ownership and lease-release failures", err)
+	}
+	if got := releases.Load(); got != 1 {
+		t.Fatalf("lease releases = %d, want one", got)
+	}
+}
+
+func TestWaitHoldsBothGenerationLeasesAndSurfacesReleaseFailure(t *testing.T) {
+	home := t.TempDir()
+	ledger := OpenLedger(home)
+	releaseErr := errors.New("release exact Hand generation")
+	var toolchainGeneration, handGeneration, toolchainLockScope, handLockScope string
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(generation, _, _, lockScope, _ string) (func() error, error) {
+		toolchainGeneration = generation
+		toolchainLockScope = lockScope
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(generation, _, _, lockScope, _ string) (func() error, error) {
+		handGeneration = generation
+		handLockScope = lockScope
+		return func() error { return releaseErr }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	wake, err := Wait(context.Background(), Waiter{
+		Home: home,
+		ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{
+			actionableEvidence("task-1", "episode-1", "blocked"),
+		}}),
+		Ledger: ledger,
+	}, WaitConfig{
+		Host: "codex", RuntimeSession: "session-a", RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration: "runtime-a", PollInterval: time.Millisecond,
+	})
+	if len(wake.Episodes) != 1 || !errors.Is(err, releaseErr) {
+		t.Fatalf("wake = %#v, err = %v; want delivered wake plus release failure", wake, err)
+	}
+	if toolchainGeneration != "runtime-a" || handGeneration != "sha256:hand-a" {
+		t.Fatalf("leased toolchain=%q Hand=%q, want both exact generations", toolchainGeneration, handGeneration)
+	}
+	if toolchainLockScope == "" || handLockScope != toolchainLockScope {
+		t.Fatalf("lease lock scopes = %q/%q, want one stable paired scope", toolchainLockScope, handLockScope)
+	}
+	if ledger.BridgeErroredBefore("codex", BridgeFailureCooldown) {
+		t.Fatal("generation lease release failure was not recorded in bridge diagnostics")
+	}
+}
+
+func TestBridgeRequiresBothGenerationIdentities(t *testing.T) {
+	for name, cfg := range map[string]WaitConfig{
+		"missing Hand generation":      {LeaseGeneration: "runtime-a"},
+		"missing toolchain generation": {RuntimeGeneration: "sha256:hand-a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := acquireBridge(context.Background(), Waiter{Home: t.TempDir()}, cfg, "f_1")
+			if err == nil || !strings.Contains(err.Error(), "requires both Hand and toolchain generation identities") {
+				t.Fatalf("err = %v, want paired-generation refusal", err)
+			}
+		})
+	}
+}
+
+func TestWaiterLeaseLockScopeIsStableAndExact(t *testing.T) {
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	first := waiterLeaseLockScope("f_1", cfg, 0)
+	if second := waiterLeaseLockScope("f_1", cfg, 0); second != first {
+		t.Fatalf("same exact waiter scope changed from %q to %q", first, second)
+	}
+	otherSession := cfg
+	otherSession.RuntimeSession = "session-b"
+	if got := waiterLeaseLockScope("f_1", otherSession, 0); got == first {
+		t.Fatalf("different runtime session reused lock scope %q", got)
+	}
+	if got := waiterLeaseLockScope("f_1", cfg, 1); got == first {
+		t.Fatalf("takeover slots share lock scope %q", got)
+	}
+}
+
+func TestRepeatedWaitersReuseLeaseLockScopeWithUniqueHolders(t *testing.T) {
+	home := t.TempDir()
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	ids := []string{"waiter-one", "waiter-two"}
+	var holders, scopes []string
+	originalWaiterID := newWaiterIdentity
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	newWaiterIdentity = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	acquireWaiterGenerationLease = func(_, _, holder, lockScope, _ string) (func() error, error) {
+		holders = append(holders, holder)
+		scopes = append(scopes, lockScope)
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		newWaiterIdentity = originalWaiterID
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	for range 2 {
+		guard, err := acquireBridge(context.Background(), Waiter{Home: home}, cfg, "f_1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := guard.stop(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(holders) != 2 || holders[0] == holders[1] || len(scopes) != 2 || scopes[0] != scopes[1] {
+		t.Fatalf("holders/scopes = %v/%v, want unique holders sharing a stable lock scope", holders, scopes)
+	}
+}
+
+func TestWaiterLeaseUsesSecondStableSlotDuringTakeover(t *testing.T) {
+	home := t.TempDir()
+	cfg := WaitConfig{
+		Host:              "codex",
+		RuntimeSession:    "session-a",
+		RuntimeGeneration: "sha256:hand-a",
+		LeaseGeneration:   "runtime-a",
+	}
+	slot0 := waiterLeaseLockScope("f_1", cfg, 0)
+	slot1 := waiterLeaseLockScope("f_1", cfg, 1)
+	var toolchainScopes, handScopes []string
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	acquireWaiterGenerationLease = func(_, _, _, lockScope, _ string) (func() error, error) {
+		toolchainScopes = append(toolchainScopes, lockScope)
+		if lockScope == slot0 {
+			return nil, toolchain.ErrLeaseHeld
+		}
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(_, _, _, lockScope, _ string) (func() error, error) {
+		handScopes = append(handScopes, lockScope)
+		return func() error { return nil }, nil
+	}
+	t.Cleanup(func() {
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	})
+
+	guard, err := acquireBridge(context.Background(), Waiter{Home: home}, cfg, "f_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.stop(); err != nil {
+		t.Fatal(err)
+	}
+	if len(toolchainScopes) != 2 || toolchainScopes[0] != slot0 || toolchainScopes[1] != slot1 {
+		t.Fatalf("toolchain lock scopes = %v, want bounded slot fallback", toolchainScopes)
+	}
+	if len(handScopes) != 1 || handScopes[0] != slot1 {
+		t.Fatalf("Hand lock scopes = %v, want paired second slot", handScopes)
+	}
+}
+
 // Capability honesty: nothing claims supported before live qualification,
 // instruction-only bridges included, and non-supervisor harness names are
 // outside the registry even if they build workers.
@@ -214,8 +465,12 @@ func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
 		if status.WakeDelivery == CapabilitySupported {
 			t.Fatalf("%s claimed supported without any live qualification", name)
 		}
-		if status.WakeDelivery != CapabilityUnqualified && status.WakeDelivery != CapabilityDegraded {
-			t.Fatalf("%s = %q with full static integration installed; want available-unqualified or degraded with reason", name, status.WakeDelivery)
+		allowed := status.WakeDelivery == CapabilityUnqualified || status.WakeDelivery == CapabilityDegraded
+		// A hermetic builder may have the static Codex hook but no live codex
+		// executable whose queue primitive can be probed.
+		allowed = allowed || name == harness.Codex && status.WakeDelivery == CapabilityUnsupported
+		if !allowed {
+			t.Fatalf("%s = %q with full static integration installed; want an honest unqualified, degraded, or unavailable-live-runtime result", name, status.WakeDelivery)
 		}
 	}
 	grok, err := IntegrationStatus(context.Background(), StatusInput{Home: home, Detection: harness.Detection{Name: harness.Grok, Source: "override"}, Exe: exe})
@@ -224,6 +479,47 @@ func TestCapabilityVocabularyStaysHonestBeforeLiveQualification(t *testing.T) {
 	}
 	if grok.Integration != "not-required" && grok.WakeDelivery == CapabilitySupported {
 		t.Fatal("grok must not become supported from instructions alone")
+	}
+}
+
+func TestCodexStatusReportsHermeticUnavailableReason(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+	if _, err := InstallCodexHooks(home, exe); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(CodexThreadEnv, "thread-live")
+	t.Setenv("PATH", t.TempDir())
+	status, err := IntegrationStatus(context.Background(), StatusInput{
+		Home: home, Detection: harness.Detection{Name: harness.Codex, Source: "override"}, Exe: exe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.WakeDelivery != CapabilityUnsupported {
+		t.Fatalf("hermetic Codex wake delivery = %q, want unsupported", status.WakeDelivery)
+	}
+	if status.WakeDeliveryReason != "unsupported host integration: codex executable is unavailable on PATH" {
+		t.Fatalf("hermetic Codex reason = %q, want exact unavailable-executable reason", status.WakeDeliveryReason)
+	}
+}
+
+func TestCodexStatusInspectsRetainedManagedGeneration(t *testing.T) {
+	home := t.TempDir()
+	exe := filepath.Join(home, "runtime", "hand-generations", strings.Repeat("a", sha256.Size*2), "hand")
+	if _, err := InstallCodexHooks(home, exe); err != nil {
+		t.Fatal(err)
+	}
+	status, err := IntegrationStatus(context.Background(), StatusInput{
+		Home:      home,
+		Detection: harness.Detection{Name: harness.Codex, Source: "override"},
+		Exe:       exe,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Integration != "installed" {
+		t.Fatalf("codex integration = %q, want installed for retained generation", status.Integration)
 	}
 }
 
@@ -555,6 +851,163 @@ func TestRefreshPreservesStartedAtAndAdvancesLeaseExplicitly(t *testing.T) {
 	}
 	if remaining := time.Until(after.ExpiresAt); remaining > lease || remaining < lease-time.Second {
 		t.Fatalf("lease after refresh = %v, want ~%v regardless of prior staleness", remaining, lease)
+	}
+}
+
+func TestExactSessionGenerationSuccessorInvalidatesPredecessor(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	predecessor := AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-old",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, predecessor)
+	if err != nil || !acquired {
+		t.Fatalf("predecessor acquire = %v, %v", acquired, err)
+	}
+	successor := predecessor
+	successor.WaiterID = "waiter-new"
+	successor.PID = 2
+	acquired, err = AcquireAttachment(home, successor)
+	if err != nil || !acquired {
+		t.Fatalf("successor acquire = %v, %v; want exact-scope replacement", acquired, err)
+	}
+	if ours, err := RefreshAttachment(home, predecessor, time.Minute); err != nil || ours {
+		t.Fatalf("predecessor refresh = %v, %v; want retired", ours, err)
+	}
+	if ours, err := RefreshAttachment(home, successor, time.Minute); err != nil || !ours {
+		t.Fatalf("successor refresh = %v, %v; want sole owner", ours, err)
+	}
+	current := ReadAttachment(home)
+	if current == nil || current.WaiterID != successor.WaiterID || current.Generation != successor.Generation {
+		t.Fatalf("attachment = %#v, want exact successor", current)
+	}
+}
+
+func TestExactSessionGenerationDoesNotCrossFleetOwnership(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	owner := AttachmentRecord{
+		Host: "claude", Runtime: "session-a", Generation: "hand-generation-a", WaiterID: "waiter-a",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, owner)
+	if err != nil || !acquired {
+		t.Fatalf("owner acquire = %v, %v", acquired, err)
+	}
+	foreign := owner
+	foreign.FleetID = "f_2"
+	foreign.WaiterID = "waiter-b"
+	if acquired, err := AcquireAttachment(home, foreign); err != nil || acquired {
+		t.Fatalf("foreign Fleet successor acquire = %v, %v; want refused", acquired, err)
+	}
+	if current := ReadAttachment(home); current == nil || current.FleetID != owner.FleetID || current.WaiterID != owner.WaiterID {
+		t.Fatalf("attachment = %#v, want original Fleet owner", current)
+	}
+}
+
+func TestUnidentifiedRuntimeCannotSupersedeAnotherWaiter(t *testing.T) {
+	home := t.TempDir()
+	now := time.Now()
+	owner := AttachmentRecord{
+		Host: "claude", Runtime: "unidentified", Generation: "unidentified", WaiterID: "waiter-old",
+		PID: 1, FleetID: "f_1", StartedAt: now, HeartbeatAt: now, ExpiresAt: now.Add(time.Minute),
+	}
+	acquired, err := AcquireAttachment(home, owner)
+	if err != nil || !acquired {
+		t.Fatalf("unidentified owner acquire = %v, %v", acquired, err)
+	}
+	successor := owner
+	successor.WaiterID = "waiter-new"
+	successor.PID = 2
+	if acquired, err := AcquireAttachment(home, successor); err != nil || acquired {
+		t.Fatalf("unidentified successor acquire = %v, %v; want refused", acquired, err)
+	}
+	current := ReadAttachment(home)
+	if current == nil || current.WaiterID != owner.WaiterID {
+		t.Fatalf("attachment = %#v, want unidentified predecessor retained", current)
+	}
+}
+
+func TestSuccessorDeterministicallyReapsBlockedWaiterWithoutSpin(t *testing.T) {
+	home := t.TempDir()
+	blocked := make(chan struct{})
+	ticks := make(chan time.Time, 2)
+	var cycles atomic.Int64
+
+	originalRun := runWatcherUntilEvent
+	originalAcquire := acquireWatcherOwnership
+	originalAttached := watcherAttached
+	originalHeartbeat := bridgeHeartbeat
+	originalWaiterID := newWaiterIdentity
+	originalLease := acquireWaiterGenerationLease
+	originalHandLease := acquireWaiterHandGenerationLease
+	ids := []string{"waiter-old", "waiter-new"}
+	newWaiterIdentity = func() (string, error) {
+		id := ids[0]
+		ids = ids[1:]
+		return id, nil
+	}
+	acquireWaiterGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	acquireWaiterHandGenerationLease = func(string, string, string, string, string) (func() error, error) {
+		return func() error { return nil }, nil
+	}
+	bridgeHeartbeat = func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} }
+	acquireWatcherOwnership = func(context.Context, string) (*watcher.Ownership, error) { return nil, nil }
+	watcherAttached = func(string) (bool, error) { return false, nil }
+	runWatcherUntilEvent = func(ctx context.Context, cfg watcher.Config, out, errOut io.Writer) error {
+		cycles.Add(1)
+		close(blocked)
+		<-ctx.Done()
+		return context.Cause(ctx)
+	}
+	defer func() {
+		runWatcherUntilEvent = originalRun
+		acquireWatcherOwnership = originalAcquire
+		watcherAttached = originalAttached
+		bridgeHeartbeat = originalHeartbeat
+		newWaiterIdentity = originalWaiterID
+		acquireWaiterGenerationLease = originalLease
+		acquireWaiterHandGenerationLease = originalHandLease
+	}()
+
+	oldResult := make(chan error, 1)
+	go func() {
+		_, err := Wait(context.Background(), Waiter{
+			Home: home, ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1"}), Ledger: OpenLedger(home),
+		}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", LeaseGeneration: "runtime-generation-a", PollInterval: time.Millisecond})
+		oldResult <- err
+	}()
+	select {
+	case <-blocked:
+	case err := <-oldResult:
+		t.Fatalf("predecessor exited before blocking: %v", err)
+	}
+
+	wake, err := Wait(context.Background(), Waiter{
+		Home: home,
+		ReadEvidence: fixedReader(orientation.Evidence{FleetID: "f_1", Actionable: []orientation.ActionableEvidence{
+			actionableEvidence("task-1", "episode-1", "blocked"),
+		}}),
+		Ledger: OpenLedger(home),
+	}, WaitConfig{Host: "claude", RuntimeSession: "session-a", RuntimeGeneration: "hand-generation-a", LeaseGeneration: "runtime-generation-a", PollInterval: time.Millisecond})
+	if err != nil || len(wake.Episodes) != 1 {
+		t.Fatalf("successor wake = %#v, %v", wake, err)
+	}
+	ticks <- time.Now()
+
+	select {
+	case err := <-oldResult:
+		if !errors.Is(err, ErrBridgeOwned) {
+			t.Fatalf("predecessor = %v, want ErrBridgeOwned", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("predecessor did not exit after deterministic ownership probe")
+	}
+	if got := cycles.Load(); got != 1 {
+		t.Fatalf("blocked watcher cycles = %d, want one sleeping call before reaping", got)
 	}
 }
 
