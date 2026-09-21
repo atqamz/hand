@@ -2,7 +2,7 @@
 
 - Date: 2026-08-28
 - Status: accepted
-- Issues: atqamz/hand#418
+- Issues: atqamz/hand#418, atqamz/hand#579 (case D)
 - PRs: none
 
 ## Context
@@ -24,8 +24,8 @@ operator-decision rule text every prompt-capable harness gets - via `launchState
 function both paths call - to the brief file itself, at provision time, before the launch command
 runs. The block is wrapped in a `---`-delimited appendix with an explicit marker sentence naming it
 as hand's text, not the supervisor's brief, echoing the tone the front-matter disclaimer already
-uses for the brief's own leading block. The append is idempotent (checked by marker presence) so a
-reopen or resume that re-provisions the same brief file does not grow a second copy.
+uses for the brief's own leading block. Exact appendix equality makes the append idempotent, so a
+reopen or resume with the same launch statement does not grow a second copy or rewrite the file.
 
 `CarriesPrompt` changes meaning from "takes a CLI prompt argument" to "receives the report path and
 operator-decision rule by some channel". grok and pi now return `true`: `internal/harness/harness.go`
@@ -37,6 +37,20 @@ provisioning path, which already owns `briefPath` - immediately before `Build`. 
 called from reconcile's `reconciliationActionConfirmLaunch` arm to reconstruct already-persisted
 launch evidence for pane-text comparison; that arm observes and must not write, so it must never
 reach the append, and it does not, because the append is not inside `Build`.
+
+## Launch currentness correction (2026-09-21)
+
+Marker presence alone did not prove the report channel or worker authority still matched a reused
+brief. The file-only path now recognizes the existing appendix boundary and compares its entire
+suffix with the statement generated from the current launch options. A stale, edited, or duplicated
+appendix refuses before the worker is built or launched, leaving every brief byte intact. Rewriting
+the supervisor-authored brief without the old appendix lets provisioning append the current one.
+A marker mentioned only in ordinary prose does not suppress the generated appendix.
+
+This intentionally refuses rather than replacing an arbitrary suffix: text added after the generated
+block may belong to the operator. Existing provisioning failure cleanup remains responsible for any
+already-acquired worktree. This is a narrow case-D safety guard, not proof of provider delivery,
+WorkerReport ingestion, or canonical v19 Fleet/Attempt identity; those obligations remain separate.
 
 ## Rejected alternatives
 
