@@ -136,7 +136,8 @@ func (s *Store) AcquireHandLease(request LeaseRequest) (*Lease, error) {
 }
 
 // RuntimeLeaseHeld proves that the exact runtime generation lease record and
-// its kernel lock are both live.
+// its kernel lock are both live. A busy reusable LockScope returns
+// ErrLeaseMetadataUnknown because it cannot identify the exact holder.
 func (s *Store) RuntimeLeaseHeld(request LeaseRequest) (bool, error) {
 	if err := request.validate(); err != nil {
 		return false, err
@@ -164,7 +165,8 @@ func (s *Store) RuntimeLeaseHeld(request LeaseRequest) (bool, error) {
 }
 
 // HandLeaseHeld proves that the exact managed Hand generation lease record
-// and its kernel lock are both live.
+// and its kernel lock are both live. A busy reusable LockScope returns
+// ErrLeaseMetadataUnknown because it cannot identify the exact holder.
 func (s *Store) HandLeaseHeld(request LeaseRequest) (bool, error) {
 	if err := request.validate(); err != nil {
 		return false, err
@@ -265,6 +267,10 @@ func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, reference
 			err = os.ErrNotExist
 		}
 		return false, fmt.Errorf("%w: generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, lockPath, err)
+	}
+	if held && request.LockScope != "" {
+		return false, fmt.Errorf("%w: generation=%s lease=%s lock_scope=%s: busy reusable lock does not identify its holder",
+			ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, request.LockScope)
 	}
 	return held, nil
 }
