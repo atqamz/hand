@@ -14,7 +14,7 @@ import (
 )
 
 func TestAppendPromptToBriefRejectsStaleLaunchAppendix(t *testing.T) {
-	for _, name := range []string{Grok, Pi} {
+	for _, name := range Names() {
 		for _, change := range []struct {
 			name  string
 			apply func(*Options)
@@ -35,7 +35,11 @@ func TestAppendPromptToBriefRejectsStaleLaunchAppendix(t *testing.T) {
 				if err := os.WriteFile(o.Brief, body, 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if err := AppendPromptToBrief(name, o); err != nil {
+				previous := name
+				if name != Grok && name != Pi {
+					previous = Pi
+				}
+				if err := AppendPromptToBrief(previous, o); err != nil {
 					t.Fatal(err)
 				}
 				before, err := os.ReadFile(o.Brief)
@@ -62,7 +66,15 @@ func TestAppendPromptToBriefRejectsStaleLaunchAppendix(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := string(body) + fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
+				want := string(body)
+				if name == Grok || name == Pi {
+					want += fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
+				} else {
+					spec, err := Build(name, o)
+					if err != nil || !strings.Contains(strings.Join(spec.Args, " "), statement) {
+						t.Fatalf("recovered argument contract = %+v, error=%v", spec, err)
+					}
+				}
 				after, err = os.ReadFile(o.Brief)
 				if err != nil || string(after) != want {
 					t.Fatalf("recovered appendix is not the exact current contract: %v\n%s", err, after)
@@ -73,7 +85,7 @@ func TestAppendPromptToBriefRejectsStaleLaunchAppendix(t *testing.T) {
 }
 
 func TestAppendPromptToBriefRejectsEditedAndDuplicateAppendices(t *testing.T) {
-	for _, name := range []string{Grok, Pi} {
+	for _, name := range Names() {
 		for _, duplicate := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/duplicate=%t", name, duplicate), func(t *testing.T) {
 				dir := t.TempDir()
@@ -140,6 +152,70 @@ func TestAppendPromptToBriefMarkerMentionDoesNotSuppressContract(t *testing.T) {
 			}
 			if !after.ModTime().Equal(before.ModTime()) || after.Mode() != before.Mode() || after.Size() != before.Size() {
 				t.Fatal("exact appendix replay rewrote the brief")
+			}
+		})
+	}
+}
+
+func TestAppendPromptToBriefHarnessSwitchPreservesExactAppendix(t *testing.T) {
+	for _, previous := range []string{Grok, Pi} {
+		for _, next := range Names() {
+			t.Run(previous+"/"+next, func(t *testing.T) {
+				dir := t.TempDir()
+				o := Options{Brief: filepath.Join(dir, "brief.md"), ReportPath: filepath.Join(dir, "report.status"), Kind: state.KindScout}
+				if err := os.WriteFile(o.Brief, []byte("Investigate only.\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := AppendPromptToBrief(previous, o); err != nil {
+					t.Fatal(err)
+				}
+				stamp := time.Unix(1_000_000_000, 0)
+				if err := os.Chtimes(o.Brief, stamp, stamp); err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.ReadFile(o.Brief)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Stat(o.Brief)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := AppendPromptToBrief(next, o); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := Build(next, o); err != nil {
+					t.Fatal(err)
+				}
+				after, err := os.ReadFile(o.Brief)
+				if err != nil || !bytes.Equal(before, after) {
+					t.Fatalf("harness switch changed exact appendix: %v", err)
+				}
+				got, err := os.Stat(o.Brief)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !got.ModTime().Equal(info.ModTime()) || got.Mode() != info.Mode() {
+					t.Fatal("harness switch rewrote exact appendix")
+				}
+			})
+		}
+	}
+}
+
+func TestAppendPromptToBriefArgumentHarnessRefusesInspectionFailure(t *testing.T) {
+	for _, name := range []string{Claude, Codex, OpenCode, Antigravity} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := AppendPromptToBrief(name, Options{Brief: dir}); err == nil {
+				t.Fatal("uninspectable brief accepted as having no stale appendix")
+			}
+			missing := filepath.Join(dir, "missing.md")
+			if err := AppendPromptToBrief(name, Options{Brief: missing}); err != nil {
+				t.Fatalf("missing argument-only brief changed existing no-append behavior: %v", err)
+			}
+			if _, err := os.Stat(missing); !os.IsNotExist(err) {
+				t.Fatalf("argument-only preparation created a missing brief: %v", err)
 			}
 		})
 	}

@@ -41,11 +41,25 @@ reach the append, and it does not, because the append is not inside `Build`.
 ## Launch currentness correction (2026-09-21)
 
 Marker presence alone did not prove the report channel or worker authority still matched a reused
-brief. The file-only path now recognizes the existing appendix boundary and compares its entire
+brief. Preparation for every supported harness recognizes the existing appendix boundary and compares its entire
 suffix with the statement generated from the current launch options. A stale, edited, or duplicated
 appendix refuses before the worker is built or launched, leaving every brief byte intact. Rewriting
-the supervisor-authored brief without the old appendix lets provisioning append the current one.
-A marker mentioned only in ordinary prose does not suppress the generated appendix.
+the supervisor-authored brief without the old appendix lets provisioning deliver the current statement
+through the selected harness's normal channel. A marker mentioned only in ordinary prose does not
+suppress the generated appendix.
+
+Switching from grok or pi to an argument-based harness does not bypass this validation. Only grok
+and pi append a missing block; every other supported harness leaves the brief untouched. An absent
+brief retains the argument-based path's existing no-append behavior, not a readiness claim. Other
+inspection failures refuse instead of being treated as absence. Exact appendix equality remains a
+read-only no-op even when the selected harness changes.
+
+The provisioning regression exercises inherited grok/pi instructions followed by a Claude launch,
+using the existing runtime fixture and real harness builder. Stale instructions refuse before Build
+or provider launch. Successful cleanup clears only returned worktree evidence; failed cleanup keeps
+that exact ownership evidence visible. An explicit brief rewrite can resume the same provisioning
+Attempt with the current report channel and worker authority. These fixture-backed assertions do not
+prove a real harness obeys the instructions.
 
 This intentionally refuses rather than replacing an arbitrary suffix: text added after the generated
 block may belong to the operator. Existing provisioning failure cleanup remains responsible for any

@@ -354,39 +354,39 @@ func briefPrompt(o Options) (string, error) {
 	return fmt.Sprintf("Read the brief at %s and carry out the task it describes.", o.Brief) + " " + statement, nil
 }
 
-// AppendPromptToBrief is grok's and pi's delivery of launchStatement, a no-op for every other
-// harness (atqamz/hand#418). Called once by the provisioning path before Build runs - never to
-// reconstruct already-persisted launch evidence, which must stay a read.
+// AppendPromptToBrief validates any existing launch appendix for every supported harness.
+// Only grok and pi append a missing block. Provisioning calls this before Build;
+// reconstruction of persisted launch evidence remains read-only through Build alone.
 func AppendPromptToBrief(name string, o Options) error {
-	switch name {
-	case Grok, Pi:
-	default:
+	if !IsSupported(name) {
 		return nil
 	}
-	return appendLaunchStatement(o)
-}
-
-// The marker line keeps the appendix visibly hand's text rather than something the supervisor's
-// brief said.
-func appendLaunchStatement(o Options) error {
+	appendMissing := name == Grok || name == Pi
+	data, err := os.ReadFile(o.Brief)
+	if err != nil {
+		if !appendMissing && os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read brief for launch statement: %w", err)
+	}
+	start := strings.Index(string(data), "\n\n---\n\n"+brief.AppendMarker)
+	if start < 0 && !appendMissing {
+		return nil
+	}
 	statement, err := launchStatement(o)
 	if err != nil {
 		return err
 	}
-	info, err := os.Stat(o.Brief)
-	if err != nil {
-		return fmt.Errorf("stat brief for launch statement: %w", err)
-	}
-	data, err := os.ReadFile(o.Brief)
-	if err != nil {
-		return fmt.Errorf("read brief for launch statement: %w", err)
-	}
 	appendix := fmt.Sprintf("\n\n---\n\n%s\n\n%s\n", brief.AppendMarker, statement)
-	if start := strings.Index(string(data), "\n\n---\n\n"+brief.AppendMarker); start >= 0 {
+	if start >= 0 {
 		if string(data[start:]) != appendix {
 			return fmt.Errorf("stale or edited Hand launch appendix in %s; rewrite the supervisor brief without that appendix before provisioning", o.Brief)
 		}
 		return nil
+	}
+	info, err := os.Stat(o.Brief)
+	if err != nil {
+		return fmt.Errorf("stat brief for launch statement: %w", err)
 	}
 	if err := atomicfile.Write(o.Brief, ".brief-append-", append(data, appendix...), info.Mode().Perm()); err != nil {
 		return fmt.Errorf("append launch statement to brief: %w", err)
