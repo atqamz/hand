@@ -82,6 +82,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		return &ExitError{Err: err, Code: 2}
 	})
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newCutoverCmd())
 	root.AddCommand(newBuildInfoCmd(info))
 	root.AddCommand(newAdoptCmd())
 	root.AddCommand(newConfigCmd())
