@@ -17,7 +17,7 @@ func newDecisionCmd() *cobra.Command {
 		Use: "decision", Short: "Inspect and record exact canonical operator questions",
 		PersistentPreRunE: canonicalSupervisorPreflight,
 	}
-	cmd.AddCommand(newDecisionShowCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd())
+	cmd.AddCommand(newDecisionShowCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd(), newDecisionCloseCmd())
 	return cmd
 }
 
@@ -159,9 +159,52 @@ func newDecisionAnswerCmd() *cobra.Command {
 	return cmd
 }
 
+func newDecisionCloseCmd() *cobra.Command {
+	var input store.CanonicalV19DecisionCloseInput
+	cmd := &cobra.Command{
+		Use: "close <decision-id>", Short: "Record exact stale or cancelled Decision closure",
+		Long: "Close only the named unanswered Decision with retained evidence. Stale closure requires positively stale ownership in the same writer transaction; a failed observation is not proof. Retain the exact timestamp and evidence digest for replay. Closure never records an Answer, resolves a TaskHold or advances work.",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := decisionTimestamp(input.ClosedAt); err != nil {
+				return err
+			}
+			if len(input.EvidenceDigest) != sha256.Size*2 || strings.Trim(input.EvidenceDigest, "0123456789abcdef") != "" {
+				return fmt.Errorf("--evidence-digest must be the exact lowercase SHA-256 of retained closure evidence")
+			}
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			input.DecisionID = args[0]
+			if err := store.CloseCanonicalV19Decision(cmd.Context(), homeDir, input); err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("decision_id", input.DecisionID)
+			doc.Field("closure_reason", input.Reason)
+			doc.Field("closure_evidence_digest", input.EvidenceDigest)
+			doc.Field("result", "recorded-or-already-recorded")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	for _, flag := range []struct {
+		name, help string
+		value      *string
+	}{
+		{"reason", "stale or cancelled, justified by the owning question's semantics", &input.Reason},
+		{"closed-at", "Caller-retained RFC3339 timestamp for exact replay", &input.ClosedAt},
+		{"evidence-digest", "Exact lowercase SHA-256 of externally retained closure evidence", &input.EvidenceDigest},
+	} {
+		cmd.Flags().StringVar(flag.value, flag.name, "", flag.help)
+		_ = cmd.MarkFlagRequired(flag.name)
+	}
+	return cmd
+}
+
 func decisionTimestamp(value string) error {
 	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
-		return fmt.Errorf("exact Decision/Answer timestamp must be RFC3339: %w", err)
+		return fmt.Errorf("exact Decision timestamp must be RFC3339: %w", err)
 	}
 	return nil
 }

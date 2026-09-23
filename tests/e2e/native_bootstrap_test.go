@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -75,6 +76,13 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	initialized := run(root, binary, "init", "--canonical", fleet)
 	if again := run(root, binary, "init", "--canonical", fleet); again != initialized {
 		t.Fatal("canonical init changed Fleet identity after process restart")
+	}
+	if nativeField(t, initialized, "registry") != "registered" {
+		t.Fatal("native canonical init omitted Fleet discovery")
+	}
+	listed := run(root, binary, "fleet")
+	if !strings.Contains(listed, nativeField(t, initialized, "fleet_id")+",") || !strings.Contains(listed, ",ready,") {
+		t.Fatal("native canonical Fleet is not discoverable after process restart")
 	}
 	managed := run(root, binary, "runtime", "ensure")
 	gitPath := nativeField(t, managed, "git")
@@ -168,6 +176,16 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	if lateErr == nil || !strings.Contains(string(lateOut), "not current") {
 		t.Fatalf("native late Answer did not refuse exact old Plan: %v\n%s", lateErr, lateOut)
 	}
+	closure := []string{"decision", "close", "decision_late", "--reason", "stale", "--closed-at", "2026-09-23T12:02:00Z",
+		"--evidence-digest", fmt.Sprintf("%x", sha256.Sum256([]byte("native replan replaced exact Plan plan_native")))}
+	closed := run(fleet, binary, closure...)
+	if again := run(fleet, binary, closure...); again != closed {
+		t.Fatal("native stale closure replay did not converge")
+	}
+	shown = run(fleet, binary, "decision", "show", "decision_late")
+	if nativeField(t, shown, "state") != "closed" || nativeField(t, shown, "closure_reason") != "stale" || nativeField(t, shown, "owner_current") != "false" {
+		t.Fatal("native stale closure lost history or retargeted successor")
+	}
 	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM worker_input)+(SELECT COUNT(*) FROM worker_wake_operation)+
 		(SELECT COUNT(*) FROM worker_input_acknowledgement)+(SELECT COUNT(*) FROM task_hold)`).Scan(&effects); err != nil || effects != 0 {
 		t.Fatalf("native Answer invented delivery/ack/Hold: %d %v", effects, err)
@@ -195,6 +213,89 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 		t.Fatalf("physical replacement refusal changed successor: %d %v", plans, err)
 	}
 	t.Log("native physical replacement refused; original Plan lineage retained")
+
+	// Both processes use one user registry. Copying a DB must not grant a second
+	// writable Fleet even when the copied identity has not yet been registered.
+	clone := filepath.Join(root, "copied-fleet")
+	if err := os.CopyFS(clone, os.DirFS(fleet)); err != nil {
+		t.Fatal(err)
+	}
+	originalDB, err := os.ReadFile(store.Path(fleet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refuseDuplicate := func(dir string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, binary, "task", "create", "task_duplicate", "--project-id", projectID, "--goal", "Must refuse duplicate Fleet")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || !strings.Contains(string(out), "also valid at") {
+			t.Fatalf("native duplicate Fleet accepted mutation: %v\n%s", err, out)
+		}
+		bytes, err := os.ReadFile(store.Path(dir))
+		if err != nil || sha256.Sum256(bytes) != sha256.Sum256(originalDB) {
+			t.Fatalf("duplicate refusal changed canonical state: %v", err)
+		}
+	}
+	refuseDuplicate(clone)
+	if copied := run(root, binary, "init", "--canonical", clone); nativeField(t, copied, "registry") != "duplicate" ||
+		nativeField(t, copied, "fleet_id") != nativeField(t, initialized, "fleet_id") {
+		t.Fatal("copied Fleet registration concealed duplicate identity")
+	}
+	refuseDuplicate(fleet)
+	refuseDuplicate(clone)
+	if shown := run(clone, binary, "decision", "show", "decision_native"); nativeField(t, shown, "state") != "answered" {
+		t.Fatal("duplicate registry projection hid immutable Answer history")
+	}
+	t.Log("native duplicate Fleet writes refused before/after registration; history remains readable")
+
+	// Fail discovery after publication, then restart init against that same DB.
+	// The registry is disposable infrastructure; the Fleet DB retains authority.
+	registryPath := filepath.Join(os.Getenv("SECONDHAND_HOME"), "registry.db")
+	registryBackup := filepath.Join(root, "preserved-registry.db")
+	if err := os.Rename(registryPath, registryBackup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(registryPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repairFleet := filepath.Join(root, "repair-fleet")
+	repairCtx, repairCancel := context.WithTimeout(context.Background(), time.Minute)
+	failed := exec.CommandContext(repairCtx, binary, "init", "--canonical", repairFleet)
+	failed.Dir = root
+	failedOut, failedErr := failed.CombinedOutput()
+	repairCancel()
+	if failedErr == nil || nativeField(t, string(failedOut), "registry") != "failed" ||
+		!strings.Contains(string(failedOut), "registry discovery update failed") {
+		t.Fatalf("native init concealed discovery failure: %v\n%s", failedErr, failedOut)
+	}
+	repairID, err := store.FleetIDReadOnly(repairFleet)
+	if err != nil || repairID != nativeField(t, string(failedOut), "fleet_id") {
+		t.Fatalf("native failed discovery lost canonical identity: %s %v", repairID, err)
+	}
+	beforeRepair, err := os.ReadFile(store.Path(repairFleet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(registryPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(registryBackup, registryPath); err != nil {
+		t.Fatal(err)
+	}
+	repaired := run(root, binary, "init", "--canonical", repairFleet)
+	afterRepair, err := os.ReadFile(store.Path(repairFleet))
+	if err != nil || sha256.Sum256(beforeRepair) != sha256.Sum256(afterRepair) ||
+		nativeField(t, repaired, "fleet_id") != repairID || nativeField(t, repaired, "registry") != "registered" {
+		t.Fatalf("native discovery repair changed canonical state: %v", err)
+	}
+	listed = run(root, binary, "fleet")
+	if !strings.Contains(listed, repairID+",") || !strings.Contains(listed, ",ready,") {
+		t.Fatal("native repaired Fleet is not discoverable")
+	}
+	t.Log("native discovery repair preserved published canonical DB byte-for-byte")
 }
 
 func nativeField(t *testing.T, doc, key string) string {

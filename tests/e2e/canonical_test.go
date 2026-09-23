@@ -27,6 +27,13 @@ func TestCanonicalInitProjectTaskCLI(t *testing.T) {
 		t.Fatalf("canonical init: %+v", created)
 	}
 	fleetID := canonicalOutputField(t, created, "fleet_id")
+	if canonicalOutputField(t, created, "registry") != "registered" {
+		t.Fatalf("fresh canonical Fleet not registered: %+v", created)
+	}
+	listed := runHand(t, parent, "fleet")
+	if listed.code != 0 || !strings.Contains(listed.stdout, fleetID+",") || !strings.Contains(listed.stdout, ",ready,") {
+		t.Fatalf("fresh canonical Fleet not discoverable: %+v", listed)
+	}
 	before := snapshotTree(t, home)
 	again := runHand(t, parent, "init", "--canonical", home)
 	if again.code != 0 || canonicalOutputField(t, again, "fleet_id") != fleetID {
