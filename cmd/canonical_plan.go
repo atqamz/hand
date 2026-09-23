@@ -76,7 +76,7 @@ func newPlanCmd() *cobra.Command {
 					return err
 				}
 				if input.Basis == "" || input.Brief == "" {
-					return fmt.Errorf("Plan basis and brief must be explicit and nonempty")
+					return fmt.Errorf("plan basis and brief must be explicit and nonempty")
 				}
 				input.ID = args[0]
 				input.BriefDigest = fmt.Sprintf("%x", sha256.Sum256([]byte(input.Brief)))
