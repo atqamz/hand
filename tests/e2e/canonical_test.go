@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/atqamz/hand/internal/store"
@@ -194,4 +195,134 @@ func canonicalTestDB(t *testing.T, home string) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+// Policy compare-and-set and Plan creation must retain historical meaning across
+// config changes, stale callers, rollback, process restart and competing writers.
+func TestCanonicalPolicyPlanCLI(t *testing.T) {
+	parent := t.TempDir()
+	fleet := filepath.Join(parent, "fleet")
+	requireOK := func(args ...string) invocation {
+		t.Helper()
+		got := runHand(t, fleet, args...)
+		if got.code != 0 {
+			t.Fatalf("%v: %+v", args, got)
+		}
+		return got
+	}
+	if got := runHand(t, parent, "init", "--canonical", fleet); got.code != 0 {
+		t.Fatal(got)
+	}
+	initGitRepo(t, filepath.Join(fleet, "projects", "sample"))
+	registered := requireOK("project", "register", "sample")
+	project := canonicalOutputField(t, registered, "project_id")
+	workspace := canonicalOutputField(t, registered, "workspace_binding_id")
+	policyArgs := func(id, previous, profile string) []string {
+		return []string{"project", "policy", id, "--project-id", project, "--supersedes", previous,
+			"--worker-profile-ref", profile, "--qualification-policy-ref", "review-v1", "--integration-policy-ref", "",
+			"--production-policy-ref", "", "--publication-policy-ref", ""}
+	}
+	planArgs := func(id, task, intent, judgment, policy string) []string {
+		return []string{"plan", "create", id, "--task-id", task, "--workspace-binding-id", workspace,
+			"--policy-revision-id", policy, "--intent", intent, "--judgment", judgment,
+			"--basis", "exact registered repository", "--brief", "Preserve this Plan's meaning"}
+	}
+	requireOK(policyArgs("policy_1", "", "worker-v1")...)
+	for _, intent := range []string{"explore", "execute"} {
+		for _, judgment := range []string{"mechanical", "bounded", "substantial"} {
+			id := intent + "_" + judgment
+			requireOK("task", "create", "task_"+id, "--project-id", project, "--goal", "Goal "+id)
+			requireOK(planArgs("plan_"+id, "task_"+id, intent, judgment, "policy_1")...)
+		}
+	}
+	requireOK(policyArgs("policy_2", "policy_1", "worker-v2")...)
+	db := canonicalTestDB(t, fleet)
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM plan WHERE policy_revision_id='policy_1' AND lifecycle='active'`).Scan(&count); err != nil || count != 6 {
+		t.Fatalf("policy edit rewrote existing Plans: %d %v", count, err)
+	}
+	var digest, profile, superseded string
+	if err := db.QueryRow(`SELECT policy_digest,worker_profile_ref,superseded_at FROM policy_revision WHERE id='policy_1'`).Scan(&digest, &profile, &superseded); err != nil || len(digest) != 64 || profile != "worker-v1" || superseded == "" {
+		t.Fatalf("policy history lost: %q %q %q %v", digest, profile, superseded, err)
+	}
+	_ = db.Close()
+	before := snapshotTree(t, fleet)
+	for _, args := range [][]string{
+		policyArgs("policy_3", "policy_1", "worker-v3"), // stale predecessor
+		policyArgs("policy_2", "policy_2", "worker-v3"), // insert failure must roll back supersession
+		policyArgs("policy_3", "policy_2", "invalid\nreference"),
+		{"project", "policy", "policy_3", "--project-id", project}, // missing explicit declarations
+		planArgs("plan_stale", "task_explore_mechanical", "explore", "mechanical", "policy_1"),
+		planArgs("plan_alias", "task_explore_mechanical", "scout", "mechanical", "policy_2"),
+		planArgs("plan_duplicate", "task_explore_mechanical", "explore", "mechanical", "policy_2"),
+	} {
+		if got := runHand(t, fleet, args...); got.code == 0 {
+			t.Fatalf("unsafe command accepted: %v %+v", args, got)
+		}
+		assertTreeUnchanged(t, fleet, before)
+	}
+	for _, args := range [][]string{policyArgs("worker_policy", "policy_2", "worker-v2"), planArgs("worker_plan", "task_explore_mechanical", "explore", "mechanical", "policy_2")} {
+		if got := runHandEnv(t, fleet, []string{"HAND_ROLE=worker"}, args...); got.code != 3 {
+			t.Fatalf("worker mutation was not refused: %+v", got)
+		}
+		assertTreeUnchanged(t, fleet, before)
+	}
+	args := planArgs("plan_successor", "task_explore_mechanical", "execute", "bounded", "policy_2")
+	args[1] = "replan"
+	args = append(args, "--predecessor", "plan_explore_mechanical")
+	requireOK(args...)
+	before = snapshotTree(t, fleet)
+	args[2] = "plan_late"
+	if got := runHand(t, fleet, args...); got.code == 0 {
+		t.Fatalf("stale replan retargeted successor: %+v", got)
+	}
+	assertTreeUnchanged(t, fleet, before)
+
+	// Two actual CLI processes race for the same predecessor; only one may win.
+	results := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Go(func() {
+			cmd := exec.Command(handBin, policyArgs(fmt.Sprintf("policy_race_%d", i), "policy_2", "worker-race")...)
+			cmd.Dir, cmd.Env = fleet, handProcessEnv()
+			results[i] = cmd.Run()
+		})
+	}
+	wg.Wait()
+	if (results[0] == nil) == (results[1] == nil) {
+		t.Fatalf("policy competitors did not have exactly one winner: %v", results)
+	}
+	db = canonicalTestDB(t, fleet)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM policy_revision`).Scan(&count); err != nil || count != 3 {
+		t.Fatalf("policy race history: %d %v", count, err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM plan WHERE id='plan_explore_mechanical' AND lifecycle='superseded'
+		AND intent='explore' AND judgment='mechanical' AND policy_revision_id='policy_1'`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("replan lost predecessor meaning: %d %v", count, err)
+	}
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM attempt)+(SELECT COUNT(*) FROM external_operation)`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("policy/Plan commands invented execution: %d %v", count, err)
+	}
+	_ = db.Close()
+	currentPolicy := "policy_race_0"
+	if results[1] == nil {
+		currentPolicy = "policy_race_1"
+	}
+	// Same path and commit in a different physical repository is not the binding.
+	requireOK("task", "create", "task_replaced", "--project-id", project, "--goal", "Reject physical alias")
+	repo := filepath.Join(fleet, "projects", "sample")
+	for i, replaced := range []string{filepath.Join(repo, ".git"), repo} {
+		backup := filepath.Join(parent, fmt.Sprintf("original-%d", i))
+		if err := os.Rename(replaced, backup); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.CopyFS(replaced, os.DirFS(backup)); err != nil {
+			t.Fatal(err)
+		}
+		before = snapshotTree(t, fleet)
+		if got := runHand(t, fleet, planArgs("plan_replaced", "task_replaced", "explore", "bounded", currentPolicy)...); got.code == 0 {
+			t.Fatalf("Plan accepted a physical repository replacement: %+v", got)
+		}
+		assertTreeUnchanged(t, fleet, before)
+	}
 }

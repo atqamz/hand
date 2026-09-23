@@ -21,7 +21,7 @@ import (
 )
 
 // This opt-in native test builds an untagged CLI and downloads its exact locked
-// runtime. It qualifies only Fleet/Project/Task creation, never worker execution.
+// runtime. It qualifies only Fleet/Project/Task/policy/Plan creation, never worker execution.
 func TestNativeCanonicalBootstrap(t *testing.T) {
 	root := t.TempDir()
 	binary := filepath.Join(root, "hand")
@@ -121,6 +121,46 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM external_operation)+(SELECT COUNT(*) FROM attempt)+(SELECT COUNT(*) FROM policy_revision)`).Scan(&effects); err != nil || effects != 0 {
 		t.Fatalf("bootstrap invented policy/Attempt/effects: %d, %v", effects, err)
 	}
+	run(fleet, binary, "project", "policy", "policy_native", "--project-id", projectID,
+		"--worker-profile-ref", "", "--qualification-policy-ref", "native-review-v1",
+		"--integration-policy-ref", "", "--production-policy-ref", "", "--publication-policy-ref", "")
+	planArgs := []string{"plan", "create", "plan_native", "--task-id", "t_native",
+		"--workspace-binding-id", nativeField(t, registered, "workspace_binding_id"),
+		"--policy-revision-id", "policy_native", "--intent", "explore", "--judgment", "bounded",
+		"--basis", "registered native Git revision", "--brief", "native immutable brief"}
+	run(fleet, binary, planArgs...)
+	planArgs[1], planArgs[2] = "replan", "plan_native_successor"
+	planArgs = append(planArgs, "--predecessor", "plan_native")
+	run(fleet, binary, planArgs...)
+	var plans int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM plan WHERE task_id='t_native' AND policy_revision_id='policy_native'
+		AND ((id='plan_native' AND lifecycle='superseded') OR
+		(id='plan_native_successor' AND lifecycle='active' AND predecessor_plan_id='plan_native'))`).Scan(&plans); err != nil || plans != 2 {
+		t.Fatalf("native Plan/replan lineage: %d %v", plans, err)
+	}
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM external_operation)+(SELECT COUNT(*) FROM attempt)`).Scan(&effects); err != nil || effects != 0 {
+		t.Fatalf("policy/Plan invented Attempt/effects: %d, %v", effects, err)
+	}
+	backup := filepath.Join(root, "original-repository")
+	if err := os.Rename(repo, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(repo, os.DirFS(backup)); err != nil {
+		t.Fatal(err)
+	}
+	planArgs[2], planArgs[len(planArgs)-1] = "plan_replaced", "plan_native_successor"
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	replaced := exec.CommandContext(ctx, binary, planArgs...)
+	replaced.Dir = fleet
+	out, err := replaced.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "physical identity") {
+		t.Fatalf("native Plan accepted physical replacement: %v\n%s", err, out)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM plan WHERE lifecycle='active' AND id='plan_native_successor'`).Scan(&plans); err != nil || plans != 1 {
+		t.Fatalf("physical replacement refusal changed successor: %d %v", plans, err)
+	}
+	t.Log("native physical replacement refused; original Plan lineage retained")
 }
 
 func nativeField(t *testing.T, doc, key string) string {
