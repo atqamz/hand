@@ -12,11 +12,13 @@ import (
 	"testing"
 )
 
-// #339: release authority must identify the frozen bytes the runtime actually embeds.
+// #344: the isolated relock input must identify the exact bytes under review.
+// The permanent main anchor remains a separate landing/release gate.
 func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
-	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v4.md"))
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v5-input.md"))
 	for _, field := range []string{
 		"65556169e04808460ba252a677754f19b190b8ab",
+		"not the permanent main anchor or an accepted replacement authority",
 		"content commit: " + canonicalV19AuthorityCommit,
 		"DDL: " + canonicalV19AuthorityDDLPath,
 		"Git blob: " + canonicalV19AuthorityDDLGitBlobSHA1,
@@ -29,6 +31,7 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 		fmt.Sprintf("PRAGMA user_version: %d", canonicalV19SchemaVersion),
 		canonicalV19PriorSchemaFingerprintV1,
 		canonicalV19PriorSchemaFingerprintV2,
+		canonicalV19PriorSchemaFingerprintV3,
 	} {
 		if !strings.Contains(manifest, field) {
 			t.Errorf("manifest missing runtime/cutover identity %q", field)
@@ -46,9 +49,9 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proof := readV19ManifestArtifact(t, "docs/architecture/v19-proof-v3.py.gz")
+	proof := readV19ManifestArtifact(t, "docs/architecture/v19-proof-v4.py.gz")
 	for _, field := range []string{
-		"proof: docs/architecture/v19-proof-v3.py.gz",
+		"proof: docs/architecture/v19-proof-v4.py.gz",
 		"proof Git blob: " + v19ManifestGitBlob(proof),
 		fmt.Sprintf("proof stored gzip bytes: %d", len(proof)),
 		"proof stored gzip SHA-256: " + canonicalV19SHA256(proof),
@@ -69,8 +72,8 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 	for _, field := range []string{
 		fmt.Sprintf("proof reconstructed bytes: %d", len(reconstructed)),
 		"proof reconstructed SHA-256: " + canonicalV19SHA256(reconstructed),
-		"relock: docs/architecture/v19-relock-v3.md",
-		"relock Git blob: " + v19ManifestGitBlob(readV19ManifestArtifact(t, "docs/architecture/v19-relock-v3.md")),
+		"relock: docs/architecture/v19-relock-v4.md",
+		"relock Git blob: " + v19ManifestGitBlob(readV19ManifestArtifact(t, "docs/architecture/v19-relock-v4.md")),
 	} {
 		if !strings.Contains(manifest, field) {
 			t.Errorf("manifest missing reconstructed/relock identity %q", field)
@@ -80,7 +83,14 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 
 // #344/#347: a permanent manifest must retain the exact ordered contract-set digest.
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
-	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v4.md"))
+	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md"} {
+		t.Run(name, func(t *testing.T) { assertCanonicalV19ManifestSnapshotSet(t, name) })
+	}
+}
+
+func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name string) {
+	t.Helper()
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/"+name))
 	snapshots := []struct{ name, blob string }{
 		{"304-decision-answer-authority.md", "d7aedff121a8ca81333ee61febf0618112f83b2a"},
 		{"323-worker-routing.md", "6b2ce258a9e72412bcbb1cd625963806400e227b"},

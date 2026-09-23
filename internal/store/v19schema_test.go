@@ -1,7 +1,10 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -96,21 +99,22 @@ func TestValidateCanonicalV19SchemaRejectsPriorExactFingerprint(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		fingerprint string
-		downgrade   string
+		artifact    string
 	}{
+		{
+			name:        "revision 3",
+			fingerprint: canonicalV19PriorSchemaFingerprintV3,
+			artifact:    "docs/architecture/v19-v3.sql.gz",
+		},
 		{
 			name:        "revision 2",
 			fingerprint: canonicalV19PriorSchemaFingerprintV2,
-			downgrade:   `DROP INDEX worker_report_attempt_source_order`,
+			artifact:    "docs/architecture/v19-v2.sql.gz",
 		},
 		{
 			name:        "revision 1",
 			fingerprint: canonicalV19PriorSchemaFingerprintV1,
-			downgrade: `DROP INDEX worker_report_attempt_source_order;
-				DROP TRIGGER task_archive_insert_guard;
-				DROP TRIGGER task_archive_no_update;
-				DROP TRIGGER task_archive_no_delete;
-				DROP TABLE task_archive`,
+			artifact:    "docs/architecture/v19.sql.gz",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -121,10 +125,16 @@ func TestValidateCanonicalV19SchemaRejectsPriorExactFingerprint(t *testing.T) {
 			}
 			defer func() { _ = sqlDB.Close() }()
 
-			if err := createCanonicalV19Schema(sqlDB); err != nil {
+			reader, err := gzip.NewReader(bytes.NewReader(readV19ManifestArtifact(t, test.artifact)))
+			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := sqlDB.Exec(test.downgrade); err != nil {
+			ddl, err := io.ReadAll(reader)
+			_ = reader.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sqlDB.Exec(string(ddl)); err != nil {
 				t.Fatal(err)
 			}
 			identity, err := inspectCanonicalV19Identity(sqlDB)
