@@ -2,3 +2,5 @@ AGENTS.md text eol=lf
 *.js text eol=lf
 *.ts text eol=lf
 *.json text eol=lf
+docs/architecture/v19-contracts/*.md text eol=lf
+docs/architecture/v19-relock*.md text eol=lf
