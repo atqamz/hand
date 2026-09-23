@@ -78,7 +78,7 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	}
 	managed := run(root, binary, "runtime", "ensure")
 	gitPath := nativeField(t, managed, "git")
-	gitEnv, err := toolchain.ManagedEnvironment(os.Environ(), filepath.Dir(gitPath))
+	managedRuntime, err := toolchain.Resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,10 +87,13 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"-c", "user.name=Native fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture"}} {
+		spec, err := managedRuntime.Process(gitPath, toolchain.GitArgsWithTemplate(managedRuntime.GitTemplateDir, args)...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec.Dir = repo
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		cmd := exec.CommandContext(ctx, gitPath, args...)
-		cmd.Dir, cmd.Env = repo, gitEnv
-		out, err := cmd.CombinedOutput()
+		out, err := spec.Output(ctx)
 		cancel()
 		if err != nil {
 			t.Fatalf("locked Git fixture setup: %v\n%s", err, out)
