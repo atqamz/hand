@@ -51,6 +51,8 @@ v0.7/legacy-v18 compatibility or cutover lesson, never as fresh-v19 authority.
 5. Rewrite narrative as what is true, why/evidence, and how to apply it. Keep
    exact commands, errors, file:line citations, evidentiary URLs/issues, source
    revisions, platform qualifiers and counterexamples needed to falsify the rule.
+   Resolve shared qualifiers and cross-entry references before splitting or
+   deleting their context; do not turn supplied evidence into an invented unknown.
 6. Preserve standing preferences, constraints and their rationale conservatively
    in `operator.md`. In `learnings.md`, rewrite/prune on contact and prefer reusable
    lessons over append-only incident diaries. Apply different retention postures.
