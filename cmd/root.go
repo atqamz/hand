@@ -23,6 +23,9 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		Short:   "You lead. hand runs the crew.",
 		Version: info.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if canonical, _ := cmd.Flags().GetBool("canonical"); cmd.Name() == "init" && canonical {
+				return canonicalSupervisorPreflight(cmd, args)
+			}
 			if cmd.Name() == "build-info" || cmd.Name() == "adopt" || cmd.CommandPath() == "hand runtime herdr-server" {
 				return nil
 			}
@@ -83,6 +86,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	})
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newCutoverCmd())
+	root.AddCommand(newTaskCmd())
 	root.AddCommand(newBuildInfoCmd(info))
 	root.AddCommand(newAdoptCmd())
 	root.AddCommand(newConfigCmd())

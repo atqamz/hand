@@ -30,6 +30,7 @@ func newProjectCmd() *cobra.Command {
 		Short: "Manage the project registry",
 	}
 	cmd.AddCommand(newProjectAddCmd())
+	cmd.AddCommand(newProjectRegisterCmd())
 	cmd.AddCommand(newProjectCreateCmd())
 	cmd.AddCommand(newProjectListCmd())
 	cmd.AddCommand(newProjectRemoveCmd())
