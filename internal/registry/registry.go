@@ -397,14 +397,13 @@ func observe(locator Locator) observation {
 		}
 		return observation{locator: locator, state: StateUnreadable, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
-	db, err := store.OpenReadOnly(locator.Home)
+	observedID, err := store.FleetIDReadOnlyCurrent(locator.Home)
 	if err != nil {
-		return observation{locator: locator, state: StateUnreadable, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
-	}
-	defer func() { _ = db.Close() }()
-	observedID, err := db.FleetID()
-	if err != nil {
-		return observation{locator: locator, state: StateIdentityMismatch, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
+		state := StateUnreadable
+		if errors.Is(err, store.ErrFleetIdentityMissing) || errors.Is(err, store.ErrFleetIdentityInvalid) {
+			state = StateIdentityMismatch
+		}
+		return observation{locator: locator, state: state, reason: err.Error(), homeKey: homeKey, homeErr: homeErr}
 	}
 	if observedID != locator.FleetID {
 		return observation{locator: locator, state: StateIdentityMismatch, reason: fmt.Sprintf("authoritative identity is %s", observedID), homeKey: homeKey, homeErr: homeErr}

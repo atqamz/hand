@@ -513,6 +513,10 @@ func OpenReadOnly(homeDir string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateLegacySchemaFamily(db.sql); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	current, err := db.schemaVersion()
 	if err != nil {
 		_ = db.Close()
@@ -563,6 +567,9 @@ func ValidateInitTarget(homeDir string) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	if err := validateLegacySchemaFamily(db.sql); err != nil {
+		return err
+	}
 	current, err := db.schemaVersion()
 	if err != nil {
 		return err
@@ -582,6 +589,10 @@ func openReadOnlyForLifecycle(homeDir string) (*DB, int, error) {
 	}
 	db, err := openReadOnly(homeDir)
 	if err != nil {
+		return nil, 0, err
+	}
+	if err := validateLegacySchemaFamily(db.sql); err != nil {
+		_ = db.Close()
 		return nil, 0, err
 	}
 	current, err := db.schemaVersion()

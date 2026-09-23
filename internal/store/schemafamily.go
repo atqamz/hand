@@ -49,6 +49,19 @@ var ErrUnsupportedLegacyV18Schema = errors.New("legacy v18 schema is not the exa
 // ErrUnknownSchema marks a non-empty database outside both recognized Hand schema families.
 var ErrUnknownSchema = errors.New("state database schema family is unknown")
 
+var ErrCanonicalV19LegacyAccess = errors.New("canonical v19 state cannot be opened by legacy commands")
+
+func validateLegacySchemaFamily(q sqliteQueryer) error {
+	canonical, err := canonicalV19Candidate(q)
+	if err != nil {
+		return err
+	}
+	if canonical {
+		return ErrCanonicalV19LegacyAccess
+	}
+	return nil
+}
+
 type sqliteQueryer interface {
 	Query(query string, args ...any) (*sql.Rows, error)
 	QueryRow(query string, args ...any) *sql.Row

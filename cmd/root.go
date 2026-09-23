@@ -44,7 +44,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 						return err
 					}
 				}
-				if cmd.Name() != "update" && !startupOverview && !readOnly {
+				if cmd.Name() != "update" && cmd.Name() != "init" && !startupOverview && !readOnly {
 					if notice := selfupdate.CheckNoticeForBuild(fleetHome, selfupdate.Repo, info); notice != "" {
 						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 					}

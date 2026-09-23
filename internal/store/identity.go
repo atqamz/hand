@@ -35,17 +35,58 @@ func (db *DB) FleetID() (string, error) {
 }
 
 func FleetIDReadOnly(homeDir string) (string, error) {
+	return fleetIDReadOnly(homeDir, false)
+}
+
+// FleetIDReadOnlyCurrent requires a current schema for registry presentation.
+// Lifecycle readers retain their separate allowance for compatible legacy state.
+func FleetIDReadOnlyCurrent(homeDir string) (string, error) {
+	return fleetIDReadOnly(homeDir, true)
+}
+
+func fleetIDReadOnly(homeDir string, currentLegacy bool) (string, error) {
 	if _, err := os.Stat(Path(homeDir)); os.IsNotExist(err) {
 		return "", ErrFleetIdentityMissing
 	} else if err != nil {
 		return "", fmt.Errorf("check %s: %w", Path(homeDir), err)
 	}
-	db, _, err := openReadOnlyForLifecycle(homeDir)
+	if id, canonical, err := canonicalFleetIDReadOnly(homeDir); canonical || err != nil {
+		return id, err
+	}
+	var db *DB
+	var err error
+	if currentLegacy {
+		db, err = OpenReadOnly(homeDir)
+	} else {
+		db, _, err = openReadOnlyForLifecycle(homeDir)
+	}
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = db.Close() }()
 	return db.FleetID()
+}
+
+func canonicalFleetIDReadOnly(homeDir string) (string, bool, error) {
+	db, err := openReadOnly(homeDir)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.sql.Begin()
+	if err != nil {
+		return "", false, fmt.Errorf("begin Fleet identity snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	canonical, err := canonicalV19Candidate(tx)
+	if err != nil || !canonical {
+		return "", canonical, err
+	}
+	if err := validateCanonicalV19Schema(tx); err != nil {
+		return "", true, err
+	}
+	id, err := validateCanonicalV19CutoverActiveFleet(tx)
+	return id, true, err
 }
 
 func ensureFleetIdentityTx(tx *sql.Tx) error {

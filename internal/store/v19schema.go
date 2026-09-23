@@ -106,7 +106,7 @@ func createCanonicalV19Schema(sqlDB *sql.DB) error {
 
 // Distinguishes canonical v19 from the legacy ladder by schema family, not the
 // overlapping numeric PRAGMA user_version. Legacy migration 19 stays legacy.
-func canonicalV19Candidate(sqlDB *sql.DB) (bool, error) {
+func canonicalV19Candidate(sqlDB sqliteQueryer) (bool, error) {
 	var canonicalMarkers int
 	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sqlite_schema
 		WHERE type = 'table' AND name IN ('plan', 'external_operation', 'worker_input', 'task_hold', 'attempt_backoff', 'repair')`).Scan(&canonicalMarkers); err != nil {
@@ -139,7 +139,7 @@ func canonicalV19Candidate(sqlDB *sql.DB) (bool, error) {
 	return legacyMeta == 0, nil
 }
 
-func validateCanonicalV19Schema(sqlDB *sql.DB) error {
+func validateCanonicalV19Schema(sqlDB sqliteQueryer) error {
 	var foreignKeys int
 	if err := sqlDB.QueryRow(`PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil {
 		return fmt.Errorf("inspect canonical v19 foreign keys: %w", err)
