@@ -143,6 +143,15 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	run(fleet, binary, questionArgs...)
 	questionArgs[2] = "decision_late"
 	run(fleet, binary, questionArgs...)
+	holdDigest := fmt.Sprintf("%x", sha256.Sum256([]byte("native fixture deferral evidence")))
+	for _, id := range []string{"hold_native", "hold_independent"} {
+		args := []string{"task", "hold", "create", id, "--task-id", "t_native", "--kind", "operator",
+			"--reason", "Native checkpoint deferral", "--evidence-digest", holdDigest, "--created-at", "2026-09-23T12:00:00Z"}
+		if id == "hold_native" {
+			args = append(args, "--decision-id", "decision_native")
+		}
+		run(fleet, binary, args...)
+	}
 	answerArgs := []string{"decision", "answer", "decision_native", "--answer-id", "answer_native",
 		"--answer", "Use the bounded approach", "--operator-ref", "operator:native-fixture",
 		"--answered-at", "2026-09-23T12:01:00Z", "--operator-answer"}
@@ -153,6 +162,20 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	shown := run(fleet, binary, "decision", "show", "decision_native")
 	if nativeField(t, shown, "state") != "answered" || nativeField(t, shown, "owner_current") != "true" {
 		t.Fatal("native Answer is not independently inspectable")
+	}
+	shown = run(fleet, binary, "task", "hold", "show", "hold_native")
+	if nativeField(t, shown, "unresolved") != "true" || nativeField(t, shown, "decision_id") != "decision_native" {
+		t.Fatal("native Answer implicitly resolved or retargeted TaskHold")
+	}
+	run(fleet, binary, "task", "hold", "resolve", "hold_native", "--resolution", "released", "--evidence-digest", holdDigest,
+		"--resolved-at", "2026-09-23T12:01:00Z")
+	shown = run(fleet, binary, "task", "hold", "show", "hold_native")
+	if nativeField(t, shown, "unresolved") != "false" || nativeField(t, shown, "resolution") != "released" {
+		t.Fatal("native exact TaskHold resolution not retained after process restart")
+	}
+	shown = run(fleet, binary, "task", "hold", "show", "hold_independent")
+	if nativeField(t, shown, "unresolved") != "true" || nativeField(t, shown, "decision_id") != "none" {
+		t.Fatal("native Hold resolution affected independent deferral")
 	}
 	planArgs[1], planArgs[2] = "replan", "plan_native_successor"
 	planArgs = append(planArgs, "--predecessor", "plan_native")
@@ -187,8 +210,12 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 		t.Fatal("native stale closure lost history or retargeted successor")
 	}
 	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM worker_input)+(SELECT COUNT(*) FROM worker_wake_operation)+
-		(SELECT COUNT(*) FROM worker_input_acknowledgement)+(SELECT COUNT(*) FROM task_hold)`).Scan(&effects); err != nil || effects != 0 {
-		t.Fatalf("native Answer invented delivery/ack/Hold: %d %v", effects, err)
+		(SELECT COUNT(*) FROM worker_input_acknowledgement)`).Scan(&effects); err != nil || effects != 0 {
+		t.Fatalf("native Answer invented delivery/ack: %d %v", effects, err)
+	}
+	var holds, resolutions int
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM task_hold),(SELECT COUNT(*) FROM task_hold_resolution)`).Scan(&holds, &resolutions); err != nil || holds != 2 || resolutions != 1 {
+		t.Fatalf("native Hold evidence changed implicitly: %d %d %v", holds, resolutions, err)
 	}
 	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM external_operation)+(SELECT COUNT(*) FROM attempt)`).Scan(&effects); err != nil || effects != 0 {
 		t.Fatalf("policy/Plan invented Attempt/effects: %d, %v", effects, err)
@@ -248,6 +275,9 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	refuseDuplicate(clone)
 	if shown := run(clone, binary, "decision", "show", "decision_native"); nativeField(t, shown, "state") != "answered" {
 		t.Fatal("duplicate registry projection hid immutable Answer history")
+	}
+	if shown := run(clone, binary, "task", "hold", "show", "hold_independent"); nativeField(t, shown, "unresolved") != "true" {
+		t.Fatal("duplicate registry projection hid or resolved TaskHold history")
 	}
 	t.Log("native duplicate Fleet writes refused before/after registration; history remains readable")
 

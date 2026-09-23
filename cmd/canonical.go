@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
@@ -20,7 +21,7 @@ func canonicalSupervisorPreflight(cmd *cobra.Command, _ []string) error {
 	}
 	// Init has an explicit target; group help and exact historical reads must not
 	// depend on an ambient Fleet or repair its discovery projection.
-	if cmd.Name() == "init" || cmd.HasSubCommands() || cmd.CommandPath() == "hand decision show" {
+	if cmd.Name() == "init" || cmd.HasSubCommands() || cmd.CommandPath() == "hand decision show" || cmd.CommandPath() == "hand task hold show" {
 		return nil
 	}
 	homeDir, err := home.Resolve()
@@ -101,8 +102,22 @@ func newTaskCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&projectID, "project-id", "", "Exact canonical Project ID")
 	create.Flags().StringVar(&goal, "goal", "", "Immutable operator goal")
-	cmd.AddCommand(create)
+	cmd.AddCommand(create, newTaskHoldCmd())
 	return cmd
+}
+
+func canonicalTimestamp(value string) error {
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		return fmt.Errorf("exact canonical timestamp must be RFC3339: %w", err)
+	}
+	return nil
+}
+
+func canonicalEvidenceDigest(value string) error {
+	if len(value) != sha256.Size*2 || strings.Trim(value, "0123456789abcdef") != "" {
+		return fmt.Errorf("--evidence-digest must be the exact lowercase SHA-256 of retained evidence")
+	}
+	return nil
 }
 
 func newProjectRegisterCmd() *cobra.Command {

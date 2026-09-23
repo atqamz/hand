@@ -72,6 +72,10 @@ func TestCanonicalMutationRejectsCopiedFleet(t *testing.T) {
 		"--scope", "task", "--question", "Preserve original question?", "--created-at", "2026-09-23T12:00:00Z"); got.code != 0 {
 		t.Fatal(got)
 	}
+	if got := runHand(t, original, "task", "hold", "create", "h_original", "--task-id", "t_original", "--kind", "operator",
+		"--reason", "Fixture deferral", "--evidence-digest", strings.Repeat("a", 64), "--created-at", "2026-09-23T12:00:00Z"); got.code != 0 {
+		t.Fatal(got)
+	}
 	clone := filepath.Join(parent, "copy")
 	if err := os.CopyFS(clone, os.DirFS(original)); err != nil {
 		t.Fatal(err)
@@ -93,6 +97,8 @@ func TestCanonicalMutationRejectsCopiedFleet(t *testing.T) {
 		{"task", "create", "t_duplicate", "--project-id", projectID, "--goal", "Must refuse"},
 		{"decision", "answer", "d_original", "--answer-id", "a_duplicate", "--answer", "yes",
 			"--operator-ref", "operator:fixture", "--operator-answer", "--answered-at", "2026-09-23T12:01:00Z"},
+		{"task", "hold", "resolve", "h_original", "--resolution", "released",
+			"--evidence-digest", strings.Repeat("a", 64), "--resolved-at", "2026-09-23T12:01:00Z"},
 	} {
 		got := runHand(t, clone, args...)
 		if got.code != 1 || !strings.Contains(got.stderr, "also valid at") {
@@ -104,6 +110,9 @@ func TestCanonicalMutationRejectsCopiedFleet(t *testing.T) {
 	// Exact historical evidence remains inspectable without registry repair.
 	if got := runHand(t, clone, "decision", "show", "d_original"); got.code != 0 {
 		t.Fatalf("duplicate projection hid immutable Decision history: %+v", got)
+	}
+	if got := runHand(t, clone, "task", "hold", "show", "h_original"); got.code != 0 || canonicalOutputField(t, got, "unresolved") != "true" {
+		t.Fatalf("duplicate projection hid or resolved TaskHold history: %+v", got)
 	}
 	assertTreeUnchanged(t, original, beforeOriginal)
 	assertTreeUnchanged(t, clone, beforeClone)

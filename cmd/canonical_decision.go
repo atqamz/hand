@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
@@ -75,7 +74,7 @@ func newDecisionCreateCmd() *cobra.Command {
 		Long: "Retain the ID, timestamp and exact arguments for idempotent replay. Scope must identify the narrowest exact Task/Plan/Attempt owner; an optional report ID binds triggering evidence. This records a question, not an Answer or TaskHold.",
 		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := decisionTimestamp(input.CreatedAt); err != nil {
+			if err := canonicalTimestamp(input.CreatedAt); err != nil {
 				return err
 			}
 			homeDir, err := home.Resolve()
@@ -122,7 +121,7 @@ func newDecisionAnswerCmd() *cobra.Command {
 			if !explicitOperator || strings.TrimSpace(input.ActorRef) == "" {
 				return fmt.Errorf("explicit --operator-answer and nonblank --operator-ref are required")
 			}
-			if err := decisionTimestamp(input.AnsweredAt); err != nil {
+			if err := canonicalTimestamp(input.AnsweredAt); err != nil {
 				return err
 			}
 			homeDir, err := home.Resolve()
@@ -166,11 +165,11 @@ func newDecisionCloseCmd() *cobra.Command {
 		Long: "Close only the named unanswered Decision with retained evidence. Stale closure requires positively stale ownership in the same writer transaction; a failed observation is not proof. Retain the exact timestamp and evidence digest for replay. Closure never records an Answer, resolves a TaskHold or advances work.",
 		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := decisionTimestamp(input.ClosedAt); err != nil {
+			if err := canonicalTimestamp(input.ClosedAt); err != nil {
 				return err
 			}
-			if len(input.EvidenceDigest) != sha256.Size*2 || strings.Trim(input.EvidenceDigest, "0123456789abcdef") != "" {
-				return fmt.Errorf("--evidence-digest must be the exact lowercase SHA-256 of retained closure evidence")
+			if err := canonicalEvidenceDigest(input.EvidenceDigest); err != nil {
+				return err
 			}
 			homeDir, err := home.Resolve()
 			if err != nil {
@@ -200,11 +199,4 @@ func newDecisionCloseCmd() *cobra.Command {
 		_ = cmd.MarkFlagRequired(flag.name)
 	}
 	return cmd
-}
-
-func decisionTimestamp(value string) error {
-	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
-		return fmt.Errorf("exact Decision timestamp must be RFC3339: %w", err)
-	}
-	return nil
 }

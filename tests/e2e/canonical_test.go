@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -187,6 +188,13 @@ func canonicalOutputField(t *testing.T, result invocation, field string) string 
 	t.Helper()
 	for _, line := range strings.Split(result.stdout, "\n") {
 		if value, found := strings.CutPrefix(line, field+": "); found {
+			if strings.HasPrefix(value, `"`) {
+				decoded, err := strconv.Unquote(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return decoded
+			}
 			return value
 		}
 	}
