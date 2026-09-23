@@ -21,7 +21,7 @@ import (
 )
 
 // This opt-in native test builds an untagged CLI and downloads its exact locked
-// runtime. It qualifies only Fleet/Project/Task/policy/Plan creation, never worker execution.
+// runtime. It qualifies the canonical planning/Decision prefix, never worker execution.
 func TestNativeCanonicalBootstrap(t *testing.T) {
 	root := t.TempDir()
 	binary := filepath.Join(root, "hand")
@@ -129,6 +129,23 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 		"--policy-revision-id", "policy_native", "--intent", "explore", "--judgment", "bounded",
 		"--basis", "registered native Git revision", "--brief", "native immutable brief"}
 	run(fleet, binary, planArgs...)
+	questionArgs := []string{"decision", "create", "decision_native", "--task-id", "t_native",
+		"--scope", "plan", "--plan-id", "plan_native", "--question", "Choose the bounded approach?",
+		"--created-at", "2026-09-23T12:00:00Z"}
+	run(fleet, binary, questionArgs...)
+	questionArgs[2] = "decision_late"
+	run(fleet, binary, questionArgs...)
+	answerArgs := []string{"decision", "answer", "decision_native", "--answer-id", "answer_native",
+		"--answer", "Use the bounded approach", "--operator-ref", "operator:native-fixture",
+		"--answered-at", "2026-09-23T12:01:00Z", "--operator-answer"}
+	answered := run(fleet, binary, answerArgs...)
+	if again := run(fleet, binary, answerArgs...); again != answered {
+		t.Fatal("native Answer replay did not converge after process restart")
+	}
+	shown := run(fleet, binary, "decision", "show", "decision_native")
+	if nativeField(t, shown, "state") != "answered" || nativeField(t, shown, "owner_current") != "true" {
+		t.Fatal("native Answer is not independently inspectable")
+	}
 	planArgs[1], planArgs[2] = "replan", "plan_native_successor"
 	planArgs = append(planArgs, "--predecessor", "plan_native")
 	run(fleet, binary, planArgs...)
@@ -137,6 +154,23 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 		AND ((id='plan_native' AND lifecycle='superseded') OR
 		(id='plan_native_successor' AND lifecycle='active' AND predecessor_plan_id='plan_native'))`).Scan(&plans); err != nil || plans != 2 {
 		t.Fatalf("native Plan/replan lineage: %d %v", plans, err)
+	}
+	shown = run(fleet, binary, "decision", "show", "decision_native")
+	if nativeField(t, shown, "state") != "answered" || nativeField(t, shown, "owner_current") != "false" {
+		t.Fatal("native replan lost Answer history or retargeted it")
+	}
+	answerArgs[2], answerArgs[4] = "decision_late", "answer_late"
+	lateCtx, lateCancel := context.WithTimeout(context.Background(), time.Minute)
+	late := exec.CommandContext(lateCtx, binary, answerArgs...)
+	late.Dir = fleet
+	lateOut, lateErr := late.CombinedOutput()
+	lateCancel()
+	if lateErr == nil || !strings.Contains(string(lateOut), "not current") {
+		t.Fatalf("native late Answer did not refuse exact old Plan: %v\n%s", lateErr, lateOut)
+	}
+	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM worker_input)+(SELECT COUNT(*) FROM worker_wake_operation)+
+		(SELECT COUNT(*) FROM worker_input_acknowledgement)+(SELECT COUNT(*) FROM task_hold)`).Scan(&effects); err != nil || effects != 0 {
+		t.Fatalf("native Answer invented delivery/ack/Hold: %d %v", effects, err)
 	}
 	if err := db.QueryRow(`SELECT (SELECT COUNT(*) FROM external_operation)+(SELECT COUNT(*) FROM attempt)`).Scan(&effects); err != nil || effects != 0 {
 		t.Fatalf("policy/Plan invented Attempt/effects: %d, %v", effects, err)
