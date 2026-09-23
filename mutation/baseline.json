@@ -692,385 +692,378 @@
         },
         {
           "file": "registry.go",
-          "line": 406,
-          "column": 9,
-          "operator": "CONDITIONALS_NEGATION",
-          "outcome": "KILLED"
-        },
-        {
-          "file": "registry.go",
-          "line": 409,
+          "line": 408,
           "column": 16,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 422,
+          "line": 421,
           "column": 9,
           "operator": "INCREMENT_DECREMENT",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 424,
+          "line": 423,
           "column": 11,
           "operator": "INCREMENT_DECREMENT",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 426,
+          "line": 425,
           "column": 53,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 426,
+          "line": 425,
           "column": 58,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 428,
+          "line": 427,
           "column": 57,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 428,
+          "line": 427,
           "column": 62,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 430,
+          "line": 429,
           "column": 23,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 434,
+          "line": 433,
           "column": 11,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 434,
+          "line": 433,
           "column": 11,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 439,
+          "line": 438,
           "column": 48,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 439,
+          "line": 438,
           "column": 48,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 447,
+          "line": 446,
           "column": 21,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 447,
+          "line": 446,
           "column": 21,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 452,
+          "line": 451,
           "column": 19,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 452,
+          "line": 451,
           "column": 19,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 455,
+          "line": 454,
           "column": 11,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 458,
+          "line": 457,
           "column": 13,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 466,
+          "line": 465,
           "column": 110,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 466,
+          "line": 465,
           "column": 125,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 480,
+          "line": 479,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 485,
+          "line": 484,
           "column": 18,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 499,
+          "line": 498,
           "column": 10,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 502,
+          "line": 501,
           "column": 22,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 506,
+          "line": 505,
           "column": 10,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 511,
+          "line": 510,
           "column": 88,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 514,
+          "line": 513,
           "column": 89,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 518,
+          "line": 517,
           "column": 30,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 524,
+          "line": 523,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 550,
+          "line": 549,
           "column": 48,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 554,
+          "line": 553,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 558,
+          "line": 557,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 565,
+          "line": 564,
           "column": 23,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 570,
+          "line": 569,
           "column": 22,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 578,
+          "line": 577,
           "column": 17,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 578,
+          "line": 577,
           "column": 17,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 579,
+          "line": 578,
           "column": 69,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 579,
+          "line": 578,
           "column": 98,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 581,
+          "line": 580,
           "column": 16,
           "operator": "CONDITIONALS_BOUNDARY",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 581,
+          "line": 580,
           "column": 16,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 589,
+          "line": 588,
           "column": 10,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 593,
+          "line": 592,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 598,
+          "line": 597,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 609,
+          "line": 608,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 612,
+          "line": 611,
           "column": 18,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 619,
+          "line": 618,
           "column": 10,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 619,
+          "line": 618,
           "column": 25,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 620,
+          "line": 619,
           "column": 15,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 623,
+          "line": 622,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 627,
+          "line": 626,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 630,
+          "line": 629,
           "column": 17,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 634,
+          "line": 633,
           "column": 17,
           "operator": "ARITHMETIC_BASE",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 636,
+          "line": 635,
           "column": 9,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
         },
         {
           "file": "registry.go",
-          "line": 639,
+          "line": 638,
           "column": 43,
           "operator": "CONDITIONALS_NEGATION",
           "outcome": "KILLED"
