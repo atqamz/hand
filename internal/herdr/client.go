@@ -857,6 +857,12 @@ func (c *Client) WaitComposerEmpty(paneID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
+	return c.waitComposerEmpty(ctx, paneID, timeout, deadline)
+}
+
+// Keep the observation loop separate from deadline construction so diagnostics
+// can be tested after a completed subprocess observation, independent of startup latency.
+func (c *Client) waitComposerEmpty(ctx context.Context, paneID string, timeout time.Duration, deadline time.Time) error {
 	var shellsKnown bool
 	var backgroundShells int
 	var lastStatus Status

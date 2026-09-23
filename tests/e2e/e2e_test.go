@@ -483,6 +483,9 @@ func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, becaus
 		return got
 	case <-time.After(timeout):
 		_ = b.cmd.Process.Kill()
+		// Cleanup skips an already-owned Wait. Join it before Fatal starts temp
+		// directory teardown, just as the ordinary background cleanup path does.
+		<-done
 		t.Fatalf("hand watch did not exit within %s of %s; stdout=%q stderr=%q", timeout, because, b.stdout.String(), b.stderr.String())
 		return invocation{}
 	}
