@@ -32,6 +32,12 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
 				readOnly := isReadOnlyCommand(cmd)
+				if cmd.Name() != "init" && !startupOverview && !readOnly {
+					// Legacy startup can rewrite config and cache files before opening the store.
+					if err := store.ValidateInitTarget(fleetHome); err != nil {
+						return asPrecondition(err)
+					}
+				}
 				if cmd.Name() != "init" && cmd.Name() != "status" && !startupOverview && !readOnly {
 					if _, statErr := os.Stat(store.Path(fleetHome)); os.IsNotExist(statErr) {
 						if err := project.Migrate(fleetHome); err != nil {

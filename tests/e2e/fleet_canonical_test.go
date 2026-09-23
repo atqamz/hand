@@ -128,6 +128,37 @@ func TestInitRefusesCanonicalBeforeMutation(t *testing.T) {
 	assertTreeUnchanged(t, home, before)
 }
 
+func TestLegacyCommandsRefuseCanonicalBeforeStartupMutation(t *testing.T) {
+	for _, args := range [][]string{
+		{"project", "list"},
+		{"config", "set", "harness", "codex"},
+		{"status"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			home := t.TempDir()
+			if err := os.MkdirAll(store.Dir(home), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			createCanonicalFleetFixture(t, home, "f_0123456789abcdef0123456789abcdef")
+			if err := os.Mkdir(filepath.Join(home, "config"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range map[string]string{"harness": "codex\n", "model": "retained-model\n", "effort": "high\n"} {
+				if err := os.WriteFile(filepath.Join(home, "config", key), []byte(value), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			seedPrivateRuntime(t, home)
+			before := snapshotTree(t, home)
+			got := runHand(t, home, args...)
+			if got.code == 0 || !strings.Contains(got.stderr, "canonical v19 state cannot be opened by legacy commands") {
+				t.Errorf("command = %+v, want canonical family refusal", got)
+			}
+			assertTreeUnchanged(t, home, before)
+		})
+	}
+}
+
 // The fixture represents the published cutover database, not a completed cutover.
 func createCanonicalFleetFixture(t *testing.T, home, fleetID string) {
 	t.Helper()
