@@ -122,11 +122,12 @@ func TestCanonicalInitRefusesExistingTargetsWithoutMutation(t *testing.T) {
 func TestCanonicalInitCompetingProcesses(t *testing.T) {
 	parent := t.TempDir()
 	home := filepath.Join(parent, "race")
+	secondhandHome := filepath.Join(parent, ".secondhand")
 	processes := make([]*exec.Cmd, 4)
 	for i := range processes {
 		processes[i] = exec.Command(handBin, "init", "--canonical", home)
 		processes[i].Dir = parent
-		processes[i].Env = handProcessEnv()
+		processes[i].Env = handProcessEnv("SECONDHAND_HOME=" + secondhandHome)
 		if err := processes[i].Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -139,6 +140,9 @@ func TestCanonicalInitCompetingProcesses(t *testing.T) {
 	}
 	if successes == 0 {
 		t.Fatal("no creator succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(secondhandHome, "registry.db")); err != nil {
+		t.Fatalf("competing creators did not register in their isolated registry: %v", err)
 	}
 	first, err := store.FleetIDReadOnly(home)
 	if err != nil {
@@ -299,7 +303,7 @@ func TestCanonicalPolicyPlanCLI(t *testing.T) {
 	for i := range results {
 		wg.Go(func() {
 			cmd := exec.Command(handBin, policyArgs(fmt.Sprintf("policy_race_%d", i), "policy_2", "worker-race")...)
-			cmd.Dir, cmd.Env = fleet, handProcessEnv()
+			cmd.Dir, cmd.Env = fleet, handProcessEnv("SECONDHAND_HOME="+filepath.Join(fleet, ".secondhand"))
 			results[i] = cmd.Run()
 		})
 	}
