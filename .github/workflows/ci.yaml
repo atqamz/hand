@@ -20,6 +20,22 @@ permissions:
   contents: read
 
 jobs:
+  native-bootstrap:
+    name: Native canonical bootstrap (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Exercise untagged CLI with locked runtime artifacts
+        run: go test -tags=nativebootstrap -count=1 -v -timeout=10m ./tests/e2e
+
   mutation:
     name: Mutation (${{ matrix.package }})
     runs-on: ubuntu-latest
