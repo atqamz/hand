@@ -165,6 +165,29 @@ func TestReadCanonicalV19FleetSnapshotSeparatesInputFromWakeAndHistoricalEffects
 		snapshot.UnresolvedOperations[0].SessionBindingID == "" || snapshot.UnresolvedOperations[0].ExecutorBindingID != launch.BindingID {
 		t.Fatalf("independent wake operation = %#v", snapshot.UnresolvedOperations)
 	}
+	if _, err := SubmitCanonicalV19WorkerWake(context.Background(), fixture.Home, wake.OperationID,
+		"2026-09-09T05:19:00Z", "wake-submitted"); err != nil {
+		t.Fatal(err)
+	}
+	before, err = os.ReadFile(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err = os.ReadFile(Path(fixture.Home))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("submitted wake snapshot mutated database: %v", err)
+	}
+	if len(snapshot.UnacknowledgedInputs) != 1 || snapshot.UnacknowledgedInputs[0].ID != "input-open" ||
+		len(snapshot.UnresolvedOperations) != 1 || snapshot.UnresolvedOperations[0].State != "submitted" ||
+		snapshot.UnresolvedOperations[0].PendingThroughOrdinal != 2 ||
+		snapshot.UnresolvedOperations[0].AttemptID != launch.AttemptID ||
+		snapshot.UnresolvedOperations[0].ExecutorBindingID != launch.BindingID {
+		t.Fatalf("exact submitted wake/input source = %#v", snapshot)
+	}
 	db, err := open(Path(fixture.Home))
 	if err != nil {
 		t.Fatal(err)
