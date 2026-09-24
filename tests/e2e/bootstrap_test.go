@@ -41,19 +41,21 @@ func runBootstrap(t *testing.T, home string, extraEnv []string, args ...string) 
 	}
 	cmd := exec.Command("sh", append([]string{"-s", "--"}, args...)...)
 	cmd.Dir = home
-	env := append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
-	cmd.Env = env
 	fixtureArchive := filepath.Join(t.TempDir(), releaseAsset())
 	writeHandArchive(t, fixtureArchive)
 	pathEntries := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))
 	if len(pathEntries) == 0 || pathEntries[0] == "" {
 		t.Fatal("bootstrap test PATH has no writable fixture directory")
 	}
+	if pathEntries[0] == hermeticPath {
+		pathEntries[0] = binDir(t)
+	}
 	if _, err := os.Stat(filepath.Join(pathEntries[0], "curl")); os.IsNotExist(err) {
 		installReleaseCurl(t, pathEntries[0], fixtureArchive, filepath.Join(t.TempDir(), "curl.log"), false)
 	} else if err != nil {
 		t.Fatal(err)
 	}
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "TERM=dumb", "SECONDHAND_HOME=" + filepath.Join(home, ".secondhand")}, extraEnv...)
 	cmd.Stdin = strings.NewReader(boundBootstrapWithDigest(t, bootstrapScript, sha256Path(t, fixtureArchive)))
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
@@ -457,6 +459,18 @@ func TestBootstrapNeverInstallsAHarnessOrNoMistakesAutomatically(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			t.Fatalf("%s was created on PATH; bootstrap must only ever detect harnesses, never install one", name)
 		}
+	}
+}
+
+func TestBootstrapDefaultCurlFixtureEndsWithItsTest(t *testing.T) {
+	for _, name := range []string{"first", "second"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			got := runBootstrap(t, home, nil, "--fleet", filepath.Join(home, "fleet"), "--yes")
+			if got.code != 1 || !strings.Contains(got.stderr, "- harness") {
+				t.Fatalf("exit = %d, stderr = %q, want missing-harness refusal", got.code, got.stderr)
+			}
+		})
 	}
 }
 
