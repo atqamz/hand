@@ -49,7 +49,7 @@ func TestCIPushCannotPublish(t *testing.T) {
 	}
 }
 
-func TestCIUsesFastPRMatrixAndFullMainMatrix(t *testing.T) {
+func TestCIFastPRKeepsFullReleaseAndMainMatrix(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +73,7 @@ func TestCIUsesFastPRMatrixAndFullMainMatrix(t *testing.T) {
 	}
 	for _, part := range []string{
 		"github.event_name == 'pull_request'",
+		"github.head_ref != 'release-please--branches--main'",
 		`'["ubuntu-latest"]'`,
 		"ubuntu-24.04-arm", "macos-latest", "macos-15-intel", "windows-latest",
 	} {
@@ -81,8 +82,8 @@ func TestCIUsesFastPRMatrixAndFullMainMatrix(t *testing.T) {
 		}
 	}
 	for _, job := range []string{"e2e-windows", "e2e-macos", "e2e-macos-intel"} {
-		if got := document.Jobs[job].If; got != "github.event_name != 'pull_request'" {
-			t.Errorf("%s if = %q, want non-PR only", job, got)
+		if got := document.Jobs[job].If; got != "github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main'" {
+			t.Errorf("%s if = %q, want main and release PR", job, got)
 		}
 	}
 	if got := document.Jobs["e2e"].If; got != "" {
