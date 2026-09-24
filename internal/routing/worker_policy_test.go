@@ -79,6 +79,28 @@ func TestLoadWorkerPolicyRejectsAmbiguousAndLegacyFields(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerPolicyRejectsUnsafeUnusedProfiles(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"bidi name", `{"name":"unused\u202e","harness":"codex"}`, "name"},
+		{"bidi model", `{"name":"unused","harness":"codex","model":"\u202e"}`, "model"},
+		{"bidi effort", `{"name":"unused","harness":"codex","effort":"\u202e"}`, "effort"},
+		{"oversized model", `{"name":"unused","harness":"codex","model":"` + strings.Repeat("x", 513) + `"}`, "model"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			policy := strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"worker","harness":"codex"},`+test.value, 1)
+			writeWorkerPolicy(t, home, policy)
+			if _, err := LoadWorkerPolicy(home); err == nil || !strings.Contains(err.Error(), "invalid worker profile "+test.want+" value") {
+				t.Fatalf("unsafe unused profile accepted or lacked field diagnosis: %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadWorkerPolicyNeverUsesLegacyTaskRoutes(t *testing.T) {
 	home := t.TempDir()
 	if err := WriteProfile(home, Profile{Name: "daily", Harness: "codex"}); err != nil {
@@ -165,25 +187,25 @@ func TestResolveWorkerCandidateRejectsUnknownAndStaticConflicts(t *testing.T) {
 	}
 }
 
-func TestResolveWorkerCandidateRefusesUnrenderablePolicyValue(t *testing.T) {
+func TestLoadWorkerPolicyRefusesUnrenderableSelectedValues(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		data string
 		want string
 	}{
-		{"NUL model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1), "invalid model"},
-		{"bidi model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), "invalid model"},
-		{"bidi effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","effort":"\u202e"`, 1), "invalid effort"},
-		{"bidi profile", strings.ReplaceAll(validWorkerPolicy, `"worker"`, `"worker\u202e"`), "invalid profile"},
+		{"NUL model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1), "invalid worker profile model value"},
+		{"bidi model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), "invalid worker profile model value"},
+		{"bidi effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","effort":"\u202e"`, 1), "invalid worker profile effort value"},
+		{"bidi profile", strings.ReplaceAll(validWorkerPolicy, `"worker"`, `"worker\u202e"`), "invalid worker profile name value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
 			writeWorkerPolicy(t, home, test.data)
-			if _, err := LoadWorkerPolicy(home); err != nil {
-				t.Fatalf("policy should reach candidate validation: %v", err)
+			if _, err := LoadWorkerPolicy(home); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unsafe selected policy value = %v, want %q", err, test.want)
 			}
 			if _, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{}); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("unrenderable candidate = %v, want %q", err, test.want)
+				t.Fatalf("unsafe selected candidate = %v, want %q", err, test.want)
 			}
 		})
 	}
