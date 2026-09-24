@@ -133,8 +133,8 @@ func requireCanonicalV19AnswerWorkerInputSource(
 	tx *sql.Tx,
 	input CanonicalV19AnswerWorkerInputCreateInput,
 ) error {
-	var decisionID, answerID string
-	err := tx.QueryRowContext(ctx, `SELECT d.id,da.id
+	var decisionID, answerID, answer, answerDigest string
+	err := tx.QueryRowContext(ctx, `SELECT d.id,da.id,da.answer,da.answer_digest
 		FROM decision d
 		JOIN decision_answer da ON da.decision_id=d.id
 		JOIN attempt a ON a.id=?
@@ -142,8 +142,12 @@ func requireCanonicalV19AnswerWorkerInputSource(
 		WHERE d.id=? AND da.id=?
 		  AND ((d.scope_kind='attempt' AND d.attempt_id=a.id) OR
 		       (d.scope_kind='plan' AND d.plan_id=a.plan_id) OR
-		       (d.scope_kind='task' AND d.task_id=p.task_id))`,
-		input.AttemptID, input.DecisionID, input.AnswerID).Scan(&decisionID, &answerID)
+		       (d.scope_kind='task' AND d.task_id=p.task_id))
+		  AND (d.triggering_worker_report_id IS NULL OR EXISTS (
+		      SELECT 1 FROM worker_report r WHERE r.id=d.triggering_worker_report_id
+		        AND r.attempt_id=a.id AND (r.executor_binding_id IS NULL OR r.executor_binding_id=?)
+		  ))`,
+		input.AttemptID, input.DecisionID, input.AnswerID, input.ExecutorBindingID).Scan(&decisionID, &answerID, &answer, &answerDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: Answer %q / Decision %q does not exactly scope to Attempt %q",
 			ErrCanonicalV19WorkerInputConflict, input.AnswerID, input.DecisionID, input.AttemptID)
@@ -151,8 +155,8 @@ func requireCanonicalV19AnswerWorkerInputSource(
 	if err != nil {
 		return canonicalV19WorkerInputWriteError("read exact Answer-origin source", err)
 	}
-	if decisionID != input.DecisionID || answerID != input.AnswerID {
-		return fmt.Errorf("%w: exact Answer-origin source changed", ErrCanonicalV19WorkerInputConflict)
+	if decisionID != input.DecisionID || answerID != input.AnswerID || answer != input.Payload || answerDigest != input.PayloadDigest {
+		return fmt.Errorf("%w: exact Answer-origin source differs from WorkerInput", ErrCanonicalV19WorkerInputConflict)
 	}
 	return nil
 }
