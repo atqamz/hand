@@ -1,11 +1,127 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestListCanonicalV19DecisionsKeepsArchivedHistoryOrderedAndReadOnly(t *testing.T) {
+	ctx := context.Background()
+	home := canonicalV19TaskWriterFixture(t, false)
+	if _, err := CreateCanonicalV19Task(ctx, home, CanonicalV19TaskCreateInput{
+		ID: "task-1", ProjectID: "project-1", Goal: "old goal", GoalDigest: "old-digest", CreatedAt: "2026-09-24T01:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SupersedeCanonicalV19Task(ctx, home, CanonicalV19TaskSupersedeInput{
+		PredecessorTaskID: "task-1", SuccessorTaskID: "task-2", Goal: "new goal", GoalDigest: "new-digest", At: "2026-09-24T01:01:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ArchiveCanonicalV19Task(ctx, home, CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-24T01:02:00Z", Reason: "replaced goal", EvidenceDigest: strings.Repeat("a", 64),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ id, taskID, at string }{
+		{"decision-a", "task-1", "2026-09-24T01:04:00Z"},
+		{"decision-b", "task-1", "2026-09-24T01:04:00Z"},
+		{"decision-c", "task-1", "2026-09-24T01:04:00Z"},
+		{"decision-d", "task-1", "2026-09-24T01:03:00Z"},
+		{"decision-other", "task-2", "2026-09-24T01:05:00Z"},
+	} {
+		if err := CreateCanonicalV19Decision(ctx, home, CanonicalV19DecisionCreateInput{
+			ID: row.id, TaskID: row.taskID, ScopeKind: "task", Question: "Exact question for " + row.id, CreatedAt: row.at,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CreateCanonicalV19DecisionAnswer(ctx, home, CanonicalV19DecisionAnswerCreateInput{
+		ID: "answer-b", DecisionID: "decision-b", Answer: "yes", AnswerDigest: canonicalV19SHA256([]byte("yes")),
+		ActorKind: "operator", ActorRef: "operator-1", AnsweredAt: "2026-09-24T01:05:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := CloseCanonicalV19Decision(ctx, home, CanonicalV19DecisionCloseInput{
+		DecisionID: "decision-c", Reason: "cancelled", ClosedAt: "2026-09-24T01:05:00Z", EvidenceDigest: "closure-digest",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := ListCanonicalV19Decisions(ctx, home, "task-1", "", 2)
+	if err != nil || len(first.Items) != 2 || first.Items[0].ID != "decision-a" || first.Items[0].State != "open" ||
+		first.Items[1].ID != "decision-b" || first.Items[1].State != "answered" || first.NextAfter != "decision-b" {
+		t.Fatalf("first Decision page = %#v, %v", first, err)
+	}
+	last, err := ListCanonicalV19Decisions(ctx, home, "task-1", first.NextAfter, 2)
+	if err != nil || len(last.Items) != 2 || last.Items[0].ID != "decision-c" || last.Items[0].State != "closed" ||
+		last.Items[1].ID != "decision-d" || last.NextAfter != "" {
+		t.Fatalf("last Decision page = %#v, %v", last, err)
+	}
+	if _, err := ListCanonicalV19Decisions(ctx, home, "task-2", "decision-a", 2); err == nil {
+		t.Fatal("foreign Task cursor accepted")
+	}
+	if _, err := ListCanonicalV19Decisions(ctx, home, "missing", "", 2); !errors.Is(err, ErrCanonicalV19TaskNotFound) {
+		t.Fatalf("missing Task = %v", err)
+	}
+	for _, limit := range []int{0, 1001} {
+		if _, err := ListCanonicalV19Decisions(ctx, home, "task-1", "", limit); err == nil {
+			t.Fatalf("invalid limit %d accepted", limit)
+		}
+	}
+	db, err := openReadOnly(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, plan := range []struct {
+		query string
+		args  []any
+	}{
+		{canonicalV19DecisionListQuery, []any{"task-1", 3}},
+		{canonicalV19DecisionListAfterQuery, []any{"task-1", "2026-09-24T01:04:00Z", "2026-09-24T01:04:00Z", "decision-b", 3}},
+	} {
+		rows, err := db.sql.Query(`EXPLAIN QUERY PLAN `+plan.query, plan.args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		indexed := false
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(detail, "SEARCH d USING ") && strings.Contains(detail, "decision_task_history") {
+				indexed = true
+			}
+			if strings.Contains(detail, "TEMP B-TREE") {
+				t.Fatalf("Decision history uses temp sort: %s", detail)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if !indexed {
+			t.Fatal("Decision history did not use task history index")
+		}
+	}
+	after, err := os.ReadFile(Path(home))
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("Decision list mutated archive database: %v", err)
+	}
+}
 
 func TestCanonicalV19DecisionRecordsExactScopesWithoutImplicitAuthority(t *testing.T) {
 	for _, scope := range []string{"task", "plan", "attempt"} {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/atqamz/hand/internal/axi"
@@ -16,7 +17,40 @@ func newDecisionCmd() *cobra.Command {
 		Use: "decision", Short: "Inspect and record exact canonical operator questions",
 		PersistentPreRunE: canonicalSupervisorPreflight,
 	}
-	cmd.AddCommand(newDecisionShowCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd(), newDecisionDeliverCmd(), newDecisionCloseCmd())
+	cmd.AddCommand(newDecisionShowCmd(), newDecisionListCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd(), newDecisionDeliverCmd(), newDecisionCloseCmd())
+	return cmd
+}
+
+func newDecisionListCmd() *cobra.Command {
+	var after string
+	var limit int
+	cmd := &cobra.Command{
+		Use: "list <task-id>", Short: "Read a bounded page of exact Decision history",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			page, err := store.ListCanonicalV19Decisions(cmd.Context(), homeDir, args[0], after, limit)
+			if err != nil {
+				return err
+			}
+			rows := make([][]string, 0, len(page.Items))
+			for _, item := range page.Items {
+				rows = append(rows, []string{item.ID, item.CreatedAt, item.ScopeKind, item.State})
+			}
+			var doc axi.Doc
+			doc.Field("task_id", args[0])
+			doc.Field("limit", strconv.Itoa(limit))
+			doc.Field("next_after", page.NextAfter)
+			doc.Rows("decisions", []string{"id", "created_at", "scope", "state"}, rows)
+			doc.Help("Decision history includes archived Tasks. Pass next_after as --after for the next page; use decision show <id> for exact authority detail. State does not imply owner currentness or Worker delivery.")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&after, "after", "", "Exclusive Decision ID cursor from the preceding page")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum Decisions per page (1–1000)")
 	return cmd
 }
 

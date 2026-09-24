@@ -9,7 +9,59 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestCanonicalDecisionListRetainsArchivedTaskHistory(t *testing.T) {
+	parent := t.TempDir()
+	fleet := filepath.Join(parent, "fleet")
+	if got := runHand(t, parent, "init", "--canonical", fleet); got.code != 0 {
+		t.Fatal(got)
+	}
+	initGitRepo(t, filepath.Join(fleet, "projects", "sample"))
+	ok := func(args ...string) invocation {
+		t.Helper()
+		got := runHand(t, fleet, args...)
+		if got.code != 0 {
+			t.Fatalf("%v: %+v", args, got)
+		}
+		return got
+	}
+	projectID := canonicalOutputField(t, ok("project", "register", "sample"), "project_id")
+	ok("task", "create", "task-old", "--project-id", projectID, "--goal", "initial goal")
+	ok("task", "supersede", "task-old", "task-new", "--goal", "replacement goal")
+	ok("task", "archive", "task-old", "--actor-kind", "operator", "--actor-ref", "operator-1",
+		"--archived-at", time.Now().UTC().Format(time.RFC3339Nano), "--reason", "goal replaced",
+		"--evidence-digest", strings.Repeat("a", 64))
+	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, id := range []string{"decision-a", "decision-b"} {
+		ok("decision", "create", id, "--task-id", "task-old", "--scope", "task",
+			"--question", "Review retained artifact?", "--created-at", createdAt)
+	}
+	ok("decision", "answer", "decision-b", "--answer-id", "answer-b", "--answer", "yes",
+		"--operator-answer", "--operator-ref", "operator-1", "--answered-at", createdAt)
+	before := snapshotTree(t, fleet)
+	first := ok("decision", "list", "task-old", "--limit", "1")
+	if canonicalOutputField(t, first, "next_after") != "decision-a" ||
+		!strings.Contains(first.stdout, "decision-a,\""+createdAt+"\",task,open") {
+		t.Fatalf("first archived Decision page: %+v", first)
+	}
+	last := ok("decision", "list", "task-old", "--limit", "1", "--after", "decision-a")
+	if canonicalOutputField(t, last, "next_after") != "" ||
+		!strings.Contains(last.stdout, "decision-b,\""+createdAt+"\",task,answered") {
+		t.Fatalf("last archived Decision page: %+v", last)
+	}
+	for _, args := range [][]string{
+		{"decision", "list", "task-new", "--after", "decision-a"},
+		{"decision", "list", "missing"},
+		{"decision", "list", "task-old", "--limit", "0"},
+	} {
+		if got := runHand(t, fleet, args...); got.code == 0 {
+			t.Fatalf("invalid Decision list succeeded: %v %+v", args, got)
+		}
+	}
+	assertTreeUnchanged(t, fleet, before)
+}
 
 // Actual CLI processes must preserve authority across restart and replan without
 // inventing delivery, acknowledging evidence, or selecting a successor Decision.
