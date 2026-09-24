@@ -1,10 +1,100 @@
 package store
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestFleetIDReadOnlyCanonicalV19(t *testing.T) {
+	const fleetID = "f_0123456789abcdef0123456789abcdef"
+	for _, tc := range []struct {
+		name    string
+		change  string
+		wantErr error
+	}{
+		{name: "exact"},
+		{name: "schema drift", change: `CREATE TABLE unexpected(id TEXT)`, wantErr: ErrCanonicalV19SchemaMismatch},
+		{name: "missing singleton", wantErr: ErrFleetIdentityMissing},
+		{name: "invalid identity", change: `INSERT INTO fleet(singleton,fleet_id,created_at) VALUES(1,'invalid','2026-09-23T00:00:00Z')`, wantErr: ErrFleetIdentityInvalid},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			db, err := open(Path(home))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := createCanonicalV19Schema(db); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name != "invalid identity" && tc.name != "missing singleton" {
+				if _, err := db.Exec(`INSERT INTO fleet(singleton,fleet_id,created_at) VALUES(1,?,'2026-09-23T00:00:00Z')`, fleetID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.change != "" {
+				if _, err := db.Exec(tc.change); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(Path(home))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := FleetIDReadOnly(home)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("FleetIDReadOnly = %q, %v; want error %v", got, err, tc.wantErr)
+			}
+			if tc.wantErr == nil && got != fleetID {
+				t.Fatalf("FleetIDReadOnly = %q, want %q", got, fleetID)
+			}
+			after, err := os.ReadFile(Path(home))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(before, after) {
+				t.Fatal("identity read changed state database")
+			}
+		})
+	}
+}
+
+func TestLegacyOpenPreservesCanonicalV19(t *testing.T) {
+	home := canonicalV19TaskWriterFixture(t, false)
+	before, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, openErr := Open(home)
+	if db != nil {
+		_ = db.Close()
+	}
+	if !errors.Is(openErr, ErrCanonicalV19LegacyAccess) {
+		t.Fatalf("legacy writer error = %v, want ErrCanonicalV19LegacyAccess", openErr)
+	}
+	after, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("legacy writer changed canonical database despite error: %v", openErr)
+	}
+	if err := ValidateInitTarget(home); !errors.Is(err, ErrCanonicalV19LegacyAccess) {
+		t.Fatalf("init validation = %v", err)
+	}
+	readOnly, err := OpenReadOnly(home)
+	if readOnly != nil {
+		_ = readOnly.Close()
+	}
+	if !errors.Is(err, ErrCanonicalV19LegacyAccess) {
+		t.Fatalf("legacy reader = %v", err)
+	}
+}
 
 func TestOpenGeneratesAndPreservesFleetIdentity(t *testing.T) {
 	home := t.TempDir()

@@ -3074,14 +3074,44 @@ func TestRunUntilEventReportsNoEventOnTimeout(t *testing.T) {
 	if !errors.Is(err, ErrNoEvent) {
 		t.Fatalf("RunUntilEvent = %v, want ErrNoEvent so a re-arm loop can tell a quiet window from an event", err)
 	}
-	if !strings.Contains(err.Error(), "1s") {
-		t.Fatalf("err = %v, want the elapsed timeout named", err)
-	}
+	// The real deadline may fire during connection, probing or the armed wait.
+	// The exact armed diagnostic is checked after positive arming below.
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Fatalf("returned after %s, want the timeout to bound the wait", elapsed)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("out = %q, want stdout to carry events only, never the timeout notice", out.String())
+	}
+}
+
+func TestRunUntilEventNamesTimeoutAfterPositiveArming(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "working")
+	writeFakeHerdr(t, statusFile)
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "nsr", Kind: state.KindShip}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour, Timeout: time.Hour}
+	guard, stopGuard := context.WithTimeout(context.Background(), 30*time.Second)
+	defer stopGuard()
+	ctx, cancel := context.WithCancelCause(guard)
+	defer cancel(nil)
+	oldAfterArmTick := afterArmTick
+	t.Cleanup(func() { afterArmTick = oldAfterArmTick })
+	armed := 0
+	afterArmTick = func() {
+		armed++
+		if armed == 2 {
+			// This is the same owned cause as withWatchTimeout, triggered only
+			// after both real arming observations, not a guessed subprocess delay.
+			cancel(ErrNoEvent)
+		}
+	}
+	var out bytes.Buffer
+	err := RunUntilEvent(ctx, cfg, &out, io.Discard)
+	if armed != 2 || !errors.Is(err, ErrNoEvent) || !strings.Contains(err.Error(), "within "+cfg.Timeout.String()) {
+		t.Fatalf("armed=%d err=%v, want exact configured timeout after arming", armed, err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want events only", out.String())
 	}
 }
 

@@ -22,7 +22,8 @@ func InitRepo(t *testing.T, path string) {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "gitconfig")
 	content := "[user]\n\tname = faketool\n\temail = faketool@example.invalid\n" +
-		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" +
+		"[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"
 	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

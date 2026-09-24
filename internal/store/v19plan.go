@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -47,10 +48,12 @@ type CanonicalV19PlanReplanInput struct {
 }
 
 type canonicalV19PlanBasisObservation struct {
-	ProjectID         string
-	RepositoryLocator string
-	CommonGitDir      string
-	Revision          string
+	ProjectID                string
+	RepositoryLocator        string
+	CommonGitDir             string
+	Revision                 string
+	RepositoryIdentityDigest string
+	PhysicalIdentityDigest   string
 }
 
 type canonicalV19PlanQueryer interface {
@@ -101,6 +104,9 @@ func CreateCanonicalV19RootPlan(ctx context.Context, homeDir string, input Canon
 	}
 	if current != observed {
 		return 0, fmt.Errorf("create canonical v19 root Plan: %w: captured basis changed after Git observation", ErrCanonicalV19PlanNotCurrent)
+	}
+	if err := verifyCanonicalV19PlanGitBasis(homeDir, current); err != nil {
+		return 0, err
 	}
 
 	ordinal, err := nextCanonicalV19PlanOrdinal(ctx, tx, input.TaskID)
@@ -171,6 +177,9 @@ func ReplanCanonicalV19Plan(ctx context.Context, homeDir string, input Canonical
 	if current != observed {
 		return 0, fmt.Errorf("replan canonical v19 Plan: %w: captured basis changed after Git observation", ErrCanonicalV19PlanNotCurrent)
 	}
+	if err := verifyCanonicalV19PlanGitBasis(homeDir, current); err != nil {
+		return 0, err
+	}
 	if err := requireCanonicalV19ActivePredecessor(ctx, tx, input.Successor.TaskID, input.PredecessorPlanID); err != nil {
 		return 0, fmt.Errorf("replan canonical v19 Plan: %w", err)
 	}
@@ -229,14 +238,15 @@ func validateCanonicalV19PlanCreateInput(action string, input CanonicalV19PlanCr
 
 func observeCanonicalV19PlanBasis(ctx context.Context, q canonicalV19PlanQueryer, input CanonicalV19PlanCreateInput) (canonicalV19PlanBasisObservation, error) {
 	var observed canonicalV19PlanBasisObservation
-	err := q.QueryRowContext(ctx, `SELECT t.project_id,w.repository_locator,w.common_git_dir,w.revision
+	err := q.QueryRowContext(ctx, `SELECT t.project_id,w.repository_locator,w.common_git_dir,w.revision,w.repository_identity_digest,w.physical_identity_digest
 		FROM task t
 		JOIN project project_current ON project_current.id=t.project_id AND project_current.retired_at=''
 		JOIN workspace_binding w ON w.id=? AND w.project_id=t.project_id AND w.superseded_at=''
 		JOIN policy_revision p ON p.id=? AND p.project_id=t.project_id AND p.superseded_at=''
 		WHERE t.id=? AND t.lifecycle='active' AND t.terminal_at=''`,
 		input.WorkspaceBindingID, input.PolicyRevisionID, input.TaskID,
-	).Scan(&observed.ProjectID, &observed.RepositoryLocator, &observed.CommonGitDir, &observed.Revision)
+	).Scan(&observed.ProjectID, &observed.RepositoryLocator, &observed.CommonGitDir, &observed.Revision,
+		&observed.RepositoryIdentityDigest, &observed.PhysicalIdentityDigest)
 	if errors.Is(err, sql.ErrNoRows) {
 		return canonicalV19PlanBasisObservation{}, fmt.Errorf("%w: Task %q with exact current binding/policy", ErrCanonicalV19PlanNotCurrent, input.TaskID)
 	}
@@ -251,6 +261,27 @@ func verifyCanonicalV19PlanGitBasis(homeDir string, observed canonicalV19PlanBas
 		return fmt.Errorf("%w: %v", ErrCanonicalV19PlanGitBasis, err)
 	}
 	repositoryPath := canonicalV19ObservedPath(homeDir, observed.RepositoryLocator)
+	commonPath := canonicalV19ObservedPath(homeDir, observed.CommonGitDir)
+	identities := []struct{ path, domain, digest string }{
+		{repositoryPath, legacyV18CutoverRepositoryIdentityDomain, observed.RepositoryIdentityDigest},
+		{commonPath, legacyV18CutoverCommonGitDirIdentityDomain, observed.PhysicalIdentityDigest},
+	}
+	verifyIdentity := func() error {
+		for _, identity := range identities {
+			info, err := os.Lstat(identity.path)
+			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("%w: repository/common directory must remain direct directories", ErrCanonicalV19PlanGitBasis)
+			}
+			physical, err := canonicalV19WorktreePhysicalIdentity(identity.path, info)
+			if err != nil || legacyV18CutoverManifestIdentitySHA256(identity.domain, physical) != identity.digest {
+				return fmt.Errorf("%w: captured repository/common directory physical identity changed or is unknown", ErrCanonicalV19PlanGitBasis)
+			}
+		}
+		return nil
+	}
+	if err := verifyIdentity(); err != nil {
+		return err
+	}
 	root, err := handgit.ResolveRoot(repositoryPath)
 	if err != nil {
 		return fmt.Errorf("%w: resolve repository %q: %v", ErrCanonicalV19PlanGitBasis, observed.RepositoryLocator, err)
@@ -272,7 +303,7 @@ func verifyCanonicalV19PlanGitBasis(homeDir string, observed canonicalV19PlanBas
 	if strings.TrimSpace(resolved) != observed.Revision {
 		return fmt.Errorf("%w: exact revision resolved as %q", ErrCanonicalV19PlanGitBasis, strings.TrimSpace(resolved))
 	}
-	return nil
+	return verifyIdentity()
 }
 
 func validateCanonicalV19CommitID(revision string) error {

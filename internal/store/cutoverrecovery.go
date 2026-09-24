@@ -215,7 +215,7 @@ func validateCanonicalV19CutoverActiveFleet(sqlDB sqliteQueryer) (string, error)
 		return "", fmt.Errorf("read canonical Fleet singleton: %w", err)
 	}
 	if count != 1 {
-		return "", fmt.Errorf("canonical Fleet singleton rows=%d, want 1", count)
+		return "", fmt.Errorf("%w: canonical Fleet singleton rows=%d, want 1", ErrFleetIdentityMissing, count)
 	}
 	if err := validateFleetID(fleetID); err != nil {
 		return "", fmt.Errorf("canonical Fleet identity: %w", err)

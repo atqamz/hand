@@ -59,6 +59,71 @@ Use an executable built from the checkout to dogfood current `main`; the install
 Commits use conventional commits: feat:, fix:, chore:, etc.
 release-please handles versioning and changelogs from these.
 
+## Designing architecture-sensitive changes
+
+Start with intent and observable behavior, choose the smallest useful model, make
+the relevant semantic dimensions explicit, state falsifiable invariants and
+counterexamples, then map the reviewed model to code and tests. Do this when a
+change touches durable identity/state, lifecycle, effects/recovery, concurrency,
+currentness, authority, provider boundaries, resource lifetime, or bounded reads
+whose omissions change meaning. Local mechanical changes need no full ceremony.
+
+Choose the representation for the risk: a flow, state transition, interleaving,
+reconciliation loop, authority/evidence relation, or ownership/lifetime sketch.
+There is no required notation, universal call graph, or happy-path-first order;
+for recovery and safety, ambiguity may be the central behavior. The reviewed
+result should explain the design, without prescribing a linear thinking process
+or forcing source layout to mirror a diagram.
+
+Use the questions relevant to the change:
+
+- What exact subject and generation does each fact describe? Distinguish valid
+  shape from truth, provenance, observation, claim, authority, acknowledgement,
+  currentness, and unknown. Who may assert, observe, or act on it?
+- What capability, precondition, permission, positive evidence, and ownership
+  does each transition require? A dependency or provider object is not itself
+  that semantic authority.
+- What is the first external mutation boundary? What strongest positive
+  postcondition or no-effect evidence permits a conclusion? After a lost response,
+  which outcomes remain possible and how can they be distinguished?
+- What failure or uncertainty occurred, separately from the handling policy?
+  Retry, timeout, cache, fallback, compensation, and cancellation can change
+  ordering, ownership, or effects; show those transitions in the model.
+- Who owns resources beyond the call, can ownership transfer, what keeps them
+  alive, and what exact proof permits destructive release? Unknown ownership
+  never becomes cleanup permission.
+- Which stale writer, race, replay, or crash trace could falsify the design?
+  State properties before deriving tests, such as “an action for generation G1
+  cannot mutate G2” or “read-only projection changes no acknowledgement.”
+
+Only then map behavior to the core capability, adapter, transaction/relation,
+command, projection, and focused tests. Provider substitution should preserve
+the semantic contract. If implementation changes that contract, correct the
+implementation or obtain a reviewed decision through the owning contract's
+versioning process; do not silently revise the model to fit the code.
+
+Review by asking focused questions with demonstrable answers: “Show the point
+that excludes a stale G1 writer”; “Which observation proves success after this
+timeout?”; “What must be re-proven before removing this resource?” A general
+request to find bugs or an unexplained approval is insufficient evidence for
+those assertions.
+
+Existing designs illustrate the method without needing new terminology:
+
+| Example | Model and review question |
+| --- | --- |
+| [#343 external effects](https://github.com/atqamz/hand/issues/343) | Separate durable intent, submission, uncertainty and observed postcondition. What proves one logical effect after a lost response? |
+| [#345 currentness](https://github.com/atqamz/hand/issues/345) | Model exact lineage and concurrent transitions. Which transaction rejects the stale action and allocates the ordinal? |
+| [#346 adapters](https://github.com/atqamz/hand/issues/346) | Separate capability meaning from provider mechanism. Which provider-owned identity and positive evidence support success, replay and cessation? |
+| [#347 read models](https://github.com/atqamz/hand/issues/347) | Separate truth families and bound projections. Can a read omit an unresolved obligation or mutate acknowledgement/currentness? |
+
+Keep concrete proposals in the existing issue-first workflow; no mandatory
+template, formal tool, graph framework, or new runtime abstraction is needed.
+Behavior stays beside implementation/help/tests, durable falsifiable invariants
+follow `docs/testing-invariants.md`, and specific stable architecture decisions
+follow `docs/adr/README.md`. Do not create a second invariant registry or a broad
+methodology ADR.
+
 ## Comments
 
 The default is no comment.

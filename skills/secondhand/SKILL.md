@@ -1,6 +1,6 @@
 ---
 name: secondhand
-description: Use when supervising a Secondhand (hand) fleet - setup and health, profiles and routing, planning and briefs, task lifecycle, the supervision loop, evidence-based evaluation, recovery, and preparing a bug report. Do not use this from inside a worker's own worktree.
+description: Use when supervising a Secondhand (hand) fleet - setup and health, profiles and routing, planning and briefs, task lifecycle, the supervision loop, evidence-based evaluation, recovery, curating Fleet knowledge, and preparing a bug report. Do not use this from inside a worker's own worktree.
 metadata:
   source: atqamz/hand
   managed-by: hand
@@ -62,6 +62,7 @@ for a routine session; each is designed to be fetched only when its phase applie
 - **references/supervision-loop.md** - the bounded control loop that ties dispatch, observation, and decision together across a task's life.
 - **references/evaluation.md** - deciding whether a worker's claim of done actually holds up against the brief.
 - **references/recovery.md** - `hand status` or `hand reconcile` shows an ambiguous, ownership-unprovable, or needs-repair condition.
+- **references/data-hygiene.md** - deliberately curating `data/operator.md` or `data/learnings.md`; prose edits never settle canonical work.
 - **references/bug-report.md** - `hand` itself misbehaves and the operator wants to file or review a report.
 
 ## What this skill never introduces

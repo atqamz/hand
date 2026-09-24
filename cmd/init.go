@@ -69,7 +69,8 @@ const noteArchiveSkeleton = "# Note archive\n"
 // dispatch is settled by the operator in the first supervising session (`hand config`), because a value
 // invented at bootstrap time is indistinguishable from one the operator chose.
 func newInitCmd() *cobra.Command {
-	return &cobra.Command{
+	var canonical bool
+	cmd := &cobra.Command{
 		Use:   "init [path]",
 		Short: "Create or refresh a fleet home; asks no questions",
 		Args:  usageArgs(cobra.MaximumNArgs(1)),
@@ -81,6 +82,9 @@ func newInitCmd() *cobra.Command {
 			homePath, err := resolveInitHome(cwd, args)
 			if err != nil {
 				return err
+			}
+			if canonical {
+				return runCanonicalInit(cmd, homePath)
 			}
 			handSourceTree, err := preflightInitTarget(homePath)
 			if err != nil {
@@ -195,6 +199,8 @@ func newInitCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&canonical, "canonical", false, "Create an exact canonical Fleet at a new path; never migrate existing state")
+	return cmd
 }
 
 // Also reports whether target is Hand's own source tree, which init adopts and every later

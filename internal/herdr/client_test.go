@@ -736,7 +736,7 @@ func TestPaneGetParsesAgentStatus(t *testing.T) {
 func TestWaitComposerEmptyReturnsWhenIdle(t *testing.T) {
 	writeFakeHerdr(t, herdrResponse("pane get", "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"idle\"}}}"))
 	c := NewClient()
-	if err := c.WaitComposerEmpty("wA:pB", time.Second); err != nil {
+	if err := c.WaitComposerEmpty("wA:pB", 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -744,7 +744,7 @@ func TestWaitComposerEmptyReturnsWhenIdle(t *testing.T) {
 func TestWaitComposerEmptyAcceptsRenderedIdlePromptWhileAgentStatusIsWorking(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "────────────────────────\n❯\n────────────────────────\n  Opus 5 | 3 shells\n"})
 	c := NewClient()
-	if err := c.WaitComposerEmpty("wA:pB", time.Second); err != nil {
+	if err := c.WaitComposerEmpty("wA:pB", 30*time.Second); err != nil {
 		t.Fatalf("got %v, want rendered idle prompt to override stale working status", err)
 	}
 }
@@ -752,7 +752,11 @@ func TestWaitComposerEmptyAcceptsRenderedIdlePromptWhileAgentStatusIsWorking(t *
 func TestWaitComposerEmptyTimesOutWhileWorking(t *testing.T) {
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"result\":{\"pane\":{\"pane_id\":\"wA:pB\",\"agent_status\":\"working\"}}}"}, faketool.HerdrResponse{Command: "pane read", Stdout: "working...\nesc to interrupt (15s)\n  3 shells\n"})
 	c := NewClient()
-	err := c.WaitComposerEmpty("wA:pB", time.Second)
+	// Permit the real fake-tool subprocesses to finish, then exercise the expired
+	// logical deadline after that observation. Public deadline behavior is covered below.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err := c.waitComposerEmpty(ctx, "wA:pB", time.Second, time.Now().Add(-time.Second))
 	if !errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
 	}
@@ -766,7 +770,7 @@ func TestWaitComposerEmptyPaneFailureIsNotABusyTimeout(t *testing.T) {
 	// tell this apart from the retryable timeout above.
 	writeFakeHerdr(t, faketool.HerdrResponse{Command: "pane get", Stdout: "{\"id\":\"cli:1\",\"error\":{\"code\":\"pane_not_found\",\"message\":\"no such pane\"}}", Exit: 1})
 	c := NewClient()
-	err := c.WaitComposerEmpty("wA:pB", time.Second)
+	err := c.WaitComposerEmpty("wA:pB", 30*time.Second)
 	if err == nil || errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want a non-timeout pane failure", err)
 	}
@@ -780,6 +784,10 @@ func TestWaitComposerEmptyHonorsTimeoutWhenPaneGetHangs(t *testing.T) {
 	err := c.WaitComposerEmpty("wA:pB", 25*time.Millisecond)
 	if !errors.Is(err, ErrComposerBusyTimeout) {
 		t.Fatalf("got err %v, want ErrComposerBusyTimeout", err)
+	}
+	var busy *ComposerBusyError
+	if !errors.As(err, &busy) || busy.AgentStatus != "" || busy.ShellsKnown {
+		t.Fatalf("unobserved hung pane gained fabricated diagnostics: %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("WaitComposerEmpty took %s after pane get hung", elapsed)

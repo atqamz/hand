@@ -256,6 +256,10 @@ func canonicalV19PlanWriterFixture(t *testing.T, storedRevision string) canonica
 	if storedRevision == "" {
 		storedRevision = revision
 	}
+	observed, err := observeCanonicalV19Project(home, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	db, err := open(Path(home))
 	if err != nil {
@@ -263,7 +267,8 @@ func canonicalV19PlanWriterFixture(t *testing.T, storedRevision string) canonica
 	}
 	if _, err := db.Exec(`INSERT INTO workspace_binding(
 		id,project_id,ordinal,repository_locator,repository_identity_digest,common_git_dir,physical_identity_digest,revision,established_at,superseded_at
-	) VALUES('workspace-1','project-1',1,'projects/demo','repo-digest-1','projects/demo/.git','physical-digest-1',?,'2026-09-04T07:59:30Z','')`, storedRevision); err != nil {
+	) VALUES('workspace-1','project-1',1,'projects/demo',?,'projects/demo/.git',?,?,'2026-09-04T07:59:30Z','')`,
+		observed.RepositoryIdentity, observed.PhysicalIdentity, storedRevision); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
 	}
@@ -296,7 +301,7 @@ func canonicalV19PlanWriterInput(id string) CanonicalV19PlanCreateInput {
 
 func canonicalV19PlanWriterGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command := exec.Command("git", append([]string{"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false", "-C", dir}, args...)...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)

@@ -62,6 +62,7 @@ func newFleetCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newFleetHerdrCmd())
 	cmd.AddCommand(newFleetPruneCmd())
+	cmd.AddCommand(newCanonicalFleetSnapshotCmd())
 	return cmd
 }
 

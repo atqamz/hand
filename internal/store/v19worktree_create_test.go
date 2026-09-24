@@ -268,7 +268,11 @@ func TestEstablishCanonicalV19WorktreeBindingAliasConflictRollsBackSuccess(t *te
 		"2026-09-05T15:01:00Z", "submit-evidence-1"); err != nil {
 		t.Fatal(err)
 	}
-	evidence := canonicalV19WorktreeBindingEvidence(request, "physical-digest-1")
+	observed, err := observeCanonicalV19Project(fixture.Home, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := canonicalV19WorktreeBindingEvidence(request, observed.PhysicalIdentity)
 	err = EstablishCanonicalV19WorktreeBinding(context.Background(), fixture.Home, evidence)
 	if !errors.Is(err, ErrCanonicalV19WorktreeCreateConflict) {
 		t.Fatalf("alias binding error = %v, want %v", err, ErrCanonicalV19WorktreeCreateConflict)

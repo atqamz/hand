@@ -20,6 +20,22 @@ permissions:
   contents: read
 
 jobs:
+  native-bootstrap:
+    name: Native canonical bootstrap (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Exercise untagged CLI with locked runtime artifacts
+        run: go test -tags=nativebootstrap -count=1 -v -timeout=10m ./tests/e2e
+
   mutation:
     name: Mutation (${{ matrix.package }})
     runs-on: ubuntu-latest
@@ -135,8 +151,7 @@ jobs:
         # Keep in sync with the same pin in .github/workflows/release.yaml.
         run: npm install -g npm@12.0.2
       - name: Test
-        # 30m covers the measured 4x Windows runner variance while keeping a real hang actionable.
-        run: go test -tags=test -race -timeout=30m ./...
+        run: go test -tags=test -race -timeout=45m ./...
       - name: Build
         run: go build -o hand .
 

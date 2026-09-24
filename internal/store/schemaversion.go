@@ -290,10 +290,12 @@ func schemaVersionError(current, latest int) error {
 		current, latest, ErrSchemaNewer)
 }
 
-// The first statement Open runs against the database: a version newer than this binary
-// knows is refused before the baseline `schema` even executes, so an old hand never
-// guesses at a layout it does not understand.
+// Family and version checks precede every migration: canonical v19 and legacy
+// migration 19 share a number, but never a writable schema contract.
 func (db *DB) migrateSchema() error {
+	if err := validateLegacySchemaFamily(db.sql); err != nil {
+		return err
+	}
 	current, err := db.schemaVersion()
 	if err != nil {
 		return err
@@ -311,6 +313,9 @@ func (db *DB) migrateSchema() error {
 			return fmt.Errorf("lock schema migration: %w", err)
 		}
 		defer unlock()
+		if err := validateLegacySchemaFamily(db.sql); err != nil {
+			return err
+		}
 
 		// Re-read: another process may have finished the migration while this one
 		// waited for the lock.

@@ -305,7 +305,10 @@ func copyNpmPackagingFixture(t *testing.T) npmFixture {
 func writeScratchGitConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "gitconfig")
-	content := "[user]\n\tname = test\n\temail = test@example.invalid\n[commit]\n\tgpgsign = false\n"
+	// Commit may trigger maintenance in this full-repository fixture. Keep its
+	// child work synchronous so the waited Git process owns the entire lifetime.
+	content := "[user]\n\tname = test\n\temail = test@example.invalid\n[commit]\n\tgpgsign = false\n" +
+		"[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

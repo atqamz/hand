@@ -15,17 +15,18 @@ import (
 const (
 	canonicalV19SchemaVersion = 19
 
-	canonicalV19GzipBytes  = 11636
-	canonicalV19DDLBytes   = 109332
-	canonicalV19GzipSHA256 = "7899c0854766b3eb479e69a6c23b6061adbcb4ce02fcf38eae4dde0af6c06d28"
-	canonicalV19DDLSHA256  = "6d405f3a454ff92e91fdb5b574e52fedb3969d0021fb4c0d47e2f92a88d9114b"
+	canonicalV19GzipBytes  = 12360
+	canonicalV19DDLBytes   = 112243
+	canonicalV19GzipSHA256 = "b841d5cd68f66595ca3954a09a1f08a47752a8d57b1977916d956f40188fcd7b"
+	canonicalV19DDLSHA256  = "4b3f4bf99a241a728c01c0de71e92fade2decee75bb3671fcef80cf329abc19f"
 
-	canonicalV19SchemaFingerprint        = "47b6d208b9fffb29e7b0d9f64d30d468c5c5f214b3e5e91313d81e66542df39e"
+	canonicalV19SchemaFingerprint        = "77c31959a7b47fd8d4035d4fcf9f425b9712b16eb413572b4af9c46d373beae8"
+	canonicalV19PriorSchemaFingerprintV3 = "47b6d208b9fffb29e7b0d9f64d30d468c5c5f214b3e5e91313d81e66542df39e"
 	canonicalV19PriorSchemaFingerprintV2 = "067f7ea28694f3dadf9cbc8e5b6e50fe42e77f7b36aaeb33fc121ef9772a1c8e"
 	canonicalV19PriorSchemaFingerprintV1 = "8726f0875845d610553928e6bb56fc5566019a6667d81e29a94ee3d3d45ef3b8"
-	canonicalV19TableCount               = 56
+	canonicalV19TableCount               = 57
 	canonicalV19IndexCount               = 39
-	canonicalV19TriggerCount             = 172
+	canonicalV19TriggerCount             = 175
 )
 
 var ErrCanonicalV19SchemaMismatch = errors.New("canonical v19 schema does not match locked #344 contract")
@@ -106,7 +107,7 @@ func createCanonicalV19Schema(sqlDB *sql.DB) error {
 
 // Distinguishes canonical v19 from the legacy ladder by schema family, not the
 // overlapping numeric PRAGMA user_version. Legacy migration 19 stays legacy.
-func canonicalV19Candidate(sqlDB *sql.DB) (bool, error) {
+func canonicalV19Candidate(sqlDB sqliteQueryer) (bool, error) {
 	var canonicalMarkers int
 	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sqlite_schema
 		WHERE type = 'table' AND name IN ('plan', 'external_operation', 'worker_input', 'task_hold', 'attempt_backoff', 'repair')`).Scan(&canonicalMarkers); err != nil {
@@ -139,7 +140,7 @@ func canonicalV19Candidate(sqlDB *sql.DB) (bool, error) {
 	return legacyMeta == 0, nil
 }
 
-func validateCanonicalV19Schema(sqlDB *sql.DB) error {
+func validateCanonicalV19Schema(sqlDB sqliteQueryer) error {
 	var foreignKeys int
 	if err := sqlDB.QueryRow(`PRAGMA foreign_keys`).Scan(&foreignKeys); err != nil {
 		return fmt.Errorf("inspect canonical v19 foreign keys: %w", err)
@@ -186,7 +187,8 @@ func validateCanonicalV19Schema(sqlDB *sql.DB) error {
 		return err
 	}
 	if identity.Fingerprint != canonicalV19SchemaFingerprint {
-		if identity.Fingerprint == canonicalV19PriorSchemaFingerprintV2 ||
+		if identity.Fingerprint == canonicalV19PriorSchemaFingerprintV3 ||
+			identity.Fingerprint == canonicalV19PriorSchemaFingerprintV2 ||
 			identity.Fingerprint == canonicalV19PriorSchemaFingerprintV1 {
 			return canonicalV19Mismatch("prior v19 fingerprint %s is incompatible with the current exact contract; preserve evidence and create a fresh target", identity.Fingerprint)
 		}

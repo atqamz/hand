@@ -9,9 +9,9 @@ const legacyV18CutoverRepositoryIdentityDomain = "hand:v19-cutover:repository-id
 const legacyV18CutoverCommonGitDirIdentityDomain = "hand:v19-cutover:common-git-dir-identity:v1"
 const legacyV18CutoverSemanticSourceVersion = 18
 const legacyV18CutoverSourceContract = "v0.7.2"
-const canonicalV19AuthorityCommit = "baabdc4db0135f8e008372d6f96b6f86339cd2a8"
-const canonicalV19AuthorityDDLPath = "docs/architecture/v19-v3.sql.gz"
-const canonicalV19AuthorityDDLGitBlobSHA1 = "3308ba8650f81703585a40eb1088b8e0dd54dfa1"
+const canonicalV19AuthorityCommit = "9bc350a99e0f13a70e2c55fa8a97da37d3d5a1c6"
+const canonicalV19AuthorityDDLPath = "docs/architecture/v19-v4.sql.gz"
+const canonicalV19AuthorityDDLGitBlobSHA1 = "716fd9c9b20ed9597ec382d70c8880dd3a7b82e2"
 
 // LegacyV18CutoverManifestInput is positive import evidence that may be made
 // durable after final quiescence and before the one-way source freeze.

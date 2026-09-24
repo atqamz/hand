@@ -289,15 +289,16 @@ func startHandBackgroundEnv(t *testing.T, home string, extraEnv []string, args .
 	stderr := &syncBuffer{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	prepareBackgroundProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start hand %v: %v", args, err)
 	}
 	b := &backgroundHand{cmd: cmd, args: args, stdout: stdout, stderr: stderr}
 	t.Cleanup(func() {
-		if b.reaping {
+		if b.reaping || cmd.ProcessState != nil {
 			return
 		}
-		_ = cmd.Process.Kill()
+		stopBackgroundProcessTree(cmd)
 		_ = cmd.Wait()
 	})
 	return b
@@ -483,6 +484,9 @@ func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, becaus
 		return got
 	case <-time.After(timeout):
 		_ = b.cmd.Process.Kill()
+		// Cleanup skips an already-owned Wait. Join it before Fatal starts temp
+		// directory teardown, just as the ordinary background cleanup path does.
+		<-done
 		t.Fatalf("hand watch did not exit within %s of %s; stdout=%q stderr=%q", timeout, because, b.stdout.String(), b.stderr.String())
 		return invocation{}
 	}
@@ -913,7 +917,8 @@ func isolateGitConfig(t *testing.T) string {
 	}
 	cfg := filepath.Join(t.TempDir(), "gitconfig")
 	content := "[user]\n\tname = hand-e2e\n\temail = hand-e2e@example.invalid\n" +
-		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" +
+		"[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"
 	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

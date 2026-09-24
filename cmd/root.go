@@ -23,6 +23,9 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		Short:   "You lead. hand runs the crew.",
 		Version: info.Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if canonical, _ := cmd.Flags().GetBool("canonical"); cmd.Name() == "init" && canonical {
+				return canonicalSupervisorPreflight(cmd, args)
+			}
 			if cmd.Name() == "build-info" || cmd.Name() == "adopt" || cmd.CommandPath() == "hand runtime herdr-server" {
 				return nil
 			}
@@ -32,6 +35,12 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 			if fleetHome, err := home.Resolve(); err == nil {
 				startupOverview := cmd.Name() == "hand" || cmd.CommandPath() == "hand session start"
 				readOnly := isReadOnlyCommand(cmd)
+				if cmd.Name() != "init" && !startupOverview && !readOnly {
+					// Legacy startup can rewrite config and cache files before opening the store.
+					if err := store.ValidateInitTarget(fleetHome); err != nil {
+						return asPrecondition(err)
+					}
+				}
 				if cmd.Name() != "init" && cmd.Name() != "status" && !startupOverview && !readOnly {
 					if _, statErr := os.Stat(store.Path(fleetHome)); os.IsNotExist(statErr) {
 						if err := project.Migrate(fleetHome); err != nil {
@@ -44,7 +53,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 						return err
 					}
 				}
-				if cmd.Name() != "update" && !startupOverview && !readOnly {
+				if cmd.Name() != "update" && cmd.Name() != "init" && !startupOverview && !readOnly {
 					if notice := selfupdate.CheckNoticeForBuild(fleetHome, selfupdate.Repo, info); notice != "" {
 						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), notice)
 					}
@@ -76,6 +85,10 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 		return &ExitError{Err: err, Code: 2}
 	})
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newCutoverCmd())
+	root.AddCommand(newTaskCmd())
+	root.AddCommand(newPlanCmd())
+	root.AddCommand(newDecisionCmd())
 	root.AddCommand(newBuildInfoCmd(info))
 	root.AddCommand(newAdoptCmd())
 	root.AddCommand(newConfigCmd())
