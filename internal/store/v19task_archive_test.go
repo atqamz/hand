@@ -407,24 +407,43 @@ func TestArchiveCanonicalV19PlanlessTerminalTaskReplaysExactFact(t *testing.T) {
 	}
 }
 
-func TestArchiveCanonicalV19TaskRefusesPlanfulTerminalLineageWithoutObservation(t *testing.T) {
+func TestArchiveCanonicalV19TaskAllowsTerminalLineageWithoutEffectsOrResources(t *testing.T) {
 	home := canonicalV19TaskArchiveTerminalFixture(t)
 	input := CanonicalV19TaskArchiveInput{
 		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
 		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
 		EvidenceDigest: canonicalV19TaskArchiveDigest,
 	}
-	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err == nil {
-		t.Fatal("planful Task archived without resource observation")
+	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err != nil {
+		t.Fatal(err)
 	}
 	db := canonicalV19TaskArchiveOpen(t, home)
 	defer func() { _ = db.Close() }()
 	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM task_archive`).Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive WHERE task_id='task-1'`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("archive facts after refusal = %d, want zero", count)
+	if count != 1 {
+		t.Fatalf("resource-free terminal lineage archive facts = %d, want one", count)
+	}
+}
+
+func TestArchiveCanonicalV19TaskRefusesResourceLineageWithoutObservation(t *testing.T) {
+	fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
+	db := canonicalV19TaskArchiveOpen(t, fixture.Home)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE attempt SET lifecycle='failed',terminal_at='2026-09-15T01:00:00Z' WHERE id='attempt-1';
+		UPDATE plan SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:01Z' WHERE id='plan-root';
+		UPDATE task SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:02Z' WHERE id='task-1'`); err != nil {
+		t.Fatal(err)
+	}
+	input := CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}
+	if err := ArchiveCanonicalV19Task(context.Background(), fixture.Home, input); err == nil {
+		t.Fatal("resource lineage archived without external observation")
 	}
 }
 

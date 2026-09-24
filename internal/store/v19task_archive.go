@@ -56,11 +56,17 @@ func ArchiveCanonicalV19Task(ctx context.Context, homeDir string, input Canonica
 		return canonicalV19TaskArchiveWriteError("read exact archive", err)
 	}
 	var lifecycle string
-	var planExists, operationExists bool
+	var operationExists, worktreeExists, sessionExists, executorExists bool
 	err = tx.QueryRowContext(ctx, `SELECT t.lifecycle,
-		EXISTS(SELECT 1 FROM plan p WHERE p.task_id=t.id),
-		EXISTS(SELECT 1 FROM external_operation o WHERE o.task_id=t.id)
-		FROM task t WHERE t.id=?`, input.TaskID).Scan(&lifecycle, &planExists, &operationExists)
+		EXISTS(SELECT 1 FROM external_operation o WHERE o.task_id=t.id),
+		EXISTS(SELECT 1 FROM attempt_worktree_binding w
+			JOIN attempt a ON a.id=w.attempt_id JOIN plan p ON p.id=a.plan_id WHERE p.task_id=t.id),
+		EXISTS(SELECT 1 FROM session_binding s
+			JOIN attempt a ON a.id=s.attempt_id JOIN plan p ON p.id=a.plan_id WHERE p.task_id=t.id),
+		EXISTS(SELECT 1 FROM executor_binding e
+			JOIN attempt a ON a.id=e.attempt_id JOIN plan p ON p.id=a.plan_id WHERE p.task_id=t.id)
+		FROM task t WHERE t.id=?`, input.TaskID).Scan(
+		&lifecycle, &operationExists, &worktreeExists, &sessionExists, &executorExists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: Task %q is missing", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
@@ -70,7 +76,7 @@ func ArchiveCanonicalV19Task(ctx context.Context, homeDir string, input Canonica
 	if lifecycle != "satisfied" && lifecycle != "superseded" && lifecycle != "abandoned" {
 		return fmt.Errorf("%w: Task %q is not terminal", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
-	if planExists || operationExists {
+	if operationExists || worktreeExists || sessionExists || executorExists {
 		return fmt.Errorf("%w: Task %q has resource or effect lineage requiring external observation", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO task_archive(
