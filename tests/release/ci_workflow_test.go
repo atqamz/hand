@@ -49,7 +49,7 @@ func TestCIPushCannotPublish(t *testing.T) {
 	}
 }
 
-func TestCIFastPRKeepsFullReleaseAndMainMatrix(t *testing.T) {
+func TestCILeanPRKeepsExactMainAndReleasePlatformMatrix(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestCIFastPRKeepsFullReleaseAndMainMatrix(t *testing.T) {
 		t.Fatalf("test matrix = %#v, want event-scoped expression", document.Jobs["test"].Strategy.Matrix.OS)
 	}
 	for _, part := range []string{
-		"github.event_name == 'pull_request'",
-		"github.head_ref != 'release-please--branches--main'",
+		"github.event_name != 'pull_request'",
+		"github.head_ref == 'release-please--branches--main'",
 		`'["ubuntu-latest"]'`,
 		"ubuntu-24.04-arm", "macos-latest", "macos-15-intel", "windows-latest",
 	} {
@@ -81,10 +81,20 @@ func TestCIFastPRKeepsFullReleaseAndMainMatrix(t *testing.T) {
 			t.Errorf("test matrix %q missing %q", matrix, part)
 		}
 	}
+	platformFull := "github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main'"
 	for _, job := range []string{"e2e-windows", "e2e-macos", "e2e-macos-intel"} {
-		if got := document.Jobs[job].If; got != "github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main'" {
-			t.Errorf("%s if = %q, want main and release PR", job, got)
+		if got := document.Jobs[job].If; got != platformFull {
+			t.Errorf("%s if = %q, want exact main, release PR, and manual", job, got)
 		}
+	}
+	if got := document.Jobs["native-bootstrap"].If; got != platformFull {
+		t.Errorf("native-bootstrap if = %q, want exact main, release PR, and manual", got)
+	}
+	if got := document.Jobs["mutation"].If; got != "github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.head_ref == 'release-please--branches--main')" {
+		t.Errorf("mutation if = %q, want release PR and manual only", got)
+	}
+	if got := document.Jobs["nix-build"].If; got != "github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main' || github.event.pull_request.user.login == 'dependabot[bot]'" {
+		t.Errorf("nix-build if = %q, want main, release, manual, and Dependabot PR", got)
 	}
 	if got := document.Jobs["e2e"].If; got != "" {
 		t.Errorf("Linux E2E if = %q, want PR and main", got)
@@ -95,7 +105,7 @@ func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) 
 	ciJobs := loadWorkflowJobs(t, "ci.yaml")
 	cheap, ok := ciJobs["mutation"]
 	if !ok {
-		t.Fatal("ci workflow has no always-on mutation job")
+		t.Fatal("ci workflow has no release/manual mutation job")
 	}
 	expensive, ok := loadWorkflowJobs(t, "mutation-expensive.yaml")["mutation-expensive"]
 	if !ok {
@@ -128,7 +138,7 @@ func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) 
 		"./internal/completion",
 	} {
 		if !strings.Contains(ciWorkflow, packagePath) {
-			t.Errorf("always-on mutation job does not name %s", packagePath)
+			t.Errorf("release/manual mutation job does not name %s", packagePath)
 		}
 	}
 	for _, packagePath := range []string{"./internal/store", "./internal/runtime"} {
