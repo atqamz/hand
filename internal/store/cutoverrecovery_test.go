@@ -186,7 +186,7 @@ func TestInspectLegacyV18CutoverRecoveryExactLegacySourceOutranksLooseCandidate(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Disposition != legacyV18CutoverRecoveryLegacySource {
+	if state.Disposition != legacyV18CutoverRecoveryLegacySource || state.Reason != ErrLegacyV18AutomaticCutoverUnavailable.Error() {
 		t.Fatalf("legacy source recovery state = %#v", state)
 	}
 }

@@ -1,9 +1,49 @@
 package store
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"testing"
 )
+
+func TestAcquireLegacyV18CutoverGuardRefusesExactV072SourceBeforeMutation(t *testing.T) {
+	home := createLegacyV18CutoverTestSource(t)
+	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
+	before, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateBefore, err := os.ReadDir(Dir(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	guard, err := AcquireLegacyV18CutoverGuard(t.Context(), home)
+	if guard != nil {
+		_ = guard.Close()
+		t.Fatal("automatic cutover acquired a guard for exact v0.7.2")
+	}
+	if !errors.Is(err, ErrLegacyV18AutomaticCutoverUnavailable) {
+		t.Fatalf("automatic cutover error = %v, want exact-source refusal", err)
+	}
+	after, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateAfter, err := os.ReadDir(Dir(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) || len(stateBefore) != len(stateAfter) {
+		t.Fatal("refused automatic cutover changed source or state entries")
+	}
+	for index := range stateBefore {
+		if stateBefore[index].Name() != stateAfter[index].Name() {
+			t.Fatal("refused automatic cutover changed state entries")
+		}
+	}
+}
 
 func TestLegacyV18CutoverGuardObservationPlanIsCopiedAndRequiresHeldGuard(t *testing.T) {
 	guard := &LegacyV18CutoverGuard{

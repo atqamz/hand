@@ -8,6 +8,8 @@ import (
 // ErrLegacyV18CutoverGuardClosed means provider observation no longer owns the required source guards.
 var ErrLegacyV18CutoverGuardClosed = errors.New("legacy v18 cutover guard is closed")
 
+var ErrLegacyV18AutomaticCutoverUnavailable = errors.New("automatic v0.7.2 cutover is unavailable: a legacy project writer can mutate after source freeze")
+
 // LegacyV18CutoverProjectObservation is one registered legacy Project that provider quiescence must verify.
 type LegacyV18CutoverProjectObservation struct {
 	ProjectID string
@@ -59,8 +61,11 @@ type LegacyV18CutoverGuard struct {
 	sourceHeld bool
 }
 
-// AcquireLegacyV18CutoverGuard acquires the landed 5A2/5A3 source guards and derives the durable observation plan.
-func AcquireLegacyV18CutoverGuard(ctx context.Context, homeDir string) (*LegacyV18CutoverGuard, error) {
+func AcquireLegacyV18CutoverGuard(_ context.Context, _ string) (*LegacyV18CutoverGuard, error) {
+	return nil, ErrLegacyV18AutomaticCutoverUnavailable
+}
+
+func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string) (*LegacyV18CutoverGuard, error) {
 	gate, err := acquireLegacyV18CutoverGate(ctx, homeDir)
 	if err != nil {
 		return nil, err

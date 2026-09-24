@@ -108,7 +108,10 @@ func inspectLegacyV18CutoverRecoveryWithActive(homeDir string) (legacyV18Cutover
 	_, legacyErr := validateLegacyV18CutoverSource(sqlDB)
 	closeErr := sqlDB.Close()
 	if legacyErr == nil && closeErr == nil {
-		return legacyV18CutoverRecoveryState{Disposition: legacyV18CutoverRecoveryLegacySource}, nil
+		return legacyV18CutoverRecoveryState{
+			Disposition: legacyV18CutoverRecoveryLegacySource,
+			Reason:      ErrLegacyV18AutomaticCutoverUnavailable.Error(),
+		}, nil
 	}
 	if legacyErr == nil {
 		legacyErr = closeErr
