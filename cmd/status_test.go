@@ -2904,6 +2904,41 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	}
 }
 
+func TestStatusFleetSharesLiveVerdictForSamePR(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	countFile := filepath.Join(t.TempDir(), "calls")
+	id := "01M38X1MW6N04H8E2XQ31CCV8R"
+	row := "  running  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id + "  " + gateRunTestPR + "\n"
+	verdict := "run_id: \"" + id + "\"\nlifecycle: running\npr: \"" + gateRunTestPR + "\"\nhead_sha: " + strings.Repeat("a", 40) + "\nverdict: checks-passed\nbasis: checks\nreason: \"\"\n"
+	faketool.NoMistakes{Runs: row, Stdout: verdict, CountLog: countFile}.Install(t, faketool.Bin(t))
+	for _, taskID := range []string{"task-1", "task-2", "task-3"} {
+		if err := state.Write(home, state.Task{ID: taskID, Project: "gated", Kind: state.KindShip,
+			PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+			t.Fatal(err)
+		}
+		writeDoneReport(t, home, taskID, "PR "+gateRunTestPR+" checks green")
+	}
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.String(), "gate-unknown") || strings.Contains(out.String(), "gate-absent") {
+		t.Fatalf("status = %q, want one shared checks-passed verdict", out.String())
+	}
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 2 {
+		t.Fatalf("no-mistakes ran %d times for one PR, want runs and one CI verdict", got)
+	}
+}
+
 // Writes a data/projects.md line the registry parser rejects, so project.List and project.Find both
 // fail on this home.
 func writeBrokenRegistry(t *testing.T, home string) {

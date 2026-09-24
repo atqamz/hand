@@ -512,6 +512,7 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 		projectByName[p.Name] = p
 	}
 	runPRs := newGateRunReader(ctx)
+	gateObservations := make(map[[2]string]ghutil.ObservationState)
 	bounds, err := parkedBoundsFromConfig(home)
 	if err != nil {
 		return nil, nil, nil, err
@@ -531,7 +532,15 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 			v.holdBlocker = blockers[hold.BlockedOn]
 		}
 		p, registered := projectByName[t.Project]
-		v.gateObserved = gateRunObservation(ctx, home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
+		if gateRunApplies(t, v.reportedState == state.ReportDone) {
+			key := [2]string{t.Project, t.PR}
+			observed, ok := gateObservations[key]
+			if !ok {
+				observed = gateRunObservation(ctx, home, t, true, p, registered, runPRs)
+				gateObservations[key] = observed
+			}
+			v.gateObserved = observed
+		}
 		views = append(views, v)
 	}
 	return views, holds, blockers, nil
