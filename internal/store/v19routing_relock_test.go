@@ -1,11 +1,95 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
+
+func TestCanonicalV19RoutingRelockRejectsNULHiddenOverflow(t *testing.T) {
+	db := candidateV19RoutingRelockDB(t)
+	for _, field := range []string{"profile_override", "harness_override", "model_override", "effort_override"} {
+		t.Run(field, func(t *testing.T) {
+			query := fmt.Sprintf(`INSERT INTO attempt(id,plan_id,ordinal,worker_harness_ref,session_adapter_ref,created_at,%s)
+				VALUES('attempt-nul','plan-root',1,'harness','herdr','2026-09-24T00:00:00Z',?)`, field)
+			if _, err := db.Exec(query, strings.Repeat("x", 512)+"\x00tail"); err == nil {
+				t.Fatal("NUL-hidden oversized override accepted")
+			}
+		})
+	}
+	if _, err := db.Exec(`INSERT INTO attempt(id,plan_id,ordinal,worker_harness_ref,session_adapter_ref,created_at)
+		VALUES('attempt-nul','plan-root',1,'harness','herdr','2026-09-24T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	query := `INSERT INTO attempt_fallback_step(attempt_id,ordinal,rejected_profile_ref,rejected_harness_ref,
+		rejected_model_ref,rejected_effort_ref,rejection_reason,observation_digest,observed_at)
+		VALUES('attempt-nul',1,?,?,?,?, 'quota-exhausted',?, '2026-09-24T00:00:00Z')`
+	for _, field := range []string{"rejected_profile_ref", "rejected_harness_ref", "rejected_model_ref", "rejected_effort_ref", "observation_digest"} {
+		t.Run(field, func(t *testing.T) {
+			value := strings.Repeat("x", 512) + "\x00tail"
+			if field == "observation_digest" {
+				value = strings.Repeat("a", 64) + "\x00tail"
+			}
+			values := map[string]string{
+				"rejected_profile_ref": "profile", "rejected_harness_ref": "harness",
+				"rejected_model_ref": "model", "rejected_effort_ref": "effort",
+				"observation_digest": strings.Repeat("a", 64),
+			}
+			values[field] = value
+			if _, err := db.Exec(query, values["rejected_profile_ref"], values["rejected_harness_ref"],
+				values["rejected_model_ref"], values["rejected_effort_ref"], values["observation_digest"]); err == nil {
+				t.Fatal("NUL-hidden fallback value accepted")
+			}
+		})
+	}
+	if _, err := db.Exec(query, strings.Repeat("é", 512), "harness", "model", "effort", strings.Repeat("a", 64)); err != nil {
+		t.Fatalf("valid 512-character fallback rejected: %v", err)
+	}
+}
+
+func candidateV19RoutingRelockDB(t *testing.T) *sql.DB {
+	t.Helper()
+	compressed := readV19ManifestArtifact(t, "docs/architecture/v19-v5.sql.gz")
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ddl, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := open(Path(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(string(ddl)); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{
+		`INSERT INTO fleet(singleton,fleet_id,created_at) VALUES(1,'fleet-1','2026-09-24T00:00:00Z')`,
+		`INSERT INTO project(id,fleet_id,ordinal,display_name,created_at) VALUES('project-1','fleet-1',1,'project','2026-09-24T00:00:00Z')`,
+		`INSERT INTO workspace_binding(id,project_id,ordinal,repository_locator,repository_identity_digest,common_git_dir,physical_identity_digest,revision,established_at)
+		 VALUES('workspace-1','project-1',1,'repo','repo-digest','repo/.git','physical-digest','revision','2026-09-24T00:00:00Z')`,
+		`INSERT INTO policy_revision(id,project_id,ordinal,policy_digest,created_at) VALUES('policy-1','project-1',1,'policy-digest','2026-09-24T00:00:00Z')`,
+		`INSERT INTO task(id,project_id,ordinal,goal,goal_digest,created_at) VALUES('task-1','project-1',1,'goal','goal-digest','2026-09-24T00:00:00Z')`,
+		`INSERT INTO plan(id,task_id,ordinal,lineage_kind,intent,judgment,basis,brief,brief_digest,workspace_binding_id,policy_revision_id,created_at)
+		 VALUES('plan-root','task-1',1,'root','execute','bounded','basis','brief','brief-digest','workspace-1','policy-1','2026-09-24T00:00:00Z')`,
+	} {
+		if _, err := db.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
+}
 
 // #323/#344: exact request/final provenance and fallback history must survive
 // restart and rollback on the pinned Go driver, without authorizing execution.
