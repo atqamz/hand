@@ -93,6 +93,7 @@ func TestCanonicalV19Revision5InputMatchesArtifacts(t *testing.T) {
 	for _, field := range []string{
 		"source base commit: e85388d745363f8b64c4fdc63527c65cc7664322",
 		"source base tree: 0993364052b201f35dbeb88f9944613e1f95a71c",
+		"candidate content commit: 97d9f7c045a0060cac05a085221d91cb7fd661e8",
 		"DDL: docs/architecture/v19-v5.sql.gz",
 		"Git blob: 71b0a173f8838d86bf28c3e2d7ec999f1cf3b266",
 		"stored gzip bytes: 12431",

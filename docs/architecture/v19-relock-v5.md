@@ -5,6 +5,7 @@ This review input corrects the revision-4 SQLite `length(TEXT)` NUL bypass in At
 ## Exact candidate
 
 - Source base: #601 `e85388d745363f8b64c4fdc63527c65cc7664322`, tree `0993364052b201f35dbeb88f9944613e1f95a71c`
+- Candidate content commit: `97d9f7c045a0060cac05a085221d91cb7fd661e8`
 - DDL: `v19-v5.sql.gz`
 - Reconstructed bytes: 112635
 - Reconstructed SHA-256: `e89280ddb3751142078d27e1f4203d45462cc5c9c03c04277948f090e4521a66`
@@ -32,4 +33,4 @@ The compressed artifacts were generated from uncompressed SQL and Python sources
 
 ## Authority boundary
 
-Revision 4 remains the current embedded runtime schema and the content named by commit `9bc350a99e0f13a70e2c55fa8a97da37d3d5a1c6`. Revision 5 has no content commit or independent #344 disposition yet. Its DDL SHA-256 and fingerprint differ from revision 4, so equal `user_version` does not permit upgrade or overwrite. A consumer switch must bind the exact revised content commit, DDL and proof artifacts, cutover target identity, and review-input manifest together after review. The permanent manifest must name the actual landed main anchor separately. No placeholder commit or revision-4 commit may stand in for revision-5 content.
+Revision 4 remains the current embedded runtime schema and the content named by commit `9bc350a99e0f13a70e2c55fa8a97da37d3d5a1c6`. Revision 5 content is reachable at `97d9f7c045a0060cac05a085221d91cb7fd661e8`, but it has no independent #344 disposition yet. Its DDL SHA-256 and fingerprint differ from revision 4, so equal `user_version` does not permit upgrade or overwrite. A consumer switch must bind that exact revised content commit, DDL and proof artifacts, cutover target identity, and review-input manifest together after review. The permanent manifest must name the actual landed main anchor separately. No placeholder commit or revision-4 commit may stand in for revision-5 content.
