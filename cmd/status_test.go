@@ -2633,7 +2633,7 @@ func writeDoneReport(t *testing.T, home, id, note string) {
 
 const gateRunTestPR = "https://github.com/atqamz/hand/pull/120"
 
-func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
+func TestStatusFleetFlagsShippedPRWithUnknownGateRun(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2653,12 +2653,12 @@ func TestStatusFleetFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-absent") {
-		t.Fatalf("flags = %v, want a gate marker naming the shipped PR never ran through the gate", got)
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unknown") {
+		t.Fatalf("flags = %v, want unknown until current provider readiness is qualified", got)
 	}
 }
 
-func TestStatusFleetJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
+func TestStatusFleetJSONFlagsShippedPRWithUnknownGateRun(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2678,17 +2678,17 @@ func TestStatusFleetJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"gate_observation": "absent"`) {
-		t.Fatalf("got %q, want gate_observation naming absent", out.String())
+	if !strings.Contains(out.String(), `"gate_observation": "unknown"`) {
+		t.Fatalf("got %q, want gate_observation naming unknown", out.String())
 	}
 }
 
-func TestStatusFleetNoGateMarkerWhenRunFound(t *testing.T) {
+func TestStatusFleetDoesNotTreatRecordedRunAsReady(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  "+gateRunTestPR+"\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  running    97-gate-visibility   758d72bf  2026-08-03 04:29  id:01M38X1MW6N04H8E2XQ31CCV8R  "+gateRunTestPR+"\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -2703,8 +2703,8 @@ func TestStatusFleetNoGateMarkerWhenRunFound(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "gate-") {
-		t.Fatalf("got %q, want no gate marker once a completed run recorded this PR", out.String())
+	if got := fleetFlags(t, out.String(), "task-1"); !slices.Contains(got, "gate-unknown") {
+		t.Fatalf("flags = %v, want unknown despite a durable run ID", got)
 	}
 }
 
@@ -2759,7 +2759,7 @@ func TestStatusFleetSkipsGateCheckWhenItDoesNotApply(t *testing.T) {
 	}
 }
 
-func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
+func TestStatusSingleTaskFlagsShippedPRWithUnknownGateRun(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2779,12 +2779,12 @@ func TestStatusSingleTaskFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if got := detailField(t, out.String(), "gate"); got != "absent" {
-		t.Fatalf("gate = %q, want it naming that the shipped PR never ran through the gate", got)
+	if got := detailField(t, out.String(), "gate"); got != "unknown" {
+		t.Fatalf("gate = %q, want unknown until current provider readiness is qualified", got)
 	}
 }
 
-func TestStatusSingleTaskJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
+func TestStatusSingleTaskJSONFlagsShippedPRWithUnknownGateRun(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
@@ -2804,17 +2804,17 @@ func TestStatusSingleTaskJSONFlagsShippedPRWithNoGateRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), `"gate_observation": "absent"`) {
-		t.Fatalf("got %q, want gate_observation naming absent", out.String())
+	if !strings.Contains(out.String(), `"gate_observation": "unknown"`) {
+		t.Fatalf("got %q, want gate_observation naming unknown", out.String())
 	}
 }
 
-func TestStatusSingleTaskGateFoundWhenRunFound(t *testing.T) {
+func TestStatusSingleTaskGateUnknownWhenRunRecorded(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	registerNoMistakesProject(t, home, "gated")
-	t.Setenv("PATH", fakeNoMistakesPath(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  "+gateRunTestPR+"\n"))
+	t.Setenv("PATH", fakeNoMistakesPath(t, "  running    97-gate-visibility   758d72bf  2026-08-03 04:29  id:01M38X1MW6N04H8E2XQ31CCV8R  "+gateRunTestPR+"\n"))
 
 	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
 		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
@@ -2829,8 +2829,34 @@ func TestStatusSingleTaskGateFoundWhenRunFound(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
+	if got := detailField(t, out.String(), "gate"); got != "unknown" {
+		t.Fatalf("gate = %q, want unknown despite a durable run ID", got)
+	}
+}
+
+func TestStatusSingleTaskGateFoundForCurrentChecksPassedRun(t *testing.T) {
+	home := t.TempDir()
+	t.Chdir(home)
+	mkFleetDirs(t, home)
+	registerNoMistakesProject(t, home, "gated")
+	id := "01M38X1MW6N04H8E2XQ31CCV8R"
+	row := "  running  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id + "  " + gateRunTestPR + "\n"
+	verdict := "run_id: \"" + id + "\"\nlifecycle: running\npr: \"" + gateRunTestPR + "\"\nhead_sha: " + strings.Repeat("a", 40) + "\nverdict: checks-passed\nbasis: checks\nreason: \"\"\n"
+	faketool.NoMistakes{Runs: row, Stdout: verdict}.Install(t, faketool.Bin(t))
+	if err := state.Write(home, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: gateRunTestPR, CreatedAt: "2026-07-24T10:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	writeDoneReport(t, home, "task-1", "PR "+gateRunTestPR+" checks green")
+	cmd := newStatusCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"task-1"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
 	if got := detailField(t, out.String(), "gate"); got != "found" {
-		t.Fatalf("gate = %q, want found once a completed run recorded this PR - a completed run must never render the same as no check having run at all", got)
+		t.Fatalf("gate = %q, want found for exact current checks-passed run", got)
 	}
 }
 
@@ -2843,9 +2869,6 @@ func countingNoMistakesPath(t *testing.T, stdout, countFile string) string {
 	return os.Getenv("PATH")
 }
 
-// Pins the per-clone caching: without it every done ship task on one project spawns its own
-// `no-mistakes runs` and re-parses identical output, on the command CLAUDE.md makes the first step of
-// every session.
 func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	home := t.TempDir()
 	t.Chdir(home)
@@ -2869,8 +2892,8 @@ func TestStatusFleetAsksNoMistakesOncePerProject(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(out.String(), " gate-absent\n") != 3 {
-		t.Fatalf("got %q, want all three ungated tasks marked", out.String())
+	if strings.Count(out.String(), " gate-unknown\n") != 3 {
+		t.Fatalf("got %q, want all three tasks marked unknown", out.String())
 	}
 	calls, err := os.ReadFile(countFile)
 	if err != nil {

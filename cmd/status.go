@@ -379,38 +379,37 @@ func gateRunApplies(t state.Task, reportedDone bool) bool {
 // `hand status` invocation.
 const gateRunTimeout = 5 * time.Second
 
-// Answers "which PRs did completed no-mistakes runs record" for one clone path.
-type gateRunReader func(clonePath string) (map[string]bool, error)
+type gateRunReader func(clonePath string) (project.GateRunIDs, error)
 
 // Caches each clone path's answer for the life of one render, so a fleet with several done ship tasks on
 // the same project spawns one no-mistakes process for it, not one per task. Failures are cached too: a
 // clone that could not be asked once is not worth re-asking within the same render.
 func newGateRunReader(ctx context.Context) gateRunReader {
 	type answer struct {
-		prs map[string]bool
-		err error
+		runs project.GateRunIDs
+		err  error
 	}
 	cache := map[string]answer{}
-	return func(clonePath string) (map[string]bool, error) {
+	return func(clonePath string) (project.GateRunIDs, error) {
 		a, ok := cache[clonePath]
 		if !ok {
 			runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
-			a.prs, a.err = project.GateRunPRs(runCtx, clonePath)
+			a.runs, a.err = project.GateRunPRs(runCtx, clonePath)
 			cancel()
 			cache[clonePath] = a
 		}
-		return a.prs, a.err
+		return a.runs, a.err
 	}
 }
 
 // Reports whether a done ship task's recorded PR was found in, is absent from, or could not be
 // checked against a no-mistakes gate run, in the found/absent/unknown vocabulary atqamz/hand#241
 // established. Empty where the check does not apply, which is neither a finding nor an absence.
-func gateRunObservation(home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) ghutil.ObservationState {
+func gateRunObservation(ctx context.Context, home string, t state.Task, reportedDone bool, p project.Project, registered bool, runPRs gateRunReader) ghutil.ObservationState {
 	if !gateRunApplies(t, reportedDone) {
 		return ""
 	}
-	return project.ObserveGateRun(home, p, registered, t.PR, runPRs)
+	return project.ObserveGateRun(ctx, home, p, registered, t.PR, runPRs)
 }
 
 func runStatusFleet(cmd *cobra.Command, home string, client *herdr.Client, asJSON bool, cols []axi.Column[taskView]) error {
@@ -532,7 +531,7 @@ func fleetViews(ctx context.Context, warnOut io.Writer, home string, client *her
 			v.holdBlocker = blockers[hold.BlockedOn]
 		}
 		p, registered := projectByName[t.Project]
-		v.gateObserved = gateRunObservation(home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
+		v.gateObserved = gateRunObservation(ctx, home, t, v.reportedState == state.ReportDone, p, registered, runPRs)
 		views = append(views, v)
 	}
 	return views, holds, blockers, nil
@@ -814,7 +813,7 @@ func runStatusSingle(cmd *cobra.Command, home string, client *herdr.Client, id s
 		if err != nil {
 			return err
 		}
-		v.gateObserved = gateRunObservation(home, t, reportedDone, p, registered, newGateRunReader(cmd.Context()))
+		v.gateObserved = gateRunObservation(cmd.Context(), home, t, reportedDone, p, registered, newGateRunReader(cmd.Context()))
 	}
 
 	// The whole file, sliced afterwards: deriving the flag from the 5-line

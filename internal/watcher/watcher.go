@@ -888,15 +888,12 @@ func flattenError(err error) string {
 // gateRunTimeout: a hung subprocess must cost one tick, not the whole poll loop.
 const gateRunTimeout = 5 * time.Second
 
-// Mirrors cmd/status.go's gateRunObservation for the poll loop - same project lookup, same
-// no-mistakes invocation - so the fleet view and hand watch can never disagree about what "the
-// gate-run check applies here" means.
 func gateRunObservation(ctx context.Context, home string, t state.Task) ghutil.ObservationState {
 	p, registered, err := project.Find(home, t.Project)
 	if err != nil {
 		return ""
 	}
-	return project.ObserveGateRun(home, p, registered, t.PR, func(clonePath string) (map[string]bool, error) {
+	return project.ObserveGateRun(ctx, home, p, registered, t.PR, func(clonePath string) (project.GateRunIDs, error) {
 		runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
 		defer cancel()
 		return project.GateRunPRs(runCtx, clonePath)

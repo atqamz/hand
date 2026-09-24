@@ -13,6 +13,7 @@ import (
 // paths - same shape and purpose as GH.Hang and Herdr.Hang.
 type NoMistakes struct {
 	Stdout     string
+	Stderr     string
 	Exit       int
 	Status     string
 	StatusExit int
@@ -27,6 +28,7 @@ type NoMistakes struct {
 
 type noMistakesSpec struct {
 	Stdout     string
+	Stderr     string
 	Exit       int
 	Status     string
 	StatusExit int
@@ -84,5 +86,6 @@ func runNoMistakesFromPayload(payload json.RawMessage, args []string) int {
 		}
 	}
 	_, _ = io.WriteString(os.Stdout, stdout)
+	_, _ = io.WriteString(os.Stderr, spec.Stderr)
 	return exit
 }

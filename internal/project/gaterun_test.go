@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,236 +12,260 @@ import (
 	"github.com/atqamz/hand/internal/faketool"
 )
 
-func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
-	fakeNoMistakes(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n"+
-		"  running      74-workspace-leak    b2f584f9  2026-08-03 04:20\n")
+const gateTestPR = "https://github.com/atqamz/hand/pull/120"
+const gateTestID = "01M38X1MW6N04H8E2XQ31CCV8R"
 
-	prs, err := GateRunPRs(context.Background(), t.TempDir())
+func gateTestVerdict(id, lifecycle, pr, head, verdict, basis string) string {
+	return "run_id: \"" + id + "\"\n" +
+		"lifecycle: " + lifecycle + "\n" +
+		"pr: \"" + pr + "\"\n" +
+		"head_sha: " + head + "\n" +
+		"verdict: " + verdict + "\n" +
+		"basis: " + basis + "\n" +
+		"reason: \"\"\n"
+}
+
+func gateTestRow(status, id, pr string) string {
+	row := "  " + status + "  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id
+	if pr != "" {
+		row += "  " + pr
+	}
+	return row + "\n"
+}
+
+func TestGateRunPRsDiscoversDurableIDs(t *testing.T) {
+	other := "01M38X1MW6N04H8E2XQ31CCV8S"
+	fakeNoMistakes(t, gateTestRow("running", gateTestID, gateTestPR)+gateTestRow("failed", other, ""))
+	runs, err := GateRunPRs(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prs["https://github.com/atqamz/hand/pull/120"] {
-		t.Fatal("expected a completed run's own recorded PR URL to be collected")
+	if got := runs[gateTestPR]; len(got) != 1 || got[0] != gateTestID {
+		t.Fatalf("run IDs = %v, want exact PR's durable ID", got)
 	}
-	if prs["https://github.com/atqamz/hand/pull/999"] {
-		t.Fatal("expected no entry for a PR no completed run recorded")
+	if len(runs) != 1 {
+		t.Fatalf("runs = %v, want only rows with a PR URL", runs)
 	}
 }
 
-// Covers a run that recorded a PR URL but never reached completed - running or failed both leave
-// the gate un-cleared for that commit, so neither should count as evidence a run happened.
-func TestGateRunPRsIgnoresNonCompletedRuns(t *testing.T) {
-	fakeNoMistakes(t, "  failed       97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n")
-
-	prs, err := GateRunPRs(context.Background(), t.TempDir())
+func TestGateRunPRsKeepsMultipleCandidatesVisible(t *testing.T) {
+	other := "01M38X1MW6N04H8E2XQ31CCV8S"
+	fakeNoMistakes(t, gateTestRow("running", gateTestID, gateTestPR)+gateTestRow("completed", other, gateTestPR))
+	runs, err := GateRunPRs(context.Background(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prs["https://github.com/atqamz/hand/pull/120"] {
-		t.Fatal("a failed run must not count as gate coverage even though it recorded the PR URL")
+	if got := runs[gateTestPR]; len(got) != 2 || got[0] != gateTestID || got[1] != other {
+		t.Fatalf("run IDs = %v, want both candidates preserved", got)
+	}
+}
+
+func TestGateRunPRsRejectsMalformedDiscovery(t *testing.T) {
+	row := gateTestRow("running", gateTestID, gateTestPR)
+	for _, tc := range []struct {
+		name   string
+		output string
+	}{
+		{name: "empty", output: ""},
+		{name: "empty list with extra row", output: "  no runs yet. Push through the gate to start a pipeline:\n  git push no-mistakes <branch>\n" + row},
+		{name: "missing final newline", output: strings.TrimSuffix(row, "\n")},
+		{name: "extra blank row", output: row + "\n"},
+		{name: "legacy missing ID", output: strings.Replace(row, "id:"+gateTestID+"  ", "", 1)},
+		{name: "short ID", output: strings.Replace(row, gateTestID, "123", 1)},
+		{name: "duplicate ID", output: row + row},
+		{name: "unknown status", output: strings.Replace(row, "running", "mystery", 1)},
+		{name: "bad short head", output: strings.Replace(row, "aaaaaaaa", "notahash", 1)},
+		{name: "bad timestamp", output: strings.Replace(row, "2026-09-24", "2026-99-99", 1)},
+		{name: "truncated list", output: row + "  (2 more runs, use --limit to see more)\n"},
+		{name: "invalid URL", output: strings.Replace(row, gateTestPR, "not-a-url", 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeNoMistakes(t, tc.output)
+			runs, err := GateRunPRs(context.Background(), t.TempDir())
+			if err == nil || runs != nil {
+				t.Fatalf("runs = %v, err = %v, want malformed discovery to fail closed", runs, err)
+			}
+		})
+	}
+}
+
+func TestGateRunPRsAcceptsExactEmptyList(t *testing.T) {
+	fakeNoMistakes(t, "  no runs yet. Push through the gate to start a pipeline:\n  git push no-mistakes <branch>\n")
+	runs, err := GateRunPRs(context.Background(), t.TempDir())
+	if err != nil || len(runs) != 0 {
+		t.Fatalf("runs = %v, err = %v, want complete empty list", runs, err)
+	}
+}
+
+func TestClassifyGateRunStaysUnknownUntilLiveProviderVerdict(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		runs GateRunIDs
+		err  error
+	}{
+		{name: "candidate", runs: GateRunIDs{gateTestPR: {gateTestID}}},
+		{name: "ambiguous", runs: GateRunIDs{gateTestPR: {gateTestID, "01M38X1MW6N04H8E2XQ31CCV8S"}}},
+		{name: "missing", runs: GateRunIDs{}},
+		{name: "lookup failed", err: errors.New("no-mistakes gate not initialized")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := ClassifyGateRun(tc.runs, tc.err, gateTestPR)
+			if !obs.Unknown() || obs.Found() || obs.Absent() || !strings.Contains(obs.Reason(), "no-mistakes runs --limit") {
+				t.Fatalf("observation = %+v, want unknown with read-only discovery probe", obs)
+			}
+		})
+	}
+}
+
+func TestObserveGateRunFindsCandidateWithoutClaimingReadiness(t *testing.T) {
+	fakeNoMistakes(t, gateTestRow("running", gateTestID, gateTestPR))
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := ObserveGateRun(context.Background(), home, Project{Name: "gated", Mode: ModeNoMistakes}, true, gateTestPR, func(path string) (GateRunIDs, error) {
+		return GateRunPRs(context.Background(), path)
+	})
+	if got != "unknown" {
+		t.Fatalf("gate = %q, want unknown pending a live provider verdict", got)
+	}
+}
+
+func TestObserveGateRunAcceptsExactCurrentCIVerdict(t *testing.T) {
+	rows := gateTestRow("running", gateTestID, gateTestPR)
+	verdict := gateTestVerdict(gateTestID, "running", gateTestPR, strings.Repeat("a", 40), "checks-passed", "checks")
+	faketool.NoMistakes{Runs: rows, Stdout: verdict}.Install(t, faketool.Bin(t))
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := ObserveGateRun(context.Background(), home, Project{Name: "gated", Mode: ModeNoMistakes}, true, gateTestPR, func(path string) (GateRunIDs, error) {
+		return GateRunPRs(context.Background(), path)
+	})
+	if got != "found" {
+		t.Fatalf("gate = %q, want found for current exact checks-passed run", got)
+	}
+}
+
+func TestGateRunCIVerdictRequiresExactCurrentTuple(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	good := gateTestVerdict(gateTestID, "running", gateTestPR, head, "checks-passed", "checks")
+	for _, tc := range []struct {
+		name   string
+		output string
+		exit   int
+		stderr string
+		want   string
+	}{
+		{name: "checks", output: good, want: "found"},
+		{name: "update notice", output: good, stderr: "A new version of no-mistakes is available\n", want: "found"},
+		{name: "declared no CI", output: gateTestVerdict(gateTestID, "running", gateTestPR, head, "checks-passed", "declared-no-ci"), want: "found"},
+		{name: "wrong run", output: gateTestVerdict("01M38X1MW6N04H8E2XQ31CCV8S", "running", gateTestPR, head, "checks-passed", "checks")},
+		{name: "wrong PR", output: gateTestVerdict(gateTestID, "running", "https://github.com/atqamz/hand/pull/121", head, "checks-passed", "checks")},
+		{name: "completed", output: gateTestVerdict(gateTestID, "completed", gateTestPR, head, "checks-passed", "checks")},
+		{name: "short head", output: gateTestVerdict(gateTestID, "running", gateTestPR, "aaaaaaaa", "checks-passed", "checks")},
+		{name: "nonhex head", output: gateTestVerdict(gateTestID, "running", gateTestPR, strings.Repeat("z", 40), "checks-passed", "checks")},
+		{name: "pending", output: gateTestVerdict(gateTestID, "running", gateTestPR, head, "unknown", "unknown")},
+		{name: "unqualified basis", output: gateTestVerdict(gateTestID, "running", gateTestPR, head, "checks-passed", "unknown")},
+		{name: "missing reason", output: strings.TrimSuffix(good, "reason: \"\"\n")},
+		{name: "duplicate verdict", output: good + "verdict: checks-passed\n"},
+		{name: "truncated newline", output: strings.TrimSuffix(good, "\n")},
+		{name: "old provider", output: "Error: unknown command \"ci-verdict\"\n", exit: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			faketool.NoMistakes{Stdout: tc.output, Stderr: tc.stderr, Exit: tc.exit}.Install(t, faketool.Bin(t))
+			got := gateRunCIVerdict(context.Background(), t.TempDir(), gateTestID, gateTestPR)
+			if tc.want == "" {
+				tc.want = "unknown"
+			}
+			if string(got) != tc.want {
+				t.Fatalf("verdict = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestObserveGateRunDoesNotQueryAmbiguousCandidates(t *testing.T) {
+	other := "01M38X1MW6N04H8E2XQ31CCV8S"
+	logPath := filepath.Join(t.TempDir(), "invocations")
+	faketool.NoMistakes{
+		Runs:   gateTestRow("running", gateTestID, gateTestPR) + gateTestRow("completed", other, gateTestPR),
+		Stdout: gateTestVerdict(gateTestID, "running", gateTestPR, strings.Repeat("a", 40), "checks-passed", "checks"),
+		Log:    logPath,
+	}.Install(t, faketool.Bin(t))
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := ObserveGateRun(context.Background(), home, Project{Name: "gated", Mode: ModeNoMistakes}, true, gateTestPR, func(path string) (GateRunIDs, error) {
+		return GateRunPRs(context.Background(), path)
+	})
+	if got != "unknown" {
+		t.Fatalf("gate = %q, want unknown for two exact PR candidates", got)
+	}
+	log, err := os.ReadFile(logPath)
+	if err != nil || strings.Contains(string(log), "ci-verdict") {
+		t.Fatalf("ambiguous candidate queried a verdict: %q, %v", log, err)
+	}
+}
+
+func TestGateRunCIVerdictTimesOutAsUnknown(t *testing.T) {
+	faketool.NoMistakes{Hang: []string{"axi"}}.Install(t, faketool.Bin(t))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if got := gateRunCIVerdict(ctx, t.TempDir(), gateTestID, gateTestPR); got != "unknown" {
+		t.Fatalf("verdict after timeout = %q, want unknown", got)
 	}
 }
 
 func TestGateRunPRsMissingClonePath(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
-
-	prs, err := GateRunPRs(context.Background(), missing)
-	if err == nil {
-		t.Fatal("expected error for a clone path that does not exist")
-	}
-	if prs != nil {
-		t.Fatal("a missing clone path must never report a run set")
+	runs, err := GateRunPRs(context.Background(), filepath.Join(t.TempDir(), "missing"))
+	if err == nil || runs != nil {
+		t.Fatalf("runs = %v, err = %v, want missing clone error", runs, err)
 	}
 }
 
 func TestGateRunPRsMissingBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-
-	prs, err := GateRunPRs(context.Background(), t.TempDir())
-	if err == nil {
-		t.Fatal("expected error when the no-mistakes binary is not on PATH")
-	}
-	if prs != nil {
-		t.Fatal("an unrunnable binary must never report a run set")
+	runs, err := GateRunPRs(context.Background(), t.TempDir())
+	if err == nil || runs != nil {
+		t.Fatalf("runs = %v, err = %v, want missing binary error", runs, err)
 	}
 }
 
-// Covers the uninitialized gate and atqamz/hand#60's stale renamed working_path, which print
-// this text identically. An empty run set would claim the PR never went through a gate run, when
-// in truth no-mistakes was never asked - the state it answers from still holds those runs.
 func TestGateRunPRsNotInitializedIsAnError(t *testing.T) {
 	fakeNoMistakesExit(t, "repo not initialized (run 'no-mistakes init' first)", 1)
-
-	prs, err := GateRunPRs(context.Background(), t.TempDir())
-	if err == nil {
-		t.Fatal("expected an uninitialized gate to be an error, not an empty run set")
-	}
-	if prs != nil {
-		t.Fatal("an uninitialized gate must never report a run set")
-	}
-	// The real binary exits 1 here, so the text has to be read before the exit code: reading the
-	// exit code first would report a healthy binary refusing a known repo as an unrunnable binary,
-	// naming a remedy that would not help.
-	if !strings.Contains(err.Error(), "no-mistakes init") {
-		t.Fatalf("err = %v, want it to name the init remedy for an uninitialized gate", err)
-	}
-	if strings.Contains(err.Error(), "binary not found or not runnable") {
-		t.Fatalf("err = %v, must not blame the binary for a gate that was never initialized", err)
+	runs, err := GateRunPRs(context.Background(), t.TempDir())
+	if err == nil || runs != nil || !strings.Contains(err.Error(), "no-mistakes init") {
+		t.Fatalf("runs = %v, err = %v, want init remedy", runs, err)
 	}
 }
 
 func TestGateRunPRsNotAGitRepoIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	fakeNoMistakesExit(t, "not in a git repository", 1)
-
-	prs, err := GateRunPRs(context.Background(), dir)
-	if err == nil {
-		t.Fatal("expected a non-git clone path to be an error, not an empty run set")
-	}
-	if prs != nil {
-		t.Fatal("a non-git clone path must never report a run set")
-	}
-	if !strings.Contains(err.Error(), "not a git repository") || !strings.Contains(err.Error(), dir) {
-		t.Fatalf("err = %v, want it to name the non-git clone path %s", err, dir)
-	}
-	if strings.Contains(err.Error(), "binary not found or not runnable") {
-		t.Fatalf("err = %v, must not blame the binary for a clone path that is not a git repository", err)
+	runs, err := GateRunPRs(context.Background(), dir)
+	if err == nil || runs != nil || !strings.Contains(err.Error(), dir) {
+		t.Fatalf("runs = %v, err = %v, want invalid clone path", runs, err)
 	}
 }
 
-// A no-mistakes that never answers and is killed by the caller's deadline is the case a bare
-// exit-code check gets wrong: the subprocess dies, no-mistakes prints nothing, and nothing has
-// been observed - it must read as an error, never as an empty (absent) run set.
 func TestGateRunPRsKilledByDeadline(t *testing.T) {
 	faketool.NoMistakes{Hang: []string{"runs"}}.Install(t, faketool.Bin(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-
-	prs, err := GateRunPRs(ctx, t.TempDir())
-	if err == nil {
-		t.Fatal("expected an error when no-mistakes is killed by the caller's deadline")
-	}
-	if prs != nil {
-		t.Fatal("a killed subprocess must never report a run set")
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want it to wrap context.DeadlineExceeded", err)
-	}
-	if strings.Contains(err.Error(), "binary not found or not runnable") {
-		t.Fatalf("err = %v, must not blame the binary for a deadline hand itself set", err)
+	runs, err := GateRunPRs(ctx, t.TempDir())
+	if runs != nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runs = %v, err = %v, want deadline failure", runs, err)
 	}
 }
 
 func TestGateRunPRsContextAlreadyCancelled(t *testing.T) {
-	fakeNoMistakes(t, "  completed    97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n")
+	fakeNoMistakes(t, gateTestRow("running", gateTestID, gateTestPR))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-
-	prs, err := GateRunPRs(ctx, t.TempDir())
-	if err == nil {
-		t.Fatal("expected an error for an already-cancelled context")
+	runs, err := GateRunPRs(ctx, t.TempDir())
+	if err == nil || runs != nil {
+		t.Fatalf("runs = %v, err = %v, want cancellation failure", runs, err)
 	}
-	if prs != nil {
-		t.Fatal("an already-cancelled context must never report a run set")
-	}
-}
-
-func TestClassifyGateRunFound(t *testing.T) {
-	prURL := "https://github.com/atqamz/hand/pull/120"
-	obs := ClassifyGateRun(map[string]bool{prURL: true}, nil, prURL)
-	if !obs.Found() || obs.Absent() || obs.Unknown() {
-		t.Fatalf("obs = %+v, want Found", obs)
-	}
-}
-
-func TestClassifyGateRunAbsent(t *testing.T) {
-	prURL := "https://github.com/atqamz/hand/pull/120"
-	obs := ClassifyGateRun(map[string]bool{"https://github.com/atqamz/hand/pull/999": true}, nil, prURL)
-	if !obs.Absent() || obs.Found() || obs.Unknown() {
-		t.Fatalf("obs = %+v, want Absent", obs)
-	}
-}
-
-// The state a failed lookup must never produce: a nil run set can only ever be unknown, whatever
-// the failure behind it, because no list was ever read to check the PR against.
-func TestClassifyGateRunUnknownOnLookupFailure(t *testing.T) {
-	prURL := "https://github.com/atqamz/hand/pull/120"
-	obs := ClassifyGateRun(nil, errors.New("no-mistakes gate not initialized"), prURL)
-	if !obs.Unknown() || obs.Found() || obs.Absent() {
-		t.Fatalf("obs = %+v, want Unknown", obs)
-	}
-	if !strings.Contains(obs.Reason(), "no-mistakes gate not initialized") {
-		t.Fatalf("Reason() = %q, want it to name the lookup failure", obs.Reason())
-	}
-	if !strings.Contains(obs.Reason(), "no-mistakes runs --limit") {
-		t.Fatalf("Reason() = %q, want it to name the command that was run", obs.Reason())
-	}
-}
-
-// Covers atqamz/hand#240's squash-merge scenario for real: a gate run happens against a pre-squash
-// branch head that is never an ancestor of main once its PR merges, and that unreachability must
-// never turn a real historical FOUND into an ABSENT or an UNKNOWN.
-func TestGateRunObservationSurvivesSquashMergeUnreachability(t *testing.T) {
-	clonePath := t.TempDir()
-	isolateGateTestGitConfig(t)
-
-	runGateTestGit(t, clonePath, "init", "-q", "-b", "main")
-	runGateTestGit(t, clonePath, "commit", "-q", "--allow-empty", "-m", "initial commit")
-
-	runGateTestGit(t, clonePath, "checkout", "-q", "-b", "task-branch")
-	if err := os.WriteFile(filepath.Join(clonePath, "feature.txt"), []byte("feature work"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runGateTestGit(t, clonePath, "add", "feature.txt")
-	runGateTestGit(t, clonePath, "commit", "-q", "-m", "feature work")
-	preSquashHead := strings.TrimSpace(runGateTestGit(t, clonePath, "rev-parse", "HEAD"))
-
-	runGateTestGit(t, clonePath, "checkout", "-q", "main")
-	runGateTestGit(t, clonePath, "merge", "--squash", "-q", "task-branch")
-	runGateTestGit(t, clonePath, "commit", "-q", "-m", "squash-merge task-branch")
-	runGateTestGit(t, clonePath, "branch", "-D", "task-branch")
-
-	// Proves the unreachability this test exists to survive, rather than assuming it: the
-	// pre-squash branch head is genuinely gone from main's ancestry after the squash merge.
-	isAncestor := exec.Command("git", "merge-base", "--is-ancestor", preSquashHead, "main")
-	isAncestor.Dir = clonePath
-	if err := isAncestor.Run(); err == nil {
-		t.Fatal("expected the pre-squash branch head to be unreachable from main after a squash merge")
-	}
-
-	prURL := "https://github.com/atqamz/hand/pull/237"
-	fakeNoMistakes(t, "  completed    task-branch   "+preSquashHead[:8]+"  2026-08-03 04:29  "+prURL+"\n")
-
-	prs, err := GateRunPRs(context.Background(), clonePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	obs := ClassifyGateRun(prs, err, prURL)
-	if !obs.Found() {
-		t.Fatalf("obs = %+v, want Found once a completed run recorded this PR, even with its commit unreachable from main", obs)
-	}
-}
-
-func isolateGateTestGitConfig(t *testing.T) {
-	t.Helper()
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	content := "[user]\n\tname = hand-test\n\temail = hand-test@example.invalid\n" +
-		"[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" +
-		"[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"
-	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-}
-
-func runGateTestGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	c := exec.Command("git", args...)
-	c.Dir = dir
-	out, err := c.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v failed: %v: %s", args, err, out)
-	}
-	return string(out)
 }

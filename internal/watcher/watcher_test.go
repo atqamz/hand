@@ -686,14 +686,46 @@ func TestTickClassifiesGateProblem(t *testing.T) {
 
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
-	if !strings.Contains(buf.String(), "gate-absent task-1") {
-		t.Fatalf("output = %q, want gate-absent task-1: the recorded PR is not among the completed runs", buf.String())
+	if !strings.Contains(buf.String(), "gate-unknown task-1") {
+		t.Fatalf("output = %q, want gate-unknown task-1 until current readiness is qualified", buf.String())
 	}
 
 	buf.Reset()
 	tick(ctx, cfg, client, states, &buf, io.Discard)
 	if buf.Len() != 0 {
-		t.Fatalf("gate-absent fired again: %q", buf.String())
+		t.Fatalf("gate-unknown fired again: %q", buf.String())
+	}
+}
+
+func TestTickDoesNotRaiseGateProblemForCurrentChecksPassedRun(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+	pr := "https://github.com/atqamz/hand/pull/120"
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip,
+		PR: pr}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	id := "01M38X1MW6N04H8E2XQ31CCV8R"
+	row := "  running  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id + "  " + pr + "\n"
+	verdict := "run_id: \"" + id + "\"\nlifecycle: running\npr: \"" + pr + "\"\nhead_sha: " + strings.Repeat("a", 40) + "\nverdict: checks-passed\nbasis: checks\nreason: \"\"\n"
+	faketool.NoMistakes{Runs: row, Stdout: verdict}.Install(t, faketool.Bin(t))
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Home: home, PollInterval: time.Hour, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	var out bytes.Buffer
+	tick(context.Background(), cfg, client, states, &out, io.Discard)
+	out.Reset()
+	tick(context.Background(), cfg, client, states, &out, io.Discard)
+	if strings.Contains(out.String(), "gate-unknown") || strings.Contains(out.String(), "gate-absent") {
+		t.Fatalf("watch reported a gate problem for current checks-passed run: %q", out.String())
 	}
 }
 
@@ -731,8 +763,8 @@ func TestTickStopsAskingNoMistakesOnceGateProblemHasFired(t *testing.T) {
 	for range 5 {
 		tick(ctx, cfg, client, states, &buf, io.Discard)
 	}
-	if !strings.Contains(buf.String(), "gate-absent task-1") {
-		t.Fatalf("output = %q, want gate-absent task-1 to have fired once across five ticks", buf.String())
+	if !strings.Contains(buf.String(), "gate-unknown task-1") {
+		t.Fatalf("output = %q, want gate-unknown task-1 to have fired once across five ticks", buf.String())
 	}
 	calls, err := os.ReadFile(countFile)
 	if err != nil {
