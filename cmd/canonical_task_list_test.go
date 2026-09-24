@@ -47,10 +47,13 @@ func TestTaskListCommandDefaultsToUnarchivedAndSelectsHistoryExplicitly(t *testi
 		args []string
 		want string
 		skip string
+		next string
 	}{
 		{args: []string{"task", "list"}, want: "terminal,project-1,2,digest-t,abandoned,none", skip: "archived,project-1"},
 		{args: []string{"task", "list", "--scope", "archived"}, want: "archived,project-1,1,digest-a,satisfied,recorded", skip: "terminal,project-1"},
 		{args: []string{"task", "list", "--scope", "all"}, want: "tasks[2]{id,project_id,ordinal,goal_digest,lifecycle,archive}:"},
+		{args: []string{"task", "list", "--scope", "all", "--limit", "1"}, want: "archived,project-1,1,digest-a,satisfied,recorded", skip: "terminal,project-1", next: "next_after: archived"},
+		{args: []string{"task", "list", "--scope", "all", "--limit", "1", "--after", "archived"}, want: "terminal,project-1,2,digest-t,abandoned,none", skip: "archived,project-1", next: `next_after: ""`},
 	} {
 		root := newRootCmd(devBuild("test"))
 		var out strings.Builder
@@ -62,10 +65,28 @@ func TestTaskListCommandDefaultsToUnarchivedAndSelectsHistoryExplicitly(t *testi
 		if !strings.Contains(out.String(), test.want) || test.skip != "" && strings.Contains(out.String(), test.skip) {
 			t.Fatalf("task list %v = %q, want %q and no %q", test.args, out.String(), test.want, test.skip)
 		}
+		if test.next != "" && !strings.Contains(out.String(), test.next) {
+			t.Fatalf("task list %v = %q, want %q", test.args, out.String(), test.next)
+		}
 	}
 	after, err := os.ReadFile(store.Path(home))
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("task list changed database: %v", err)
+	}
+}
+
+func TestTaskListCommandRejectsInvalidLimit(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "fleet")
+	if _, err := store.InitializeCanonicalV19(context.Background(), home); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_HOME", home)
+	for _, limit := range []string{"0", "1001"} {
+		root := newRootCmd(devBuild("test"))
+		root.SetArgs([]string{"task", "list", "--limit", limit})
+		if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "limit must be between 1 and 1000") {
+			t.Fatalf("Task list limit %q: %v", limit, err)
+		}
 	}
 }
 
