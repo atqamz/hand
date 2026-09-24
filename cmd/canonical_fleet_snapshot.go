@@ -71,6 +71,12 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			doc.Rows("tasks", []string{"id", "project_id", "ordinal", "goal_digest", "active_plan_id"}, tasks)
 			doc.Rows("plans", []string{"id", "task_id", "ordinal", "lineage_kind", "intent", "judgment", "brief_digest", "workspace_binding_id", "policy_revision_id", "active_attempt_id"}, plans)
 			doc.Rows("attempts", []string{"id", "plan_id", "ordinal", "worker_harness_ref", "worker_profile_ref", "model_ref", "effort_ref", "session_adapter_ref"}, attempts)
+			reports := make([][]string, 0, len(snapshot.LatestReportMetadata))
+			for _, report := range snapshot.LatestReportMetadata {
+				reports = append(reports, []string{report.AttemptID, report.ReportID, report.SourcePrefixDigest,
+					strconv.FormatInt(report.SourceEndOffset, 10), report.ReportState, strconv.FormatBool(report.AcknowledgementPresent)})
+			}
+			doc.Rows("latest_worker_reports", []string{"attempt_id", "report_id", "source_prefix_digest", "source_end_offset", "report_state", "acknowledged"}, reports)
 			inputs := make([][]string, 0, len(snapshot.UnacknowledgedInputs))
 			for _, input := range snapshot.UnacknowledgedInputs {
 				inputs = append(inputs, []string{input.ID, input.AttemptID, input.ExecutorBindingID,
