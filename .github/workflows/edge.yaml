@@ -72,9 +72,28 @@ jobs:
           fi
           echo "eligible=true" >> "$GITHUB_OUTPUT"
 
+  qualify:
+    name: Qualify exact main CI
+    needs: prepare
+    if: needs.prepare.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Qualify exact main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EDGE_SHA: ${{ inputs.sha }}
+        run: .github/scripts/qualify-ci.sh "$EDGE_SHA"
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: prepare
+    needs: [prepare, qualify]
     if: needs.prepare.outputs.eligible == 'true'
     strategy:
       fail-fast: false
@@ -133,7 +152,7 @@ jobs:
 
   publish:
     name: Publish rolling release
-    needs: [prepare, build]
+    needs: [prepare, qualify, build]
     if: needs.prepare.outputs.eligible == 'true'
     permissions:
       contents: write
