@@ -102,6 +102,16 @@ func TestValidateCanonicalV19SchemaRejectsPriorExactFingerprint(t *testing.T) {
 		artifact    string
 	}{
 		{
+			name:        "revision 5",
+			fingerprint: canonicalV19PriorSchemaFingerprintV5,
+			artifact:    "docs/architecture/v19-v5.sql.gz",
+		},
+		{
+			name:        "revision 4",
+			fingerprint: canonicalV19PriorSchemaFingerprintV4,
+			artifact:    "docs/architecture/v19-v4.sql.gz",
+		},
+		{
 			name:        "revision 3",
 			fingerprint: canonicalV19PriorSchemaFingerprintV3,
 			artifact:    "docs/architecture/v19-v3.sql.gz",

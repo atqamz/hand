@@ -15,11 +15,11 @@ import (
 // #344: the isolated relock input must identify the exact bytes under review.
 // The permanent main anchor remains a separate landing/release gate.
 func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
-	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v5-input.md"))
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v7-input.md"))
 	for _, field := range []string{
-		"65556169e04808460ba252a677754f19b190b8ab",
-		"not the permanent main anchor or an accepted replacement authority",
-		"content commit: " + canonicalV19AuthorityCommit,
+		"source base commit: 2e13391968cbbab218da87e0325571ccf5925cad",
+		"source base tree: 6623669ab41c7dcd9d076644121d6307c8f3e852",
+		"candidate content commit: " + canonicalV19AuthorityCommit,
 		"DDL: " + canonicalV19AuthorityDDLPath,
 		"Git blob: " + canonicalV19AuthorityDDLGitBlobSHA1,
 		fmt.Sprintf("stored gzip bytes: %d", canonicalV19GzipBytes),
@@ -32,6 +32,8 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 		canonicalV19PriorSchemaFingerprintV1,
 		canonicalV19PriorSchemaFingerprintV2,
 		canonicalV19PriorSchemaFingerprintV3,
+		canonicalV19PriorSchemaFingerprintV4,
+		canonicalV19PriorSchemaFingerprintV5,
 	} {
 		if !strings.Contains(manifest, field) {
 			t.Errorf("manifest missing runtime/cutover identity %q", field)
@@ -49,9 +51,9 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proof := readV19ManifestArtifact(t, "docs/architecture/v19-proof-v4.py.gz")
+	proof := readV19ManifestArtifact(t, "docs/architecture/v19-proof-v6.py.gz")
 	for _, field := range []string{
-		"proof: docs/architecture/v19-proof-v4.py.gz",
+		"proof: docs/architecture/v19-proof-v6.py.gz",
 		"proof Git blob: " + v19ManifestGitBlob(proof),
 		fmt.Sprintf("proof stored gzip bytes: %d", len(proof)),
 		"proof stored gzip SHA-256: " + canonicalV19SHA256(proof),
@@ -72,8 +74,8 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 	for _, field := range []string{
 		fmt.Sprintf("proof reconstructed bytes: %d", len(reconstructed)),
 		"proof reconstructed SHA-256: " + canonicalV19SHA256(reconstructed),
-		"relock: docs/architecture/v19-relock-v4.md",
-		"relock Git blob: " + v19ManifestGitBlob(readV19ManifestArtifact(t, "docs/architecture/v19-relock-v4.md")),
+		"relock: docs/architecture/v19-relock-v6.md",
+		"relock Git blob: " + v19ManifestGitBlob(readV19ManifestArtifact(t, "docs/architecture/v19-relock-v6.md")),
 	} {
 		if !strings.Contains(manifest, field) {
 			t.Errorf("manifest missing reconstructed/relock identity %q", field)
@@ -107,7 +109,7 @@ func TestCanonicalV19PermanentManifestRevision4Artifacts(t *testing.T) {
 
 // #344/#347: a permanent manifest must retain the exact ordered contract-set digest.
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
-	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md", "manifest-v6-input.md"} {
+	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md", "manifest-v6-input.md", "manifest-v7-input.md"} {
 		t.Run(name, func(t *testing.T) { assertCanonicalV19ManifestSnapshotSet(t, name) })
 	}
 }

@@ -234,7 +234,7 @@ func TestCanonicalV19RoutingRelockProvenance(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plans.String(), "sqlite_autoindex_attempt_fallback_step_1") || strings.Contains(plans.String(), "SCAN") {
+	if !strings.Contains(plans.String(), "SEARCH attempt_fallback_step USING PRIMARY KEY (attempt_id=? AND ordinal>?)") || strings.Contains(plans.String(), "SCAN") {
 		t.Fatalf("fallback history requires bounded indexed lookup: %s", plans.String())
 	}
 	_ = rows.Close()
