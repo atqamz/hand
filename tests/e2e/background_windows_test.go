@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -28,7 +29,11 @@ func TestBackgroundJobActiveProcesses(t *testing.T) {
 }
 
 func TestBackgroundJobJoinsDescendantAfterTimeout(t *testing.T) {
-	cmd := exec.Command("cmd.exe", "/C", "ping -n 30 127.0.0.1 >NUL")
+	systemDir, err := windows.GetSystemDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(systemDir, "cmd.exe"), "/C", "\""+filepath.Join(systemDir, "ping.exe")+"\" -n 30 127.0.0.1 >NUL")
 	process, err := startBackgroundProcess(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +80,7 @@ func TestBackgroundJobCloseZeroHandles(t *testing.T) {
 func TestBackgroundJobCloseReportsHandleErrors(t *testing.T) {
 	p := &windowsBackgroundProcess{process: windows.InvalidHandle, job: windows.InvalidHandle}
 	err := p.close()
-	if err == nil || !strings.Contains(err.Error(), "close background hand process handle") || !strings.Contains(err.Error(), "inspect background hand job") {
+	if err == nil || !strings.Contains(err.Error(), "terminate background hand job") || !strings.Contains(err.Error(), "inspect background hand job") {
 		t.Fatalf("close invalid handles: %v", err)
 	}
 	if err := p.close(); err != nil {
