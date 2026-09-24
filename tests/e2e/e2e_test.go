@@ -268,10 +268,17 @@ func (s *syncBuffer) String() string {
 // its streaming output and stop it through a platform-specific helper.
 type backgroundHand struct {
 	cmd     *exec.Cmd
+	process backgroundProcess
 	args    []string
 	stdout  *syncBuffer
 	stderr  *syncBuffer
 	reaping bool
+}
+
+type backgroundProcess interface {
+	stop()
+	wait(time.Duration) (error, bool)
+	close() error
 }
 
 func startHandBackground(t *testing.T, home string, args ...string) *backgroundHand {
@@ -289,17 +296,22 @@ func startHandBackgroundEnv(t *testing.T, home string, extraEnv []string, args .
 	stderr := &syncBuffer{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	prepareBackgroundProcess(cmd)
-	if err := cmd.Start(); err != nil {
+	process, err := startBackgroundProcess(cmd)
+	if err != nil {
 		t.Fatalf("start hand %v: %v", args, err)
 	}
-	b := &backgroundHand{cmd: cmd, args: args, stdout: stdout, stderr: stderr}
+	b := &backgroundHand{cmd: cmd, process: process, args: args, stdout: stdout, stderr: stderr}
 	t.Cleanup(func() {
-		if b.reaping || cmd.ProcessState != nil {
+		if b.reaping {
 			return
 		}
-		stopBackgroundProcessTree(cmd)
-		_ = cmd.Wait()
+		if cmd.ProcessState == nil {
+			process.stop()
+			_ = cmd.Wait()
+		}
+		if err := process.close(); err != nil {
+			t.Errorf("close background hand process: %v", err)
+		}
 	})
 	return b
 }
@@ -466,30 +478,26 @@ func (b *backgroundHand) waitForStdout(t *testing.T, substr string, timeout time
 func (b *backgroundHand) waitForExit(t *testing.T, timeout time.Duration, because string) invocation {
 	t.Helper()
 	b.reaping = true
-	done := make(chan error, 1)
-	go func() { done <- b.cmd.Wait() }()
-	select {
-	case err := <-done:
-		code := 0
-		if err != nil {
-			var exitErr *exec.ExitError
-			if !errors.As(err, &exitErr) {
-				t.Fatalf("wait hand watch: %v", err)
-			}
-			code = exitErr.ExitCode()
-		}
-		got := invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
-		t.Logf("$ hand %s\n  exit %d after %s\n  stdout: %s\n  stderr: %s",
-			strings.Join(b.args, " "), got.code, because, strings.TrimSpace(got.stdout), strings.TrimSpace(got.stderr))
-		return got
-	case <-time.After(timeout):
-		_ = b.cmd.Process.Kill()
-		// Cleanup skips an already-owned Wait. Join it before Fatal starts temp
-		// directory teardown, just as the ordinary background cleanup path does.
-		<-done
+	err, timedOut := b.process.wait(timeout)
+	if closeErr := b.process.close(); closeErr != nil {
+		t.Errorf("close background hand process: %v", closeErr)
+	}
+	if timedOut {
 		t.Fatalf("hand watch did not exit within %s of %s; stdout=%q stderr=%q", timeout, because, b.stdout.String(), b.stderr.String())
 		return invocation{}
 	}
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("wait hand watch: %v", err)
+		}
+		code = exitErr.ExitCode()
+	}
+	got := invocation{code: code, stdout: b.stdout.String(), stderr: b.stderr.String()}
+	t.Logf("$ hand %s\n  exit %d after %s\n  stdout: %s\n  stderr: %s",
+		strings.Join(b.args, " "), got.code, because, strings.TrimSpace(got.stdout), strings.TrimSpace(got.stderr))
+	return got
 }
 
 // Blocks until a fake binary's invocation log contains substr, giving a test a positive signal that a

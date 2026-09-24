@@ -70,11 +70,12 @@ func TestWatchStartsOverACrashedWatchersStaleFiles(t *testing.T) {
 	crashed := startHandBackground(t, home, "watch", "--poll", "30ms")
 	waitForCoherentOwner(t, home, crashed.cmd.Process.Pid)
 
-	if err := crashed.cmd.Process.Kill(); err != nil {
-		t.Fatal(err)
-	}
+	crashed.process.stop()
 	crashed.reaping = true
 	_ = crashed.cmd.Wait()
+	if err := crashed.process.close(); err != nil {
+		t.Fatal(err)
+	}
 
 	stale, err := os.ReadFile(watcher.OwnerPath(home))
 	if err != nil {
