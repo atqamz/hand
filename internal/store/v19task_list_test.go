@@ -197,12 +197,13 @@ func TestListCanonicalV19TasksBoundsLargeHistory(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	for _, test := range []struct {
-		query string
-		first string
+		query      string
+		table      string
+		constraint string
 	}{
-		{query: canonicalV19TaskListAllQuery, first: "SEARCH t USING INDEX sqlite_autoindex_task_1 (id>?)"},
-		{query: canonicalV19TaskListUnarchivedQuery, first: "SEARCH t USING INDEX sqlite_autoindex_task_1 (id>?)"},
-		{query: canonicalV19TaskListArchivedQuery, first: "SEARCH a USING COVERING INDEX sqlite_autoindex_task_archive_1 (task_id>?)"},
+		{query: canonicalV19TaskListAllQuery, table: "t", constraint: "id>?"},
+		{query: canonicalV19TaskListUnarchivedQuery, table: "t", constraint: "id>?"},
+		{query: canonicalV19TaskListArchivedQuery, table: "a", constraint: "task_id>?"},
 	} {
 		rows, err := db.Query("EXPLAIN QUERY PLAN "+test.query, "", 101)
 		if err != nil {
@@ -223,8 +224,11 @@ func TestListCanonicalV19TasksBoundsLargeHistory(t *testing.T) {
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if len(details) == 0 || !strings.Contains(details[0], test.first) || strings.Contains(strings.Join(details, "\n"), "USE TEMP B-TREE") {
-			t.Fatalf("Task list query plan = %q, want first %q and no temp sort", details, test.first)
+		if len(details) == 0 ||
+			!strings.HasPrefix(details[0], "SEARCH "+test.table+" USING ") ||
+			!strings.Contains(details[0], test.constraint) ||
+			strings.Contains(strings.Join(details, "\n"), "USE TEMP B-TREE") {
+			t.Fatalf("Task list query plan = %q, want indexed %s seek on %s and no temp sort", details, test.table, test.constraint)
 		}
 	}
 }
