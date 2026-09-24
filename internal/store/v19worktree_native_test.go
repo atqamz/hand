@@ -136,11 +136,56 @@ func TestReconcileSubmittedCanonicalV19WorktreeCreateDoesNotBlindRetry(t *testin
 	}
 
 	state, err := ReconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("submitted absent reconcile = %q, %v, want no-effect with diagnostic", state, err)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("submitted absent reconcile = %q, %v, want uncertain with diagnostic", state, err)
 	}
 	if _, statErr := os.Stat(request.RequestedPath); !os.IsNotExist(statErr) {
 		t.Fatalf("submitted recovery mutated requested path: %v", statErr)
+	}
+}
+
+func TestReconcileSubmittedCanonicalV19WorktreeCreateCannotSettleWhileMutationIsInFlight(t *testing.T) {
+	fixture := canonicalV19WorktreeCreateFixture(t)
+	input := canonicalV19WorktreeCreatePrepareInput(fixture.Home, "operation-create-in-flight", "binding-create-in-flight")
+	if err := os.MkdirAll(filepath.Dir(input.RequestedPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	request, err := PrepareCanonicalV19WorktreeCreate(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entered := make(chan struct{})
+	resume := make(chan struct{})
+	type result struct {
+		state string
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		state, err := reconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID, canonicalV19WorktreeCreateNativeDeps{
+			observe: observeCanonicalV19GitWorktree,
+			perform: func(home string, request CanonicalV19WorktreeCreateRequest) error {
+				close(entered)
+				<-resume
+				return performCanonicalV19GitWorktreeCreate(home, request)
+			},
+			now: time.Now,
+		})
+		done <- result{state: state, err: err}
+	}()
+	<-entered
+	defer func() {
+		close(resume)
+		got := <-done
+		if got.state != "succeeded" || got.err != nil {
+			t.Errorf("first reconcile = %q, %v, want succeeded", got.state, got.err)
+		}
+	}()
+
+	state, err := ReconcileCanonicalV19WorktreeCreate(context.Background(), fixture.Home, request.OperationID)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("concurrent reconcile = %q, %v, want uncertain/error", state, err)
 	}
 }
 

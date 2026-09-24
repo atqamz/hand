@@ -137,8 +137,10 @@ func reconcileCanonicalV19SubmittedWorktreeRemove(
 	case canonicalV19GitWorktreeAbsent:
 		return completeCanonicalV19ObservedWorktreeRemove(ctx, homeDir, current, observed, now)
 	case canonicalV19GitWorktreeExact:
-		return classifyCanonicalV19ObservedWorktreeRemoveNoEffect(ctx, homeDir, current, observed, now,
-			"positive observation proves the submitted remove left the exact worktree unchanged")
+		if current.State == "submitted" {
+			return classifyCanonicalV19ObservedWorktreeRemoveUncertain(ctx, homeDir, current, observed, now, nil)
+		}
+		return "uncertain", fmt.Errorf("reconcile canonical v19 WorktreeRemove: operation remains uncertain: unchanged worktree does not prove no mutation is in flight")
 	case canonicalV19GitWorktreeMismatch, canonicalV19GitWorktreeUnknown:
 		if current.State == "submitted" {
 			return classifyCanonicalV19ObservedWorktreeRemoveUncertain(ctx, homeDir, current, observed, now, nil)
@@ -211,6 +213,9 @@ func classifyCanonicalV19ObservedWorktreeRemoveUncertain(
 		return current.State, err
 	}
 	reason := observed.Reason
+	if reason == "" {
+		reason = "unchanged worktree does not prove no mutation is in flight"
+	}
 	if performErr != nil {
 		reason = canonicalV19WorktreeRemovePerformFailure(reason, performErr)
 	}
