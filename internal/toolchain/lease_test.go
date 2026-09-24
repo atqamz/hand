@@ -703,6 +703,68 @@ func TestRuntimeLeaseMalformedAndForeignResidueFailClosed(t *testing.T) {
 	}
 }
 
+func TestGenerationLeaseRefusesMetadataWithoutLock(t *testing.T) {
+	tests := []struct {
+		name, kind, oldID, oldScope, nextID, nextScope string
+	}{
+		{"runtime exact", "runtime", "consumer:one", "", "consumer:one", ""},
+		{"hand exact", "hand", "consumer:one", "", "consumer:one", ""},
+		{"scoped successor", "runtime", "waiter:old", "waiter:slot-0", "waiter:next", "waiter:slot-0"},
+		{"unscoped to scoped", "runtime", "waiter:slot-0", "", "waiter:next", "waiter:slot-0"},
+		{"scoped to unscoped", "runtime", "waiter:old", "waiter:slot-0", "waiter:slot-0", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, _ := generationStoreFixture(t)
+			acquire := store.AcquireLease
+			generation := ""
+			if test.kind == "hand" {
+				source := filepath.Join(t.TempDir(), executableName("hand"))
+				if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				managed, err := store.MaterializeHandExecutable(source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				generation = "sha256:" + filepath.Base(filepath.Dir(managed))
+				acquire = store.AcquireHandLease
+			} else {
+				if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				generation, err = store.GenerationID("", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			old := LeaseRequest{Generation: generation, LeaseID: test.oldID, LockScope: test.oldScope, FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=one"}
+			lease, err := acquire(old)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := abandonLeaseForTest(lease); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(lease.LockPath()); err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			next.LeaseID, next.LockScope = test.nextID, test.nextScope
+			if _, err := acquire(next); !errors.Is(err, ErrLeaseMetadataUnknown) {
+				t.Fatalf("acquire without durable lock = %v, want ErrLeaseMetadataUnknown", err)
+			}
+			if _, err := os.Stat(lease.LockPath()); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing lock was recreated: %v", err)
+			}
+			if _, err := os.Stat(lease.RecordPath()); err != nil {
+				t.Fatalf("durable lease record was removed: %v", err)
+			}
+		})
+	}
+}
+
 func abandonLeaseForTest(lease *Lease) error {
 	lease.closed = true
 	return errors.Join(lease.lock.Close(), lease.rootHandle.Close())

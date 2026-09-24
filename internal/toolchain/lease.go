@@ -196,7 +196,13 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 		}
 	}()
 	recordPath, lockPath := leasePaths(request, referenceRoot)
-	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		if recordErr := s.requireNoLeaseRecordForMissingLock(rootHandle, referenceRoot, request); recordErr != nil {
+			return nil, recordErr
+		}
+		lock, _, err = openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open runtime generation lease lock: %w", err)
 	}
@@ -241,6 +247,53 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 	}
 	retainRoot = true
 	return &Lease{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, lockPath: lockPath, lock: lock}, nil
+}
+
+func (s *Store) requireNoLeaseRecordForMissingLock(rootHandle *os.Root, referenceRoot string, request LeaseRequest) error {
+	unknown := func() error {
+		return fmt.Errorf("%w: generation=%s lease=%s lock scope has durable metadata but no lock", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID)
+	}
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.LeaseID
+	}
+	relative, err := runtimeRelativePath(s.Root, referenceRoot)
+	if err != nil {
+		return err
+	}
+	directory, owned, err := openDirectRuntimeSubroot(rootHandle, relative)
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = directory.Close() }()
+	}
+	file, err := directory.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	entries, err := file.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		record, err := readLeaseRecord(rootHandle, s.Root, filepath.Join(referenceRoot, entry.Name()))
+		if err != nil || record.validate() != nil {
+			return unknown()
+		}
+		recordScope := record.LockScope
+		if recordScope == "" {
+			recordScope = record.LeaseID
+		}
+		if recordScope == lockScope {
+			return unknown()
+		}
+	}
+	return nil
 }
 
 func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, referenceRoot string) (bool, error) {

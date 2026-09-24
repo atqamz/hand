@@ -285,6 +285,47 @@ func TestPayloadReferenceCrashAndUnknownMetadataFailClosed(t *testing.T) {
 	}
 }
 
+func TestPayloadReferenceRefusesMetadataWithoutLock(t *testing.T) {
+	tests := []struct {
+		name, oldID, oldScope, nextID, nextScope string
+	}{
+		{"exact", "run-one", "", "run-one", ""},
+		{"scoped successor", "run-one", "integration:slot-0", "run-two", "integration:slot-0"},
+		{"unscoped to scoped", "integration:slot-0", "", "run-two", "integration:slot-0"},
+		{"scoped to unscoped", "run-one", "integration:slot-0", "integration:slot-0", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, path := installReferenceFixture(t)
+			old := PayloadReferenceRequest{
+				ReferenceID: test.oldID, LockScope: test.oldScope, FleetID: integrationTestFleetID,
+				Consumer: "integration-process", Evidence: "capability=github/gh",
+			}
+			reference, err := store.AcquireReference("github/gh", path, old)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := abandonPayloadReferenceForTest(reference); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(reference.LockPath()); err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			next.ReferenceID, next.LockScope = test.nextID, test.nextScope
+			if _, err := store.AcquireReference("github/gh", path, next); !errors.Is(err, ErrPayloadReferenceUnknown) {
+				t.Fatalf("acquire without durable lock = %v, want ErrPayloadReferenceUnknown", err)
+			}
+			if _, err := os.Stat(reference.LockPath()); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing lock was recreated: %v", err)
+			}
+			if _, err := os.Stat(reference.RecordPath()); err != nil {
+				t.Fatalf("durable reference record was removed: %v", err)
+			}
+		})
+	}
+}
+
 func TestPayloadReferenceRejectsAliasesAndInvalidIdentity(t *testing.T) {
 	store, path := installReferenceFixture(t)
 	request := PayloadReferenceRequest{
