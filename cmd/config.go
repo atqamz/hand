@@ -146,7 +146,7 @@ func newConfigCmd() *cobra.Command {
 }
 
 func newConfigWorkerPolicyCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "worker-policy",
 		Short: "Read the candidate canonical Worker policy",
 		Args:  usageArgs(cobra.NoArgs),
@@ -175,6 +175,8 @@ func newConfigWorkerPolicyCmd() *cobra.Command {
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
+	cmd.AddCommand(newConfigWorkerCandidateCmd())
+	return cmd
 }
 
 func newConfigSetCmd() *cobra.Command {

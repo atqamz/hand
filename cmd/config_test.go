@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,13 +100,15 @@ func assertSetting(t *testing.T, cfg workerConfig, key, state, value string) {
 	t.Fatalf("no %q setting in %#v", key, cfg)
 }
 
+const validWorkerPolicyForCommand = `{"schema":"hand.worker-policy.v1","profiles":[{"name":"worker","harness":"codex"}],"routes":[{"intent":"execute","judgment":"substantial","profile":"worker"},{"intent":"explore","judgment":"bounded","profile":"worker"},{"intent":"execute","judgment":"mechanical","profile":"worker"},{"intent":"explore","judgment":"substantial","profile":"worker"},{"intent":"execute","judgment":"bounded","profile":"worker"},{"intent":"explore","judgment":"mechanical","profile":"worker"}]}`
+
 func TestConfigWorkerPolicyReadsExactCanonicalRoutesWithoutMutation(t *testing.T) {
 	home := setupConfigHome(t)
 	path := filepath.Join(home, "config", "worker-policy.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	data := []byte(`{"schema":"hand.worker-policy.v1","profiles":[{"name":"worker","harness":"codex"}],"routes":[{"intent":"execute","judgment":"substantial","profile":"worker"},{"intent":"explore","judgment":"bounded","profile":"worker"},{"intent":"execute","judgment":"mechanical","profile":"worker"},{"intent":"explore","judgment":"substantial","profile":"worker"},{"intent":"execute","judgment":"bounded","profile":"worker"},{"intent":"explore","judgment":"mechanical","profile":"worker"}]}`)
+	data := []byte(validWorkerPolicyForCommand)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +128,48 @@ func TestConfigWorkerPolicyReadsExactCanonicalRoutesWithoutMutation(t *testing.T
 	after, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(after, data) {
 		t.Fatalf("worker policy read mutated source: %v", err)
+	}
+}
+
+func TestConfigWorkerPolicyCandidateAppliesOverridesWithoutCreatingAttempt(t *testing.T) {
+	home := setupConfigHome(t)
+	beforeDB, err := os.ReadFile(filepath.Join(home, "state", "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, "config", "worker-policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(strings.Replace(validWorkerPolicyForCommand, `{"name":"worker","harness":"codex"}`, `{"name":"worker","harness":"codex","model":"gpt-6"}`, 1))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runConfig(t, "worker-policy", "candidate", "execute", "bounded", "--model-override=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	for _, want := range []string{
+		"intent: execute", "judgment: bounded", "profile: worker", "harness: codex",
+		`model: ""`, "requested_overrides[1]{field,value}:", `model-override,""`,
+		"qualification: unverified", "attempt_created: false",
+		fmt.Sprintf(`policy_witness: "sha256:%x"`, digest),
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("candidate output = %q, missing %q", out, want)
+		}
+	}
+	if _, err := runConfig(t, "worker-policy", "candidate", "execute", "bounded", "--profile-override", "missing"); err == nil || !strings.Contains(err.Error(), "missing profile") {
+		t.Fatalf("missing override profile was accepted: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(after, data) {
+		t.Fatalf("candidate read mutated policy: %v", err)
+	}
+	afterDB, err := os.ReadFile(filepath.Join(home, "state", "hand.db"))
+	if err != nil || !bytes.Equal(beforeDB, afterDB) {
+		t.Fatalf("candidate changed Fleet database: %v", err)
 	}
 }
 

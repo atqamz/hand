@@ -91,3 +91,85 @@ func TestLoadWorkerPolicyNeverUsesLegacyTaskRoutes(t *testing.T) {
 		t.Fatalf("legacy Task route became canonical Worker policy: %#v", got)
 	}
 }
+
+func TestResolveWorkerCandidateUsesSixRoutesAndExactOverrides(t *testing.T) {
+	home := t.TempDir()
+	data := strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"worker","harness":"codex","model":"gpt-6","effort":"high"},{"name":"alternate","harness":"claude","model":"sonnet","effort":"medium"}`, 1)
+	writeWorkerPolicy(t, home, data)
+	policy, err := LoadWorkerPolicy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range policy.Routes {
+		candidate, err := ResolveWorkerCandidate(home, route.Intent, route.Judgment, WorkerCandidateOverrides{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if candidate.Profile != (Profile{Name: "worker", Harness: "codex", Model: "gpt-6", Effort: "high"}) || candidate.PolicyWitness != policy.Witness {
+			t.Fatalf("%s.%s candidate = %#v", route.Intent, route.Judgment, candidate)
+		}
+	}
+	selected, cleared := "alternate", ""
+	candidate, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{
+		ProfileOverride: &selected, ModelOverride: &cleared, EffortOverride: &cleared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.Profile != (Profile{Name: "alternate", Harness: "claude"}) {
+		t.Fatalf("explicitly cleared model and effort = %#v", candidate)
+	}
+	harness := "codex"
+	candidate, err = ResolveWorkerCandidate(home, "explore", "mechanical", WorkerCandidateOverrides{
+		ProfileOverride: &selected, HarnessOverride: &harness, ModelOverride: &cleared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.Profile.Name != "alternate" || candidate.Profile.Harness != "codex" || candidate.Profile.Model != "" || candidate.Profile.Effort != "medium" {
+		t.Fatalf("field-specific override = %#v", candidate)
+	}
+	changed := strings.Replace(data, `"intent":"execute","judgment":"bounded","profile":"worker"`, `"intent":"execute","judgment":"bounded","profile":"alternate"`, 1)
+	writeWorkerPolicy(t, home, changed)
+	next, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Profile != (Profile{Name: "alternate", Harness: "claude", Model: "sonnet", Effort: "medium"}) || next.PolicyWitness == policy.Witness {
+		t.Fatalf("edited route candidate = %#v", next)
+	}
+}
+
+func TestResolveWorkerCandidateRejectsUnknownAndStaticConflicts(t *testing.T) {
+	home := t.TempDir()
+	data := strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"worker","harness":"codex","model":"gpt-6"}`, 1)
+	writeWorkerPolicy(t, home, data)
+	missing, pi, empty := "missing", "pi", ""
+	for _, test := range []struct {
+		name      string
+		intent    string
+		judgment  string
+		overrides WorkerCandidateOverrides
+		want      string
+	}{
+		{name: "unknown route", intent: "ship", judgment: "bounded", want: "invalid Worker Route"},
+		{name: "missing profile override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{ProfileOverride: &missing}, want: "missing profile"},
+		{name: "empty profile override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{ProfileOverride: &empty}, want: "invalid profile override"},
+		{name: "inherited model unsupported by harness override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{HarnessOverride: &pi}, want: "takes no model"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := ResolveWorkerCandidate(home, test.intent, test.judgment, test.overrides); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("candidate error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestResolveWorkerCandidateRefusesUnrenderablePolicyValue(t *testing.T) {
+	home := t.TempDir()
+	data := strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1)
+	writeWorkerPolicy(t, home, data)
+	if _, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{}); err == nil || !strings.Contains(err.Error(), "invalid model") {
+		t.Fatalf("unrenderable model candidate = %v", err)
+	}
+}
