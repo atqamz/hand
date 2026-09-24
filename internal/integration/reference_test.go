@@ -470,6 +470,67 @@ func TestManagedRunRetainsPayloadReferenceAfterRootExit(t *testing.T) {
 	}
 }
 
+func TestRunSessionReusesReferenceAndRotatesSelection(t *testing.T) {
+	if legacyCapabilityFallback {
+		t.Skip("test-tag builds intentionally execute PATH fakes")
+	}
+	root := t.TempDir()
+	t.Setenv("SECONDHAND_HOME", root)
+	t.Setenv("HAND_HOME", "")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(root)
+	if _, err := store.Install("github/gh", executable); err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewSession("github/gh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	for range 3 {
+		if err := session.Refresh(); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := session.Run(context.Background(), "github/gh", "", "-test.run=^TestPayloadReferenceAnchoredLaunchHelper$"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records, err := filepath.Glob(filepath.Join(root, "integrations", "github", "gh", "references", "*", "*.json"))
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records after three serial runs = %v, %v; want one", records, err)
+	}
+	if err := store.Remove("github/gh"); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Refresh(); err == nil {
+		t.Fatal("refresh accepted removed selection")
+	}
+	if _, _, err := session.Run(context.Background(), "github/gh", "", "-test.run=^TestPayloadReferenceAnchoredLaunchHelper$"); err == nil {
+		t.Fatal("session ran stale payload after refresh failure")
+	}
+	second := filepath.Join(t.TempDir(), "gh-second")
+	data, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, append(data, '\n'), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Install("github/gh", second); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	records, err = filepath.Glob(filepath.Join(root, "integrations", "github", "gh", "references", "*", "*.json"))
+	if err != nil || len(records) != 2 {
+		t.Fatalf("records after selection rotation = %v, %v; want two", records, err)
+	}
+}
+
 func TestRepeatedManagedRunsReusePayloadLockScope(t *testing.T) {
 	if legacyCapabilityFallback {
 		t.Skip("test-tag builds intentionally execute PATH fakes")

@@ -729,6 +729,96 @@ func TestTickDoesNotRaiseGateProblemForCurrentChecksPassedRun(t *testing.T) {
 	}
 }
 
+func TestTickRechecksCurrentGateVerdictAfterBoundedInterval(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+	pr := "https://github.com/atqamz/hand/pull/120"
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip, PR: pr}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state.ReportPath(home, "task-1"), []byte("done: shipped\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	id := "01M38X1MW6N04H8E2XQ31CCV8R"
+	row := "  running  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id + "  " + pr + "\n"
+	verdict := "run_id: \"" + id + "\"\nlifecycle: running\npr: \"" + pr + "\"\nhead_sha: " + strings.Repeat("a", 40) + "\nverdict: checks-passed\nbasis: checks\nreason: \"\"\n"
+	countFile := filepath.Join(t.TempDir(), "calls")
+	bin := faketool.Bin(t)
+	faketool.NoMistakes{Runs: row, Stdout: verdict, CountLog: countFile}.Install(t, bin)
+	cfg := Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	var out bytes.Buffer
+	for range 5 {
+		tick(context.Background(), cfg, client, states, &out, io.Discard)
+	}
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 2 {
+		t.Fatalf("no-mistakes ran %d times before recheck, want 2", got)
+	}
+	faketool.NoMistakes{Runs: row, Stdout: strings.Replace(verdict, "checks-passed", "pending", 1), CountLog: countFile}.Install(t, bin)
+	states["task-1"].GateCheckedAt = time.Now().Add(-gateRecheckInterval)
+	out.Reset()
+	tick(context.Background(), cfg, client, states, &out, io.Discard)
+	if !strings.Contains(out.String(), "gate-unknown task-1") {
+		t.Fatalf("output = %q, want same-head regression after recheck", out.String())
+	}
+	calls, err = os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 4 {
+		t.Fatalf("no-mistakes ran %d times after recheck, want 4", got)
+	}
+}
+
+func TestTickSharesGateObservationForSameProjectAndPR(t *testing.T) {
+	statusFile := filepath.Join(t.TempDir(), "status")
+	setStatus(t, statusFile, "idle")
+	writeFakeHerdr(t, statusFile)
+	pr := "https://github.com/atqamz/hand/pull/120"
+	home := setupWatcherHome(t, state.Task{ID: "task-1", Project: "gated", Kind: state.KindShip, PR: pr}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}})
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-2", Project: "gated", Kind: state.KindShip, PR: pr, CreatedAt: time.Now().UTC().Format(time.RFC3339)}, state.Attempt{Lifecycle: state.AttemptRunning, Herdr: state.Herdr{PaneID: "p1"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.Add(home, project.Project{Name: "gated", URL: "https://example.com/gated.git", Mode: project.ModeNoMistakes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "projects", "gated"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, taskID := range []string{"task-1", "task-2"} {
+		if err := os.WriteFile(state.ReportPath(home, taskID), []byte("done: shipped\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := "01M38X1MW6N04H8E2XQ31CCV8R"
+	row := "  running  feature/readiness  aaaaaaaa  2026-09-24 12:00  id:" + id + "  " + pr + "\n"
+	verdict := "run_id: \"" + id + "\"\nlifecycle: running\npr: \"" + pr + "\"\nhead_sha: " + strings.Repeat("a", 40) + "\nverdict: checks-passed\nbasis: checks\nreason: \"\"\n"
+	countFile := filepath.Join(t.TempDir(), "calls")
+	faketool.NoMistakes{Runs: row, Stdout: verdict, CountLog: countFile}.Install(t, faketool.Bin(t))
+	cfg := Config{Home: home, PollInterval: time.Second, StaleThreshold: time.Hour}
+	client := herdr.NewClient()
+	states := make(map[string]*TaskState)
+	tick(context.Background(), cfg, client, states, io.Discard, io.Discard)
+	tick(context.Background(), cfg, client, states, io.Discard, io.Discard)
+	calls, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(strings.Fields(string(calls))); got != 2 {
+		t.Fatalf("no-mistakes ran %d times for two tasks with one PR, want 2", got)
+	}
+}
+
 // Mirrors !ts.PRMerged three lines above the gate check in tick(): once ClassifyGateProblem has
 // fired for this attempt, later ticks must not keep re-execing no-mistakes to ask a question already
 // answered, the way an unbounded poll loop otherwise would forever.
@@ -2004,6 +2094,8 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		Stale:                      true,
 		PRMerged:                   true,
 		GateProblemFired:           true,
+		GateCheckedAt:              time.Date(2007, 7, 7, 0, 0, 0, 0, time.UTC),
+		GateCheckedPR:              "https://github.com/atqamz/hand/pull/120",
 		ReportCursor:               state.ReportCursor{Offset: 42, Digest: "consumed-digest"},
 		PersistedCursor:            state.ReportCursor{Offset: 43, Digest: "persisted-digest"},
 		PersistedPRMerged:          true,
@@ -2048,6 +2140,8 @@ func TestForgetPaneScopedCacheHandlesEveryField(t *testing.T) {
 		// The gate-run problem latch is about the recorded PR, not the pane it was announced from -
 		// exactly PRMerged's own reasoning, one field down.
 		"GateProblemFired":        true,
+		"GateCheckedAt":           true,
+		"GateCheckedPR":           true,
 		"ReportCursor":            true,
 		"PersistedCursor":         true,
 		"PersistedPRMerged":       true,

@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/atomicfile"
 	"github.com/atqamz/hand/internal/ghutil"
 	"github.com/atqamz/hand/internal/herdr"
+	"github.com/atqamz/hand/internal/integration"
 	"github.com/atqamz/hand/internal/notify"
 	"github.com/atqamz/hand/internal/orientation"
 	"github.com/atqamz/hand/internal/project"
@@ -26,6 +27,7 @@ import (
 )
 
 const maxEventLogLines = 200
+const gateRecheckInterval = time.Minute
 
 var afterWatchTick = func() {}
 
@@ -51,7 +53,8 @@ type Config struct {
 	// Narrows the arming ticks further, on top of EventFilter, to what durable state dedupes across
 	// arms. Unexported because it describes this package's own two-tick arming rather than anything a
 	// caller asked for, and nil - matching every kind - on every other tick.
-	catchUp EventFilter
+	catchUp     EventFilter
+	gateSession *integration.Session
 }
 
 type TargetBinding struct {
@@ -147,7 +150,7 @@ func contextLifecycleError(ctx context.Context) error {
 // Run blocks, polling herdr agent states at cfg.PollInterval until ctx is canceled, returning a
 // typed lifecycle result for cancellation or an error if herdr is unreachable at startup. out
 // receives the actionable event stream, while errOut receives internal diagnostics.
-func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
+func Run(ctx context.Context, cfg Config, out, errOut io.Writer) (runErr error) {
 	client, err := prepareClient(cfg.Home)
 	if err != nil {
 		return err
@@ -163,6 +166,11 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		return fmt.Errorf("read Fleet identity: %w", err)
 	}
 	cfg.FleetID = fleetID
+	cfg.gateSession, err = integration.NewSession("delivery/no-mistakes")
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, cfg.gateSession.Close()) }()
 
 	states := make(map[string]*TaskState)
 	tick(ctx, cfg, client, states, out, errOut)
@@ -193,7 +201,7 @@ func prepareClient(home string) (*herdr.Client, error) {
 // RunUntilEvent observes what is already actionable, then blocks until a tick produces events, writes
 // them to out and returns nil - the exit is the delivery, since it is the one signal a supervisory
 // agent's background-task runner already honors.
-func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error {
+func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) (runErr error) {
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = withWatchTimeout(ctx, cfg.Timeout)
@@ -218,6 +226,11 @@ func RunUntilEvent(ctx context.Context, cfg Config, out, errOut io.Writer) error
 		return fmt.Errorf("read Fleet identity: %w", err)
 	}
 	cfg.FleetID = fleetID
+	cfg.gateSession, err = integration.NewSession("delivery/no-mistakes")
+	if err != nil {
+		return err
+	}
+	defer func() { runErr = errors.Join(runErr, cfg.gateSession.Close()) }()
 
 	armHistories, err := state.ListOpenHistories(cfg.Home)
 	if err != nil {
@@ -405,6 +418,7 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 	}
 
 	seen := make(map[string]bool, len(histories))
+	gateObservations := make(map[[2]string]ghutil.ObservationState)
 	now := time.Now()
 	for _, history := range histories {
 		if ctx.Err() != nil {
@@ -517,8 +531,21 @@ func tick(ctx context.Context, cfg Config, client *herdr.Client, states map[stri
 		switch {
 		case !gateApplies:
 			ClassifyGateProblem(ts, t.ID, false, "")
-		case !ts.GateProblemFired:
-			if e := ClassifyGateProblem(ts, t.ID, true, gateRunObservation(ctx, cfg.Home, t)); e != nil {
+			ts.GateCheckedAt = time.Time{}
+			ts.GateCheckedPR = ""
+		case ts.GateCheckedPR != t.PR || ts.GateCheckedAt.IsZero() || now.Before(ts.GateCheckedAt) || now.Sub(ts.GateCheckedAt) >= gateRecheckInterval:
+			if ts.GateCheckedPR != t.PR {
+				ts.GateProblemFired = false
+			}
+			ts.GateCheckedAt = now
+			ts.GateCheckedPR = t.PR
+			key := [2]string{t.Project, t.PR}
+			observed, ok := gateObservations[key]
+			if !ok {
+				observed = gateRunObservation(ctx, cfg.Home, t, cfg.gateSession)
+				gateObservations[key] = observed
+			}
+			if e := ClassifyGateProblem(ts, t.ID, true, observed); e != nil {
 				emit(e)
 			}
 		}
@@ -888,16 +915,23 @@ func flattenError(err error) string {
 // gateRunTimeout: a hung subprocess must cost one tick, not the whole poll loop.
 const gateRunTimeout = 5 * time.Second
 
-func gateRunObservation(ctx context.Context, home string, t state.Task) ghutil.ObservationState {
+func gateRunObservation(ctx context.Context, home string, t state.Task, session *integration.Session) ghutil.ObservationState {
 	p, registered, err := project.Find(home, t.Project)
 	if err != nil {
 		return ""
 	}
-	return project.ObserveGateRun(ctx, home, p, registered, t.PR, func(clonePath string) (project.GateRunIDs, error) {
+	run := project.GateCommand(integration.Run)
+	if session != nil && registered && p.Mode == project.ModeNoMistakes {
+		if err := session.Refresh(); err != nil {
+			return ghutil.ObservationUnknown
+		}
+		run = session.Run
+	}
+	return project.ObserveGateRunWithRunner(ctx, home, p, registered, t.PR, func(clonePath string) (project.GateRunIDs, error) {
 		runCtx, cancel := context.WithTimeout(ctx, gateRunTimeout)
 		defer cancel()
-		return project.GateRunPRs(runCtx, clonePath)
-	})
+		return project.GateRunPRsWithRunner(runCtx, clonePath, run)
+	}, run)
 }
 
 // Routes a worker-supplied URL through hand pr's own validation before it can reach task state: a

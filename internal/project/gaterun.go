@@ -19,6 +19,8 @@ const gateVerdictTimeout = 5 * time.Second
 
 type GateRunIDs map[string][]string
 
+type GateCommand func(context.Context, string, string, ...string) ([]byte, []byte, error)
+
 type GateRunObservation struct {
 	State ghutil.ObservationState
 	Probe ghutil.Probe
@@ -45,6 +47,10 @@ func ClassifyGateRun(runs GateRunIDs, err error, pr string) GateRunObservation {
 }
 
 func ObserveGateRun(ctx context.Context, home string, p Project, registered bool, pr string, runPRs func(clonePath string) (GateRunIDs, error)) ghutil.ObservationState {
+	return ObserveGateRunWithRunner(ctx, home, p, registered, pr, runPRs, integration.Run)
+}
+
+func ObserveGateRunWithRunner(ctx context.Context, home string, p Project, registered bool, pr string, runPRs func(clonePath string) (GateRunIDs, error), run GateCommand) ghutil.ObservationState {
 	if !registered || p.Mode != ModeNoMistakes {
 		return ""
 	}
@@ -53,13 +59,17 @@ func ObserveGateRun(ctx context.Context, home string, p Project, registered bool
 	if err != nil || len(runs[pr]) != 1 {
 		return ClassifyGateRun(runs, err, pr).State
 	}
-	return gateRunCIVerdict(ctx, clonePath, runs[pr][0], pr)
+	return gateRunCIVerdictWithRunner(ctx, clonePath, runs[pr][0], pr, run)
 }
 
 func gateRunCIVerdict(ctx context.Context, clonePath, runID, pr string) ghutil.ObservationState {
+	return gateRunCIVerdictWithRunner(ctx, clonePath, runID, pr, integration.Run)
+}
+
+func gateRunCIVerdictWithRunner(ctx context.Context, clonePath, runID, pr string, run GateCommand) ghutil.ObservationState {
 	probeCtx, cancel := context.WithTimeout(ctx, gateVerdictTimeout)
 	defer cancel()
-	stdout, _, err := integration.Run(probeCtx, "delivery/no-mistakes", clonePath, "axi", "ci-verdict", "--run", runID)
+	stdout, _, err := run(probeCtx, "delivery/no-mistakes", clonePath, "axi", "ci-verdict", "--run", runID)
 	if err != nil || probeCtx.Err() != nil {
 		return ghutil.ObservationUnknown
 	}
@@ -108,10 +118,14 @@ func validFullGateSHA(sha string) bool {
 }
 
 func GateRunPRs(ctx context.Context, clonePath string) (GateRunIDs, error) {
+	return GateRunPRsWithRunner(ctx, clonePath, integration.Run)
+}
+
+func GateRunPRsWithRunner(ctx context.Context, clonePath string, run GateCommand) (GateRunIDs, error) {
 	if _, err := os.Stat(clonePath); err != nil {
 		return nil, fmt.Errorf("no-mistakes clone path: %w", err)
 	}
-	stdout, stderr, err := integration.Run(ctx, "delivery/no-mistakes", clonePath, "runs", "--limit", gateRunLimit)
+	stdout, stderr, err := run(ctx, "delivery/no-mistakes", clonePath, "runs", "--limit", gateRunLimit)
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("no-mistakes runs did not complete: %w", ctx.Err())
 	}

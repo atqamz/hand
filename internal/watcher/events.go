@@ -187,6 +187,8 @@ type TaskState struct {
 	// Re-derived, never persisted, for the reason UnreachableFired is: a restart re-asking no-mistakes
 	// once more is cheap, while a suppressed regression is not.
 	GateProblemFired bool
+	GateCheckedAt    time.Time
+	GateCheckedPR    string
 	ReportCursor     state.ReportCursor
 	// The Persisted* fields mirror what the task's durable state already carries,
 	// so a write skipped for lock contention is retried on the next tick instead

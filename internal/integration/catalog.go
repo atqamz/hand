@@ -67,39 +67,96 @@ type Store struct {
 	Root string
 }
 
-func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, error) {
-	capability, ok := find(id)
+type Session struct {
+	id        string
+	store     *Store
+	path      string
+	reference *PayloadReference
+	ready     bool
+	closed    bool
+}
+
+func NewSession(id string) (*Session, error) {
+	_, ok := find(id)
 	if !ok {
-		return nil, nil, fmt.Errorf("unsupported optional capability %q", id)
+		return nil, fmt.Errorf("unsupported optional capability %q", id)
 	}
-	// Test builds must use the caller's PATH so per-test fakes cannot be bypassed by a private
-	// integration installed in the developer's SECONDHAND_HOME.
+	return &Session{id: id, store: DefaultStore()}, nil
+}
+
+func (session *Session) Refresh() error {
+	if session.closed {
+		return errors.New("optional capability session is closed")
+	}
 	if legacyCapabilityFallback {
-		return runExecutable(ctx, capability.Executable, dir, args...)
+		return nil
 	}
-	store := DefaultStore()
-	path, err := store.Resolve(id)
+	session.ready = false
+	path, err := session.store.Resolve(session.id)
 	if err != nil {
-		return nil, nil, err
+		return err
+	}
+	if path == session.path && session.reference != nil {
+		session.ready = true
+		return nil
 	}
 	fleetID, err := payloadFleetID()
 	if err != nil {
-		return nil, nil, fmt.Errorf("identify Fleet for optional capability %q reference: %w", id, err)
+		return fmt.Errorf("identify Fleet for optional capability %q reference: %w", session.id, err)
 	}
 	referenceID, err := newPayloadReferenceID()
 	if err != nil {
-		return nil, nil, fmt.Errorf("create optional capability %q reference identity: %w", id, err)
+		return fmt.Errorf("create optional capability %q reference identity: %w", session.id, err)
 	}
 	role := os.Getenv("HAND_ROLE")
 	if role == "" {
 		role = "operator"
 	}
-	reference, err := acquireRunReference(store, id, path, referenceID, fleetID, role)
+	reference, err := acquireRunReference(session.store, session.id, path, referenceID, fleetID, role)
+	if err != nil {
+		return err
+	}
+	old := session.reference
+	session.path = path
+	session.reference = reference
+	if err := old.Close(); err != nil {
+		return err
+	}
+	session.ready = true
+	return nil
+}
+
+func (session *Session) Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, error) {
+	if id != session.id || session.closed {
+		return nil, nil, fmt.Errorf("optional capability %q is outside the live session", id)
+	}
+	if legacyCapabilityFallback {
+		capability, _ := find(id)
+		return runExecutable(ctx, capability.Executable, dir, args...)
+	}
+	if !session.ready {
+		if err := session.Refresh(); err != nil {
+			return nil, nil, err
+		}
+	}
+	return runReferencedExecutable(ctx, session.reference, session.path, dir, args...)
+}
+
+func (session *Session) Close() error {
+	if session == nil || session.closed {
+		return nil
+	}
+	session.closed = true
+	return session.reference.Close()
+}
+
+func Run(ctx context.Context, id, dir string, args ...string) ([]byte, []byte, error) {
+	session, err := NewSession(id)
 	if err != nil {
 		return nil, nil, err
 	}
-	stdout, stderr, runErr := runReferencedExecutable(ctx, reference, path, dir, args...)
-	return stdout, stderr, errors.Join(runErr, reference.Close())
+	stdout, stderr, runErr := session.Run(ctx, id, dir, args...)
+	return stdout, stderr, errors.Join(runErr, session.Close())
 }
 
 func acquireRunReference(store *Store, id, path, referenceID, fleetID, role string) (*PayloadReference, error) {
