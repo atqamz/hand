@@ -16,7 +16,7 @@ func newDecisionCmd() *cobra.Command {
 		Use: "decision", Short: "Inspect and record exact canonical operator questions",
 		PersistentPreRunE: canonicalSupervisorPreflight,
 	}
-	cmd.AddCommand(newDecisionShowCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd(), newDecisionCloseCmd())
+	cmd.AddCommand(newDecisionShowCmd(), newDecisionCreateCmd(), newDecisionAnswerCmd(), newDecisionDeliverCmd(), newDecisionCloseCmd())
 	return cmd
 }
 
@@ -151,6 +151,60 @@ func newDecisionAnswerCmd() *cobra.Command {
 		{"answer", "Exact explicit operator Answer bytes", &input.Answer},
 		{"operator-ref", "Non-secret operator provenance reference; not authentication", &input.ActorRef},
 		{"answered-at", "Caller-retained RFC3339 timestamp for exact replay", &input.AnsweredAt},
+	} {
+		cmd.Flags().StringVar(flag.value, flag.name, "", flag.help)
+		_ = cmd.MarkFlagRequired(flag.name)
+	}
+	return cmd
+}
+
+func newDecisionDeliverCmd() *cobra.Command {
+	var input store.CanonicalV19AnswerWorkerInputCreateInput
+	cmd := &cobra.Command{
+		Use: "deliver <decision-id>", Short: "Record an exact Answer-origin WorkerInput",
+		Long: "Copy one exact recorded Answer into an immutable WorkerInput for the named active Attempt and ExecutorBinding. Retain all IDs and the timestamp for replay. This does not wake or acknowledge the Worker.",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := canonicalTimestamp(input.CreatedAt); err != nil {
+				return err
+			}
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			input.DecisionID = args[0]
+			view, err := store.ReadCanonicalV19Decision(cmd.Context(), homeDir, input.DecisionID)
+			if err != nil {
+				return err
+			}
+			if view.Answer == nil || view.Answer.ID != input.AnswerID {
+				return fmt.Errorf("decision %q has no exact Answer %q", input.DecisionID, input.AnswerID)
+			}
+			input.Payload, input.PayloadDigest = view.Answer.Answer, view.Answer.AnswerDigest
+			created, err := store.CreateCanonicalV19AnswerWorkerInput(cmd.Context(), homeDir, input)
+			if err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("decision_id", input.DecisionID)
+			doc.Field("answer_id", input.AnswerID)
+			doc.Field("worker_input_id", created.ID)
+			doc.Int("ordinal", int(created.Ordinal))
+			doc.Field("result", "recorded-or-already-recorded")
+			doc.Help("WorkerInput recorded; wake and acknowledgement require separate evidence.")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	for _, flag := range []struct {
+		name, help string
+		value      *string
+	}{
+		{"answer-id", "Exact recorded Answer ID", &input.AnswerID},
+		{"input-id", "Caller-retained immutable WorkerInput ID", &input.ID},
+		{"answer-origin-id", "Caller-retained exact Answer-origin binding ID", &input.AnswerOriginID},
+		{"attempt-id", "Exact active Attempt ID", &input.AttemptID},
+		{"executor-binding-id", "Exact open ExecutorBinding ID", &input.ExecutorBindingID},
+		{"created-at", "Caller-retained RFC3339 timestamp for exact replay", &input.CreatedAt},
 	} {
 		cmd.Flags().StringVar(flag.value, flag.name, "", flag.help)
 		_ = cmd.MarkFlagRequired(flag.name)
