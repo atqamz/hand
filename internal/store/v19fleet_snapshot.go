@@ -15,6 +15,8 @@ type CanonicalV19FleetSnapshot struct {
 	FleetID                     string
 	DBReadAt                    string
 	Projects                    []CanonicalV19SnapshotProject
+	CurrentOpenWorktreeBindings []CanonicalV19SnapshotCurrentWorktreeBinding
+	CurrentOpenSessionBindings  []CanonicalV19SnapshotCurrentSessionBinding
 	CurrentOpenExecutorBindings []CanonicalV19SnapshotCurrentExecutorBinding
 	UnacknowledgedInputs        []CanonicalV19SnapshotWorkerInput
 	UnresolvedOperations        []CanonicalV19SnapshotOperation
@@ -162,6 +164,14 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 	}
 	if err := rows.Close(); err != nil {
 		return CanonicalV19FleetSnapshot{}, fmt.Errorf("close canonical FleetSnapshot lineage: %w", err)
+	}
+	snapshot.CurrentOpenWorktreeBindings, err = readCanonicalV19SnapshotCurrentWorktreeBindings(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
+	}
+	snapshot.CurrentOpenSessionBindings, err = readCanonicalV19SnapshotCurrentSessionBindings(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
 	}
 	snapshot.CurrentOpenExecutorBindings, err = readCanonicalV19SnapshotCurrentExecutorBindings(ctx, tx)
 	if err != nil {
