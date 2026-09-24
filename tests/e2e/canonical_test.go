@@ -92,6 +92,49 @@ func TestCanonicalInitProjectTaskCLI(t *testing.T) {
 	assertTreeUnchanged(t, home, before)
 }
 
+func TestCanonicalTaskSupersedeCLIRecordsReplacementWithoutCompletion(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "fresh")
+	if got := runHand(t, parent, "init", "--canonical", home); got.code != 0 {
+		t.Fatalf("init: %+v", got)
+	}
+	initGitRepo(t, filepath.Join(home, "projects", "sample"))
+	registered := runHand(t, home, "project", "register", "sample")
+	if registered.code != 0 {
+		t.Fatalf("register: %+v", registered)
+	}
+	projectID := canonicalOutputField(t, registered, "project_id")
+	if got := runHand(t, home, "task", "create", "task-old", "--project-id", projectID, "--goal", "old goal"); got.code != 0 {
+		t.Fatalf("create: %+v", got)
+	}
+	got := runHand(t, home, "task", "supersede", "task-old", "task-new", "--goal", "revised goal")
+	if got.code != 0 || canonicalOutputField(t, got, "task_id") != "task-new" ||
+		canonicalOutputField(t, got, "supersedes_task_id") != "task-old" {
+		t.Fatalf("supersede: %+v", got)
+	}
+	db := canonicalTestDB(t, home)
+	defer func() { _ = db.Close() }()
+	var oldState, newState, predecessor, goal, digest string
+	if err := db.QueryRow(`SELECT lifecycle FROM task WHERE id='task-old'`).Scan(&oldState); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT lifecycle,supersedes_task_id,goal,goal_digest FROM task WHERE id='task-new'`).Scan(
+		&newState, &predecessor, &goal, &digest); err != nil {
+		t.Fatal(err)
+	}
+	if oldState != "superseded" || newState != "active" || predecessor != "task-old" || goal != "revised goal" ||
+		digest != fmt.Sprintf("%x", sha256.Sum256([]byte(goal))) {
+		t.Fatalf("old/new Task = %q/%q/%q/%q/%q", oldState, newState, predecessor, goal, digest)
+	}
+	if got := runHand(t, home, "task", "supersede", "task-old", "task-other", "--goal", "stale goal"); got.code == 0 {
+		t.Fatalf("stale supersession succeeded: %+v", got)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("Task count after stale attempt = %d, %v", count, err)
+	}
+}
+
 func TestCanonicalInitRefusesExistingTargetsWithoutMutation(t *testing.T) {
 	for _, kind := range []string{"empty", "legacy", "partial"} {
 		t.Run(kind, func(t *testing.T) {
