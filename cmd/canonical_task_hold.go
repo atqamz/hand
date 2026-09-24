@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strconv"
+
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/store"
@@ -9,7 +11,40 @@ import (
 
 func newTaskHoldCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "hold", Short: "Record exact Task-level deferral and resolution"}
-	cmd.AddCommand(newTaskHoldCreateCmd(), newTaskHoldShowCmd(), newTaskHoldResolveCmd())
+	cmd.AddCommand(newTaskHoldCreateCmd(), newTaskHoldShowCmd(), newTaskHoldListCmd(), newTaskHoldResolveCmd())
+	return cmd
+}
+
+func newTaskHoldListCmd() *cobra.Command {
+	var afterOrdinal int64
+	var limit int
+	cmd := &cobra.Command{
+		Use: "list <task-id>", Short: "Read a bounded page of exact TaskHold history",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			page, err := store.ListCanonicalV19TaskHolds(cmd.Context(), homeDir, args[0], afterOrdinal, limit)
+			if err != nil {
+				return err
+			}
+			rows := make([][]string, 0, len(page.Items))
+			for _, item := range page.Items {
+				rows = append(rows, []string{item.ID, strconv.FormatInt(item.Ordinal, 10), item.Kind, valueOrNone(item.Resolution)})
+			}
+			var doc axi.Doc
+			doc.Field("task_id", args[0])
+			doc.Field("limit", strconv.Itoa(limit))
+			doc.Field("next_after_ordinal", strconv.FormatInt(page.NextAfterOrdinal, 10))
+			doc.Rows("holds", []string{"id", "ordinal", "kind", "resolution"}, rows)
+			doc.Help("Hold ordinal order; when next_after_ordinal is nonzero, pass it as --after-ordinal for the next page. Use task hold show <id> for exact detail. Resolution is separate from Task/archive lifecycle.")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().Int64Var(&afterOrdinal, "after-ordinal", 0, "Exclusive TaskHold ordinal cursor; 0 starts the history")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum TaskHolds per page (1–1000)")
 	return cmd
 }
 

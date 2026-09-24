@@ -21,7 +21,7 @@ func canonicalSupervisorPreflight(cmd *cobra.Command, _ []string) error {
 	}
 	// Init has an explicit target; group help and exact historical reads must not
 	// depend on an ambient Fleet or repair its discovery projection.
-	if cmd.Name() == "init" || cmd.HasSubCommands() || cmd.CommandPath() == "hand decision show" || cmd.CommandPath() == "hand task hold show" || cmd.CommandPath() == "hand task show" || cmd.CommandPath() == "hand task list" {
+	if cmd.Name() == "init" || cmd.HasSubCommands() || cmd.CommandPath() == "hand decision show" || cmd.CommandPath() == "hand task hold show" || cmd.CommandPath() == "hand task hold list" || cmd.CommandPath() == "hand task show" || cmd.CommandPath() == "hand task list" {
 		return nil
 	}
 	homeDir, err := home.Resolve()
