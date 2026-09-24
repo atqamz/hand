@@ -59,7 +59,7 @@ func TestDecisionDeliverCLIRecordsExactAnswerInputWithoutWake(t *testing.T) {
 	shown, err := run("fleet", "snapshot")
 	if err != nil || !strings.Contains(shown, "unacknowledged_inputs[1]") ||
 		!strings.Contains(shown, "input-exact-answer,"+launch.AttemptID+","+launch.BindingID+",1,answer,") ||
-		!strings.Contains(shown, "current-worker-input-unacknowledged,input-exact-answer") ||
+		strings.Contains(shown, "current-worker-input-unacknowledged") ||
 		!strings.Contains(shown, "attention: unknown") {
 		t.Fatalf("unacknowledged Answer input without Wake = %q, %v", shown, err)
 	}
