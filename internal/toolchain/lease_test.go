@@ -300,6 +300,40 @@ func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimeLeaseCloseRetainsReplacedRecord(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireLease(LeaseRequest{
+		Generation: generation, LeaseID: "replaced-record", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=replaced-record",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(lease.RecordPath(), lease.RecordPath()+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lease.RecordPath(), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); !errors.Is(err, ErrLeaseMetadataUnknown) {
+		t.Fatalf("close replaced record = %v, want ErrLeaseMetadataUnknown", err)
+	}
+	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("replacement record changed: %q, %v", got, err)
+	}
+}
+
 func TestLeaseAcquisitionRemainsAnchoredToValidatedRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows denies replacement of an open rooted directory")
