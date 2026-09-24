@@ -379,3 +379,99 @@ func TestCanonicalV19TaskArchiveBoundsEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveCanonicalV19PlanlessTerminalTaskReplaysExactFact(t *testing.T) {
+	home := canonicalV19PlanlessTerminalTaskFixture(t)
+	input := CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}
+	for range 2 {
+		if err := ArchiveCanonicalV19Task(context.Background(), home, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive WHERE task_id='task-1' AND actor_ref='operator-1' AND reason='completed and reconciled'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("archive facts = %d, want one exact fact", count)
+	}
+	input.Reason = "conflicting replay"
+	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err == nil {
+		t.Fatal("conflicting archive replay succeeded")
+	}
+}
+
+func TestArchiveCanonicalV19TaskRefusesPlanfulTerminalLineageWithoutObservation(t *testing.T) {
+	home := canonicalV19TaskArchiveTerminalFixture(t)
+	input := CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}
+	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err == nil {
+		t.Fatal("planful Task archived without resource observation")
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("archive facts after refusal = %d, want zero", count)
+	}
+}
+
+func TestArchiveCanonicalV19TaskConcurrentExactReplayConverges(t *testing.T) {
+	home := canonicalV19PlanlessTerminalTaskFixture(t)
+	input := CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			results <- ArchiveCanonicalV19Task(context.Background(), home, input)
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive WHERE task_id='task-1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("concurrent archive facts = %d, want one", count)
+	}
+}
+
+func canonicalV19PlanlessTerminalTaskFixture(t *testing.T) string {
+	t.Helper()
+	home := canonicalV19TaskWriterFixture(t, false)
+	if _, err := CreateCanonicalV19Task(context.Background(), home, CanonicalV19TaskCreateInput{
+		ID: "task-1", ProjectID: "project-1", Goal: "finish", GoalDigest: "goal-digest", CreatedAt: "2026-09-15T01:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE task SET lifecycle='abandoned',terminal_at='2026-09-15T01:01:00Z' WHERE id='task-1'`); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
