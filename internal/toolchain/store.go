@@ -48,6 +48,7 @@ type Current struct {
 
 type Status struct {
 	Ready            bool
+	Selection        string
 	Target           string
 	RuntimeID        string
 	BundleDir        string
@@ -98,28 +99,33 @@ func Resolve() (Runtime, error) {
 	if err != nil {
 		return Runtime{}, err
 	}
-	return store.Selected("", "")
+	return store.resolve()
+}
+
+func (s *Store) resolve() (Runtime, error) {
+	generation, err := s.GenerationID("", "")
+	if err != nil {
+		return Runtime{}, err
+	}
+	return s.Generation(generation, "", "")
 }
 
 func (s *Store) Status(goos, goarch string) (Status, error) {
 	targetName := currentTargetName(goos, goarch)
-	target, err := s.Lock.Target(goos, goarch)
+	status := Status{Target: targetName, RuntimeID: s.Lock.RuntimeID, Selection: s.selectionState()}
+	generation, err := s.GenerationID(goos, goarch)
 	if err != nil {
-		return Status{Target: targetName, Reason: err.Error()}, nil
+		status.Reason = err.Error()
+		return status, nil
 	}
-	current, err := s.readCurrent()
-	if errors.Is(err, os.ErrNotExist) {
-		return Status{Target: targetName, RuntimeID: s.Lock.RuntimeID, Reason: "no selected runtime; run `hand runtime ensure`"}, nil
-	}
+	runtime, err := s.Generation(generation, goos, goarch)
 	if err != nil {
-		return Status{Target: targetName, RuntimeID: s.Lock.RuntimeID, Reason: fmt.Sprintf("read selected runtime: %v", err)}, nil
-	}
-	runtime, err := s.runtimeFromCurrent(current, targetName, target)
-	if err != nil {
-		return Status{Target: targetName, RuntimeID: current.RuntimeID, Reason: err.Error()}, nil
+		status.Reason = fmt.Sprintf("exact runtime generation is unavailable: %v; run `hand runtime ensure`", err)
+		return status, nil
 	}
 	return Status{
 		Ready:            true,
+		Selection:        status.Selection,
 		Target:           targetName,
 		RuntimeID:        runtime.ID,
 		BundleDir:        runtime.BundleDir,
@@ -131,6 +137,21 @@ func (s *Store) Status(goos, goarch string) (Status, error) {
 		HerdrVersion:     runtime.HerdrVersion,
 		GitHTTPSReady:    runtime.SupportsGitTransport("https"),
 	}, nil
+}
+
+func (s *Store) selectionState() string {
+	rootHandle, err := openDirectRuntimeRoot(s.Root)
+	if err == nil {
+		_, err = rootHandle.Lstat(filepath.Join("runtime", currentName))
+		_ = rootHandle.Close()
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "absent"
+	}
+	if err != nil {
+		return "unknown"
+	}
+	return "present"
 }
 
 func (s *Store) Selected(goos, goarch string) (Runtime, error) {

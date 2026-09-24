@@ -102,7 +102,7 @@ func newRuntimeHerdrServerCmd() *cobra.Command {
 func newRuntimeStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Report the selected private runtime without changing it",
+		Short: "Report the exact private runtime and selection pointer without changing them",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := toolchain.DefaultStore()
@@ -117,6 +117,7 @@ func newRuntimeStatusCmd() *cobra.Command {
 			doc.Field("target", status.Target)
 			doc.Field("runtime_id", status.RuntimeID)
 			doc.Bool("ready", status.Ready)
+			doc.Field("selection", status.Selection)
 			doc.Field("bundle", valueOrNone(status.BundleDir))
 			doc.Field("git", valueOrNone(status.GitPath))
 			doc.Field("git_version", valueOrNone(status.GitVersion))

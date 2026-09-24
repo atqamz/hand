@@ -16,7 +16,7 @@ func TestRuntimeStatusIsMachineContextAndActionable(t *testing.T) {
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"ready: false", "hand runtime ensure"} {
+	for _, want := range []string{"ready: false", "selection: absent", "hand runtime ensure"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("runtime status = %q, want %q", stdout.String(), want)
 		}
