@@ -476,19 +476,19 @@ func TestCanonicalV19SnapshotCurrentResourcesQueriesUseActiveIndexes(t *testing.
 	}
 	defer func() { _ = db.Close() }()
 	for _, query := range []struct {
-		name    string
-		sql     string
-		indexes []string
+		name            string
+		sql             string
+		indexes         []string
+		releaseSearches int
 	}{
 		{"worktree", canonicalV19SnapshotCurrentWorktreeBindingsQuery, []string{
 			"task_active_by_project", "plan_active_by_task", "attempt_active_by_plan",
-			"sqlite_autoindex_attempt_worktree_binding_", "sqlite_autoindex_worktree_binding_release_",
-		}},
+			"sqlite_autoindex_attempt_worktree_binding_",
+		}, 1},
 		{"session", canonicalV19SnapshotCurrentSessionBindingsQuery, []string{
 			"task_active_by_project", "plan_active_by_task", "attempt_active_by_plan",
 			"sqlite_autoindex_attempt_worktree_binding_", "session_binding_attempt_history",
-			"sqlite_autoindex_worktree_binding_release_", "sqlite_autoindex_session_binding_release_",
-		}},
+		}, 2},
 	} {
 		t.Run(query.name, func(t *testing.T) {
 			rows, err := db.sql.Query("EXPLAIN QUERY PLAN " + query.sql)
@@ -514,8 +514,11 @@ func TestCanonicalV19SnapshotCurrentResourcesQueriesUseActiveIndexes(t *testing.
 					t.Fatalf("current %s query missed %s:\n%s", query.name, index, plan.String())
 				}
 			}
+			if got := strings.Count(plan.String(), "SEARCH r USING "); got != query.releaseSearches {
+				t.Fatalf("current %s query indexed release lookups = %d, want %d:\n%s", query.name, got, query.releaseSearches, plan.String())
+			}
 			if strings.Contains(plan.String(), "SCAN p ") || strings.Contains(plan.String(), "SCAN a ") ||
-				strings.Contains(plan.String(), "SCAN b ") || strings.Contains(plan.String(), "SCAN s ") {
+				strings.Contains(plan.String(), "SCAN b ") || strings.Contains(plan.String(), "SCAN s ") || strings.Contains(plan.String(), "SCAN r ") {
 				t.Fatalf("current %s query scans historical lineage/resource rows:\n%s", query.name, plan.String())
 			}
 		})
