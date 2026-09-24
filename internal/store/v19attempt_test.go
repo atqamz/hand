@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -25,16 +27,20 @@ func TestCreateCanonicalV19AttemptPersistsExactResolvedProvenance(t *testing.T) 
 	var got CanonicalV19AttemptCreateInput
 	var gotOrdinal int64
 	var lifecycle, terminalAt string
+	var profileOverride, harnessOverride, modelOverride, effortOverride sql.NullString
 	if err := db.sql.QueryRow(`SELECT id,plan_id,ordinal,worker_harness_ref,worker_harness_version,
-		worker_profile_ref,model_ref,effort_ref,session_adapter_ref,lifecycle,created_at,terminal_at
+		worker_profile_ref,model_ref,effort_ref,session_adapter_ref,lifecycle,created_at,terminal_at,
+		profile_override,harness_override,model_override,effort_override
 		FROM attempt WHERE id=?`, input.ID).Scan(
 		&got.ID, &got.PlanID, &gotOrdinal, &got.WorkerHarnessRef, &got.WorkerHarnessVersion,
 		&got.WorkerProfileRef, &got.ModelRef, &got.EffortRef, &got.SessionAdapterRef,
 		&lifecycle, &got.CreatedAt, &terminalAt,
+		&profileOverride, &harnessOverride, &modelOverride, &effortOverride,
 	); err != nil {
 		t.Fatal(err)
 	}
-	if got != input || gotOrdinal != 1 || lifecycle != "active" || terminalAt != "" {
+	if got != input || gotOrdinal != 1 || lifecycle != "active" || terminalAt != "" ||
+		profileOverride.Valid || harnessOverride.Valid || modelOverride.Valid || effortOverride.Valid {
 		t.Fatalf("persisted Attempt = %#v ordinal=%d lifecycle=%q terminal_at=%q", got, gotOrdinal, lifecycle, terminalAt)
 	}
 }
@@ -48,6 +54,88 @@ func TestCreateCanonicalV19AttemptAllowsEmptyOptionalResolvedProvenance(t *testi
 	input.EffortRef = ""
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, input); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateCanonicalV19AttemptPersistsRequestedOverridesSeparatelyFromResolvedValues(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	input := canonicalV19AttemptWriterInput("attempt-overrides", "plan-root")
+	profile := "profile/requested"
+	harness := "worker-harness/requested"
+	model := ""
+	effort := "high"
+	input.ProfileOverride = &profile
+	input.HarnessOverride = &harness
+	input.ModelOverride = &model
+	input.EffortOverride = &effort
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, input); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var gotProfile, gotHarness, gotModel, gotEffort sql.NullString
+	var finalProfile, finalHarness, finalModel, finalEffort string
+	if err := db.sql.QueryRow(`SELECT profile_override,harness_override,model_override,effort_override,
+		worker_profile_ref,worker_harness_ref,model_ref,effort_ref FROM attempt WHERE id=?`, input.ID).Scan(
+		&gotProfile, &gotHarness, &gotModel, &gotEffort,
+		&finalProfile, &finalHarness, &finalModel, &finalEffort,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if gotProfile != (sql.NullString{String: profile, Valid: true}) ||
+		gotHarness != (sql.NullString{String: harness, Valid: true}) ||
+		gotModel != (sql.NullString{String: model, Valid: true}) ||
+		gotEffort != (sql.NullString{String: effort, Valid: true}) {
+		t.Fatalf("persisted overrides = %#v %#v %#v %#v", gotProfile, gotHarness, gotModel, gotEffort)
+	}
+	if finalProfile != input.WorkerProfileRef || finalHarness != input.WorkerHarnessRef ||
+		finalModel != input.ModelRef || finalEffort != input.EffortRef {
+		t.Fatalf("final provenance = %q %q %q %q", finalProfile, finalHarness, finalModel, finalEffort)
+	}
+}
+
+func TestCreateCanonicalV19AttemptRejectsInvalidRequestedOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		field string
+		value string
+	}{
+		{"empty profile", "profile", ""},
+		{"empty harness", "harness", ""},
+		{"nul profile", "profile", "p\x00q"},
+		{"nul harness", "harness", "h\x00i"},
+		{"nul model", "model", "m\x00n"},
+		{"nul effort", "effort", "e\x00f"},
+		{"long profile", "profile", strings.Repeat("p", 513)},
+		{"long harness", "harness", strings.Repeat("h", 513)},
+		{"long model", "model", strings.Repeat("m", 513)},
+		{"long effort", "effort", strings.Repeat("e", 513)},
+		{"invalid utf8 model", "model", string([]byte{0xff})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := canonicalV19AttemptWriterFixture(t)
+			input := canonicalV19AttemptWriterInput("attempt-invalid", "plan-root")
+			switch tc.field {
+			case "profile":
+				input.ProfileOverride = &tc.value
+			case "harness":
+				input.HarnessOverride = &tc.value
+			case "model":
+				input.ModelOverride = &tc.value
+			case "effort":
+				input.EffortOverride = &tc.value
+			}
+			if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, input); err == nil {
+				t.Fatal("invalid override accepted")
+			}
+			if got := canonicalV19AttemptWriterCount(t, fixture.Home); got != 0 {
+				t.Fatalf("Attempt rows after refusal = %d, want 0", got)
+			}
+		})
 	}
 }
 

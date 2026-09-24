@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 )
 
 // ErrCanonicalV19AttemptConflict marks an Attempt identity, ordinal, or active
@@ -20,6 +22,10 @@ var ErrCanonicalV19AttemptNotCurrent = errors.New("canonical v19 attempt lineage
 type CanonicalV19AttemptCreateInput struct {
 	ID                   string
 	PlanID               string
+	ProfileOverride      *string
+	HarnessOverride      *string
+	ModelOverride        *string
+	EffortOverride       *string
 	WorkerHarnessRef     string
 	WorkerHarnessVersion string
 	WorkerProfileRef     string
@@ -72,10 +78,12 @@ func CreateCanonicalV19Attempt(ctx context.Context, homeDir string, input Canoni
 		return 0, canonicalV19AttemptWriteError("allocate ordinal", err)
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO attempt(
-		id,plan_id,ordinal,worker_harness_ref,worker_harness_version,worker_profile_ref,
+		id,plan_id,ordinal,profile_override,harness_override,model_override,effort_override,
+		worker_harness_ref,worker_harness_version,worker_profile_ref,
 		model_ref,effort_ref,session_adapter_ref,lifecycle,created_at,terminal_at
-	) VALUES(?,?,?,?,?,?,?,?,?,'active',?,'')`,
-		input.ID, input.PlanID, ordinal, input.WorkerHarnessRef, input.WorkerHarnessVersion,
+	) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,'')`,
+		input.ID, input.PlanID, ordinal, input.ProfileOverride, input.HarnessOverride,
+		input.ModelOverride, input.EffortOverride, input.WorkerHarnessRef, input.WorkerHarnessVersion,
 		input.WorkerProfileRef, input.ModelRef, input.EffortRef, input.SessionAdapterRef, input.CreatedAt)
 	if err != nil {
 		if isSQLiteConstraint(err) {
@@ -100,6 +108,24 @@ func validateCanonicalV19AttemptCreateInput(input CanonicalV19AttemptCreateInput
 	} {
 		if value == "" {
 			return fmt.Errorf("create canonical v19 Attempt: %s is empty", name)
+		}
+	}
+	for _, override := range []struct {
+		name     string
+		value    *string
+		nonempty bool
+	}{
+		{"profile", input.ProfileOverride, true},
+		{"harness", input.HarnessOverride, true},
+		{"model", input.ModelOverride, false},
+		{"effort", input.EffortOverride, false},
+	} {
+		if override.value == nil {
+			continue
+		}
+		if (override.nonempty && *override.value == "") || !utf8.ValidString(*override.value) ||
+			strings.ContainsRune(*override.value, 0) || utf8.RuneCountInString(*override.value) > 512 {
+			return fmt.Errorf("create canonical v19 Attempt: invalid %s override", override.name)
 		}
 	}
 	return nil
