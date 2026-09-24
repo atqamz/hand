@@ -33,7 +33,7 @@ const canonicalV19SnapshotCurrentExecutorBindingsQuery = `SELECT pr.id,t.id,p.id
 		CROSS JOIN session_binding s
 		CROSS JOIN attempt_worktree_binding b
 		WHERE t.lifecycle='active'
-		  AND pr.id=t.project_id AND pr.retired_at=''
+		  AND pr.id=t.project_id
 		  AND p.task_id=t.id AND p.lifecycle='active'
 		  AND a.plan_id=p.id AND a.lifecycle='active'
 		  AND e.attempt_id=a.id

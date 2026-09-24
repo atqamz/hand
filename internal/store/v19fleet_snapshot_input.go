@@ -27,8 +27,7 @@ func readCanonicalV19SnapshotInputs(ctx context.Context, tx *sql.Tx) ([]Canonica
 		CROSS JOIN session_binding s
 		CROSS JOIN attempt_worktree_binding b
 		CROSS JOIN worker_input wi INDEXED BY worker_input_current_order
-		WHERE pr.retired_at=''
-		  AND t.project_id=pr.id AND t.lifecycle='active'
+		WHERE t.project_id=pr.id AND t.lifecycle='active'
 		  AND p.task_id=t.id AND p.lifecycle='active'
 		  AND a.plan_id=p.id AND a.lifecycle='active'
 		  AND e.attempt_id=a.id
