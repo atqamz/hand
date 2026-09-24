@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -34,6 +35,8 @@ func TestBackgroundJobJoinsDescendantAfterTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(filepath.Join(systemDir, "cmd.exe"), "/C", "\""+filepath.Join(systemDir, "ping.exe")+"\" -n 30 127.0.0.1 >NUL")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	process, err := startBackgroundProcess(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +61,11 @@ func TestBackgroundJobJoinsDescendantAfterTimeout(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("background job active processes = %d, want parent and ping descendant", active)
+			status, waitErr := windows.WaitForSingleObject(p.process, 0)
+			if status == windows.WAIT_OBJECT_0 {
+				_ = cmd.Wait()
+			}
+			t.Fatalf("background job active processes = %d, want parent and ping descendant; wait=%d, %v; exit=%v; stdout=%q; stderr=%q", active, status, waitErr, cmd.ProcessState, stdout.String(), stderr.String())
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
