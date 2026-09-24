@@ -1102,7 +1102,7 @@ func initRuntimeGitRepo(t *testing.T, dir string) {
 
 func runRuntimeGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false"}, args...)...)
 	cmd.Dir = dir
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v: %s", args, err, output)

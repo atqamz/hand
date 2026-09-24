@@ -3,9 +3,16 @@
 package e2e
 
 import (
+	"os/exec"
 	"testing"
 	"time"
 )
+
+func prepareBackgroundProcess(*exec.Cmd) {}
+
+func stopBackgroundProcessTree(cmd *exec.Cmd) {
+	_ = cmd.Process.Kill()
+}
 
 func (b *backgroundHand) interrupt(t *testing.T, timeout time.Duration) invocation {
 	t.Helper()

@@ -356,11 +356,17 @@ func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result := make(chan error, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var runErr error
 	go func() {
-		_, _, runErr := Run(context.Background(), "github/gh", "", "-test.run=^TestManagedRunProcessHelper$")
-		result <- runErr
+		_, _, runErr = Run(ctx, "github/gh", "", "-test.run=^TestManagedRunProcessHelper$")
+		close(done)
 	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	waitForReferenceTestFile(t, ready)
 	records, err := filepath.Glob(filepath.Join(root, "integrations", "github", "gh", "references", "*", "*.json"))
 	if err != nil || len(records) != 1 {
@@ -376,9 +382,9 @@ func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case err := <-result:
-		if err != nil {
-			t.Fatal(err)
+	case <-done:
+		if runErr != nil {
+			t.Fatal(runErr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("managed integration process did not exit")
