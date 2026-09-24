@@ -47,6 +47,9 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 		code := "external-operation-unresolved"
 		if operation.Kind == "worker-wake" {
 			code = "worker-wake-unresolved"
+			if operation.State == "uncertain" {
+				code = "worker-wake-uncertain"
+			}
 		}
 		result.Items = append(result.Items, CanonicalItem{
 			Priority: 10, Code: code,
