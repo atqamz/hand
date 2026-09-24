@@ -81,6 +81,30 @@ func TestCanonicalV19ManifestMatchesFrozenArtifacts(t *testing.T) {
 	}
 }
 
+func TestCanonicalV19PermanentManifestRevision4Artifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v4.md"))
+	for _, field := range []string{
+		"65556169e04808460ba252a677754f19b190b8ab",
+		"content commit: baabdc4db0135f8e008372d6f96b6f86339cd2a8",
+		"schema fingerprint: 47b6d208b9fffb29e7b0d9f64d30d468c5c5f214b3e5e91313d81e66542df39e",
+	} {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-4 manifest missing %q", field)
+		}
+	}
+	for _, artifact := range []struct{ path, pathField, blobField string }{
+		{"docs/architecture/v19-v3.sql.gz", "DDL: ", "Git blob: "},
+		{"docs/architecture/v19-proof-v3.py.gz", "proof: ", "proof Git blob: "},
+		{"docs/architecture/v19-relock-v3.md", "relock: ", "relock Git blob: "},
+	} {
+		data := readV19ManifestArtifact(t, artifact.path)
+		if !strings.Contains(manifest, artifact.pathField+artifact.path) ||
+			!strings.Contains(manifest, artifact.blobField+v19ManifestGitBlob(data)) {
+			t.Errorf("revision-4 manifest does not identify %s", artifact.path)
+		}
+	}
+}
+
 // #344/#347: a permanent manifest must retain the exact ordered contract-set digest.
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md"} {
