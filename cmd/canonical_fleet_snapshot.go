@@ -71,6 +71,21 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			doc.Rows("tasks", []string{"id", "project_id", "ordinal", "goal_digest", "active_plan_id"}, tasks)
 			doc.Rows("plans", []string{"id", "task_id", "ordinal", "lineage_kind", "intent", "judgment", "brief_digest", "workspace_binding_id", "policy_revision_id", "active_attempt_id"}, plans)
 			doc.Rows("attempts", []string{"id", "plan_id", "ordinal", "worker_harness_ref", "worker_profile_ref", "model_ref", "effort_ref", "session_adapter_ref"}, attempts)
+			worktrees := make([][]string, 0, len(snapshot.CurrentOpenWorktreeBindings))
+			for _, binding := range snapshot.CurrentOpenWorktreeBindings {
+				worktrees = append(worktrees, []string{binding.ID, binding.AttemptID})
+			}
+			doc.Rows("current_open_worktree_bindings", []string{"id", "attempt_id"}, worktrees)
+			sessions := make([][]string, 0, len(snapshot.CurrentOpenSessionBindings))
+			for _, binding := range snapshot.CurrentOpenSessionBindings {
+				sessions = append(sessions, []string{binding.ID, binding.AttemptID, binding.WorktreeBindingID, binding.AdapterRef})
+			}
+			doc.Rows("current_open_session_bindings", []string{"id", "attempt_id", "worktree_binding_id", "adapter_ref"}, sessions)
+			executors := make([][]string, 0, len(snapshot.CurrentOpenExecutorBindings))
+			for _, binding := range snapshot.CurrentOpenExecutorBindings {
+				executors = append(executors, []string{binding.ExecutorBindingID, binding.AttemptID, binding.SessionBindingID, binding.AdapterRef})
+			}
+			doc.Rows("current_open_executor_bindings", []string{"id", "attempt_id", "session_binding_id", "adapter_ref"}, executors)
 			reports := make([][]string, 0, len(snapshot.LatestReportMetadata))
 			for _, report := range snapshot.LatestReportMetadata {
 				reports = append(reports, []string{report.AttemptID, report.ReportID, report.SourcePrefixDigest,
