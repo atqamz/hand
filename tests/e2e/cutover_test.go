@@ -142,7 +142,7 @@ func frozenCutoverFixture(t *testing.T) (string, string) {
 	t.Helper()
 	home := t.TempDir()
 	createCutoverLegacyFixture(t, home)
-	guard, err := store.AcquireLegacyV18CutoverGuard(context.Background(), home)
+	guard, err := store.AcquireLegacyV18CutoverGuardFixture(context.Background(), home)
 	if err != nil {
 		t.Fatal(err)
 	}
