@@ -102,7 +102,7 @@ func newTaskCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&projectID, "project-id", "", "Exact canonical Project ID")
 	create.Flags().StringVar(&goal, "goal", "", "Immutable operator goal")
-	cmd.AddCommand(create, newTaskHoldCmd())
+	cmd.AddCommand(create, newTaskHoldCmd(), newTaskArchiveCmd())
 	return cmd
 }
 
