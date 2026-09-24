@@ -16,6 +16,80 @@ type CanonicalV19TaskHoldView struct {
 	OwnerCurrent bool
 }
 
+const canonicalV19TaskHoldListQuery = `SELECT h.id,h.ordinal,h.kind,COALESCE(r.resolution,'')
+	FROM task_hold h INDEXED BY task_hold_task_history
+	LEFT JOIN task_hold_resolution r ON r.hold_id=h.id
+	WHERE h.task_id=? AND h.ordinal>?
+	ORDER BY h.ordinal LIMIT ?`
+
+type CanonicalV19TaskHoldSummary struct {
+	ID         string
+	Ordinal    int64
+	Kind       string
+	Resolution string
+}
+
+type CanonicalV19TaskHoldPage struct {
+	Items            []CanonicalV19TaskHoldSummary
+	NextAfterOrdinal int64
+}
+
+func ListCanonicalV19TaskHolds(ctx context.Context, homeDir, taskID string, afterOrdinal int64, limit int) (CanonicalV19TaskHoldPage, error) {
+	if taskID == "" {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: exact Task ID is required")
+	}
+	if afterOrdinal < 0 {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("TaskHold history cursor must not be negative")
+	}
+	if limit < 1 || limit > 1000 {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("TaskHold history limit must be between 1 and 1000")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	db, err := openReadOnly(homeDir)
+	if err != nil {
+		return CanonicalV19TaskHoldPage{}, err
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.sql.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: begin snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: %w", err)
+	}
+	var exactID string
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM task WHERE id=?`, taskID).Scan(&exactID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return CanonicalV19TaskHoldPage{}, fmt.Errorf("%w: %q", ErrCanonicalV19TaskNotFound, taskID)
+		}
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: read exact Task: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, canonicalV19TaskHoldListQuery, taskID, afterOrdinal, limit+1)
+	if err != nil {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	page := CanonicalV19TaskHoldPage{Items: make([]CanonicalV19TaskHoldSummary, 0, limit)}
+	for rows.Next() {
+		var item CanonicalV19TaskHoldSummary
+		if err := rows.Scan(&item.ID, &item.Ordinal, &item.Kind, &item.Resolution); err != nil {
+			return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: scan: %w", err)
+		}
+		page.Items = append(page.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return CanonicalV19TaskHoldPage{}, fmt.Errorf("list canonical v19 TaskHolds: iterate: %w", err)
+	}
+	if len(page.Items) > limit {
+		page.Items = page.Items[:limit]
+		page.NextAfterOrdinal = page.Items[limit-1].Ordinal
+	}
+	return page, nil
+}
+
 func ReadCanonicalV19TaskHold(ctx context.Context, homeDir, id string) (CanonicalV19TaskHoldView, error) {
 	var view CanonicalV19TaskHoldView
 	if ctx == nil {
