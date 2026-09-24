@@ -415,11 +415,5 @@ func (reference *PayloadReference) Close() error {
 	if err != nil || !existing.sameIdentity(reference.record) {
 		return fmt.Errorf("%w: refusing to retire capability=%s payload=%s reference=%s record=%s", ErrPayloadReferenceUnknown, reference.record.Capability, reference.record.Payload, reference.record.ReferenceID, reference.recordPath)
 	}
-	if reference.childStarted {
-		return nil
-	}
-	if err := removeIntegrationFile(reference.rootHandle, reference.storeRoot, reference.recordPath); err != nil {
-		return fmt.Errorf("retire integration payload reference: %w", err)
-	}
 	return nil
 }

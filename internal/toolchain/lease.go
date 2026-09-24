@@ -489,11 +489,5 @@ func (lease *Lease) Close() error {
 	if err != nil || !existing.sameIdentity(lease.record) || !os.SameFile(lease.recordInfo, info) {
 		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, lease.record.Generation, lease.record.LeaseID, lease.recordPath)
 	}
-	if lease.childStarted {
-		return nil
-	}
-	if err := removeRuntimeFile(lease.rootHandle, lease.storeRoot, lease.recordPath); err != nil {
-		return fmt.Errorf("retire runtime generation lease: %w", err)
-	}
 	return nil
 }

@@ -76,8 +76,8 @@ func TestPayloadReferenceRetainsExactObjectWithoutSelection(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("graceful reference release deleted payload: %v", err)
 	}
-	if _, err := os.Stat(reference.RecordPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("graceful release left metadata: %v", err)
+	if _, err := os.Stat(reference.RecordPath()); err != nil {
+		t.Fatalf("graceful release removed durable metadata: %v", err)
 	}
 	if _, err := os.Stat(reference.LockPath()); err != nil {
 		t.Fatalf("reference removed permanent lock rendezvous: %v", err)
@@ -125,8 +125,13 @@ func TestPayloadReferenceReusesStableLockScopeAcrossUniqueHolders(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
-		t.Fatalf("stable reference scope left %v, want one permanent rendezvous", entries)
+	if len(entries) != 3 {
+		t.Fatalf("stable reference scope left %v, want two durable records and one rendezvous", entries)
+	}
+	for _, path := range []string{firstRecord, second.RecordPath(), firstLock} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stable reference scope lost %s: %v", path, err)
+		}
 	}
 }
 
@@ -190,7 +195,7 @@ func TestAcquireRunReferenceAllowsMoreThanEightLiveHolders(t *testing.T) {
 	}
 }
 
-func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
+func TestPayloadReferenceCloseRetainsRecordAtAcquisitionRoot(t *testing.T) {
 	store, path := installReferenceFixture(t)
 	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
 		ReferenceID: "root-replacement", FleetID: integrationTestFleetID,
@@ -227,11 +232,38 @@ func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	if err := reference.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(moved, relative)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("acquired-root reference record was not retired: %v", err)
+	if got, err := os.ReadFile(filepath.Join(moved, relative)); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("acquired-root reference record changed: %q, %v", got, err)
 	}
 	if got, err := os.ReadFile(reference.RecordPath()); err != nil || !bytes.Equal(got, record) {
 		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
+	}
+}
+
+func TestPayloadReferenceCloseDoesNotDeleteSameContentReplacement(t *testing.T) {
+	store, path := installReferenceFixture(t)
+	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
+		ReferenceID: "replacement-race", FleetID: integrationTestFleetID,
+		Consumer: "integration-process", Evidence: "capability=github/gh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(reference.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(reference.RecordPath(), reference.RecordPath()+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reference.RecordPath(), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reference.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(reference.RecordPath()); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("replacement record changed: %q, %v", got, err)
 	}
 }
 

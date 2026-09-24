@@ -99,8 +99,8 @@ func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
 	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("graceful release left record: %v", err)
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("graceful release removed durable record: %v", err)
 	}
 	if _, err := os.Stat(lease.LockPath()); err != nil {
 		t.Fatalf("permanent lock rendezvous was removed: %v", err)
@@ -243,12 +243,17 @@ func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
-		t.Fatalf("stable lease scope left %v, want one permanent rendezvous", entries)
+	if len(entries) != 3 {
+		t.Fatalf("stable lease scope left %v, want two durable records and one rendezvous", entries)
+	}
+	for _, path := range []string{firstRecord, second.RecordPath(), firstLock} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stable lease scope lost %s: %v", path, err)
+		}
 	}
 }
 
-func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
+func TestRuntimeLeaseCloseRetainsRecordAtAcquisitionRoot(t *testing.T) {
 	store, _ := generationStoreFixture(t)
 	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
 		t.Fatal(err)
@@ -292,8 +297,8 @@ func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(moved, relative)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("acquired-root lease record was not retired: %v", err)
+	if got, err := os.ReadFile(filepath.Join(moved, relative)); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("acquired-root lease record changed: %q, %v", got, err)
 	}
 	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
 		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
@@ -679,8 +684,8 @@ func TestRuntimeLeaseCloseRetainsManagedChildOwnership(t *testing.T) {
 	if err := recovered.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("recovered lease record remains after child exit: %v", err)
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("recovered lease record was removed after child exit: %v", err)
 	}
 }
 
