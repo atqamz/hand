@@ -151,8 +151,10 @@ func reconcileCanonicalV19SubmittedWorktreeCreate(
 	case canonicalV19GitWorktreeExact:
 		return establishCanonicalV19ObservedWorktree(ctx, homeDir, current, observed, now)
 	case canonicalV19GitWorktreeAbsent:
-		return classifyCanonicalV19ObservedNoEffect(ctx, homeDir, current, observed, now,
-			"positive observation proves the submitted create left no registered worktree")
+		if current.State == "submitted" {
+			return classifyCanonicalV19ObservedUncertain(ctx, homeDir, current, observed, now, nil)
+		}
+		return "uncertain", fmt.Errorf("reconcile canonical v19 WorktreeCreate: operation remains uncertain: absent path does not prove no mutation is in flight")
 	case canonicalV19GitWorktreeMismatch, canonicalV19GitWorktreeUnknown:
 		if current.State == "submitted" {
 			return classifyCanonicalV19ObservedUncertain(ctx, homeDir, current, observed, now, nil)
@@ -231,6 +233,9 @@ func classifyCanonicalV19ObservedUncertain(
 		return current.State, err
 	}
 	reason := observed.Reason
+	if reason == "" {
+		reason = "absent path does not prove no mutation is in flight"
+	}
 	if performErr != nil {
 		reason = canonicalV19WorktreeCreatePerformFailure(reason, performErr)
 	}

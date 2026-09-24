@@ -142,8 +142,51 @@ func TestReconcileSubmittedCanonicalV19WorktreeRemoveDoesNotBlindRetry(t *testin
 		},
 		now: time.Now,
 	})
-	if state != "no-effect" || err == nil || performCalls != 0 {
-		t.Fatalf("submitted reconcile = %q, %v perform=%d, want no-effect/error/0", state, err, performCalls)
+	if state != "uncertain" || err == nil || performCalls != 0 {
+		t.Fatalf("submitted reconcile = %q, %v perform=%d, want uncertain/error/0", state, err, performCalls)
+	}
+}
+
+func TestReconcileSubmittedCanonicalV19WorktreeRemoveCannotSettleWhileMutationIsInFlight(t *testing.T) {
+	fixture, binding := canonicalV19NativeWorktreeRemoveFixture(t, "native-remove-in-flight")
+	input := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-in-flight")
+	input.CreatedAt = "2026-09-07T00:00:00Z"
+	request, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entered := make(chan struct{})
+	resume := make(chan struct{})
+	type result struct {
+		state string
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		state, err := reconcileCanonicalV19WorktreeRemove(context.Background(), fixture.Home, request.OperationID, canonicalV19WorktreeRemoveNativeDeps{
+			observe: observeCanonicalV19GitWorktreeRemove,
+			perform: func(home string, request CanonicalV19WorktreeRemoveRequest) error {
+				close(entered)
+				<-resume
+				return performCanonicalV19GitWorktreeRemove(home, request)
+			},
+			now: time.Now,
+		})
+		done <- result{state: state, err: err}
+	}()
+	<-entered
+	defer func() {
+		close(resume)
+		got := <-done
+		if got.state != "succeeded" || got.err != nil {
+			t.Errorf("first reconcile = %q, %v, want succeeded", got.state, got.err)
+		}
+	}()
+
+	state, err := ReconcileCanonicalV19WorktreeRemove(context.Background(), fixture.Home, request.OperationID)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("concurrent reconcile = %q, %v, want uncertain/error", state, err)
 	}
 }
 
@@ -172,11 +215,11 @@ func TestReconcileSubmittedCanonicalV19WorktreeRemoveKeepsUnlockCrashResidueUnce
 
 	canonicalV19PlanWriterGit(t, repository, "worktree", "lock", "--reason", request.ExpectedLockReason, request.Path)
 	state, err = ReconcileCanonicalV19WorktreeRemove(context.Background(), fixture.Home, request.OperationID)
-	if state != "no-effect" || err == nil {
-		t.Fatalf("later exact reconciliation = %q, %v, want no-effect/error", state, err)
+	if state != "uncertain" || err == nil {
+		t.Fatalf("later exact reconciliation = %q, %v, want uncertain/error", state, err)
 	}
 	if _, err := os.Stat(request.Path); err != nil {
-		t.Fatalf("no-effect reconciliation removed worktree: %v", err)
+		t.Fatalf("uncertain reconciliation removed worktree: %v", err)
 	}
 }
 
