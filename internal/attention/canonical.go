@@ -39,7 +39,7 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 		taskID    string
 		planID    string
 	}
-	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.UnacknowledgedInputs)+len(snapshot.LatestReportMetadata))}
+	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.LatestReportMetadata))}
 	activeAttemptOwners := make(map[string]activeAttemptOwner)
 	for _, project := range snapshot.Projects {
 		for _, task := range project.Tasks {
@@ -86,22 +86,6 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			ScopeKind: operation.ScopeKind, ScopeKey: operation.ScopeKey,
 			SessionBindingID: operation.SessionBindingID, ExecutorBindingID: operation.ExecutorBindingID,
 			Reason: fmt.Sprintf("external operation remains %s", operation.State),
-		})
-	}
-	for _, input := range snapshot.UnacknowledgedInputs {
-		if input.ID == "" || input.AttemptID == "" || input.ExecutorBindingID == "" || input.Ordinal <= 0 {
-			continue
-		}
-		owner, ok := activeAttemptOwners[input.AttemptID]
-		if !ok || owner.projectID == "" || owner.taskID == "" || owner.planID == "" {
-			continue
-		}
-		result.Items = append(result.Items, CanonicalItem{
-			Priority: 20, Code: "current-worker-input-unacknowledged",
-			FleetID: snapshot.FleetID, ProjectID: owner.projectID, TaskID: owner.taskID,
-			PlanID: owner.planID, AttemptID: input.AttemptID, EvidenceID: input.ID,
-			ExecutorBindingID: input.ExecutorBindingID,
-			Reason:            "exact current WorkerInput remains unacknowledged",
 		})
 	}
 	slices.SortFunc(result.Items, func(a, b CanonicalItem) int {

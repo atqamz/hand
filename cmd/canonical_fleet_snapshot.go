@@ -115,7 +115,7 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 					valueOrNone(item.SessionBindingID), valueOrNone(item.ExecutorBindingID)})
 			}
 			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "scope_kind", "scope_key", "report_state", "project_id", "task_id", "plan_id", "attempt_id", "session_binding_id", "executor_binding_id"}, items)
-			doc.Help("Partial read: Attention covers unresolved external operations, current unacknowledged WorkerInput, and the latest unacknowledged handling-worthy WorkerReport on an active Attempt. Input, wake, and report remain separate; no acknowledgement or action is implied. Receipts, broader report history, holds, decisions, full history and external observations are not projected.")
+			doc.Help("Partial read: Attention covers unresolved external operations and the latest unacknowledged handling-worthy WorkerReport on an active Attempt. Current unacknowledged WorkerInputs are listed separately; no bounded policy condition for input Attention is projected. No acknowledgement or action is implied. Receipts, broader report history, holds, decisions, full history and external observations are not projected.")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
