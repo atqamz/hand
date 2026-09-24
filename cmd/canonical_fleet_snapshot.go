@@ -87,11 +87,12 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			doc.Rows("unresolved_operations", []string{"id", "kind", "state", "project_id", "task_id", "plan_id", "attempt_id", "scope_kind", "scope_key", "session_binding_id", "executor_binding_id", "pending_through_ordinal"}, operations)
 			items := make([][]string, 0, len(partialAttention.Items))
 			for _, item := range partialAttention.Items {
-				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, item.OperationKind,
-					item.OperationState, item.ProjectID, valueOrNone(item.TaskID), valueOrNone(item.PlanID), valueOrNone(item.AttemptID)})
+				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, valueOrNone(item.OperationKind),
+					valueOrNone(item.OperationState), item.ProjectID, valueOrNone(item.TaskID), valueOrNone(item.PlanID), valueOrNone(item.AttemptID),
+					valueOrNone(item.SessionBindingID), valueOrNone(item.ExecutorBindingID)})
 			}
-			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "project_id", "task_id", "plan_id", "attempt_id"}, items)
-			doc.Help("Partial read: Attention items cover unresolved external operations only. Current unacknowledged WorkerInput remains separate; its Attention condition is unknown. Receipts, reports, holds, decisions, full history and external observations are not projected.")
+			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "project_id", "task_id", "plan_id", "attempt_id", "session_binding_id", "executor_binding_id"}, items)
+			doc.Help("Partial read: Attention covers unresolved external operations and current unacknowledged WorkerInput under an exact submitted or uncertain WorkerWake. Input and wake remain separate; no acknowledgement or action is implied. Receipts, reports, holds, decisions, full history and external observations are not projected.")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
