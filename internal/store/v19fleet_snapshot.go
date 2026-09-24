@@ -53,15 +53,18 @@ type CanonicalV19SnapshotTask struct {
 }
 
 type CanonicalV19SnapshotPlan struct {
-	ID                 string
-	Ordinal            int64
-	LineageKind        string
-	Intent             string
-	Judgment           string
-	BriefDigest        string
-	WorkspaceBindingID string
-	PolicyRevisionID   string
-	Attempt            *CanonicalV19SnapshotAttempt
+	ID                                      string
+	Ordinal                                 int64
+	LineageKind                             string
+	Intent                                  string
+	Judgment                                string
+	BriefDigest                             string
+	WorkspaceBindingID                      string
+	PolicyRevisionID                        string
+	CapturedWorkspaceRevision               string
+	CapturedWorkspacePhysicalIdentityDigest string
+	CapturedPolicyDigest                    string
+	Attempt                                 *CanonicalV19SnapshotAttempt
 }
 
 type CanonicalV19SnapshotAttempt struct {
@@ -105,7 +108,8 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 		COALESCE(t.id,''),COALESCE(t.ordinal,0),COALESCE(t.goal_digest,''),
 		COALESCE(pl.id,''),COALESCE(pl.ordinal,0),COALESCE(pl.lineage_kind,''),COALESCE(pl.intent,''),
 		COALESCE(pl.judgment,''),COALESCE(pl.brief_digest,''),COALESCE(pl.workspace_binding_id,''),
-		COALESCE(pl.policy_revision_id,''),
+		COALESCE(pl.policy_revision_id,''),COALESCE(pw.revision,''),
+		COALESCE(pw.physical_identity_digest,''),COALESCE(pp.policy_digest,''),
 		COALESCE(a.id,''),COALESCE(a.ordinal,0),COALESCE(a.worker_harness_ref,''),
 		COALESCE(a.worker_profile_ref,''),COALESCE(a.model_ref,''),COALESCE(a.effort_ref,''),
 		COALESCE(a.session_adapter_ref,'')
@@ -114,6 +118,8 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 		LEFT JOIN policy_revision pr ON pr.project_id=p.id AND pr.superseded_at=''
 		LEFT JOIN task t ON t.project_id=p.id AND t.lifecycle='active'
 		LEFT JOIN plan pl ON pl.task_id=t.id AND pl.lifecycle='active'
+		LEFT JOIN workspace_binding pw ON pw.id=pl.workspace_binding_id
+		LEFT JOIN policy_revision pp ON pp.id=pl.policy_revision_id
 		LEFT JOIN attempt a ON a.plan_id=pl.id AND a.lifecycle='active'
 		ORDER BY p.ordinal,p.id,t.ordinal,t.id`)
 	if err != nil {
@@ -134,6 +140,8 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 			&task.ID, &task.Ordinal, &task.GoalDigest,
 			&plan.ID, &plan.Ordinal, &plan.LineageKind, &plan.Intent, &plan.Judgment,
 			&plan.BriefDigest, &plan.WorkspaceBindingID, &plan.PolicyRevisionID,
+			&plan.CapturedWorkspaceRevision, &plan.CapturedWorkspacePhysicalIdentityDigest,
+			&plan.CapturedPolicyDigest,
 			&attempt.ID, &attempt.Ordinal, &attempt.WorkerHarnessRef, &attempt.WorkerProfileRef,
 			&attempt.ModelRef, &attempt.EffortRef, &attempt.SessionAdapterRef,
 		); err != nil {
