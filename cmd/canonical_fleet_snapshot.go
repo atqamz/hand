@@ -3,6 +3,7 @@ package cmd
 import (
 	"strconv"
 
+	"github.com/atqamz/hand/internal/attention"
 	"github.com/atqamz/hand/internal/axi"
 	"github.com/atqamz/hand/internal/home"
 	"github.com/atqamz/hand/internal/store"
@@ -24,6 +25,7 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			partialAttention := attention.DeriveCanonicalPartial(snapshot)
 			var doc axi.Doc
 			doc.Field("snapshot_schema", snapshot.Schema)
 			doc.Field("completeness", snapshot.Completeness)
@@ -83,7 +85,13 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 					valueOrNone(operation.ExecutorBindingID), strconv.FormatInt(operation.PendingThroughOrdinal, 10)})
 			}
 			doc.Rows("unresolved_operations", []string{"id", "kind", "state", "project_id", "task_id", "plan_id", "attempt_id", "scope_kind", "scope_key", "session_binding_id", "executor_binding_id", "pending_through_ordinal"}, operations)
-			doc.Help("Partial read: current unacknowledged WorkerInput and unresolved external operations remain separate. Attention, receipts, reports, holds, decisions, full history and external observations are not projected.")
+			items := make([][]string, 0, len(partialAttention.Items))
+			for _, item := range partialAttention.Items {
+				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, item.OperationKind,
+					item.OperationState, item.ProjectID, valueOrNone(item.TaskID), valueOrNone(item.PlanID), valueOrNone(item.AttemptID)})
+			}
+			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "project_id", "task_id", "plan_id", "attempt_id"}, items)
+			doc.Help("Partial read: Attention items cover unresolved external operations only. Current unacknowledged WorkerInput remains separate; its Attention condition is unknown. Receipts, reports, holds, decisions, full history and external observations are not projected.")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
