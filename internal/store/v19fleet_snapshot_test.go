@@ -399,6 +399,14 @@ func TestReadCanonicalV19FleetSnapshotOpenResourcesFollowReleases(t *testing.T) 
 	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, remove); err != nil {
 		t.Fatal(err)
 	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.UnresolvedOperations) != 1 || snapshot.UnresolvedOperations[0].ID != remove.OperationID ||
+		snapshot.UnresolvedOperations[0].ScopeKind != "worktree" || snapshot.UnresolvedOperations[0].ScopeKey != worktree.BindingID {
+		t.Fatalf("prepared WorktreeRemove exact scope = %#v", snapshot.UnresolvedOperations)
+	}
 	if err := CompleteCanonicalV19WorktreeRemove(context.Background(), fixture.Home, CanonicalV19WorktreeRemovedEvidence{
 		OperationID: remove.OperationID, RemovedAt: "2026-09-06T16:57:00Z", EvidenceDigest: "worktree-released-snapshot",
 	}); err != nil {
@@ -408,7 +416,7 @@ func TestReadCanonicalV19FleetSnapshotOpenResourcesFollowReleases(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.CurrentOpenWorktreeBindings) != 0 || len(snapshot.CurrentOpenSessionBindings) != 0 {
+	if len(snapshot.CurrentOpenWorktreeBindings) != 0 || len(snapshot.CurrentOpenSessionBindings) != 0 || len(snapshot.UnresolvedOperations) != 0 {
 		t.Fatalf("released Worktree still projected = %#v", snapshot)
 	}
 }

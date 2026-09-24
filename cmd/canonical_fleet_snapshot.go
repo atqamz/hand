@@ -109,10 +109,11 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			items := make([][]string, 0, len(partialAttention.Items))
 			for _, item := range partialAttention.Items {
 				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, valueOrNone(item.OperationKind),
-					valueOrNone(item.OperationState), valueOrNone(item.ReportState), item.ProjectID, valueOrNone(item.TaskID), valueOrNone(item.PlanID), valueOrNone(item.AttemptID),
+					valueOrNone(item.OperationState), valueOrNone(item.ScopeKind), valueOrNone(item.ScopeKey), valueOrNone(item.ReportState),
+					item.ProjectID, valueOrNone(item.TaskID), valueOrNone(item.PlanID), valueOrNone(item.AttemptID),
 					valueOrNone(item.SessionBindingID), valueOrNone(item.ExecutorBindingID)})
 			}
-			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "report_state", "project_id", "task_id", "plan_id", "attempt_id", "session_binding_id", "executor_binding_id"}, items)
+			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "scope_kind", "scope_key", "report_state", "project_id", "task_id", "plan_id", "attempt_id", "session_binding_id", "executor_binding_id"}, items)
 			doc.Help("Partial read: Attention covers unresolved external operations, current unacknowledged WorkerInput under an exact submitted or uncertain WorkerWake, and the latest unacknowledged handling-worthy WorkerReport on an active Attempt. Input, wake, and report remain separate; no acknowledgement or action is implied. Receipts, broader report history, holds, decisions, full history and external observations are not projected.")
 			return doc.Render(cmd.OutOrStdout())
 		},

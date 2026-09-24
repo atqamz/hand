@@ -24,6 +24,8 @@ type CanonicalItem struct {
 	EvidenceID        string
 	OperationKind     string
 	OperationState    string
+	ScopeKind         string
+	ScopeKey          string
 	ReportState       string
 	SessionBindingID  string
 	ExecutorBindingID string
@@ -91,6 +93,7 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			FleetID: snapshot.FleetID, ProjectID: operation.ProjectID, TaskID: operation.TaskID,
 			PlanID: operation.PlanID, AttemptID: operation.AttemptID, EvidenceID: operation.ID,
 			OperationKind: operation.Kind, OperationState: operation.State,
+			ScopeKind: operation.ScopeKind, ScopeKey: operation.ScopeKey,
 			SessionBindingID: operation.SessionBindingID, ExecutorBindingID: operation.ExecutorBindingID,
 			Reason: fmt.Sprintf("external operation remains %s", operation.State),
 		})
@@ -139,6 +142,7 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			cmp.Compare(a.EvidenceID, b.EvidenceID), cmp.Compare(a.Code, b.Code),
 			cmp.Compare(a.SessionBindingID, b.SessionBindingID), cmp.Compare(a.ExecutorBindingID, b.ExecutorBindingID),
 			cmp.Compare(a.OperationKind, b.OperationKind), cmp.Compare(a.OperationState, b.OperationState),
+			cmp.Compare(a.ScopeKind, b.ScopeKind), cmp.Compare(a.ScopeKey, b.ScopeKey),
 			cmp.Compare(a.ReportState, b.ReportState))
 	})
 	return result

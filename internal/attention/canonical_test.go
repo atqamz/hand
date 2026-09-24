@@ -16,7 +16,7 @@ func TestDeriveCanonicalPartialAttentionKeepsExactUnresolvedOperationsOrdered(t 
 		},
 		UnresolvedOperations: []store.CanonicalV19SnapshotOperation{
 			{ID: "wake-2", Kind: "worker-wake", State: "uncertain", ProjectID: "project-2", TaskID: "task-2", PlanID: "plan-2", AttemptID: "attempt-2", SessionBindingID: "session-2", ExecutorBindingID: "executor-2"},
-			{ID: "remove-1", Kind: "worktree-remove", State: "submitted", ProjectID: "project-1", TaskID: "task-1", PlanID: "plan-1", AttemptID: "attempt-1"},
+			{ID: "remove-1", Kind: "worktree-remove", State: "submitted", ProjectID: "project-1", TaskID: "task-1", PlanID: "plan-1", AttemptID: "attempt-1", ScopeKind: "worktree", ScopeKey: "binding-1"},
 			{ID: "wake-1", Kind: "worker-wake", State: "prepared", ProjectID: "project-1", TaskID: "task-1", PlanID: "plan-1", AttemptID: "attempt-1", SessionBindingID: "session-1", ExecutorBindingID: "executor-1"},
 		},
 	}
@@ -37,6 +37,9 @@ func TestDeriveCanonicalPartialAttentionKeepsExactUnresolvedOperationsOrdered(t 
 				item.SessionBindingID == "" || item.ExecutorBindingID == "") {
 			t.Fatalf("WorkerWake lost exact mechanism identity: %#v", item)
 		}
+	}
+	if first.Items[0].Code != "external-operation-unresolved" || first.Items[0].ScopeKind != "worktree" || first.Items[0].ScopeKey != "binding-1" {
+		t.Fatalf("WorktreeRemove Attention lost exact binding scope: %#v", first.Items[0])
 	}
 	snapshot.UnresolvedOperations[0], snapshot.UnresolvedOperations[2] = snapshot.UnresolvedOperations[2], snapshot.UnresolvedOperations[0]
 	if again := DeriveCanonicalPartial(snapshot); !reflect.DeepEqual(again, first) {
