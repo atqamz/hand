@@ -442,6 +442,12 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	})
 	waitForTestFile(t, readyPath)
 	if err := command.Wait(); err != nil {
 		t.Fatalf("parent helper: %v", err)

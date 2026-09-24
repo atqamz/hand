@@ -652,6 +652,13 @@ func TestManagedHandGenerationSurvivesSourceReplacementBeforeLaunch(t *testing.T
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("launch immutable managed Hand after source replacement: %v", err)
 	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = stdin.Close()
+			_ = cmd.Wait()
+		}
+	})
 	waitForGenerationHelper(t, ready)
 	if err := stdin.Close(); err != nil {
 		t.Fatal(err)
