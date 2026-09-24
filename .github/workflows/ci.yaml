@@ -177,7 +177,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end (bootstrap.ps1)
-        run: go test '-tags=e2e,test' -timeout=10m -run "^TestBootstrapPS1" ./tests/e2e/...
+        run: go test '-tags=e2e,test' -timeout=10m -run "^(TestBootstrapPS1|TestBackgroundJob)" ./tests/e2e/...
 
   e2e-macos:
     name: E2E (macos-latest, bootstrap.sh)
@@ -189,7 +189,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end (bootstrap.sh)
-        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
+        run: go test -tags=e2e,test -timeout=10m -run "^(TestBootstrap|TestBackgroundTimeoutStopsDescendantBeforeTempRemoval)" ./tests/e2e/...
 
   e2e-macos-intel:
     name: E2E (macos-15-intel, bootstrap.sh)
@@ -201,7 +201,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: End-to-end (bootstrap.sh)
-        run: go test -tags=e2e,test -timeout=10m -run "^TestBootstrap" ./tests/e2e/...
+        run: go test -tags=e2e,test -timeout=10m -run "^(TestBootstrap|TestBackgroundTimeoutStopsDescendantBeforeTempRemoval)" ./tests/e2e/...
 
   contract:
     name: Contract

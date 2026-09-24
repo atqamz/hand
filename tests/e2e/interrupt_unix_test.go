@@ -3,20 +3,11 @@
 package e2e
 
 import (
-	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
-
-func prepareBackgroundProcess(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-}
-
-func stopBackgroundProcessTree(cmd *exec.Cmd) {
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-}
 
 func (b *backgroundHand) interrupt(t *testing.T, timeout time.Duration) invocation {
 	t.Helper()
