@@ -477,6 +477,10 @@ func TestGenerationResolvesExactBundleWithoutSelection(t *testing.T) {
 
 func TestTwoFleetsHoldOneExactGenerationConcurrently(t *testing.T) {
 	store, _ := generationStoreFixture(t)
+	other, err := NewStore(store.Root, store.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runtime, err := store.Ensure(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)
@@ -490,8 +494,12 @@ func TestTwoFleetsHoldOneExactGenerationConcurrently(t *testing.T) {
 		{Generation: generation, LeaseID: "herdr:fleet-b", FleetID: "f_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Consumer: "herdr-server", Evidence: "session=fleet-b"},
 	}
 	leases := make([]*Lease, 0, len(requests))
-	for _, request := range requests {
-		lease, err := store.AcquireLease(request)
+	for index, request := range requests {
+		owner := store
+		if index == 1 {
+			owner = other
+		}
+		lease, err := owner.AcquireLease(request)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -505,7 +513,7 @@ func TestTwoFleetsHoldOneExactGenerationConcurrently(t *testing.T) {
 	if err := os.Remove(filepath.Join(store.Root, "runtime", currentName)); err != nil {
 		t.Fatal(err)
 	}
-	adopted, err := store.Ensure(context.Background(), "", "")
+	adopted, err := other.Ensure(context.Background(), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

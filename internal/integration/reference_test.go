@@ -59,18 +59,30 @@ func TestPayloadReferenceRetainsExactObjectWithoutSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reference.Close() })
+	other := NewStore(store.Root)
+	foreign := request
+	foreign.ReferenceID = "run-2"
+	foreign.FleetID = "f_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	foreignReference, err := other.AcquireReference("github/gh", path, foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = foreignReference.Close() })
 	if _, err := store.AcquireReference("github/gh", path, request); !errors.Is(err, ErrPayloadReferenceHeld) {
 		t.Fatalf("second acquisition = %v, want ErrPayloadReferenceHeld", err)
 	}
 	if err := store.Remove("github/gh"); err != nil {
 		t.Fatal(err)
 	}
-	for _, retained := range []string{path, reference.RecordPath(), reference.LockPath()} {
+	for _, retained := range []string{path, reference.RecordPath(), reference.LockPath(), foreignReference.RecordPath(), foreignReference.LockPath()} {
 		if _, err := os.Stat(retained); err != nil {
 			t.Fatalf("selection removal deleted %s: %v", retained, err)
 		}
 	}
 	if err := reference.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := foreignReference.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); err != nil {
