@@ -130,14 +130,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          [
-            ubuntu-latest,
-            ubuntu-24.04-arm,
-            macos-latest,
-            macos-15-intel,
-            windows-latest,
-          ]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","ubuntu-24.04-arm","macos-latest","macos-15-intel","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -169,6 +162,7 @@ jobs:
 
   e2e-windows:
     name: E2E (windows-latest, bootstrap.ps1)
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     needs: test
     steps:
@@ -181,6 +175,7 @@ jobs:
 
   e2e-macos:
     name: E2E (macos-latest, bootstrap.sh)
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     needs: test
     steps:
@@ -193,6 +188,7 @@ jobs:
 
   e2e-macos-intel:
     name: E2E (macos-15-intel, bootstrap.sh)
+    if: github.event_name != 'pull_request'
     runs-on: macos-15-intel
     needs: test
     steps:

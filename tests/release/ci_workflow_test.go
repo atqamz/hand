@@ -49,6 +49,47 @@ func TestCIPushCannotPublish(t *testing.T) {
 	}
 }
 
+func TestCIUsesFastPRMatrixAndFullMainMatrix(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "ci.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Jobs map[string]struct {
+			If       string `yaml:"if"`
+			Strategy struct {
+				Matrix struct {
+					OS any `yaml:"os"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	matrix, ok := document.Jobs["test"].Strategy.Matrix.OS.(string)
+	if !ok {
+		t.Fatalf("test matrix = %#v, want event-scoped expression", document.Jobs["test"].Strategy.Matrix.OS)
+	}
+	for _, part := range []string{
+		"github.event_name == 'pull_request'",
+		`'["ubuntu-latest"]'`,
+		"ubuntu-24.04-arm", "macos-latest", "macos-15-intel", "windows-latest",
+	} {
+		if !strings.Contains(matrix, part) {
+			t.Errorf("test matrix %q missing %q", matrix, part)
+		}
+	}
+	for _, job := range []string{"e2e-windows", "e2e-macos", "e2e-macos-intel"} {
+		if got := document.Jobs[job].If; got != "github.event_name != 'pull_request'" {
+			t.Errorf("%s if = %q, want non-PR only", job, got)
+		}
+	}
+	if got := document.Jobs["e2e"].If; got != "" {
+		t.Errorf("Linux E2E if = %q, want PR and main", got)
+	}
+}
+
 func TestMutationWorkflowsGateCheapPackagesAndReportExpensiveOnes(t *testing.T) {
 	ciJobs := loadWorkflowJobs(t, "ci.yaml")
 	cheap, ok := ciJobs["mutation"]
