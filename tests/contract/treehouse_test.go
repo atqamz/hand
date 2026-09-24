@@ -31,7 +31,8 @@ func newRepo(t *testing.T) string {
 	t.Helper()
 	cfg := filepath.Join(t.TempDir(), "gitconfig")
 	content := "[user]\n\tname = hand-contract\n\temail = hand-contract@example.invalid\n" +
-		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n"
+		"[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n" +
+		"[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"
 	if err := os.WriteFile(cfg, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -301,7 +301,7 @@ func canonicalV19PlanWriterInput(id string) CanonicalV19PlanCreateInput {
 
 func canonicalV19PlanWriterGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	command := exec.Command("git", append([]string{"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false", "-C", dir}, args...)...)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)

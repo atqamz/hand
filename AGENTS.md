@@ -15,6 +15,8 @@ Hand-generated surface in this fleet home.
   lifecycle, recovery, and bug-report procedures; this file states invariants, not procedures.
 - Use the `hand` CLI and runtime as the source of truth for fleet and machine state
   instead of reading or editing it directly.
-- Never edit a registered project under `projects/` directly; a worker does that in
-  its own worktree.
+- Read registered project source from `<home>/projects/<project>`, the canonical
+  supervisor read source and workers' worktree base. Inspect refs with
+  `git -C <home>/projects/<project> show <ref>:<path>` without changing HEAD.
+  Never edit a registered project under `projects/` directly; workers edit their own worktrees.
 - Never merge without explicit operator authorization.

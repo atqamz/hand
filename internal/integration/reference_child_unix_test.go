@@ -31,6 +31,12 @@ func TestPayloadReferenceRemainsHeldByManagedChildAfterParentRelease(t *testing.
 	if err := reference.StartChild(child); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if child.ProcessState == nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
 	waitForReferenceTestFile(t, ready)
 	if err := abandonPayloadReferenceForTest(reference); err != nil {
 		t.Fatal(err)

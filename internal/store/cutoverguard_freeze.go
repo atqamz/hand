@@ -23,6 +23,9 @@ func (g *LegacyV18CutoverGuard) Freeze(ctx context.Context, homeDir string, inpu
 	if err := validateLegacyV18CutoverManifestInputAgainstPlan(g.plan, input); err != nil {
 		return err
 	}
+	if err := g.locks.revalidate(); err != nil {
+		return fmt.Errorf("freeze held legacy v18 cutover guard: %w", err)
+	}
 
 	archive, err := promoteLegacyV18CutoverArchiveCandidate(homeDir, g.gate.archiveCandidate)
 	if err != nil {
@@ -35,6 +38,9 @@ func (g *LegacyV18CutoverGuard) Freeze(ctx context.Context, homeDir string, inpu
 	artifact, err := writeLegacyV18CutoverManifest(homeDir, archive, stableInput)
 	if err != nil {
 		return fmt.Errorf("freeze held legacy v18 cutover guard: persist pre-freeze recovery manifest: %w", err)
+	}
+	if err := g.locks.revalidate(); err != nil {
+		return fmt.Errorf("freeze held legacy v18 cutover guard: %w", err)
 	}
 
 	bridge, err := freezeLegacyV18CutoverSource(ctx, homeDir, g.gate, archive)

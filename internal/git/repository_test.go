@@ -85,7 +85,7 @@ func runGit(t *testing.T, dir string, args ...string) string {
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

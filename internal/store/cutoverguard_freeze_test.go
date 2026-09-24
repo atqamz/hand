@@ -184,6 +184,37 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 	}
 }
 
+func TestLegacyV18CutoverGuardFreezeRejectsNewRendezvousBeforeArchivePromotion(t *testing.T) {
+	home := createLegacyV18CutoverTestSource(t)
+	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
+	guard, err := AcquireLegacyV18CutoverGuard(context.Background(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	plan, err := guard.ObservationPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := Lock(home, "late:external-mutation", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	before := guard.gate.sourceSHA256
+	input := LegacyV18CutoverManifestInput{FleetID: plan.FleetID, ImportedAt: "2026-09-24T00:00:00Z"}
+	if err := guard.Freeze(context.Background(), home, input); err == nil || !strings.Contains(err.Error(), "hashed lock namespace changed") {
+		t.Fatalf("freeze after new Fleet-local rendezvous = %v, want refusal", err)
+	}
+	if _, err := os.Stat(legacyV18CutoverOriginalArchivePath(home, guard.gate.archiveCandidate.MigrationID)); !os.IsNotExist(err) {
+		t.Fatalf("original archive after refused freeze = %v, want absent", err)
+	}
+	after, err := legacyV18CutoverFileSHA256(Path(home))
+	if err != nil || after != before {
+		t.Fatalf("active source after refused freeze = %s, %v; want %s", after, err, before)
+	}
+}
+
 func TestLegacyV18CutoverGuardFreezeRequiresHeldGuard(t *testing.T) {
 	var guard *LegacyV18CutoverGuard
 	if err := guard.Freeze(context.Background(), t.TempDir(), LegacyV18CutoverManifestInput{}); !errors.Is(err, ErrLegacyV18CutoverGuardClosed) {

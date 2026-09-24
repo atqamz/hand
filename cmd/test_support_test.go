@@ -119,7 +119,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	gitConfig := filepath.Join(testUserHome, ".gitconfig")
-	if err := os.WriteFile(gitConfig, []byte("[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n"), 0o600); err != nil {
+	if err := os.WriteFile(gitConfig, []byte("[commit]\n\tgpgsign = false\n[tag]\n\tgpgsign = false\n[gc]\n\tautoDetach = false\n[maintenance]\n\tautoDetach = false\n"), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

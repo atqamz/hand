@@ -128,9 +128,9 @@ func TestCanonicalInitCompetingProcesses(t *testing.T) {
 		processes[i] = exec.Command(handBin, "init", "--canonical", home)
 		processes[i].Dir = parent
 		processes[i].Env = handProcessEnv("SECONDHAND_HOME=" + secondhandHome)
-		if err := processes[i].Start(); err != nil {
-			t.Fatal(err)
-		}
+	}
+	if err := startCompetingProcesses(processes); err != nil {
+		t.Fatal(err)
 	}
 	successes := 0
 	for _, process := range processes {
@@ -154,6 +154,42 @@ func TestCanonicalInitCompetingProcesses(t *testing.T) {
 		t.Fatalf("identity did not converge: %+v", got)
 	}
 	assertTreeUnchanged(t, home, before)
+}
+
+func TestCanonicalInitCompetingProcessStartFailureJoinsEarlierProcess(t *testing.T) {
+	parent := t.TempDir()
+	home := filepath.Join(parent, "race")
+	first := exec.Command(handBin, "init", "--canonical", home)
+	first.Dir = parent
+	first.Env = handProcessEnv("SECONDHAND_HOME=" + filepath.Join(parent, ".secondhand"))
+	t.Cleanup(func() {
+		if first.Process != nil && first.ProcessState == nil {
+			_ = first.Process.Kill()
+			_ = first.Wait()
+		}
+	})
+	missing := exec.Command(filepath.Join(parent, "missing-hand"))
+	if err := startCompetingProcesses([]*exec.Cmd{first, missing}); err == nil {
+		t.Fatal("missing second process started")
+	}
+	if first.ProcessState == nil {
+		_ = first.Process.Kill()
+		_ = first.Wait()
+		t.Fatal("earlier process was not joined after later start failed")
+	}
+}
+
+func startCompetingProcesses(processes []*exec.Cmd) error {
+	for i, process := range processes {
+		if err := process.Start(); err != nil {
+			for _, started := range processes[:i] {
+				_ = started.Process.Kill()
+				_ = started.Wait()
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func TestCanonicalProjectRefusesRedirectedAndInvalidRepositories(t *testing.T) {
