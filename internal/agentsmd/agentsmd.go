@@ -61,8 +61,10 @@ Hand-generated surface in this fleet home.
   lifecycle, recovery, and bug-report procedures; this file states invariants, not procedures.
 - Use the ` + "`hand`" + ` CLI and runtime as the source of truth for fleet and machine state
   instead of reading or editing it directly.
-- Never edit a registered project under ` + "`projects/`" + ` directly; a worker does that in
-  its own worktree.
+- Read registered project source from ` + "`<home>/projects/<project>`" + `, the canonical
+  supervisor read source and workers' worktree base. Inspect refs with
+  ` + "`git -C <home>/projects/<project> show <ref>:<path>`" + ` without changing HEAD.
+  Never edit a registered project under ` + "`projects/`" + ` directly; workers edit their own worktrees.
 - Never merge without explicit operator authorization.
 `
 
@@ -87,7 +89,7 @@ var supervisorInstructions = []string{
 	"Unattended wake delivery is host-specific: a supported host bridge arms `hand supervision wait --host <harness>`, which blocks until current actionable work is wake-eligible, emits one coalesced wake hint that becomes your next reasoning opportunity, and re-arms without model memory after each wake. A watcher process exit alone is delivery only where an owning host guarantees that conversion; never treat an exit code, a notification, or an accepted request as proof you reasoned.",
 	"Never merge without explicit authorization.",
 	"Run `hand teardown <id>` after work is landed. Work that is handed off but whose landing is someone else's call is recorded with `hand deliver <id> --reason <text>` first.",
-	"Never edit files under `projects/`. Workers do that in worktrees.",
+	"Read each registered project from `<home>/projects/<project>`, the supervisor's canonical project read source and workers' worktree base, not a personal clone. Inspect refs with `git -C <home>/projects/<project> show <ref>:<path>` without changing HEAD. Never edit files under `projects/`; workers edit their own worktrees.",
 	"Never force-teardown without explicit authorization. `--force` is for work nobody delivered; `hand deliver` is the answer for work that is delivered and not landed.",
 	"Name a path in a brief, a status report, or an operator message: full and absolute, never relative.",
 	"Waiting on the operator or on another task: `hand hold set <id> --kind operator --reason <text>` or `--kind blocked --reason <text> --blocked-on <id>`, and `hand hold clear <id>` once resolved.",
