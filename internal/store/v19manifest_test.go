@@ -107,8 +107,64 @@ func TestCanonicalV19PermanentManifestRevision4Artifacts(t *testing.T) {
 
 // #344/#347: a permanent manifest must retain the exact ordered contract-set digest.
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
-	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md"} {
+	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md", "manifest-v6-input.md"} {
 		t.Run(name, func(t *testing.T) { assertCanonicalV19ManifestSnapshotSet(t, name) })
+	}
+}
+
+func TestCanonicalV19Revision5InputMatchesArtifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v6-input.md"))
+	for _, field := range []string{
+		"source base commit: e85388d745363f8b64c4fdc63527c65cc7664322",
+		"source base tree: 0993364052b201f35dbeb88f9944613e1f95a71c",
+		"candidate content commit: 97d9f7c045a0060cac05a085221d91cb7fd661e8",
+		"DDL: docs/architecture/v19-v5.sql.gz",
+		"Git blob: 71b0a173f8838d86bf28c3e2d7ec999f1cf3b266",
+		"stored gzip bytes: 12431",
+		"stored gzip SHA-256: c43095c11ef38c33243894d9b0cf2ad188c01a8101cf1deafc40d198fb19de96",
+		"reconstructed DDL bytes: 112635",
+		"reconstructed DDL SHA-256: e89280ddb3751142078d27e1f4203d45462cc5c9c03c04277948f090e4521a66",
+		"schema fingerprint: 5ac7161276dbf829f60d00ab4d22e83f65a4f54016a753a1bf482beaba6b8c9a",
+		"schema-defined objects: 57 tables / 39 explicit indexes / 175 triggers",
+		"PRAGMA user_version: 19",
+		"proof: docs/architecture/v19-proof-v5.py.gz",
+		"proof Git blob: 5a03e891459fd432718ba4dde98cc0cb5386d5da",
+		"proof stored gzip bytes: 14821",
+		"proof stored gzip SHA-256: 81e657e6f24efef646aa98caaf2aeaaf4ddadd078e6005c655d6b27c5dc2f3a6",
+		"proof reconstructed bytes: 77078",
+		"proof reconstructed SHA-256: 4546b5796cc0badd102e249e2c329fbfc98cd09237a3b3b257b1844a73d2462d",
+		"relock: docs/architecture/v19-relock-v5.md",
+		"relock Git blob: " + v19ManifestGitBlob(readV19ManifestArtifact(t, "docs/architecture/v19-relock-v5.md")),
+	} {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-5 input missing %q", field)
+		}
+	}
+	for _, artifact := range []struct {
+		path, blob, compressedSHA, reconstructedSHA string
+		compressedBytes, reconstructedBytes         int
+	}{
+		{"docs/architecture/v19-v5.sql.gz", "71b0a173f8838d86bf28c3e2d7ec999f1cf3b266", "c43095c11ef38c33243894d9b0cf2ad188c01a8101cf1deafc40d198fb19de96", "e89280ddb3751142078d27e1f4203d45462cc5c9c03c04277948f090e4521a66", 12431, 112635},
+		{"docs/architecture/v19-proof-v5.py.gz", "5a03e891459fd432718ba4dde98cc0cb5386d5da", "81e657e6f24efef646aa98caaf2aeaaf4ddadd078e6005c655d6b27c5dc2f3a6", "4546b5796cc0badd102e249e2c329fbfc98cd09237a3b3b257b1844a73d2462d", 14821, 77078},
+	} {
+		data := readV19ManifestArtifact(t, artifact.path)
+		if len(data) != artifact.compressedBytes || canonicalV19SHA256(data) != artifact.compressedSHA || v19ManifestGitBlob(data) != artifact.blob {
+			t.Errorf("revision-5 artifact %s compressed identity changed", artifact.path)
+		}
+		reader, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) != artifact.reconstructedBytes || canonicalV19SHA256(raw) != artifact.reconstructedSHA {
+			t.Errorf("revision-5 artifact %s reconstructed identity changed", artifact.path)
+		}
 	}
 }
 
