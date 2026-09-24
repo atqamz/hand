@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   native-bootstrap:
+    if: github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main'
     name: Native canonical bootstrap (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -37,6 +38,7 @@ jobs:
         run: go test -tags=nativebootstrap -count=1 -v -timeout=10m ./tests/e2e
 
   mutation:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.head_ref == 'release-please--branches--main')
     name: Mutation (${{ matrix.package }})
     runs-on: ubuntu-latest
     strategy:
@@ -130,7 +132,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && github.head_ref != 'release-please--branches--main' && '["ubuntu-latest"]' || '["ubuntu-latest","ubuntu-24.04-arm","macos-latest","macos-15-intel","windows-latest"]') }}
+        os: ${{ fromJSON((github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main') && '["ubuntu-latest","ubuntu-24.04-arm","macos-latest","macos-15-intel","windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -211,6 +213,7 @@ jobs:
         run: make contract
 
   nix-build:
+    if: github.event_name != 'pull_request' || github.head_ref == 'release-please--branches--main' || github.event.pull_request.user.login == 'dependabot[bot]'
     name: Nix build (x86_64-linux)
     runs-on: ubuntu-latest
     steps:
