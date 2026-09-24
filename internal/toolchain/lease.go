@@ -47,13 +47,14 @@ type leaseRecord struct {
 }
 
 type Lease struct {
-	record     leaseRecord
-	storeRoot  string
-	rootHandle *os.Root
-	recordPath string
-	lockPath   string
-	lock       *os.File
-	closed     bool
+	record       leaseRecord
+	storeRoot    string
+	rootHandle   *os.Root
+	recordPath   string
+	lockPath     string
+	lock         *os.File
+	childStarted bool
+	closed       bool
 }
 
 func (s *Store) GenerationID(goos, goarch string) (string, error) {
@@ -400,7 +401,11 @@ func (lease *Lease) StartChild(cmd *exec.Cmd) error {
 	if cmd == nil {
 		return errors.New("runtime generation lease child command is nil")
 	}
-	return startChildWithLease(cmd, lease.lock)
+	if err := startChildWithLease(cmd, lease.lock); err != nil {
+		return err
+	}
+	lease.childStarted = true
+	return nil
 }
 
 func (lease *Lease) Close() error {
@@ -409,13 +414,18 @@ func (lease *Lease) Close() error {
 	}
 	lease.closed = true
 	defer func() {
-		_ = filelock.Unlock(lease.lock)
+		if !lease.childStarted {
+			_ = filelock.Unlock(lease.lock)
+		}
 		_ = lease.lock.Close()
 		_ = lease.rootHandle.Close()
 	}()
 	existing, err := readLeaseRecord(lease.rootHandle, lease.storeRoot, lease.recordPath)
 	if err != nil || !existing.sameIdentity(lease.record) {
 		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, lease.record.Generation, lease.record.LeaseID, lease.recordPath)
+	}
+	if lease.childStarted {
+		return nil
 	}
 	if err := removeRuntimeFile(lease.rootHandle, lease.storeRoot, lease.recordPath); err != nil {
 		return fmt.Errorf("retire runtime generation lease: %w", err)

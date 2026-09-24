@@ -334,7 +334,7 @@ func TestPayloadReferenceRejectsSymlinkedPayloadParent(t *testing.T) {
 	}
 }
 
-func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
+func TestManagedRunRetainsPayloadReferenceAfterRootExit(t *testing.T) {
 	if legacyCapabilityFallback {
 		t.Skip("test-tag builds intentionally execute PATH fakes")
 	}
@@ -383,8 +383,8 @@ func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("managed integration process did not exit")
 	}
-	if _, err := os.Stat(records[0]); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("completed process left live reference metadata: %v", err)
+	if _, err := os.Stat(records[0]); err != nil {
+		t.Fatalf("completed root removed reference without descendant proof: %v", err)
 	}
 	if _, err := os.Stat(payload); err != nil {
 		t.Fatalf("completed process deleted immutable payload: %v", err)

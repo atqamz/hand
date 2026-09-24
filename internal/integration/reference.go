@@ -48,17 +48,18 @@ type payloadReferenceRecord struct {
 }
 
 type PayloadReference struct {
-	record      payloadReferenceRecord
-	storeRoot   string
-	rootHandle  *os.Root
-	recordPath  string
-	lockPath    string
-	lock        *os.File
-	executable  *os.File
-	executePath string
-	executeRoot string
-	launchRoot  string
-	closed      bool
+	record       payloadReferenceRecord
+	storeRoot    string
+	rootHandle   *os.Root
+	recordPath   string
+	lockPath     string
+	lock         *os.File
+	childStarted bool
+	executable   *os.File
+	executePath  string
+	executeRoot  string
+	launchRoot   string
+	closed       bool
 }
 
 func (s *Store) AcquireReference(id, path string, request PayloadReferenceRequest) (*PayloadReference, error) {
@@ -338,10 +339,14 @@ func (reference *PayloadReference) StartChild(cmd *exec.Cmd) error {
 	if cmd == nil {
 		return errors.New("integration payload reference child command is nil")
 	}
-	return startChildWithPayloadReference(
+	if err := startChildWithPayloadReference(
 		cmd, reference.lock, reference.executable, reference.rootHandle,
 		reference.executePath, reference.executeRoot, reference.launchRoot,
-	)
+	); err != nil {
+		return err
+	}
+	reference.childStarted = true
+	return nil
 }
 
 func (reference *PayloadReference) Close() error {
@@ -350,7 +355,9 @@ func (reference *PayloadReference) Close() error {
 	}
 	reference.closed = true
 	defer func() {
-		_ = filelock.Unlock(reference.lock)
+		if !reference.childStarted {
+			_ = filelock.Unlock(reference.lock)
+		}
 		_ = reference.lock.Close()
 		_ = reference.executable.Close()
 		_ = reference.rootHandle.Close()
@@ -358,6 +365,9 @@ func (reference *PayloadReference) Close() error {
 	existing, err := readPayloadReferenceRecord(reference.rootHandle, reference.storeRoot, reference.recordPath)
 	if err != nil || !existing.sameIdentity(reference.record) {
 		return fmt.Errorf("%w: refusing to retire capability=%s payload=%s reference=%s record=%s", ErrPayloadReferenceUnknown, reference.record.Capability, reference.record.Payload, reference.record.ReferenceID, reference.recordPath)
+	}
+	if reference.childStarted {
+		return nil
 	}
 	if err := removeIntegrationFile(reference.rootHandle, reference.storeRoot, reference.recordPath); err != nil {
 		return fmt.Errorf("retire integration payload reference: %w", err)

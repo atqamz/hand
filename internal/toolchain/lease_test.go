@@ -597,6 +597,59 @@ func TestRuntimeLeaseRemainsHeldByManagedChildAfterGuardianDeath(t *testing.T) {
 	}
 }
 
+func TestRuntimeLeaseCloseRetainsManagedChildOwnership(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows couples the runtime child to its guardian with a kill-on-close job")
+	}
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{Generation: generation, LeaseID: "herdr:fleet-a", FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=fleet-a"}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(t.TempDir(), "ready")
+	child := exec.Command(os.Args[0], "-test.run=^TestRuntimeLeaseManagedChildProcess$")
+	child.Env = append(os.Environ(), "HAND_RUNTIME_LEASE_CHILD=1", "HAND_RUNTIME_LEASE_READY="+ready)
+	if err := lease.StartChild(child); err != nil {
+		t.Fatal(err)
+	}
+	waitForGenerationHelper(t, ready)
+	defer func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	}()
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("child-owned lease record missing after parent close: %v", err)
+	}
+	if _, err := store.AcquireLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("acquire while managed child is alive = %v, want ErrLeaseHeld", err)
+	}
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+	recovered, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovered lease record remains after child exit: %v", err)
+	}
+}
+
 func TestRuntimeLeaseManagedChildProcess(t *testing.T) {
 	if os.Getenv("HAND_RUNTIME_LEASE_CHILD") != "1" {
 		return
