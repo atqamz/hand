@@ -47,13 +47,15 @@ type leaseRecord struct {
 }
 
 type Lease struct {
-	record     leaseRecord
-	storeRoot  string
-	rootHandle *os.Root
-	recordPath string
-	lockPath   string
-	lock       *os.File
-	closed     bool
+	record       leaseRecord
+	storeRoot    string
+	rootHandle   *os.Root
+	recordPath   string
+	recordInfo   os.FileInfo
+	lockPath     string
+	lock         *os.File
+	childStarted bool
+	closed       bool
 }
 
 func (s *Store) GenerationID(goos, goarch string) (string, error) {
@@ -195,7 +197,13 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 		}
 	}()
 	recordPath, lockPath := leasePaths(request, referenceRoot)
-	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		if recordErr := s.requireNoLeaseRecordForMissingLock(rootHandle, referenceRoot, request); recordErr != nil {
+			return nil, recordErr
+		}
+		lock, _, err = openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open runtime generation lease lock: %w", err)
 	}
@@ -212,7 +220,7 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 		FleetID: request.FleetID, Consumer: request.Consumer, Evidence: request.Evidence,
 		CreatedAt: time.Now().UTC(),
 	}
-	existing, err := readLeaseRecord(rootHandle, s.Root, recordPath)
+	existing, recordInfo, err := readLeaseRecord(rootHandle, s.Root, recordPath)
 	switch {
 	case err == nil:
 		if err := existing.validate(); err != nil || !existing.sameIdentity(record) {
@@ -233,18 +241,71 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 			_ = lock.Close()
 			return nil, fmt.Errorf("publish runtime generation lease: %w", writeErr)
 		}
+		existing, recordInfo, err = readLeaseRecord(rootHandle, s.Root, recordPath)
+		if err != nil || !existing.sameIdentity(record) {
+			_ = filelock.Unlock(lock)
+			_ = lock.Close()
+			return nil, fmt.Errorf("%w: generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, recordPath)
+		}
 	default:
 		_ = filelock.Unlock(lock)
 		_ = lock.Close()
 		return nil, fmt.Errorf("%w: generation=%s lease=%s record=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, recordPath, err)
 	}
 	retainRoot = true
-	return &Lease{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, lockPath: lockPath, lock: lock}, nil
+	return &Lease{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, recordInfo: recordInfo, lockPath: lockPath, lock: lock}, nil
+}
+
+func (s *Store) requireNoLeaseRecordForMissingLock(rootHandle *os.Root, referenceRoot string, request LeaseRequest) error {
+	unknown := func() error {
+		return fmt.Errorf("%w: generation=%s lease=%s lock scope has durable metadata but no lock", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID)
+	}
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.LeaseID
+	}
+	relative, err := runtimeRelativePath(s.Root, referenceRoot)
+	if err != nil {
+		return err
+	}
+	directory, owned, err := openDirectRuntimeSubroot(rootHandle, relative)
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = directory.Close() }()
+	}
+	file, err := directory.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	entries, err := file.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		record, _, err := readLeaseRecord(rootHandle, s.Root, filepath.Join(referenceRoot, entry.Name()))
+		if err != nil || record.validate() != nil {
+			return unknown()
+		}
+		recordScope := record.LockScope
+		if recordScope == "" {
+			recordScope = record.LeaseID
+		}
+		if recordScope == lockScope {
+			return unknown()
+		}
+	}
+	return nil
 }
 
 func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, referenceRoot string) (bool, error) {
 	recordPath, lockPath := leasePaths(request, referenceRoot)
-	record, err := readLeaseRecord(rootHandle, s.Root, recordPath)
+	record, _, err := readLeaseRecord(rootHandle, s.Root, recordPath)
 	if errors.Is(err, os.ErrNotExist) {
 		_, held, lockErr := probeLeaseLock(rootHandle, s.Root, lockPath)
 		if lockErr != nil || held {
@@ -359,21 +420,26 @@ func (record leaseRecord) sameIdentity(other leaseRecord) bool {
 		record.FleetID == other.FleetID && record.Consumer == other.Consumer && record.Evidence == other.Evidence
 }
 
-func readLeaseRecord(rootHandle *os.Root, root, path string) (leaseRecord, error) {
-	data, err := readRuntimeFile(rootHandle, root, path)
+func readLeaseRecord(rootHandle *os.Root, root, path string) (leaseRecord, os.FileInfo, error) {
+	file, info, err := openRuntimeFile(rootHandle, root, path, os.O_RDONLY, 0)
 	if err != nil {
-		return leaseRecord{}, err
+		return leaseRecord{}, nil, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return leaseRecord{}, nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var record leaseRecord
 	if err := decoder.Decode(&record); err != nil {
-		return leaseRecord{}, err
+		return leaseRecord{}, nil, err
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return leaseRecord{}, errors.New("runtime generation lease record has trailing data")
+		return leaseRecord{}, nil, errors.New("runtime generation lease record has trailing data")
 	}
-	return record, nil
+	return record, info, nil
 }
 
 func (lease *Lease) RecordPath() string {
@@ -400,7 +466,11 @@ func (lease *Lease) StartChild(cmd *exec.Cmd) error {
 	if cmd == nil {
 		return errors.New("runtime generation lease child command is nil")
 	}
-	return startChildWithLease(cmd, lease.lock)
+	if err := startChildWithLease(cmd, lease.lock); err != nil {
+		return err
+	}
+	lease.childStarted = true
+	return nil
 }
 
 func (lease *Lease) Close() error {
@@ -409,16 +479,15 @@ func (lease *Lease) Close() error {
 	}
 	lease.closed = true
 	defer func() {
-		_ = filelock.Unlock(lease.lock)
+		if !lease.childStarted {
+			_ = filelock.Unlock(lease.lock)
+		}
 		_ = lease.lock.Close()
 		_ = lease.rootHandle.Close()
 	}()
-	existing, err := readLeaseRecord(lease.rootHandle, lease.storeRoot, lease.recordPath)
-	if err != nil || !existing.sameIdentity(lease.record) {
+	existing, info, err := readLeaseRecord(lease.rootHandle, lease.storeRoot, lease.recordPath)
+	if err != nil || !existing.sameIdentity(lease.record) || !os.SameFile(lease.recordInfo, info) {
 		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, lease.record.Generation, lease.record.LeaseID, lease.recordPath)
-	}
-	if err := removeRuntimeFile(lease.rootHandle, lease.storeRoot, lease.recordPath); err != nil {
-		return fmt.Errorf("retire runtime generation lease: %w", err)
 	}
 	return nil
 }

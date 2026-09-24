@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	legacyV18CutoverProcessRoleEnv = "HAND_CUTOVER_PROCESS_ROLE"
-	legacyV18CutoverProcessHomeEnv = "HAND_CUTOVER_PROCESS_HOME"
+	legacyV18CutoverProcessRoleEnv      = "HAND_CUTOVER_PROCESS_ROLE"
+	legacyV18CutoverProcessHomeEnv      = "HAND_CUTOVER_PROCESS_HOME"
+	legacyV18CutoverProcessProbeTimeout = 5 * time.Second
 )
 
 func TestLegacyV18CutoverFreshSourceReadDropsIndependentWriterExclusion(t *testing.T) {
@@ -368,8 +369,9 @@ func TestLegacyV18CutoverManifestAliasRefusalPreservesIndependentWriterExclusion
 func TestLegacyV18CutoverProductionPhasesExcludeIndependentWriters(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
+	want := []string{"initial source read", "reader-barrier hash", "archive candidate copy", "EXCLUSIVE revalidation"}
 	var phases []string
-	gate, err := acquireLegacyV18CutoverGateObserved(context.Background(), home, 5*time.Second, func(phase string) {
+	gate, err := acquireLegacyV18CutoverGateObserved(context.Background(), home, legacyV18CutoverGateTimeout+time.Duration(len(want))*legacyV18CutoverProcessProbeTimeout, func(phase string) {
 		phases = append(phases, phase)
 		if got := runLegacyV18CutoverWriteOnceProcess(t, home); got != "busy" {
 			t.Fatalf("independent writer at %s = %q, want busy", phase, got)
@@ -379,7 +381,6 @@ func TestLegacyV18CutoverProductionPhasesExcludeIndependentWriters(t *testing.T)
 		t.Fatal(err)
 	}
 	defer func() { _ = gate.Close() }()
-	want := []string{"initial source read", "reader-barrier hash", "archive candidate copy", "EXCLUSIVE revalidation"}
 	if strings.Join(phases, "|") != strings.Join(want, "|") {
 		t.Fatalf("observed production phases = %q, want %q", phases, want)
 	}
@@ -443,7 +444,9 @@ func runLegacyV18CutoverWriteOnce(t *testing.T) {
 
 func runLegacyV18CutoverWriteOnceProcess(t *testing.T, home string) string {
 	t.Helper()
-	child := exec.Command(os.Args[0], "-test.run=^TestLegacyV18CutoverGateAndFreezeExcludeIndependentWriters$")
+	ctx, cancel := context.WithTimeout(context.Background(), legacyV18CutoverProcessProbeTimeout)
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestLegacyV18CutoverGateAndFreezeExcludeIndependentWriters$")
 	child.Env = append(os.Environ(),
 		legacyV18CutoverProcessRoleEnv+"=write-once",
 		legacyV18CutoverProcessHomeEnv+"="+home,

@@ -48,17 +48,18 @@ type payloadReferenceRecord struct {
 }
 
 type PayloadReference struct {
-	record      payloadReferenceRecord
-	storeRoot   string
-	rootHandle  *os.Root
-	recordPath  string
-	lockPath    string
-	lock        *os.File
-	executable  *os.File
-	executePath string
-	executeRoot string
-	launchRoot  string
-	closed      bool
+	record       payloadReferenceRecord
+	storeRoot    string
+	rootHandle   *os.Root
+	recordPath   string
+	lockPath     string
+	lock         *os.File
+	childStarted bool
+	executable   *os.File
+	executePath  string
+	executeRoot  string
+	launchRoot   string
+	closed       bool
 }
 
 func (s *Store) AcquireReference(id, path string, request PayloadReferenceRequest) (*PayloadReference, error) {
@@ -120,7 +121,13 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 	lockKey := sha256.Sum256([]byte(lockScope))
 	recordPath := filepath.Join(referenceRoot, hex.EncodeToString(recordKey[:])+".json")
 	lockPath := filepath.Join(referenceRoot, hex.EncodeToString(lockKey[:])+".lock")
-	lock, _, err := openIntegrationFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	lock, _, err := openIntegrationFile(rootHandle, s.Root, lockPath, os.O_RDWR, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		if recordErr := s.requireNoPayloadReferenceRecordForMissingLock(rootHandle, relativeReferenceRoot, referenceRoot, id, payload, request); recordErr != nil {
+			return nil, recordErr
+		}
+		lock, _, err = openIntegrationFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open integration payload reference lock: %w", err)
 	}
@@ -188,6 +195,49 @@ func (s *Store) AcquireReference(id, path string, request PayloadReferenceReques
 		executable: executable, executePath: filepath.Join(rootHandle.Name(), relativePath),
 		executeRoot: relativePath, launchRoot: relativeReferenceRoot,
 	}, nil
+}
+
+func (s *Store) requireNoPayloadReferenceRecordForMissingLock(rootHandle *os.Root, relativeReferenceRoot, referenceRoot, id, payload string, request PayloadReferenceRequest) error {
+	unknown := func() error {
+		return fmt.Errorf("%w: capability=%s payload=%s reference=%s lock scope has durable metadata but no lock", ErrPayloadReferenceUnknown, id, payload, request.ReferenceID)
+	}
+	lockScope := request.LockScope
+	if lockScope == "" {
+		lockScope = request.ReferenceID
+	}
+	directory, owned, err := openDirectIntegrationSubroot(rootHandle, relativeReferenceRoot)
+	if err != nil {
+		return err
+	}
+	if owned {
+		defer func() { _ = directory.Close() }()
+	}
+	file, err := directory.Open(".")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	entries, err := file.ReadDir(-1)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		record, err := readPayloadReferenceRecord(rootHandle, s.Root, filepath.Join(referenceRoot, entry.Name()))
+		if err != nil || record.validate() != nil || record.Capability != id || record.Payload != payload {
+			return unknown()
+		}
+		recordScope := record.LockScope
+		if recordScope == "" {
+			recordScope = record.ReferenceID
+		}
+		if recordScope == lockScope {
+			return unknown()
+		}
+	}
+	return nil
 }
 
 func (s *Store) verifyPayloadPath(id, path string) (string, error) {
@@ -338,10 +388,14 @@ func (reference *PayloadReference) StartChild(cmd *exec.Cmd) error {
 	if cmd == nil {
 		return errors.New("integration payload reference child command is nil")
 	}
-	return startChildWithPayloadReference(
+	if err := startChildWithPayloadReference(
 		cmd, reference.lock, reference.executable, reference.rootHandle,
 		reference.executePath, reference.executeRoot, reference.launchRoot,
-	)
+	); err != nil {
+		return err
+	}
+	reference.childStarted = true
+	return nil
 }
 
 func (reference *PayloadReference) Close() error {
@@ -350,7 +404,9 @@ func (reference *PayloadReference) Close() error {
 	}
 	reference.closed = true
 	defer func() {
-		_ = filelock.Unlock(reference.lock)
+		if !reference.childStarted {
+			_ = filelock.Unlock(reference.lock)
+		}
 		_ = reference.lock.Close()
 		_ = reference.executable.Close()
 		_ = reference.rootHandle.Close()
@@ -358,9 +414,6 @@ func (reference *PayloadReference) Close() error {
 	existing, err := readPayloadReferenceRecord(reference.rootHandle, reference.storeRoot, reference.recordPath)
 	if err != nil || !existing.sameIdentity(reference.record) {
 		return fmt.Errorf("%w: refusing to retire capability=%s payload=%s reference=%s record=%s", ErrPayloadReferenceUnknown, reference.record.Capability, reference.record.Payload, reference.record.ReferenceID, reference.recordPath)
-	}
-	if err := removeIntegrationFile(reference.rootHandle, reference.storeRoot, reference.recordPath); err != nil {
-		return fmt.Errorf("retire integration payload reference: %w", err)
 	}
 	return nil
 }

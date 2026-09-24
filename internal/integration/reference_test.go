@@ -76,8 +76,8 @@ func TestPayloadReferenceRetainsExactObjectWithoutSelection(t *testing.T) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("graceful reference release deleted payload: %v", err)
 	}
-	if _, err := os.Stat(reference.RecordPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("graceful release left metadata: %v", err)
+	if _, err := os.Stat(reference.RecordPath()); err != nil {
+		t.Fatalf("graceful release removed durable metadata: %v", err)
 	}
 	if _, err := os.Stat(reference.LockPath()); err != nil {
 		t.Fatalf("reference removed permanent lock rendezvous: %v", err)
@@ -125,8 +125,13 @@ func TestPayloadReferenceReusesStableLockScopeAcrossUniqueHolders(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
-		t.Fatalf("stable reference scope left %v, want one permanent rendezvous", entries)
+	if len(entries) != 3 {
+		t.Fatalf("stable reference scope left %v, want two durable records and one rendezvous", entries)
+	}
+	for _, path := range []string{firstRecord, second.RecordPath(), firstLock} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stable reference scope lost %s: %v", path, err)
+		}
 	}
 }
 
@@ -160,7 +165,7 @@ func TestPayloadReferenceConcurrentDuplicateIdentityHasOneHolder(t *testing.T) {
 			references = append(references, result.reference)
 			continue
 		}
-		if !errors.Is(result.err, ErrPayloadReferenceHeld) {
+		if !errors.Is(result.err, ErrPayloadReferenceHeld) && !errors.Is(result.err, ErrPayloadReferenceUnknown) {
 			t.Fatalf("duplicate identity acquisition: %v", result.err)
 		}
 	}
@@ -190,7 +195,7 @@ func TestAcquireRunReferenceAllowsMoreThanEightLiveHolders(t *testing.T) {
 	}
 }
 
-func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
+func TestPayloadReferenceCloseRetainsRecordAtAcquisitionRoot(t *testing.T) {
 	store, path := installReferenceFixture(t)
 	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
 		ReferenceID: "root-replacement", FleetID: integrationTestFleetID,
@@ -227,11 +232,38 @@ func TestPayloadReferenceRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	if err := reference.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(moved, relative)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("acquired-root reference record was not retired: %v", err)
+	if got, err := os.ReadFile(filepath.Join(moved, relative)); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("acquired-root reference record changed: %q, %v", got, err)
 	}
 	if got, err := os.ReadFile(reference.RecordPath()); err != nil || !bytes.Equal(got, record) {
 		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
+	}
+}
+
+func TestPayloadReferenceCloseDoesNotDeleteSameContentReplacement(t *testing.T) {
+	store, path := installReferenceFixture(t)
+	reference, err := store.AcquireReference("github/gh", path, PayloadReferenceRequest{
+		ReferenceID: "replacement-race", FleetID: integrationTestFleetID,
+		Consumer: "integration-process", Evidence: "capability=github/gh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(reference.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(reference.RecordPath(), reference.RecordPath()+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(reference.RecordPath(), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := reference.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(reference.RecordPath()); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("replacement record changed: %q, %v", got, err)
 	}
 }
 
@@ -285,6 +317,47 @@ func TestPayloadReferenceCrashAndUnknownMetadataFailClosed(t *testing.T) {
 	}
 }
 
+func TestPayloadReferenceRefusesMetadataWithoutLock(t *testing.T) {
+	tests := []struct {
+		name, oldID, oldScope, nextID, nextScope string
+	}{
+		{"exact", "run-one", "", "run-one", ""},
+		{"scoped successor", "run-one", "integration:slot-0", "run-two", "integration:slot-0"},
+		{"unscoped to scoped", "integration:slot-0", "", "run-two", "integration:slot-0"},
+		{"scoped to unscoped", "run-one", "integration:slot-0", "integration:slot-0", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, path := installReferenceFixture(t)
+			old := PayloadReferenceRequest{
+				ReferenceID: test.oldID, LockScope: test.oldScope, FleetID: integrationTestFleetID,
+				Consumer: "integration-process", Evidence: "capability=github/gh",
+			}
+			reference, err := store.AcquireReference("github/gh", path, old)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := abandonPayloadReferenceForTest(reference); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(reference.LockPath()); err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			next.ReferenceID, next.LockScope = test.nextID, test.nextScope
+			if _, err := store.AcquireReference("github/gh", path, next); !errors.Is(err, ErrPayloadReferenceUnknown) {
+				t.Fatalf("acquire without durable lock = %v, want ErrPayloadReferenceUnknown", err)
+			}
+			if _, err := os.Stat(reference.LockPath()); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing lock was recreated: %v", err)
+			}
+			if _, err := os.Stat(reference.RecordPath()); err != nil {
+				t.Fatalf("durable reference record was removed: %v", err)
+			}
+		})
+	}
+}
+
 func TestPayloadReferenceRejectsAliasesAndInvalidIdentity(t *testing.T) {
 	store, path := installReferenceFixture(t)
 	request := PayloadReferenceRequest{
@@ -334,7 +407,7 @@ func TestPayloadReferenceRejectsSymlinkedPayloadParent(t *testing.T) {
 	}
 }
 
-func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
+func TestManagedRunRetainsPayloadReferenceAfterRootExit(t *testing.T) {
 	if legacyCapabilityFallback {
 		t.Skip("test-tag builds intentionally execute PATH fakes")
 	}
@@ -389,8 +462,8 @@ func TestManagedRunHoldsExactPayloadReference(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("managed integration process did not exit")
 	}
-	if _, err := os.Stat(records[0]); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("completed process left live reference metadata: %v", err)
+	if _, err := os.Stat(records[0]); err != nil {
+		t.Fatalf("completed root removed reference without descendant proof: %v", err)
 	}
 	if _, err := os.Stat(payload); err != nil {
 		t.Fatalf("completed process deleted immutable payload: %v", err)

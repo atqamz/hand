@@ -99,8 +99,8 @@ func TestRuntimeLeasePublishesExactIdentityAndHoldsKernelLock(t *testing.T) {
 	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(lease.RecordPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("graceful release left record: %v", err)
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("graceful release removed durable record: %v", err)
 	}
 	if _, err := os.Stat(lease.LockPath()); err != nil {
 		t.Fatalf("permanent lock rendezvous was removed: %v", err)
@@ -243,12 +243,17 @@ func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != filepath.Base(firstLock) {
-		t.Fatalf("stable lease scope left %v, want one permanent rendezvous", entries)
+	if len(entries) != 3 {
+		t.Fatalf("stable lease scope left %v, want two durable records and one rendezvous", entries)
+	}
+	for _, path := range []string{firstRecord, second.RecordPath(), firstLock} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("stable lease scope lost %s: %v", path, err)
+		}
 	}
 }
 
-func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
+func TestRuntimeLeaseCloseRetainsRecordAtAcquisitionRoot(t *testing.T) {
 	store, _ := generationStoreFixture(t)
 	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
 		t.Fatal(err)
@@ -292,11 +297,45 @@ func TestRuntimeLeaseRetiresThroughItsAcquisitionRoot(t *testing.T) {
 	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(moved, relative)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("acquired-root lease record was not retired: %v", err)
+	if got, err := os.ReadFile(filepath.Join(moved, relative)); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("acquired-root lease record changed: %q, %v", got, err)
 	}
 	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
 		t.Fatalf("replacement-root decoy changed: %q, %v", got, err)
+	}
+}
+
+func TestRuntimeLeaseCloseRetainsReplacedRecord(t *testing.T) {
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := store.AcquireLease(LeaseRequest{
+		Generation: generation, LeaseID: "replaced-record", FleetID: testFleetID,
+		Consumer: "herdr-server", Evidence: "session=replaced-record",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := os.ReadFile(lease.RecordPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(lease.RecordPath(), lease.RecordPath()+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lease.RecordPath(), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); !errors.Is(err, ErrLeaseMetadataUnknown) {
+		t.Fatalf("close replaced record = %v, want ErrLeaseMetadataUnknown", err)
+	}
+	if got, err := os.ReadFile(lease.RecordPath()); err != nil || !bytes.Equal(got, record) {
+		t.Fatalf("replacement record changed: %q, %v", got, err)
 	}
 }
 
@@ -597,6 +636,59 @@ func TestRuntimeLeaseRemainsHeldByManagedChildAfterGuardianDeath(t *testing.T) {
 	}
 }
 
+func TestRuntimeLeaseCloseRetainsManagedChildOwnership(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows couples the runtime child to its guardian with a kill-on-close job")
+	}
+	store, _ := generationStoreFixture(t)
+	if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := LeaseRequest{Generation: generation, LeaseID: "herdr:fleet-a", FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=fleet-a"}
+	lease, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := filepath.Join(t.TempDir(), "ready")
+	child := exec.Command(os.Args[0], "-test.run=^TestRuntimeLeaseManagedChildProcess$")
+	child.Env = append(os.Environ(), "HAND_RUNTIME_LEASE_CHILD=1", "HAND_RUNTIME_LEASE_READY="+ready)
+	if err := lease.StartChild(child); err != nil {
+		t.Fatal(err)
+	}
+	waitForGenerationHelper(t, ready)
+	defer func() {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+	}()
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("child-owned lease record missing after parent close: %v", err)
+	}
+	if _, err := store.AcquireLease(request); !errors.Is(err, ErrLeaseHeld) {
+		t.Fatalf("acquire while managed child is alive = %v, want ErrLeaseHeld", err)
+	}
+	if err := child.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+	recovered, err := store.AcquireLease(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(lease.RecordPath()); err != nil {
+		t.Fatalf("recovered lease record was removed after child exit: %v", err)
+	}
+}
+
 func TestRuntimeLeaseManagedChildProcess(t *testing.T) {
 	if os.Getenv("HAND_RUNTIME_LEASE_CHILD") != "1" {
 		return
@@ -647,6 +739,68 @@ func TestRuntimeLeaseMalformedAndForeignResidueFailClosed(t *testing.T) {
 	kept, err := os.ReadFile(path)
 	if err != nil || string(kept) != string(malformed) {
 		t.Fatalf("malformed residue changed: %q, %v", kept, err)
+	}
+}
+
+func TestGenerationLeaseRefusesMetadataWithoutLock(t *testing.T) {
+	tests := []struct {
+		name, kind, oldID, oldScope, nextID, nextScope string
+	}{
+		{"runtime exact", "runtime", "consumer:one", "", "consumer:one", ""},
+		{"hand exact", "hand", "consumer:one", "", "consumer:one", ""},
+		{"scoped successor", "runtime", "waiter:old", "waiter:slot-0", "waiter:next", "waiter:slot-0"},
+		{"unscoped to scoped", "runtime", "waiter:slot-0", "", "waiter:next", "waiter:slot-0"},
+		{"scoped to unscoped", "runtime", "waiter:old", "waiter:slot-0", "waiter:slot-0", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, _ := generationStoreFixture(t)
+			acquire := store.AcquireLease
+			generation := ""
+			if test.kind == "hand" {
+				source := filepath.Join(t.TempDir(), executableName("hand"))
+				if err := os.WriteFile(source, []byte("managed Hand generation"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				managed, err := store.MaterializeHandExecutable(source)
+				if err != nil {
+					t.Fatal(err)
+				}
+				generation = "sha256:" + filepath.Base(filepath.Dir(managed))
+				acquire = store.AcquireHandLease
+			} else {
+				if _, err := store.Ensure(context.Background(), "", ""); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				generation, err = store.GenerationID("", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			old := LeaseRequest{Generation: generation, LeaseID: test.oldID, LockScope: test.oldScope, FleetID: testFleetID, Consumer: "herdr-server", Evidence: "session=one"}
+			lease, err := acquire(old)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := abandonLeaseForTest(lease); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Remove(lease.LockPath()); err != nil {
+				t.Fatal(err)
+			}
+			next := old
+			next.LeaseID, next.LockScope = test.nextID, test.nextScope
+			if _, err := acquire(next); !errors.Is(err, ErrLeaseMetadataUnknown) {
+				t.Fatalf("acquire without durable lock = %v, want ErrLeaseMetadataUnknown", err)
+			}
+			if _, err := os.Stat(lease.LockPath()); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing lock was recreated: %v", err)
+			}
+			if _, err := os.Stat(lease.RecordPath()); err != nil {
+				t.Fatalf("durable lease record was removed: %v", err)
+			}
+		})
 	}
 }
 
