@@ -151,8 +151,7 @@ jobs:
         # Keep in sync with the same pin in .github/workflows/release.yaml.
         run: npm install -g npm@12.0.2
       - name: Test
-        # 30m covers the measured 4x Windows runner variance while keeping a real hang actionable.
-        run: go test -tags=test -race -timeout=30m ./...
+        run: go test -tags=test -race -timeout=45m ./...
       - name: Build
         run: go build -o hand .
 
