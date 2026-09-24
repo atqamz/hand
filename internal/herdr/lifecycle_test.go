@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -405,6 +407,8 @@ func TestFleetHerdrServerParentHelper(t *testing.T) {
 		"HERDR_TEST_ENV=" + os.Getenv("HERDR_TEST_ENV"),
 		"HERDR_TEST_READY=" + os.Getenv("HERDR_TEST_READY"),
 		"HERDR_TEST_SURVIVED=" + os.Getenv("HERDR_TEST_SURVIVED"),
+		"HERDR_TEST_SERVER_CHILD=1",
+		"HERDR_TEST_CONTROL=" + os.Getenv("HERDR_TEST_CONTROL"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -420,15 +424,19 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 		t.Skip("the detached shell fixture is POSIX-only; Windows uses the native helper")
 	}
 	root := t.TempDir()
-	server := filepath.Join(root, "managed herdr server")
+	server, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 	argsPath := filepath.Join(root, "args")
 	envPath := filepath.Join(root, "env")
 	readyPath := filepath.Join(root, "ready")
 	survivedPath := filepath.Join(root, "survived")
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nenv > %q\n: > %q\nsleep 0.25\n: > %q\n", argsPath, envPath, readyPath, survivedPath)
-	if err := os.WriteFile(server, []byte(script), 0o755); err != nil {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = listener.Close() })
 
 	command := exec.Command(os.Args[0], "-test.run=^TestFleetHerdrServerParentHelper$")
 	command.Env = append(os.Environ(),
@@ -438,19 +446,40 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 		"HERDR_TEST_ENV="+envPath,
 		"HERDR_TEST_READY="+readyPath,
 		"HERDR_TEST_SURVIVED="+survivedPath,
+		"HERDR_TEST_CONTROL="+listener.Addr().String(),
 	)
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
+	var childConn net.Conn
 	t.Cleanup(func() {
 		if command.ProcessState == nil {
 			_ = command.Process.Kill()
 			_ = command.Wait()
 		}
+		_ = listener.Close()
+		if childConn != nil {
+			_, _ = childConn.Write([]byte{'S'})
+			_, _ = io.Copy(io.Discard, childConn)
+			_ = childConn.Close()
+		}
 	})
+	if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	childConn, err = listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := childConn.Write([]byte{'R'}); err != nil {
+		t.Fatal(err)
+	}
 	waitForTestFile(t, readyPath)
 	if err := command.Wait(); err != nil {
 		t.Fatalf("parent helper: %v", err)
+	}
+	if _, err := childConn.Write([]byte{'P'}); err != nil {
+		t.Fatal(err)
 	}
 	waitForTestFile(t, survivedPath)
 
@@ -473,6 +502,81 @@ func TestFleetHerdrServerStartUsesStructuredArgvAndSurvivesParent(t *testing.T) 
 	}
 	if got := values["HERDR_TEST_CREDENTIAL"]; got != "keep" {
 		t.Fatalf("server credential = %q, want keep", got)
+	}
+}
+
+func runDetachedHerdrFixture() int {
+	conn, err := net.DialTimeout("tcp", os.Getenv("HERDR_TEST_CONTROL"), 2*time.Second)
+	if err != nil {
+		return 1
+	}
+	defer func() { _ = conn.Close() }()
+	var command [1]byte
+	for {
+		if _, err := io.ReadFull(conn, command[:]); err != nil {
+			return 0
+		}
+		switch command[0] {
+		case 'R':
+			if err := os.WriteFile(os.Getenv("HERDR_TEST_ARGS"), []byte(strings.Join(os.Args[1:], "\n")+"\n"), 0o600); err != nil {
+				return 1
+			}
+			if err := os.WriteFile(os.Getenv("HERDR_TEST_ENV"), []byte(strings.Join(os.Environ(), "\n")+"\n"), 0o600); err != nil {
+				return 1
+			}
+			if err := os.WriteFile(os.Getenv("HERDR_TEST_READY"), nil, 0o600); err != nil {
+				return 1
+			}
+		case 'P':
+			if err := os.WriteFile(os.Getenv("HERDR_TEST_SURVIVED"), nil, 0o600); err != nil {
+				return 1
+			}
+		case 'S':
+			return 0
+		default:
+			return 1
+		}
+	}
+}
+
+func TestDetachedHerdrFixtureStopsBeforeRecording(t *testing.T) {
+	root := t.TempDir()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	argsPath := filepath.Join(root, "args")
+	child := exec.Command(os.Args[0], "--session", "hand-f_test", "server")
+	child.Env = append(os.Environ(), "HERDR_TEST_SERVER_CHILD=1", "HERDR_TEST_CONTROL="+listener.Addr().String(), "HERDR_TEST_ARGS="+argsPath)
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if child.ProcessState == nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
+	if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.Write([]byte{'S'}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, conn); err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(argsPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("detached fixture wrote after stop: %v", err)
 	}
 }
 
