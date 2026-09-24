@@ -18,6 +18,7 @@ import (
 	"github.com/atqamz/hand/internal/registry"
 	"github.com/atqamz/hand/internal/shellquote"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/store"
 	"github.com/atqamz/hand/internal/supervision"
 	"github.com/atqamz/hand/internal/watcher"
 	"github.com/spf13/cobra"
@@ -72,6 +73,12 @@ func runSessionStart(cmd *cobra.Command, version string) error {
 			return &ExitError{Err: fmt.Errorf("read Fleet identity for supervisor bootstrap: %w; run `hand init %s` to restore it", err, shellquote.Quote(fleetHome)), Code: 3}
 		}
 		return fmt.Errorf("read Fleet identity for supervisor bootstrap: %w", err)
+	}
+	if err := store.ValidateInitTarget(fleetHome); err != nil {
+		if errors.Is(err, store.ErrCanonicalV19LegacyAccess) {
+			return fmt.Errorf("supervisor bootstrap cannot claim legacy orientation for this Fleet: %w; use `hand fleet snapshot` for partial canonical observation", err)
+		}
+		return asPrecondition(err)
 	}
 	exe, err := os.Executable()
 	if err != nil {
