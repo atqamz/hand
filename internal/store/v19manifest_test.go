@@ -110,7 +110,45 @@ func TestCanonicalV19PermanentManifestRevision4Artifacts(t *testing.T) {
 // #344/#347: a permanent manifest must retain the exact ordered contract-set digest.
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md", "manifest-v6-input.md", "manifest-v7-input.md"} {
-		t.Run(name, func(t *testing.T) { assertCanonicalV19ManifestSnapshotSet(t, name) })
+		t.Run(name, func(t *testing.T) {
+			assertCanonicalV19ManifestSnapshotSet(t, name, "348-cutover-archive-v2.md", "94c018d0bce8c2427d01b9af89e513cfb5f3ce96", "afe7c61f34af416bda15c46c6edeacc35a4a43f36d85ee407cb55b690d4fb401")
+		})
+	}
+	t.Run("manifest-v8.md", func(t *testing.T) {
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v8.md", "348-cutover-archive-v3.md", "b67acfad620ca08ff031531ce93fe5e8e39589f9", "95b325f9aa4a78eab4a0d977579ffcc73dee886322bd6fc8e9436900f096f338")
+	})
+}
+
+func TestCanonicalV19PermanentManifestRevision8Artifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v8.md"))
+	for _, field := range []string{
+		"b5e4a324543df1762ba23b336b7cda9eec26029a",
+		"content commit: " + canonicalV19AuthorityCommit,
+		"DDL: " + canonicalV19AuthorityDDLPath,
+		"Git blob: " + canonicalV19AuthorityDDLGitBlobSHA1,
+		fmt.Sprintf("stored gzip bytes: %d", canonicalV19GzipBytes),
+		"stored gzip SHA-256: " + canonicalV19GzipSHA256,
+		fmt.Sprintf("reconstructed DDL bytes: %d", canonicalV19DDLBytes),
+		"reconstructed DDL SHA-256: " + canonicalV19DDLSHA256,
+		"schema fingerprint: " + canonicalV19SchemaFingerprint,
+		fmt.Sprintf("schema-defined objects: %d tables / %d explicit indexes / %d triggers", canonicalV19TableCount, canonicalV19IndexCount, canonicalV19TriggerCount),
+		"proof Git blob: b66b4ee1aa59dccc7315e4ed4079715cc0e0fce5",
+		"relock Git blob: 765c1fad37685f98dbb953f15e7a7617916576ba",
+	} {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-8 manifest missing %q", field)
+		}
+	}
+	if strings.Contains(manifest, "__MAIN_ANCHOR__") {
+		t.Fatal("revision-8 manifest retains an unbound main anchor")
+	}
+	for _, artifact := range []struct{ path, blob string }{
+		{"docs/architecture/v19-proof-v6.py.gz", "b66b4ee1aa59dccc7315e4ed4079715cc0e0fce5"},
+		{"docs/architecture/v19-relock-v6.md", "765c1fad37685f98dbb953f15e7a7617916576ba"},
+	} {
+		if got := v19ManifestGitBlob(readV19ManifestArtifact(t, artifact.path)); got != artifact.blob {
+			t.Errorf("revision-8 artifact %s Git blob = %s, want %s", artifact.path, got, artifact.blob)
+		}
 	}
 }
 
@@ -170,7 +208,7 @@ func TestCanonicalV19Revision5InputMatchesArtifacts(t *testing.T) {
 	}
 }
 
-func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name string) {
+func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name, cutoverName, cutoverBlob, want string) {
 	t.Helper()
 	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/"+name))
 	snapshots := []struct{ name, blob string }{
@@ -181,7 +219,7 @@ func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name string) {
 		{"345-lifecycle-currentness-crash-recovery-v2.md", "50d6747ae140e68faddf15ed3d8337bfa85596c9"},
 		{"346-capability-adapters.md", "859b80207a625fb4be8f5ff1a5eaf336bb7e8c77"},
 		{"347-read-models-attention-orientation-v3.md", "0b57e2e8f0bb480e0eac840fdeec8f909c5c5202"},
-		{"348-cutover-archive-v2.md", "94c018d0bce8c2427d01b9af89e513cfb5f3ce96"},
+		{cutoverName, cutoverBlob},
 		{"497-no-soft-turn-cancel.md", "5be1875efa61b4c4f68f988156fb3c4d746b0ebb"},
 		{"519-user-global-runtime-generations.md", "c712c65dad085103dcc7752a8c09a31b62c82711"},
 	}
@@ -204,7 +242,6 @@ func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name string) {
 		previous = position
 		ordered.WriteString(snapshot.name + "\x00" + got + "\n")
 	}
-	const want = "afe7c61f34af416bda15c46c6edeacc35a4a43f36d85ee407cb55b690d4fb401"
 	if got := canonicalV19SHA256([]byte(ordered.String())); got != want {
 		t.Fatalf("contract-set SHA-256 = %s, want %s", got, want)
 	}
