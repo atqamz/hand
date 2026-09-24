@@ -131,6 +131,27 @@ func TestConfigWorkerPolicyReadsExactCanonicalRoutesWithoutMutation(t *testing.T
 	}
 }
 
+func TestConfigWorkerPolicyRefusesUnsafeUnusedProfileWithoutMutation(t *testing.T) {
+	home := setupConfigHome(t)
+	path := filepath.Join(home, "config", "worker-policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(strings.Replace(validWorkerPolicyForCommand, `{"name":"worker","harness":"codex"}`,
+		`{"name":"worker","harness":"codex"},{"name":"unused","harness":"codex","model":"\u202e"}`, 1))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runConfig(t, "worker-policy")
+	if err == nil || !strings.Contains(err.Error(), "invalid worker profile model value") || strings.Contains(out, "profiles[") {
+		t.Fatalf("unsafe policy read = %q, error %v", out, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(after, data) {
+		t.Fatalf("invalid worker policy read mutated source: %v", err)
+	}
+}
+
 func TestConfigWorkerPolicyCandidateAppliesOverridesWithoutCreatingAttempt(t *testing.T) {
 	home := setupConfigHome(t)
 	beforeDB, err := os.ReadFile(filepath.Join(home, "state", "hand.db"))

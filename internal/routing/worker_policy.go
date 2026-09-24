@@ -65,6 +65,18 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 	}
 	profiles := make(map[string]bool, len(policy.Profiles))
 	for _, profile := range policy.Profiles {
+		for _, field := range []struct {
+			name  string
+			value string
+		}{
+			{"name", profile.Name},
+			{"model", profile.Model},
+			{"effort", profile.Effort},
+		} {
+			if !validWorkerCandidateValue(field.value) {
+				return WorkerPolicy{}, fmt.Errorf("invalid worker profile %s value", field.name)
+			}
+		}
 		if err := ValidateProfile(profile); err != nil {
 			return WorkerPolicy{}, fmt.Errorf("invalid worker profile %q: %w", profile.Name, err)
 		}
