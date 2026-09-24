@@ -18,6 +18,7 @@ type CanonicalV19FleetSnapshot struct {
 	CurrentOpenWorktreeBindings []CanonicalV19SnapshotCurrentWorktreeBinding
 	CurrentOpenSessionBindings  []CanonicalV19SnapshotCurrentSessionBinding
 	CurrentOpenExecutorBindings []CanonicalV19SnapshotCurrentExecutorBinding
+	LatestReportMetadata        []CanonicalV19SnapshotLatestWorkerReportMetadata
 	UnacknowledgedInputs        []CanonicalV19SnapshotWorkerInput
 	UnresolvedOperations        []CanonicalV19SnapshotOperation
 }
@@ -174,6 +175,10 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 		return CanonicalV19FleetSnapshot{}, err
 	}
 	snapshot.CurrentOpenExecutorBindings, err = readCanonicalV19SnapshotCurrentExecutorBindings(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
+	}
+	snapshot.LatestReportMetadata, err = readCanonicalV19SnapshotLatestWorkerReportMetadata(ctx, tx)
 	if err != nil {
 		return CanonicalV19FleetSnapshot{}, err
 	}

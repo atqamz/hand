@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -601,5 +602,170 @@ func TestReadCanonicalV19FleetSnapshotRetiredProjectKeepsActiveExecution(t *test
 	if len(snapshot.CurrentOpenExecutorBindings) != 1 || snapshot.CurrentOpenExecutorBindings[0].ExecutorBindingID != launch.BindingID ||
 		len(snapshot.UnacknowledgedInputs) != 1 || snapshot.UnacknowledgedInputs[0].ID != input.ID {
 		t.Fatalf("retired Project hid active execution or input = %#v", snapshot)
+	}
+}
+
+func TestReadCanonicalV19FleetSnapshotLatestReportFollowsExactActiveAttempt(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	first, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
+		canonicalV19WorkerReportWitness(t, attemptID, "", "blocked: first\n", "2026-09-15T10:00:00Z", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerReportAcknowledgementCreateInput{
+			WorkerReportID: first.ID, ActorKind: "supervisor", AcknowledgedAt: "2026-09-15T10:00:30Z",
+			EvidenceDigest: "read-first-report",
+		}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
+		canonicalV19WorkerReportWitness(t, attemptID, "", "working: second\n", "2026-09-15T09:00:00Z", &first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LatestReportMetadata) != 1 || snapshot.LatestReportMetadata[0].AcknowledgementPresent {
+		t.Fatalf("predecessor acknowledgement retargeted latest report = %#v", snapshot.LatestReportMetadata)
+	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerReportAcknowledgementCreateInput{
+			WorkerReportID: second.ID, ActorKind: "supervisor", AcknowledgedAt: "2026-09-15T10:01:00Z",
+			EvidenceDigest: "read-second-report",
+		}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(Path(fixture.Home))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("report snapshot changed database: %v", err)
+	}
+	if len(snapshot.LatestReportMetadata) != 1 ||
+		snapshot.LatestReportMetadata[0].AttemptID != attemptID ||
+		snapshot.LatestReportMetadata[0].ReportID != second.ID ||
+		snapshot.LatestReportMetadata[0].SourceEndOffset != second.SourceEndOffset ||
+		snapshot.LatestReportMetadata[0].ReportState != second.ReportState ||
+		!snapshot.LatestReportMetadata[0].AcknowledgementPresent {
+		t.Fatalf("latest report metadata and exact acknowledgement = %#v", snapshot.LatestReportMetadata)
+	}
+	canonicalV19AttemptWriterTerminalize(t, fixture.Home, attemptID, "failed", "2026-09-15T10:02:00Z")
+	successor := canonicalV19AttemptWriterInput("attempt-2", "plan-root")
+	successor.CreatedAt = "2026-09-15T10:03:00Z"
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, successor); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LatestReportMetadata) != 0 {
+		t.Fatalf("historical predecessor report retargeted successor = %#v", snapshot.LatestReportMetadata)
+	}
+	latest, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
+		canonicalV19WorkerReportWitness(t, successor.ID, "", "paused: current\n", "2026-09-15T10:04:00Z", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := open(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE project SET retired_at='2026-09-15T10:05:00Z' WHERE id='project-1'`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LatestReportMetadata) != 1 ||
+		snapshot.LatestReportMetadata[0].ReportID != latest.ID ||
+		snapshot.LatestReportMetadata[0].AcknowledgementPresent {
+		t.Fatalf("retired Project current report = %#v", snapshot.LatestReportMetadata)
+	}
+}
+
+func TestCanonicalV19SnapshotLatestWorkerReportQueryUsesSourceOrderIndex(t *testing.T) {
+	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.sql.Query("EXPLAIN QUERY PLAN " + canonicalV19SnapshotLatestWorkerReportMetadataQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail)
+		plan.WriteByte('\n')
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []string{"task_active_by_project", "plan_active_by_task", "attempt_active_by_plan"} {
+		if !strings.Contains(plan.String(), index) {
+			t.Fatalf("latest WorkerReport query missed %s:\n%s", index, plan.String())
+		}
+	}
+	if strings.Count(plan.String(), "worker_report_attempt_source_order") != 2 ||
+		!strings.Contains(plan.String(), "SEARCH r USING ") ||
+		!strings.Contains(plan.String(), "SEARCH tail USING ") ||
+		!strings.Contains(plan.String(), "SEARCH ack USING ") ||
+		strings.Contains(plan.String(), "SCAN r ") || strings.Contains(plan.String(), "SCAN tail ") ||
+		strings.Contains(plan.String(), "SCAN ack ") {
+		t.Fatalf("latest WorkerReport query reads unbounded report or acknowledgement history:\n%s", plan.String())
+	}
+}
+
+func TestReadCanonicalV19FleetSnapshotReportMetadataIsBounded(t *testing.T) {
+	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
+	report, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
+		canonicalV19WorkerReportWitness(t, attemptID, "", "working: "+strings.Repeat("x", 128<<10)+"\n", strings.Repeat("t", 128<<10), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerReportAcknowledgementCreateInput{
+			WorkerReportID: report.ID, ActorKind: "supervisor", AcknowledgedAt: strings.Repeat("a", 128<<10),
+			EvidenceDigest: strings.Repeat("e", 128<<10),
+		}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LatestReportMetadata) != 1 ||
+		snapshot.LatestReportMetadata[0].ReportID != report.ID ||
+		!snapshot.LatestReportMetadata[0].AcknowledgementPresent {
+		t.Fatalf("latest report metadata = %#v", snapshot.LatestReportMetadata)
+	}
+	encoded, err := json.Marshal(snapshot.LatestReportMetadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 1024 {
+		t.Fatalf("latest report metadata carries unbounded fields: %d bytes", len(encoded))
 	}
 }
