@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/store"
 )
@@ -54,6 +55,72 @@ func TestCanonicalFleetSnapshotCoreCLI(t *testing.T) {
 	}
 	if !strings.Contains(shown.stdout, "report_state") {
 		t.Fatalf("snapshot omitted typed WorkerReport Attention state: %+v", shown)
+	}
+	assertTreeUnchanged(t, fleet, before)
+}
+
+func TestCanonicalFleetSnapshotPlanKeepsCapturedWitnessAfterSupersession(t *testing.T) {
+	parent := t.TempDir()
+	fleet := filepath.Join(parent, "fleet")
+	if got := runHand(t, parent, "init", "--canonical", fleet); got.code != 0 {
+		t.Fatal(got)
+	}
+	initGitRepo(t, filepath.Join(fleet, "projects", "sample"))
+	ok := func(args ...string) invocation {
+		t.Helper()
+		got := runHand(t, fleet, args...)
+		if got.code != 0 {
+			t.Fatalf("%v: %+v", args, got)
+		}
+		return got
+	}
+	registered := ok("project", "register", "sample")
+	projectID := canonicalOutputField(t, registered, "project_id")
+	workspaceID := canonicalOutputField(t, registered, "workspace_binding_id")
+	ok("task", "create", "task-1", "--project-id", projectID, "--goal", "inspect captured witness")
+	policy := ok("project", "policy", "policy-1", "--project-id", projectID,
+		"--worker-profile-ref", "", "--qualification-policy-ref", "", "--integration-policy-ref", "",
+		"--production-policy-ref", "", "--publication-policy-ref", "")
+	ok("plan", "create", "plan-1", "--task-id", "task-1", "--workspace-binding-id", workspaceID,
+		"--policy-revision-id", "policy-1", "--intent", "explore", "--judgment", "bounded",
+		"--basis", "registered repository", "--brief", "inspect exact state")
+	initial, err := store.ReadCanonicalV19FleetSnapshot(context.Background(), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initial.Projects) != 1 || initial.Projects[0].Workspace == nil {
+		t.Fatalf("initial WorkspaceBinding missing: %#v", initial.Projects)
+	}
+	oldWorkspace := initial.Projects[0].Workspace
+	oldPolicyDigest := canonicalOutputField(t, policy, "policy_digest")
+	newPolicy := ok("project", "policy", "policy-2", "--project-id", projectID, "--supersedes", "policy-1",
+		"--worker-profile-ref", "profile/new", "--qualification-policy-ref", "", "--integration-policy-ref", "",
+		"--production-policy-ref", "", "--publication-policy-ref", "")
+	if canonicalOutputField(t, newPolicy, "policy_digest") == oldPolicyDigest {
+		t.Fatal("policy supersession did not change digest")
+	}
+	supersededAt := time.Now().UTC().Format(time.RFC3339Nano)
+	execFleetFixtureSQL(t, fleet, `UPDATE workspace_binding SET superseded_at=? WHERE id=?`, supersededAt, workspaceID)
+	execFleetFixtureSQL(t, fleet, `INSERT INTO workspace_binding(
+		id,project_id,ordinal,repository_locator,repository_identity_digest,common_git_dir,
+		physical_identity_digest,revision,established_at
+	) VALUES('workspace-2',?,2,'projects/sample','repo-new','projects/sample/.git',
+		'physical-new',?,?)`, projectID, strings.Repeat("f", 40), supersededAt)
+	before := snapshotTree(t, fleet)
+	shown := ok("fleet", "snapshot")
+	want := "plan-1,task-1,1,root,explore,bounded,"
+	if !strings.Contains(shown.stdout, "captured_workspace_revision,captured_workspace_physical_identity_digest,captured_policy_digest") ||
+		!strings.Contains(shown.stdout, workspaceID+",policy-1,"+oldWorkspace.Revision+","+oldWorkspace.PhysicalIdentityDigest+","+oldPolicyDigest+",none") ||
+		!strings.Contains(shown.stdout, want) {
+		t.Fatalf("Plan lost captured witness after Project supersession: %+v", shown)
+	}
+	current, err := store.ReadCanonicalV19FleetSnapshot(context.Background(), fleet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Projects[0].Workspace == nil || current.Projects[0].Workspace.ID != "workspace-2" ||
+		current.Projects[0].Policy == nil || current.Projects[0].Policy.ID != "policy-2" {
+		t.Fatalf("Project current sources did not supersede: %#v", current.Projects[0])
 	}
 	assertTreeUnchanged(t, fleet, before)
 }

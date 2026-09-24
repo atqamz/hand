@@ -59,7 +59,8 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 						attemptID = plan.Attempt.ID
 					}
 					plans = append(plans, []string{plan.ID, task.ID, strconv.FormatInt(plan.Ordinal, 10), plan.LineageKind,
-						plan.Intent, plan.Judgment, plan.BriefDigest, plan.WorkspaceBindingID, plan.PolicyRevisionID, attemptID})
+						plan.Intent, plan.Judgment, plan.BriefDigest, plan.WorkspaceBindingID, plan.PolicyRevisionID,
+						plan.CapturedWorkspaceRevision, plan.CapturedWorkspacePhysicalIdentityDigest, plan.CapturedPolicyDigest, attemptID})
 					if plan.Attempt != nil {
 						attempt := plan.Attempt
 						attempts = append(attempts, []string{attempt.ID, plan.ID, strconv.FormatInt(attempt.Ordinal, 10),
@@ -69,7 +70,7 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			}
 			doc.Rows("projects", []string{"id", "ordinal", "name", "retired_at", "workspace_binding_id", "policy_revision_id"}, projects)
 			doc.Rows("tasks", []string{"id", "project_id", "ordinal", "goal_digest", "active_plan_id"}, tasks)
-			doc.Rows("plans", []string{"id", "task_id", "ordinal", "lineage_kind", "intent", "judgment", "brief_digest", "workspace_binding_id", "policy_revision_id", "active_attempt_id"}, plans)
+			doc.Rows("plans", []string{"id", "task_id", "ordinal", "lineage_kind", "intent", "judgment", "brief_digest", "workspace_binding_id", "policy_revision_id", "captured_workspace_revision", "captured_workspace_physical_identity_digest", "captured_policy_digest", "active_attempt_id"}, plans)
 			doc.Rows("attempts", []string{"id", "plan_id", "ordinal", "worker_harness_ref", "worker_profile_ref", "model_ref", "effort_ref", "session_adapter_ref"}, attempts)
 			worktrees := make([][]string, 0, len(snapshot.CurrentOpenWorktreeBindings))
 			for _, binding := range snapshot.CurrentOpenWorktreeBindings {
