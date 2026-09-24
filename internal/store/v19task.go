@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"time"
 )
 
 // ErrCanonicalV19TaskConflict marks a canonical Task insert that lost an exact
 // identity or ordinal constraint. Callers must not retarget another Task.
 var ErrCanonicalV19TaskConflict = errors.New("canonical v19 task write conflict")
+
+var ErrCanonicalV19TaskNotCurrent = errors.New("canonical v19 task is not current for supersession")
 
 // ErrCanonicalV19ProjectNotCurrent marks a missing or retired exact Project.
 var ErrCanonicalV19ProjectNotCurrent = errors.New("canonical v19 project is not current")
@@ -23,6 +26,14 @@ type CanonicalV19TaskCreateInput struct {
 	Goal       string
 	GoalDigest string
 	CreatedAt  string
+}
+
+type CanonicalV19TaskSupersedeInput struct {
+	PredecessorTaskID string
+	SuccessorTaskID   string
+	Goal              string
+	GoalDigest        string
+	At                string
 }
 
 // CreateCanonicalV19Task inserts one fresh active Task into an already-canonical
@@ -89,6 +100,97 @@ func CreateCanonicalV19Task(ctx context.Context, homeDir string, input Canonical
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, canonicalV19WriteError("commit Task writer", err)
+	}
+	committed = true
+	return ordinal, nil
+}
+
+func SupersedeCanonicalV19Task(ctx context.Context, homeDir string, input CanonicalV19TaskSupersedeInput) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if input.PredecessorTaskID == "" || input.SuccessorTaskID == "" || input.Goal == "" ||
+		input.GoalDigest == "" || input.At == "" {
+		return 0, errors.New("supersede canonical v19 Task: predecessor ID, successor ID, goal, digest and timestamp are required")
+	}
+	if input.PredecessorTaskID == input.SuccessorTaskID {
+		return 0, errors.New("supersede canonical v19 Task: successor must differ from predecessor")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, input.At); err != nil {
+		return 0, fmt.Errorf("supersede canonical v19 Task: terminal timestamp: %w", err)
+	}
+	sqlDB, err := openCanonicalV19Writer(homeDir)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = sqlDB.Close() }()
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, canonicalV19WriteError("begin Task supersession", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return 0, fmt.Errorf("supersede canonical v19 Task: %w", err)
+	}
+	var projectID, retiredAt string
+	var planExists, operationExists, holdExists, inboundHoldExists, decisionExists, repairExists bool
+	err = tx.QueryRowContext(ctx, `SELECT t.project_id,p.retired_at,
+		EXISTS(SELECT 1 FROM plan WHERE task_id=t.id),
+		EXISTS(SELECT 1 FROM external_operation WHERE task_id=t.id),
+		EXISTS(SELECT 1 FROM task_hold WHERE task_id=t.id),
+		EXISTS(SELECT 1 FROM task_hold_blocked_on_task b
+			WHERE b.blocked_on_task_id=t.id AND NOT EXISTS(
+				SELECT 1 FROM task_hold_resolution r WHERE r.hold_id=b.hold_id)),
+		EXISTS(SELECT 1 FROM decision WHERE task_id=t.id),
+		EXISTS(SELECT 1 FROM repair_target WHERE task_id=t.id)
+		FROM task t JOIN project p ON p.id=t.project_id
+		WHERE t.id=? AND t.lifecycle='active' AND t.terminal_at=''`, input.PredecessorTaskID).Scan(
+		&projectID, &retiredAt, &planExists, &operationExists, &holdExists, &inboundHoldExists, &decisionExists, &repairExists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("supersede canonical v19 Task: %w: predecessor %q", ErrCanonicalV19TaskNotCurrent, input.PredecessorTaskID)
+	}
+	if err != nil {
+		return 0, canonicalV19WriteError("read exact Task predecessor", err)
+	}
+	if retiredAt != "" {
+		return 0, fmt.Errorf("supersede canonical v19 Task: %w: Project %q is retired", ErrCanonicalV19ProjectNotCurrent, projectID)
+	}
+	if planExists || operationExists || holdExists || inboundHoldExists || decisionExists || repairExists {
+		return 0, fmt.Errorf("supersede canonical v19 Task: %w: predecessor %q has Plan or obligation history", ErrCanonicalV19TaskNotCurrent, input.PredecessorTaskID)
+	}
+	var ordinal int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ordinal),0)+1 FROM task WHERE project_id=?`, projectID).Scan(&ordinal); err != nil {
+		return 0, canonicalV19WriteError("allocate successor Task ordinal", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE task SET lifecycle='superseded',terminal_at=?
+		WHERE id=? AND project_id=? AND lifecycle='active' AND terminal_at=''`, input.At, input.PredecessorTaskID, projectID)
+	if err != nil {
+		return 0, canonicalV19WriteError("terminalize exact predecessor Task", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return 0, canonicalV19WriteError("count terminalized predecessor Task", err)
+	}
+	if changed != 1 {
+		return 0, fmt.Errorf("supersede canonical v19 Task: %w: predecessor changed %d rows", ErrCanonicalV19TaskNotCurrent, changed)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO task(
+		id,project_id,ordinal,goal,goal_digest,supersedes_task_id,lifecycle,created_at,terminal_at
+	) VALUES(?,?,?,?,?,?,'active',?,'')`, input.SuccessorTaskID, projectID, ordinal, input.Goal,
+		input.GoalDigest, input.PredecessorTaskID, input.At)
+	if err != nil {
+		if isSQLiteConstraint(err) {
+			return 0, fmt.Errorf("supersede canonical v19 Task: %w: successor %q", ErrCanonicalV19TaskConflict, input.SuccessorTaskID)
+		}
+		return 0, canonicalV19WriteError("insert successor Task", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, canonicalV19WriteError("commit Task supersession", err)
 	}
 	committed = true
 	return ordinal, nil

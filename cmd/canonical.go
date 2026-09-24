@@ -102,7 +102,39 @@ func newTaskCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&projectID, "project-id", "", "Exact canonical Project ID")
 	create.Flags().StringVar(&goal, "goal", "", "Immutable operator goal")
-	cmd.AddCommand(create, newTaskHoldCmd(), newTaskArchiveCmd(), newTaskShowCmd(), newTaskListCmd())
+	cmd.AddCommand(create, newTaskSupersedeCmd(), newTaskHoldCmd(), newTaskArchiveCmd(), newTaskShowCmd(), newTaskListCmd())
+	return cmd
+}
+
+func newTaskSupersedeCmd() *cobra.Command {
+	var goal string
+	cmd := &cobra.Command{
+		Use:   "supersede <predecessor-id> <successor-id>",
+		Short: "Replace one unplanned Task with an exact successor",
+		Long:  "Supersede an exact active Task and create one successor with a new immutable goal. The predecessor must have no Plan or direct obligation history and no unresolved inbound Hold. This records replacement, not completion or accepted worker results.",
+		Args:  usageArgs(cobra.ExactArgs(2)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			ordinal, err := store.SupersedeCanonicalV19Task(cmd.Context(), homeDir, store.CanonicalV19TaskSupersedeInput{
+				PredecessorTaskID: args[0], SuccessorTaskID: args[1], Goal: goal,
+				GoalDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(goal))),
+				At:         time.Now().UTC().Format(time.RFC3339Nano),
+			})
+			if err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("task_id", args[1])
+			doc.Field("supersedes_task_id", args[0])
+			doc.Int("ordinal", int(ordinal))
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&goal, "goal", "", "Immutable replacement goal")
+	_ = cmd.MarkFlagRequired("goal")
 	return cmd
 }
 
