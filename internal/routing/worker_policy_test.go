@@ -166,10 +166,45 @@ func TestResolveWorkerCandidateRejectsUnknownAndStaticConflicts(t *testing.T) {
 }
 
 func TestResolveWorkerCandidateRefusesUnrenderablePolicyValue(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"NUL model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1), "invalid model"},
+		{"bidi model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), "invalid model"},
+		{"bidi effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","effort":"\u202e"`, 1), "invalid effort"},
+		{"bidi profile", strings.ReplaceAll(validWorkerPolicy, `"worker"`, `"worker\u202e"`), "invalid profile"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeWorkerPolicy(t, home, test.data)
+			if _, err := LoadWorkerPolicy(home); err != nil {
+				t.Fatalf("policy should reach candidate validation: %v", err)
+			}
+			if _, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{}); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unrenderable candidate = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestResolveWorkerCandidateRejectsUnrenderableOverrides(t *testing.T) {
 	home := t.TempDir()
-	data := strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1)
-	writeWorkerPolicy(t, home, data)
-	if _, err := ResolveWorkerCandidate(home, "execute", "bounded", WorkerCandidateOverrides{}); err == nil || !strings.Contains(err.Error(), "invalid model") {
-		t.Fatalf("unrenderable model candidate = %v", err)
+	writeWorkerPolicy(t, home, validWorkerPolicy)
+	value := "gpt-6\u202e"
+	for _, test := range []struct {
+		name      string
+		overrides WorkerCandidateOverrides
+	}{
+		{"model", WorkerCandidateOverrides{ModelOverride: &value}},
+		{"effort", WorkerCandidateOverrides{EffortOverride: &value}},
+		{"profile", WorkerCandidateOverrides{ProfileOverride: &value}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := ResolveWorkerCandidate(home, "execute", "bounded", test.overrides); err == nil || !strings.Contains(err.Error(), "invalid "+test.name+" override") {
+				t.Fatalf("unrenderable %s override = %v", test.name, err)
+			}
+		})
 	}
 }

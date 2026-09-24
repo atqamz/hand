@@ -173,6 +173,35 @@ func TestConfigWorkerPolicyCandidateAppliesOverridesWithoutCreatingAttempt(t *te
 	}
 }
 
+func TestConfigWorkerPolicyCandidateRefusesBidiOutput(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data string
+		args []string
+	}{
+		{"policy model", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), nil},
+		{"selected profile", strings.ReplaceAll(validWorkerPolicyForCommand, `"worker"`, `"worker\u202e"`), nil},
+		{"model override", validWorkerPolicyForCommand, []string{"--model-override", "gpt-6\u202e"}},
+		{"effort override", validWorkerPolicyForCommand, []string{"--effort-override", "high\u202e"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := setupConfigHome(t)
+			path := filepath.Join(home, "config", "worker-policy.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(test.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"worker-policy", "candidate", "execute", "bounded"}, test.args...)
+			out, err := runConfig(t, args...)
+			if err == nil || strings.ContainsRune(out, '\u202e') {
+				t.Fatalf("candidate output = %q, error = %v", out, err)
+			}
+		})
+	}
+}
+
 func TestConfigUsesDetectedHarnessAndNativeTierDefaults(t *testing.T) {
 	home := setupConfigHome(t)
 	t.Setenv("HAND_HARNESS", harness.Codex)

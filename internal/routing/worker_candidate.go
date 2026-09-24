@@ -71,6 +71,7 @@ func ResolveWorkerCandidate(home, intent, judgment string, overrides WorkerCandi
 			name  string
 			value string
 		}{
+			{"profile", profile.Name},
 			{"model", profile.Model},
 			{"effort", profile.Effort},
 		} {
@@ -87,5 +88,6 @@ func ResolveWorkerCandidate(home, intent, judgment string, overrides WorkerCandi
 }
 
 func validWorkerCandidateValue(value string) bool {
-	return utf8.ValidString(value) && utf8.RuneCountInString(value) <= 512 && strings.IndexFunc(value, unicode.IsControl) < 0
+	return utf8.ValidString(value) && utf8.RuneCountInString(value) <= 512 &&
+		strings.IndexFunc(value, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
 }
