@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -184,5 +185,123 @@ func TestReadCanonicalV19FleetSnapshotSeparatesInputFromWakeAndHistoricalEffects
 	if len(snapshot.UnacknowledgedInputs) != 0 || len(snapshot.UnresolvedOperations) != 1 ||
 		snapshot.UnresolvedOperations[0].ID != wake.OperationID {
 		t.Fatalf("historical input/wake separation = %#v", snapshot)
+	}
+}
+
+func TestReadCanonicalV19FleetSnapshotCurrentExecutorUsesExactOpenBindings(t *testing.T) {
+	fixture, session, launch := canonicalV19ExecutorBindingFixture(t)
+	before, err := os.ReadFile(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(Path(fixture.Home))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("resource snapshot mutated database: %v", err)
+	}
+	if snapshot.Completeness != "partial" || len(snapshot.CurrentOpenExecutorBindings) != 1 {
+		t.Fatalf("current open executor bindings = %#v", snapshot.CurrentOpenExecutorBindings)
+	}
+	current := snapshot.CurrentOpenExecutorBindings[0]
+	if current.ProjectID != launch.ProjectID || current.TaskID != launch.TaskID ||
+		current.PlanID != launch.PlanID || current.AttemptID != launch.AttemptID ||
+		current.WorktreeBindingID != launch.WorktreeBindingID ||
+		current.WorktreePath != filepath.Join(fixture.Home, "worktrees", launch.WorktreeBindingID) ||
+		current.WorktreePhysicalIdentityDigest != "worktree-physical-1" ||
+		current.SessionBindingID != session.BindingID || current.AdapterRef != session.AdapterRef ||
+		current.ProviderSessionKey != "provider-session-1" ||
+		current.ExecutorBindingID != launch.BindingID || current.ProviderExecutorKey != "provider-executor-1" {
+		t.Fatalf("exact current resource chain = %#v", current)
+	}
+	db, err := open(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO executor_binding_termination(
+		executor_binding_id,terminal_kind,observed_at,evidence_digest
+	) VALUES(?, 'provider-gone', '2026-09-09T05:20:00Z', 'executor-gone')`, launch.BindingID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.CurrentOpenExecutorBindings) != 0 {
+		t.Fatalf("terminated executor still current: %#v", snapshot.CurrentOpenExecutorBindings)
+	}
+}
+
+func TestReadCanonicalV19FleetSnapshotExcludesHistoricalOpenExecutor(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	canonicalV19AttemptWriterTerminalize(t, fixture.Home, launch.AttemptID, "failed", "2026-09-09T05:20:00Z")
+	successor := canonicalV19AttemptWriterInput("attempt-2", launch.PlanID)
+	successor.CreatedAt = "2026-09-09T05:21:00Z"
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, successor); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Completeness != "partial" || len(snapshot.CurrentOpenExecutorBindings) != 0 {
+		t.Fatalf("historical executor retargeted current projection: %#v", snapshot.CurrentOpenExecutorBindings)
+	}
+	if attempt := snapshot.Projects[0].Tasks[0].Plan.Attempt; attempt == nil || attempt.ID != successor.ID {
+		t.Fatalf("successor lineage = %#v", attempt)
+	}
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var open int
+	if err := db.sql.QueryRow(`SELECT count(*) FROM executor_binding e
+		WHERE e.id=? AND NOT EXISTS (SELECT 1 FROM executor_binding_termination x WHERE x.executor_binding_id=e.id)`,
+		launch.BindingID).Scan(&open); err != nil {
+		t.Fatal(err)
+	}
+	if open != 1 {
+		t.Fatalf("test lost historical open executor: %d", open)
+	}
+}
+
+func TestCanonicalV19SnapshotCurrentExecutorsQueryUsesActiveIndexes(t *testing.T) {
+	fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.sql.Query("EXPLAIN QUERY PLAN " + canonicalV19SnapshotCurrentExecutorBindingsQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail)
+		plan.WriteByte('\n')
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, index := range []string{"task_active_by_project", "plan_active_by_task", "attempt_active_by_plan", "executor_binding_attempt"} {
+		if !strings.Contains(plan.String(), index) {
+			t.Fatalf("current resource query missed %s:\n%s", index, plan.String())
+		}
+	}
+	if strings.Contains(plan.String(), "SCAN p ") || strings.Contains(plan.String(), "SCAN a ") || strings.Contains(plan.String(), "SCAN e ") {
+		t.Fatalf("current resource query scans historical binding or lineage rows:\n%s", plan.String())
 	}
 }
