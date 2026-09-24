@@ -31,8 +31,19 @@ type CanonicalItem struct {
 }
 
 func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalPartialAttention {
+	type wakeKey struct {
+		attemptID         string
+		executorBindingID string
+	}
+	type wakeCandidate struct {
+		through   int64
+		operation *store.CanonicalV19SnapshotOperation
+		best      *store.CanonicalV19SnapshotOperation
+	}
+	wakes := make(map[wakeKey][]wakeCandidate)
 	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.UnacknowledgedInputs))}
-	for _, operation := range snapshot.UnresolvedOperations {
+	for i := range snapshot.UnresolvedOperations {
+		operation := &snapshot.UnresolvedOperations[i]
 		code := "external-operation-unresolved"
 		if operation.Kind == "worker-wake" {
 			code = "worker-wake-unresolved"
@@ -45,25 +56,36 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			SessionBindingID: operation.SessionBindingID, ExecutorBindingID: operation.ExecutorBindingID,
 			Reason: fmt.Sprintf("external operation remains %s", operation.State),
 		})
+		if operation.Kind == "worker-wake" && (operation.State == "submitted" || operation.State == "uncertain") &&
+			operation.ProjectID != "" && operation.TaskID != "" && operation.PlanID != "" && operation.SessionBindingID != "" &&
+			operation.AttemptID != "" && operation.ExecutorBindingID != "" {
+			key := wakeKey{operation.AttemptID, operation.ExecutorBindingID}
+			wakes[key] = append(wakes[key], wakeCandidate{through: operation.PendingThroughOrdinal, operation: operation})
+		}
+	}
+	for key, candidates := range wakes {
+		slices.SortFunc(candidates, func(a, b wakeCandidate) int {
+			return cmp.Or(cmp.Compare(a.through, b.through), cmp.Compare(a.operation.ID, b.operation.ID))
+		})
+		var best *store.CanonicalV19SnapshotOperation
+		for i := len(candidates) - 1; i >= 0; i-- {
+			if best == nil || candidates[i].operation.ID < best.ID {
+				best = candidates[i].operation
+			}
+			candidates[i].best = best
+		}
+		wakes[key] = candidates
 	}
 	for _, input := range snapshot.UnacknowledgedInputs {
 		if input.ID == "" || input.AttemptID == "" || input.ExecutorBindingID == "" || input.Ordinal <= 0 {
 			continue
 		}
-		var matched *store.CanonicalV19SnapshotOperation
-		for i := range snapshot.UnresolvedOperations {
-			operation := &snapshot.UnresolvedOperations[i]
-			if operation.Kind != "worker-wake" || operation.State != "submitted" && operation.State != "uncertain" ||
-				operation.ProjectID == "" || operation.TaskID == "" || operation.PlanID == "" || operation.SessionBindingID == "" ||
-				operation.AttemptID != input.AttemptID || operation.ExecutorBindingID != input.ExecutorBindingID ||
-				operation.PendingThroughOrdinal < input.Ordinal {
-				continue
-			}
-			if matched == nil || operation.ID < matched.ID {
-				matched = operation
-			}
-		}
-		if matched != nil {
+		candidates := wakes[wakeKey{input.AttemptID, input.ExecutorBindingID}]
+		index, _ := slices.BinarySearchFunc(candidates, input.Ordinal, func(candidate wakeCandidate, ordinal int64) int {
+			return cmp.Compare(candidate.through, ordinal)
+		})
+		if index < len(candidates) {
+			matched := candidates[index].best
 			result.Items = append(result.Items, CanonicalItem{
 				Priority: 20, Code: "current-worker-input-unacknowledged",
 				FleetID: snapshot.FleetID, ProjectID: matched.ProjectID, TaskID: matched.TaskID,

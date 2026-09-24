@@ -1,6 +1,7 @@
 package attention
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -119,5 +120,76 @@ func TestDeriveCanonicalPartialAttentionRequiresExactSubmittedOrUncertainWake(t 
 				t.Fatalf("unqualified input became Attention: %#v", result)
 			}
 		})
+	}
+}
+
+func TestDeriveCanonicalPartialAttentionKeepsLargeExactWakeSetOrdered(t *testing.T) {
+	const count = 4096
+	snapshot := store.CanonicalV19FleetSnapshot{FleetID: "fleet-1"}
+	for i := count - 1; i >= 0; i-- {
+		id := fmt.Sprintf("%04d", i)
+		snapshot.UnacknowledgedInputs = append(snapshot.UnacknowledgedInputs, store.CanonicalV19SnapshotWorkerInput{
+			ID: "input-" + id, AttemptID: "attempt-" + id, ExecutorBindingID: "executor-" + id, Ordinal: 1,
+		})
+		snapshot.UnresolvedOperations = append(snapshot.UnresolvedOperations, store.CanonicalV19SnapshotOperation{
+			ID: "wake-" + id, Kind: "worker-wake", State: "submitted", ProjectID: "project-" + id,
+			TaskID: "task-" + id, PlanID: "plan-" + id, AttemptID: "attempt-" + id,
+			SessionBindingID: "session-" + id, ExecutorBindingID: "executor-" + id, PendingThroughOrdinal: 1,
+		})
+	}
+	first := DeriveCanonicalPartial(snapshot)
+	if first.Completeness != "partial" || len(first.Items) != count*2 {
+		t.Fatalf("large exact wake set = %#v", first)
+	}
+	for i := range count {
+		id := fmt.Sprintf("%04d", i)
+		if first.Items[i].EvidenceID != "wake-"+id || first.Items[count+i].EvidenceID != "input-"+id ||
+			first.Items[count+i].ProjectID != "project-"+id || first.Items[count+i].ExecutorBindingID != "executor-"+id {
+			t.Fatalf("large exact wake order at %d: wake=%#v input=%#v", i, first.Items[i], first.Items[count+i])
+		}
+	}
+	if again := DeriveCanonicalPartial(snapshot); !reflect.DeepEqual(again, first) {
+		t.Fatal("large exact wake set changed between identical reads")
+	}
+}
+
+func TestDeriveCanonicalPartialAttentionSelectsSmallestEligibleWakeID(t *testing.T) {
+	snapshot := store.CanonicalV19FleetSnapshot{
+		FleetID: "fleet-1",
+		UnacknowledgedInputs: []store.CanonicalV19SnapshotWorkerInput{
+			{ID: "input-2", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 2},
+			{ID: "input-1", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 1},
+		},
+		UnresolvedOperations: []store.CanonicalV19SnapshotOperation{
+			{ID: "wake-c", Kind: "worker-wake", State: "submitted", ProjectID: "project-c", TaskID: "task-c", PlanID: "plan-c", AttemptID: "attempt-1", SessionBindingID: "session-c", ExecutorBindingID: "executor-1", PendingThroughOrdinal: 3},
+			{ID: "wake-a", Kind: "worker-wake", State: "submitted", ProjectID: "project-a", TaskID: "task-a", PlanID: "plan-a", AttemptID: "attempt-1", SessionBindingID: "session-a", ExecutorBindingID: "executor-1", PendingThroughOrdinal: 1},
+			{ID: "wake-b", Kind: "worker-wake", State: "uncertain", ProjectID: "project-b", TaskID: "task-b", PlanID: "plan-b", AttemptID: "attempt-1", SessionBindingID: "session-b", ExecutorBindingID: "executor-1", PendingThroughOrdinal: 2},
+		},
+	}
+	result := DeriveCanonicalPartial(snapshot)
+	if len(result.Items) != 5 || result.Items[3].EvidenceID != "input-1" || result.Items[3].ProjectID != "project-a" ||
+		result.Items[4].EvidenceID != "input-2" || result.Items[4].ProjectID != "project-b" {
+		t.Fatalf("eligible wake selection = %#v", result)
+	}
+}
+
+func BenchmarkDeriveCanonicalPartialLargeExactWakeSet(b *testing.B) {
+	const count = 4096
+	snapshot := store.CanonicalV19FleetSnapshot{FleetID: "fleet-1"}
+	for i := range count {
+		id := fmt.Sprintf("%04d", i)
+		snapshot.UnacknowledgedInputs = append(snapshot.UnacknowledgedInputs, store.CanonicalV19SnapshotWorkerInput{
+			ID: "input-" + id, AttemptID: "attempt-" + id, ExecutorBindingID: "executor-" + id, Ordinal: 1,
+		})
+		snapshot.UnresolvedOperations = append(snapshot.UnresolvedOperations, store.CanonicalV19SnapshotOperation{
+			ID: "wake-" + id, Kind: "worker-wake", State: "submitted", ProjectID: "project-" + id,
+			TaskID: "task-" + id, PlanID: "plan-" + id, AttemptID: "attempt-" + id,
+			SessionBindingID: "session-" + id, ExecutorBindingID: "executor-" + id, PendingThroughOrdinal: 1,
+		})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		DeriveCanonicalPartial(snapshot)
 	}
 }
