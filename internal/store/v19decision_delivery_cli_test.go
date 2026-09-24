@@ -30,7 +30,7 @@ func TestDecisionDeliverCLIRecordsExactAnswerInputWithoutWake(t *testing.T) {
 	infra := t.TempDir()
 	run := func(args ...string) (string, error) {
 		cmd := exec.Command(bin, args...)
-		cmd.Dir = home
+		cmd.Dir = infra
 		cmd.Env = append(os.Environ(), "HAND_HOME="+home, "SECONDHAND_HOME="+infra)
 		out, err := cmd.CombinedOutput()
 		return string(out), err
