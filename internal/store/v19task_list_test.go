@@ -224,8 +224,15 @@ func TestListCanonicalV19TasksBoundsLargeHistory(t *testing.T) {
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
 		}
+		indexedSeek := ""
+		if len(details) > 0 && strings.HasPrefix(details[0], "SEARCH "+test.table+" USING ") {
+			indexedSeek = strings.TrimPrefix(details[0], "SEARCH "+test.table+" USING ")
+		}
+		indexed := strings.HasPrefix(indexedSeek, "PRIMARY KEY ") ||
+			strings.HasPrefix(indexedSeek, "INDEX ") ||
+			strings.HasPrefix(indexedSeek, "COVERING INDEX ")
 		if len(details) == 0 ||
-			!strings.HasPrefix(details[0], "SEARCH "+test.table+" USING ") ||
+			!indexed ||
 			!strings.Contains(details[0], test.constraint) ||
 			strings.Contains(strings.Join(details, "\n"), "USE TEMP B-TREE") {
 			t.Fatalf("Task list query plan = %q, want indexed %s seek on %s and no temp sort", details, test.table, test.constraint)
