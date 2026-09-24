@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -76,8 +77,13 @@ func Inspect(name string, probe CapabilityProbe) Capability {
 	}
 	path, err := lookPath(result.Executable)
 	if err != nil {
-		result.State = CapabilityUnavailable
-		result.Reason = "executable is unavailable"
+		if errors.Is(err, exec.ErrNotFound) {
+			result.State = CapabilityUnavailable
+			result.Reason = "executable is unavailable"
+		} else {
+			result.State = CapabilityUnknown
+			result.Reason = "executable lookup could not be verified"
+		}
 		return result
 	}
 	if name != Antigravity {
@@ -103,10 +109,6 @@ func Inspect(name string, probe CapabilityProbe) Capability {
 	if err != nil {
 		result.State = CapabilityUnknown
 		result.Reason = "model capability could not be verified"
-		if authenticationUnavailable(err) {
-			result.State = CapabilityUnavailable
-			result.Reason = "authentication/configuration unavailable"
-		}
 		return result
 	}
 	if len(result.Models) == 0 {
@@ -212,14 +214,4 @@ func parseModels(output []byte) []string {
 		models = append(models, fields[0])
 	}
 	return models
-}
-
-func authenticationUnavailable(err error) bool {
-	text := strings.ToLower(err.Error())
-	for _, marker := range []string{"authentication required", "not authenticated", "sign in", "sign-in", "credentials unavailable", "missing credentials", "configuration required"} {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
 }

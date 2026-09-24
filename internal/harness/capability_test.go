@@ -2,6 +2,8 @@ package harness
 
 import (
 	"errors"
+	"io/fs"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -34,8 +36,14 @@ func TestInspectAntigravityCapabilityStates(t *testing.T) {
 	}{
 		{
 			name:      "executable missing",
-			probe:     CapabilityProbe{Platform: "linux", LookPath: func(string) (string, error) { return "", errors.New("missing") }},
+			probe:     CapabilityProbe{Platform: "linux", LookPath: func(string) (string, error) { return "", exec.ErrNotFound }},
 			wantState: CapabilityUnavailable,
+		},
+		{
+			name:       "executable lookup unverified",
+			probe:      CapabilityProbe{Platform: "linux", LookPath: func(string) (string, error) { return "", fs.ErrPermission }},
+			wantState:  CapabilityUnknown,
+			wantReason: "could not be verified",
 		},
 		{
 			name:       "platform unsupported",
@@ -54,10 +62,10 @@ func TestInspectAntigravityCapabilityStates(t *testing.T) {
 			wantReason: "headless worker contract",
 		},
 		{
-			name:       "authentication unavailable",
+			name:       "unverified authentication error",
 			probe:      antigravityProbe(func(string) ([]string, error) { return nil, errors.New("authentication required") }),
-			wantState:  CapabilityUnavailable,
-			wantReason: "authentication/configuration unavailable",
+			wantState:  CapabilityUnknown,
+			wantReason: "could not be verified",
 		},
 		{
 			name:       "unknown capability",
