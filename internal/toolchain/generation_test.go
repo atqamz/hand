@@ -60,6 +60,73 @@ func TestEnsureAdoptsDeterministicGenerationWithoutSelection(t *testing.T) {
 	}
 }
 
+func TestResolveUsesExactGenerationAcrossFleetsWithoutSelection(t *testing.T) {
+	owner, _ := generationStoreFixture(t)
+	want, err := owner.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := NewStore(owner.Root, owner.Lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentPath := filepath.Join(owner.Root, "runtime", currentName)
+	selected, err := owner.readCurrent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(currentPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Selected("", ""); err == nil {
+		t.Fatal("selection unexpectedly survived pointer removal")
+	}
+	resolved, err := other.resolve()
+	if err != nil || resolved.BundleDir != want.BundleDir {
+		t.Fatalf("resolve after another Fleet removes selection = %q, %v; want %q", resolved.BundleDir, err, want.BundleDir)
+	}
+	if _, err := os.Stat(currentPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only resolution changed missing selection: %v", err)
+	}
+	if status, err := other.Status("", ""); err != nil || !status.Ready || status.Selection != "absent" || status.BundleDir != want.BundleDir {
+		t.Fatalf("runtime status without selection = %+v, %v; want ready exact generation and absent selection", status, err)
+	}
+
+	alias := filepath.Join("bundles", "pointer-alias")
+	copyTree(t, want.BundleDir, filepath.Join(owner.Root, "runtime", alias))
+	selected.Bundle = filepath.ToSlash(alias)
+	data, err := json.Marshal(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(currentPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pointed, err := other.Selected("", ""); err != nil || pointed.BundleDir == want.BundleDir {
+		t.Fatalf("alias fixture did not select the alternate path: %q, %v", pointed.BundleDir, err)
+	}
+	resolved, err = other.resolve()
+	if err != nil || resolved.BundleDir != want.BundleDir {
+		t.Fatalf("resolve with alias selection = %q, %v; want %q", resolved.BundleDir, err, want.BundleDir)
+	}
+	if after, err := os.ReadFile(currentPath); err != nil || string(after) != string(data) {
+		t.Fatalf("read-only resolution changed alias selection: %q, %v", after, err)
+	}
+	if status, err := other.Status("", ""); err != nil || !status.Ready || status.Selection != "present" || status.BundleDir != want.BundleDir {
+		t.Fatalf("runtime status with alias selection = %+v, %v; want ready exact generation and present selection", status, err)
+	}
+
+	if err := os.WriteFile(want.HerdrPath, []byte("corrupt exact generation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if resolved, err := other.resolve(); err == nil {
+		t.Fatalf("resolved invalid exact generation %q", resolved.BundleDir)
+	}
+	if status, err := other.Status("", ""); err != nil || status.Ready {
+		t.Fatalf("runtime status for invalid exact generation = %+v, %v; want not ready", status, err)
+	}
+}
+
 func TestMaterializeGenerationDoesNotChangeSelection(t *testing.T) {
 	store, _ := generationStoreFixture(t)
 	currentPath := filepath.Join(store.Root, "runtime", currentName)
