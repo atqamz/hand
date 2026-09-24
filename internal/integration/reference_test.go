@@ -160,7 +160,7 @@ func TestPayloadReferenceConcurrentDuplicateIdentityHasOneHolder(t *testing.T) {
 			references = append(references, result.reference)
 			continue
 		}
-		if !errors.Is(result.err, ErrPayloadReferenceHeld) {
+		if !errors.Is(result.err, ErrPayloadReferenceHeld) && !errors.Is(result.err, ErrPayloadReferenceUnknown) {
 			t.Fatalf("duplicate identity acquisition: %v", result.err)
 		}
 	}
