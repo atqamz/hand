@@ -521,3 +521,36 @@ func TestCanonicalV19SnapshotCurrentResourcesQueriesUseActiveIndexes(t *testing.
 		})
 	}
 }
+
+func TestReadCanonicalV19FleetSnapshotRetiredProjectKeepsActiveExecution(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	input := canonicalV19WorkerInputCreateInput(launch, "input-retired-project", "instruction", "digest-retired-project")
+	if _, err := CreateCanonicalV19WorkerInput(context.Background(), fixture.Home, input); err != nil {
+		t.Fatal(err)
+	}
+	db, err := open(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE project SET retired_at='2026-09-09T05:20:00Z' WHERE id=?`, launch.ProjectID); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Projects) != 1 || snapshot.Projects[0].RetiredAt == "" ||
+		len(snapshot.Projects[0].Tasks) != 1 || snapshot.Projects[0].Tasks[0].Plan == nil ||
+		snapshot.Projects[0].Tasks[0].Plan.Attempt == nil ||
+		snapshot.Projects[0].Tasks[0].Plan.Attempt.ID != launch.AttemptID {
+		t.Fatalf("retired Project active lineage = %#v", snapshot.Projects)
+	}
+	if len(snapshot.CurrentOpenExecutorBindings) != 1 || snapshot.CurrentOpenExecutorBindings[0].ExecutorBindingID != launch.BindingID ||
+		len(snapshot.UnacknowledgedInputs) != 1 || snapshot.UnacknowledgedInputs[0].ID != input.ID {
+		t.Fatalf("retired Project hid active execution or input = %#v", snapshot)
+	}
+}
