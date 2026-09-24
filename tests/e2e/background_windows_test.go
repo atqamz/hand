@@ -34,7 +34,7 @@ func TestBackgroundJobJoinsDescendantAfterTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(filepath.Join(systemDir, "cmd.exe"), "/C", "\""+filepath.Join(systemDir, "ping.exe")+"\" -n 30 127.0.0.1 >NUL")
+	cmd := exec.Command(filepath.Join(systemDir, "cmd.exe"), "/C", filepath.Join(systemDir, "ping.exe"), "-n", "30", "127.0.0.1")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	process, err := startBackgroundProcess(cmd)
