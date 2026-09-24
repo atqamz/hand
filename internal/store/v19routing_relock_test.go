@@ -12,7 +12,7 @@ import (
 )
 
 func TestCanonicalV19RoutingRelockRejectsNULHiddenOverflow(t *testing.T) {
-	db := candidateV19RoutingRelockDB(t)
+	db := candidateV19RoutingRelockDB(t, "docs/architecture/v19-v5.sql.gz")
 	for _, field := range []string{"profile_override", "harness_override", "model_override", "effort_override"} {
 		t.Run(field, func(t *testing.T) {
 			query := fmt.Sprintf(`INSERT INTO attempt(id,plan_id,ordinal,worker_harness_ref,session_adapter_ref,created_at,%s)
@@ -52,9 +52,9 @@ func TestCanonicalV19RoutingRelockRejectsNULHiddenOverflow(t *testing.T) {
 	}
 }
 
-func candidateV19RoutingRelockDB(t *testing.T) *sql.DB {
+func candidateV19RoutingRelockDB(t *testing.T, artifact string) *sql.DB {
 	t.Helper()
-	compressed := readV19ManifestArtifact(t, "docs/architecture/v19-v5.sql.gz")
+	compressed := readV19ManifestArtifact(t, artifact)
 	reader, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +89,52 @@ func candidateV19RoutingRelockDB(t *testing.T) *sql.DB {
 		}
 	}
 	return db
+}
+
+func TestCanonicalV19RelockRejectsReplaceWithRecursiveTriggersOff(t *testing.T) {
+	db := candidateV19RoutingRelockDB(t, "docs/architecture/v19-v6.sql.gz")
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.ExecContext(ctx, "PRAGMA recursive_triggers=OFF"); err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{
+		`INSERT INTO project(id,fleet_id,ordinal,display_name,created_at)
+		 VALUES('project-2','fleet-1',2,'second','2026-09-24T00:00:00Z')`,
+		`INSERT INTO decision(id,task_id,scope_kind,question,created_at) VALUES('decision-1','task-1','task','original','2026-09-24T00:00:00Z')`,
+		`INSERT INTO decision(id,task_id,scope_kind,question,created_at) VALUES('decision-2','task-1','task','second','2026-09-24T00:00:00Z')`,
+		`INSERT INTO decision_answer(id,decision_id,answer,answer_digest,actor_kind,actor_ref,answered_at)
+		 VALUES('answer-1','decision-1','original','digest','operator','operator','2026-09-24T00:01:00Z')`,
+		`INSERT INTO decision_closure(decision_id,reason,closed_at,evidence_digest)
+		 VALUES('decision-2','stale','2026-09-24T00:01:00Z','digest')`,
+	} {
+		if _, err := conn.ExecContext(ctx, query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, query := range []string{
+		`UPDATE OR REPLACE project SET display_name='second' WHERE id='project-1'`,
+		`INSERT OR REPLACE INTO project(rowid,id,fleet_id,ordinal,display_name,created_at)
+		 VALUES(1,'project-2','fleet-1',2,'other','2026-09-24T00:02:00Z')`,
+		`INSERT OR REPLACE INTO project(id,fleet_id,ordinal,display_name,created_at)
+		 VALUES('project-2','fleet-1',2,'project','2026-09-24T00:02:00Z')`,
+		`INSERT OR REPLACE INTO decision(id,task_id,scope_kind,question,created_at)
+		 VALUES('decision-1','task-1','task','replacement','2026-09-24T00:02:00Z')`,
+		`INSERT OR REPLACE INTO decision_answer(id,decision_id,answer,answer_digest,actor_kind,actor_ref,answered_at)
+		 VALUES('answer-1','decision-1','replacement','digest','operator','operator','2026-09-24T00:02:00Z')`,
+		`INSERT OR REPLACE INTO decision_closure(decision_id,reason,closed_at,evidence_digest)
+		 VALUES('decision-2','cancelled','2026-09-24T00:02:00Z','digest')`,
+		`INSERT OR REPLACE INTO fleet(singleton,fleet_id,created_at)
+		 VALUES(1,'fleet-1','2026-09-24T00:02:00Z')`,
+	} {
+		if _, err := conn.ExecContext(ctx, query); err == nil {
+			t.Fatalf("immutable replacement accepted: %s", query)
+		}
+	}
 }
 
 // #323/#344: exact request/final provenance and fallback history must survive
@@ -188,7 +234,7 @@ func TestCanonicalV19RoutingRelockProvenance(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plans.String(), "sqlite_autoindex_attempt_fallback_step_1") || strings.Contains(plans.String(), "SCAN") {
+	if !strings.Contains(plans.String(), "SEARCH attempt_fallback_step USING PRIMARY KEY (attempt_id=? AND ordinal>?)") || strings.Contains(plans.String(), "SCAN") {
 		t.Fatalf("fallback history requires bounded indexed lookup: %s", plans.String())
 	}
 	_ = rows.Close()
