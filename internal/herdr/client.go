@@ -85,10 +85,14 @@ func runtimeSelectionExists(store *toolchain.Store) bool {
 
 func resolveManagedRuntime(ctx context.Context, store *toolchain.Store) (toolchain.Runtime, error) {
 	runtime, err := selectRuntime(store)
-	if err != nil && runtimeSelectionExists(store) {
-		runtime, err = ensureDeterministicRuntime(ctx, store)
-		if err != nil {
-			return toolchain.Runtime{}, fmt.Errorf("materialize deterministic runtime generation: %w", err)
+	if err != nil {
+		if runtimeSelectionExists(store) {
+			runtime, err = ensureDeterministicRuntime(ctx, store)
+			if err != nil {
+				return toolchain.Runtime{}, fmt.Errorf("materialize deterministic runtime generation: %w", err)
+			}
+		} else {
+			runtime, err = managedClientRuntime(store)
 		}
 	}
 	if err != nil {
@@ -99,6 +103,14 @@ func resolveManagedRuntime(ctx context.Context, store *toolchain.Store) (toolcha
 		return toolchain.Runtime{}, err
 	}
 	return reconcileManagedRuntime(ctx, store, runtime, generation)
+}
+
+func managedClientRuntime(store *toolchain.Store) (toolchain.Runtime, error) {
+	generation, err := store.GenerationID("", "")
+	if err != nil {
+		return toolchain.Runtime{}, err
+	}
+	return store.Generation(generation, "", "")
 }
 
 func NewClient() *Client {
@@ -128,7 +140,7 @@ func NewManagedClient() *Client {
 		}
 		return &Client{initErr: err}
 	}
-	runtime, err := selectRuntime(store)
+	runtime, err := managedClientRuntime(store)
 	if err != nil {
 		if legacyHerdrFallback {
 			return NewClient()

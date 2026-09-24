@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -109,6 +110,55 @@ func TestResolveManagedRuntimeRepairsInvalidLegacySelection(t *testing.T) {
 	})
 	if got, err := resolveManagedRuntime(context.Background(), store); err != nil || !strings.HasSuffix(got.BundleDir, filepath.Join("bundles", "deterministic")) {
 		t.Fatalf("resolve legacy selection = %#v, %v; want deterministic materialization", got, err)
+	}
+}
+
+func TestResolveManagedRuntimeAcceptsMissingSelection(t *testing.T) {
+	store := managedServerLeaseStore(t)
+	want, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(store.Root, "runtime", "current.json")
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveManagedRuntime(context.Background(), store)
+	if err != nil || got.BundleDir != want.BundleDir {
+		t.Fatalf("resolve without selection = %q, %v; want %q", got.BundleDir, err, want.BundleDir)
+	}
+	if _, err := os.Stat(current); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime resolution changed missing selection: %v", err)
+	}
+}
+
+func TestManagedClientRuntimeUsesExactGenerationWithoutSelection(t *testing.T) {
+	store := managedServerLeaseStore(t)
+	want, err := store.Ensure(context.Background(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(store.Root, "runtime", "current.json")
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	got, err := managedClientRuntime(store)
+	if err != nil || got.BundleDir != want.BundleDir {
+		t.Fatalf("client runtime without selection = %q, %v; want %q", got.BundleDir, err, want.BundleDir)
+	}
+	if _, err := os.Stat(current); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only client runtime changed selection: %v", err)
+	}
+	foreign := []byte(`{"schema":1,"runtime_id":"foreign"}`)
+	if err := os.WriteFile(current, foreign, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = managedClientRuntime(store)
+	if err != nil || got.BundleDir != want.BundleDir {
+		t.Fatalf("client runtime with replaced selection = %q, %v; want %q", got.BundleDir, err, want.BundleDir)
+	}
+	if after, err := os.ReadFile(current); err != nil || !bytes.Equal(after, foreign) {
+		t.Fatalf("read-only client runtime changed replaced selection: %q, %v", after, err)
 	}
 }
 
