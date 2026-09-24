@@ -10,13 +10,14 @@ import (
 const CanonicalV19FleetSnapshotSchema = "hand.fleet.core.v1"
 
 type CanonicalV19FleetSnapshot struct {
-	Schema               string
-	Completeness         string
-	FleetID              string
-	DBReadAt             string
-	Projects             []CanonicalV19SnapshotProject
-	UnacknowledgedInputs []CanonicalV19SnapshotWorkerInput
-	UnresolvedOperations []CanonicalV19SnapshotOperation
+	Schema                      string
+	Completeness                string
+	FleetID                     string
+	DBReadAt                    string
+	Projects                    []CanonicalV19SnapshotProject
+	CurrentOpenExecutorBindings []CanonicalV19SnapshotCurrentExecutorBinding
+	UnacknowledgedInputs        []CanonicalV19SnapshotWorkerInput
+	UnresolvedOperations        []CanonicalV19SnapshotOperation
 }
 
 type CanonicalV19SnapshotProject struct {
@@ -161,6 +162,10 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 	}
 	if err := rows.Close(); err != nil {
 		return CanonicalV19FleetSnapshot{}, fmt.Errorf("close canonical FleetSnapshot lineage: %w", err)
+	}
+	snapshot.CurrentOpenExecutorBindings, err = readCanonicalV19SnapshotCurrentExecutorBindings(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
 	}
 	snapshot.UnacknowledgedInputs, err = readCanonicalV19SnapshotInputs(ctx, tx)
 	if err != nil {
