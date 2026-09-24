@@ -54,6 +54,29 @@ func TestDeriveCanonicalPartialAttentionNeverCallsEmptyAllClear(t *testing.T) {
 	}
 }
 
+func TestDeriveCanonicalPartialAttentionShowsCurrentInputWithoutWake(t *testing.T) {
+	snapshot := store.CanonicalV19FleetSnapshot{
+		FleetID: "fleet-1",
+		UnacknowledgedInputs: []store.CanonicalV19SnapshotWorkerInput{{
+			ID: "input-1", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 1,
+		}},
+		Projects: []store.CanonicalV19SnapshotProject{{
+			ID: "project-1", Tasks: []store.CanonicalV19SnapshotTask{{
+				ID: "task-1", Plan: &store.CanonicalV19SnapshotPlan{
+					ID: "plan-1", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-1"},
+				},
+			}},
+		}},
+	}
+	got := DeriveCanonicalPartial(snapshot)
+	if len(got.Items) != 1 || got.Items[0].Code != "current-worker-input-unacknowledged" ||
+		got.Items[0].EvidenceID != "input-1" || got.Items[0].ProjectID != "project-1" ||
+		got.Items[0].TaskID != "task-1" || got.Items[0].PlanID != "plan-1" ||
+		got.Items[0].AttemptID != "attempt-1" || got.Items[0].ExecutorBindingID != "executor-1" {
+		t.Fatalf("current input without Wake = %#v", got)
+	}
+}
+
 func TestDeriveCanonicalPartialAttentionKeepsExactLatestHandlingWorthyReport(t *testing.T) {
 	snapshot := store.CanonicalV19FleetSnapshot{
 		FleetID: "fleet-1",
@@ -153,6 +176,11 @@ func TestDeriveCanonicalPartialAttentionSeparatesUncertainWakeFromUnsubmittedWak
 func TestDeriveCanonicalPartialAttentionSeparatesCurrentInputFromExactUnresolvedWake(t *testing.T) {
 	snapshot := store.CanonicalV19FleetSnapshot{
 		FleetID: "fleet-1",
+		Projects: []store.CanonicalV19SnapshotProject{{ID: "project-1", Tasks: []store.CanonicalV19SnapshotTask{{
+			ID: "task-1", Plan: &store.CanonicalV19SnapshotPlan{
+				ID: "plan-1", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-1"},
+			},
+		}}}},
 		UnacknowledgedInputs: []store.CanonicalV19SnapshotWorkerInput{
 			{ID: "input-2", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 2},
 			{ID: "input-3", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 3},
@@ -174,10 +202,10 @@ func TestDeriveCanonicalPartialAttentionSeparatesCurrentInputFromExactUnresolved
 		!reflect.DeepEqual(snapshot.UnresolvedOperations, operationsBefore) {
 		t.Fatal("Attention derivation mutated snapshot source")
 	}
-	if first.Completeness != "partial" || len(first.Items) != 4 {
-		t.Fatalf("exact input/wake Attention = %#v", first)
+	if first.Completeness != "partial" || len(first.Items) != 5 {
+		t.Fatalf("exact input/wake Attention count = %d", len(first.Items))
 	}
-	for i, id := range []string{"input-1", "input-2"} {
+	for i, id := range []string{"input-1", "input-2", "input-3"} {
 		item := first.Items[i+2]
 		if item.Priority != 20 || item.Code != "current-worker-input-unacknowledged" || item.FleetID != "fleet-1" ||
 			item.ProjectID != "project-1" || item.TaskID != "task-1" || item.PlanID != "plan-1" ||
@@ -196,7 +224,7 @@ func TestDeriveCanonicalPartialAttentionSeparatesCurrentInputFromExactUnresolved
 	}
 }
 
-func TestDeriveCanonicalPartialAttentionRequiresExactSubmittedOrUncertainWake(t *testing.T) {
+func TestDeriveCanonicalPartialAttentionInputIsIndependentOfWake(t *testing.T) {
 	input := store.CanonicalV19SnapshotWorkerInput{ID: "input-1", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 2}
 	wake := store.CanonicalV19SnapshotOperation{
 		ID: "wake-1", Kind: "worker-wake", State: "submitted", ProjectID: "project-1", TaskID: "task-1",
@@ -215,11 +243,18 @@ func TestDeriveCanonicalPartialAttentionRequiresExactSubmittedOrUncertainWake(t 
 			other := wake
 			change(&other)
 			snapshot := store.CanonicalV19FleetSnapshot{FleetID: "fleet-1",
+				Projects: []store.CanonicalV19SnapshotProject{{ID: "project-1", Tasks: []store.CanonicalV19SnapshotTask{{
+					ID: "task-1", Plan: &store.CanonicalV19SnapshotPlan{
+						ID: "plan-1", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-1"},
+					},
+				}}}},
 				UnacknowledgedInputs: []store.CanonicalV19SnapshotWorkerInput{input},
 				UnresolvedOperations: []store.CanonicalV19SnapshotOperation{other}}
 			result := DeriveCanonicalPartial(snapshot)
-			if result.Completeness != "partial" || len(result.Items) != 1 || result.Items[0].EvidenceID != wake.ID {
-				t.Fatalf("unqualified input became Attention: %#v", result)
+			if result.Completeness != "partial" || len(result.Items) != 2 || result.Items[0].EvidenceID != wake.ID ||
+				result.Items[1].EvidenceID != input.ID || result.Items[1].ProjectID != "project-1" ||
+				result.Items[1].TaskID != "task-1" || result.Items[1].PlanID != "plan-1" {
+				t.Fatalf("Wake changed exact input Attention: %#v", result)
 			}
 		})
 	}
@@ -230,6 +265,13 @@ func TestDeriveCanonicalPartialAttentionKeepsLargeExactWakeSetOrdered(t *testing
 	snapshot := store.CanonicalV19FleetSnapshot{FleetID: "fleet-1"}
 	for i := count - 1; i >= 0; i-- {
 		id := fmt.Sprintf("%04d", i)
+		snapshot.Projects = append(snapshot.Projects, store.CanonicalV19SnapshotProject{
+			ID: "project-" + id, Tasks: []store.CanonicalV19SnapshotTask{{
+				ID: "task-" + id, Plan: &store.CanonicalV19SnapshotPlan{
+					ID: "plan-" + id, Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-" + id},
+				},
+			}},
+		})
 		snapshot.UnacknowledgedInputs = append(snapshot.UnacknowledgedInputs, store.CanonicalV19SnapshotWorkerInput{
 			ID: "input-" + id, AttemptID: "attempt-" + id, ExecutorBindingID: "executor-" + id, Ordinal: 1,
 		})
@@ -241,7 +283,7 @@ func TestDeriveCanonicalPartialAttentionKeepsLargeExactWakeSetOrdered(t *testing
 	}
 	first := DeriveCanonicalPartial(snapshot)
 	if first.Completeness != "partial" || len(first.Items) != count*2 {
-		t.Fatalf("large exact wake set = %#v", first)
+		t.Fatalf("large exact wake set has %d items, want %d", len(first.Items), count*2)
 	}
 	for i := range count {
 		id := fmt.Sprintf("%04d", i)
@@ -255,9 +297,14 @@ func TestDeriveCanonicalPartialAttentionKeepsLargeExactWakeSetOrdered(t *testing
 	}
 }
 
-func TestDeriveCanonicalPartialAttentionSelectsSmallestEligibleWakeID(t *testing.T) {
+func TestDeriveCanonicalPartialAttentionNeverTakesInputOwnerFromWake(t *testing.T) {
 	snapshot := store.CanonicalV19FleetSnapshot{
 		FleetID: "fleet-1",
+		Projects: []store.CanonicalV19SnapshotProject{{ID: "project-real", Tasks: []store.CanonicalV19SnapshotTask{{
+			ID: "task-real", Plan: &store.CanonicalV19SnapshotPlan{
+				ID: "plan-real", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-1"},
+			},
+		}}}},
 		UnacknowledgedInputs: []store.CanonicalV19SnapshotWorkerInput{
 			{ID: "input-2", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 2},
 			{ID: "input-1", AttemptID: "attempt-1", ExecutorBindingID: "executor-1", Ordinal: 1},
@@ -269,9 +316,10 @@ func TestDeriveCanonicalPartialAttentionSelectsSmallestEligibleWakeID(t *testing
 		},
 	}
 	result := DeriveCanonicalPartial(snapshot)
-	if len(result.Items) != 5 || result.Items[3].EvidenceID != "input-1" || result.Items[3].ProjectID != "project-a" ||
-		result.Items[4].EvidenceID != "input-2" || result.Items[4].ProjectID != "project-b" {
-		t.Fatalf("eligible wake selection = %#v", result)
+	if len(result.Items) != 5 || result.Items[3].EvidenceID != "input-1" || result.Items[4].EvidenceID != "input-2" ||
+		result.Items[3].ProjectID != "project-real" || result.Items[4].ProjectID != "project-real" ||
+		result.Items[3].TaskID != "task-real" || result.Items[4].TaskID != "task-real" {
+		t.Fatalf("Wake misattributed current input: %#v", result)
 	}
 }
 
@@ -280,6 +328,13 @@ func BenchmarkDeriveCanonicalPartialLargeExactWakeSet(b *testing.B) {
 	snapshot := store.CanonicalV19FleetSnapshot{FleetID: "fleet-1"}
 	for i := range count {
 		id := fmt.Sprintf("%04d", i)
+		snapshot.Projects = append(snapshot.Projects, store.CanonicalV19SnapshotProject{
+			ID: "project-" + id, Tasks: []store.CanonicalV19SnapshotTask{{
+				ID: "task-" + id, Plan: &store.CanonicalV19SnapshotPlan{
+					ID: "plan-" + id, Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-" + id},
+				},
+			}},
+		})
 		snapshot.UnacknowledgedInputs = append(snapshot.UnacknowledgedInputs, store.CanonicalV19SnapshotWorkerInput{
 			ID: "input-" + id, AttemptID: "attempt-" + id, ExecutorBindingID: "executor-" + id, Ordinal: 1,
 		})

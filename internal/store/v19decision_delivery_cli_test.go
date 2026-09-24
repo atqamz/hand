@@ -59,6 +59,7 @@ func TestDecisionDeliverCLIRecordsExactAnswerInputWithoutWake(t *testing.T) {
 	shown, err := run("fleet", "snapshot")
 	if err != nil || !strings.Contains(shown, "unacknowledged_inputs[1]") ||
 		!strings.Contains(shown, "input-exact-answer,"+launch.AttemptID+","+launch.BindingID+",1,answer,") ||
+		!strings.Contains(shown, "current-worker-input-unacknowledged,input-exact-answer") ||
 		!strings.Contains(shown, "attention: unknown") {
 		t.Fatalf("unacknowledged Answer input without Wake = %q, %v", shown, err)
 	}
@@ -99,7 +100,8 @@ func TestDecisionDeliverCLIRecordsExactAnswerInputWithoutWake(t *testing.T) {
 	canonicalV19DecisionAssertCount(t, home, "SELECT count(*) FROM worker_input", 1)
 	canonicalV19DecisionAssertCount(t, home, "SELECT count(*) FROM worker_input WHERE attempt_id='attempt-2'", 0)
 	shown, err = run("fleet", "snapshot")
-	if err != nil || !strings.Contains(shown, "unacknowledged_inputs[0]") || strings.Contains(shown, "input-exact-answer") {
+	if err != nil || !strings.Contains(shown, "unacknowledged_inputs[0]") ||
+		strings.Contains(shown, "input-exact-answer") || strings.Contains(shown, "current-worker-input-unacknowledged") {
 		t.Fatalf("historical Answer input retargeted successor = %q, %v", shown, err)
 	}
 }

@@ -34,27 +34,17 @@ type CanonicalItem struct {
 }
 
 func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalPartialAttention {
-	type reportOwner struct {
+	type activeAttemptOwner struct {
 		projectID string
 		taskID    string
 		planID    string
 	}
-	type wakeKey struct {
-		attemptID         string
-		executorBindingID string
-	}
-	type wakeCandidate struct {
-		through   int64
-		operation *store.CanonicalV19SnapshotOperation
-		best      *store.CanonicalV19SnapshotOperation
-	}
-	wakes := make(map[wakeKey][]wakeCandidate)
 	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.UnacknowledgedInputs)+len(snapshot.LatestReportMetadata))}
-	reportOwners := make(map[string]reportOwner)
+	activeAttemptOwners := make(map[string]activeAttemptOwner)
 	for _, project := range snapshot.Projects {
 		for _, task := range project.Tasks {
 			if task.Plan != nil && task.Plan.Attempt != nil && task.Plan.Attempt.ID != "" {
-				reportOwners[task.Plan.Attempt.ID] = reportOwner{project.ID, task.ID, task.Plan.ID}
+				activeAttemptOwners[task.Plan.Attempt.ID] = activeAttemptOwner{project.ID, task.ID, task.Plan.ID}
 			}
 		}
 	}
@@ -67,7 +57,7 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 		default:
 			continue
 		}
-		owner, ok := reportOwners[report.AttemptID]
+		owner, ok := activeAttemptOwners[report.AttemptID]
 		if !ok || owner.projectID == "" || owner.taskID == "" || owner.planID == "" {
 			continue
 		}
@@ -97,44 +87,22 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			SessionBindingID: operation.SessionBindingID, ExecutorBindingID: operation.ExecutorBindingID,
 			Reason: fmt.Sprintf("external operation remains %s", operation.State),
 		})
-		if operation.Kind == "worker-wake" && (operation.State == "submitted" || operation.State == "uncertain") &&
-			operation.ProjectID != "" && operation.TaskID != "" && operation.PlanID != "" && operation.SessionBindingID != "" &&
-			operation.AttemptID != "" && operation.ExecutorBindingID != "" {
-			key := wakeKey{operation.AttemptID, operation.ExecutorBindingID}
-			wakes[key] = append(wakes[key], wakeCandidate{through: operation.PendingThroughOrdinal, operation: operation})
-		}
-	}
-	for key, candidates := range wakes {
-		slices.SortFunc(candidates, func(a, b wakeCandidate) int {
-			return cmp.Or(cmp.Compare(a.through, b.through), cmp.Compare(a.operation.ID, b.operation.ID))
-		})
-		var best *store.CanonicalV19SnapshotOperation
-		for i := len(candidates) - 1; i >= 0; i-- {
-			if best == nil || candidates[i].operation.ID < best.ID {
-				best = candidates[i].operation
-			}
-			candidates[i].best = best
-		}
-		wakes[key] = candidates
 	}
 	for _, input := range snapshot.UnacknowledgedInputs {
 		if input.ID == "" || input.AttemptID == "" || input.ExecutorBindingID == "" || input.Ordinal <= 0 {
 			continue
 		}
-		candidates := wakes[wakeKey{input.AttemptID, input.ExecutorBindingID}]
-		index, _ := slices.BinarySearchFunc(candidates, input.Ordinal, func(candidate wakeCandidate, ordinal int64) int {
-			return cmp.Compare(candidate.through, ordinal)
-		})
-		if index < len(candidates) {
-			matched := candidates[index].best
-			result.Items = append(result.Items, CanonicalItem{
-				Priority: 20, Code: "current-worker-input-unacknowledged",
-				FleetID: snapshot.FleetID, ProjectID: matched.ProjectID, TaskID: matched.TaskID,
-				PlanID: matched.PlanID, AttemptID: input.AttemptID, EvidenceID: input.ID,
-				SessionBindingID: matched.SessionBindingID, ExecutorBindingID: input.ExecutorBindingID,
-				Reason: "exact WorkerInput remains unacknowledged while WorkerWake is unresolved",
-			})
+		owner, ok := activeAttemptOwners[input.AttemptID]
+		if !ok || owner.projectID == "" || owner.taskID == "" || owner.planID == "" {
+			continue
 		}
+		result.Items = append(result.Items, CanonicalItem{
+			Priority: 20, Code: "current-worker-input-unacknowledged",
+			FleetID: snapshot.FleetID, ProjectID: owner.projectID, TaskID: owner.taskID,
+			PlanID: owner.planID, AttemptID: input.AttemptID, EvidenceID: input.ID,
+			ExecutorBindingID: input.ExecutorBindingID,
+			Reason:            "exact current WorkerInput remains unacknowledged",
+		})
 	}
 	slices.SortFunc(result.Items, func(a, b CanonicalItem) int {
 		return cmp.Or(cmp.Compare(a.Priority, b.Priority), cmp.Compare(a.ProjectID, b.ProjectID),
