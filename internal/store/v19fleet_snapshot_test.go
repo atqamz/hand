@@ -297,6 +297,36 @@ func TestReadCanonicalV19FleetSnapshotShowsOpenResourcesBeforeExecutor(t *testin
 	}
 }
 
+func TestReadCanonicalV19FleetSnapshotRetiredProjectKeepsOpenResources(t *testing.T) {
+	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
+	db, err := open(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE project SET retired_at='2026-09-09T05:20:00Z' WHERE id=?`, worktree.ProjectID); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Projects) != 1 || snapshot.Projects[0].RetiredAt == "" ||
+		len(snapshot.Projects[0].Tasks) != 1 || snapshot.Projects[0].Tasks[0].Plan == nil ||
+		snapshot.Projects[0].Tasks[0].Plan.Attempt == nil ||
+		snapshot.Projects[0].Tasks[0].Plan.Attempt.ID != worktree.AttemptID {
+		t.Fatalf("retired Project active lineage = %#v", snapshot.Projects)
+	}
+	if len(snapshot.CurrentOpenWorktreeBindings) != 1 || snapshot.CurrentOpenWorktreeBindings[0].ID != worktree.BindingID ||
+		len(snapshot.CurrentOpenSessionBindings) != 1 || snapshot.CurrentOpenSessionBindings[0].ID != session.BindingID ||
+		len(snapshot.CurrentOpenExecutorBindings) != 0 {
+		t.Fatalf("retired Project hid open resources before Executor = %#v", snapshot)
+	}
+}
+
 func TestReadCanonicalV19FleetSnapshotOpenResourcesFollowReleases(t *testing.T) {
 	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
 	request, err := PrepareCanonicalV19SessionRelease(context.Background(), fixture.Home, CanonicalV19SessionReleasePrepareInput{

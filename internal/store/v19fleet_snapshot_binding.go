@@ -46,7 +46,7 @@ const canonicalV19SnapshotCurrentWorktreeBindingsQuery = `SELECT pr.id,t.id,p.id
 		CROSS JOIN attempt a INDEXED BY attempt_active_by_plan
 		CROSS JOIN attempt_worktree_binding b
 		WHERE t.lifecycle='active'
-		  AND pr.id=t.project_id AND pr.retired_at=''
+		  AND pr.id=t.project_id
 		  AND p.task_id=t.id AND p.lifecycle='active'
 		  AND a.plan_id=p.id AND a.lifecycle='active'
 		  AND b.attempt_id=a.id
@@ -62,7 +62,7 @@ const canonicalV19SnapshotCurrentSessionBindingsQuery = `SELECT pr.id,t.id,p.id,
 		CROSS JOIN attempt_worktree_binding b
 		CROSS JOIN session_binding s INDEXED BY session_binding_attempt_history
 		WHERE t.lifecycle='active'
-		  AND pr.id=t.project_id AND pr.retired_at=''
+		  AND pr.id=t.project_id
 		  AND p.task_id=t.id AND p.lifecycle='active'
 		  AND a.plan_id=p.id AND a.lifecycle='active'
 		  AND b.attempt_id=a.id
