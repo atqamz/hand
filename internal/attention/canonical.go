@@ -24,6 +24,7 @@ type CanonicalItem struct {
 	EvidenceID        string
 	OperationKind     string
 	OperationState    string
+	ReportState       string
 	SessionBindingID  string
 	ExecutorBindingID string
 	Reason            string
@@ -31,6 +32,11 @@ type CanonicalItem struct {
 }
 
 func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalPartialAttention {
+	type reportOwner struct {
+		projectID string
+		taskID    string
+		planID    string
+	}
 	type wakeKey struct {
 		attemptID         string
 		executorBindingID string
@@ -41,7 +47,36 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 		best      *store.CanonicalV19SnapshotOperation
 	}
 	wakes := make(map[wakeKey][]wakeCandidate)
-	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.UnacknowledgedInputs))}
+	result := CanonicalPartialAttention{Completeness: "partial", Items: make([]CanonicalItem, 0, len(snapshot.UnresolvedOperations)+len(snapshot.UnacknowledgedInputs)+len(snapshot.LatestReportMetadata))}
+	reportOwners := make(map[string]reportOwner)
+	for _, project := range snapshot.Projects {
+		for _, task := range project.Tasks {
+			if task.Plan != nil && task.Plan.Attempt != nil && task.Plan.Attempt.ID != "" {
+				reportOwners[task.Plan.Attempt.ID] = reportOwner{project.ID, task.ID, task.Plan.ID}
+			}
+		}
+	}
+	for _, report := range snapshot.LatestReportMetadata {
+		if report.ReportID == "" || report.AttemptID == "" || report.AcknowledgementPresent {
+			continue
+		}
+		switch report.ReportState {
+		case "paused", "blocked", "needs-decision", "done", "failed":
+		default:
+			continue
+		}
+		owner, ok := reportOwners[report.AttemptID]
+		if !ok || owner.projectID == "" || owner.taskID == "" || owner.planID == "" {
+			continue
+		}
+		result.Items = append(result.Items, CanonicalItem{
+			Priority: 20, Code: "current-latest-worker-report-unacknowledged",
+			FleetID: snapshot.FleetID, ProjectID: owner.projectID, TaskID: owner.taskID,
+			PlanID: owner.planID, AttemptID: report.AttemptID, EvidenceID: report.ReportID,
+			ReportState: report.ReportState,
+			Reason:      fmt.Sprintf("latest WorkerReport claims %s and remains unacknowledged", report.ReportState),
+		})
+	}
 	for i := range snapshot.UnresolvedOperations {
 		operation := &snapshot.UnresolvedOperations[i]
 		code := "external-operation-unresolved"
@@ -103,7 +138,8 @@ func DeriveCanonicalPartial(snapshot store.CanonicalV19FleetSnapshot) CanonicalP
 			cmp.Compare(a.TaskID, b.TaskID), cmp.Compare(a.PlanID, b.PlanID), cmp.Compare(a.AttemptID, b.AttemptID),
 			cmp.Compare(a.EvidenceID, b.EvidenceID), cmp.Compare(a.Code, b.Code),
 			cmp.Compare(a.SessionBindingID, b.SessionBindingID), cmp.Compare(a.ExecutorBindingID, b.ExecutorBindingID),
-			cmp.Compare(a.OperationKind, b.OperationKind), cmp.Compare(a.OperationState, b.OperationState))
+			cmp.Compare(a.OperationKind, b.OperationKind), cmp.Compare(a.OperationState, b.OperationState),
+			cmp.Compare(a.ReportState, b.ReportState))
 	})
 	return result
 }

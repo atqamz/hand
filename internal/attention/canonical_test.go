@@ -51,6 +51,85 @@ func TestDeriveCanonicalPartialAttentionNeverCallsEmptyAllClear(t *testing.T) {
 	}
 }
 
+func TestDeriveCanonicalPartialAttentionKeepsExactLatestHandlingWorthyReport(t *testing.T) {
+	snapshot := store.CanonicalV19FleetSnapshot{
+		FleetID: "fleet-1",
+		Projects: []store.CanonicalV19SnapshotProject{
+			{ID: "project-b", Tasks: []store.CanonicalV19SnapshotTask{{ID: "task-b", Plan: &store.CanonicalV19SnapshotPlan{ID: "plan-b", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-b"}}}}},
+			{ID: "project-a", Tasks: []store.CanonicalV19SnapshotTask{{ID: "task-a", Plan: &store.CanonicalV19SnapshotPlan{ID: "plan-a", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-a"}}}}},
+		},
+		LatestReportMetadata: []store.CanonicalV19SnapshotLatestWorkerReportMetadata{
+			{AttemptID: "attempt-b", ReportID: "report-b", ReportState: "needs-decision"},
+			{AttemptID: "attempt-old", ReportID: "report-old", ReportState: "blocked"},
+			{AttemptID: "attempt-a", ReportID: "report-a", ReportState: "failed"},
+		},
+	}
+	before := append([]store.CanonicalV19SnapshotLatestWorkerReportMetadata(nil), snapshot.LatestReportMetadata...)
+	result := DeriveCanonicalPartial(snapshot)
+	if result.Completeness != "partial" || len(result.Items) != 2 {
+		t.Fatalf("latest report Attention = %#v", result)
+	}
+	if !reflect.DeepEqual(snapshot.LatestReportMetadata, before) {
+		t.Fatal("Attention derivation mutated latest report metadata")
+	}
+	for i, want := range []struct{ project, task, plan, attempt, report, state string }{
+		{"project-a", "task-a", "plan-a", "attempt-a", "report-a", "failed"},
+		{"project-b", "task-b", "plan-b", "attempt-b", "report-b", "needs-decision"},
+	} {
+		item := result.Items[i]
+		if item.Priority != 20 || item.Code != "current-latest-worker-report-unacknowledged" ||
+			item.FleetID != "fleet-1" || item.ProjectID != want.project || item.TaskID != want.task ||
+			item.PlanID != want.plan || item.AttemptID != want.attempt || item.EvidenceID != want.report || item.ReportState != want.state ||
+			len(item.AvailableActions) != 0 {
+			t.Fatalf("report Attention lost exact lineage or claimed action = %#v", item)
+		}
+	}
+	snapshot.LatestReportMetadata[0], snapshot.LatestReportMetadata[2] = snapshot.LatestReportMetadata[2], snapshot.LatestReportMetadata[0]
+	if again := DeriveCanonicalPartial(snapshot); !reflect.DeepEqual(again, result) {
+		t.Fatalf("report Attention depends on arrival order: first=%#v again=%#v", result, again)
+	}
+}
+
+func TestDeriveCanonicalPartialAttentionExcludesAcknowledgedAndWorkingReports(t *testing.T) {
+	for _, state := range []string{"paused", "blocked", "needs-decision", "done", "failed", "working"} {
+		t.Run(state, func(t *testing.T) {
+			snapshot := store.CanonicalV19FleetSnapshot{
+				FleetID:              "fleet-1",
+				Projects:             []store.CanonicalV19SnapshotProject{{ID: "project-1", Tasks: []store.CanonicalV19SnapshotTask{{ID: "task-1", Plan: &store.CanonicalV19SnapshotPlan{ID: "plan-1", Attempt: &store.CanonicalV19SnapshotAttempt{ID: "attempt-1"}}}}}},
+				LatestReportMetadata: []store.CanonicalV19SnapshotLatestWorkerReportMetadata{{AttemptID: "attempt-1", ReportID: "report-1", ReportState: state}},
+			}
+			result := DeriveCanonicalPartial(snapshot)
+			want := 1
+			if state == "working" {
+				want = 0
+			}
+			if len(result.Items) != want {
+				t.Fatalf("%s report Attention = %#v, want %d", state, result, want)
+			}
+			snapshot.LatestReportMetadata[0].AcknowledgementPresent = true
+			if result := DeriveCanonicalPartial(snapshot); len(result.Items) != 0 {
+				t.Fatalf("acknowledged %s report became Attention = %#v", state, result)
+			}
+		})
+	}
+}
+
+func TestDeriveCanonicalPartialAttentionRequiresExactReportAndAttemptIDs(t *testing.T) {
+	for _, report := range []store.CanonicalV19SnapshotLatestWorkerReportMetadata{
+		{AttemptID: "", ReportID: "report-1", ReportState: "blocked"},
+		{AttemptID: "attempt-1", ReportID: "", ReportState: "blocked"},
+	} {
+		snapshot := store.CanonicalV19FleetSnapshot{
+			FleetID:              "fleet-1",
+			Projects:             []store.CanonicalV19SnapshotProject{{ID: "project-1", Tasks: []store.CanonicalV19SnapshotTask{{ID: "task-1", Plan: &store.CanonicalV19SnapshotPlan{ID: "plan-1", Attempt: &store.CanonicalV19SnapshotAttempt{ID: report.AttemptID}}}}}},
+			LatestReportMetadata: []store.CanonicalV19SnapshotLatestWorkerReportMetadata{report},
+		}
+		if result := DeriveCanonicalPartial(snapshot); len(result.Items) != 0 {
+			t.Fatalf("incomplete report identity became Attention: %#v", result)
+		}
+	}
+}
+
 func TestDeriveCanonicalPartialAttentionSeparatesUncertainWakeFromUnsubmittedWake(t *testing.T) {
 	snapshot := store.CanonicalV19FleetSnapshot{
 		FleetID: "fleet-1",

@@ -48,6 +48,9 @@ func TestCanonicalFleetSnapshotCoreCLI(t *testing.T) {
 	if !strings.Contains(shown.stdout, "unacknowledged_inputs[0]") || !strings.Contains(shown.stdout, "unresolved_operations[0]") {
 		t.Fatalf("snapshot omitted independent input and effect families: %+v", shown)
 	}
+	if !strings.Contains(shown.stdout, "report_state") {
+		t.Fatalf("snapshot omitted typed WorkerReport Attention state: %+v", shown)
+	}
 	assertTreeUnchanged(t, fleet, before)
 }
 
