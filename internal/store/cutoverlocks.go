@@ -23,7 +23,9 @@ type legacyV18CutoverHeldLock struct {
 }
 
 type legacyV18CutoverLocks struct {
-	held []*legacyV18CutoverHeldLock
+	held        []*legacyV18CutoverHeldLock
+	directory   string
+	hashedNames []string
 }
 
 func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *legacyV18CutoverGate) (*legacyV18CutoverLocks, error) {
@@ -123,8 +125,29 @@ func acquireLegacyV18CutoverLocks(ctx context.Context, homeDir string, gate *leg
 		return nil, fmt.Errorf("%w: revalidate held MigrationLock pathname: %w", errLegacyV18CutoverLocksUnsafe, err)
 	}
 
+	locks.directory = Dir(homeDir)
+	locks.hashedNames = after
 	keep = true
 	return locks, nil
+}
+
+func (l *legacyV18CutoverLocks) revalidate() error {
+	if l == nil || len(l.held) == 0 {
+		return fmt.Errorf("%w: Fleet-local lock closure is not held", errLegacyV18CutoverLocksUnsafe)
+	}
+	for _, held := range l.held {
+		if err := held.verifyPathIdentity(); err != nil {
+			return fmt.Errorf("%w: %w", errLegacyV18CutoverLocksUnsafe, err)
+		}
+	}
+	names, err := legacyV18CutoverHashedLockNames(l.directory)
+	if err != nil {
+		return fmt.Errorf("%w: enumerate hashed lock namespace: %w", errLegacyV18CutoverLocksUnsafe, err)
+	}
+	if !equalLegacyV18CutoverLockNames(l.hashedNames, names) {
+		return fmt.Errorf("%w: hashed lock namespace changed: before=%v after=%v", errLegacyV18CutoverLocksUnsafe, l.hashedNames, names)
+	}
+	return nil
 }
 
 func legacyV18CutoverLogicalLockKeys(q sqliteQueryer) ([]string, error) {
