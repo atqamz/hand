@@ -166,10 +166,10 @@ func TestBackgroundWaitJoinsGroupWriterBeforeReturning(t *testing.T) {
 		if err := unix.Waitid(unix.P_PID, writer.Process.Pid, &writerInfo, unix.WEXITED|unix.WNOHANG|unix.WNOWAIT, nil); err != nil {
 			t.Fatal(err)
 		}
-		_ = writer.Wait()
-		writerReaped = true
 		if writerInfo.Signo == 0 {
 			t.Fatalf("group writer %d still active after leader wait", index)
 		}
+		_ = writer.Wait()
+		writerReaped = true
 	}
 }

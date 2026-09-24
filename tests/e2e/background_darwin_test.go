@@ -146,10 +146,10 @@ func TestBackgroundWaitJoinsGroupWriterBeforeReturning(t *testing.T) {
 		if errno != 0 {
 			t.Fatal(errno)
 		}
-		_ = writer.Wait()
-		writerReaped = true
 		if writerInfo[0] == 0 {
 			t.Fatalf("group writer %d still active after leader wait", index)
 		}
+		_ = writer.Wait()
+		writerReaped = true
 	}
 }
