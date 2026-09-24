@@ -87,6 +87,24 @@ func TestCreateCanonicalV19AnswerWorkerInputIdentityDriftConflicts(t *testing.T)
 	}
 }
 
+func TestCreateCanonicalV19AnswerWorkerInputRefusesDifferentAnswerBytes(t *testing.T) {
+	for _, field := range []string{"payload", "digest"} {
+		t.Run(field, func(t *testing.T) {
+			fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+			canonicalV19DecisionAnswerFixture(t, fixture.Home, launch, "decision-answer-bytes", "answer-bytes", "attempt", "")
+			input := canonicalV19AnswerWorkerInputCreateInput(launch, "worker-input-answer-bytes", "answer-origin-bytes", "decision-answer-bytes", "answer-bytes")
+			if field == "payload" {
+				input.Payload = "different instruction"
+			} else {
+				input.PayloadDigest = "different digest"
+			}
+			if _, err := CreateCanonicalV19AnswerWorkerInput(context.Background(), fixture.Home, input); !errors.Is(err, ErrCanonicalV19WorkerInputConflict) {
+				t.Fatalf("different Answer %s error = %v, want %v", field, err, ErrCanonicalV19WorkerInputConflict)
+			}
+		})
+	}
+}
+
 func TestCreateCanonicalV19AnswerWorkerInputRefusesDecisionScopeMismatch(t *testing.T) {
 	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
 	projectID := canonicalV19AttemptProjectID(t, fixture.Home, launch.AttemptID)
@@ -150,7 +168,7 @@ func canonicalV19AnswerWorkerInputCreateInput(
 ) CanonicalV19AnswerWorkerInputCreateInput {
 	return CanonicalV19AnswerWorkerInputCreateInput{
 		ID: workerInputID, AttemptID: launch.AttemptID, ExecutorBindingID: launch.BindingID,
-		Payload: "decision answer instruction", PayloadDigest: "digest-decision-answer-instruction",
+		Payload: "approved", PayloadDigest: "digest-" + answerID,
 		AnswerOriginID: answerOriginID, DecisionID: decisionID, AnswerID: answerID,
 		CreatedAt: "2026-09-08T08:30:00Z",
 	}
