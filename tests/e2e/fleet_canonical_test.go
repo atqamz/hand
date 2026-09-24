@@ -133,6 +133,7 @@ func TestLegacyCommandsRefuseCanonicalBeforeStartupMutation(t *testing.T) {
 		{"project", "list"},
 		{"config", "set", "harness", "codex"},
 		{"status"},
+		{"orient"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			home := t.TempDir()
@@ -157,6 +158,24 @@ func TestLegacyCommandsRefuseCanonicalBeforeStartupMutation(t *testing.T) {
 			assertTreeUnchanged(t, home, before)
 		})
 	}
+}
+
+func TestSessionStartRefusesCanonicalOrientationReadiness(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(store.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	createCanonicalFleetFixture(t, home, "f_0123456789abcdef0123456789abcdef")
+	seedPrivateRuntime(t, home)
+	before := snapshotTree(t, home)
+	got := runHand(t, home, "session", "start")
+	if got.code == 0 || !strings.Contains(got.stderr, "canonical v19 state cannot be opened by legacy commands") || !strings.Contains(got.stderr, "hand fleet snapshot") {
+		t.Fatalf("session start = %+v, want canonical orientation refusal", got)
+	}
+	if strings.Contains(got.stdout, "session_bootstrap: complete") {
+		t.Fatalf("session start claimed complete bootstrap for canonical state: %+v", got)
+	}
+	assertTreeUnchanged(t, home, before)
 }
 
 // The fixture represents the published cutover database, not a completed cutover.
