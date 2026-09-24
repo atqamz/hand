@@ -1,0 +1,93 @@
+package routing
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+const validWorkerPolicy = `{"schema":"hand.worker-policy.v1","profiles":[{"name":"worker","harness":"codex"}],"routes":[{"intent":"execute","judgment":"substantial","profile":"worker"},{"intent":"explore","judgment":"bounded","profile":"worker"},{"intent":"execute","judgment":"mechanical","profile":"worker"},{"intent":"explore","judgment":"substantial","profile":"worker"},{"intent":"execute","judgment":"bounded","profile":"worker"},{"intent":"explore","judgment":"mechanical","profile":"worker"}]}`
+
+func writeWorkerPolicy(t *testing.T, home, data string) string {
+	t.Helper()
+	path := filepath.Join(home, "config", "worker-policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadWorkerPolicyOrdersAllSixRoutesAndWitnessesExactBytes(t *testing.T) {
+	home := t.TempDir()
+	path := writeWorkerPolicy(t, home, validWorkerPolicy)
+	first, err := LoadWorkerPolicy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []WorkerRoute{
+		{Intent: "explore", Judgment: "mechanical", Profile: "worker"},
+		{Intent: "explore", Judgment: "bounded", Profile: "worker"},
+		{Intent: "explore", Judgment: "substantial", Profile: "worker"},
+		{Intent: "execute", Judgment: "mechanical", Profile: "worker"},
+		{Intent: "execute", Judgment: "bounded", Profile: "worker"},
+		{Intent: "execute", Judgment: "substantial", Profile: "worker"},
+	}
+	if !slices.Equal(first.Routes, want) {
+		t.Fatalf("Worker Routes = %#v, want %#v", first.Routes, want)
+	}
+	if digest := sha256.Sum256([]byte(validWorkerPolicy)); first.Witness != fmt.Sprintf("sha256:%x", digest) {
+		t.Fatalf("Worker policy witness = %q", first.Witness)
+	}
+	if err := os.WriteFile(path, []byte(validWorkerPolicy+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadWorkerPolicy(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(second.Routes, want) || second.Witness == first.Witness {
+		t.Fatalf("Worker policy edit did not update exact witness: first=%q second=%q", first.Witness, second.Witness)
+	}
+}
+
+func TestLoadWorkerPolicyRejectsAmbiguousAndLegacyFields(t *testing.T) {
+	for name, data := range map[string]string{
+		"duplicate schema":          strings.Replace(validWorkerPolicy, `"schema":"hand.worker-policy.v1"`, `"schema":"hand.worker-policy.v1","schema":"hand.worker-policy.v1"`, 1),
+		"duplicate profile field":   strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","harness":"codex"`, 1),
+		"duplicate route field":     strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"execute","intent":"execute"`, 1),
+		"wrong case":                strings.Replace(validWorkerPolicy, `"schema"`, `"Schema"`, 1),
+		"newer schema":              strings.Replace(validWorkerPolicy, `hand.worker-policy.v1`, `hand.worker-policy.v2`, 1),
+		"legacy Task kind":          strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"kind":"ship","intent":"execute"`, 1),
+		"unknown worktree provider": strings.Replace(validWorkerPolicy, `"profiles":`, `"worktree_provider":"treehouse","profiles":`, 1),
+		"missing route":             strings.Replace(validWorkerPolicy, `,{"intent":"explore","judgment":"mechanical","profile":"worker"}`, ``, 1),
+		"dangling profile":          strings.Replace(validWorkerPolicy, `"profile":"worker"`, `"profile":"missing"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			writeWorkerPolicy(t, home, data)
+			if got, err := LoadWorkerPolicy(home); err == nil {
+				t.Fatalf("ambiguous or unsupported Worker policy accepted: %#v", got)
+			}
+		})
+	}
+}
+
+func TestLoadWorkerPolicyNeverUsesLegacyTaskRoutes(t *testing.T) {
+	home := t.TempDir()
+	if err := WriteProfile(home, Profile{Name: "daily", Harness: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteRoute(home, Route{Kind: TaskKindScout, ExecutionClass: ExecutionClassMechanical, Profile: "daily"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadWorkerPolicy(home); err == nil {
+		t.Fatalf("legacy Task route became canonical Worker policy: %#v", got)
+	}
+}

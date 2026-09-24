@@ -98,6 +98,35 @@ func assertSetting(t *testing.T, cfg workerConfig, key, state, value string) {
 	t.Fatalf("no %q setting in %#v", key, cfg)
 }
 
+func TestConfigWorkerPolicyReadsExactCanonicalRoutesWithoutMutation(t *testing.T) {
+	home := setupConfigHome(t)
+	path := filepath.Join(home, "config", "worker-policy.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"schema":"hand.worker-policy.v1","profiles":[{"name":"worker","harness":"codex"}],"routes":[{"intent":"execute","judgment":"substantial","profile":"worker"},{"intent":"explore","judgment":"bounded","profile":"worker"},{"intent":"execute","judgment":"mechanical","profile":"worker"},{"intent":"explore","judgment":"substantial","profile":"worker"},{"intent":"execute","judgment":"bounded","profile":"worker"},{"intent":"explore","judgment":"mechanical","profile":"worker"}]}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runConfig(t, "worker-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"schema: hand.worker-policy.v1", "profiles[1]{name,harness,model,effort}:",
+		"routes[6]{intent,judgment,profile}:", "explore,mechanical,worker", "execute,substantial,worker"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("worker policy output = %q, missing %q", out, want)
+		}
+	}
+	if strings.Index(out, "explore,mechanical,worker") > strings.Index(out, "execute,substantial,worker") {
+		t.Fatalf("worker policy routes are not in canonical order: %q", out)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(after, data) {
+		t.Fatalf("worker policy read mutated source: %v", err)
+	}
+}
+
 func TestConfigUsesDetectedHarnessAndNativeTierDefaults(t *testing.T) {
 	home := setupConfigHome(t)
 	t.Setenv("HAND_HARNESS", harness.Codex)
