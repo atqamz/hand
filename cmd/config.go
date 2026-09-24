@@ -141,8 +141,40 @@ func newConfigCmd() *cobra.Command {
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
-	cmd.AddCommand(newConfigSetCmd(), newConfigProfileCmd(), newConfigRouteCmd())
+	cmd.AddCommand(newConfigSetCmd(), newConfigProfileCmd(), newConfigRouteCmd(), newConfigWorkerPolicyCmd())
 	return cmd
+}
+
+func newConfigWorkerPolicyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "worker-policy",
+		Short: "Read the candidate canonical Worker policy",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fleetHome, err := home.Resolve()
+			if err != nil {
+				return asPrecondition(err)
+			}
+			policy, err := routing.LoadWorkerPolicy(fleetHome)
+			if err != nil {
+				return err
+			}
+			routes := make([][]string, 0, len(policy.Routes))
+			for _, route := range policy.Routes {
+				routes = append(routes, []string{route.Intent, route.Judgment, route.Profile})
+			}
+			var doc axi.Doc
+			doc.Field("schema", policy.Schema)
+			doc.Field("scope", "worker")
+			doc.Field("source", "config/worker-policy.json")
+			doc.Field("witness", policy.Witness)
+			doc.Field("consumption", "diagnostic-only")
+			axi.Table(&doc, "profiles", policy.Profiles, profileFields)
+			doc.Rows("routes", []string{"intent", "judgment", "profile"}, routes)
+			doc.Help("Canonical Attempt creation does not yet consume this policy")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
 }
 
 func newConfigSetCmd() *cobra.Command {
