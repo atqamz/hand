@@ -31,7 +31,10 @@ func TestDeriveCanonicalPartialAttentionKeepsExactUnresolvedOperationsOrdered(t 
 		if item.Priority != 10 || item.FleetID != "fleet-1" || item.EvidenceID == "input-1" || len(item.AvailableActions) != 0 {
 			t.Fatalf("unsafe or misattributed Attention = %#v", item)
 		}
-		if item.OperationKind == "worker-wake" && (item.Code != "worker-wake-unresolved" || item.SessionBindingID == "" || item.ExecutorBindingID == "") {
+		if item.OperationKind == "worker-wake" &&
+			((item.OperationState == "uncertain" && item.Code != "worker-wake-uncertain") ||
+				(item.OperationState != "uncertain" && item.Code != "worker-wake-unresolved") ||
+				item.SessionBindingID == "" || item.ExecutorBindingID == "") {
 			t.Fatalf("WorkerWake lost exact mechanism identity: %#v", item)
 		}
 	}
@@ -45,6 +48,23 @@ func TestDeriveCanonicalPartialAttentionNeverCallsEmptyAllClear(t *testing.T) {
 	result := DeriveCanonicalPartial(store.CanonicalV19FleetSnapshot{FleetID: "fleet-1"})
 	if result.Completeness != "partial" || len(result.Items) != 0 {
 		t.Fatalf("empty partial Attention = %#v", result)
+	}
+}
+
+func TestDeriveCanonicalPartialAttentionSeparatesUncertainWakeFromUnsubmittedWake(t *testing.T) {
+	snapshot := store.CanonicalV19FleetSnapshot{
+		FleetID: "fleet-1",
+		UnresolvedOperations: []store.CanonicalV19SnapshotOperation{
+			{ID: "wake-prepared", Kind: "worker-wake", State: "prepared", ProjectID: "project-1", TaskID: "task-1", PlanID: "plan-1", AttemptID: "attempt-1", SessionBindingID: "session-1", ExecutorBindingID: "executor-1"},
+			{ID: "wake-uncertain", Kind: "worker-wake", State: "uncertain", ProjectID: "project-2", TaskID: "task-2", PlanID: "plan-2", AttemptID: "attempt-2", SessionBindingID: "session-2", ExecutorBindingID: "executor-2"},
+		},
+	}
+	result := DeriveCanonicalPartial(snapshot)
+	if len(result.Items) != 2 || result.Items[0].Code != "worker-wake-unresolved" ||
+		result.Items[1].Code != "worker-wake-uncertain" || result.Items[1].EvidenceID != "wake-uncertain" ||
+		result.Items[1].AttemptID != "attempt-2" || result.Items[1].ExecutorBindingID != "executor-2" ||
+		result.Items[1].Priority != 10 || len(result.Items[1].AvailableActions) != 0 {
+		t.Fatalf("uncertain WorkerWake collapsed into unsubmitted mechanism state: %#v", result.Items)
 	}
 }
 
@@ -84,7 +104,7 @@ func TestDeriveCanonicalPartialAttentionSeparatesCurrentInputFromExactUnresolved
 			t.Fatalf("semantic input lost exact identity or gained mechanism/action authority: %#v", item)
 		}
 	}
-	if first.Items[0].Code != "worker-wake-unresolved" || first.Items[1].Code != "worker-wake-unresolved" {
+	if first.Items[0].Code != "worker-wake-unresolved" || first.Items[1].Code != "worker-wake-uncertain" {
 		t.Fatalf("wake mechanism Attention collapsed into input: %#v", first.Items)
 	}
 	snapshot.UnacknowledgedInputs[0], snapshot.UnacknowledgedInputs[2] = snapshot.UnacknowledgedInputs[2], snapshot.UnacknowledgedInputs[0]

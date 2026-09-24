@@ -188,6 +188,29 @@ func TestReadCanonicalV19FleetSnapshotSeparatesInputFromWakeAndHistoricalEffects
 		snapshot.UnresolvedOperations[0].ExecutorBindingID != launch.BindingID {
 		t.Fatalf("exact submitted wake/input source = %#v", snapshot)
 	}
+	if err := ClassifyCanonicalV19WorkerWake(context.Background(), fixture.Home, CanonicalV19WorkerWakeTransitionInput{
+		OperationID: wake.OperationID, State: "uncertain", ObservedAt: "2026-09-09T05:19:30Z", EvidenceDigest: "wake-outcome-unknown",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err = os.ReadFile(Path(fixture.Home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err = os.ReadFile(Path(fixture.Home))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("uncertain wake snapshot mutated database: %v", err)
+	}
+	if len(snapshot.UnacknowledgedInputs) != 1 || len(snapshot.UnresolvedOperations) != 1 ||
+		snapshot.UnresolvedOperations[0].ID != wake.OperationID || snapshot.UnresolvedOperations[0].State != "uncertain" ||
+		snapshot.UnresolvedOperations[0].SessionBindingID == "" || snapshot.UnresolvedOperations[0].ExecutorBindingID != launch.BindingID ||
+		snapshot.UnresolvedOperations[0].StateEvidenceDigest != "wake-outcome-unknown" {
+		t.Fatalf("uncertain wake lost exact mechanism evidence or invented acknowledgement: %#v", snapshot)
+	}
 	db, err := open(Path(fixture.Home))
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +228,7 @@ func TestReadCanonicalV19FleetSnapshotSeparatesInputFromWakeAndHistoricalEffects
 		t.Fatal(err)
 	}
 	if len(snapshot.UnacknowledgedInputs) != 0 || len(snapshot.UnresolvedOperations) != 1 ||
-		snapshot.UnresolvedOperations[0].ID != wake.OperationID {
+		snapshot.UnresolvedOperations[0].ID != wake.OperationID || snapshot.UnresolvedOperations[0].State != "uncertain" {
 		t.Fatalf("historical input/wake separation = %#v", snapshot)
 	}
 }
