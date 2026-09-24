@@ -612,24 +612,37 @@ func TestReadCanonicalV19FleetSnapshotLatestReportFollowsExactActiveAttempt(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerReportAcknowledgementCreateInput{
+			WorkerReportID: first.ID, ActorKind: "supervisor", AcknowledgedAt: "2026-09-15T10:00:30Z",
+			EvidenceDigest: "read-first-report",
+		}); err != nil {
+		t.Fatal(err)
+	}
 	second, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
 		canonicalV19WorkerReportWitness(t, attemptID, "", "working: second\n", "2026-09-15T09:00:00Z", &first))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ack, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.LatestReportMetadata) != 1 || snapshot.LatestReportMetadata[0].AcknowledgementPresent {
+		t.Fatalf("predecessor acknowledgement retargeted latest report = %#v", snapshot.LatestReportMetadata)
+	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
 		CanonicalV19WorkerReportAcknowledgementCreateInput{
 			WorkerReportID: second.ID, ActorKind: "supervisor", AcknowledgedAt: "2026-09-15T10:01:00Z",
 			EvidenceDigest: "read-second-report",
-		})
-	if err != nil {
+		}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(Path(fixture.Home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
+	snapshot, err = ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,8 +655,7 @@ func TestReadCanonicalV19FleetSnapshotLatestReportFollowsExactActiveAttempt(t *t
 		snapshot.LatestReportMetadata[0].ReportID != second.ID ||
 		snapshot.LatestReportMetadata[0].SourceEndOffset != second.SourceEndOffset ||
 		snapshot.LatestReportMetadata[0].ReportState != second.ReportState ||
-		snapshot.LatestReportMetadata[0].Acknowledgement == nil ||
-		*snapshot.LatestReportMetadata[0].Acknowledgement != ack {
+		!snapshot.LatestReportMetadata[0].AcknowledgementPresent {
 		t.Fatalf("latest report metadata and exact acknowledgement = %#v", snapshot.LatestReportMetadata)
 	}
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, attemptID, "failed", "2026-09-15T10:02:00Z")
@@ -681,7 +693,7 @@ func TestReadCanonicalV19FleetSnapshotLatestReportFollowsExactActiveAttempt(t *t
 	}
 	if len(snapshot.LatestReportMetadata) != 1 ||
 		snapshot.LatestReportMetadata[0].ReportID != latest.ID ||
-		snapshot.LatestReportMetadata[0].Acknowledgement != nil {
+		snapshot.LatestReportMetadata[0].AcknowledgementPresent {
 		t.Fatalf("retired Project current report = %#v", snapshot.LatestReportMetadata)
 	}
 }
@@ -726,11 +738,18 @@ func TestCanonicalV19SnapshotLatestWorkerReportQueryUsesSourceOrderIndex(t *test
 	}
 }
 
-func TestReadCanonicalV19FleetSnapshotReportMetadataDoesNotLoadUnboundedNote(t *testing.T) {
+func TestReadCanonicalV19FleetSnapshotReportMetadataIsBounded(t *testing.T) {
 	fixture, attemptID := canonicalV19WorkerReportAttemptFixture(t)
 	report, err := IngestCanonicalV19WorkerReport(context.Background(), fixture.Home,
-		canonicalV19WorkerReportWitness(t, attemptID, "", "working: "+strings.Repeat("x", 128<<10)+"\n", "2026-09-15T10:00:00Z", nil))
+		canonicalV19WorkerReportWitness(t, attemptID, "", "working: "+strings.Repeat("x", 128<<10)+"\n", strings.Repeat("t", 128<<10), nil))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCanonicalV19WorkerReportAcknowledgement(context.Background(), fixture.Home,
+		CanonicalV19WorkerReportAcknowledgementCreateInput{
+			WorkerReportID: report.ID, ActorKind: "supervisor", AcknowledgedAt: strings.Repeat("a", 128<<10),
+			EvidenceDigest: strings.Repeat("e", 128<<10),
+		}); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := ReadCanonicalV19FleetSnapshot(context.Background(), fixture.Home)
@@ -738,7 +757,8 @@ func TestReadCanonicalV19FleetSnapshotReportMetadataDoesNotLoadUnboundedNote(t *
 		t.Fatal(err)
 	}
 	if len(snapshot.LatestReportMetadata) != 1 ||
-		snapshot.LatestReportMetadata[0].ReportID != report.ID {
+		snapshot.LatestReportMetadata[0].ReportID != report.ID ||
+		!snapshot.LatestReportMetadata[0].AcknowledgementPresent {
 		t.Fatalf("latest report metadata = %#v", snapshot.LatestReportMetadata)
 	}
 	encoded, err := json.Marshal(snapshot.LatestReportMetadata)
@@ -746,6 +766,6 @@ func TestReadCanonicalV19FleetSnapshotReportMetadataDoesNotLoadUnboundedNote(t *
 		t.Fatal(err)
 	}
 	if len(encoded) > 1024 {
-		t.Fatalf("latest report metadata carries unbounded report prose: %d bytes", len(encoded))
+		t.Fatalf("latest report metadata carries unbounded fields: %d bytes", len(encoded))
 	}
 }

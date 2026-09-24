@@ -7,24 +7,16 @@ import (
 )
 
 type CanonicalV19SnapshotLatestWorkerReportMetadata struct {
-	ProjectID          string
-	TaskID             string
-	PlanID             string
-	AttemptID          string
-	ReportID           string
-	ExecutorBindingID  string
-	SourcePrefixDigest string
-	SourceEndOffset    int64
-	ReportState        string
-	CreatedAt          string
-	Acknowledgement    *CanonicalV19WorkerReportAcknowledgement
+	AttemptID              string
+	ReportID               string
+	SourcePrefixDigest     string
+	SourceEndOffset        int64
+	ReportState            string
+	AcknowledgementPresent bool
 }
 
-const canonicalV19SnapshotLatestWorkerReportMetadataQuery = `SELECT pr.id,t.id,p.id,a.id,
-		r.id,COALESCE(r.executor_binding_id,''),r.source_prefix_digest,r.source_end_offset,
-		r.report_state,r.created_at,
-		COALESCE(ack.worker_report_id,''),COALESCE(ack.actor_kind,''),
-		COALESCE(ack.acknowledged_at,''),COALESCE(ack.evidence_digest,'')
+const canonicalV19SnapshotLatestWorkerReportMetadataQuery = `SELECT a.id,r.id,r.source_prefix_digest,
+		r.source_end_offset,r.report_state,ack.worker_report_id IS NOT NULL
 		FROM task t INDEXED BY task_active_by_project
 		CROSS JOIN project pr
 		CROSS JOIN plan p INDEXED BY plan_active_by_task
@@ -53,15 +45,9 @@ func readCanonicalV19SnapshotLatestWorkerReportMetadata(ctx context.Context, tx 
 	reports := make([]CanonicalV19SnapshotLatestWorkerReportMetadata, 0)
 	for rows.Next() {
 		var view CanonicalV19SnapshotLatestWorkerReportMetadata
-		var ack CanonicalV19WorkerReportAcknowledgement
-		if err := rows.Scan(&view.ProjectID, &view.TaskID, &view.PlanID, &view.AttemptID,
-			&view.ReportID, &view.ExecutorBindingID, &view.SourcePrefixDigest,
-			&view.SourceEndOffset, &view.ReportState, &view.CreatedAt,
-			&ack.WorkerReportID, &ack.ActorKind, &ack.AcknowledgedAt, &ack.EvidenceDigest); err != nil {
+		if err := rows.Scan(&view.AttemptID, &view.ReportID, &view.SourcePrefixDigest,
+			&view.SourceEndOffset, &view.ReportState, &view.AcknowledgementPresent); err != nil {
 			return nil, fmt.Errorf("scan canonical FleetSnapshot latest WorkerReport: %w", err)
-		}
-		if ack.WorkerReportID != "" {
-			view.Acknowledgement = &ack
 		}
 		reports = append(reports, view)
 	}
