@@ -59,13 +59,14 @@ func (p *unixBackgroundProcess) stop() {
 }
 
 func activeBackgroundGroupMembers(group int) (int, error) {
+	const zombieState = 5
 	processes, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", group)
 	if err != nil {
 		return 0, err
 	}
 	active := 0
 	for _, process := range processes {
-		if process.Eproc.Pgid == int32(group) && process.Proc.P_stat != 5 {
+		if process.Eproc.Pgid == int32(group) && process.Proc.P_stat != zombieState {
 			active++
 		}
 	}
@@ -111,7 +112,7 @@ func TestBackgroundWaitJoinsGroupWriterBeforeReturning(t *testing.T) {
 		}
 		base := t.TempDir()
 		ready := filepath.Join(base, "ready")
-		writer := exec.Command("/bin/sh", "-c", `printf ready > "$READY"; while :; do printf x >> "$TARGET"; done`)
+		writer := exec.Command("/bin/sh", "-c", `printf ready > "$READY"; while :; do printf x >> "$TARGET"; /bin/sleep 0.005; done`)
 		writer.Env = append(os.Environ(), "READY="+ready, "TARGET="+filepath.Join(base, "writer"))
 		writer.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: leader.Process.Pid}
 		if err := writer.Start(); err != nil {

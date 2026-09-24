@@ -134,7 +134,7 @@ func TestBackgroundWaitJoinsGroupWriterBeforeReturning(t *testing.T) {
 		}
 		base := t.TempDir()
 		ready := filepath.Join(base, "ready")
-		writer := exec.Command("/bin/sh", "-c", `printf ready > "$READY"; while :; do printf x >> "$TARGET"; done`)
+		writer := exec.Command("/bin/sh", "-c", `printf ready > "$READY"; while :; do printf x >> "$TARGET"; /bin/sleep 0.005; done`)
 		writer.Env = append(os.Environ(), "READY="+ready, "TARGET="+filepath.Join(base, "writer"))
 		writer.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: leader.Process.Pid}
 		if err := writer.Start(); err != nil {
