@@ -79,6 +79,63 @@ func TestLoadWorkerPolicyRejectsAmbiguousAndLegacyFields(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerPolicyRedactsUnsupportedSchemaAndFieldNames(t *testing.T) {
+	marker := "sensitive-" + "marker"
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"schema", strings.Replace(validWorkerPolicy, WorkerPolicySchema, marker, 1), "unsupported worker policy schema"},
+		{"root field", strings.Replace(validWorkerPolicy, `"profiles":`, `"`+marker+`":true,"profiles":`, 1), "unsupported worker policy field"},
+		{"profile field", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1), "profiles: unsupported worker policy field"},
+		{"route field", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"execute","`+marker+`":true`, 1), "routes: unsupported worker policy field"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeWorkerPolicy(t, home, test.data)
+			_, err := LoadWorkerPolicy(home)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatal("worker policy did not report malformed field category")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Fatal("worker policy diagnostic included sensitive config bytes")
+			}
+		})
+	}
+}
+
+func TestLoadWorkerPolicyRedactsInvalidProfileAndRouteValues(t *testing.T) {
+	marker := "sensitive-" + "marker"
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"invalid profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":"`+marker+`/"`, 1), "invalid worker profile name: must be non-empty and filename-safe"},
+		{"empty profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":""`, 1), "invalid worker profile name: must be non-empty and filename-safe"},
+		{"invalid profile harness", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"`+marker+`"`, 1), "invalid worker profile: unsupported-harness"},
+		{"invalid profile model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"grok","model":"`+marker+`"`, 1), "invalid worker profile: unsupported-model"},
+		{"invalid profile effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"antigravity","effort":"`+marker+`"`, 1), "invalid worker profile: unsupported-effort"},
+		{"duplicate profile", strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"`+marker+`","harness":"codex"},{"name":"`+marker+`","harness":"codex"}`, 1), "duplicate worker profile"},
+		{"invalid route intent", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"`+marker+`"`, 1), "invalid Worker Route"},
+		{"invalid route judgment", strings.Replace(validWorkerPolicy, `"judgment":"substantial"`, `"judgment":"`+marker+`"`, 1), "invalid Worker Route"},
+		{"missing route profile", strings.Replace(validWorkerPolicy, `"profile":"worker"`, `"profile":"`+marker+`"`, 1), "names missing profile"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			writeWorkerPolicy(t, home, test.data)
+			_, err := LoadWorkerPolicy(home)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatal("worker policy did not report invalid profile or route category")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Fatal("worker policy diagnostic included sensitive config bytes")
+			}
+		})
+	}
+}
+
 func TestLoadWorkerPolicyRejectsUnsafeUnusedProfiles(t *testing.T) {
 	for _, test := range []struct {
 		name  string

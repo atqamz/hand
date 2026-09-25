@@ -152,6 +152,41 @@ func TestConfigWorkerPolicyRefusesUnsafeUnusedProfileWithoutMutation(t *testing.
 	}
 }
 
+func TestConfigWorkerPolicyErrorOmitsPolicyBytes(t *testing.T) {
+	marker := "sensitive-" + "marker"
+	for _, test := range []struct {
+		name string
+		data string
+	}{
+		{"schema", strings.Replace(validWorkerPolicyForCommand, "hand.worker-policy.v1", marker, 1)},
+		{"field", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1)},
+		{"harness", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"`+marker+`"`, 1)},
+		{"route profile", strings.Replace(validWorkerPolicyForCommand, `"profile":"worker"`, `"profile":"`+marker+`"`, 1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := setupConfigHome(t)
+			path := filepath.Join(home, "config", "worker-policy.json")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(test.data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, err := runConfig(t, "worker-policy")
+			if err == nil {
+				t.Fatalf("invalid worker policy was accepted: %q", out)
+			}
+			var rendered bytes.Buffer
+			if renderErr := renderError(&rendered, err, 1, "hand config worker-policy"); renderErr != nil {
+				t.Fatal(renderErr)
+			}
+			if strings.Contains(out+rendered.String(), marker) {
+				t.Fatal("worker policy error output included policy bytes")
+			}
+		})
+	}
+}
+
 func TestConfigWorkerPolicyCandidateAppliesOverridesWithoutCreatingAttempt(t *testing.T) {
 	home := setupConfigHome(t)
 	beforeDB, err := os.ReadFile(filepath.Join(home, "state", "hand.db"))

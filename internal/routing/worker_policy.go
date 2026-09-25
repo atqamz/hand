@@ -61,7 +61,7 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 		return WorkerPolicy{}, errors.New("worker policy has trailing data")
 	}
 	if policy.Schema != WorkerPolicySchema {
-		return WorkerPolicy{}, fmt.Errorf("unsupported worker policy schema %q: want %q", policy.Schema, WorkerPolicySchema)
+		return WorkerPolicy{}, fmt.Errorf("unsupported worker policy schema: want %q", WorkerPolicySchema)
 	}
 	profiles := make(map[string]bool, len(policy.Profiles))
 	for _, profile := range policy.Profiles {
@@ -77,11 +77,18 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 				return WorkerPolicy{}, fmt.Errorf("invalid worker profile %s value", field.name)
 			}
 		}
+		if err := ValidateProfileName(profile.Name); err != nil {
+			return WorkerPolicy{}, errors.New("invalid worker profile name: must be non-empty and filename-safe")
+		}
 		if err := ValidateProfile(profile); err != nil {
-			return WorkerPolicy{}, fmt.Errorf("invalid worker profile %q: %w", profile.Name, err)
+			var coded *profileValidationError
+			if errors.As(err, &coded) {
+				return WorkerPolicy{}, fmt.Errorf("invalid worker profile: %s", coded.code)
+			}
+			return WorkerPolicy{}, fmt.Errorf("invalid worker profile: %w", err)
 		}
 		if profiles[profile.Name] {
-			return WorkerPolicy{}, fmt.Errorf("duplicate worker profile %q", profile.Name)
+			return WorkerPolicy{}, errors.New("duplicate worker profile")
 		}
 		profiles[profile.Name] = true
 	}
@@ -96,13 +103,13 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 			}
 		}
 		if !valid {
-			return WorkerPolicy{}, fmt.Errorf("invalid Worker Route %q.%q", route.Intent, route.Judgment)
+			return WorkerPolicy{}, errors.New("invalid Worker Route intent or judgment")
 		}
 		if _, found := routes[key]; found {
-			return WorkerPolicy{}, fmt.Errorf("duplicate Worker Route %s.%s", route.Intent, route.Judgment)
+			return WorkerPolicy{}, errors.New("duplicate Worker Route")
 		}
 		if !profiles[route.Profile] {
-			return WorkerPolicy{}, fmt.Errorf("worker route %s.%s names missing profile %q", route.Intent, route.Judgment, route.Profile)
+			return WorkerPolicy{}, fmt.Errorf("worker route %s.%s names missing profile", route.Intent, route.Judgment)
 		}
 		routes[key] = route
 	}
@@ -161,7 +168,7 @@ func workerPolicyFields(data []byte, allowed ...string) (map[string]json.RawMess
 		}
 		name, ok := key.(string)
 		if !ok || !slices.Contains(allowed, name) {
-			return nil, fmt.Errorf("unsupported worker policy field %q", key)
+			return nil, errors.New("unsupported worker policy field")
 		}
 		if _, found := fields[name]; found {
 			return nil, fmt.Errorf("duplicate worker policy field %q", name)
