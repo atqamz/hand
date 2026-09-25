@@ -8,7 +8,7 @@ import (
 	"syscall"
 )
 
-func canonicalV19WorktreePhysicalIdentity(_ string, info os.FileInfo) (string, error) {
+func CanonicalV19WorktreePhysicalIdentity(path string, info os.FileInfo) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("file identity metadata is absent")
 	}
@@ -16,5 +16,9 @@ func canonicalV19WorktreePhysicalIdentity(_ string, info os.FileInfo) (string, e
 	if !ok || stat == nil {
 		return "", fmt.Errorf("file identity metadata has type %T, want *syscall.Stat_t", info.Sys())
 	}
-	return fmt.Sprintf("unix-v1:dev=%016x:ino=%016x", uint64(stat.Dev), uint64(stat.Ino)), nil
+	sec, nsec, err := canonicalV19FileBirthTime(path, info, stat)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("unix-v2:ino=%016x:btime=%d.%09d", uint64(stat.Ino), sec, nsec), nil
 }

@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func canonicalV19WorktreePhysicalIdentity(path string, expected os.FileInfo) (string, error) {
+func CanonicalV19WorktreePhysicalIdentity(path string, expected os.FileInfo) (string, error) {
 	if expected == nil {
 		return "", fmt.Errorf("file identity metadata is absent")
 	}

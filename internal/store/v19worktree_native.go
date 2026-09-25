@@ -376,7 +376,7 @@ func observeCanonicalV19GitWorktree(homeDir string, request CanonicalV19Worktree
 	if err != nil || !os.SameFile(info, finalInfo) {
 		return canonicalV19UnknownGitWorktree(request, "worktree physical identity changed during observation")
 	}
-	physicalIdentity, err := canonicalV19WorktreePhysicalIdentity(request.RequestedPath, finalInfo)
+	physicalIdentity, err := CanonicalV19WorktreePhysicalIdentity(request.RequestedPath, finalInfo)
 	if err != nil {
 		return canonicalV19UnknownGitWorktree(request, fmt.Sprintf("capture worktree physical identity: %v", err))
 	}

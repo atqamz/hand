@@ -117,7 +117,7 @@ func observeCanonicalV19Project(homeDir, name string) (canonicalV19ProjectReposi
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return result, fmt.Errorf("canonical Project requires direct repository and .git directories")
 		}
-		physical, err := canonicalV19WorktreePhysicalIdentity(path, info)
+		physical, err := CanonicalV19WorktreePhysicalIdentity(path, info)
 		if err != nil {
 			return result, err
 		}
