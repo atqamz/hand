@@ -35,7 +35,7 @@ func (l *execGuardLaunchTest) establish(t *testing.T) (*exec.Cmd, execguard.Reco
 	return guard, mustExecGuardRecord(t, l.dir, execguard.KindRunning)
 }
 
-func (l *execGuardLaunchTest) establishKey(t *testing.T, guard osfacts.Incarnation) {
+func (l *execGuardLaunchTest) establishKey(t *testing.T, guard osfacts.Incarnation) osfacts.Incarnation {
 	t.Helper()
 	l.submit(t)
 	root := osfacts.Incarnation{BootID: guard.BootID, PID: guard.PID + 1, StartTicks: guard.StartTicks + 1}
@@ -51,6 +51,7 @@ func (l *execGuardLaunchTest) establishKey(t *testing.T, guard osfacts.Incarnati
 	if err != nil {
 		t.Fatal(err)
 	}
+	return root
 }
 
 func (l *execGuardLaunchTest) interrupt(t *testing.T, operationID string, submit bool) {
@@ -244,4 +245,121 @@ func TestExecGuardCessationOfACraftedIncarnation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (l *execGuardLaunchTest) writeCeased(t *testing.T, record execguard.Record) {
+	t.Helper()
+	record.Protocol, record.Kind, record.LaunchOperationID, record.Predicate = execguard.Protocol, execguard.KindCeased, l.input.OperationID, "wait4-echild"
+	data, err := json.Marshal(record)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(l.dir, execguard.KindCeased), data, 0o600)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (l *execGuardLaunchTest) secondBindingWithSubmittedInterrupt(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	plan := canonicalV19PlanWriterInput("plan-2")
+	plan.TaskID = "task-2"
+	attempt := canonicalV19AttemptWriterInput("attempt-2", "plan-2")
+	attempt.SessionAdapterRef = CanonicalV19HerdrSessionAdapterRef
+	create := canonicalV19WorktreeCreatePrepareInput(l.home, "operation-create-2", "binding-2")
+	create.AttemptID = "attempt-2"
+	key, err := encodeCanonicalV19HerdrSessionProviderKey(canonicalV19HerdrSessionProviderKey{
+		SessionName: l.key.SessionName, WorkspaceID: "w-second", TabID: "w-second:t1", PaneID: "w-second:p1",
+	})
+	if err == nil {
+		_, err = CreateCanonicalV19Task(ctx, l.home, CanonicalV19TaskCreateInput{ID: "task-2", ProjectID: "project-1", Goal: "second", GoalDigest: "goal-digest-2", CreatedAt: "2026-09-04T07:59:30Z"})
+	}
+	if err == nil {
+		_, err = CreateCanonicalV19RootPlan(ctx, l.home, plan)
+	}
+	if err == nil {
+		_, err = CreateCanonicalV19Attempt(ctx, l.home, attempt)
+	}
+	var worktree CanonicalV19WorktreeCreateRequest
+	if err == nil {
+		worktree, err = PrepareCanonicalV19WorktreeCreate(ctx, l.home, create)
+	}
+	if err == nil {
+		err = EstablishCanonicalV19WorktreeBinding(ctx, l.home, canonicalV19WorktreeBindingEvidence(worktree, "worktree-physical-2"))
+	}
+	var session CanonicalV19SessionAcquireRequest
+	if err == nil {
+		acquire := canonicalV19SessionAcquirePrepareInput(worktree, "operation-session-acquire-2", "session-binding-2")
+		acquire.RequestedProviderSessionKey = key
+		session, err = PrepareCanonicalV19SessionAcquire(ctx, l.home, acquire)
+	}
+	if err == nil {
+		err = EstablishCanonicalV19SessionBinding(ctx, l.home, CanonicalV19SessionBindingEvidence{
+			OperationID: session.OperationID, ProviderSessionKey: key, EstablishedAt: "2026-09-08T03:00:30Z", EvidenceDigest: "session-binding-2",
+		})
+	}
+	var launch CanonicalV19LaunchRequest
+	if err == nil {
+		launch, err = PrepareCanonicalV19Launch(ctx, l.home, canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-2", "executor-binding-2"))
+	}
+	if err == nil {
+		err = EstablishCanonicalV19ExecutorBinding(ctx, l.home, CanonicalV19ExecutorBindingEvidence{
+			OperationID: launch.OperationID, ProviderExecutorKey: "provider-executor-2", EstablishedAt: "2026-09-08T03:07:30Z", EvidenceDigest: "executor-2",
+		})
+	}
+	if err == nil {
+		_, err = PrepareCanonicalV19Interrupt(ctx, l.home, canonicalV19InterruptPrepareInput(launch, "operation-interrupt-other-binding"))
+	}
+	if err == nil {
+		_, err = SubmitCanonicalV19Interrupt(ctx, l.home, "operation-interrupt-other-binding", "2026-09-06T17:06:00Z", "submitted-other-binding")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "operation-interrupt-other-binding"
+}
+
+func TestExecGuardCessationNeverLabelsAnotherBindingsInterruptInterrupted(t *testing.T) {
+	self, err := osfacts.ReadIncarnation(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	root := l.establishKey(t, self)
+	other := l.secondBindingWithSubmittedInterrupt(t)
+	l.interrupt(t, "operation-interrupt-own", true)
+	l.writeCeased(t, execguard.Record{Guard: self, Root: &root, Cause: execguard.CauseInterruptRequest, InterruptOperationID: other, Exit: &execguard.Exit{Code: 143, Signal: 15}})
+	kind, _, err := l.cease(t)
+	count, _, interrupt := l.termination(t)
+	if kind != "failed" || err != nil || count != 1 || interrupt != "" {
+		t.Fatalf("cease = %q, %v (rows %d, interrupt %q), want failed: the cause names another binding's Interrupt (EG-9)", kind, err, count, interrupt)
+	}
+	if own, theirs := l.operationState(t, "operation-interrupt-own"), l.operationState(t, other); own != "succeeded" || theirs != "submitted" {
+		t.Fatalf("own Interrupt %q, other binding's %q, want succeeded and untouched", own, theirs)
+	}
+}
+
+func TestExecGuardCessationRefusesACeasedRecordWithoutAKnownCauseOrVersion(t *testing.T) {
+	self, err := osfacts.ReadIncarnation(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("empty cause", func(t *testing.T) {
+		l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+		root := l.establishKey(t, self)
+		l.writeCeased(t, execguard.Record{Guard: self, Root: &root, Exit: &execguard.Exit{}})
+		if kind, liveness, err := l.cease(t); kind != "" || liveness != osfacts.Alive || err != nil {
+			t.Fatalf("cease = %q, %q, %v, want B open: a ceased record without a known cause is not cessation", kind, liveness, err)
+		}
+	})
+	t.Run("unknown version after a boot change", func(t *testing.T) {
+		l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+		l.establishKey(t, osfacts.Incarnation{BootID: "00000000-0000-4000-8000-000000000000", PID: self.PID, StartTicks: self.StartTicks})
+		if err := os.WriteFile(filepath.Join(l.dir, execguard.KindCeased), []byte(`{"protocol":"hand-exec-guard:v9","kind":"ceased"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if kind, _, err := l.cease(t); kind != "provider-gone" || err != nil {
+			t.Fatalf("cease = %q, %v, want provider-gone: a boot change ceased T(G) whatever the record says (EG-8)", kind, err)
+		}
+	})
 }

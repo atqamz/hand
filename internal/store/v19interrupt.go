@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -282,6 +283,9 @@ func CompleteCanonicalV19Interrupt(
 	}
 	if !canonicalV19InterruptSuccessTransitionAllowed(current.State) || current.StateChangedAt == evidence.ObservedAt {
 		return fmt.Errorf("complete canonical v19 Interrupt: %w: operation %q is %q", ErrCanonicalV19InterruptTransition, evidence.OperationID, current.State)
+	}
+	if strings.HasPrefix(current.Request.ProviderExecutorKey, canonicalV19ExecGuardKeyFamily) {
+		return fmt.Errorf("complete canonical v19 Interrupt: %w: a guarded ExecutorBinding closes only from its guard's cessation record or a boot change", ErrCanonicalV19InterruptTransition)
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE external_operation
 		SET state='succeeded',state_changed_at=?,state_evidence_digest=?,finalized_at=?

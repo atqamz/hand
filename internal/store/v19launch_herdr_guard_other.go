@@ -10,6 +10,12 @@ func reconcileCanonicalV19HerdrGuardLaunch(
 	return "", false, nil
 }
 
+func reconcileCanonicalV19HerdrGuardInterrupt(
+	context.Context, string, canonicalV19HerdrInterruptCurrent, canonicalV19HerdrInterruptDeps,
+) (string, bool, error) {
+	return "", false, nil
+}
+
 func settleCanonicalV19ExecGuardFiles(string, string) error {
 	return nil
 }
