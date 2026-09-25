@@ -40,6 +40,7 @@ func TestCreateCanonicalV19AttemptPersistsExactResolvedProvenance(t *testing.T) 
 	); err != nil {
 		t.Fatal(err)
 	}
+	input.RequirePolicyWitnessCurrent = nil
 	if !reflect.DeepEqual(got, input) || gotOrdinal != 1 || lifecycle != "active" || terminalAt != "" ||
 		profileOverride.Valid || harnessOverride.Valid || modelOverride.Valid || effortOverride.Valid {
 		t.Fatalf("persisted Attempt = %#v ordinal=%d lifecycle=%q terminal_at=%q", got, gotOrdinal, lifecycle, terminalAt)
@@ -137,6 +138,18 @@ func TestCreateCanonicalV19AttemptRejectsInvalidRequestedOverrides(t *testing.T)
 				t.Fatalf("Attempt rows after refusal = %d, want 0", got)
 			}
 		})
+	}
+}
+
+func TestCreateCanonicalV19AttemptRequiresPolicyWitnessRecheck(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	input := canonicalV19AttemptWriterInput("attempt-unchecked", "plan-root")
+	input.RequirePolicyWitnessCurrent = nil
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, input); err == nil {
+		t.Fatal("Attempt without worker policy witness recheck accepted")
+	}
+	if got := canonicalV19AttemptWriterCount(t, fixture.Home); got != 0 {
+		t.Fatalf("Attempt rows after missing recheck = %d, want 0", got)
 	}
 }
 
@@ -383,15 +396,16 @@ func canonicalV19AttemptWriterFixture(t *testing.T) canonicalV19AttemptWriterTes
 
 func canonicalV19AttemptWriterInput(id, planID string) CanonicalV19AttemptCreateInput {
 	return CanonicalV19AttemptCreateInput{
-		ID:                   id,
-		PlanID:               planID,
-		WorkerHarnessRef:     "worker-harness/codex",
-		WorkerHarnessVersion: "1.0.0",
-		WorkerProfileRef:     "profile/default",
-		ModelRef:             "model/example",
-		EffortRef:            "medium",
-		SessionAdapterRef:    "builtin/session",
-		CreatedAt:            "2026-09-04T09:00:00Z",
+		ID:                          id,
+		PlanID:                      planID,
+		RequirePolicyWitnessCurrent: func() error { return nil },
+		WorkerHarnessRef:            "worker-harness/codex",
+		WorkerHarnessVersion:        "1.0.0",
+		WorkerProfileRef:            "profile/default",
+		ModelRef:                    "model/example",
+		EffortRef:                   "medium",
+		SessionAdapterRef:           "builtin/session",
+		CreatedAt:                   "2026-09-04T09:00:00Z",
 	}
 }
 

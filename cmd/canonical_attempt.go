@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/atqamz/hand/internal/axi"
@@ -22,12 +23,15 @@ func newAttemptCmd() *cobra.Command {
 		child := &cobra.Command{
 			Use: verb + " <id>", Short: "Record one Attempt under an exact active Plan",
 			Long: "Resolve the exact active Plan's Worker Route from the configured worker policy and freeze the selected Profile, Worker Harness, model, effort and requested overrides on a new Attempt.\n" +
-				"The worker policy witness is revalidated inside the Attempt transaction; a policy edited after resolution refuses with no Attempt. Create requires a Plan with no Attempt history; retry names the exact latest terminal predecessor.\n" +
+				"The worker policy witness is rechecked at commit inside the Attempt transaction; a policy changed between resolution and that recheck refuses with no Attempt. Create requires a Plan with no Attempt history; retry names the exact latest terminal predecessor.\n" +
 				"No worktree, session or worker is started. Duplicate IDs refuse.",
 			Args: usageArgs(cobra.ExactArgs(1)),
 		}
 		readOverrides := bindWorkerCandidateOverrides(child)
 		child.RunE = func(cmd *cobra.Command, args []string) error {
+			if retry && predecessor == "" {
+				return usageValue(true, errors.New("retry --predecessor must name the exact latest Attempt"))
+			}
 			homeDir, err := home.Resolve()
 			if err != nil {
 				return err

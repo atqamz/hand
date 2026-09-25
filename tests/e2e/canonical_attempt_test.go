@@ -52,6 +52,14 @@ func TestCanonicalAttemptCreateAndRetryFreezeCurrentWorkerRouteWithoutLaunch(t *
 	if err := os.WriteFile(path, policy("worker"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	before := snapshotTree(t, fleet)
+	if got := runHandEnv(t, fleet, []string{"HAND_ROLE=worker"}, "attempt", "create", "attempt-1", "--plan-id", "plan-1"); got.code != 3 {
+		t.Fatalf("worker Attempt creation: %+v", got)
+	}
+	if got := runHand(t, fleet, "attempt", "retry", "attempt-1", "--plan-id", "plan-1", "--predecessor", ""); got.code != 2 {
+		t.Fatalf("retry without exact predecessor: %+v", got)
+	}
+	assertTreeUnchanged(t, fleet, before)
 	created := ok("attempt", "create", "attempt-1", "--plan-id", "plan-1", "--effort-override", "high")
 	for _, want := range []string{"attempt_id: attempt-1", "ordinal: 1", "profile: worker", "harness: codex", "effort: high",
 		"effort-override,high", "worker_launched: false", fmt.Sprintf(`policy_witness: "sha256:%x"`, sha256.Sum256(policy("worker")))} {

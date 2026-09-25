@@ -77,10 +77,8 @@ func CreateCanonicalV19Attempt(ctx context.Context, homeDir string, input Canoni
 	if err := requireCanonicalV19AttemptPredecessorLatest(ctx, tx, input.PlanID, input.PredecessorAttemptID); err != nil {
 		return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
 	}
-	if input.RequirePolicyWitnessCurrent != nil {
-		if err := input.RequirePolicyWitnessCurrent(); err != nil {
-			return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
-		}
+	if err := input.RequirePolicyWitnessCurrent(); err != nil {
+		return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
 	}
 
 	ordinal, err := nextCanonicalV19AttemptOrdinal(ctx, tx, input.PlanID)
@@ -109,6 +107,9 @@ func CreateCanonicalV19Attempt(ctx context.Context, homeDir string, input Canoni
 }
 
 func validateCanonicalV19AttemptCreateInput(input CanonicalV19AttemptCreateInput) error {
+	if input.RequirePolicyWitnessCurrent == nil {
+		return errors.New("create canonical v19 Attempt: worker policy witness recheck is required")
+	}
 	for name, value := range map[string]string{
 		"Attempt ID":          input.ID,
 		"Plan ID":             input.PlanID,
