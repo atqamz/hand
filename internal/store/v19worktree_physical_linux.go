@@ -22,7 +22,7 @@ func canonicalV19FileBirthTime(path string, info os.FileInfo, stat *syscall.Stat
 	if statx.Mask&unix.STATX_INO == 0 || statx.Ino != uint64(stat.Ino) || unix.Mkdev(statx.Dev_major, statx.Dev_minor) != uint64(stat.Dev) {
 		return 0, 0, fmt.Errorf("file identity changed before birth time capture")
 	}
-	if statx.Mask&unix.STATX_BTIME == 0 {
+	if statx.Mask&unix.STATX_BTIME == 0 || statx.Btime.Sec == 0 && statx.Btime.Nsec == 0 {
 		return 0, 0, fmt.Errorf("file birth time is unavailable on this filesystem")
 	}
 	return statx.Btime.Sec, int64(statx.Btime.Nsec), nil

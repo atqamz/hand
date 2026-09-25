@@ -74,7 +74,9 @@ func TestCanonicalV19WorktreePhysicalIdentityDistinguishesReplacedDirectory(t *t
 			t.Fatal(err)
 		}
 	}
-	t.Logf("inode reused by %d replacement directories", reused)
+	if reused == 0 {
+		t.Skipf("no inode reuse observed across 8 replacement directories (%d distinct identities)", len(seen))
+	}
 }
 
 func TestCanonicalV19WorktreePhysicalIdentityRejectsSwappedPath(t *testing.T) {
