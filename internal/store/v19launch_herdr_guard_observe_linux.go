@@ -16,6 +16,8 @@ import (
 	"github.com/atqamz/hand/internal/osfacts"
 )
 
+const canonicalV19ExecGuardStarting = "starting"
+
 var canonicalV19ExecGuardRecordKinds = []string{
 	execguard.KindClaimed, execguard.KindPinned, execguard.KindRunning, execguard.KindRefused, execguard.KindCeased,
 }
@@ -39,7 +41,10 @@ func reconcileCanonicalV19HerdrGuardLaunch(
 		return "", false, nil
 	}
 	operationID := current.Current.Request.OperationID
-	dir := canonicalV19ExecGuardDir(homeDir, operationID)
+	dir, err := canonicalV19ExecGuardDir(homeDir, operationID)
+	if err != nil {
+		return current.Current.State, true, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", err)
+	}
 	if current.Current.State == "prepared" {
 		if err := fenceCanonicalV19ExecGuard(dir); err != nil {
 			return "prepared", true, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", err)
@@ -67,12 +72,19 @@ func reconcileCanonicalV19HerdrGuardLaunch(
 	if err != nil {
 		return current.Current.State, true, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", err)
 	}
+	if verdict.State == canonicalV19ExecGuardStarting {
+		return current.Current.State, true, fmt.Errorf("reconcile canonical v19 Herdr Launch: %s", verdict.Reason)
+	}
 	state, err := applyCanonicalV19ExecGuardVerdict(ctx, homeDir, current, verdict, deps.now)
 	return state, true, err
 }
 
 func settleCanonicalV19ExecGuardFiles(homeDir, operationID string) error {
-	dir := canonicalV19ExecGuardDir(homeDir, operationID)
+	dir, err := canonicalV19ExecGuardDir(homeDir, operationID)
+	if err != nil {
+		// Prepare refuses such an ID before Tx A, so no handoff directory can exist for it.
+		return nil
+	}
 	return errors.Join(fenceCanonicalV19ExecGuard(dir), execguard.Settle(dir))
 }
 
@@ -83,7 +95,8 @@ func fenceCanonicalV19ExecGuard(dir string) error {
 	return nil
 }
 
-// An empty State means no record decides L yet: no claim, or a live guard still starting.
+// An empty State means no guard has claimed L yet; starting means a live guard claimed it
+// and has not written running, which is no reason for any transition or fence.
 func observeCanonicalV19ExecGuardLaunch(dir string, current canonicalV19HerdrLaunchCurrent) (canonicalV19ExecGuardVerdict, error) {
 	request := current.Current.Request
 	var verdict canonicalV19ExecGuardVerdict
@@ -118,6 +131,8 @@ func observeCanonicalV19ExecGuardLaunch(dir string, current canonicalV19HerdrLau
 			return uncertain("guard records for the Launch name different guards or cessation without a running harness")
 		case claimed != nil && liveness != osfacts.Alive:
 			return uncertain("the exec guard claimed the Launch and is " + string(liveness) + " without a running record")
+		case claimed != nil:
+			verdict.State, verdict.Reason = canonicalV19ExecGuardStarting, "the live exec guard claimed the Launch and has not written running yet"
 		}
 		return verdict, nil
 	}

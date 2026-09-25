@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -142,6 +143,64 @@ func TestExecGuardReconcileFencesAPreparedLaunchToNoEffect(t *testing.T) {
 		}
 	}
 	assertExecGuardHandoffGone(t, l.dir)
+}
+
+func TestExecGuardReconcileLeavesALiveStartingGuardUntouched(t *testing.T) {
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	deps := l.submit(t)
+	self, err := osfacts.ReadIncarnation(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.claimAs(t, self)
+	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, deps)
+	_, fenceErr := os.Stat(filepath.Join(l.dir, "fenced"))
+	if persisted, _, _ := l.binding(t); state != "submitted" || err == nil || persisted != "submitted" || !errors.Is(fenceErr, fs.ErrNotExist) {
+		t.Fatalf("reconcile = %q (%q), %v, tombstone %v: want no transition and no fence while a live guard starts", state, persisted, err, fenceErr)
+	}
+}
+
+func TestExecGuardReconcileOfAGuardGoneAfterItsClaimIsUncertain(t *testing.T) {
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	deps := l.submit(t)
+	self, err := osfacts.ReadIncarnation(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	self.StartTicks++
+	l.claimAs(t, self)
+	state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, deps)
+	if persisted, key, _ := l.binding(t); state != "uncertain" || err == nil || persisted != "uncertain" || key != "" {
+		t.Fatalf("reconcile = %q (%q, key %q), %v, want uncertain, never rejected or no-effect, after a crash past the claim (counterexample 4)", state, persisted, key, err)
+	}
+}
+
+func TestExecGuardReconcileOfACrashBeforeTheHandoffIsNoEffect(t *testing.T) {
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	deps, _ := l.installHerdr(t, faketool.Herdr{})
+	if _, err := prepareCanonicalV19ExecGuardLaunch(context.Background(), l.home, l.input); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(execguard.Locator(l.dir)); err != nil {
+		t.Fatal(err)
+	}
+	if state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, deps); state != "no-effect" || err != nil {
+		t.Fatalf("reconcile = %q, %v, want no-effect for a Launch that crashed after Tx A and before its handoff", state, err)
+	}
+}
+
+func (l *execGuardLaunchTest) claimAs(t *testing.T, guard osfacts.Incarnation) {
+	t.Helper()
+	data, err := json.Marshal(execguard.Record{Protocol: execguard.Protocol, Kind: execguard.KindClaimed, LaunchOperationID: l.input.OperationID, Guard: guard})
+	if err == nil {
+		err = os.Rename(execguard.Locator(l.dir), filepath.Join(l.dir, "claim.test"))
+	}
+	if err == nil {
+		err = os.WriteFile(filepath.Join(l.dir, execguard.KindClaimed), data, 0o600)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestExecGuardUnknownRecordVersionIsRefusedNotAbsent(t *testing.T) {
