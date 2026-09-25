@@ -208,7 +208,11 @@ Guard sequence. Every step before `running` fails closed.
    - On a mismatch the guard kills the child, reaps it, and records `refused`.
 8. **Resume** (Windows only).
 
-Pane association, A(B), is required for Launch success while G is live, and it is required by W(B) in "WorkerWake".
+Pane association, A(B), is a WorkerWake precondition only (W(B) in "WorkerWake"). Launch success never requires it on any platform, and Launch success never implies that a wake can be delivered.
+
+ExecutorBinding identity is the guard incarnation G plus the harness root R. It is proven by the guard claiming the exact handoff of L, and L already names the SessionBinding and pane that Hand targeted. Interrupt and cessation act on the guard directly, not through the pane, so they do not need A(B). An established B can therefore always be interrupted, with no abort operation and no relock. Executor-control exclusion still applies: an `uncertain` wake blocks Interrupt until that wake settles.
+
+A(B) is:
 
 - **Linux.** Herdr's pane terminal device equals G's controlling terminal as read from the OS. The terminal's foreground group equals P, both as read from the OS (`tpgid`) and as reported by Herdr.
 - **Windows.** Herdr reports a shell PID for the pane. Hand reads that process's creation time from the OS. The guard's latest `console` record lists that PID with that creation time, and also lists R. A PPID walk is ancestry and is never used.
@@ -217,18 +221,16 @@ Hand's classification of L:
 
 | Outcome | Required positive evidence |
 | --- | --- |
-| `succeeded` | Records `claimed`, `pinned` and `running` for L, naming the committed V_B, request digest and launch-spec digest. In addition, one of: (a) Live(G) and A(B); (b) accepted cessation of T(G), in which case the binding and its termination are written together. |
+| `succeeded` | Records `claimed`, `pinned` and `running` for L, naming the committed V_B, request digest and launch-spec digest. In addition, one of: (a) Live(G); (b) accepted cessation of T(G), in which case the binding and its termination are written together. |
 | `rejected` | A `refused` record for L. Its guard claimed L and exited before any harness instruction ran; any child was killed and reaped. |
 | `no-effect` | Hand fenced handoff(L) on the boot recorded in it: an atomic rename to a tombstone succeeded, so no guard can claim L after the fence. `no-effect` also needs the qualified Herdr property O1 ("WorkerWake"), so that no late guard-invocation bytes can reach a harness. Without O1 the fenced Launch stays `uncertain`, with evidence that no execution can exist. |
-| `uncertain` | Everything else. Examples: a claim with no `running` record and G absent; `running` present but A(B) unobservable; an unverifiable incarnation; a fence after a boot change. |
+| `uncertain` | Everything else. Examples: a claim with no `running` record and G absent; an unverifiable incarnation; a fence after a boot change. |
 
 - A harness that exits immediately after `running` is a real execution, never `no-effect`.
 - An early harness can call `drain` before B exists. That call refuses with a typed not-established result, and the caller can manufacture nothing.
 - Hand never types a second guard invocation for a `submitted` or `uncertain` L. The fence is the only recovery mutation, and it only removes the ability to start.
-- While L is `uncertain`, no B exists, so no Interrupt operation can target that execution. Hand has no operation-less stop.
-  - The reconciler keeps observing. When A(B) becomes observable, L settles `succeeded`.
-  - If the operator ends the execution (closes the pane, or stops the guard), the guard's hangup path records `ceased`, and L settles through branch (b).
-  - A guard gone without `ceased` goes to "Operator-attested settlement".
+- A live guard with valid records always yields `succeeded`, so a running harness always has a B that Interrupt can target.
+- `uncertain` with a live harness remains possible only in a narrow window. On Linux, R can start before the guard writes `running`. A guard that stops at that point (for example, from an outside SIGSTOP) leaves no B. When the guard resumes it writes `running`, or its hangup path writes `ceased`. A guard that disappears without either goes to "Operator-attested settlement".
 - The handoff is deleted in this order: fence, settle L, then delete the tombstone or leftover claim file. A `prepared` L follows the same order, then settles `no-effect` as it does today.
 - A Launch prepared without the credential row keeps the revision-1 refusal. `uncertain` rows from before the guard use "Operator-attested settlement".
 
@@ -402,7 +404,7 @@ W(B) holds when every item below holds:
 - Live(G) and Live(R) hold.
 - G has no `ceased` record.
 - The Session workspace, tab and pane identities match the SessionBinding exactly.
-- A(B) holds. On Windows, the `console` record must be written after the start of the check that uses it: the guard rewrites it with an increasing sequence number at every poll.
+- A(B) holds. On Windows, the `console` record must be written after the start of the check that uses it: the guard rewrites it with an increasing sequence number at every poll. If A(B) is not observed, on any platform, the wake is refused before any Herdr call.
 - Herdr's `agent_status` for the pane is not `blocked`.
 
 ## Delivery and outcomes
@@ -482,7 +484,7 @@ Every settlement runs in one writer transaction that:
 | Item | Launch | WorkerWake | Interrupt |
 | --- | --- | --- | --- |
 | first mutation boundary | `herdr pane run` after Tx B | `herdr agent prompt` after Tx B and a passing W | interrupt-request write after Tx B |
-| strongest positive postcondition | guard records plus Live(G) with A(B), or accepted cessation | W before and after, or O1 settlement | termination accepted |
+| strongest positive postcondition | guard records plus Live(G), or accepted cessation; never wake-deliverability | W before and after, or O1 settlement | termination accepted |
 | same-key idempotency | no replay; the single claim bounds effects to one execution | no; coalescing-safe | yes |
 | destructive identity | G, verified from the OS | — | G, bound by the request record |
 | unknown | `uncertain`, no fabricated binding, attested Repair | `uncertain`, O1 or attested Repair | `uncertain`, attested Repair |
@@ -500,7 +502,7 @@ Every settlement runs in one writer transaction that:
 | executable object | `exact` for native; `sampled` for scripts | `verified` with frozen content; `sampled` for scripts |
 | content digest | sampled | describes the loaded main image |
 | containment and cessation | subreaper, `tree` (`ECHILD`) | job without breakaway, `tree` (`ActiveProcesses == 0`) |
-| pane association | OS terminal and `tpgid` equal Herdr's pane | the guard's console list contains Herdr's shell PID with a creation time read from the OS |
+| pane association (wake only) | OS terminal and `tpgid` equal Herdr's pane | the guard's console list contains Herdr's shell PID with a creation time read from the OS |
 | wake | W with foreground proof | W without a foreground fact; refused without the console association |
 | guard crash | `unknown`, then a boot change or attestation | `unknown`, then a full restart or attestation |
 | outside-daemon effects | not covered | not covered |
@@ -511,7 +513,7 @@ Every settlement runs in one writer transaction that:
 - **EG-2 Single claim.** At most one guard starts a harness for handoff(L). A guard claim and a Hand fence exclude each other. A claim is synced to disk before its harness starts, and the guard refuses a handoff from another boot.
 - **EG-3 Exact incarnation.** Observation or control for B acts only on the process whose OS-read incarnation equals B's key. Any difference is `absent` or `mismatch`, never the target.
 - **EG-4 No Herdr identity authority.** Herdr facts alone never establish, wake, interrupt or terminate B. Herdr daemon PID, ancestry and environment, and PPID walks, are never inputs to a positive result.
-- **EG-5 Launch success.** A binding exists only with valid `claimed`, `pinned` and `running` records that name the committed digests, together with either Live(G) and A(B) or accepted cessation.
+- **EG-5 Launch success.** A binding exists only with valid `claimed`, `pinned` and `running` records that name the committed digests, together with either Live(G) or accepted cessation. Launch success never depends on A(B) and never implies it.
 - **EG-6 Positive no-effect.** `no-effect` for a `submitted` Launch requires a winning fence on the recorded boot, plus O1.
 - **EG-7 Object honesty.** The recorded object is the object the guard opened, with its true class. Neither a PATH search nor a basename or argv match is ever object evidence.
 - **EG-8 Termination source.** A termination row requires one of: a `ceased` record for exactly G with the platform predicate; a positive boot change; or an operator-attested `exec-guard-lost` settlement taken while Absent(G) holds.
@@ -541,7 +543,8 @@ Every settlement runs in one writer transaction that:
 12. **Fast exit.** R exits before Hand observes it. `running` and `ceased` exist, so Hand writes `succeeded` together with the binding and its termination, never `no-effect`.
 13. **Power loss, then history recall.** The boot changes, and every earlier T(G) positively ceased. An operator recalls the old guard command from shell history. The guard compares the handoff's boot with the current boot and records `refused` (EG-2). A synced claim also makes a later fence fail.
 14. **A forged interrupt request.** A same-user process writes a request that names G and no pending Interrupt. The guard terminates T(G), and Hand labels the termination `failed`, never `interrupted` (EG-9).
-15. **A lost wake reply.** The wake stays `uncertain`, and Interrupt for B is refused. With O1 and the same G and R, the reconciler settles `succeeded`. Otherwise the operator attests the outcome (EG-10, EG-16).
+15. **A pane that Herdr cannot observe.** The guard claims L and writes `running`, and G is live, but Herdr reports no usable pane association. L settles `succeeded`, B exists, and Interrupt works through the guard. Every wake for B is refused before any Herdr call, and on Windows the revision-1 refusal stays (EG-5, EG-10).
+16. **A lost wake reply.** The wake stays `uncertain`, and Interrupt for B is refused. With O1 and the same G and R, the reconciler settles `succeeded`. Otherwise the operator attests the outcome (EG-10, EG-16).
 
 # Known limits this revision does not close
 
@@ -555,7 +558,8 @@ Every settlement runs in one writer transaction that:
 - A guard crash leaves B open until a boot change or `exec-guard-lost` attestation.
 - A Windows Fast Startup shutdown is not detected until `BootId` qualifies.
 - A lost wake reply blocks Interrupt for B until O1 settlement or attestation.
-- An `uncertain` Launch with a live harness has no Hand-initiated stop.
+- A Linux guard stopped between R's start and its `running` record leaves a live harness with no B until the guard resumes or disappears.
+- An established B whose pane association Hand never observes can be interrupted, but never woken.
 - These Herdr 0.8.2 behaviors are unmeasured: O1, pane-close signals (SIGHUP versus SIGKILL to the guard), daemon restart, and agent-status accuracy. A SIGKILL of the guard degrades cessation to `unknown`.
 - On a Linux kernel without `CONFIG_PROC_CHILDREN`, a fast-forking descendant can prevent convergence.
 - A crash can leave the handoff or claim file, which holds S_B and every resolved secret-ref plaintext, until reconciliation deletes it.
@@ -603,6 +607,7 @@ Each test cites the invariant it checks. Native process tests run real processes
 
 - A crash at each boundary classifies as the Launch table requires, with no second invocation. The boundaries are: after Tx A, after the handoff write, after Tx B, after `pane run`, after `claimed`, and after `running` (EG-1, EG-5, EG-6).
 - A fence after a boot change is not `no-effect`. The deletion order holds (EG-6).
+- With Live(G) and valid records but no observable pane association, L succeeds. Interrupt of that B succeeds, and every wake for it is refused before any Herdr call (EG-5, EG-10).
 - A record that names a different V_B, request digest or launch-spec digest never succeeds (EG-5).
 - The key grammar round-trips, and the open-key uniqueness trigger holds.
 - A Launch without the credential row keeps the refusal.
@@ -619,7 +624,7 @@ Each test cites the invariant it checks. Native process tests run real processes
 - A pre-check failure makes no Herdr call. `agent_blocked` gives `rejected`. A replaced pane process or R exit between pre-W and post-W gives `uncertain` (EG-10).
 - A lost reply settles `succeeded` only with O1 and the same G and R. Without O1, it needs attestation. While `uncertain`, an Interrupt is refused, and natural cessation still closes B (EG-10, EG-16).
 - The doorbell is constant, has no digits, and matches the grammar. Interactive `bash` and `zsh` (with `CORRECT` on), `sh` and `pwsh` all report a parse error, execute nothing, and read the next line normally (EG-14).
-- Windows: without the console association, the wake refuses.
+- Windows: without the console association, the wake refuses. On any platform, a failed A(B) refuses the wake before any Herdr call.
 
 **WorkerInput protocol.**
 
