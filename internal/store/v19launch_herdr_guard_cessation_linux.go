@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"time"
 
 	"github.com/atqamz/hand/internal/execguard"
@@ -83,20 +84,24 @@ func observeCanonicalV19ExecGuardCessation(binding canonicalV19ExecGuardBinding)
 		return &record, nil
 	}
 	ceased, err := read()
-	if ceased != nil || err != nil {
-		return ceased, "", err
+	if ceased != nil {
+		return ceased, "", nil
 	}
 	liveness := osfacts.Observe(*binding.Parsed.Guard)
-	if liveness != osfacts.Alive {
+	if err == nil && liveness != osfacts.Alive {
 		// G writes ceased before it exits, so a re-read after seeing it gone is complete.
 		ceased, err = read()
+	}
+	if liveness == osfacts.BootChanged {
+		return ceased, liveness, nil
 	}
 	return ceased, liveness, err
 }
 
 func canonicalV19ExecGuardCeasedTree(ceased execguard.Record, guard, root osfacts.Incarnation) bool {
+	causes := []string{execguard.CauseHarnessExit, execguard.CauseInterruptRequest, execguard.CauseHangup, execguard.CauseExternalTermination}
 	return ceased.Guard == guard && ceased.Root != nil && *ceased.Root == root &&
-		ceased.Predicate == "wait4-echild" && ceased.Exit != nil
+		ceased.Predicate == "wait4-echild" && ceased.Exit != nil && slices.Contains(causes, ceased.Cause)
 }
 
 // The first writer of B's termination fixes its kind. Every Interrupt still unresolved
