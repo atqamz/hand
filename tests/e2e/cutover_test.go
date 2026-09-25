@@ -13,7 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/store"
 )
 
-// #348 revision 4 C4-1: until the offline witness and drift gate run, recover never completes a frozen cutover.
+// #348 revision 4 C4-1: recover never completes a frozen cutover in the freeze's boot session.
 func TestCutoverRecoveryCLIRefusesToCompleteFrozenCutover(t *testing.T) {
 	home, _ := frozenCutoverFixture(t)
 	before := snapshotTree(t, home)
@@ -29,7 +29,7 @@ func TestCutoverRecoveryCLIRefusesToCompleteFrozenCutover(t *testing.T) {
 	}
 	assertTreeUnchanged(t, home, before)
 	got = runHand(t, home, "cutover", "recover", home)
-	if got.code == 0 || !strings.Contains(got.stderr, "does not run yet") {
+	if got.code == 0 || !strings.Contains(got.stderr, "recovery disposition=reboot-required") {
 		t.Fatalf("recover frozen cutover = %+v, want refusal", got)
 	}
 	assertTreeUnchanged(t, home, before)
@@ -77,18 +77,30 @@ func TestCutoverRecoveryCLILeavesFreshLegacyAndEmptyHomesUnchanged(t *testing.T)
 	}
 }
 
-func frozenCutoverFixture(t *testing.T) (string, string) {
+// Boot evidence for the freeze's boot session and for a later one, in this platform's token format.
+func cutoverBootEnv(t *testing.T, restarted bool) {
 	t.Helper()
 	token, machine := "11111111-2222-4333-8444-555555555555", "abcdefab-cdef-4abc-8def-abcdefabcdef"
+	if restarted {
+		token = "66666666-7777-4888-9999-aaaaaaaaaaaa"
+	}
 	switch runtime.GOOS {
 	case "linux":
 		machine = "0123456789abcdef0123456789abcdef"
 	case "windows":
 		token = "7200000"
+		if restarted {
+			token = "60000"
+		}
 	}
 	t.Setenv("HAND_TEST_CUTOVER_FILESYSTEM", "local")
 	t.Setenv("HAND_TEST_CUTOVER_BOOT_TOKEN", token)
 	t.Setenv("HAND_TEST_CUTOVER_MACHINE_ID", machine)
+}
+
+func frozenCutoverFixture(t *testing.T) (string, string) {
+	t.Helper()
+	cutoverBootEnv(t, false)
 	home := t.TempDir()
 	createCutoverLegacyFixture(t, home)
 	guard, err := store.AcquireLegacyV18CutoverGuardFixture(context.Background(), home)

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
 )
 
 // ErrLegacyV18CutoverGuardClosed means provider observation no longer owns the required source guards.
@@ -68,7 +71,8 @@ func AcquireLegacyV18CutoverGuard(_ context.Context, _ string) (*LegacyV18Cutove
 }
 
 // The evidence is the preflight read that Freeze commits as E_F.
-func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string, evidence legacyV18CutoverBootEvidence) (*LegacyV18CutoverGuard, error) {
+// FreezeLegacyV18CutoverOffline is the only production caller.
+func acquireLegacyV18CutoverOfflineGuard(ctx context.Context, homeDir string, evidence legacyV18CutoverBootEvidence) (*LegacyV18CutoverGuard, error) {
 	if err := validateLegacyV18CutoverBootEvidence(evidence); err != nil {
 		return nil, fmt.Errorf("acquire legacy v18 cutover guard: boot evidence: %w", err)
 	}
@@ -154,4 +158,33 @@ func exportLegacyV18CutoverObservationPlan(in legacyV18CutoverObservationPlan) L
 		out.Herdr = append(out.Herdr, LegacyV18CutoverHerdrObservation(herdr))
 	}
 	return out
+}
+
+// FreezeLegacyV18CutoverOffline runs the #348 revision 4 freeze run: preflight, the source gate and
+// Fleet-local lock closure, the caller's provider observation under that hold, and one freeze transaction.
+// It returns the Windows completion window, or zero where a restart is the only bound.
+func FreezeLegacyV18CutoverOffline(ctx context.Context, homeDir string, observe func(*LegacyV18CutoverGuard) (LegacyV18CutoverManifestInput, error)) (window time.Duration, err error) {
+	evidence, err := preflightLegacyV18CutoverFreeze(homeDir, legacyV18CutoverPlatform())
+	if err != nil {
+		return 0, err
+	}
+	guard, err := acquireLegacyV18CutoverOfflineGuard(ctx, homeDir, evidence)
+	if err != nil {
+		return 0, err
+	}
+	candidate := guard.gate.archiveCandidate.Path
+	input, err := observe(guard)
+	if err != nil {
+		closeErr := guard.Close()
+		if removeErr := os.Remove(candidate); removeErr != nil && !os.IsNotExist(removeErr) {
+			closeErr = errors.Join(closeErr, removeErr)
+		}
+		return 0, errors.Join(fmt.Errorf("observe providers for the offline freeze: %w", err), closeErr)
+	}
+	err = errors.Join(guard.Freeze(ctx, homeDir, input), guard.Close())
+	if err == nil && evidence.Platform == "windows" {
+		uptime, _ := strconv.ParseUint(evidence.Token, 10, 64)
+		window = time.Duration(uptime) * time.Millisecond
+	}
+	return window, err
 }

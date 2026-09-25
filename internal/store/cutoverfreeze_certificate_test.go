@@ -16,7 +16,7 @@ func TestRecoverCanonicalV19CutoverRefusesV1FrozenBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	state, err := recoverCanonicalV19Cutover(home)
+	state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 	if !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) || state.Disposition != legacyV18CutoverRecoveryRefuse || !strings.Contains(state.Reason, "carries no committed boot evidence") {
 		t.Fatalf("v1 bridge recovery = %#v, %v; want refusal", state, err)
 	}
@@ -116,17 +116,13 @@ func testLegacyV18CutoverMetaDB(t *testing.T, rows map[string]string) *sql.DB {
 	return db
 }
 
-// #348 revision 4 C4-1: the production recover entry never completes a frozen cutover before slice 5 gates it.
-func TestRecoverCanonicalV19CutoverServiceRefusesToCompleteFrozenCutover(t *testing.T) {
-	home, bridge, _, _, _, materialized := canonicalV19CutoverPublicationFixture(t)
-	result, err := RecoverCanonicalV19Cutover(home)
-	if !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) || result.Disposition != string(legacyV18CutoverRecoveryRefuse) || !strings.Contains(result.Reason, "does not run yet") {
-		t.Fatalf("service recovery = %#v, %v; want refusal", result, err)
+// #348 revision 4 "0.8.0 behavior for a legacy home": a frozen bridge names the pending cutover, not an upgrade.
+func TestSchemaVersionErrorNamesPendingCutover(t *testing.T) {
+	err := schemaVersionError(legacyV18CutoverFrozenUserVersion, legacyV072SchemaVersion)
+	if !errors.Is(err, ErrSchemaNewer) || !strings.Contains(err.Error(), "pending v19 cutover") || strings.Contains(err.Error(), "upgrade hand") {
+		t.Fatalf("frozen bridge schema error = %v", err)
 	}
-	if got, err := legacyV18CutoverFileSHA256(Path(home)); err != nil || got != bridge.BridgeSHA256 {
-		t.Fatalf("refused recovery changed the bridge: %s, %v", got, err)
-	}
-	if got, err := legacyV18CutoverFileSHA256(materialized.Path); err != nil || got != materialized.SHA256 {
-		t.Fatalf("refused recovery changed the canonical temp: %s, %v", got, err)
+	if err := schemaVersionError(legacyV18CutoverFrozenUserVersion+1, legacyV072SchemaVersion); !strings.Contains(err.Error(), "upgrade hand") {
+		t.Fatalf("newer schema error = %v", err)
 	}
 }

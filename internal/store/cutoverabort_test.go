@@ -104,7 +104,7 @@ func TestAbortLegacyV18CutoverFreezeResumesAfterCommitPoint(t *testing.T) {
 	if _, err := publishCanonicalV19Cutover(home); !errors.Is(err, errLegacyV18CutoverPublicationUnsafe) {
 		t.Fatalf("publication after abort commit point = %v, want refusal", err)
 	}
-	if _, err := recoverCanonicalV19Cutover(home); !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) {
+	if _, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate); !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) {
 		t.Fatalf("recover after abort commit point = %v, want refusal", err)
 	}
 	if err := moveLegacyV18CutoverManifestIntoAbortRecord(home, bridge.MigrationID, record); err != nil {

@@ -18,7 +18,10 @@ func rebuildCanonicalV19CutoverTemp(homeDir string) (canonicalV19CutoverMaterial
 		return canonicalV19CutoverMaterialization{}, fmt.Errorf("rebuild canonical v19 cutover temp: acquire MigrationLock: %w", err)
 	}
 	defer releaseMigration()
+	return rebuildCanonicalV19CutoverTempLocked(homeDir)
+}
 
+func rebuildCanonicalV19CutoverTempLocked(homeDir string) (canonicalV19CutoverMaterialization, error) {
 	before, err := inspectLegacyV18CutoverRecovery(homeDir)
 	if err != nil {
 		return canonicalV19CutoverMaterialization{}, fmt.Errorf("rebuild canonical v19 cutover temp: inspect recovery authority: %w", err)

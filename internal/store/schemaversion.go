@@ -286,6 +286,9 @@ func schemaVersionError(current, latest int) error {
 	if current <= latest {
 		return nil
 	}
+	if current == legacyV18CutoverFrozenUserVersion {
+		return fmt.Errorf("state/hand.db is frozen for a pending v19 cutover - after a full restart run `hand cutover offline <home>` to complete it, or run `hand cutover offline --abort <home>` to return to legacy: %w", ErrSchemaNewer)
+	}
 	return fmt.Errorf("state/hand.db is schema version %d, newer than this build of hand supports (version %d) - upgrade hand before opening it: %w",
 		current, latest, ErrSchemaNewer)
 }

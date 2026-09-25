@@ -1,7 +1,5 @@
 package store
 
-import "fmt"
-
 // CanonicalV19CutoverRecovery exposes the bounded recovery classification,
 // without treating archive paths or advisory markers as caller authority.
 type CanonicalV19CutoverRecovery struct {
@@ -11,23 +9,26 @@ type CanonicalV19CutoverRecovery struct {
 	FleetID     string
 }
 
+// CanonicalV19CutoverLegacySource is the disposition of an exact, unfrozen v0.7.2 source.
+const CanonicalV19CutoverLegacySource = string(legacyV18CutoverRecoveryLegacySource)
+
 // InspectCanonicalV19Cutover classifies existing recovery evidence read-only.
 func InspectCanonicalV19Cutover(homeDir string) (CanonicalV19CutoverRecovery, error) {
 	state, err := inspectLegacyV18CutoverRecovery(homeDir)
 	return canonicalV19CutoverRecoverySummary(state), err
 }
 
-// RecoverCanonicalV19Cutover resumes only an already-frozen cutover with exact
-// preserved evidence. Each mutation revalidates authority under MigrationLock.
-func RecoverCanonicalV19Cutover(homeDir string) (CanonicalV19CutoverRecovery, error) {
-	state, err := inspectLegacyV18CutoverRecovery(homeDir)
-	if err == nil && (state.Disposition == legacyV18CutoverRecoveryRebuildCanonicalTemp || state.Disposition == legacyV18CutoverRecoveryPublishCanonicalTemp) {
-		state.Disposition = legacyV18CutoverRecoveryRefuse
-		state.Reason = "completing a frozen cutover needs the offline boot witness and drift gate, which this build does not run yet"
-		return canonicalV19CutoverRecoverySummary(state), fmt.Errorf("%w: recovery disposition=%s: %s", errLegacyV18CutoverRecoveryExecutionUnsafe, state.Disposition, state.Reason)
-	}
-	state, err = recoverCanonicalV19Cutover(homeDir)
+// RecoverCanonicalV19Cutover resumes only an already-frozen cutover with exact preserved
+// evidence, after the boot witness and the drift gate, in one MigrationLock hold.
+func RecoverCanonicalV19Cutover(homeDir string, driftGate LegacyV18CutoverDriftGate) (CanonicalV19CutoverRecovery, error) {
+	state, err := recoverCanonicalV19Cutover(homeDir, driftGate)
 	return canonicalV19CutoverRecoverySummary(state), err
+}
+
+// AbortCanonicalV19Cutover returns a frozen, unpublished home to its exact pre-freeze legacy DB.
+func AbortCanonicalV19Cutover(homeDir string) (CanonicalV19CutoverRecovery, error) {
+	aborted, err := abortLegacyV18CutoverFreeze(homeDir)
+	return CanonicalV19CutoverRecovery{Disposition: aborted.Disposition, MigrationID: aborted.MigrationID, Reason: aborted.Record}, err
 }
 
 func canonicalV19CutoverRecoverySummary(state legacyV18CutoverRecoveryState) CanonicalV19CutoverRecovery {

@@ -11,7 +11,7 @@ import (
 func TestLegacyV18CutoverGuardFreezeLeavesRecoverableFrozenBridge(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
+	guard, err := acquireLegacyV18CutoverOfflineGuard(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestLegacyV18CutoverGuardFreezeLeavesRecoverableFrozenBridge(t *testing.T) 
 func TestLegacyV18CutoverGuardFreezeReusesExactManifestAcrossPrefreezeRetry(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	firstGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
+	firstGuard, err := acquireLegacyV18CutoverOfflineGuard(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLegacyV18CutoverGuardFreezeReusesExactManifestAcrossPrefreezeRetry(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
+	secondGuard, err := acquireLegacyV18CutoverOfflineGuard(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
+	guard, err := acquireLegacyV18CutoverOfflineGuard(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 func TestLegacyV18CutoverGuardFreezeRejectsNewRendezvousBeforeArchivePromotion(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
+	guard, err := acquireLegacyV18CutoverOfflineGuard(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
