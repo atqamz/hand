@@ -429,37 +429,133 @@ func TestArchiveCanonicalV19TaskAllowsTerminalLineageWithoutEffectsOrResources(t
 	}
 }
 
-func TestArchiveCanonicalV19TaskRefusesOpenResourceLineageWithoutObservation(t *testing.T) {
-	fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
-	db := canonicalV19TaskArchiveOpen(t, fixture.Home)
-	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`UPDATE attempt SET lifecycle='failed',terminal_at='2026-09-15T01:00:00Z' WHERE id='attempt-1';
-		UPDATE plan SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:01Z' WHERE id='plan-root';
-		UPDATE task SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:02Z' WHERE id='task-1'`); err != nil {
+func TestArchiveCanonicalV19TaskArchivesReleasedWorktreeLineage(t *testing.T) {
+	fixture, binding := canonicalV19WorktreeRemoveFixture(t)
+	canonicalV19RemoveArchiveWorktree(t, fixture.Home, binding)
+	canonicalV19TerminateArchiveLineage(t, fixture.Home)
+	canonicalV19ExpectArchiveTaskArchived(t, fixture.Home)
+}
+
+func TestArchiveCanonicalV19TaskArchivesAttestedProviderGoneLineage(t *testing.T) {
+	canonicalV19ExpectArchiveTaskArchived(t, canonicalV19ArchiveExecutorLineage(t, 3))
+}
+
+func TestArchiveCanonicalV19TaskRefusesUnreleasedBindings(t *testing.T) {
+	for name, releases := range map[string]int{"open executor": 0, "open session": 1, "open worktree": 2} {
+		t.Run(name, func(t *testing.T) {
+			canonicalV19ExpectArchiveTaskNotEligible(t, canonicalV19ArchiveExecutorLineage(t, releases))
+		})
+	}
+}
+
+func TestArchiveCanonicalV19TaskRefusesUnresolvedOperation(t *testing.T) {
+	fixture := canonicalV19WorktreeCreateFixture(t)
+	if _, err := PrepareCanonicalV19WorktreeCreate(context.Background(), fixture.Home,
+		canonicalV19WorktreeCreatePrepareInput(fixture.Home, "operation-create", "binding-1")); err != nil {
 		t.Fatal(err)
 	}
+	canonicalV19TerminateArchiveLineage(t, fixture.Home)
 	canonicalV19ExpectArchiveTaskNotEligible(t, fixture.Home)
 }
 
-func TestArchiveCanonicalV19TaskRefusesReleasedWorktreeLineageWithoutObservation(t *testing.T) {
-	fixture, binding := canonicalV19WorktreeRemoveFixture(t)
-	remove := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-1")
-	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, remove); err != nil {
+func canonicalV19ArchiveExecutorLineage(t *testing.T, releases int) string {
+	t.Helper()
+	fixture, session, launch := canonicalV19ExecutorBindingFixture(t)
+	steps := []func(){
+		func() { canonicalV19AttestArchiveExecutorGone(t, fixture.Home, launch.BindingID) },
+		func() { canonicalV19ReleaseArchiveSession(t, fixture.Home, session.BindingID) },
+		func() {
+			canonicalV19RemoveArchiveWorktree(t, fixture.Home, CanonicalV19WorktreeCreateRequest{
+				AttemptID: session.AttemptID, BindingID: session.WorktreeBindingID,
+			})
+		},
+	}
+	for _, step := range steps[:releases] {
+		step()
+	}
+	canonicalV19TerminateArchiveLineage(t, fixture.Home)
+	return fixture.Home
+}
+
+func canonicalV19AttestArchiveExecutorGone(t *testing.T, home, executorBindingID string) {
+	t.Helper()
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`BEGIN IMMEDIATE;
+		INSERT INTO repair_target(repair_id,executor_binding_id) VALUES('repair-exec-guard-lost',?);
+		INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
+		VALUES('repair-exec-guard-lost','exec-guard-lost','guard gone without ceased record','exec-guard-lost-diagnosis','2026-09-06T17:06:00Z');
+		INSERT INTO repair_resolution(repair_id,resolution,resolved_at,evidence_digest,actor_ref)
+		VALUES('repair-exec-guard-lost','operator-attested','2026-09-06T17:07:00Z','exec-guard-lost-attested','operator-1');
+		INSERT INTO executor_binding_termination(executor_binding_id,terminal_kind,observed_at,evidence_digest)
+		VALUES(?,'provider-gone','2026-09-06T17:07:00Z','exec-guard-lost-attested');
+		COMMIT`, executorBindingID, executorBindingID); err != nil {
 		t.Fatal(err)
 	}
-	if err := CompleteCanonicalV19WorktreeRemove(context.Background(), fixture.Home, CanonicalV19WorktreeRemovedEvidence{
+}
+
+func canonicalV19ReleaseArchiveSession(t *testing.T, home, sessionBindingID string) {
+	t.Helper()
+	request, err := PrepareCanonicalV19SessionRelease(context.Background(), home, CanonicalV19SessionReleasePrepareInput{
+		OperationID: "operation-session-release-1", OperationKey: "operation-key-session-release-1",
+		SessionBindingID: sessionBindingID, CreatedAt: "2026-09-06T17:08:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitCanonicalV19SessionRelease(context.Background(), home, request.OperationID,
+		"2026-09-06T17:09:00Z", "release-submit-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CompleteCanonicalV19SessionRelease(context.Background(), home, CanonicalV19SessionReleasedEvidence{
+		OperationID: request.OperationID, ReleasedAt: "2026-09-06T17:10:00Z", EvidenceDigest: "release-succeeded-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func canonicalV19RemoveArchiveWorktree(t *testing.T, home string, binding CanonicalV19WorktreeCreateRequest) {
+	t.Helper()
+	remove := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-1")
+	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), home, remove); err != nil {
+		t.Fatal(err)
+	}
+	if err := CompleteCanonicalV19WorktreeRemove(context.Background(), home, CanonicalV19WorktreeRemovedEvidence{
 		OperationID: remove.OperationID, RemovedAt: "2026-09-05T15:04:00Z", EvidenceDigest: "remove-positive-absence-1",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	db := canonicalV19TaskArchiveOpen(t, fixture.Home)
+}
+
+func canonicalV19TerminateArchiveLineage(t *testing.T, home string) {
+	t.Helper()
+	db := canonicalV19TaskArchiveOpen(t, home)
 	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`UPDATE attempt SET lifecycle='completed',terminal_at='2026-09-15T01:00:00Z' WHERE id='attempt-1';
 		UPDATE plan SET lifecycle='satisfied',terminal_at='2026-09-15T01:00:01Z' WHERE id='plan-root';
 		UPDATE task SET lifecycle='satisfied',terminal_at='2026-09-15T01:00:02Z' WHERE id='task-1'`); err != nil {
 		t.Fatal(err)
 	}
-	canonicalV19ExpectArchiveTaskNotEligible(t, fixture.Home)
+}
+
+func canonicalV19ExpectArchiveTaskArchived(t *testing.T, home string) {
+	t.Helper()
+	if err := ArchiveCanonicalV19Task(context.Background(), home, CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive WHERE task_id='task-1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("released lineage archive facts = %d, want one", count)
+	}
 }
 
 func canonicalV19ExpectArchiveTaskNotEligible(t *testing.T, home string) {

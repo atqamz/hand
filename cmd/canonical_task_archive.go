@@ -10,8 +10,8 @@ import (
 func newTaskArchiveCmd() *cobra.Command {
 	var input store.CanonicalV19TaskArchiveInput
 	cmd := &cobra.Command{
-		Use: "archive <task-id>", Short: "Archive an exact terminal Task without resource lineage",
-		Long: "Append one immutable archive fact for a terminal canonical Task without external operation or execution resource lineage. Tasks with resource or effect lineage require qualified external observations and currently refuse. Retain every flag for exact replay after a lost response.",
+		Use: "archive <task-id>", Short: "Archive an exact terminal Task whose resources are released",
+		Long: "Append one immutable archive fact for a terminal canonical Task. Every external operation in its lineage must be resolved, and every Worktree, Session and Executor binding must have its durable release or termination fact. Archive reads no Git, filesystem or provider state. Retain every flag for exact replay after a lost response.",
 		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := canonicalTimestamp(input.ArchivedAt); err != nil {
