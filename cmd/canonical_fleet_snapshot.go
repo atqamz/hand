@@ -107,6 +107,13 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 					valueOrNone(operation.ExecutorBindingID), strconv.FormatInt(operation.PendingThroughOrdinal, 10)})
 			}
 			doc.Rows("unresolved_operations", []string{"id", "kind", "state", "project_id", "task_id", "plan_id", "attempt_id", "scope_kind", "scope_key", "session_binding_id", "executor_binding_id", "pending_through_ordinal"}, operations)
+			holds := make([][]string, 0, len(snapshot.CurrentOpenTaskHolds))
+			for _, hold := range snapshot.CurrentOpenTaskHolds {
+				holds = append(holds, []string{hold.ID, hold.TaskID, strconv.FormatInt(hold.Ordinal, 10), hold.Kind,
+					hold.EvidenceDigest, hold.CreatedAt, valueOrNone(hold.BlockedOnTaskID),
+					valueOrNone(hold.DecisionID), valueOrNone(hold.RecheckNotBefore)})
+			}
+			doc.Rows("current_open_task_holds", []string{"id", "task_id", "ordinal", "kind", "evidence_digest", "created_at", "blocked_on_task_id", "decision_id", "recheck_not_before"}, holds)
 			items := make([][]string, 0, len(partialAttention.Items))
 			for _, item := range partialAttention.Items {
 				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, valueOrNone(item.OperationKind),
@@ -115,7 +122,7 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 					valueOrNone(item.SessionBindingID), valueOrNone(item.ExecutorBindingID)})
 			}
 			doc.Rows("partial_attention_items", []string{"priority", "code", "evidence_id", "operation_kind", "operation_state", "scope_kind", "scope_key", "report_state", "project_id", "task_id", "plan_id", "attempt_id", "session_binding_id", "executor_binding_id"}, items)
-			doc.Help("Partial read: Attention covers unresolved external operations and the latest unacknowledged handling-worthy WorkerReport on an active Attempt. Current unacknowledged WorkerInputs are listed separately; no bounded policy condition for input Attention is projected. No acknowledgement or action is implied. Receipts, broader report history, holds, decisions, full history and external observations are not projected.")
+			doc.Help("Partial read: Attention covers unresolved external operations and the latest unacknowledged handling-worthy WorkerReport on an active Attempt. Current unacknowledged WorkerInputs are listed separately; no bounded policy condition for input Attention is projected. Current open TaskHolds are separate raw rows, not Attention. No acknowledgement or action is implied. Receipts, broader report and hold history, decisions, full history and external observations are not projected.")
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
