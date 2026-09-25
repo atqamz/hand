@@ -219,7 +219,7 @@ func TestCanonicalV19BlockedTaskHoldAndDependencySupersedeRaceHasOneWinner(t *te
 	}
 }
 
-func TestCanonicalV19BlockedTaskHoldResolveAndDependencySupersedeRaceNeverSupersedesUnderOpenHold(t *testing.T) {
+func TestCanonicalV19BlockedTaskHoldResolveAndDependencySupersedeRaceKeepsExactResolution(t *testing.T) {
 	home := canonicalV19TaskHoldWriterFixture(t)
 	hold := canonicalV19TaskHoldWriterInput("hold-1")
 	hold.Kind, hold.BlockedOnTaskID = "blocked", "task-2"
@@ -276,6 +276,25 @@ func TestCreateCanonicalV19TaskHoldRefusesStaleBlockedOnTaskWithoutMutation(t *t
 	}
 	if _, err := CreateCanonicalV19TaskHold(context.Background(), home, hold); !errors.Is(err, ErrCanonicalV19TaskHoldNotCurrent) {
 		t.Fatalf("Hold blocked on archived Task error = %v, want %v", err, ErrCanonicalV19TaskHoldNotCurrent)
+	}
+	db, err := open(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO project(id,fleet_id,ordinal,display_name,created_at,retired_at)
+		VALUES('project-2','fleet-1',2,'other','2026-09-05T02:58:00Z','');
+		INSERT INTO task(id,project_id,ordinal,goal,goal_digest,created_at)
+		VALUES('task-retired-project','project-2',1,'goal','digest','2026-09-05T02:59:00Z');
+		UPDATE project SET retired_at='2026-09-05T03:00:03Z' WHERE id='project-2'`)
+	if closeErr := db.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold.BlockedOnTaskID = "task-retired-project"
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), home, hold); !errors.Is(err, ErrCanonicalV19TaskHoldNotCurrent) {
+		t.Fatalf("Hold blocked on retired-Project Task error = %v, want %v", err, ErrCanonicalV19TaskHoldNotCurrent)
 	}
 	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
 }
