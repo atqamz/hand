@@ -129,7 +129,7 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			decisions := make([][]string, 0, len(snapshot.CurrentOpenDecisions))
 			for _, decision := range snapshot.CurrentOpenDecisions {
 				decisions = append(decisions, []string{decision.ID, decision.TaskID, valueOrNone(decision.PlanID),
-					valueOrNone(decision.AttemptID), decision.ScopeKind, decision.ChoicesDigest,
+					valueOrNone(decision.AttemptID), decision.ScopeKind, valueOrNone(decision.ChoicesDigest),
 					valueOrNone(decision.TriggeringWorkerReportID), decision.CreatedAt})
 			}
 			doc.Rows("current_open_decisions", []string{"id", "task_id", "plan_id", "attempt_id", "scope_kind", "choices_digest", "triggering_worker_report_id", "created_at"}, decisions)

@@ -20,11 +20,13 @@ type CanonicalV19SnapshotDecision struct {
 const canonicalV19SnapshotCurrentDecisionsQuery = `SELECT d.id,d.task_id,COALESCE(d.plan_id,''),COALESCE(d.attempt_id,''),
 		d.scope_kind,d.choices_digest,COALESCE(d.triggering_worker_report_id,''),d.created_at
 		FROM project pr
-		CROSS JOIN task t INDEXED BY task_active_by_project
+		CROSS JOIN task t
+		LEFT JOIN task_archive ta ON ta.task_id=t.id
 		CROSS JOIN decision d INDEXED BY decision_task_history
-		LEFT JOIN decision_closure c ON c.decision_id=d.id
-		WHERE t.project_id=pr.id AND t.lifecycle='active'
-		  AND d.task_id=t.id AND c.decision_id IS NULL
+		LEFT JOIN decision_answer da ON da.decision_id=d.id
+		LEFT JOIN decision_closure dc ON dc.decision_id=d.id
+		WHERE t.project_id=pr.id AND ta.task_id IS NULL
+		  AND d.task_id=t.id AND da.decision_id IS NULL AND dc.decision_id IS NULL
 		ORDER BY pr.ordinal,pr.id,t.ordinal,t.id,d.created_at,d.id`
 
 func readCanonicalV19SnapshotCurrentDecisions(ctx context.Context, tx *sql.Tx) ([]CanonicalV19SnapshotDecision, error) {

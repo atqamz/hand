@@ -111,7 +111,7 @@ func TestFleetSnapshotShowsCurrentTaskHoldWithoutInventingAttention(t *testing.T
 		strings.Contains(out.String(), "waiting for task-2") ||
 		!strings.Contains(out.String(), "task-2,decision-1,") ||
 		!strings.Contains(out.String(), "current_open_decisions[1]") ||
-		!strings.Contains(out.String(), `decision-1,task-1,none,none,task,"",none,`) ||
+		!strings.Contains(out.String(), `decision-1,task-1,none,none,task,none,none,`) ||
 		!strings.Contains(out.String(), "partial_attention_items[0]") {
 		t.Fatalf("snapshot did not separate TaskHold and Decision from Attention: %q", out.String())
 	}
