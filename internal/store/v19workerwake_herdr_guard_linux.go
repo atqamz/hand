@@ -16,6 +16,8 @@ import (
 	"github.com/atqamz/hand/internal/osfacts"
 )
 
+const canonicalV19HerdrWorkerWakeCallTimeout = 30 * time.Second
+
 // One fresh WorkerWake of a guarded ExecutorBinding: Tx A and Tx B, then W(B), the constant
 // doorbell through `herdr agent prompt`, and W(B) again. Reachable only with deps.execGuard,
 // which production leaves off, so the revision-1 refusal still governs every platform.
@@ -85,7 +87,7 @@ func wakeCanonicalV19Herdr(
 	if reason := checkCanonicalV19HerdrGuardWake(ctx, current, key, dir, client); reason != "" {
 		return settle("no-effect", "W(B) failed before delivery: "+reason)
 	}
-	promptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	promptCtx, cancel := context.WithTimeout(ctx, canonicalV19HerdrWorkerWakeCallTimeout)
 	promptErr := client.AgentPromptContext(promptCtx, key.Session.PaneID, canonicalV19HerdrWorkerWakeDoorbell)
 	cancel()
 	switch {
@@ -102,7 +104,7 @@ func wakeCanonicalV19Herdr(
 
 // W(B) on Linux reads the OS-only facts first, so a gone or ceased guard never reaches Herdr.
 func checkCanonicalV19HerdrGuardWake(
-	ctx context.Context,
+	parent context.Context,
 	current canonicalV19HerdrWorkerWakeCurrent,
 	key canonicalV19ExecGuardKey,
 	dir string,
@@ -129,6 +131,8 @@ func checkCanonicalV19HerdrGuardWake(
 	if err != nil || session != key.Session {
 		return "the ExecutorBinding key names another pane than the SessionBinding"
 	}
+	ctx, cancel := context.WithTimeout(parent, canonicalV19HerdrWorkerWakeCallTimeout)
+	defer cancel()
 	if observed := client.ObserveSession(ctx); observed.Name != session.SessionName || observed.State != herdr.SessionRunningCompatible {
 		return fmt.Sprintf("Herdr session %q is %q", session.SessionName, observed.State)
 	}
@@ -145,7 +149,7 @@ func checkCanonicalV19HerdrGuardWake(
 	if len(matches) != 1 || matches[0].Label != canonicalV19HerdrSessionWorkspaceLabel(current.Current.Request.SessionBindingID) {
 		return "Herdr reports no single Session workspace carrying the SessionBinding locator"
 	}
-	tabs, err := client.TabList(session.WorkspaceID)
+	tabs, err := client.TabListContext(ctx, session.WorkspaceID)
 	if err != nil || len(tabs) != 1 || tabs[0].TabID != session.TabID || tabs[0].WorkspaceID != session.WorkspaceID {
 		return "the Session workspace's root tab differs from the SessionBinding"
 	}
@@ -153,7 +157,7 @@ func checkCanonicalV19HerdrGuardWake(
 	if err != nil || pane.PaneID != session.PaneID || pane.TabID != session.TabID || pane.WorkspaceID != session.WorkspaceID {
 		return "the Session root pane differs from the SessionBinding"
 	}
-	if assoc := canonicalV19ExecGuardAssociation(client, session.PaneID, *key.Guard, key.ProcessGroup); assoc != "observed" {
+	if assoc := canonicalV19ExecGuardAssociation(ctx, client, session.PaneID, *key.Guard, key.ProcessGroup); assoc != "observed" {
 		return "the pane association A(B) is " + assoc
 	}
 	if pane.AgentStatus == herdr.StatusBlocked {

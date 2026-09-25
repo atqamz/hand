@@ -186,7 +186,7 @@ func observeCanonicalV19ExecGuardLaunch(
 			}
 			return uncertain(reason)
 		}
-		key.Assoc = canonicalV19ExecGuardAssociation(client, key.Session.PaneID, guard, running.ProcessGroup)
+		key.Assoc = canonicalV19ExecGuardAssociation(context.Background(), client, key.Session.PaneID, guard, running.ProcessGroup)
 	}
 	encoded, err := encodeCanonicalV19ExecGuardKey(key)
 	if err != nil {
@@ -285,14 +285,14 @@ func canonicalV19ExecGuardEvidenceDigest(current canonicalV19HerdrLaunchCurrent,
 }
 
 type canonicalV19HerdrPaneProcessClient interface {
-	PaneProcessInfo(string) (herdr.ProcessInfo, error)
+	PaneProcessInfoContext(context.Context, string) (herdr.ProcessInfo, error)
 }
 
-func canonicalV19ExecGuardAssociation(client canonicalV19HerdrPaneProcessClient, paneID string, guard osfacts.Incarnation, group int) string {
+func canonicalV19ExecGuardAssociation(ctx context.Context, client canonicalV19HerdrPaneProcessClient, paneID string, guard osfacts.Incarnation, group int) string {
 	if client == nil {
 		return "unobserved"
 	}
-	info, err := client.PaneProcessInfo(paneID)
+	info, err := client.PaneProcessInfoContext(ctx, paneID)
 	var device unix.Stat_t
 	if err != nil || info.PaneID != paneID || info.TTY == "" || unix.Stat(info.TTY, &device) != nil {
 		return "unobserved"

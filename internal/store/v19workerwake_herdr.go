@@ -18,9 +18,9 @@ type canonicalV19HerdrWorkerWakeCurrent struct {
 type canonicalV19HerdrWorkerWakeClient interface {
 	ObserveSession(context.Context) herdr.SessionObservation
 	WorkspaceListContext(context.Context) ([]herdr.Workspace, error)
-	TabList(string) ([]herdr.Tab, error)
+	TabListContext(context.Context, string) ([]herdr.Tab, error)
 	PaneGetContext(context.Context, string) (herdr.Pane, error)
-	PaneProcessInfo(string) (herdr.ProcessInfo, error)
+	PaneProcessInfoContext(context.Context, string) (herdr.ProcessInfo, error)
 	AgentPromptContext(context.Context, string, string) error
 }
 

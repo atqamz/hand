@@ -63,6 +63,7 @@ type canonicalV19HerdrLaunchClient interface {
 	TabList(string) ([]herdr.Tab, error)
 	PaneGetContext(context.Context, string) (herdr.Pane, error)
 	PaneProcessInfo(string) (herdr.ProcessInfo, error)
+	PaneProcessInfoContext(context.Context, string) (herdr.ProcessInfo, error)
 	PaneRunExecGuard(paneID, cwd, hand, locator string) error
 }
 

@@ -321,6 +321,10 @@ func (f *canonicalV19HerdrLaunchFakeClient) PaneProcessInfo(paneID string) (herd
 	return f.processInfo, nil
 }
 
+func (f *canonicalV19HerdrLaunchFakeClient) PaneProcessInfoContext(_ context.Context, paneID string) (herdr.ProcessInfo, error) {
+	return f.PaneProcessInfo(paneID)
+}
+
 func (f *canonicalV19HerdrLaunchFakeClient) PaneRunExecGuard(string, string, string, string) error {
 	f.runCalls++
 	return nil

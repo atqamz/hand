@@ -151,14 +151,61 @@ func TestCanonicalV19HerdrWorkerWakeDoorbellMatchesTheGrammar(t *testing.T) {
 type canonicalV19HerdrWorkerWakeFakeClient struct {
 	*canonicalV19HerdrLaunchFakeClient
 	wakeOperationID          string
+	herdrCalls               int
 	promptCalls              int
 	promptErr                error
 	onPrompt                 func()
 	requireSubmittedAtPrompt bool
 }
 
-func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(_ context.Context, target, text string) error {
+func (f *canonicalV19HerdrWorkerWakeFakeClient) bounded(ctx context.Context, call string) error {
+	f.herdrCalls++
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 30*time.Second {
+		f.t.Errorf("Herdr %s ran without a context bounded to 30s", call)
+	}
+	return ctx.Err()
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) ObserveSession(ctx context.Context) herdr.SessionObservation {
+	if err := f.bounded(ctx, "session observation"); err != nil {
+		return herdr.SessionObservation{State: herdr.SessionUnknown, Reason: err.Error()}
+	}
+	return f.canonicalV19HerdrLaunchFakeClient.ObserveSession(ctx)
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) WorkspaceListContext(ctx context.Context) ([]herdr.Workspace, error) {
+	if err := f.bounded(ctx, "workspace list"); err != nil {
+		return nil, err
+	}
+	return f.canonicalV19HerdrLaunchFakeClient.WorkspaceListContext(ctx)
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) TabListContext(ctx context.Context, workspaceID string) ([]herdr.Tab, error) {
+	if err := f.bounded(ctx, "tab list"); err != nil {
+		return nil, err
+	}
+	return f.TabList(workspaceID)
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) PaneGetContext(ctx context.Context, paneID string) (herdr.Pane, error) {
+	if err := f.bounded(ctx, "pane get"); err != nil {
+		return herdr.Pane{}, err
+	}
+	return f.canonicalV19HerdrLaunchFakeClient.PaneGetContext(ctx, paneID)
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) PaneProcessInfoContext(ctx context.Context, paneID string) (herdr.ProcessInfo, error) {
+	if err := f.bounded(ctx, "pane process-info"); err != nil {
+		return herdr.ProcessInfo{}, err
+	}
+	return f.PaneProcessInfo(paneID)
+}
+
+func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(ctx context.Context, target, text string) error {
 	f.promptCalls++
+	if err := f.bounded(ctx, "agent prompt"); err != nil {
+		return err
+	}
 	if target != f.processInfo.PaneID {
 		f.t.Fatalf("AgentPromptContext target = %q, want %q", target, f.processInfo.PaneID)
 	}
