@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -68,6 +69,8 @@ type canonicalV19HerdrLaunchClient interface {
 type canonicalV19HerdrLaunchDeps struct {
 	clientFor func(string) canonicalV19HerdrLaunchClient
 	now       func() time.Time
+	hand      func() (string, error)
+	settle    time.Duration
 }
 
 // ReconcileCanonicalV19HerdrLaunch reconciles one exact canonical v19 Launch against Herdr.
@@ -82,7 +85,9 @@ func canonicalV19HerdrLaunchDefaultDeps() canonicalV19HerdrLaunchDeps {
 		clientFor: func(sessionName string) canonicalV19HerdrLaunchClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
-		now: time.Now,
+		now:    time.Now,
+		hand:   os.Executable,
+		settle: 10 * time.Second,
 	}
 }
 

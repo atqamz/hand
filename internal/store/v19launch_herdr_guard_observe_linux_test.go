@@ -43,6 +43,7 @@ func (l *execGuardLaunchTest) installHerdr(t *testing.T, fake faketool.Herdr) (c
 	}}
 	fake.Install(t, faketool.Bin(t))
 	deps := canonicalV19HerdrLaunchDefaultDeps()
+	deps.settle = 200 * time.Millisecond
 	t.Cleanup(func() { l.stopGuard(t) })
 	return deps, fake.Log
 }
