@@ -120,5 +120,26 @@ func newPlanCmd() *cobra.Command {
 		}
 		cmd.AddCommand(child)
 	}
+	cmd.AddCommand(&cobra.Command{
+		Use: "abandon <id>", Short: "Abandon one exact active Plan without a successor",
+		Long: "Terminalize an exact active Plan as abandoned. It refuses while the Plan has an active Attempt, unresolved external operation, open ExecutorBinding or open Repair.\n" +
+			"The Task keeps its lifecycle but cannot receive another Plan; abandon the Task next. No Attempt, resource or worker is changed.",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			at := time.Now().UTC().Format(time.RFC3339Nano)
+			if err := store.AbandonCanonicalV19Plan(cmd.Context(), homeDir, args[0], at); err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("plan_id", args[0])
+			doc.Field("lifecycle", "abandoned")
+			doc.Field("terminal_at", at)
+			return doc.Render(cmd.OutOrStdout())
+		},
+	})
 	return cmd
 }
