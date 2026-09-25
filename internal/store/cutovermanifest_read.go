@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
+	"regexp"
 )
 
 func readLegacyV18CutoverManifest(homeDir string, artifact legacyV18CutoverManifestArtifact) (legacyV18CutoverManifest, error) {
@@ -183,10 +183,12 @@ func validatePersistedLegacyV18CutoverManifestProjects(projects []legacyV18Cutov
 	return nil
 }
 
+var legacyV18CutoverRestartStableIdentityPattern = regexp.MustCompile(`^(unix-v2:ino=[0-9a-f]{16}:btime=-?[0-9]+\.[0-9]{9}|windows-v1:volume=[0-9a-f]{8}:file=[0-9a-f]{16})$`)
+
 // The drift gate compares these identities across the required restart; device numbers are renumbered at boot.
 func validateLegacyV18CutoverRestartStableIdentity(physicalID string) error {
-	if strings.HasPrefix(physicalID, "unix-v2:") || strings.HasPrefix(physicalID, "windows-v1:") {
+	if legacyV18CutoverRestartStableIdentityPattern.MatchString(physicalID) {
 		return nil
 	}
-	return fmt.Errorf("physical identity %q is not a restart-stable unix-v2 or windows-v1 identity", physicalID)
+	return fmt.Errorf("physical identity %q is not an exact restart-stable unix-v2 or windows-v1 identity", physicalID)
 }

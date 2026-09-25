@@ -1,5 +1,7 @@
 package store
 
+import "fmt"
+
 // CanonicalV19CutoverRecovery exposes the bounded recovery classification,
 // without treating archive paths or advisory markers as caller authority.
 type CanonicalV19CutoverRecovery struct {
@@ -18,7 +20,13 @@ func InspectCanonicalV19Cutover(homeDir string) (CanonicalV19CutoverRecovery, er
 // RecoverCanonicalV19Cutover resumes only an already-frozen cutover with exact
 // preserved evidence. Each mutation revalidates authority under MigrationLock.
 func RecoverCanonicalV19Cutover(homeDir string) (CanonicalV19CutoverRecovery, error) {
-	state, err := recoverCanonicalV19Cutover(homeDir)
+	state, err := inspectLegacyV18CutoverRecovery(homeDir)
+	if err == nil && (state.Disposition == legacyV18CutoverRecoveryRebuildCanonicalTemp || state.Disposition == legacyV18CutoverRecoveryPublishCanonicalTemp) {
+		state.Disposition = legacyV18CutoverRecoveryRefuse
+		state.Reason = "completing a frozen cutover needs the offline boot witness and drift gate, which this build does not run yet"
+		return canonicalV19CutoverRecoverySummary(state), fmt.Errorf("%w: recovery disposition=%s: %s", errLegacyV18CutoverRecoveryExecutionUnsafe, state.Disposition, state.Reason)
+	}
+	state, err = recoverCanonicalV19Cutover(homeDir)
 	return canonicalV19CutoverRecoverySummary(state), err
 }
 

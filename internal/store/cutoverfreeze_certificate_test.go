@@ -71,7 +71,7 @@ func TestBuildLegacyV18CutoverManifestRefusesDeviceNumberIdentity(t *testing.T) 
 		LegacyURL:            "https://example.invalid/alpha.git",
 		LegacyMode:           "clone",
 	}})
-	if err == nil || !strings.Contains(err.Error(), "not a restart-stable") {
+	if err == nil || !strings.Contains(err.Error(), "not an exact restart-stable") {
 		t.Fatalf("device-number identity = %v, want refusal", err)
 	}
 }
@@ -114,4 +114,19 @@ func testLegacyV18CutoverMetaDB(t *testing.T, rows map[string]string) *sql.DB {
 		}
 	}
 	return db
+}
+
+// #348 revision 4 C4-1: the production recover entry never completes a frozen cutover before slice 5 gates it.
+func TestRecoverCanonicalV19CutoverServiceRefusesToCompleteFrozenCutover(t *testing.T) {
+	home, bridge, _, _, _, materialized := canonicalV19CutoverPublicationFixture(t)
+	result, err := RecoverCanonicalV19Cutover(home)
+	if !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) || result.Disposition != string(legacyV18CutoverRecoveryRefuse) || !strings.Contains(result.Reason, "does not run yet") {
+		t.Fatalf("service recovery = %#v, %v; want refusal", result, err)
+	}
+	if got, err := legacyV18CutoverFileSHA256(Path(home)); err != nil || got != bridge.BridgeSHA256 {
+		t.Fatalf("refused recovery changed the bridge: %s, %v", got, err)
+	}
+	if got, err := legacyV18CutoverFileSHA256(materialized.Path); err != nil || got != materialized.SHA256 {
+		t.Fatalf("refused recovery changed the canonical temp: %s, %v", got, err)
+	}
 }
