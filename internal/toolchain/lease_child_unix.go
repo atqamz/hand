@@ -23,5 +23,9 @@ func leaseLockIdentity(file *os.File) (string, error) {
 	if !ok || stat == nil {
 		return "", fmt.Errorf("lease lock file identity metadata has type %T", info.Sys())
 	}
-	return fmt.Sprintf("unix-v1:dev=%016x:ino=%016x", uint64(stat.Dev), uint64(stat.Ino)), nil
+	return leaseStatIdentity(stat), nil
+}
+
+func leaseStatIdentity(stat *syscall.Stat_t) string {
+	return fmt.Sprintf("unix-v2:ino=%016x", uint64(stat.Ino))
 }

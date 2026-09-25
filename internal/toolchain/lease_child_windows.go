@@ -3,9 +3,10 @@
 package toolchain
 
 import (
-	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -15,9 +16,12 @@ func startChildWithLease(cmd *exec.Cmd, _ *os.File) error {
 }
 
 func leaseLockIdentity(file *os.File) (string, error) {
-	var info [24]byte
-	if err := windows.GetFileInformationByHandleEx(windows.Handle(file.Fd()), windows.FileIdInfo, &info[0], uint32(len(info))); err != nil {
-		return "", err
+	var info struct {
+		VolumeSerialNumber uint64
+		FileId             [16]byte
 	}
-	return "windows-v2:" + hex.EncodeToString(info[:]), nil
+	if err := windows.GetFileInformationByHandleEx(windows.Handle(file.Fd()), windows.FileIdInfo, (*byte)(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
+		return "", fmt.Errorf("query FileIdInfo; the runtime store volume must provide stable file IDs (NTFS or ReFS): %w", err)
+	}
+	return fmt.Sprintf("windows-v2:vol=%016x:id=%x", info.VolumeSerialNumber, info.FileId), nil
 }

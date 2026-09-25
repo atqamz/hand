@@ -295,16 +295,10 @@ func (s *Store) requireLeaseScopeIdentity(rootHandle *os.Root, referenceRoot str
 		if err := s.requireNoLeaseRecordForUnboundScope(rootHandle, referenceRoot, request); err != nil {
 			return err
 		}
-		marker, _, createErr := openRuntimeFile(rootHandle, s.Root, lockPath+".identity", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if createErr == nil {
-			_, writeErr := marker.Write([]byte(identity + "\n"))
-			syncErr := marker.Sync()
-			closeErr := marker.Close()
-			if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
-				return fmt.Errorf("%w: publish lease scope identity: %v", ErrLeaseMetadataUnknown, err)
-			}
-		} else if !errors.Is(createErr, os.ErrExist) {
-			return fmt.Errorf("%w: create lease scope identity: %v", ErrLeaseMetadataUnknown, createErr)
+		createErr := atomicCreateRuntimeFile(rootHandle, s.Root, lockPath+".identity", ".runtime-reference-", []byte(identity+"\n"), 0o600)
+		if createErr != nil && !errors.Is(createErr, os.ErrExist) {
+			return fmt.Errorf("%w: generation=%s lease=%s publish lease scope identity: %v", ErrLeaseMetadataUnknown,
+				request.Generation, request.LeaseID, createErr)
 		}
 		markerIdentity, err = readLeaseScopeIdentity(rootHandle, s.Root, lockPath)
 	}
