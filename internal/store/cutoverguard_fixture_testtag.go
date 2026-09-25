@@ -9,5 +9,5 @@ func AcquireLegacyV18CutoverGuardFixture(ctx context.Context, homeDir string) (*
 	if err != nil {
 		return nil, err
 	}
-	return acquireLegacyV18CutoverGuardForFixture(ctx, homeDir, evidence)
+	return acquireLegacyV18CutoverOfflineGuard(ctx, homeDir, evidence)
 }

@@ -68,7 +68,8 @@ func AcquireLegacyV18CutoverGuard(_ context.Context, _ string) (*LegacyV18Cutove
 }
 
 // The evidence is the preflight read that Freeze commits as E_F.
-func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string, evidence legacyV18CutoverBootEvidence) (*LegacyV18CutoverGuard, error) {
+// FreezeLegacyV18CutoverOffline is the only production caller.
+func acquireLegacyV18CutoverOfflineGuard(ctx context.Context, homeDir string, evidence legacyV18CutoverBootEvidence) (*LegacyV18CutoverGuard, error) {
 	if err := validateLegacyV18CutoverBootEvidence(evidence); err != nil {
 		return nil, fmt.Errorf("acquire legacy v18 cutover guard: boot evidence: %w", err)
 	}
@@ -154,4 +155,23 @@ func exportLegacyV18CutoverObservationPlan(in legacyV18CutoverObservationPlan) L
 		out.Herdr = append(out.Herdr, LegacyV18CutoverHerdrObservation(herdr))
 	}
 	return out
+}
+
+// FreezeLegacyV18CutoverOffline runs the #348 revision 4 freeze run: preflight, the source gate and
+// Fleet-local lock closure, the caller's provider observation under that hold, and one freeze transaction.
+func FreezeLegacyV18CutoverOffline(ctx context.Context, homeDir string, observe func(*LegacyV18CutoverGuard) (LegacyV18CutoverManifestInput, error)) (err error) {
+	evidence, err := preflightLegacyV18CutoverFreeze(homeDir, legacyV18CutoverPlatform())
+	if err != nil {
+		return err
+	}
+	guard, err := acquireLegacyV18CutoverOfflineGuard(ctx, homeDir, evidence)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, guard.Close()) }()
+	input, err := observe(guard)
+	if err != nil {
+		return fmt.Errorf("observe providers for the offline freeze: %w", err)
+	}
+	return guard.Freeze(ctx, homeDir, input)
 }

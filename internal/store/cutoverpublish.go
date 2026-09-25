@@ -33,7 +33,10 @@ func publishCanonicalV19Cutover(homeDir string) (canonicalV19CutoverPublication,
 		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: acquire MigrationLock: %w", err)
 	}
 	defer releaseMigration()
+	return publishCanonicalV19CutoverLocked(homeDir)
+}
 
+func publishCanonicalV19CutoverLocked(homeDir string) (canonicalV19CutoverPublication, error) {
 	before, err := inspectLegacyV18CutoverRecovery(homeDir)
 	if err != nil {
 		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: inspect recovery authority: %w", err)

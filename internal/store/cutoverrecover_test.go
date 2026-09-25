@@ -1,16 +1,18 @@
 package store
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestRecoverCanonicalV19CutoverPublishesReadyTemp(t *testing.T) {
+	restartLegacyV18CutoverBoot(t)
 	home, bridge, archive, artifact, _, materialized := canonicalV19CutoverPublicationFixture(t)
 	before := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
 
-	state, err := recoverCanonicalV19Cutover(home)
+	state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,6 +36,7 @@ func TestRecoverCanonicalV19CutoverPublishesReadyTemp(t *testing.T) {
 }
 
 func TestRecoverCanonicalV19CutoverRebuildsThenPublishes(t *testing.T) {
+	restartLegacyV18CutoverBoot(t)
 	home, bridge, archive, artifact, _, materialized := canonicalV19CutoverPublicationFixture(t)
 	before := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
 	if err := os.Remove(materialized.Path); err != nil {
@@ -49,7 +52,7 @@ func TestRecoverCanonicalV19CutoverRebuildsThenPublishes(t *testing.T) {
 		t.Fatalf("pre-recovery state = %#v", pre)
 	}
 
-	state, err := recoverCanonicalV19Cutover(home)
+	state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +79,7 @@ func TestRecoverCanonicalV19CutoverDoesNotStartFreshCutover(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		state, err := recoverCanonicalV19Cutover(home)
+		state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +97,7 @@ func TestRecoverCanonicalV19CutoverDoesNotStartFreshCutover(t *testing.T) {
 
 	t.Run("no state", func(t *testing.T) {
 		home := t.TempDir()
-		state, err := recoverCanonicalV19Cutover(home)
+		state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -108,6 +111,7 @@ func TestRecoverCanonicalV19CutoverDoesNotStartFreshCutover(t *testing.T) {
 }
 
 func TestRecoverCanonicalV19CutoverRefusesInvalidCanonicalAuthority(t *testing.T) {
+	restartLegacyV18CutoverBoot(t)
 	home, _, archive, artifact, _, _ := canonicalV19CutoverPublicationFixture(t)
 	if _, err := publishCanonicalV19Cutover(home); err != nil {
 		t.Fatal(err)
@@ -129,7 +133,7 @@ func TestRecoverCanonicalV19CutoverRefusesInvalidCanonicalAuthority(t *testing.T
 	}
 	evidenceBefore := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
 
-	state, err := recoverCanonicalV19Cutover(home)
+	state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 	if err == nil || state.Disposition != legacyV18CutoverRecoveryRefuse || !strings.Contains(err.Error(), "cannot fall back to legacy evidence") {
 		t.Fatalf("invalid canonical recovery = %#v, %v", state, err)
 	}
@@ -143,6 +147,7 @@ func TestRecoverCanonicalV19CutoverRefusesInvalidCanonicalAuthority(t *testing.T
 }
 
 func TestRecoverCanonicalV19CutoverPreservesMigrationLockSerialization(t *testing.T) {
+	restartLegacyV18CutoverBoot(t)
 	home, bridge, _, _, _, materialized := canonicalV19CutoverPublicationFixture(t)
 	release, err := Lock(home, MigrationLock, true)
 	if err != nil {
@@ -150,7 +155,7 @@ func TestRecoverCanonicalV19CutoverPreservesMigrationLockSerialization(t *testin
 	}
 	defer release()
 
-	state, err := recoverCanonicalV19Cutover(home)
+	state, err := recoverCanonicalV19Cutover(home, testPassLegacyV18CutoverDriftGate)
 	if err == nil || state.Disposition != legacyV18CutoverRecoveryPublishCanonicalTemp || !strings.Contains(err.Error(), "MigrationLock") {
 		t.Fatalf("contended recovery = %#v, %v", state, err)
 	}
@@ -160,4 +165,57 @@ func TestRecoverCanonicalV19CutoverPreservesMigrationLockSerialization(t *testin
 	if got, err := legacyV18CutoverFileSHA256(materialized.Path); err != nil || got != materialized.SHA256 {
 		t.Fatalf("canonical temp changed while lock busy: %s, %v", got, err)
 	}
+}
+
+// #348 revision 4 C4-1, C4-2: recover completes only after a restart since the freeze and a passing drift gate.
+func TestRecoverCanonicalV19CutoverRequiresWitnessAndDriftGate(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		restarted bool
+		verdict   string
+		want      legacyV18CutoverRecoveryDisposition
+	}{
+		{"same boot session", false, "pass", legacyV18CutoverRecoveryDisposition(legacyV18CutoverWitnessRebootRequired)},
+		{"drift", true, "drift", "drift"},
+		{"observation unknown", true, "observation-unknown", "observation-unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, bridge, _, _, _, materialized := canonicalV19CutoverPublicationFixture(t)
+			evidence := testLegacyV18CutoverFreezeEvidence()
+			t.Setenv("HAND_TEST_CUTOVER_FILESYSTEM", "local")
+			t.Setenv("HAND_TEST_CUTOVER_BOOT_TOKEN", evidence.Token)
+			t.Setenv("HAND_TEST_CUTOVER_MACHINE_ID", evidence.MachineID)
+			if tc.restarted {
+				restartLegacyV18CutoverBoot(t)
+			}
+			gate := func(string, LegacyV18CutoverFrozenEvidence) (string, string) { return tc.verdict, "subject" }
+			state, err := recoverCanonicalV19Cutover(home, gate)
+			if !errors.Is(err, errLegacyV18CutoverRecoveryExecutionUnsafe) || state.Disposition != tc.want {
+				t.Fatalf("gated recovery = %#v, %v; want %s", state, err, tc.want)
+			}
+			if got, err := legacyV18CutoverFileSHA256(Path(home)); err != nil || got != bridge.BridgeSHA256 {
+				t.Fatalf("refused recovery changed the bridge: %s, %v", got, err)
+			}
+			if got, err := legacyV18CutoverFileSHA256(materialized.Path); err != nil || got != materialized.SHA256 {
+				t.Fatalf("refused recovery changed the canonical temp: %s, %v", got, err)
+			}
+		})
+	}
+}
+
+func testPassLegacyV18CutoverDriftGate(string, LegacyV18CutoverFrozenEvidence) (string, string) {
+	return "pass", ""
+}
+
+// Simulates a restart since the freeze through the test-build boot evidence overrides.
+func restartLegacyV18CutoverBoot(t *testing.T) {
+	t.Helper()
+	evidence := testLegacyV18CutoverFreezeEvidence()
+	token := testCutoverBootB
+	if evidence.Platform == "windows" {
+		token = "60000"
+	}
+	t.Setenv("HAND_TEST_CUTOVER_FILESYSTEM", "local")
+	t.Setenv("HAND_TEST_CUTOVER_BOOT_TOKEN", token)
+	t.Setenv("HAND_TEST_CUTOVER_MACHINE_ID", evidence.MachineID)
 }
