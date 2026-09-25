@@ -56,11 +56,10 @@ func ArchiveCanonicalV19Task(ctx context.Context, homeDir string, input Canonica
 		return canonicalV19TaskArchiveWriteError("read exact archive", err)
 	}
 	var lifecycle string
-	var planExists, operationExists bool
+	var operationExists bool
 	err = tx.QueryRowContext(ctx, `SELECT t.lifecycle,
-		EXISTS(SELECT 1 FROM plan p WHERE p.task_id=t.id),
 		EXISTS(SELECT 1 FROM external_operation o WHERE o.task_id=t.id)
-		FROM task t WHERE t.id=?`, input.TaskID).Scan(&lifecycle, &planExists, &operationExists)
+		FROM task t WHERE t.id=?`, input.TaskID).Scan(&lifecycle, &operationExists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: Task %q is missing", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
@@ -70,7 +69,7 @@ func ArchiveCanonicalV19Task(ctx context.Context, homeDir string, input Canonica
 	if lifecycle != "satisfied" && lifecycle != "superseded" && lifecycle != "abandoned" {
 		return fmt.Errorf("%w: Task %q is not terminal", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
-	if planExists || operationExists {
+	if operationExists {
 		return fmt.Errorf("%w: Task %q has resource or effect lineage requiring external observation", ErrCanonicalV19TaskArchiveNotEligible, input.TaskID)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO task_archive(

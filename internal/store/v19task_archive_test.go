@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -407,15 +408,69 @@ func TestArchiveCanonicalV19PlanlessTerminalTaskReplaysExactFact(t *testing.T) {
 	}
 }
 
-func TestArchiveCanonicalV19TaskRefusesPlanfulTerminalLineageWithoutObservation(t *testing.T) {
+func TestArchiveCanonicalV19TaskAllowsTerminalLineageWithoutEffectsOrResources(t *testing.T) {
 	home := canonicalV19TaskArchiveTerminalFixture(t)
 	input := CanonicalV19TaskArchiveInput{
 		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
 		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
 		EvidenceDigest: canonicalV19TaskArchiveDigest,
 	}
-	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err == nil {
-		t.Fatal("planful Task archived without resource observation")
+	if err := ArchiveCanonicalV19Task(context.Background(), home, input); err != nil {
+		t.Fatal(err)
+	}
+	db := canonicalV19TaskArchiveOpen(t, home)
+	defer func() { _ = db.Close() }()
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM task_archive WHERE task_id='task-1'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("resource-free terminal lineage archive facts = %d, want one", count)
+	}
+}
+
+func TestArchiveCanonicalV19TaskRefusesOpenResourceLineageWithoutObservation(t *testing.T) {
+	fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
+	db := canonicalV19TaskArchiveOpen(t, fixture.Home)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE attempt SET lifecycle='failed',terminal_at='2026-09-15T01:00:00Z' WHERE id='attempt-1';
+		UPDATE plan SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:01Z' WHERE id='plan-root';
+		UPDATE task SET lifecycle='abandoned',terminal_at='2026-09-15T01:00:02Z' WHERE id='task-1'`); err != nil {
+		t.Fatal(err)
+	}
+	canonicalV19ExpectArchiveTaskNotEligible(t, fixture.Home)
+}
+
+func TestArchiveCanonicalV19TaskRefusesReleasedWorktreeLineageWithoutObservation(t *testing.T) {
+	fixture, binding := canonicalV19WorktreeRemoveFixture(t)
+	remove := canonicalV19WorktreeRemovePrepareInput(binding, "operation-remove-1")
+	if _, err := PrepareCanonicalV19WorktreeRemove(context.Background(), fixture.Home, remove); err != nil {
+		t.Fatal(err)
+	}
+	if err := CompleteCanonicalV19WorktreeRemove(context.Background(), fixture.Home, CanonicalV19WorktreeRemovedEvidence{
+		OperationID: remove.OperationID, RemovedAt: "2026-09-05T15:04:00Z", EvidenceDigest: "remove-positive-absence-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	db := canonicalV19TaskArchiveOpen(t, fixture.Home)
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`UPDATE attempt SET lifecycle='completed',terminal_at='2026-09-15T01:00:00Z' WHERE id='attempt-1';
+		UPDATE plan SET lifecycle='satisfied',terminal_at='2026-09-15T01:00:01Z' WHERE id='plan-root';
+		UPDATE task SET lifecycle='satisfied',terminal_at='2026-09-15T01:00:02Z' WHERE id='task-1'`); err != nil {
+		t.Fatal(err)
+	}
+	canonicalV19ExpectArchiveTaskNotEligible(t, fixture.Home)
+}
+
+func canonicalV19ExpectArchiveTaskNotEligible(t *testing.T, home string) {
+	t.Helper()
+	err := ArchiveCanonicalV19Task(context.Background(), home, CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-15T01:02:03Z", Reason: "completed and reconciled",
+		EvidenceDigest: canonicalV19TaskArchiveDigest,
+	})
+	if !errors.Is(err, ErrCanonicalV19TaskArchiveNotEligible) {
+		t.Fatalf("archive error = %v, want %v", err, ErrCanonicalV19TaskArchiveNotEligible)
 	}
 	db := canonicalV19TaskArchiveOpen(t, home)
 	defer func() { _ = db.Close() }()
