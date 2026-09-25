@@ -153,6 +153,7 @@ type canonicalV19HerdrWorkerWakeFakeClient struct {
 	wakeOperationID          string
 	promptCalls              int
 	promptErr                error
+	onPrompt                 func()
 	requireSubmittedAtPrompt bool
 }
 
@@ -170,6 +171,9 @@ func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(_ context.Con
 	}
 	if f.requireSubmittedAtPrompt && current.Current.State != "submitted" {
 		f.t.Fatalf("state at first WorkerWake provider mutation = %q, want submitted", current.Current.State)
+	}
+	if f.onPrompt != nil {
+		f.onPrompt()
 	}
 	return f.promptErr
 }

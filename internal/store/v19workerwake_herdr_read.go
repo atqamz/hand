@@ -27,13 +27,17 @@ func readCanonicalV19HerdrWorkerWakeCurrent(
 		return canonicalV19HerdrWorkerWakeCurrent{}, err
 	}
 	result := canonicalV19HerdrWorkerWakeCurrent{Current: current}
-	if err := tx.QueryRowContext(ctx, `SELECT provider_session_key FROM session_binding
-		WHERE id=? AND attempt_id=? AND adapter_ref=?`, current.Request.SessionBindingID,
-		current.Request.AttemptID, current.Request.AdapterRef).Scan(&result.ProviderSessionKey); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT s.provider_session_key,e.launch_operation_id
+		FROM session_binding s
+		JOIN executor_binding e ON e.id=? AND e.session_binding_id=s.id
+		WHERE s.id=? AND s.attempt_id=? AND s.adapter_ref=?`, current.Request.ExecutorBindingID,
+		current.Request.SessionBindingID, current.Request.AttemptID, current.Request.AdapterRef).Scan(
+		&result.ProviderSessionKey, &result.LaunchOperationID,
+	); err != nil {
 		return canonicalV19HerdrWorkerWakeCurrent{}, fmt.Errorf("read canonical v19 Herdr WorkerWake provider context: %w", err)
 	}
-	if result.ProviderSessionKey == "" {
-		return canonicalV19HerdrWorkerWakeCurrent{}, fmt.Errorf("read canonical v19 Herdr WorkerWake provider context: provider Session key is empty")
+	if result.ProviderSessionKey == "" || result.LaunchOperationID == "" {
+		return canonicalV19HerdrWorkerWakeCurrent{}, fmt.Errorf("read canonical v19 Herdr WorkerWake provider context: provider Session key or Launch operation ID is empty")
 	}
 	return result, nil
 }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/execguard"
+	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/osfacts"
 	"golang.org/x/sys/unix"
 )
@@ -283,7 +284,11 @@ func canonicalV19ExecGuardEvidenceDigest(current canonicalV19HerdrLaunchCurrent,
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func canonicalV19ExecGuardAssociation(client canonicalV19HerdrLaunchClient, paneID string, guard osfacts.Incarnation, group int) string {
+type canonicalV19HerdrPaneProcessClient interface {
+	PaneProcessInfo(string) (herdr.ProcessInfo, error)
+}
+
+func canonicalV19ExecGuardAssociation(client canonicalV19HerdrPaneProcessClient, paneID string, guard osfacts.Incarnation, group int) string {
 	if client == nil {
 		return "unobserved"
 	}

@@ -12,6 +12,7 @@ import (
 type canonicalV19HerdrWorkerWakeCurrent struct {
 	Current            canonicalV19WorkerWakeCurrent
 	ProviderSessionKey string
+	LaunchOperationID  string
 }
 
 type canonicalV19HerdrWorkerWakeClient interface {
@@ -26,18 +27,25 @@ type canonicalV19HerdrWorkerWakeClient interface {
 type canonicalV19HerdrWorkerWakeDeps struct {
 	clientFor func(string) canonicalV19HerdrWorkerWakeClient
 	now       func() time.Time
+	// Stays false outside tests, as the Launch adapter's does, until the Linux platform
+	// acceptance tests pass (O1, pane tty, real Herdr).
+	execGuard bool
 }
 
 // ReconcileCanonicalV19HerdrWorkerWake reconciles one exact mechanism-only WorkerWake.
 // The selected managed provider is refused before submission until its ExecutorBinding
 // proves exact live execution identity. This path never creates WorkerInput acknowledgement evidence.
 func ReconcileCanonicalV19HerdrWorkerWake(ctx context.Context, homeDir, operationID string) (string, error) {
-	return reconcileCanonicalV19HerdrWorkerWake(ctx, homeDir, operationID, canonicalV19HerdrWorkerWakeDeps{
+	return reconcileCanonicalV19HerdrWorkerWake(ctx, homeDir, operationID, canonicalV19HerdrWorkerWakeDefaultDeps())
+}
+
+func canonicalV19HerdrWorkerWakeDefaultDeps() canonicalV19HerdrWorkerWakeDeps {
+	return canonicalV19HerdrWorkerWakeDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrWorkerWakeClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
 		now: time.Now,
-	})
+	}
 }
 
 func reconcileCanonicalV19HerdrWorkerWake(
