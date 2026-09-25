@@ -60,6 +60,8 @@ func TestMain(m *testing.M) {
 		os.Exit(namespacedSleep(os.Args[1]))
 	case "pane-shell":
 		os.Exit(paneShell(os.Args[1]))
+	case "exit-zero":
+		os.Exit(0)
 	case "blocked-guard":
 		os.Exit(execBlocked(os.Args))
 	}

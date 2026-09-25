@@ -281,30 +281,28 @@ func TestPathReplacedOrRetargetedAfterPinIsRefusedBeforeStart(t *testing.T) {
 func TestPinnedDescriptorRunsTheObjectItHashedWhenThePathIsReplaced(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "harness")
-	copyExecutable(t, "/bin/sh", path)
+	copyExecutable(t, testExecutable(t), path)
 	exe, pinned, class, err := pin(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = exe.Close() }()
-	falseBinary, err := exec.LookPath("false")
-	if err != nil {
-		t.Skip("no false on PATH")
-	}
 	replacement := filepath.Join(dir, "replacement")
-	copyExecutable(t, falseBinary, replacement)
+	if err := os.WriteFile(replacement, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
 	}
-	pid, err := startHarness(exe, t.TempDir(), class, []string{path, "-c", "exit 0"}, os.Environ(), false)
+	pid, err := startHarness(exe, t.TempDir(), class, []string{path}, append(os.Environ(), roleEnv+"=exit-zero"), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var status unix.WaitStatus
 	if _, err := unix.Wait4(pid, &status, 0, nil); err != nil || status.ExitStatus() != 0 || class != ClassExact {
-		t.Fatalf("class %s, harness wait %v, status %v: want the pinned sh, not the replacement false (EG-7)", class, err, status)
+		t.Fatalf("class %s, harness wait %v, status %v: want the pinned binary, not the replacement script (EG-7)", class, err, status)
 	}
-	sum := sha256.Sum256([]byte(read(t, "/bin/sh")))
+	sum := sha256.Sum256([]byte(read(t, testExecutable(t))))
 	if pinned.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("pinned digest %s, want the object hashed at pin time (EG-7)", pinned.SHA256)
 	}
