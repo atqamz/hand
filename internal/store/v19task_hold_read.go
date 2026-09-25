@@ -136,7 +136,7 @@ func ReadCanonicalV19TaskHold(ctx context.Context, homeDir, id string) (Canonica
 	if resolution.HoldID != "" {
 		view.Resolution = &resolution
 	}
-	err = requireCanonicalV19TaskHoldOwnerCurrent(ctx, tx, view.Hold.TaskID)
+	err = requireCanonicalV19TaskHoldTaskCurrent(ctx, tx, view.Hold.TaskID)
 	if err != nil && !errors.Is(err, ErrCanonicalV19TaskHoldNotCurrent) {
 		return view, err
 	}

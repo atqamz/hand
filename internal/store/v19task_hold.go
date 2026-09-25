@@ -71,8 +71,13 @@ func CreateCanonicalV19TaskHold(
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
 		return 0, fmt.Errorf("create canonical v19 TaskHold: %w", err)
 	}
-	if err := requireCanonicalV19TaskHoldOwnerCurrent(ctx, tx, input.TaskID); err != nil {
+	if err := requireCanonicalV19TaskHoldTaskCurrent(ctx, tx, input.TaskID); err != nil {
 		return 0, fmt.Errorf("create canonical v19 TaskHold: %w", err)
+	}
+	if input.BlockedOnTaskID != "" {
+		if err := requireCanonicalV19TaskHoldTaskCurrent(ctx, tx, input.BlockedOnTaskID); err != nil {
+			return 0, fmt.Errorf("create canonical v19 TaskHold: blocked-on Task: %w", err)
+		}
 	}
 
 	ordinal, err := nextCanonicalV19TaskHoldOrdinal(ctx, tx, input.TaskID)
@@ -203,7 +208,7 @@ func validateCanonicalV19TaskHoldResolveInput(input CanonicalV19TaskHoldResolveI
 	}
 }
 
-func requireCanonicalV19TaskHoldOwnerCurrent(ctx context.Context, tx *sql.Tx, taskID string) error {
+func requireCanonicalV19TaskHoldTaskCurrent(ctx context.Context, tx *sql.Tx, taskID string) error {
 	var exactTaskID string
 	err := tx.QueryRowContext(ctx, `SELECT t.id
 		FROM task t

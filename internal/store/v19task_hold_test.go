@@ -188,6 +188,30 @@ func TestCanonicalV19TaskHoldAndSupersedeRaceHasOneWinnerWithoutRetarget(t *test
 	}
 }
 
+func TestCreateCanonicalV19TaskHoldRefusesStaleBlockedOnTaskWithoutMutation(t *testing.T) {
+	home := canonicalV19TaskHoldWriterFixture(t)
+	if _, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
+		PredecessorTaskID: "task-2", SuccessorTaskID: "task-3", Goal: "replacement", GoalDigest: "digest", At: "2026-09-05T03:00:01Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hold := canonicalV19TaskHoldWriterInput("hold-1")
+	hold.Kind, hold.BlockedOnTaskID = "blocked", "task-2"
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), home, hold); !errors.Is(err, ErrCanonicalV19TaskHoldNotCurrent) {
+		t.Fatalf("Hold blocked on superseded Task error = %v, want %v", err, ErrCanonicalV19TaskHoldNotCurrent)
+	}
+	if err := ArchiveCanonicalV19Task(context.Background(), home, CanonicalV19TaskArchiveInput{
+		TaskID: "task-2", ActorKind: "operator", ActorRef: "operator-1", ArchivedAt: "2026-09-05T03:00:02Z",
+		Reason: "superseded", EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), home, hold); !errors.Is(err, ErrCanonicalV19TaskHoldNotCurrent) {
+		t.Fatalf("Hold blocked on archived Task error = %v, want %v", err, ErrCanonicalV19TaskHoldNotCurrent)
+	}
+	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
+}
+
 func TestCanonicalV19TaskHoldWritersRejectInvalidEnumsWithoutMutation(t *testing.T) {
 	home := canonicalV19TaskHoldWriterFixture(t)
 	invalid := canonicalV19TaskHoldWriterInput("hold-invalid")
