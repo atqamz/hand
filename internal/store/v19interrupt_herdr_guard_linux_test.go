@@ -199,3 +199,72 @@ func TestProductionInterruptReconcileKeepsTheRevisionOneRefusalForAGuardedBindin
 		t.Fatalf("production reconcile = %q, %v (request written %v, %d terminations), want the revision-1 refusal untouched", state, err, l.requested(t), count)
 	}
 }
+
+func (l *execGuardLaunchTest) settleConcurrently(operationID string, cease bool) string {
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if !cease {
+			if state, _ := l.reconcileInterrupt(operationID); state != "" && state != "submitted" {
+				return state
+			}
+			continue
+		}
+		binding, err := readCanonicalV19ExecGuardBinding(context.Background(), l.home, l.input.BindingID)
+		if err != nil {
+			return err.Error()
+		}
+		kind, _, err := ceaseCanonicalV19ExecGuardBinding(context.Background(), l.home, binding, time.Now)
+		if err != nil && !errors.Is(err, ErrContention) {
+			return err.Error()
+		}
+		if kind != "" {
+			return kind
+		}
+	}
+	return "timed out"
+}
+
+func TestExecGuardConcurrentObserversWriteOneTerminationAndSettleTheInterrupt(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		natural bool
+		kind    string
+	}{
+		{"natural exit", true, "completed"},
+		{"interrupt request", false, "interrupted"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const id = "operation-interrupt-concurrent"
+			marker := filepath.Join(t.TempDir(), "exit")
+			l := newExecGuardLaunchTest(t, "/bin/sh", "-c", execGuardExitOnMarker, marker, "0")
+			l.establish(t)
+			l.interrupt(t, id, true)
+			if test.natural {
+				if err := os.WriteFile(marker, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				waitExecGuardCeased(t, l.dir)
+			}
+			start, results := make(chan struct{}), make(chan [2]string, 16)
+			for i := range 16 {
+				go func() {
+					<-start
+					want := "succeeded"
+					if i%2 == 0 {
+						want = test.kind
+					}
+					results <- [2]string{want, l.settleConcurrently(id, i%2 == 0)}
+				}()
+			}
+			close(start)
+			for range 16 {
+				if result := <-results; result[0] != result[1] {
+					t.Errorf("observer settled %q, want %q", result[1], result[0])
+				}
+			}
+			count, kind, interrupt := l.termination(t)
+			if want := map[bool]string{true: "", false: id}[test.natural]; count != 1 || kind != test.kind || interrupt != want || l.operationState(t, id) != "succeeded" {
+				t.Fatalf("termination %d %q %q, Interrupt %q, want exactly one %q row and the Interrupt succeeded (EG-8, EG-9)", count, kind, interrupt, l.operationState(t, id), test.kind)
+			}
+		})
+	}
+}
