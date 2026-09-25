@@ -248,6 +248,7 @@ func newGuard(t *testing.T, locator string) *guardRun {
 	// The race runtime otherwise sleeps a second before every clean helper exit.
 	g.cmd.Env = append(os.Environ(), roleEnv+"=guard", "GORACE=atexit_sleep_ms=0")
 	g.cmd.Stdout, g.cmd.Stderr = out, out
+	g.cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
 	return g
 }
 
@@ -385,7 +386,7 @@ func openPTY(t *testing.T) (*os.File, *os.File) {
 
 func onTerminal(cmd *exec.Cmd, tty *os.File) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Pdeathsig: syscall.SIGKILL}
 }
 
 func testExecutable(t *testing.T) string {

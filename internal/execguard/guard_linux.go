@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"os"
 	"os/signal"
@@ -37,6 +36,7 @@ import (
 const (
 	terminationGrace = 5 * time.Second
 	pollInterval     = 100 * time.Millisecond
+	freezeBound      = 2 * time.Second
 	cessationRule    = "wait4-echild"
 )
 
@@ -180,25 +180,18 @@ func acquireGenerationLease(fleetID, launch string) (func() error, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtimeStore, err := toolchain.DefaultStore()
-	if err != nil {
-		return nil, err
-	}
-	unmanaged := func() error { return nil }
-	generations, err := os.Stat(filepath.Join(runtimeStore.Root, "runtime", "hand-generations"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return unmanaged, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	generation := filepath.Dir(executable)
-	parent, err := os.Stat(filepath.Dir(generation))
+	generations := filepath.Dir(generation)
+	if filepath.Base(generations) != "hand-generations" || filepath.Base(filepath.Dir(generations)) != "runtime" {
+		return func() error { return nil }, nil
+	}
+	lock, err := toolchain.LoadLock()
 	if err != nil {
 		return nil, err
 	}
-	if !os.SameFile(parent, generations) {
-		return unmanaged, nil
+	runtimeStore, err := toolchain.NewStore(filepath.Dir(filepath.Dir(generations)), lock)
+	if err != nil {
+		return nil, err
 	}
 	lease, err := runtimeStore.AcquireHandLease(toolchain.LeaseRequest{
 		Generation: "sha256:" + filepath.Base(generation),
@@ -234,11 +227,19 @@ func (g *execution) execute(handoff Handoff, verifier string, events <-chan os.S
 	if err := g.write(record); err != nil {
 		return g.refuse("the pinned record could not be written")
 	}
+	links := filepath.Join(g.dir, "exec")
+	if err := os.Mkdir(links, 0o700); err != nil {
+		return g.refuse("the private executable link directory could not be created")
+	}
+	defer func() { _ = os.RemoveAll(links) }()
 	if !stillNames(spec.Executable, pinned) {
 		return g.refuse("the Launch executable path no longer names the pinned object")
 	}
+	if terminationPending(events) {
+		return g.refuse("the guard was asked to terminate before the harness started")
+	}
 	foreground := holdsForeground()
-	root, err := startHarness(exe, append([]string{spec.Executable}, spec.Arguments...), harnessEnvironment(os.Environ(), handoff), foreground)
+	root, err := startHarness(exe, links, class, append([]string{spec.Executable}, spec.Arguments...), harnessEnvironment(os.Environ(), handoff), foreground)
 	if err != nil {
 		return g.refuse("the harness could not be started")
 	}
@@ -248,10 +249,9 @@ func (g *execution) execute(handoff Handoff, verifier string, events <-chan os.S
 		err = g.writeSynced(running)
 	}
 	if err != nil {
-		if _, killErr := g.kill(root); killErr != nil {
-			return 0, killErr
-		}
-		return g.refuse("the running record could not be written")
+		// The harness already ran, so this is never a refusal: L stays uncertain.
+		g.kill(root)
+		return 0, fmt.Errorf("exec guard could not record its running harness: %w", err)
 	}
 	cause, interrupt, status, err := g.supervise(root, events, grace)
 	if err != nil {
@@ -273,7 +273,7 @@ func (g *execution) execute(handoff Handoff, verifier string, events <-chan os.S
 }
 
 func pin(path string) (*os.File, Object, string, error) {
-	file, err := os.Open(path)
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, Object{}, "", err
 	}
@@ -327,12 +327,34 @@ func holdsForeground() bool {
 	return err == nil && int(group) == unix.Getpgrp()
 }
 
-// Exec goes through the pinned descriptor so the object run is the one hashed. It
-// stays open across exec because a #! interpreter reopens the script by this path.
-func startHarness(exe *os.File, argv, env []string, foreground bool) (int, error) {
-	return syscall.ForkExec("/proc/self/fd/3", argv, &syscall.ProcAttr{
+func terminationPending(events <-chan os.Signal) bool {
+	for {
+		select {
+		case sig := <-events:
+			if sig == unix.SIGTERM || sig == unix.SIGHUP {
+				return true
+			}
+		default:
+			return false
+		}
+	}
+}
+
+// Exec goes through a link named like the executable to the pinned descriptor, so the
+// object run is the one hashed and comm and $0 keep the harness name. A script keeps
+// the descriptor across exec, at fd 3, because its interpreter reopens it by the link.
+func startHarness(exe *os.File, links, class string, argv, env []string, foreground bool) (int, error) {
+	files, fd := []uintptr{0, 1, 2}, exe.Fd()
+	if class == ClassSampled {
+		files, fd = append(files, fd), 3
+	}
+	link := filepath.Join(links, filepath.Base(argv[0]))
+	if err := os.Symlink("/proc/self/fd/"+strconv.FormatUint(uint64(fd), 10), link); err != nil {
+		return 0, err
+	}
+	return syscall.ForkExec(link, argv, &syscall.ProcAttr{
 		Env:   env,
-		Files: []uintptr{0, 1, 2, exe.Fd()},
+		Files: files,
 		Sys:   &syscall.SysProcAttr{Setpgid: true, Foreground: foreground},
 	})
 }
@@ -375,33 +397,27 @@ func (g *execution) supervise(root int, events <-chan os.Signal, grace time.Dura
 		status           unix.WaitStatus
 		rootReaped       bool
 	)
-	terminate := func(why, operation string) error {
-		if cause != "" {
-			return nil
+	terminate := func(why, operation string) {
+		if cause == "" {
+			cause, interrupt, deadline = why, operation, time.Now().Add(grace)
+			_, _ = g.signalTree(unix.SIGTERM)
 		}
-		cause, interrupt, deadline = why, operation, time.Now().Add(grace)
-		_, err := g.signalTree(unix.SIGTERM)
-		return err
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
-		var err error
 		select {
 		case sig := <-events:
 			switch sig {
 			case unix.SIGTERM:
-				err = terminate(CauseExternalTermination, "")
+				terminate(CauseExternalTermination, "")
 			case unix.SIGHUP:
-				err = terminate(CauseHangup, "")
+				terminate(CauseHangup, "")
 			}
 		case <-ticker.C:
 			if request, ok := g.interruptRequest(); ok {
-				err = terminate(CauseInterruptRequest, request)
+				terminate(CauseInterruptRequest, request)
 			}
-		}
-		if err != nil {
-			return "", "", 0, err
 		}
 		for {
 			var ws unix.WaitStatus
@@ -417,17 +433,14 @@ func (g *execution) supervise(root int, events <-chan os.Signal, grace time.Dura
 			}
 			if pid == root {
 				status, rootReaped = ws, true
-				if err := terminate(CauseHarnessExit, ""); err != nil {
-					return "", "", 0, err
-				}
+				terminate(CauseHarnessExit, "")
 			}
 		}
 		if !deadline.IsZero() && !time.Now().Before(deadline) {
-			killed, err := g.kill(root)
-			if !rootReaped {
+			if killed := g.kill(root); !rootReaped {
 				status = killed
 			}
-			return cause, interrupt, status, err
+			return cause, interrupt, status, nil
 		}
 	}
 }
@@ -440,34 +453,30 @@ func (g *execution) interruptRequest() (string, bool) {
 	return request.InterruptOperationID, true
 }
 
-// Stops the whole tree before killing it: a stopped process cannot fork, so once a
-// full pass finds nothing running, the kill pass reaches every descendant.
-func (g *execution) kill(root int) (unix.WaitStatus, error) {
-	for {
-		running, err := g.signalTree(unix.SIGSTOP)
-		if err != nil {
-			return 0, err
-		}
-		if running == 0 {
+// Freezes the tree, then kills it until wait4 reports ECHILD. A frozen process cannot
+// fork, so a kill pass over a frozen tree reaches every descendant. The freeze is
+// bounded: an unkillable or foreign-owned process never shows as frozen.
+func (g *execution) kill(root int) unix.WaitStatus {
+	for deadline := time.Now().Add(freezeBound); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if running, err := g.signalTree(unix.SIGSTOP); err == nil && running == 0 {
 			break
 		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if _, err := g.signalTree(unix.SIGKILL); err != nil {
-		return 0, err
 	}
 	var status unix.WaitStatus
-	for {
-		var ws unix.WaitStatus
-		pid, err := unix.Wait4(-1, &ws, 0, nil)
-		switch {
-		case errors.Is(err, unix.ECHILD):
-			return status, nil
-		case errors.Is(err, unix.EINTR):
-		case err != nil:
-			return 0, fmt.Errorf("reap execution tree: %w", err)
-		case pid == root:
-			status = ws
+	for ; ; time.Sleep(5 * time.Millisecond) {
+		_, _ = g.signalTree(unix.SIGKILL)
+		for {
+			var ws unix.WaitStatus
+			pid, err := unix.Wait4(-1, &ws, unix.WNOHANG, nil)
+			if errors.Is(err, unix.ECHILD) {
+				return status
+			}
+			if err != nil || pid == 0 {
+				break
+			}
+			if pid == root {
+				status = ws
+			}
 		}
 	}
 }
@@ -489,7 +498,7 @@ func (g *execution) signalTree(sig unix.Signal) (int, error) {
 		}
 		stat, err := readStat(member.pid)
 		if err == nil && (stat.ppid == member.parent || stat.ppid == self) && stat.startTicks >= g.guard.StartTicks {
-			if !strings.ContainsRune("TtZX", rune(stat.state)) {
+			if !strings.ContainsRune("TtZX", rune(stat.state)) && !stopPending(member.pid) {
 				running++
 			}
 			_ = unix.PidfdSendSignal(fd, sig, nil, 0)
@@ -497,6 +506,22 @@ func (g *execution) signalTree(sig unix.Signal) (int, error) {
 		_ = unix.Close(fd)
 	}
 	return running, nil
+}
+
+// A pending SIGSTOP already makes fork fail, and a process sleeping in the kernel,
+// such as a vfork parent, only shows it pending until it wakes.
+func stopPending(pid int) bool {
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "status"))
+	if err != nil {
+		return false
+	}
+	for line := range strings.Lines(string(data)) {
+		if mask, ok := strings.CutPrefix(line, "ShdPnd:"); ok {
+			pending, err := strconv.ParseUint(strings.TrimSpace(mask), 16, 64)
+			return err == nil && pending&(1<<(unix.SIGSTOP-1)) != 0
+		}
+	}
+	return false
 }
 
 func exitStatus(status unix.WaitStatus) (int, int) {

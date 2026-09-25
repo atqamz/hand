@@ -192,7 +192,7 @@ func TestSameBasenameElsewhereOnPATHIsNeverRunAndAScriptIsSampled(t *testing.T) 
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		script := "#!/bin/sh\necho " + dir + " > \"$1\"\nsleep 0.3\n"
+		script := "#!/bin/sh\necho " + dir + " ${0##*/} > \"$1\"\nsleep 0.3\n"
 		if err := os.WriteFile(filepath.Join(root, dir, "harness"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -204,8 +204,8 @@ func TestSameBasenameElsewhereOnPATHIsNeverRunAndAScriptIsSampled(t *testing.T) 
 	g.cmd.Env = append(g.cmd.Env, "PATH="+filepath.Join(root, "foreign")+":"+os.Getenv("PATH"))
 	g.start(t)
 	g.succeed(t)
-	if ran := read(t, marker); ran != "trusted\n" {
-		t.Fatalf("ran %q, want the exact absolute spec path (EG-7)", ran)
+	if ran := read(t, marker); ran != "trusted harness\n" {
+		t.Fatalf("ran %q, want the exact absolute spec path, named harness (EG-7)", ran)
 	}
 	var want syscall.Stat_t
 	if err := syscall.Stat(trusted, &want); err != nil {
@@ -217,6 +217,15 @@ func TestSameBasenameElsewhereOnPATHIsNeverRunAndAScriptIsSampled(t *testing.T) 
 	}
 	if running.Interpreter == nil || running.Interpreter.Inode == 0 {
 		t.Fatalf("running records no interpreter image for a script (EG-7)")
+	}
+}
+
+func TestNativeHarnessKeepsItsNameAndInheritsNoPinnedDescriptor(t *testing.T) {
+	l := newLaunch(t, "/bin/sh", "-c", `[ "$(cat /proc/$$/comm)" = sh ] && [ ! -e /proc/$$/fd/3 ]`)
+	l.write(t)
+	g := startGuard(t, l.locator)
+	if code := g.succeed(t); code != 0 || mustRecord(t, l.dir, KindRunning).ObjectClass != ClassExact {
+		t.Fatalf("exit %d: an exact harness must run under its own name without the pinned descriptor", code)
 	}
 }
 
@@ -288,7 +297,7 @@ func TestPinnedDescriptorRunsTheObjectItHashedWhenThePathIsReplaced(t *testing.T
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "out")
-	pid, err := startHarness(exe, []string{path, out}, os.Environ(), false)
+	pid, err := startHarness(exe, t.TempDir(), ClassSampled, []string{path, out}, os.Environ(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
