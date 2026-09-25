@@ -67,6 +67,27 @@ func newAttemptCmd() *cobra.Command {
 		}
 		cmd.AddCommand(child)
 	}
+	cmd.AddCommand(&cobra.Command{
+		Use: "interrupt <id>", Short: "End one exact active Attempt that has no live worker",
+		Long: "Record the exact active Attempt as interrupted so its Plan can be retried or replanned.\n" +
+			"Refuses while the Attempt has an open ExecutorBinding, an unresolved external operation or an open Attempt Repair. No process, worktree or session is stopped or removed.",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			if err := store.TerminalizeCanonicalV19Attempt(cmd.Context(), homeDir, store.CanonicalV19AttemptTerminalizeInput{
+				AttemptID: args[0], Lifecycle: "interrupted", TerminalAt: time.Now().UTC().Format(time.RFC3339Nano),
+			}); err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("attempt_id", args[0])
+			doc.Field("lifecycle", "interrupted")
+			return doc.Render(cmd.OutOrStdout())
+		},
+	})
 	return cmd
 }
 

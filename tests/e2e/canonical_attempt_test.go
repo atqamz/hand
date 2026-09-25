@@ -3,15 +3,12 @@
 package e2e
 
 import (
-	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/atqamz/hand/internal/store"
 )
 
 func TestCanonicalAttemptCreateAndRetryFreezeCurrentWorkerRouteWithoutLaunch(t *testing.T) {
@@ -74,11 +71,10 @@ func TestCanonicalAttemptCreateAndRetryFreezeCurrentWorkerRouteWithoutLaunch(t *
 	}
 	refused("already has active Attempt", "attempt", "create", "attempt-dup", "--plan-id", "plan-1")
 	refused("already has active Attempt", "attempt", "retry", "attempt-2", "--plan-id", "plan-1", "--predecessor", "attempt-1")
-	if err := store.TerminalizeCanonicalV19Attempt(context.Background(), fleet, store.CanonicalV19AttemptTerminalizeInput{
-		AttemptID: "attempt-1", Lifecycle: "failed", TerminalAt: "2026-09-25T00:00:00Z",
-	}); err != nil {
-		t.Fatal(err)
+	if got := ok("attempt", "interrupt", "attempt-1"); !strings.Contains(got.stdout, "lifecycle: interrupted") {
+		t.Fatalf("attempt interrupt = %+v", got)
 	}
+	refused("not current", "attempt", "interrupt", "attempt-1")
 	refused("not expected predecessor", "attempt", "create", "attempt-2", "--plan-id", "plan-1")
 	if err := os.WriteFile(path, policy("alternate"), 0o600); err != nil {
 		t.Fatal(err)
@@ -88,10 +84,9 @@ func TestCanonicalAttemptCreateAndRetryFreezeCurrentWorkerRouteWithoutLaunch(t *
 		!strings.Contains(retried.stdout, "harness: claude") {
 		t.Fatalf("retry did not resolve current Worker policy: %+v", retried)
 	}
-	if err := store.TerminalizeCanonicalV19Attempt(context.Background(), fleet, store.CanonicalV19AttemptTerminalizeInput{
-		AttemptID: "attempt-2", Lifecycle: "failed", TerminalAt: "2026-09-25T00:01:00Z",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	ok("attempt", "interrupt", "attempt-2")
 	refused("not expected predecessor", "attempt", "retry", "attempt-3", "--plan-id", "plan-1", "--predecessor", "attempt-1")
+	ok("plan", "replan", "plan-2", "--predecessor", "plan-1", "--task-id", "task-1", "--workspace-binding-id", workspaceID,
+		"--policy-revision-id", "policy-1", "--intent", "explore", "--judgment", "bounded",
+		"--basis", "interrupted Attempts", "--brief", "explore instead")
 }
