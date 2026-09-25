@@ -123,6 +123,38 @@ func TestReplanCanonicalV19PlanSupersedesOnlyExactPredecessor(t *testing.T) {
 	}
 }
 
+func TestReplanCanonicalV19PlanConcurrentSuccessorsHaveOneWinner(t *testing.T) {
+	fixture := canonicalV19PlanWriterFixture(t, "")
+	if _, err := CreateCanonicalV19RootPlan(context.Background(), fixture.Home, canonicalV19PlanWriterInput("plan-root")); err != nil {
+		t.Fatal(err)
+	}
+	replan := func(id string) func() error {
+		return func() error {
+			successor := canonicalV19PlanWriterInput(id)
+			successor.CreatedAt = "2026-09-04T08:01:00Z"
+			_, err := ReplanCanonicalV19Plan(context.Background(), fixture.Home, CanonicalV19PlanReplanInput{
+				PredecessorPlanID: "plan-root", Successor: successor, SupersededAt: "2026-09-04T08:00:59Z",
+			})
+			return err
+		}
+	}
+	wins := 0
+	for _, err := range canonicalV19RaceWriters(replan("plan-a"), replan("plan-b")) {
+		if err == nil {
+			wins++
+		} else if !errors.Is(err, ErrCanonicalV19PlanNotCurrent) {
+			t.Fatalf("concurrent replan = %v", err)
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent replan winners = %d, want 1", wins)
+	}
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan`, 2)
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='superseded'`, 1)
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan
+		WHERE ordinal=2 AND lineage_kind='replan' AND predecessor_plan_id='plan-root' AND lifecycle='active'`, 1)
+}
+
 func TestReplanCanonicalV19PlanRollsBackPredecessorWhenSuccessorConflicts(t *testing.T) {
 	fixture := canonicalV19PlanWriterFixture(t, "")
 	root := canonicalV19PlanWriterInput("plan-root")

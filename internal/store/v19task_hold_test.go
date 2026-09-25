@@ -159,6 +159,35 @@ func TestCreateCanonicalV19TaskHoldRefusesTerminalTaskWithoutRetarget(t *testing
 	}
 }
 
+func TestCanonicalV19TaskHoldAndSupersedeRaceHasOneWinnerWithoutRetarget(t *testing.T) {
+	home := canonicalV19TaskHoldWriterFixture(t)
+	errs := canonicalV19RaceWriters(
+		func() error {
+			_, err := CreateCanonicalV19TaskHold(context.Background(), home, canonicalV19TaskHoldWriterInput("hold-1"))
+			return err
+		},
+		func() error {
+			_, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
+				PredecessorTaskID: "task-1", SuccessorTaskID: "task-3", Goal: "replacement", GoalDigest: "digest", At: "2026-09-05T03:00:01Z",
+			})
+			return err
+		},
+	)
+	holdErr, supersedeErr := errs[0], errs[1]
+	switch {
+	case holdErr == nil && errors.Is(supersedeErr, ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task`, 2)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold WHERE id='hold-1' AND task_id='task-1'`, 1)
+	case supersedeErr == nil && errors.Is(holdErr, ErrCanonicalV19TaskHoldNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='superseded'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-3' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
+	default:
+		t.Fatalf("TaskHold/supersede race = %v / %v, want exactly one winner", holdErr, supersedeErr)
+	}
+}
+
 func TestCanonicalV19TaskHoldWritersRejectInvalidEnumsWithoutMutation(t *testing.T) {
 	home := canonicalV19TaskHoldWriterFixture(t)
 	invalid := canonicalV19TaskHoldWriterInput("hold-invalid")

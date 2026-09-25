@@ -239,6 +239,34 @@ func TestTerminalizeCanonicalV19AttemptRefusesMissingBackoffWithoutMutation(t *t
 	}
 }
 
+func TestCanonicalV19AttemptBackoffAndTerminalizationRaceNeverLeavesTerminalAttemptWithOpenBackoff(t *testing.T) {
+	fixture := canonicalV19AttemptBackoffWriterFixture(t)
+	errs := canonicalV19RaceWriters(
+		func() error {
+			_, err := CreateCanonicalV19AttemptBackoff(context.Background(), fixture.Home,
+				canonicalV19AttemptBackoffWriterInput("backoff-1", "attempt-1"))
+			return err
+		},
+		func() error {
+			return TerminalizeCanonicalV19Attempt(context.Background(), fixture.Home, CanonicalV19AttemptTerminalizeInput{
+				AttemptID: "attempt-1", Lifecycle: "failed", TerminalAt: "2026-09-05T02:06:00Z",
+			})
+		},
+	)
+	backoffErr, terminalErr := errs[0], errs[1]
+	switch {
+	case backoffErr == nil && errors.Is(terminalErr, ErrCanonicalV19AttemptConflict):
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt WHERE id='attempt-1' AND lifecycle='active' AND terminal_at=''`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt_backoff WHERE attempt_id='attempt-1'`, 1)
+	case terminalErr == nil && errors.Is(backoffErr, ErrCanonicalV19AttemptBackoffNotCurrent):
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt WHERE id='attempt-1' AND lifecycle='failed'`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt_backoff`, 0)
+	default:
+		t.Fatalf("Backoff/terminalization race = %v / %v, want exactly one winner", backoffErr, terminalErr)
+	}
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt_backoff_resolution`, 0)
+}
+
 func TestCanonicalV19AttemptBackoffWritersRejectInvalidEnumsWithoutMutation(t *testing.T) {
 	fixture := canonicalV19AttemptBackoffWriterFixture(t)
 	invalid := canonicalV19AttemptBackoffWriterInput("backoff-invalid", "attempt-1")

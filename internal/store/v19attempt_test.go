@@ -263,6 +263,81 @@ func TestReplanCanonicalV19PlanRefusesActiveAttempt(t *testing.T) {
 	}
 }
 
+func TestCreateCanonicalV19AttemptConcurrentRetriesHaveOneWinner(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
+		t.Fatal(err)
+	}
+	canonicalV19AttemptWriterTerminalize(t, fixture.Home, "attempt-1", "failed", "2026-09-04T09:01:00Z")
+	retry := func(id string) func() error {
+		return func() error {
+			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput(id, "plan-root"))
+			return err
+		}
+	}
+	wins := 0
+	for _, err := range canonicalV19RaceWriters(retry("attempt-2"), retry("attempt-3")) {
+		if err == nil {
+			wins++
+		} else if !errors.Is(err, ErrCanonicalV19AttemptConflict) {
+			t.Fatalf("concurrent retry = %v", err)
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("concurrent retry winners = %d, want 1", wins)
+	}
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt`, 2)
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt WHERE ordinal=2 AND lifecycle='active'`, 1)
+}
+
+func TestCanonicalV19RetryAndReplanRaceHasOneWinnerWithoutRetarget(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
+		t.Fatal(err)
+	}
+	canonicalV19AttemptWriterTerminalize(t, fixture.Home, "attempt-1", "failed", "2026-09-04T09:01:00Z")
+	successor := canonicalV19PlanWriterInput("plan-replan")
+	successor.CreatedAt = "2026-09-04T09:03:00Z"
+	errs := canonicalV19RaceWriters(
+		func() error {
+			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-2", "plan-root"))
+			return err
+		},
+		func() error {
+			_, err := ReplanCanonicalV19Plan(context.Background(), fixture.Home, CanonicalV19PlanReplanInput{
+				PredecessorPlanID: "plan-root", Successor: successor, SupersededAt: "2026-09-04T09:02:59Z",
+			})
+			return err
+		},
+	)
+	retryErr, replanErr := errs[0], errs[1]
+	switch {
+	case retryErr == nil && errors.Is(replanErr, ErrCanonicalV19PlanNotCurrent):
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt WHERE id='attempt-2' AND plan_id='plan-root' AND lifecycle='active'`, 1)
+	case replanErr == nil && errors.Is(retryErr, ErrCanonicalV19AttemptNotCurrent):
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='superseded'`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-replan' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM attempt`, 1)
+	default:
+		t.Fatalf("retry/replan race = %v / %v, want exactly one winner", retryErr, replanErr)
+	}
+}
+
+func canonicalV19RaceWriters(first, second func() error) [2]error {
+	start := make(chan struct{})
+	results := [2]chan error{make(chan error, 1), make(chan error, 1)}
+	for i, writer := range []func() error{first, second} {
+		go func() {
+			<-start
+			results[i] <- writer()
+		}()
+	}
+	close(start)
+	return [2]error{<-results[0], <-results[1]}
+}
+
 type canonicalV19AttemptWriterTestFixture struct {
 	Home string
 }
