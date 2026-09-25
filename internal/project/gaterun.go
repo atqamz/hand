@@ -16,7 +16,7 @@ import (
 // literally unbounded output on every check.
 const gateRunLimit = "10000"
 
-// GateRunObservation answers whether a completed no-mistakes gate run recorded a pull request, in
+// GateRunObservation answers whether the newest no-mistakes gate run for a pull request completed, in
 // the same found/absent/unknown vocabulary ghutil.PRObservation uses (atqamz/hand#241). Absent is a
 // positive finding; any reason the run list could not be read is unknown, never absent.
 type GateRunObservation struct {
@@ -31,19 +31,24 @@ func (o GateRunObservation) Unknown() bool { return !o.Found() && !o.Absent() }
 // Reason is the sentence a caller reports when it will not act on this observation.
 func (o GateRunObservation) Reason() string { return o.Probe.Explain() }
 
-// ClassifyGateRun turns one clone's completed-run PR set - or the failure that kept GateRunPRs from
-// reading it - into one observation about pr. Keyed on the PR URL a completed run's own `pr` step
-// recorded, never a commit or branch, so a squash merge's unreachable pre-squash head never touches it.
+// ClassifyGateRun turns one clone's run PR set - or the failure that kept GateRunPRs from reading it -
+// into one observation about pr. Keyed on the PR URL a run's own `pr` step recorded, never a commit
+// or branch, so a squash merge's unreachable pre-squash head never touches it.
 func ClassifyGateRun(prs map[string]bool, err error, pr string) GateRunObservation {
 	probe := ghutil.Probe{Command: fmt.Sprintf("no-mistakes runs --limit %s", gateRunLimit)}
 	if err != nil {
 		probe.Reason = err.Error()
 		return GateRunObservation{State: ghutil.ObservationUnknown, Probe: probe}
 	}
-	if prs[pr] {
+	completed, recorded := prs[pr]
+	if completed {
 		return GateRunObservation{State: ghutil.ObservationFound, Probe: probe}
 	}
-	probe.Reason = "no completed no-mistakes run recorded this pull request"
+	if recorded {
+		probe.Reason = "the newest no-mistakes run that recorded this pull request has not completed"
+		return GateRunObservation{State: ghutil.ObservationUnknown, Probe: probe}
+	}
+	probe.Reason = "no no-mistakes run recorded this pull request, or its newest run failed"
 	return GateRunObservation{State: ghutil.ObservationAbsent, Probe: probe}
 }
 
@@ -58,9 +63,9 @@ func ObserveGateRun(home string, p Project, registered bool, pr string, runPRs f
 	return ClassifyGateRun(prs, err, pr).State
 }
 
-// GateRunPRs returns the PR URLs recorded by completed no-mistakes runs in clonePath, scraped
-// from `no-mistakes runs` text the way GateStatus does, never out of `~/.no-mistakes` directly.
-// Per clone rather than per PR, so many tasks on one project pay one no-mistakes process.
+// GateRunPRs maps each PR URL whose newest no-mistakes run in clonePath did not fail to whether that
+// run completed, scraped from `no-mistakes runs` text the way GateStatus does, never out
+// of `~/.no-mistakes` directly. Per clone rather than per PR, so many tasks on one project pay one process.
 func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) {
 	// Every way of failing to ask no-mistakes at all is an error, never an empty set, so a
 	// caller can keep "the gate recorded no such run" separate from "the question could not be
@@ -88,19 +93,29 @@ func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) 
 	if err != nil {
 		return nil, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
 	}
-	// Membership establishes only that the `pr` step opened that exact PR from a run that
+	// A true entry establishes only that the `pr` step opened that exact PR from a newest run that
 	// reached completed, not a per-commit answer: no-mistakes keys its state on working_path
 	// and hand records no head commit to compare against.
 	prs := make(map[string]bool)
+	seen := make(map[string]bool)
 	for _, line := range strings.Split(text, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[0] != "completed" {
+		if len(fields) < 2 {
 			continue
 		}
-		// So a push amending the PR after its matched run reads as gated exactly as it did
-		// before that push, and a PR opened outside the `pr` step reads as absent even behind a
+		// So a push amending the PR outside the gate after its matched run reads as gated exactly as
+		// it did before that push, and a PR opened outside the `pr` step reads as absent even behind a
 		// run that did complete. Both gaps are real, and documented rather than papered over.
-		prs[fields[len(fields)-1]] = true
+		pr := fields[len(fields)-1]
+		// no-mistakes v1.79.0 lists runs newest first (internal/db/run.go `ORDER BY created_at DESC,
+		// id DESC`), so the first row carrying a PR URL is that PR's newest run and decides its state.
+		if seen[pr] {
+			continue
+		}
+		seen[pr] = true
+		if fields[0] != "failed" {
+			prs[pr] = fields[0] == "completed"
+		}
 	}
 	return prs, nil
 }
