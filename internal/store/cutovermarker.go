@@ -164,7 +164,11 @@ func validateLegacyV18CutoverMarkerInput(homeDir string, input legacyV18CutoverM
 	}
 	if input.FrozenBridge != nil {
 		bridge := input.FrozenBridge
-		expectedCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + input.SourceSHA256
+		evidence, err := encodeLegacyV18CutoverBootEvidence(bridge.Evidence)
+		if err != nil {
+			return fmt.Errorf("build v19 cutover advisory marker: frozen bridge boot evidence: %w", err)
+		}
+		expectedCertificate := legacyV18CutoverCertificateValue(input.SourceSHA256, bridge.ManifestSHA256, evidence)
 		if !bridge.Committed || bridge.MigrationID != input.MigrationID || bridge.FleetID != input.FleetID || bridge.SourceSHA256 != input.SourceSHA256 || bridge.Certificate != expectedCertificate {
 			return fmt.Errorf("build v19 cutover advisory marker: frozen bridge does not match exact migration/Fleet/source certificate identity")
 		}
@@ -280,9 +284,8 @@ func validateLegacyV18CutoverMarker(homeDir string, marker legacyV18CutoverMarke
 		if marker.Evidence.FreezeCertificateVersion != legacyV18CutoverFreezeCertificateVersion {
 			return fmt.Errorf("freeze certificate version=%q, want %q", marker.Evidence.FreezeCertificateVersion, legacyV18CutoverFreezeCertificateVersion)
 		}
-		expectedCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + marker.SourceSHA256
-		if marker.Evidence.FreezeCertificateSHA256 != canonicalV19SHA256([]byte(expectedCertificate)) {
-			return fmt.Errorf("freeze certificate digest does not bind exact original source digest")
+		if err := validateLegacyV18CutoverSHA256(marker.Evidence.FreezeCertificateSHA256); err != nil {
+			return fmt.Errorf("freeze certificate digest: %w", err)
 		}
 	} else if marker.Evidence.FrozenBridgeSHA256 != "" || marker.Evidence.FreezeCertificateVersion != "" || marker.Evidence.FreezeCertificateSHA256 != "" {
 		return fmt.Errorf("pre-freeze marker cannot claim frozen bridge evidence")

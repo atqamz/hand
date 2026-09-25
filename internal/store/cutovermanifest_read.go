@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 )
 
 func readLegacyV18CutoverManifest(homeDir string, artifact legacyV18CutoverManifestArtifact) (legacyV18CutoverManifest, error) {
@@ -99,10 +100,7 @@ func validatePersistedLegacyV18CutoverManifest(manifest legacyV18CutoverManifest
 	if expectedMigrationID != migrationID {
 		return fmt.Errorf("read legacy v18 cutover manifest: migration identity=%s, want %s from Fleet/source evidence", migrationID, expectedMigrationID)
 	}
-	expectedCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + manifest.Source.DBSHA256
 	if manifest.Freeze.CertificateVersion != legacyV18CutoverFreezeCertificateVersion ||
-		manifest.Freeze.CertificateValue != expectedCertificate ||
-		manifest.Freeze.CertificateSHA256 != canonicalV19SHA256([]byte(expectedCertificate)) ||
 		manifest.Freeze.BridgeUserVersion != legacyV18CutoverFrozenUserVersion {
 		return fmt.Errorf("read legacy v18 cutover manifest: freeze certificate identity does not match exact source evidence")
 	}
@@ -155,6 +153,11 @@ func validatePersistedLegacyV18CutoverManifestProjects(projects []legacyV18Cutov
 		if project.RepositoryPhysicalID == "" || project.CommonDirPhysicalID == "" {
 			return fmt.Errorf("read legacy v18 cutover manifest: Project %q physical identity evidence is incomplete", project.SourceProjectID)
 		}
+		for _, physicalID := range []string{project.RepositoryPhysicalID, project.CommonDirPhysicalID} {
+			if err := validateLegacyV18CutoverRestartStableIdentity(physicalID); err != nil {
+				return fmt.Errorf("read legacy v18 cutover manifest: Project %q: %w", project.SourceProjectID, err)
+			}
+		}
 		if project.RepositoryPhysicalID == project.CommonDirPhysicalID {
 			return fmt.Errorf("read legacy v18 cutover manifest: Project %q repository and common-dir physical identities alias", project.SourceProjectID)
 		}
@@ -178,4 +181,12 @@ func validatePersistedLegacyV18CutoverManifestProjects(projects []legacyV18Cutov
 		}
 	}
 	return nil
+}
+
+// The drift gate compares these identities across the required restart; device numbers are renumbered at boot.
+func validateLegacyV18CutoverRestartStableIdentity(physicalID string) error {
+	if strings.HasPrefix(physicalID, "unix-v2:") || strings.HasPrefix(physicalID, "windows-v1:") {
+		return nil
+	}
+	return fmt.Errorf("physical identity %q is not a restart-stable unix-v2 or windows-v1 identity", physicalID)
 }

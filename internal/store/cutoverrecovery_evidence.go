@@ -40,27 +40,17 @@ func discoverLegacyV18CutoverFrozenBridge(homeDir string) (legacyV18CutoverFroze
 		_ = sqlDB.Close()
 		return legacyV18CutoverFrozenBridge{}, err
 	}
-	var certificate string
-	if err := sqlDB.QueryRow(`SELECT value FROM meta WHERE key = ?`, legacyV18CutoverFreezeCertificateKey).Scan(&certificate); err != nil {
+	claimed, err := readLegacyV18CutoverFreezeCertificate(sqlDB)
+	if err != nil {
 		_ = sqlDB.Close()
-		return legacyV18CutoverFrozenBridge{}, fmt.Errorf("read freeze certificate: %w", err)
+		return legacyV18CutoverFrozenBridge{}, err
 	}
-	prefix := legacyV18CutoverFreezeCertificateVersion + ":"
-	if !strings.HasPrefix(certificate, prefix) {
-		_ = sqlDB.Close()
-		return legacyV18CutoverFrozenBridge{}, fmt.Errorf("freeze certificate=%q, want %s:<source-sha256>", certificate, legacyV18CutoverFreezeCertificateVersion)
-	}
-	sourceSHA256 := strings.TrimPrefix(certificate, prefix)
-	if err := validateLegacyV18CutoverSHA256(sourceSHA256); err != nil {
-		_ = sqlDB.Close()
-		return legacyV18CutoverFrozenBridge{}, fmt.Errorf("freeze certificate source digest: %w", err)
-	}
-	migrationID, err := legacyV18CutoverMigrationIdentity(fleetID, sourceSHA256)
+	migrationID, err := legacyV18CutoverMigrationIdentity(fleetID, claimed.SourceSHA256)
 	if err != nil {
 		_ = sqlDB.Close()
 		return legacyV18CutoverFrozenBridge{}, fmt.Errorf("derive frozen bridge migration identity: %w", err)
 	}
-	validationErr := validateLegacyV18CutoverFrozenBridge(sqlDB, fleetID, sourceSHA256)
+	certificate, validationErr := validateLegacyV18CutoverFrozenBridge(sqlDB, fleetID, claimed.SourceSHA256)
 	closeErr := sqlDB.Close()
 	if validationErr != nil {
 		return legacyV18CutoverFrozenBridge{}, validationErr
@@ -76,12 +66,15 @@ func discoverLegacyV18CutoverFrozenBridge(homeDir string) (legacyV18CutoverFroze
 		return legacyV18CutoverFrozenBridge{}, fmt.Errorf("frozen bridge changed during read-only validation: before=%s after=%s", beforeDigest, afterDigest)
 	}
 	return legacyV18CutoverFrozenBridge{
-		MigrationID:  migrationID,
-		FleetID:      fleetID,
-		SourceSHA256: sourceSHA256,
-		BridgeSHA256: afterDigest,
-		Certificate:  certificate,
-		Committed:    true,
+		MigrationID:        migrationID,
+		FleetID:            fleetID,
+		SourceSHA256:       certificate.SourceSHA256,
+		BridgeSHA256:       afterDigest,
+		Certificate:        certificate.Value,
+		CertificateVersion: certificate.Version,
+		ManifestSHA256:     certificate.ManifestSHA256,
+		Evidence:           certificate.Evidence,
+		Committed:          true,
 	}, nil
 }
 

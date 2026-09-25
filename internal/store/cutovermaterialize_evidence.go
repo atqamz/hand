@@ -118,9 +118,8 @@ func validateCanonicalV19CutoverMaterializationEvidence(homeDir string, bridge l
 	if bridge.MigrationID != expectedMigrationID {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: migration identity=%s, want %s", bridge.MigrationID, expectedMigrationID)
 	}
-	expectedCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + bridge.SourceSHA256
-	if bridge.Certificate != expectedCertificate {
-		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: frozen bridge certificate=%q, want %q", bridge.Certificate, expectedCertificate)
+	if bridge.CertificateVersion != legacyV18CutoverFreezeCertificateVersion || bridge.ManifestSHA256 != artifact.SHA256 {
+		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: frozen bridge certificate %s does not bind manifest %s", bridge.CertificateVersion, artifact.SHA256)
 	}
 	if artifact.MigrationID != bridge.MigrationID {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: manifest migration identity=%s, bridge=%s", artifact.MigrationID, bridge.MigrationID)
@@ -140,10 +139,13 @@ func validateCanonicalV19CutoverMaterializationEvidence(homeDir string, bridge l
 	if err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: open frozen bridge: %w", err)
 	}
-	validationErr := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256)
+	certificate, validationErr := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256)
 	closeErr := frozenDB.Close()
 	if validationErr != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: validate frozen bridge: %w", validationErr)
+	}
+	if certificate.Value != bridge.Certificate {
+		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: frozen bridge certificate changed")
 	}
 	if closeErr != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: close frozen bridge: %w", closeErr)
@@ -172,7 +174,7 @@ func validateCanonicalV19CutoverMaterializationEvidence(homeDir string, bridge l
 	if err != nil {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: %w", err)
 	}
-	if manifest.Fleet.FleetID != bridge.FleetID || manifest.Source.DBSHA256 != bridge.SourceSHA256 || manifest.Freeze.CertificateValue != bridge.Certificate {
+	if manifest.Fleet.FleetID != bridge.FleetID || manifest.Source.DBSHA256 != bridge.SourceSHA256 {
 		return legacyV18CutoverManifest{}, fmt.Errorf("materialize canonical v19 cutover target: manifest does not bind the exact frozen source evidence")
 	}
 	return manifest, nil

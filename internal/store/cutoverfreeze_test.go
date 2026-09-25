@@ -2,9 +2,20 @@ package store
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+var testLegacyV18CutoverManifestSHA256 = strings.Repeat("e", 64)
+
+func testLegacyV18CutoverFreezeEvidence() legacyV18CutoverBootEvidence {
+	machine := testCutoverGUID
+	if runtime.GOOS == "linux" {
+		machine = testCutoverMachine
+	}
+	return testCutoverEvidence(runtime.GOOS, machine, testCutoverPlatformToken())
+}
 
 func TestFreezeLegacyV18CutoverSourceCommitsExactFrozenBridge(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
@@ -36,14 +47,18 @@ func TestFreezeLegacyV18CutoverSourceCommitsExactFrozenBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive)
+	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive, testLegacyV18CutoverManifestSHA256, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bridge.Committed {
 		t.Fatal("frozen bridge did not report committed state")
 	}
-	if bridge.SourceSHA256 != originalDigest || bridge.Certificate != "v1:"+originalDigest {
+	evidence, err := encodeLegacyV18CutoverBootEvidence(testLegacyV18CutoverFreezeEvidence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bridge.SourceSHA256 != originalDigest || bridge.Certificate != legacyV18CutoverCertificateValue(originalDigest, testLegacyV18CutoverManifestSHA256, evidence) {
 		t.Fatalf("frozen bridge provenance = %+v, want original digest %s", bridge, originalDigest)
 	}
 	if bridge.BridgeSHA256 == "" || bridge.BridgeSHA256 == originalDigest {
@@ -66,8 +81,12 @@ func TestFreezeLegacyV18CutoverSourceCommitsExactFrozenBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = frozenDB.Close() }()
-	if err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, originalDigest); err != nil {
+	certificate, err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, originalDigest)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if certificate.Version != legacyV18CutoverFreezeCertificateVersion || certificate.Value != bridge.Certificate || certificate.ManifestSHA256 != testLegacyV18CutoverManifestSHA256 || certificate.Evidence != testLegacyV18CutoverFreezeEvidence() {
+		t.Fatalf("committed certificate = %+v, want v2 binding the manifest and the preflight boot evidence", certificate)
 	}
 	var version int
 	if err := frozenDB.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
@@ -128,7 +147,7 @@ func TestFreezeLegacyV18CutoverSourceRefusesArchiveMismatchWithoutMutation(t *te
 		bad.SHA256 = strings.Repeat("c", 64)
 	}
 
-	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, bad)
+	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, bad, testLegacyV18CutoverManifestSHA256, testLegacyV18CutoverFreezeEvidence())
 	if err == nil {
 		t.Fatal("freeze accepted mismatched original archive evidence")
 	}
@@ -175,7 +194,7 @@ func TestValidateLegacyV18CutoverFrozenBridgeRejectsTamperedGuard(t *testing.T) 
 		_ = gate.Close()
 		t.Fatal(err)
 	}
-	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive)
+	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive, testLegacyV18CutoverManifestSHA256, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		_ = gate.Close()
 		t.Fatal(err)
@@ -203,7 +222,7 @@ func TestValidateLegacyV18CutoverFrozenBridgeRejectsTamperedGuard(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer func() { _ = frozenDB.Close() }()
-	if err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256); err == nil || !strings.Contains(err.Error(), "semantics do not match exact freeze guard") {
+	if _, err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256); err == nil || !strings.Contains(err.Error(), "semantics do not match exact freeze guard") {
 		t.Fatalf("tampered frozen bridge validation = %v, want exact trigger-semantic refusal", err)
 	}
 }

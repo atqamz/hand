@@ -43,7 +43,7 @@ func (g *LegacyV18CutoverGuard) Freeze(ctx context.Context, homeDir string, inpu
 		return fmt.Errorf("freeze held legacy v18 cutover guard: %w", err)
 	}
 
-	bridge, err := freezeLegacyV18CutoverSource(ctx, homeDir, g.gate, archive)
+	bridge, err := freezeLegacyV18CutoverSource(ctx, homeDir, g.gate, archive, artifact.SHA256, g.evidence)
 	if bridge.Committed {
 		g.sourceHeld = false
 	}

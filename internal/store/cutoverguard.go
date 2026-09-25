@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // ErrLegacyV18CutoverGuardClosed means provider observation no longer owns the required source guards.
@@ -58,6 +59,7 @@ type LegacyV18CutoverGuard struct {
 	gate       *legacyV18CutoverGate
 	locks      *legacyV18CutoverLocks
 	plan       LegacyV18CutoverObservationPlan
+	evidence   legacyV18CutoverBootEvidence
 	sourceHeld bool
 }
 
@@ -65,7 +67,11 @@ func AcquireLegacyV18CutoverGuard(_ context.Context, _ string) (*LegacyV18Cutove
 	return nil, ErrLegacyV18AutomaticCutoverUnavailable
 }
 
-func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string) (*LegacyV18CutoverGuard, error) {
+// The evidence is the preflight read that Freeze commits as E_F.
+func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string, evidence legacyV18CutoverBootEvidence) (*LegacyV18CutoverGuard, error) {
+	if err := validateLegacyV18CutoverBootEvidence(evidence); err != nil {
+		return nil, fmt.Errorf("acquire legacy v18 cutover guard: boot evidence: %w", err)
+	}
 	gate, err := acquireLegacyV18CutoverGate(ctx, homeDir)
 	if err != nil {
 		return nil, err
@@ -98,6 +104,7 @@ func acquireLegacyV18CutoverGuardForFixture(ctx context.Context, homeDir string)
 		gate:       gate,
 		locks:      locks,
 		plan:       exportLegacyV18CutoverObservationPlan(plan),
+		evidence:   evidence,
 		sourceHeld: true,
 	}, nil
 }

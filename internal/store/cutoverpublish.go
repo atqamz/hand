@@ -180,7 +180,7 @@ func revalidateCanonicalV19CutoverFrozenBridgeForPublication(homeDir string, sta
 	if bridge.MigrationID != state.MigrationID || bridge.FleetID != state.FleetID || bridge.SourceSHA256 != state.SourceSHA256 || bridge.BridgeSHA256 != state.BridgeSHA256 {
 		return fmt.Errorf("%w: frozen bridge identity changed before retirement", errLegacyV18CutoverPublicationUnsafe)
 	}
-	if evidence.Manifest.Freeze.CertificateValue != bridge.Certificate {
+	if evidence.Artifact.SHA256 != bridge.ManifestSHA256 {
 		return fmt.Errorf("%w: frozen bridge certificate no longer matches manifest", errLegacyV18CutoverPublicationUnsafe)
 	}
 	return nil
