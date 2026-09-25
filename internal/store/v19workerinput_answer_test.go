@@ -74,6 +74,53 @@ func TestCreateCanonicalV19AnswerWorkerInputExactReplayConverges(t *testing.T) {
 	}
 }
 
+// atqamz/hand#304 required test: crash after the Answer-origin WorkerInput commit but
+// before WorkerWake. The retry that follows a crash must converge on the same durable
+// input rather than duplicate it, and the wake obligation must remain unrequested.
+func TestCreateCanonicalV19AnswerWorkerInputCrashBeforeWakeReplayLeavesWakePending(t *testing.T) {
+	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
+	canonicalV19DecisionAnswerFixture(t, fixture.Home, launch, "decision-answer-crash", "answer-crash", "attempt", "")
+	input := canonicalV19AnswerWorkerInputCreateInput(launch, "worker-input-answer-crash", "answer-origin-crash", "decision-answer-crash", "answer-crash")
+
+	committed, err := CreateCanonicalV19AnswerWorkerInput(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := CreateCanonicalV19AnswerWorkerInput(context.Background(), fixture.Home, input)
+	if err != nil {
+		t.Fatalf("replay after crash: %v", err)
+	}
+	if replayed != committed {
+		t.Fatalf("replayed Answer-origin WorkerInput = %#v, want %#v", replayed, committed)
+	}
+
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var workerInputs int
+	if err := db.sql.QueryRow(`SELECT count(*) FROM worker_input WHERE id=?`, input.ID).Scan(&workerInputs); err != nil {
+		t.Fatal(err)
+	}
+	if workerInputs != 1 {
+		t.Fatalf("Answer-origin WorkerInput rows after crash replay = %d, want 1", workerInputs)
+	}
+	var wakeOperations, wakeRequests int
+	if err := db.sql.QueryRow(`SELECT count(*) FROM external_operation WHERE kind='worker-wake' AND attempt_id=?`,
+		launch.AttemptID).Scan(&wakeOperations); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.sql.QueryRow(`SELECT count(*) FROM worker_wake_operation WHERE attempt_id=?`,
+		launch.AttemptID).Scan(&wakeRequests); err != nil {
+		t.Fatal(err)
+	}
+	if wakeOperations != 0 || wakeRequests != 0 {
+		t.Fatalf("WorkerWake rows after crash-before-wake replay = external_operation %d / worker_wake_operation %d, want 0/0",
+			wakeOperations, wakeRequests)
+	}
+}
+
 func TestCreateCanonicalV19AnswerWorkerInputIdentityDriftConflicts(t *testing.T) {
 	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
 	canonicalV19DecisionAnswerFixture(t, fixture.Home, launch, "decision-answer-drift", "answer-drift", "attempt", "")
