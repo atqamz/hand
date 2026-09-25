@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/faketool"
+	"github.com/atqamz/hand/internal/ghutil"
 )
 
 func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
@@ -30,7 +31,7 @@ func TestGateRunPRsCollectsCompletedRunPRs(t *testing.T) {
 }
 
 // Covers a run that recorded a PR URL but never reached completed - running or failed both leave
-// the gate un-cleared for that commit, so neither should count as evidence a run happened.
+// the gate un-cleared for that commit, so neither counts as gate coverage.
 func TestGateRunPRsIgnoresNonCompletedRuns(t *testing.T) {
 	fakeNoMistakes(t, "  failed       97-gate-visibility   758d72bf  2026-08-03 04:29  https://github.com/atqamz/hand/pull/120\n")
 
@@ -40,6 +41,29 @@ func TestGateRunPRsIgnoresNonCompletedRuns(t *testing.T) {
 	}
 	if prs["https://github.com/atqamz/hand/pull/120"] {
 		t.Fatal("a failed run must not count as gate coverage even though it recorded the PR URL")
+	}
+}
+
+func TestGateRunObservationTreatsOpenRunForExactPRAsUnknown(t *testing.T) {
+	fakeNoMistakes(t, "  running      505-open-run   b2f584f9  2026-09-25 04:20  https://github.com/atqamz/hand/pull/120\n"+
+		"  completed    97-gate-visibility   758d72bf  2026-09-25 04:29  https://github.com/atqamz/hand/pull/121\n")
+
+	prs, err := GateRunPRs(context.Background(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		pr   string
+		want ghutil.ObservationState
+	}{
+		{"https://github.com/atqamz/hand/pull/120", ghutil.ObservationUnknown},
+		{"https://github.com/atqamz/hand/pull/121", ghutil.ObservationFound},
+		{"https://github.com/atqamz/hand/pull/12", ghutil.ObservationAbsent},
+		{"https://github.com/atqamz/hand/pull/999", ghutil.ObservationAbsent},
+	} {
+		if obs := ClassifyGateRun(prs, err, test.pr); obs.State != test.want {
+			t.Fatalf("%s: obs = %+v, want %s", test.pr, obs, test.want)
+		}
 	}
 }
 

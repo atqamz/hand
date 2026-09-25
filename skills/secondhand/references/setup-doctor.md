@@ -75,7 +75,8 @@ Project integration readiness is not exact work/PR gate-run evidence:
 - Project readiness is the existing Project-level `GateStatus` observation used by `project list`,
   `doctor`, and dispatch/integration preflight.
 - Exact work/PR evidence is the shared `GateRunObservation` used by status/watch/orient. It keeps
-  the `found | absent | unknown` vocabulary for the exact PR recorded by completed `no-mistakes runs`.
+  the `found | absent | unknown` vocabulary for the exact PR recorded by completed `no-mistakes runs`;
+  a PR whose only matching run is still open is `unknown`, not `absent`.
   `gate-absent` and `gate-unknown` belong to this work evidence, not to Project setup; `absent` is
   distinct from `unknown`.
 - Doctor is read-only and does not inspect `no-mistakes runs` to decide Project integration readiness.
