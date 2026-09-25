@@ -343,7 +343,12 @@ func (c *Client) runContext(ctx context.Context, args ...string) ([]byte, string
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	// A child holding herdr's output pipe would otherwise keep Run waiting past ctx's deadline.
+	cmd.WaitDelay = time.Second
 	runErr := cmd.Run()
+	if errors.Is(runErr, exec.ErrWaitDelay) && cmd.ProcessState.Success() {
+		runErr = nil
+	}
 	if runErr != nil {
 		runErr = &ExecError{Started: cmd.ProcessState != nil, Err: runErr}
 	}
@@ -686,7 +691,11 @@ func (c *Client) WorkspaceClose(workspaceID string) error {
 }
 
 func (c *Client) TabList(workspaceID string) ([]Tab, error) {
-	res, err := c.call("tab", "list", "--workspace", workspaceID)
+	return c.TabListContext(context.Background(), workspaceID)
+}
+
+func (c *Client) TabListContext(ctx context.Context, workspaceID string) ([]Tab, error) {
+	res, err := c.callContext(ctx, "tab", "list", "--workspace", workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -775,7 +784,11 @@ func (c *Client) paneGet(ctx context.Context, paneID string) (Pane, error) {
 }
 
 func (c *Client) PaneProcessInfo(paneID string) (ProcessInfo, error) {
-	res, err := c.call("pane", "process-info", "--pane", paneID)
+	return c.PaneProcessInfoContext(context.Background(), paneID)
+}
+
+func (c *Client) PaneProcessInfoContext(ctx context.Context, paneID string) (ProcessInfo, error) {
+	res, err := c.callContext(ctx, "pane", "process-info", "--pane", paneID)
 	if err != nil {
 		return ProcessInfo{}, err
 	}
