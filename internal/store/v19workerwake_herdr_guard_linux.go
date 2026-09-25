@@ -78,7 +78,8 @@ func wakeCanonicalV19Herdr(
 		}
 		switch {
 		case err != nil:
-			return "submitted", fmt.Errorf("wake canonical v19 Herdr Worker: persist %s: %w", state, err)
+			return canonicalV19HerdrWorkerWakeStoredState(ctx, homeDir, input.OperationID),
+				fmt.Errorf("wake canonical v19 Herdr Worker: persist %s: %w", state, err)
 		case state == "succeeded":
 			return state, nil
 		}
@@ -93,6 +94,8 @@ func wakeCanonicalV19Herdr(
 	switch {
 	case herdr.IsAgentPromptPreSideEffectRejection(promptErr):
 		return settle("rejected", "Herdr refused the doorbell before queueing input: "+canonicalV19HerdrSessionErrorText(promptErr))
+	case herdr.IsProcessNotStarted(promptErr):
+		return settle("no-effect", "the herdr client never started: "+canonicalV19HerdrSessionErrorText(promptErr))
 	case promptErr != nil:
 		return settle("uncertain", "the Herdr reply was lost; settling it needs the unqualified Herdr property O1: "+canonicalV19HerdrSessionErrorText(promptErr))
 	}
@@ -168,6 +171,14 @@ func checkCanonicalV19HerdrGuardWake(
 		return "Herdr reports the pane agent blocked"
 	}
 	return ""
+}
+
+func canonicalV19HerdrWorkerWakeStoredState(ctx context.Context, homeDir, operationID string) string {
+	if current, err := readCanonicalV19HerdrWorkerWakeCurrent(ctx, homeDir, operationID); err == nil {
+		return current.Current.State
+	}
+	state, _, _ := readCanonicalV19HerdrWorkerWakeTerminal(ctx, homeDir, operationID)
+	return state
 }
 
 func canonicalV19HerdrGuardWakeEvidenceDigest(current canonicalV19HerdrWorkerWakeCurrent, state, reason string) string {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os/exec"
 	"strconv"
 	"syscall"
 	"testing"
@@ -222,13 +223,51 @@ func TestExecGuardWakeWithALostReplyStaysUncertainAndHoldsTheExecutor(t *testing
 	if _, err := PrepareCanonicalV19WorkerWake(context.Background(), w.home, next); !errors.Is(err, ErrCanonicalV19WorkerWakeConflict) {
 		t.Fatalf("later wake while uncertain = %v, want the executor-control claim to refuse it", err)
 	}
+	interrupt := canonicalV19InterruptPrepareInput(w.launch, "operation-interrupt-during-uncertain-wake")
+	if _, err := PrepareCanonicalV19Interrupt(context.Background(), w.home, interrupt); !errors.Is(err, ErrCanonicalV19InterruptConflict) {
+		t.Fatalf("Interrupt while the wake is uncertain = %v, want the executor-control claim to refuse it (EG-10)", err)
+	}
 }
 
-func TestExecGuardWakeWhoseHarnessEndsDuringDeliveryIsUncertain(t *testing.T) {
+func TestExecGuardWakeOfAHerdrClientThatNeverStartedIsNoEffect(t *testing.T) {
 	w := newExecGuardWakeTest(t)
-	w.client.onPrompt = func() { w.endHarness(t) }
-	if state, persisted, err := w.wake(t); state != "uncertain" || persisted != "uncertain" || err == nil || w.client.promptCalls != 1 {
-		t.Fatalf("wake = %q (%q), %v with %d prompts, want uncertain when W(B) fails after delivery (EG-10, counterexample 5)", state, persisted, err, w.client.promptCalls)
+	w.client.promptErr = &herdr.ExecError{Started: false, Err: exec.ErrNotFound}
+	if state, persisted, err := w.wake(t); state != "no-effect" || persisted != "no-effect" || err == nil {
+		t.Fatalf("wake = %q (%q), %v, want no-effect when the herdr client process never started", state, persisted, err)
+	}
+}
+
+func TestExecGuardWakeReportsTheStoredStateWhenAReconcilerMovedItFirst(t *testing.T) {
+	w := newExecGuardWakeTest(t)
+	w.client.promptErr = context.DeadlineExceeded
+	w.client.onPrompt = func() {
+		if state, _ := reconcileCanonicalV19HerdrWorkerWake(context.Background(), w.home, w.client.wakeOperationID, w.deps); state != "uncertain" {
+			t.Fatalf("concurrent reconcile = %q, want uncertain", state)
+		}
+	}
+	if state, persisted, err := w.wake(t); state != "uncertain" || persisted != "uncertain" || err == nil {
+		t.Fatalf("wake = %q (%q), %v, want the stored uncertain, not submitted", state, persisted, err)
+	}
+}
+
+func TestExecGuardWakeWhoseWFailsDuringDeliveryIsUncertain(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*execGuardWakeTest)
+	}{
+		{"the harness ends (counterexample 5)", func(w *execGuardWakeTest) { w.endHarness(t) }},
+		{"the agent becomes blocked", func(w *execGuardWakeTest) {
+			pane := w.client.panes[w.key.PaneID]
+			pane.AgentStatus = herdr.StatusBlocked
+			w.client.panes[w.key.PaneID] = pane
+		}},
+		{"Herdr reports another pane terminal", func(w *execGuardWakeTest) { w.client.processInfo.TTY = "/dev/null" }},
+	} {
+		w := newExecGuardWakeTest(t)
+		w.client.onPrompt = func() { test.change(w) }
+		if state, persisted, err := w.wake(t); state != "uncertain" || persisted != "uncertain" || err == nil || w.client.promptCalls != 1 {
+			t.Fatalf("%s: wake = %q (%q), %v with %d prompts, want uncertain when W(B) fails after delivery (EG-10)", test.name, state, persisted, err, w.client.promptCalls)
+		}
 	}
 }
 
