@@ -114,6 +114,7 @@ func newRootCmd(info selfupdate.BuildInfo) *cobra.Command {
 	root.AddCommand(newSearchCmd())
 	root.AddCommand(newDoctorCmd(info))
 	root.AddCommand(newRuntimeCmd())
+	root.AddCommand(newExecGuardCmd())
 	root.AddCommand(newIntegrationCmd())
 	root.AddCommand(newUpdateCmd(info))
 	// ExecuteC would add the completion group later, too late for the guard below.

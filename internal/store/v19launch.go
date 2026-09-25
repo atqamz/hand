@@ -458,7 +458,7 @@ func buildCanonicalV19LaunchRequest(
 	if request.Spec.Cwd != worktreePath {
 		return CanonicalV19LaunchRequest{}, fmt.Errorf("%w: Launch cwd %q does not equal exact WorktreeBinding path %q", ErrCanonicalV19LaunchNotCurrent, request.Spec.Cwd, worktreePath)
 	}
-	request.LaunchSpecDigest = canonicalV19LaunchSpecDigest(request.Spec)
+	request.LaunchSpecDigest = CanonicalV19LaunchSpecDigest(request.Spec)
 	request.RequestDigest = canonicalV19LaunchRequestDigest(request)
 	return request, nil
 }
@@ -522,7 +522,7 @@ func loadCanonicalV19LaunchCurrent(
 	if err := validateCanonicalV19LaunchSpec(request.Spec); err != nil {
 		return canonicalV19LaunchCurrent{}, fmt.Errorf("%w: operation %q persisted LaunchSpec invalid: %v", ErrCanonicalV19LaunchNotCurrent, operationID, err)
 	}
-	if canonicalV19LaunchSpecDigest(request.Spec) != request.LaunchSpecDigest {
+	if CanonicalV19LaunchSpecDigest(request.Spec) != request.LaunchSpecDigest {
 		return canonicalV19LaunchCurrent{}, fmt.Errorf("%w: operation %q LaunchSpec digest does not match persisted request", ErrCanonicalV19LaunchNotCurrent, operationID)
 	}
 	if canonicalV19LaunchRequestDigest(*request) != request.RequestDigest {
@@ -598,7 +598,9 @@ func canonicalV19LaunchSuccessTransitionAllowed(from string) bool {
 	return from == "prepared" || from == "submitted" || from == "uncertain"
 }
 
-func canonicalV19LaunchSpecDigest(spec CanonicalV19LaunchSpec) string {
+// CanonicalV19LaunchSpecDigest is the launch-spec commitment Tx A persists and
+// the exec guard recomputes from its handoff before starting the harness.
+func CanonicalV19LaunchSpecDigest(spec CanonicalV19LaunchSpec) string {
 	hash := sha256.New()
 	writeCanonicalV19DigestField(hash, "domain", "hand:v19:launch-spec:v1")
 	writeCanonicalV19DigestField(hash, "executable", spec.Executable)
@@ -616,6 +618,26 @@ func canonicalV19LaunchSpecDigest(spec CanonicalV19LaunchSpec) string {
 		writeCanonicalV19DigestField(hash, "environment_material", value.ValueMaterial)
 		writeCanonicalV19DigestField(hash, "environment_digest", value.ValueDigest)
 	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// CanonicalV19LaunchEnvironmentValueDigest is the ValueDigest committed for one
+// resolved environment value other than the exec-guard credential.
+func CanonicalV19LaunchEnvironmentValueDigest(value string) string {
+	hash := sha256.New()
+	writeCanonicalV19DigestField(hash, "domain", "hand:v19:launch-environment-value:v1")
+	writeCanonicalV19DigestField(hash, "value", value)
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// CanonicalV19ExecGuardCredentialVerifier is V_B, the ValueDigest of the
+// HAND_WORKER_CREDENTIAL entry for one Fleet and ExecutorBinding.
+func CanonicalV19ExecGuardCredentialVerifier(fleetID, executorBindingID, credential string) string {
+	hash := sha256.New()
+	writeCanonicalV19DigestField(hash, "domain", "hand:v19:exec-guard-credential:v1")
+	writeCanonicalV19DigestField(hash, "fleet_id", fleetID)
+	writeCanonicalV19DigestField(hash, "executor_binding_id", executorBindingID)
+	writeCanonicalV19DigestField(hash, "credential", credential)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 

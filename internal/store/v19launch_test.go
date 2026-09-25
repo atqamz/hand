@@ -278,3 +278,15 @@ func canonicalV19LaunchPrepareInput(
 		CreatedAt: "2026-09-06T17:03:00Z",
 	}
 }
+
+// The exec guard and the WorkerInput acceptance check recompute these from plaintext, so
+// a change to either framing strands every committed credential and resolved value.
+func TestExecGuardCredentialVerifierAndValueDigestKeepTheirFraming(t *testing.T) {
+	credential := CanonicalV19ExecGuardCredentialVerifier("f_0123456789abcdef0123456789abcdef", "eb_1", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	if credential != "ced0893885f7a8e22451cb5999cafbbab151de562e8d68294ccfe74859f2da0f" {
+		t.Fatalf("V_B = %s, want the hand:v19:exec-guard-credential:v1 framing of fleet_id, executor_binding_id, credential", credential)
+	}
+	if value := CanonicalV19LaunchEnvironmentValueDigest("worker"); value != "6fbc304613a8b171b21745d6645cf3638c793d17ecbe521560964997f4738846" {
+		t.Fatalf("value digest = %s, want the hand:v19:launch-environment-value:v1 framing of value", value)
+	}
+}

@@ -294,7 +294,7 @@ func daemonEnvironment(parent []string) []string {
 	result := make([]string, 0, len(parent))
 	for _, item := range parent {
 		key, _, ok := strings.Cut(item, "=")
-		if ok && daemonEnvironmentKey(key) {
+		if ok && DaemonEnvironmentKey(key) {
 			continue
 		}
 		result = append(result, item)
@@ -302,7 +302,9 @@ func daemonEnvironment(parent []string) []string {
 	return result
 }
 
-func daemonEnvironmentKey(key string) bool {
+// DaemonEnvironmentKey reports whether an inherited environment name carries
+// Fleet, Attempt, role, credential, or harness-session meaning.
+func DaemonEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
 	if strings.HasPrefix(key, "HAND_TASK_") || strings.HasPrefix(key, "HAND_ATTEMPT_") || strings.HasPrefix(key, "HAND_REPORT_") || strings.HasPrefix(key, "HAND_WORKSPACE_") || strings.HasPrefix(key, "HAND_TAB_") || strings.HasPrefix(key, "HAND_PANE_") || strings.HasPrefix(key, "HAND_BRIDGE_") || strings.HasPrefix(key, "HAND_ROUTING_") || strings.HasPrefix(key, "HAND_ROUTE_") || strings.HasPrefix(key, "HAND_SUPERVISOR_") || strings.HasPrefix(key, "HAND_WORKER_") || strings.HasPrefix(key, "NO_MISTAKES_") {
 		return true
