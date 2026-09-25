@@ -599,6 +599,14 @@ func TestAbandonCanonicalV19TaskRefusesOpenObligationsWithoutMutation(t *testing
 			) VALUES('operation-1','publication','adapter','key','digest','project-1','task-1',
 				'publication','artifact-1','2026-09-04T08:00:00Z','2026-09-04T08:00:00Z')`)
 		}},
+		{"PreparedLaunchOnActiveAttempt", "unresolved external operation", func(t *testing.T) string {
+			fixture, worktree, session := canonicalV19SessionBindingFixture(t)
+			if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home,
+				canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-1", "executor-binding-1")); err != nil {
+				t.Fatal(err)
+			}
+			return fixture.Home
+		}},
 		{"OpenTaskHold", "open TaskHold", func(t *testing.T) string {
 			return planless(t, `INSERT INTO task_hold(id,task_id,ordinal,kind,reason,evidence_digest,created_at)
 				VALUES('hold-1','task-1',1,'operator','wait','digest','2026-09-04T08:00:00Z')`)
@@ -744,5 +752,31 @@ func TestAbandonCanonicalV19TaskRacesRetryAndReplanWithoutRetarget(t *testing.T)
 				(SELECT count(*) FROM plan WHERE lifecycle='active')+(SELECT count(*) FROM attempt WHERE lifecycle='active')`, 0)
 			canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM plan WHERE lifecycle='abandoned'`, 1)
 		})
+	}
+}
+
+func TestAbandonCanonicalV19TaskRacesBlockedOnTaskHoldInsertWithOneWinner(t *testing.T) {
+	home := canonicalV19TaskHoldWriterFixture(t)
+	hold := canonicalV19TaskHoldWriterInput("hold-1")
+	hold.Kind, hold.BlockedOnTaskID = "blocked", "task-2"
+	errs := canonicalV19RaceWriters(
+		func() error {
+			_, err := CreateCanonicalV19TaskHold(context.Background(), home, hold)
+			return err
+		},
+		func() error {
+			return AbandonCanonicalV19Task(context.Background(), home, "task-2", "2026-09-05T03:00:01Z")
+		},
+	)
+	holdErr, abandonErr := errs[0], errs[1]
+	switch {
+	case holdErr == nil && errors.Is(abandonErr, ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold_blocked_on_task WHERE hold_id='hold-1' AND blocked_on_task_id='task-2'`, 1)
+	case abandonErr == nil && errors.Is(holdErr, ErrCanonicalV19TaskHoldNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='abandoned'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
+	default:
+		t.Fatalf("blocked TaskHold/abandon race = %v / %v, want exactly one winner", holdErr, abandonErr)
 	}
 }
