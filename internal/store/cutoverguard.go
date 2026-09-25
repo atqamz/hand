@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
+	"time"
 )
 
 // ErrLegacyV18CutoverGuardClosed means provider observation no longer owns the required source guards.
@@ -159,19 +162,29 @@ func exportLegacyV18CutoverObservationPlan(in legacyV18CutoverObservationPlan) L
 
 // FreezeLegacyV18CutoverOffline runs the #348 revision 4 freeze run: preflight, the source gate and
 // Fleet-local lock closure, the caller's provider observation under that hold, and one freeze transaction.
-func FreezeLegacyV18CutoverOffline(ctx context.Context, homeDir string, observe func(*LegacyV18CutoverGuard) (LegacyV18CutoverManifestInput, error)) (err error) {
+// It returns the Windows completion window, or zero where a restart is the only bound.
+func FreezeLegacyV18CutoverOffline(ctx context.Context, homeDir string, observe func(*LegacyV18CutoverGuard) (LegacyV18CutoverManifestInput, error)) (window time.Duration, err error) {
 	evidence, err := preflightLegacyV18CutoverFreeze(homeDir, legacyV18CutoverPlatform())
 	if err != nil {
-		return err
+		return 0, err
 	}
 	guard, err := acquireLegacyV18CutoverOfflineGuard(ctx, homeDir, evidence)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	defer func() { err = errors.Join(err, guard.Close()) }()
+	candidate := guard.gate.archiveCandidate.Path
 	input, err := observe(guard)
 	if err != nil {
-		return fmt.Errorf("observe providers for the offline freeze: %w", err)
+		closeErr := guard.Close()
+		if removeErr := os.Remove(candidate); removeErr != nil && !os.IsNotExist(removeErr) {
+			closeErr = errors.Join(closeErr, removeErr)
+		}
+		return 0, errors.Join(fmt.Errorf("observe providers for the offline freeze: %w", err), closeErr)
 	}
-	return guard.Freeze(ctx, homeDir, input)
+	err = errors.Join(guard.Freeze(ctx, homeDir, input), guard.Close())
+	if err == nil && evidence.Platform == "windows" {
+		uptime, _ := strconv.ParseUint(evidence.Token, 10, 64)
+		window = time.Duration(uptime) * time.Millisecond
+	}
+	return window, err
 }

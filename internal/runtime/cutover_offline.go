@@ -50,12 +50,16 @@ func OfflineCutover(ctx context.Context, homeDir string) (store.CanonicalV19Cuto
 	observe := func(guard *store.LegacyV18CutoverGuard) (store.LegacyV18CutoverManifestInput, error) {
 		return observeLegacyV18CutoverForFreeze(ctx, homeDir, guard)
 	}
-	if err := store.FreezeLegacyV18CutoverOffline(ctx, homeDir, observe); err != nil {
+	window, err := store.FreezeLegacyV18CutoverOffline(ctx, homeDir, observe)
+	if err != nil {
 		return state, err
 	}
 	frozen, err := store.InspectCanonicalV19Cutover(homeDir)
 	frozen.Disposition = "frozen"
 	frozen.Reason = "restart the machine fully, then run hand cutover offline again to complete, or run it with --abort to return to legacy"
+	if window > 0 {
+		frozen.Reason += fmt.Sprintf("; on Windows, complete within %s of the restart (a later restart reopens the window)", window.Round(time.Minute))
+	}
 	return frozen, err
 }
 

@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"database/sql"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -110,10 +112,55 @@ func TestCutoverOfflineRetriesObservationUnknown(t *testing.T) {
 	}
 }
 
-// A legacy home whose Herdr reports no session: nothing of this Fleet runs in Herdr, before or after the restart.
+// #348 revision 4 C4-14: a Project imported through the production freeze path works in canonical v19.
+func TestCutoverOfflineImportedProjectIsUsableAfterPublication(t *testing.T) {
+	home := offlineCutoverHome(t)
+	initGitRepo(t, filepath.Join(home, "projects", "alpha"))
+	execFleetFixtureSQL(t, home, `INSERT INTO project(id,name,url,mode,position) VALUES('p_11111111111111111111111111111111','alpha','https://example.invalid/alpha.git','direct-pr',1)`)
+	cutoverBootEnv(t, false)
+	if got := runHand(t, home, "cutover", "offline", home); got.code != 0 || !strings.Contains(got.stdout, "disposition: frozen") {
+		t.Fatalf("freeze run = %+v", got)
+	}
+	cutoverBootEnv(t, true)
+	if got := runHand(t, home, "cutover", "offline", home); got.code != 0 || !strings.Contains(got.stdout, "disposition: canonical-authority") {
+		t.Fatalf("completion = %+v", got)
+	}
+	ok := func(args ...string) invocation {
+		t.Helper()
+		got := runHand(t, home, args...)
+		if got.code != 0 {
+			t.Fatalf("%v on the published home: %+v", args, got)
+		}
+		return got
+	}
+	registered := ok("project", "register", "alpha")
+	projectID := canonicalOutputField(t, registered, "project_id")
+	workspaceID := canonicalOutputField(t, registered, "workspace_binding_id")
+	if again := ok("project", "register", "alpha"); canonicalOutputField(t, again, "workspace_binding_id") != workspaceID {
+		t.Fatalf("re-registration minted a new binding: %+v", again)
+	}
+	var imported, importedPolicy string
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: filepath.ToSlash(store.Path(home))}).EscapedPath()+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.QueryRow(`SELECT workspace_binding_id, policy_revision_id FROM legacy_import_project WHERE project_id=?`, projectID).Scan(&imported, &importedPolicy)
+	_ = db.Close()
+	if err != nil || imported != workspaceID {
+		t.Fatalf("registration returned binding %s, imported %s (%v)", workspaceID, imported, err)
+	}
+	ok("task", "create", "task-1", "--project-id", projectID, "--goal", "use the imported Project")
+	ok("plan", "create", "plan-1", "--task-id", "task-1", "--workspace-binding-id", workspaceID,
+		"--policy-revision-id", importedPolicy, "--intent", "execute", "--judgment", "bounded",
+		"--basis", "imported repository", "--brief", "verify the imported binding")
+}
+
+// A legacy home whose Herdr and Treehouse report nothing: no Fleet resource runs, before or after the restart.
 func offlineCutoverHome(t *testing.T) string {
 	t.Helper()
-	writeFakeDispatch(t, binDir(t), "herdr", "", "$1 $2", `  "session list") echo '{"sessions":[]}' ;;`)
+	dir := binDir(t)
+	writeFakeDispatch(t, dir, "herdr", "", "$1 $2", `  "session list") echo '{"sessions":[]}' ;;`)
+	writeFakeDispatch(t, dir, "treehouse", "", "$1", `  status) echo '[]' ;;`)
 	home := t.TempDir()
 	createCutoverLegacyFixture(t, home)
 	return home
