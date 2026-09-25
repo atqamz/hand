@@ -1065,8 +1065,8 @@ func TestTeardownRefusesAPathOnlyWorktreeAnotherFleetHolds(t *testing.T) {
 
 	for _, force := range []bool{true, false} {
 		_, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: force})
-		if err == nil || !strings.Contains(err.Error(), "prove worktree ownership") {
-			t.Fatalf("Teardown(force=%t) = %v, want an unproven-ownership refusal", force, err)
+		if err == nil || !strings.Contains(err.Error(), "prove worktree ownership") || !strings.Contains(err.Error(), "`hand reconcile task-1 --abandon-worktree`") {
+			t.Fatalf("Teardown(force=%t) = %v, want an unproven-ownership refusal naming its exit", force, err)
 		}
 	}
 	history, err := state.ReadHistory(home, "task-1")

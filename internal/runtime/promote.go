@@ -165,11 +165,15 @@ func (r *Runtime) Promote(ctx context.Context, req PromoteRequest) (Result, erro
 	if err := state.ClearHoldIfKind(req.Home, req.ID, state.HoldKindLimit); err != nil {
 		warnings = append(warnings, fmt.Sprintf("warning: clear usage-limit hold failed: %v", err))
 	}
+	scoutHelp := "The scout's worktree and pane are gone; run `hand status " + req.ID + "` to read the ship worker"
+	if len(cleanupWarnings) != 0 {
+		scoutHelp = "The scout's cleanup did not finish, as the warnings above say; run `hand status " + req.ID + "` to read the ship worker"
+	}
 	return Result{
 		ID: req.ID, Project: projectInfo.Name, Kind: state.KindShip, Was: state.KindScout, ExecutionClass: shipAttempt.ExecutionClass, Profile: shipAttempt.RequestedProfile,
 		RoutingSource: shipAttempt.RoutingSource, PlannedAgainst: shipAttempt.PlannedAgainst, Harness: shipAttempt.Harness, Model: shipAttempt.Model, Effort: shipAttempt.Effort, Worktree: worktreePath,
 		Warnings: warnings,
-		Help:     []string{"The scout's worktree and pane are gone; run `hand status " + req.ID + "` to read the ship worker", "The scout's delivery no longer counts for this task, so `hand deliver " + req.ID + "` runs again on the code"},
+		Help:     []string{scoutHelp, "The scout's delivery no longer counts for this task, so `hand deliver " + req.ID + "` runs again on the code"},
 	}, nil
 }
 
@@ -214,7 +218,7 @@ func (r *Runtime) cleanupScout(homeDir, clonePath, taskID string, scout state.At
 		default:
 			if scout.LeaseID == "" {
 				_ = setState("worktree", state.TeardownResourceAmbiguous)
-				warnings = append(warnings, fmt.Sprintf("warning: scout worktree %s has no Treehouse lease identity; refusing path-only return", scout.Worktree))
+				warnings = append(warnings, fmt.Sprintf("warning: scout worktree %s has no Treehouse lease identity; refusing path-only return; `hand reconcile %s --abandon-worktree` relinquishes the claim and returns, prunes or deletes nothing", scout.Worktree, taskID))
 			} else if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
 				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
 			} else if err := r.deps.worktree.returnLease(clonePath, worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {

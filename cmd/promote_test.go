@@ -477,6 +477,9 @@ func TestPromoteKeepsShipAfterScoutCleanupFailure(t *testing.T) {
 	if !strings.Contains(out.String(), "result: promoted\n") {
 		t.Fatalf("output = %q, want promotion success after cleanup warning", out.String())
 	}
+	if strings.Contains(out.String(), "are gone") || !strings.Contains(out.String(), "cleanup did not finish") {
+		t.Fatalf("output = %q, want help that does not claim the scout's resources are gone", out.String())
+	}
 }
 
 // The promotion terminalizes the scout Attempt before any ship resource exists, so from that line on

@@ -101,7 +101,11 @@ func TestCleanupScoutReportsIncompleteHerdrOwnership(t *testing.T) {
 // atqamz/hand#519: promotion force-returns the scout's slot, and a legacy scout with no persisted
 // lease ID names that slot by path alone, which may by now be another Fleet's live lease.
 func TestCleanupScoutRefusesAPathOnlyWorktreeAnotherFleetHolds(t *testing.T) {
-	worktreePath := filepath.Join(t.TempDir(), "old")
+	home, worktreePath := teardownFixture(t, true)
+	scout, err := state.ActiveAttempt(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	faketool.InitRepo(t, worktreePath)
 	foreignWork := filepath.Join(worktreePath, "foreign.txt")
 	if err := os.WriteFile(foreignWork, []byte("another Fleet's uncommitted work\n"), 0o644); err != nil {
@@ -110,13 +114,19 @@ func TestCleanupScoutRefusesAPathOnlyWorktreeAnotherFleetHolds(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "treehouse.log")
 	faketool.Treehouse{Held: []string{worktreePath}, LeaseIDs: map[string]string{worktreePath: "foreign-lease"}, Log: log}.Install(t, faketool.Bin(t))
 
-	scout := state.Attempt{TaskID: "task-1", Lifecycle: state.AttemptCompleted, Worktree: worktreePath}
-	warnings, err := (&Runtime{deps: defaultDependencies()}).cleanupScout(t.TempDir(), t.TempDir(), "task-1", scout)
+	warnings, err := (&Runtime{deps: defaultDependencies()}).cleanupScout(home, filepath.Join(home, "projects", "demo"), "task-1", scout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(warnings, func(warning string) bool { return strings.Contains(warning, "refusing path-only return") }) {
-		t.Fatalf("warnings = %v, want the path-only return refused", warnings)
+	if !slices.ContainsFunc(warnings, func(warning string) bool {
+		return strings.Contains(warning, "refusing path-only return") && strings.Contains(warning, "`hand reconcile task-1 --abandon-worktree`")
+	}) {
+		t.Fatalf("warnings = %v, want the path-only return refused with its exit named", warnings)
+	}
+	if history, err := state.ReadHistory(home, "task-1"); err != nil {
+		t.Fatal(err)
+	} else if history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAmbiguous {
+		t.Fatalf("scout worktree state = %q, want ambiguous residue", history.Attempts[0].TeardownWorktreeState)
 	}
 	if calls, err := os.ReadFile(log); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)

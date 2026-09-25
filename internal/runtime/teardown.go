@@ -287,7 +287,11 @@ func (r *Runtime) releaseWorktree(clonePath, home, taskID string, attempt state.
 				return fmt.Errorf("record unproven worktree ownership: %w", stateErr)
 			}
 		}
-		return fmt.Errorf("prove worktree ownership before %s: %w", action, unproven)
+		refusal := fmt.Errorf("prove worktree ownership before %s: %w", action, unproven)
+		if observation.State == worktree.LeaseUnknown || observation.State == worktree.LeaseUnprovable {
+			refusal = fmt.Errorf("%w; `hand reconcile %s --abandon-worktree` relinquishes the claim and returns, prunes or deletes nothing", refusal, taskID)
+		}
+		return refusal
 	}
 	switch attempt.TeardownWorktreeState {
 	case state.TeardownResourceReleased, state.TeardownResourceAbandoned:
