@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -79,6 +80,12 @@ type Herdr struct {
 	ReadLogEnv                bool
 	AllowUnknownPane          bool
 	MutateBeforeHang          bool
+	// PaneCwd is the pane's and its idle shell's cwd; set, process-info also reports that shell
+	// as the foreground group, the state an exact Launch preflight requires.
+	PaneCwd string
+	// PaneRunShell makes `pane run` hand its command to `sh -c` and return without waiting,
+	// as a pane shell runs a typed line. The command gets no terminal and no output.
+	PaneRunShell bool
 }
 
 const herdrDefaultPaneRead = "Welcome to Claude Code\n> \n  ? for shortcuts\n"
@@ -112,6 +119,8 @@ type herdrSpec struct {
 	ReadLogEnv                bool
 	AllowUnknownPane          bool
 	MutateBeforeHang          bool
+	PaneCwd                   string
+	PaneRunShell              bool
 	activeSession             string
 }
 
@@ -147,6 +156,7 @@ func (h Herdr) Install(t *testing.T, bin string) {
 		PaneAgentEnv: h.PaneAgentEnv, PaneReadFileEnv: h.PaneReadFileEnv,
 		KeyLogEnv: h.KeyLogEnv, TextLogEnv: h.TextLogEnv,
 		ReadLogEnv: h.ReadLogEnv, AllowUnknownPane: h.AllowUnknownPane, MutateBeforeHang: h.MutateBeforeHang,
+		PaneCwd: h.PaneCwd, PaneRunShell: h.PaneRunShell,
 	})
 }
 
@@ -546,8 +556,8 @@ func herdrPaneGet(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 		}
 	}
 	workspace, _ := herdrTabWorkspace(spec, ref)
-	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:pane:get\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":%s,\"agent\":%s,\"agent_status\":%s}}}\n",
-		jsonQuote(args[2]), jsonQuote(ref.Tab.ID), jsonQuote(workspace), jsonQuote(agent), jsonQuote(status))
+	_, _ = fmt.Fprintf(os.Stdout, "{\"id\":\"cli:pane:get\",\"result\":{\"type\":\"pane_info\",\"pane\":{\"pane_id\":%s,\"tab_id\":%s,\"workspace_id\":%s,\"agent\":%s,\"agent_status\":%s,\"cwd\":%s}}}\n",
+		jsonQuote(args[2]), jsonQuote(ref.Tab.ID), jsonQuote(workspace), jsonQuote(agent), jsonQuote(status), jsonQuote(spec.PaneCwd))
 	return 0
 }
 
@@ -573,14 +583,17 @@ func herdrPaneProcessInfo(spec herdrSpec, tabs []herdrTabRef, args []string) int
 		index := herdrProcessFrameAdvance(spec.StateDir, len(spec.Frames))
 		agents = []string{spec.Frames[index].Agent}
 	}
-	foreground := `{"pid":1,"name":"bash","argv":["bash"]}`
+	foreground, group := `{"pid":1,"name":"bash","argv":["bash"]}`, ""
+	if spec.PaneCwd != "" {
+		foreground, group = `{"pid":1,"name":"bash","argv":["bash"],"cwd":`+jsonQuote(spec.PaneCwd)+`}`, `"foreground_process_group_id":1,`
+	}
 	for i, agent := range agents {
 		if agent == "" {
 			continue
 		}
 		foreground += fmt.Sprintf(`,{"pid":%d,"name":%s,"argv":[%s]}`, i+2, jsonQuote(agent), jsonQuote(agent))
 	}
-	_, _ = fmt.Fprintf(os.Stdout, `{"id":"cli:pane:process_info","result":{"process_info":{"pane_id":%s,"shell_pid":1,"foreground_processes":[%s]}}}`+"\n", jsonQuote(pane), foreground)
+	_, _ = fmt.Fprintf(os.Stdout, `{"id":"cli:pane:process_info","result":{"process_info":{"pane_id":%s,"shell_pid":1,%s"foreground_processes":[%s]}}}`+"\n", jsonQuote(pane), group, foreground)
 	return 0
 }
 
@@ -630,6 +643,11 @@ func herdrPaneRead(spec herdrSpec, tabs []herdrTabRef, args []string) int {
 func herdrPaneVoid(spec herdrSpec, tabs []herdrTabRef, command string, args []string) int {
 	if len(args) < 3 || herdrPaneRef(spec, tabs, args[2]).Tab.ID == "" {
 		return herdrError("pane_not_found", "pane not found", "cli:request")
+	}
+	if command == "pane run" && spec.PaneRunShell && len(args) > 3 {
+		if err := exec.Command("/bin/sh", "-c", args[3]).Start(); err != nil {
+			return fail("run pane command: %v", err)
+		}
 	}
 	keyLog := spec.KeyLog
 	if spec.KeyLogEnv {

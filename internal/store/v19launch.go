@@ -69,12 +69,14 @@ type CanonicalV19LaunchTransitionInput struct {
 }
 
 // CanonicalV19ExecutorBindingEvidence is positive provider evidence that the
-// exact Launch established the requested ExecutorBinding.
+// exact Launch established the requested ExecutorBinding. A non-empty TerminalKind
+// records accepted cessation observed with it, written in the same transaction.
 type CanonicalV19ExecutorBindingEvidence struct {
 	OperationID         string
 	ProviderExecutorKey string
 	EstablishedAt       string
 	EvidenceDigest      string
+	TerminalKind        string
 }
 
 type canonicalV19LaunchCurrent struct {
@@ -345,6 +347,13 @@ func EstablishCanonicalV19ExecutorBinding(
 		request.OperationID, request.AdapterRef, evidence.ProviderExecutorKey, evidence.EstablishedAt); err != nil {
 		return canonicalV19LaunchConstraintError("establish", "insert exact ExecutorBinding", evidence.OperationID, err)
 	}
+	if evidence.TerminalKind != "" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO executor_binding_termination(
+			executor_binding_id,terminal_kind,interrupt_operation_id,observed_at,evidence_digest
+		) VALUES(?,?,NULL,?,?)`, request.BindingID, evidence.TerminalKind, evidence.EstablishedAt, evidence.EvidenceDigest); err != nil {
+			return canonicalV19LaunchConstraintError("establish", "insert observed ExecutorBinding termination", evidence.OperationID, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return canonicalV19LaunchWriteError("establish", "commit writer", err)
 	}
@@ -573,9 +582,9 @@ func canonicalV19LaunchNonsuccessTransitionAllowed(from, to string) bool {
 	case "prepared":
 		return to == "no-effect"
 	case "submitted":
-		return to == "uncertain" || to == "rejected" || to == "no-effect"
+		return to == "uncertain" || to == "rejected"
 	case "uncertain":
-		return to == "rejected" || to == "no-effect"
+		return to == "rejected"
 	default:
 		return false
 	}

@@ -164,6 +164,7 @@ A command naming something that does not exist answers an error envelope on **st
 The codes observed are `workspace_not_found`, `tab_not_found` and `pane_not_found`.
 
 `pane run`, `pane send-text` and `pane send-keys` are void: empty stdout on success, and the same error envelope on stderr with exit 1 for a pane that is gone.
+`pane run` types its command line into the pane, and the pane shell runs it after the call returns; `Herdr.PaneRunShell` models that through `sh -c` without the pane terminal.
 A void command's error envelope carries `"id":"cli:request"` rather than a per-command id, so nothing may key on the id.
 For `pane send-text`, `pane_send_failed` means the terminal runtime rejected the text bytes before queue acceptance.
 For the single `Enter` key invocation used by Hand steering, `pane_send_failed` means Enter was rejected before queue acceptance.

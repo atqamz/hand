@@ -138,6 +138,25 @@ func TestCanonicalV19LaunchNoEffectAllowsReplacement(t *testing.T) {
 	}
 }
 
+func TestCanonicalV19LaunchNoEffectNeedsAPreparedLaunch(t *testing.T) {
+	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
+	input := canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-1", "executor-binding-1")
+	if _, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitCanonicalV19Launch(context.Background(), fixture.Home, input.OperationID, "2026-09-06T17:04:00Z", "launch-submitted"); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct{ state, at string }{{"no-effect", "2026-09-06T17:05:00Z"}, {"uncertain", "2026-09-06T17:06:00Z"}, {"no-effect", "2026-09-06T17:07:00Z"}} {
+		err := ClassifyCanonicalV19Launch(context.Background(), fixture.Home, CanonicalV19LaunchTransitionInput{
+			OperationID: input.OperationID, State: step.state, ObservedAt: step.at, EvidenceDigest: "launch-" + step.state,
+		})
+		if (step.state == "no-effect") != errors.Is(err, ErrCanonicalV19LaunchTransition) {
+			t.Fatalf("classify %s at %s = %v: only a prepared Launch may settle no-effect; after submission that needs O1 or attestation (EG-6)", step.state, step.at, err)
+		}
+	}
+}
+
 func TestCanonicalV19LaunchUncertainThenExecutorEstablishmentIsAtomic(t *testing.T) {
 	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
 	input := canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-1", "executor-binding-1")

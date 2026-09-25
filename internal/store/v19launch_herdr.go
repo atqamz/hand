@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -68,11 +69,16 @@ type canonicalV19HerdrLaunchClient interface {
 type canonicalV19HerdrLaunchDeps struct {
 	clientFor func(string) canonicalV19HerdrLaunchClient
 	now       func() time.Time
+	hand      func() (string, error)
+	settle    time.Duration
+	// Stays false outside tests until the Linux platform acceptance tests pass (O1, pane tty,
+	// real Herdr) and a cessation observer can close an established binding.
+	execGuard bool
 }
 
 // ReconcileCanonicalV19HerdrLaunch reconciles one exact canonical v19 Launch against Herdr.
-// On Linux a Launch prepared with the exec-guard credential is classified from its guard
-// records; every other Launch is refused until its provider supplies identity proofs.
+// The selected managed provider is refused before submission until it supplies exact executable
+// object and never-reused execution-incarnation identity.
 func ReconcileCanonicalV19HerdrLaunch(ctx context.Context, homeDir, operationID string) (string, error) {
 	return reconcileCanonicalV19HerdrLaunch(ctx, homeDir, operationID, canonicalV19HerdrLaunchDefaultDeps())
 }
@@ -82,7 +88,9 @@ func canonicalV19HerdrLaunchDefaultDeps() canonicalV19HerdrLaunchDeps {
 		clientFor: func(sessionName string) canonicalV19HerdrLaunchClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
-		now: time.Now,
+		now:    time.Now,
+		hand:   os.Executable,
+		settle: 10 * time.Second,
 	}
 }
 
@@ -126,8 +134,10 @@ func reconcileCanonicalV19HerdrLaunch(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: adapter %q is not %q",
 			ErrCanonicalV19LaunchNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
-	if state, handled, err := reconcileCanonicalV19HerdrGuardLaunch(ctx, homeDir, current, deps); handled {
-		return state, err
+	if deps.execGuard {
+		if state, handled, err := reconcileCanonicalV19HerdrGuardLaunch(ctx, homeDir, current, deps); handled {
+			return state, err
+		}
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Launch", "exact executable-object and never-reused execution-incarnation identity",
