@@ -70,7 +70,7 @@ func activeBackgroundGroupMembers(group int) (int, error) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
 			continue
 		}
 		if err != nil {
