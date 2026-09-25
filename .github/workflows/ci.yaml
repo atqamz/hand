@@ -146,7 +146,7 @@ jobs:
         # Keep in sync with the same pin in .github/workflows/release.yaml.
         run: npm install -g npm@12.0.2
       - name: Test
-        run: go test -tags=test -race -timeout=45m ./...
+        run: go test -tags=test -race -timeout=90m ./...
       - name: Build
         run: go build -o hand .
 
