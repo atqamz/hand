@@ -207,7 +207,8 @@ func probeLegacyV18CutoverStateNamed(stateDir, nonce string) (err error) {
 			}
 		}
 	}()
-	if err := createLegacyV18CutoverProbe(first); err != nil {
+	firstInfo, err := createLegacyV18CutoverProbe(first)
+	if err != nil {
 		return err
 	}
 	created = append(created, first)
@@ -215,35 +216,56 @@ func probeLegacyV18CutoverStateNamed(stateDir, nonce string) (err error) {
 		return fmt.Errorf("hard link probe: %w", err)
 	}
 	created = append(created, linked)
-	if err := createLegacyV18CutoverProbe(replacement); err != nil {
+	if err := requireLegacyV18CutoverProbeIdentity(linked, firstInfo, true); err != nil {
+		return fmt.Errorf("hard link probe: %w", err)
+	}
+	replacementInfo, err := createLegacyV18CutoverProbe(replacement)
+	if err != nil {
 		return err
 	}
 	created = append(created, replacement)
-	replacementInfo, err := os.Stat(replacement)
-	if err != nil {
-		return fmt.Errorf("stat probe: %w", err)
-	}
 	if err := os.Rename(replacement, linked); err != nil {
 		return fmt.Errorf("replace-existing rename probe: %w", err)
 	}
-	linkedInfo, err := os.Stat(linked)
-	if err != nil {
-		return fmt.Errorf("stat replaced probe: %w", err)
+	if err := requireLegacyV18CutoverProbeIdentity(linked, replacementInfo, true); err != nil {
+		return fmt.Errorf("replace-existing rename probe: %w", err)
 	}
-	firstInfo, err := os.Stat(first)
-	if err != nil {
-		return fmt.Errorf("stat linked probe: %w", err)
+	if err := requireLegacyV18CutoverProbeIdentity(first, firstInfo, true); err != nil {
+		return fmt.Errorf("replace-existing rename probe: %w", err)
 	}
-	if !os.SameFile(linkedInfo, replacementInfo) || os.SameFile(firstInfo, linkedInfo) {
-		return fmt.Errorf("replace-existing rename did not replace the hard-linked name")
-	}
-	return nil
+	return requireLegacyV18CutoverProbeIdentity(linked, firstInfo, false)
 }
 
-func createLegacyV18CutoverProbe(path string) error {
+// Identity comes from an open handle: on Windows a path-only FileInfo loses its file ID once the name moves.
+func createLegacyV18CutoverProbe(path string) (os.FileInfo, error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("create probe: %w", err)
+		return nil, fmt.Errorf("create probe: %w", err)
 	}
-	return file.Close()
+	info, statErr := file.Stat()
+	if closeErr := file.Close(); statErr == nil {
+		statErr = closeErr
+	}
+	if statErr != nil {
+		return nil, fmt.Errorf("stat probe: %w", statErr)
+	}
+	return info, nil
+}
+
+func requireLegacyV18CutoverProbeIdentity(path string, want os.FileInfo, same bool) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	info, statErr := file.Stat()
+	if closeErr := file.Close(); statErr == nil {
+		statErr = closeErr
+	}
+	if statErr != nil {
+		return statErr
+	}
+	if os.SameFile(info, want) != same {
+		return fmt.Errorf("%s has the wrong file identity", path)
+	}
+	return nil
 }

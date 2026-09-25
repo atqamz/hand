@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/osfacts"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,15 +27,14 @@ var legacyV18CutoverLinuxVolatileFilesystems = map[uint32]string{
 }
 
 func legacyV18CutoverBootToken() (string, error) {
-	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(string(data), "\n"), nil
+	return osfacts.BootID()
 }
 
 func legacyV18CutoverMachineID() (string, error) {
-	const path = "/etc/machine-id"
+	return readLegacyV18CutoverLinuxMachineID("/etc/machine-id", "/proc/self/mountinfo")
+}
+
+func readLegacyV18CutoverLinuxMachineID(path, mountinfoPath string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -54,7 +54,7 @@ func legacyV18CutoverMachineID() (string, error) {
 	if name, volatile := legacyV18CutoverLinuxVolatileFilesystems[uint32(stat.Type)]; volatile {
 		return "", fmt.Errorf("%s is on %s and is regenerated at every boot", resolved, name)
 	}
-	mountinfo, err := os.ReadFile("/proc/self/mountinfo")
+	mountinfo, err := os.ReadFile(mountinfoPath)
 	if err != nil {
 		return "", err
 	}

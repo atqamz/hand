@@ -6,21 +6,12 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/atqamz/hand/internal/osfacts"
 	"golang.org/x/sys/windows"
 )
 
-var legacyV18CutoverGetTickCount64 = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetTickCount64")
-
 func legacyV18CutoverBootToken() (string, error) {
-	if err := legacyV18CutoverGetTickCount64.Find(); err != nil {
-		return "", err
-	}
-	low, high, _ := legacyV18CutoverGetTickCount64.Call()
-	ticks := uint64(low)
-	if unsafe.Sizeof(low) == 4 {
-		ticks |= uint64(high) << 32
-	}
-	return strconv.FormatUint(ticks, 10), nil
+	return strconv.FormatUint(osfacts.TickCount(), 10), nil
 }
 
 func legacyV18CutoverMachineID() (string, error) {

@@ -1,6 +1,13 @@
 package store
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"golang.org/x/sys/unix"
+)
 
 // #348 revision 4 "Freeze evidence": an identity that systemd regenerates at every boot is refused.
 func TestParseLegacyV18CutoverLinuxMachineID(t *testing.T) {
@@ -47,5 +54,41 @@ func TestClassifyLegacyV18CutoverLinuxFilesystemType(t *testing.T) {
 		if err := classifyLegacyV18CutoverLinuxFilesystemType(magic); (err != nil) != wantErr {
 			t.Errorf("filesystem 0x%X: err = %v, want refusal %v", magic, err, wantErr)
 		}
+	}
+}
+
+func TestReadLegacyV18CutoverLinuxMachineIDRefusesRegeneratedIdentity(t *testing.T) {
+	const id = "0123456789abcdef0123456789abcdef\n"
+	persistent := filepath.Join(t.TempDir(), "machine-id")
+	mountinfo := filepath.Join(t.TempDir(), "mountinfo")
+	for path, body := range map[string]string{persistent: id, mountinfo: "22 1 259:2 / / rw - ext4 /dev/root rw\n"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stat unix.Statfs_t
+	if err := unix.Statfs(persistent, &stat); err == nil && classifyLegacyV18CutoverLinuxFilesystemType(uint32(stat.Type)) == nil {
+		if _, err := readLegacyV18CutoverLinuxMachineID(persistent, mountinfo); err != nil {
+			t.Fatalf("persistent machine-id refused: %v", err)
+		}
+		bound := "40 22 0:25 /machine-id " + persistent + " ro - tmpfs tmpfs rw\n"
+		if err := os.WriteFile(mountinfo, []byte(bound), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readLegacyV18CutoverLinuxMachineID(persistent, mountinfo); err == nil || !strings.Contains(err.Error(), "mount point") {
+			t.Fatalf("bind-mounted machine-id = %v, want mount-point refusal", err)
+		}
+	}
+	shm, err := os.MkdirTemp("/dev/shm", "machine-id-")
+	if err != nil {
+		t.Skipf("no /dev/shm: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(shm) }()
+	volatile := filepath.Join(shm, "machine-id")
+	if err := os.WriteFile(volatile, []byte(id), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readLegacyV18CutoverLinuxMachineID(volatile, mountinfo); err == nil || !strings.Contains(err.Error(), "tmpfs") {
+		t.Fatalf("tmpfs machine-id = %v, want tmpfs refusal", err)
 	}
 }

@@ -304,6 +304,11 @@ func isGone(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ESRCH)
 }
 
+// BootID reads the kernel's per-boot UUID, which changes on every boot and survives hibernation.
+func BootID() (string, error) {
+	return readBootID()
+}
+
 func readBootID() (string, error) {
 	data, err := os.ReadFile(filepath.Join(procRoot, "sys", "kernel", "random", "boot_id"))
 	if err != nil {
