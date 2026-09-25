@@ -17,7 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/filelock"
 )
 
-const LeaseSchema = "hand.runtime.lease.v1"
+const LeaseSchema = "hand.runtime.lease.v2"
 
 var (
 	ErrLeaseHeld            = errors.New("runtime generation lease is held by another process")
@@ -36,14 +36,15 @@ type LeaseRequest struct {
 }
 
 type leaseRecord struct {
-	Schema     string    `json:"schema"`
-	Generation string    `json:"generation"`
-	LeaseID    string    `json:"lease_id"`
-	LockScope  string    `json:"lock_scope,omitempty"`
-	FleetID    string    `json:"fleet_id"`
-	Consumer   string    `json:"consumer"`
-	Evidence   string    `json:"evidence"`
-	CreatedAt  time.Time `json:"created_at"`
+	Schema       string    `json:"schema"`
+	Generation   string    `json:"generation"`
+	LeaseID      string    `json:"lease_id"`
+	LockScope    string    `json:"lock_scope,omitempty"`
+	LockIdentity string    `json:"lock_identity"`
+	FleetID      string    `json:"fleet_id"`
+	Consumer     string    `json:"consumer"`
+	Evidence     string    `json:"evidence"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 type Lease struct {
@@ -199,7 +200,7 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 	recordPath, lockPath := leasePaths(request, referenceRoot)
 	lock, _, err := openRuntimeFile(rootHandle, s.Root, lockPath, os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
-		if recordErr := s.requireNoLeaseRecordForMissingLock(rootHandle, referenceRoot, request); recordErr != nil {
+		if recordErr := s.requireNoLeaseRecordForUnboundScope(rootHandle, referenceRoot, request); recordErr != nil {
 			return nil, recordErr
 		}
 		lock, _, err = openRuntimeFile(rootHandle, s.Root, lockPath, os.O_CREATE|os.O_RDWR, 0o600)
@@ -214,9 +215,20 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 		}
 		return nil, fmt.Errorf("lock runtime generation lease: %w", err)
 	}
+	lockIdentity, err := leaseLockIdentity(lock)
+	if err != nil {
+		_ = filelock.Unlock(lock)
+		_ = lock.Close()
+		return nil, fmt.Errorf("identify runtime generation lease lock: %w", err)
+	}
+	if err := s.requireLeaseScopeIdentity(rootHandle, referenceRoot, request, lockPath, lockIdentity); err != nil {
+		_ = filelock.Unlock(lock)
+		_ = lock.Close()
+		return nil, err
+	}
 
 	record := leaseRecord{
-		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope,
+		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope, LockIdentity: lockIdentity,
 		FleetID: request.FleetID, Consumer: request.Consumer, Evidence: request.Evidence,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -252,13 +264,74 @@ func (s *Store) acquireLeaseAt(rootHandle *os.Root, request LeaseRequest, refere
 		_ = lock.Close()
 		return nil, fmt.Errorf("%w: generation=%s lease=%s record=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, recordPath, err)
 	}
+	if err := requireLeaseLockPathIdentity(rootHandle, s.Root, lockPath, lock); err != nil {
+		_ = filelock.Unlock(lock)
+		_ = lock.Close()
+		return nil, fmt.Errorf("%w: generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, lockPath, err)
+	}
 	retainRoot = true
 	return &Lease{record: record, storeRoot: s.Root, rootHandle: rootHandle, recordPath: recordPath, recordInfo: recordInfo, lockPath: lockPath, lock: lock}, nil
 }
 
-func (s *Store) requireNoLeaseRecordForMissingLock(rootHandle *os.Root, referenceRoot string, request LeaseRequest) error {
+func requireLeaseLockPathIdentity(rootHandle *os.Root, root, lockPath string, lock *os.File) error {
+	currentLock, currentInfo, err := openRuntimeFile(rootHandle, root, lockPath, os.O_RDWR, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = currentLock.Close() }()
+	lockedInfo, err := lock.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(currentInfo, lockedInfo) {
+		return errors.New("lease lock file identity changed")
+	}
+	return nil
+}
+
+func (s *Store) requireLeaseScopeIdentity(rootHandle *os.Root, referenceRoot string, request LeaseRequest, lockPath, identity string) error {
+	markerIdentity, err := readLeaseScopeIdentity(rootHandle, s.Root, lockPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := s.requireNoLeaseRecordForUnboundScope(rootHandle, referenceRoot, request); err != nil {
+			return err
+		}
+		createErr := atomicCreateRuntimeFile(rootHandle, s.Root, lockPath+".identity", ".runtime-reference-", []byte(identity+"\n"), 0o600)
+		if createErr != nil && !errors.Is(createErr, os.ErrExist) {
+			return fmt.Errorf("%w: generation=%s lease=%s publish lease scope identity: %v", ErrLeaseMetadataUnknown,
+				request.Generation, request.LeaseID, createErr)
+		}
+		markerIdentity, err = readLeaseScopeIdentity(rootHandle, s.Root, lockPath)
+	}
+	if err == nil && markerIdentity != identity {
+		err = errors.New("stored scope identity does not match locked file")
+	}
+	if err != nil {
+		return fmt.Errorf("%w: generation=%s lease=%s lock scope identity changed: %v", ErrLeaseMetadataUnknown,
+			request.Generation, request.LeaseID, err)
+	}
+	return nil
+}
+
+func readLeaseScopeIdentity(rootHandle *os.Root, root, lockPath string) (string, error) {
+	marker, _, err := openRuntimeFile(rootHandle, root, lockPath+".identity", os.O_RDONLY, 0)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = marker.Close() }()
+	data, err := io.ReadAll(io.LimitReader(marker, 129))
+	if err != nil {
+		return "", err
+	}
+	identity := strings.TrimSuffix(string(data), "\n")
+	if len(data) > 128 || identity == "" || string(data) != identity+"\n" {
+		return "", errors.New("lease scope identity is malformed")
+	}
+	return identity, nil
+}
+
+func (s *Store) requireNoLeaseRecordForUnboundScope(rootHandle *os.Root, referenceRoot string, request LeaseRequest) error {
 	unknown := func() error {
-		return fmt.Errorf("%w: generation=%s lease=%s lock scope has durable metadata but no lock", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID)
+		return fmt.Errorf("%w: generation=%s lease=%s lock scope has durable metadata without verified lock identity", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID)
 	}
 	lockScope := request.LockScope
 	if lockScope == "" {
@@ -269,6 +342,9 @@ func (s *Store) requireNoLeaseRecordForMissingLock(rootHandle *os.Root, referenc
 		return err
 	}
 	directory, owned, err := openDirectRuntimeSubroot(rootHandle, relative)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -289,7 +365,17 @@ func (s *Store) requireNoLeaseRecordForMissingLock(rootHandle *os.Root, referenc
 			continue
 		}
 		record, _, err := readLeaseRecord(rootHandle, s.Root, filepath.Join(referenceRoot, entry.Name()))
-		if err != nil || record.validate() != nil {
+		if err != nil {
+			return unknown()
+		}
+		if record.Schema == "hand.runtime.lease.v1" {
+			if record.CreatedAt.IsZero() || record.LockIdentity != "" || (LeaseRequest{
+				Generation: record.Generation, LeaseID: record.LeaseID, LockScope: record.LockScope,
+				FleetID: record.FleetID, Consumer: record.Consumer, Evidence: record.Evidence,
+			}).validate() != nil {
+				return unknown()
+			}
+		} else if record.validate() != nil {
 			return unknown()
 		}
 		recordScope := record.LockScope
@@ -307,22 +393,46 @@ func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, reference
 	recordPath, lockPath := leasePaths(request, referenceRoot)
 	record, _, err := readLeaseRecord(rootHandle, s.Root, recordPath)
 	if errors.Is(err, os.ErrNotExist) {
-		_, held, lockErr := probeLeaseLock(rootHandle, s.Root, lockPath)
-		if lockErr != nil || held {
+		var expectedIdentity string
+		markerIdentity, markerErr := readLeaseScopeIdentity(rootHandle, s.Root, lockPath)
+		if errors.Is(markerErr, os.ErrNotExist) {
+			if err := s.requireNoLeaseRecordForUnboundScope(rootHandle, referenceRoot, request); err != nil {
+				return false, err
+			}
+		} else if markerErr != nil {
+			return false, fmt.Errorf("%w: generation=%s lease=%s lock scope identity: %v", ErrLeaseMetadataUnknown,
+				request.Generation, request.LeaseID, markerErr)
+		} else {
+			expectedIdentity = markerIdentity
+		}
+		exists, held, lockErr := probeLeaseLock(rootHandle, s.Root, lockPath, expectedIdentity)
+		if lockErr != nil || held || (!exists && expectedIdentity != "") {
 			if lockErr == nil {
-				lockErr = errors.New("live kernel lock has no durable lease record")
+				if !exists {
+					lockErr = os.ErrNotExist
+				} else {
+					lockErr = errors.New("live kernel lock has no durable lease record")
+				}
 			}
 			return false, fmt.Errorf("%w: generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, lockPath, lockErr)
 		}
 		return false, nil
 	}
 	if err != nil || record.validate() != nil || !record.sameIdentity(leaseRecord{
-		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope,
+		Schema: LeaseSchema, Generation: request.Generation, LeaseID: request.LeaseID, LockScope: request.LockScope, LockIdentity: record.LockIdentity,
 		FleetID: request.FleetID, Consumer: request.Consumer, Evidence: request.Evidence,
 	}) {
 		return false, fmt.Errorf("%w: generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, request.Generation, request.LeaseID, recordPath)
 	}
-	exists, held, err := probeLeaseLock(rootHandle, s.Root, lockPath)
+	markerIdentity, markerErr := readLeaseScopeIdentity(rootHandle, s.Root, lockPath)
+	if markerErr == nil && markerIdentity != record.LockIdentity {
+		markerErr = errors.New("stored scope identity does not match lease record")
+	}
+	if markerErr != nil {
+		return false, fmt.Errorf("%w: generation=%s lease=%s lock scope identity is unknown: %v", ErrLeaseMetadataUnknown,
+			request.Generation, request.LeaseID, markerErr)
+	}
+	exists, held, err := probeLeaseLock(rootHandle, s.Root, lockPath, record.LockIdentity)
 	if err != nil || !exists {
 		if err == nil {
 			err = os.ErrNotExist
@@ -336,13 +446,24 @@ func (s *Store) leaseHeldAt(rootHandle *os.Root, request LeaseRequest, reference
 	return held, nil
 }
 
-func probeLeaseLock(rootHandle *os.Root, root, lockPath string) (exists, held bool, err error) {
+func probeLeaseLock(rootHandle *os.Root, root, lockPath, expectedIdentity string) (exists, held bool, err error) {
 	lock, _, err := openRuntimeFile(rootHandle, root, lockPath, os.O_RDWR, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, false, nil
 	}
 	if err != nil {
 		return false, false, err
+	}
+	if expectedIdentity != "" {
+		identity, identityErr := leaseLockIdentity(lock)
+		if identityErr != nil {
+			_ = lock.Close()
+			return true, false, identityErr
+		}
+		if identity != expectedIdentity {
+			_ = lock.Close()
+			return true, false, errors.New("lease lock file identity changed")
+		}
 	}
 	if err := filelock.Lock(lock, false); err != nil {
 		closeErr := lock.Close()
@@ -406,7 +527,7 @@ func validateLeaseText(name, value string, limit int) error {
 }
 
 func (record leaseRecord) validate() error {
-	if record.Schema != LeaseSchema || record.CreatedAt.IsZero() {
+	if record.Schema != LeaseSchema || record.CreatedAt.IsZero() || record.LockIdentity == "" {
 		return ErrLeaseMetadataUnknown
 	}
 	return (LeaseRequest{
@@ -416,7 +537,7 @@ func (record leaseRecord) validate() error {
 }
 
 func (record leaseRecord) sameIdentity(other leaseRecord) bool {
-	return record.Schema == other.Schema && record.Generation == other.Generation && record.LeaseID == other.LeaseID && record.LockScope == other.LockScope &&
+	return record.Schema == other.Schema && record.Generation == other.Generation && record.LeaseID == other.LeaseID && record.LockScope == other.LockScope && record.LockIdentity == other.LockIdentity &&
 		record.FleetID == other.FleetID && record.Consumer == other.Consumer && record.Evidence == other.Evidence
 }
 
@@ -488,6 +609,18 @@ func (lease *Lease) Close() error {
 	existing, info, err := readLeaseRecord(lease.rootHandle, lease.storeRoot, lease.recordPath)
 	if err != nil || !existing.sameIdentity(lease.record) || !os.SameFile(lease.recordInfo, info) {
 		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s record=%s", ErrLeaseMetadataUnknown, lease.record.Generation, lease.record.LeaseID, lease.recordPath)
+	}
+	if err := requireLeaseLockPathIdentity(lease.rootHandle, lease.storeRoot, lease.lockPath, lease.lock); err != nil {
+		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s lock=%s: %v", ErrLeaseMetadataUnknown,
+			lease.record.Generation, lease.record.LeaseID, lease.lockPath, err)
+	}
+	markerIdentity, err := readLeaseScopeIdentity(lease.rootHandle, lease.storeRoot, lease.lockPath)
+	if err == nil && markerIdentity != lease.record.LockIdentity {
+		err = errors.New("stored scope identity does not match lease record")
+	}
+	if err != nil {
+		return fmt.Errorf("%w: refusing to retire generation=%s lease=%s lock scope identity is unknown: %v", ErrLeaseMetadataUnknown,
+			lease.record.Generation, lease.record.LeaseID, err)
 	}
 	return nil
 }

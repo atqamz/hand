@@ -1361,6 +1361,14 @@ func digestRuntimeFile(rootHandle *os.Root, root, path string) (string, error) {
 }
 
 func atomicWriteRuntimeFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	return atomicPublishRuntimeFile(rootHandle, root, path, prefix, data, perm, true)
+}
+
+func atomicCreateRuntimeFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode) error {
+	return atomicPublishRuntimeFile(rootHandle, root, path, prefix, data, perm, false)
+}
+
+func atomicPublishRuntimeFile(rootHandle *os.Root, root, path, prefix string, data []byte, perm os.FileMode, replace bool) error {
 	relative, err := runtimeRelativePath(root, path)
 	if err != nil {
 		return err
@@ -1391,7 +1399,10 @@ func atomicWriteRuntimeFile(rootHandle *os.Root, root, path, prefix string, data
 	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 		return err
 	}
-	return renameRuntimeRoot(parent, temporary, filepath.Base(relative))
+	if replace {
+		return renameRuntimeRoot(parent, temporary, filepath.Base(relative))
+	}
+	return parent.Link(temporary, filepath.Base(relative))
 }
 
 func mkdirTempRuntime(rootHandle *os.Root, root, parentPath, prefix string) (string, error) {

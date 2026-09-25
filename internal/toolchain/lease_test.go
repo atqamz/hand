@@ -243,10 +243,10 @@ func TestRuntimeLeaseReusesStableLockScopeAcrossUniqueHolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 3 {
-		t.Fatalf("stable lease scope left %v, want two durable records and one rendezvous", entries)
+	if len(entries) != 4 {
+		t.Fatalf("stable lease scope left %v, want two durable records, one rendezvous, and its identity", entries)
 	}
-	for _, path := range []string{firstRecord, second.RecordPath(), firstLock} {
+	for _, path := range []string{firstRecord, second.RecordPath(), firstLock, firstLock + ".identity"} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("stable lease scope lost %s: %v", path, err)
 		}

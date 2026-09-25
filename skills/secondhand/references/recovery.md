@@ -71,6 +71,29 @@ history. On restart, run `hand doctor` then `hand status` before acting on anyth
 assume the fleet is in the state you last remember, since a worker's own state can have changed
 while nothing was watching.
 
+## Runtime lease metadata unknown
+
+`runtime generation lease metadata is unknown` means Hand cannot prove who holds a shared runtime
+or managed Hand generation lease. The consumer that needs it, such as a Fleet's Herdr server,
+refuses to start or release until an operator recovers it. Typical causes are a replaced or
+missing lease lock file, or lease files copied or restored with `SECONDHAND_HOME`. Hand never
+clears this state on its own.
+
+Recover only after you prove that no holder remains:
+
+1. Stop every Herdr server, `hand runtime herdr-server` guardian, and supervision wait of every
+   Fleet that uses this `SECONDHAND_HOME`, or reboot. A kernel file lock does not outlive its last
+   holder process or a reboot.
+2. Take the `generation=` value from the error. Under `SECONDHAND_HOME` (default `~/.secondhand`),
+   delete `runtime/hand-references/<digest>/` for `generation=sha256:<digest>`, or
+   `runtime/references/<generation>/` for any other value.
+3. Rerun the command that failed. Hand creates new lease files for that generation.
+
+```text
+wrong: delete the reference directory while any Fleet's Herdr server or supervision wait still runs
+right: stop or reboot first; a deleted directory reads as "no holder" to every other process
+```
+
 ## Immutable Attempt execution snapshots
 
 An Attempt's recorded execution details (harness, model, effort, `planned_against`, worktree)
