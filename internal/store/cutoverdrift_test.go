@@ -26,3 +26,14 @@ func TestInspectLegacyV18CutoverFrozenEvidenceReadsCertificateBoundBaseline(t *t
 		t.Fatalf("v1 bridge frozen evidence = %v, want refusal", err)
 	}
 }
+
+// #348 revision 4 C4-8: past the abort commit point no drift baseline is offered, so completion cannot bypass abort.
+func TestInspectLegacyV18CutoverFrozenEvidenceRefusesAfterAbortCommitPoint(t *testing.T) {
+	home, bridge, _, _, _ := canonicalV19CutoverMaterializationFixture(t)
+	if _, err := ensureLegacyV18CutoverAbortRecord(home, bridge.MigrationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectLegacyV18CutoverFrozenEvidence(home); err == nil || !strings.Contains(err.Error(), "only abort may continue") {
+		t.Fatalf("frozen evidence after the abort commit point = %v, want refusal", err)
+	}
+}

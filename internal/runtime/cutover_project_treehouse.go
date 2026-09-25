@@ -16,10 +16,12 @@ import (
 
 var errLegacyV18CutoverProjectTreehouseUnsafe = errors.New("legacy v18 cutover Project/Treehouse state is not quiescent")
 
+// Unknown marks a blocker whose cause could not be classified; the post-restart drift gate retries those.
 type legacyV18CutoverProviderBlocker struct {
 	Code    string
 	Subject string
 	Detail  string
+	Unknown bool
 }
 
 type legacyV18CutoverProviderBlockedError struct {
@@ -107,8 +109,8 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 	}
 
 	var blockers []legacyV18CutoverProviderBlocker
-	addBlocker := func(code, subject, detail string) {
-		blockers = append(blockers, legacyV18CutoverProviderBlocker{Code: code, Subject: subject, Detail: detail})
+	addBlocker := func(code, subject, detail string, unknown bool) {
+		blockers = append(blockers, legacyV18CutoverProviderBlocker{Code: code, Subject: subject, Detail: detail, Unknown: unknown})
 	}
 	worktreesByProject := make(map[string][]store.LegacyV18CutoverWorktreeObservation)
 	for _, recorded := range plan.Worktrees {
@@ -122,7 +124,7 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 		err = nil
 	}
 	if err != nil {
-		addBlocker("project-namespace-unobservable", "projects", err.Error())
+		addBlocker("project-namespace-unobservable", "projects", err.Error(), true)
 	} else {
 		for _, entry := range entries {
 			entryPath := filepath.Join(projectsRoot, entry.Name())
@@ -133,18 +135,18 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 					continue
 				}
 				if matched != nil {
-					addBlocker("project-path-ambiguous", "project-path:"+entry.Name(), "managed Project path matches more than one durable Project identity")
+					addBlocker("project-path-ambiguous", "project-path:"+entry.Name(), "managed Project path matches more than one durable Project identity", false)
 					matched = nil
 					break
 				}
 				matched = project
 			}
 			if matched == nil {
-				addBlocker("project-orphan-path", "project-path:"+entry.Name(), "managed projects namespace contains no unique durable Project identity")
+				addBlocker("project-orphan-path", "project-path:"+entry.Name(), "managed projects namespace contains no unique durable Project identity", false)
 				continue
 			}
 			if entry.Type()&os.ModeSymlink != 0 || !entry.IsDir() {
-				addBlocker("project-path-unsafe", "project:"+matched.ProjectID, "managed Project path is not a direct directory")
+				addBlocker("project-path-unsafe", "project:"+matched.ProjectID, "managed Project path is not a direct directory", false)
 			}
 		}
 	}
@@ -162,57 +164,57 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 		subject := "project:" + project.ProjectID
 		cloneInfo, err := os.Lstat(project.ClonePath)
 		if err != nil {
-			addBlocker("project-clone-unobservable", subject, err.Error())
+			addBlocker("project-clone-unobservable", subject, err.Error(), true)
 			continue
 		}
 		if cloneInfo.Mode()&os.ModeSymlink != 0 || !cloneInfo.IsDir() {
-			addBlocker("project-clone-unsafe", subject, "clone path is not a direct directory")
+			addBlocker("project-clone-unsafe", subject, "clone path is not a direct directory", false)
 			continue
 		}
 		root, err := deps.resolveRoot(project.ClonePath)
 		if err != nil {
-			addBlocker("project-git-unobservable", subject, err.Error())
+			addBlocker("project-git-unobservable", subject, err.Error(), true)
 			continue
 		}
 		if !gitrepo.SamePath(root, project.ClonePath) {
-			addBlocker("project-git-root-mismatch", subject, fmt.Sprintf("Git root=%q clone=%q", root, project.ClonePath))
+			addBlocker("project-git-root-mismatch", subject, fmt.Sprintf("Git root=%q clone=%q", root, project.ClonePath), false)
 			continue
 		}
 		bare, err := deps.isBare(project.ClonePath)
 		if err != nil {
-			addBlocker("project-git-unobservable", subject, err.Error())
+			addBlocker("project-git-unobservable", subject, err.Error(), true)
 			continue
 		}
 		if bare {
-			addBlocker("project-git-root-mismatch", subject, "managed Project clone is bare")
+			addBlocker("project-git-root-mismatch", subject, "managed Project clone is bare", false)
 			continue
 		}
 		common, err := deps.commonDir(project.ClonePath)
 		if err != nil {
-			addBlocker("project-git-unobservable", subject, err.Error())
+			addBlocker("project-git-unobservable", subject, err.Error(), true)
 			continue
 		}
 		expectedCommon := filepath.Join(project.ClonePath, ".git")
 		if !gitrepo.SamePath(common, expectedCommon) {
-			addBlocker("project-git-common-dir-mismatch", subject, fmt.Sprintf("common-dir=%q want=%q", common, expectedCommon))
+			addBlocker("project-git-common-dir-mismatch", subject, fmt.Sprintf("common-dir=%q want=%q", common, expectedCommon), false)
 			continue
 		}
 		commonInfo, err := os.Stat(common)
 		if err != nil {
-			addBlocker("project-git-unobservable", subject, fmt.Sprintf("stat common-dir: %v", err))
+			addBlocker("project-git-unobservable", subject, fmt.Sprintf("stat common-dir: %v", err), true)
 			continue
 		}
 		if !commonInfo.IsDir() {
-			addBlocker("project-git-common-dir-mismatch", subject, "common-dir is not a directory")
+			addBlocker("project-git-common-dir-mismatch", subject, "common-dir is not a directory", false)
 			continue
 		}
 		revision, err := deps.headCommit(project.ClonePath)
 		if err != nil {
-			addBlocker("project-revision-unobservable", subject, err.Error())
+			addBlocker("project-revision-unobservable", subject, err.Error(), true)
 			continue
 		}
 		if !validLegacyV18CutoverGitObjectID(revision) {
-			addBlocker("project-revision-invalid", subject, "HEAD is not a 40- or 64-hex Git object ID")
+			addBlocker("project-revision-invalid", subject, "HEAD is not a 40- or 64-hex Git object ID", true)
 			continue
 		}
 		physical = append(physical, physicalProject{
@@ -231,7 +233,7 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 	for i := range physical {
 		for j := i + 1; j < len(physical); j++ {
 			if os.SameFile(physical[i].cloneInfo, physical[j].cloneInfo) || os.SameFile(physical[i].commonInfo, physical[j].commonInfo) {
-				addBlocker("project-physical-alias", "project:"+physical[i].evidence.ProjectID, "physical repository aliases project:"+physical[j].evidence.ProjectID)
+				addBlocker("project-physical-alias", "project:"+physical[i].evidence.ProjectID, "physical repository aliases project:"+physical[j].evidence.ProjectID, false)
 			}
 		}
 	}
@@ -264,17 +266,17 @@ func observeLegacyV18CutoverProjectTreehousePlan(ctx context.Context, homeDir st
 	return evidence, nil
 }
 
-func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project store.LegacyV18CutoverProjectObservation, recorded []store.LegacyV18CutoverWorktreeObservation, deps legacyV18CutoverProjectTreehouseDeps, addBlocker func(string, string, string)) {
+func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project store.LegacyV18CutoverProjectObservation, recorded []store.LegacyV18CutoverWorktreeObservation, deps legacyV18CutoverProjectTreehouseDeps, addBlocker func(string, string, string, bool)) {
 	subject := "project:" + project.ProjectID
 	pool, err := deps.poolStatus(project.ClonePath)
 	if err != nil {
-		addBlocker("treehouse-pool-unobservable", subject, err.Error())
+		addBlocker("treehouse-pool-unobservable", subject, err.Error(), true)
 		return
 	}
 	for i := range pool {
 		for j := i + 1; j < len(pool); j++ {
 			if gitrepo.SamePath(pool[i].Path, pool[j].Path) {
-				addBlocker("treehouse-pool-path-duplicate", "worktree:"+pool[i].Path, "treehouse status reports the same physical slot more than once")
+				addBlocker("treehouse-pool-path-duplicate", "worktree:"+pool[i].Path, "treehouse status reports the same physical slot more than once", true)
 			}
 		}
 	}
@@ -282,14 +284,14 @@ func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project st
 		switch entry.Status {
 		case "available":
 			if entry.LeaseID != "" || entry.LeaseHolder != "" {
-				addBlocker("treehouse-available-slot-has-lease-metadata", "worktree:"+entry.Path, fmt.Sprintf("lease_id=%q lease_holder=%q", entry.LeaseID, entry.LeaseHolder))
+				addBlocker("treehouse-available-slot-has-lease-metadata", "worktree:"+entry.Path, fmt.Sprintf("lease_id=%q lease_holder=%q", entry.LeaseID, entry.LeaseHolder), true)
 			}
 		case "leased":
 			if !legacyV18CutoverForeignTreehouseLease(entry, fleetID) {
-				addBlocker("treehouse-live-or-unknown-lease", "worktree:"+entry.Path, fmt.Sprintf("lease_id=%q lease_holder=%q", entry.LeaseID, entry.LeaseHolder))
+				addBlocker("treehouse-live-or-unknown-lease", "worktree:"+entry.Path, fmt.Sprintf("lease_id=%q lease_holder=%q", entry.LeaseID, entry.LeaseHolder), !legacyV18CutoverOwnTreehouseLease(entry, fleetID))
 			}
 		default:
-			addBlocker("treehouse-pool-state-unknown", "worktree:"+entry.Path, fmt.Sprintf("status=%q", entry.Status))
+			addBlocker("treehouse-pool-state-unknown", "worktree:"+entry.Path, fmt.Sprintf("status=%q", entry.Status), true)
 		}
 	}
 
@@ -300,21 +302,21 @@ func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project st
 		case worktree.LeaseMismatch, worktree.LeaseUnprovable:
 			entry, ok := legacyV18CutoverPoolEntry(pool, expected.WorktreePath)
 			if !ok || entry.Status != "leased" || !legacyV18CutoverForeignTreehouseLease(entry, fleetID) {
-				addBlocker("treehouse-recorded-lease-unresolved", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), fmt.Sprintf("state=%q observed_lease=%q", observation.State, observation.LeaseID))
+				addBlocker("treehouse-recorded-lease-unresolved", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), fmt.Sprintf("state=%q observed_lease=%q", observation.State, observation.LeaseID), observation.State == worktree.LeaseUnprovable || !ok || entry.Status != "leased" || !legacyV18CutoverOwnTreehouseLease(entry, fleetID))
 			}
 		case worktree.LeaseExact:
-			addBlocker("treehouse-recorded-lease-live", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), "recorded Treehouse lease is still live")
+			addBlocker("treehouse-recorded-lease-live", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), "recorded Treehouse lease is still live", false)
 		case worktree.LeaseUnknown:
-			addBlocker("treehouse-recorded-lease-unknown", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), observation.Probe.Reason)
+			addBlocker("treehouse-recorded-lease-unknown", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), observation.Probe.Reason, true)
 		default:
-			addBlocker("treehouse-recorded-lease-unknown", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), fmt.Sprintf("state=%q", observation.State))
+			addBlocker("treehouse-recorded-lease-unknown", "attempt:"+fmt.Sprintf("%d", expected.AttemptID), fmt.Sprintf("state=%q", observation.State), true)
 		}
 	}
 
 	roots := deps.poolSearchRoots(homeDir, project.ClonePath)
 	slots, err := deps.discoverPoolSlots(project.ClonePath, roots...)
 	if err != nil {
-		addBlocker("treehouse-inventory-unobservable", subject, err.Error())
+		addBlocker("treehouse-inventory-unobservable", subject, err.Error(), true)
 		return
 	}
 	for _, collision := range deps.poolSlotCollisions(slots) {
@@ -323,7 +325,7 @@ func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project st
 			paths = append(paths, slot.Path)
 		}
 		sort.Strings(paths)
-		addBlocker("treehouse-slot-collision", subject, strings.Join(paths, ","))
+		addBlocker("treehouse-slot-collision", subject, strings.Join(paths, ","), false)
 	}
 	for _, slot := range slots {
 		if _, current := legacyV18CutoverPoolEntry(pool, slot.Path); current {
@@ -331,7 +333,7 @@ func observeLegacyV18CutoverTreehouseProject(fleetID, homeDir string, project st
 		}
 		observation := deps.observeLease(project.ClonePath, slot.Path, "")
 		if observation.State != worktree.LeaseAbsent {
-			addBlocker("treehouse-orphan-slot-unresolved", "worktree:"+slot.Path, fmt.Sprintf("state=%q lease_id=%q", observation.State, observation.LeaseID))
+			addBlocker("treehouse-orphan-slot-unresolved", "worktree:"+slot.Path, fmt.Sprintf("state=%q lease_id=%q", observation.State, observation.LeaseID), observation.State != worktree.LeaseExact && observation.State != worktree.LeaseMismatch)
 		}
 	}
 }
@@ -343,6 +345,11 @@ func legacyV18CutoverPoolEntry(pool []worktree.PoolEntry, path string) (worktree
 		}
 	}
 	return worktree.PoolEntry{}, false
+}
+
+func legacyV18CutoverOwnTreehouseLease(entry worktree.PoolEntry, fleetID string) bool {
+	ownerFleet, _, ok := worktree.ParseLeaseHolder(entry.LeaseHolder)
+	return ok && ownerFleet == fleetID && entry.LeaseID != ""
 }
 
 func legacyV18CutoverForeignTreehouseLease(entry worktree.PoolEntry, fleetID string) bool {

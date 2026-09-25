@@ -22,6 +22,9 @@ func InspectLegacyV18CutoverFrozenEvidence(homeDir string) (LegacyV18CutoverFroz
 	if bridge.CertificateVersion != legacyV18CutoverFreezeCertificateVersion {
 		return LegacyV18CutoverFrozenEvidence{}, fmt.Errorf("inspect frozen cutover evidence: certificate %s carries no committed boot evidence", bridge.CertificateVersion)
 	}
+	if record, found, err := findLegacyV18CutoverAbortRecord(homeDir, bridge.MigrationID); err != nil || found {
+		return LegacyV18CutoverFrozenEvidence{}, fmt.Errorf("inspect frozen cutover evidence: abort passed its commit point (record %q, %v); only abort may continue", record, err)
+	}
 	evidence, err := inspectLegacyV18CutoverArchiveEvidence(homeDir, bridge.MigrationID)
 	if err != nil {
 		return LegacyV18CutoverFrozenEvidence{}, fmt.Errorf("inspect frozen cutover evidence: %w", err)

@@ -56,11 +56,11 @@ func evaluateLegacyV18CutoverDrift(ctx context.Context, homeDir string, frozen s
 	if _, err := observeLegacyV18CutoverProjectTreehousePlan(ctx, homeDir, frozen.Plan, deps.treehouse); err != nil {
 		var blocked *legacyV18CutoverProviderBlockedError
 		if !errors.As(err, &blocked) {
-			blocked = &legacyV18CutoverProviderBlockedError{Blockers: []legacyV18CutoverProviderBlocker{{Code: "treehouse-unobservable", Subject: "treehouse", Detail: err.Error()}}}
+			blocked = &legacyV18CutoverProviderBlockedError{Blockers: []legacyV18CutoverProviderBlocker{{Code: "treehouse-unobservable", Subject: "treehouse", Detail: err.Error(), Unknown: true}}}
 		}
 		for _, blocker := range blocked.Blockers {
 			verdict := legacyV18CutoverDriftFound
-			if strings.Contains(blocker.Code, "unobservable") || strings.HasSuffix(blocker.Code, "-unknown") {
+			if blocker.Unknown {
 				verdict = legacyV18CutoverDriftUnknown
 			}
 			add(verdict, blocker.Code, blocker.Subject, blocker.Detail)

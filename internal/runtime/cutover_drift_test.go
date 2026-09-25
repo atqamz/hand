@@ -10,6 +10,7 @@ import (
 
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/store"
+	"github.com/atqamz/hand/internal/worktree"
 )
 
 // #348 revision 4 "Drift gate": pass, retryable observation-unknown, and abort-only drift stay separate.
@@ -138,5 +139,62 @@ func requireLegacyV18CutoverDrift(t *testing.T, result legacyV18CutoverDriftResu
 		if !found {
 			t.Fatalf("drift subjects %#v lack %q", result.Subjects, code)
 		}
+	}
+}
+
+// #348 revision 4 C4-13: only a Treehouse state proven to have changed for this Fleet is drift; the unclassifiable is retryable.
+func TestEvaluateLegacyV18CutoverDriftClassifiesTreehouseBlockers(t *testing.T) {
+	recordedLease := store.LegacyV18CutoverWorktreeObservation{AttemptID: 7, ProjectID: "project-1", LeaseID: "lease-7"}
+	for _, tc := range []struct {
+		name     string
+		pool     []worktree.PoolEntry
+		recorded bool
+		lease    func(path, expected string) worktree.LeaseObservation
+		slots    bool
+		want     legacyV18CutoverDriftVerdict
+		code     string
+	}{
+		{name: "this Fleet's lease", pool: []worktree.PoolEntry{{Path: "pool/slot", Status: "leased", LeaseID: "l1", LeaseHolder: "hand:f_self:t1"}}, want: legacyV18CutoverDriftFound, code: "treehouse-live-or-unknown-lease"},
+		{name: "unparsable holder", pool: []worktree.PoolEntry{{Path: "pool/slot", Status: "leased", LeaseID: "l1", LeaseHolder: "someone"}}, want: legacyV18CutoverDriftUnknown, code: "treehouse-live-or-unknown-lease"},
+		{name: "lease without identity", pool: []worktree.PoolEntry{{Path: "pool/slot", Status: "leased", LeaseHolder: "hand:f_self:t1"}}, want: legacyV18CutoverDriftUnknown, code: "treehouse-live-or-unknown-lease"},
+		{name: "unknown pool status", pool: []worktree.PoolEntry{{Path: "pool/slot", Status: "rebuilding"}}, want: legacyV18CutoverDriftUnknown, code: "treehouse-pool-state-unknown"},
+		{name: "recorded lease unprovable", recorded: true, lease: func(string, string) worktree.LeaseObservation {
+			return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
+		}, want: legacyV18CutoverDriftUnknown, code: "treehouse-recorded-lease-unresolved"},
+		{name: "recorded slot taken by this Fleet", recorded: true, pool: []worktree.PoolEntry{{Path: "pool/slot", Status: "leased", LeaseID: "l2", LeaseHolder: "hand:f_self:t2"}}, lease: func(string, string) worktree.LeaseObservation {
+			return worktree.LeaseObservation{State: worktree.LeaseMismatch, LeaseID: "l2"}
+		}, want: legacyV18CutoverDriftFound, code: "treehouse-recorded-lease-unresolved"},
+		{name: "recorded lease live", recorded: true, lease: func(string, string) worktree.LeaseObservation {
+			return worktree.LeaseObservation{State: worktree.LeaseExact}
+		}, want: legacyV18CutoverDriftFound, code: "treehouse-recorded-lease-live"},
+		{name: "orphan slot with unknown lease", slots: true, lease: func(string, string) worktree.LeaseObservation {
+			return worktree.LeaseObservation{State: worktree.LeaseUnknown}
+		}, want: legacyV18CutoverDriftUnknown, code: "treehouse-orphan-slot-unresolved"},
+		{name: "orphan slot with a known lease", slots: true, lease: func(string, string) worktree.LeaseObservation {
+			return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "l3"}
+		}, want: legacyV18CutoverDriftFound, code: "treehouse-orphan-slot-unresolved"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, frozen, deps := legacyV18CutoverDriftFixture(t)
+			slot := filepath.Join(home, "pool", "slot")
+			for i := range tc.pool {
+				tc.pool[i].Path = slot
+			}
+			deps.treehouse.poolStatus = func(string) ([]worktree.PoolEntry, error) { return tc.pool, nil }
+			if tc.recorded {
+				recorded := recordedLease
+				recorded.WorktreePath = slot
+				frozen.Plan.Worktrees = []store.LegacyV18CutoverWorktreeObservation{recorded}
+			}
+			if tc.lease != nil {
+				deps.treehouse.observeLease = func(_, path, expected string) worktree.LeaseObservation { return tc.lease(path, expected) }
+			}
+			if tc.slots {
+				deps.treehouse.discoverPoolSlots = func(string, ...string) ([]worktree.PoolSlot, error) {
+					return []worktree.PoolSlot{{Path: slot}}, nil
+				}
+			}
+			requireLegacyV18CutoverDrift(t, evaluateLegacyV18CutoverDrift(context.Background(), home, frozen, deps), tc.want, tc.code)
+		})
 	}
 }
