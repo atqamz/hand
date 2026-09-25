@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -192,7 +193,7 @@ func TestSameBasenameElsewhereOnPATHIsNeverRunAndAScriptIsSampled(t *testing.T) 
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		script := "#!/bin/sh\necho " + dir + " ${0##*/} > \"$1\"\nsleep 0.3\n"
+		script := "#!/bin/sh\necho " + dir + " \"$0\" > \"$1\"\nsleep 0.3\n"
 		if err := os.WriteFile(filepath.Join(root, dir, "harness"), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -204,8 +205,8 @@ func TestSameBasenameElsewhereOnPATHIsNeverRunAndAScriptIsSampled(t *testing.T) 
 	g.cmd.Env = append(g.cmd.Env, "PATH="+filepath.Join(root, "foreign")+":"+os.Getenv("PATH"))
 	g.start(t)
 	g.succeed(t)
-	if ran := read(t, marker); ran != "trusted harness\n" {
-		t.Fatalf("ran %q, want the exact absolute spec path, named harness (EG-7)", ran)
+	if ran := read(t, marker); ran != "trusted "+trusted+"\n" {
+		t.Fatalf("ran %q, want the exact absolute spec path as $0 (EG-7)", ran)
 	}
 	var want syscall.Stat_t
 	if err := syscall.Stat(trusted, &want); err != nil {
@@ -280,34 +281,58 @@ func TestPathReplacedOrRetargetedAfterPinIsRefusedBeforeStart(t *testing.T) {
 func TestPinnedDescriptorRunsTheObjectItHashedWhenThePathIsReplaced(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "harness")
-	original := []byte("#!/bin/sh\necho original > \"$1\"\n")
-	if err := os.WriteFile(path, original, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	exe, pinned, _, err := pin(path)
+	copyExecutable(t, "/bin/sh", path)
+	exe, pinned, class, err := pin(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = exe.Close() }()
-	replacement := filepath.Join(dir, "replacement")
-	if err := os.WriteFile(replacement, []byte("#!/bin/sh\necho replaced > \"$1\"\n"), 0o700); err != nil {
-		t.Fatal(err)
+	falseBinary, err := exec.LookPath("false")
+	if err != nil {
+		t.Skip("no false on PATH")
 	}
+	replacement := filepath.Join(dir, "replacement")
+	copyExecutable(t, falseBinary, replacement)
 	if err := os.Rename(replacement, path); err != nil {
 		t.Fatal(err)
 	}
-	out := filepath.Join(dir, "out")
-	pid, err := startHarness(exe, t.TempDir(), ClassSampled, []string{path, out}, os.Environ(), false)
+	pid, err := startHarness(exe, t.TempDir(), class, []string{path, "-c", "exit 0"}, os.Environ(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var status unix.WaitStatus
-	if _, err := unix.Wait4(pid, &status, 0, nil); err != nil || status.ExitStatus() != 0 {
-		t.Fatalf("harness wait = %v, status %v", err, status)
+	if _, err := unix.Wait4(pid, &status, 0, nil); err != nil || status.ExitStatus() != 0 || class != ClassExact {
+		t.Fatalf("class %s, harness wait %v, status %v: want the pinned sh, not the replacement false (EG-7)", class, err, status)
 	}
-	sum := sha256.Sum256(original)
-	if ran := read(t, out); ran != "original\n" || pinned.SHA256 != hex.EncodeToString(sum[:]) {
-		t.Fatalf("ran %q with pinned digest %s, want the object hashed at pin time (EG-7)", ran, pinned.SHA256)
+	sum := sha256.Sum256([]byte(read(t, "/bin/sh")))
+	if pinned.SHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("pinned digest %s, want the object hashed at pin time (EG-7)", pinned.SHA256)
+	}
+}
+
+func TestHarnessStartsWithAnEmptySignalMask(t *testing.T) {
+	grep, err := exec.LookPath("grep")
+	if err != nil {
+		t.Skip("no grep on PATH")
+	}
+	l := newLaunch(t, grep, "-q", "^SigBlk:[[:space:]]*0*$", "/proc/self/status")
+	l.write(t)
+	g := newGuard(t, l.locator)
+	g.cmd.Env = append(g.cmd.Env, roleEnv+"=blocked-guard")
+	g.start(t)
+	if code := g.succeed(t); code != 0 {
+		t.Fatalf("exit %d: the harness inherited the guard's blocked SIGUSR1", code)
+	}
+}
+
+func copyExecutable(t *testing.T, from, to string) {
+	t.Helper()
+	data, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(to, data, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 

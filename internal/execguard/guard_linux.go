@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -340,21 +341,27 @@ func terminationPending(events <-chan os.Signal) bool {
 	}
 }
 
-// Exec goes through a link named like the executable to the pinned descriptor, so the
-// object run is the one hashed and comm and $0 keep the harness name. A script keeps
-// the descriptor across exec, at fd 3, because its interpreter reopens it by the link.
+// A native harness execs through a link named like it to the pinned descriptor, so the
+// object run is the one hashed; a script, sampled anyway, execs by path. The forking
+// thread's mask is the harness's initial mask, so it is emptied for the fork.
 func startHarness(exe *os.File, links, class string, argv, env []string, foreground bool) (int, error) {
-	files, fd := []uintptr{0, 1, 2}, exe.Fd()
-	if class == ClassSampled {
-		files, fd = append(files, fd), 3
+	path := argv[0]
+	if class == ClassExact {
+		path = filepath.Join(links, filepath.Base(argv[0]))
+		if err := os.Symlink("/proc/self/fd/"+strconv.FormatUint(uint64(exe.Fd()), 10), path); err != nil {
+			return 0, err
+		}
 	}
-	link := filepath.Join(links, filepath.Base(argv[0]))
-	if err := os.Symlink("/proc/self/fd/"+strconv.FormatUint(uint64(fd), 10), link); err != nil {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	var inherited unix.Sigset_t
+	if err := unix.PthreadSigmask(unix.SIG_SETMASK, &unix.Sigset_t{}, &inherited); err != nil {
 		return 0, err
 	}
-	return syscall.ForkExec(link, argv, &syscall.ProcAttr{
+	defer func() { _ = unix.PthreadSigmask(unix.SIG_SETMASK, &inherited, nil) }()
+	return syscall.ForkExec(path, argv, &syscall.ProcAttr{
 		Env:   env,
-		Files: files,
+		Files: []uintptr{0, 1, 2},
 		Sys:   &syscall.SysProcAttr{Setpgid: true, Foreground: foreground},
 	})
 }
@@ -426,6 +433,7 @@ func (g *execution) supervise(root int, events <-chan os.Signal, grace time.Dura
 				return cause, interrupt, status, nil
 			}
 			if err != nil {
+				g.kill(root)
 				return "", "", 0, fmt.Errorf("reap execution tree: %w", err)
 			}
 			if pid == 0 {

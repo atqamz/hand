@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -59,6 +60,8 @@ func TestMain(m *testing.M) {
 		os.Exit(namespacedSleep(os.Args[1]))
 	case "pane-shell":
 		os.Exit(paneShell(os.Args[1]))
+	case "blocked-guard":
+		os.Exit(execBlocked(os.Args))
 	}
 	if !testtag.Present {
 		testtag.Refuse()
@@ -93,6 +96,21 @@ func escape(pidFile string) int {
 		return 1
 	}
 	return 0
+}
+
+func execBlocked(args []string) int {
+	runtime.LockOSThread()
+	var blocked unix.Sigset_t
+	blocked.Val[0] = 1 << (unix.SIGUSR1 - 1)
+	if err := unix.PthreadSigmask(unix.SIG_BLOCK, &blocked, nil); err != nil {
+		return 1
+	}
+	self, err := os.Executable()
+	if err == nil {
+		err = syscall.Exec(self, args, append(os.Environ(), roleEnv+"=guard"))
+	}
+	fmt.Fprintln(os.Stderr, err)
+	return 1
 }
 
 func namespacedSleep(pidFile string) int {
