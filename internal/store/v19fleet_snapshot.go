@@ -22,6 +22,8 @@ type CanonicalV19FleetSnapshot struct {
 	UnacknowledgedInputs        []CanonicalV19SnapshotWorkerInput
 	UnresolvedOperations        []CanonicalV19SnapshotOperation
 	CurrentOpenTaskHolds        []CanonicalV19SnapshotTaskHold
+	CurrentOpenAttemptBackoffs  []CanonicalV19SnapshotAttemptBackoff
+	OpenRepairs                 []CanonicalV19SnapshotRepair
 }
 
 type CanonicalV19SnapshotProject struct {
@@ -200,6 +202,14 @@ func ReadCanonicalV19FleetSnapshot(ctx context.Context, homeDir string) (Canonic
 		return CanonicalV19FleetSnapshot{}, err
 	}
 	snapshot.CurrentOpenTaskHolds, err = readCanonicalV19SnapshotCurrentTaskHolds(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
+	}
+	snapshot.CurrentOpenAttemptBackoffs, err = readCanonicalV19SnapshotCurrentAttemptBackoffs(ctx, tx)
+	if err != nil {
+		return CanonicalV19FleetSnapshot{}, err
+	}
+	snapshot.OpenRepairs, err = readCanonicalV19SnapshotOpenRepairs(ctx, tx)
 	if err != nil {
 		return CanonicalV19FleetSnapshot{}, err
 	}
