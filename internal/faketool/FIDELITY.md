@@ -457,18 +457,3 @@ Exit 0, retagging and publishing in one call, with `https://github.com/<slug>/re
 
 Publishing is what creates the git ref for a draft's tag.
 Afterwards `matching-refs/tags/edge` held one ref and `matching-refs/tags/<bootstrap tag>` held none, so the assets are already in place when `edge` first resolves to anything and the temporary tag never reaches the remote.
-
-## no-mistakes
-
-Driven by `internal/project`'s `GateRunPRs`, and through it by `hand status` and `hand watch`.
-
-### `no-mistakes runs --limit <n>`
-
-Recorded from the no-mistakes v1.79.0 source (`internal/cli/runs.go`, `internal/db/run.go`, `internal/db/db.go`), not from a live transcript.
-Rows are listed newest first: `GetRunsByRepo` orders by `created_at DESC, id DESC`, and run IDs are monotonic ULIDs, so runs created in the same second still sort by creation.
-Hand lets the first row carrying a PR URL decide that PR's gate state, so this ordering is load-bearing.
-Each row is the run status, branch, eight-character head SHA, creation date and time, then the PR URL when the run has one.
-A run gains the URL only at its own `pr` step or when a same-head relaunch copies it, so after a superseding push the newest row with that URL can be the cancelled one for the whole time the new run takes to reach `pr`.
-An empty history prints `no runs yet. Push through the gate to start a pipeline:` and `git push no-mistakes <branch>`, and a truncated list ends with `(N more runs, use --limit to see more)`; none of these lines ends in a PR URL.
-
-State left behind: the command only reads the run database.

@@ -107,6 +107,8 @@ func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) 
 		// it did before that push, and a PR opened outside the `pr` step reads as absent even behind a
 		// run that did complete. Both gaps are real, and documented rather than papered over.
 		pr := fields[len(fields)-1]
+		// no-mistakes v1.79.0 lists runs newest first (internal/db/run.go `ORDER BY created_at DESC,
+		// id DESC`), so the first row carrying a PR URL is that PR's newest run and decides its state.
 		if seen[pr] {
 			continue
 		}
