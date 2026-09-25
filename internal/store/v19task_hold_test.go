@@ -188,6 +188,74 @@ func TestCanonicalV19TaskHoldAndSupersedeRaceHasOneWinnerWithoutRetarget(t *test
 	}
 }
 
+func TestCanonicalV19BlockedTaskHoldAndDependencySupersedeRaceHasOneWinner(t *testing.T) {
+	home := canonicalV19TaskHoldWriterFixture(t)
+	hold := canonicalV19TaskHoldWriterInput("hold-1")
+	hold.Kind, hold.BlockedOnTaskID = "blocked", "task-2"
+	errs := canonicalV19RaceWriters(
+		func() error {
+			_, err := CreateCanonicalV19TaskHold(context.Background(), home, hold)
+			return err
+		},
+		func() error {
+			_, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
+				PredecessorTaskID: "task-2", SuccessorTaskID: "task-3", Goal: "replacement", GoalDigest: "digest", At: "2026-09-05T03:00:01Z",
+			})
+			return err
+		},
+	)
+	holdErr, supersedeErr := errs[0], errs[1]
+	switch {
+	case holdErr == nil && errors.Is(supersedeErr, ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task`, 2)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold_blocked_on_task WHERE hold_id='hold-1' AND blocked_on_task_id='task-2'`, 1)
+	case supersedeErr == nil && errors.Is(holdErr, ErrCanonicalV19TaskHoldNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='superseded'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-3' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
+	default:
+		t.Fatalf("blocked TaskHold/dependency supersede race = %v / %v, want exactly one winner", holdErr, supersedeErr)
+	}
+}
+
+func TestCanonicalV19BlockedTaskHoldResolveAndDependencySupersedeRaceNeverSupersedesUnderOpenHold(t *testing.T) {
+	home := canonicalV19TaskHoldWriterFixture(t)
+	hold := canonicalV19TaskHoldWriterInput("hold-1")
+	hold.Kind, hold.BlockedOnTaskID = "blocked", "task-2"
+	if _, err := CreateCanonicalV19TaskHold(context.Background(), home, hold); err != nil {
+		t.Fatal(err)
+	}
+	errs := canonicalV19RaceWriters(
+		func() error {
+			return ResolveCanonicalV19TaskHold(context.Background(), home, CanonicalV19TaskHoldResolveInput{
+				HoldID: "hold-1", Resolution: "released", ResolvedAt: "2026-09-05T03:00:01Z", EvidenceDigest: "digest-release",
+			})
+		},
+		func() error {
+			_, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
+				PredecessorTaskID: "task-2", SuccessorTaskID: "task-3", Goal: "replacement", GoalDigest: "digest", At: "2026-09-05T03:00:02Z",
+			})
+			return err
+		},
+	)
+	resolveErr, supersedeErr := errs[0], errs[1]
+	if resolveErr != nil {
+		t.Fatalf("racing TaskHold resolve = %v", resolveErr)
+	}
+	switch {
+	case supersedeErr == nil:
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='superseded'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-3' AND lifecycle='active'`, 1)
+	case errors.Is(supersedeErr, ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task`, 2)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-2' AND lifecycle='active'`, 1)
+	default:
+		t.Fatalf("racing dependency supersede = %v", supersedeErr)
+	}
+	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold_resolution WHERE hold_id='hold-1' AND resolution='released'`, 1)
+}
+
 func TestCreateCanonicalV19TaskHoldRefusesStaleBlockedOnTaskWithoutMutation(t *testing.T) {
 	home := canonicalV19TaskHoldWriterFixture(t)
 	if _, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
