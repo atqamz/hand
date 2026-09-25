@@ -47,7 +47,14 @@ func abortLegacyV18CutoverFreeze(homeDir string) (legacyV18CutoverAbort, error) 
 		if err := syncLegacyV18CutoverDirectoryParent(activePath); err != nil {
 			return legacyV18CutoverAbort{}, fmt.Errorf("abort v19 cutover: flush state directory: %w", err)
 		}
-		return legacyV18CutoverAbort{Disposition: legacyV18CutoverNotFrozenDisposition}, nil
+		records, err := filepath.Glob(filepath.Join(Dir(homeDir), "v19-cutover-*", legacyV18CutoverAbortRecordPrefix+"*", "frozen-bridge.db"))
+		if err != nil {
+			return legacyV18CutoverAbort{}, fmt.Errorf("abort v19 cutover: list abort records: %w", err)
+		}
+		for i := range records {
+			records[i] = filepath.Dir(records[i])
+		}
+		return legacyV18CutoverAbort{Disposition: legacyV18CutoverNotFrozenDisposition, Record: strings.Join(records, ", ")}, nil
 	}
 
 	archivePath := legacyV18CutoverOriginalArchivePath(homeDir, bridge.MigrationID)
@@ -57,8 +64,8 @@ func abortLegacyV18CutoverFreeze(homeDir string) (legacyV18CutoverAbort, error) 
 	if digest, err := legacyV18CutoverFileSHA256(archivePath); err != nil || digest != bridge.SourceSHA256 {
 		return legacyV18CutoverAbort{}, fmt.Errorf("%w: original archive digest=%s (%v), want certificate source %s", errLegacyV18CutoverAbortUnsafe, digest, err, bridge.SourceSHA256)
 	}
-	if err := requireLegacyV18CutoverNoSQLiteSidecars(activePath, "active frozen bridge"); err != nil {
-		return legacyV18CutoverAbort{}, fmt.Errorf("%w: %v", errLegacyV18CutoverAbortUnsafe, err)
+	if err := requireLegacyV18CutoverAbortSidecarsSafe(activePath); err != nil {
+		return legacyV18CutoverAbort{}, err
 	}
 
 	record, err := ensureLegacyV18CutoverAbortRecord(homeDir, bridge.MigrationID)
@@ -71,7 +78,7 @@ func abortLegacyV18CutoverFreeze(homeDir string) (legacyV18CutoverAbort, error) 
 	if err := discardLegacyV18CutoverInvalidCanonicalTemp(legacyV18CutoverCanonicalTargetPath(homeDir, bridge.MigrationID)); err != nil {
 		return legacyV18CutoverAbort{}, fmt.Errorf("abort v19 cutover: %w", err)
 	}
-	if err := removeLegacyV18CutoverSameFile(legacyV18CutoverRetiredBridgePath(homeDir, bridge.MigrationID), activePath); err != nil {
+	if err := removeLegacyV18CutoverLinkOnly(legacyV18CutoverRetiredBridgePath(homeDir, bridge.MigrationID), activePath); err != nil {
 		return legacyV18CutoverAbort{}, fmt.Errorf("abort v19 cutover: remove retired bridge link: %w", err)
 	}
 
@@ -166,7 +173,8 @@ func moveLegacyV18CutoverManifestIntoAbortRecord(homeDir, migrationID, record st
 	return nil
 }
 
-func removeLegacyV18CutoverSameFile(path, reference string) error {
+// A file with another identity, such as a cp copy of the bridge, is left in place rather than blocking abort.
+func removeLegacyV18CutoverLinkOnly(path, reference string) error {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil
@@ -179,12 +187,31 @@ func removeLegacyV18CutoverSameFile(path, reference string) error {
 		return err
 	}
 	if !os.SameFile(info, referenceInfo) {
-		return fmt.Errorf("%s is not a link to %s", path, reference)
+		return nil
 	}
 	return os.Remove(path)
 }
 
+// Revision 4 abort step 4: a non-empty journal or a WAL may belong to a live writer; an empty journal is inert.
+func requireLegacyV18CutoverAbortSidecarsSafe(activePath string) error {
+	for _, suffix := range []string{"-journal", "-wal", "-shm"} {
+		sidecar := activePath + suffix
+		info, err := os.Lstat(sidecar)
+		if os.IsNotExist(err) || (err == nil && suffix == "-journal" && info.Mode().IsRegular() && info.Size() == 0) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("abort v19 cutover: inspect %s: %w", sidecar, err)
+		}
+		return fmt.Errorf("%w: SQLite sidecar %s exists; stop every process that has state/hand.db open, remove %s, and retry", errLegacyV18CutoverAbortUnsafe, sidecar, sidecar)
+	}
+	return nil
+}
+
 func copyLegacyV18CutoverFileDurable(source, target, wantSHA256 string) error {
+	if info, err := os.Lstat(target); err == nil && !info.Mode().IsRegular() {
+		return fmt.Errorf("restore candidate path %s is not a regular file; remove it and retry", target)
+	}
 	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
 		return err
 	}

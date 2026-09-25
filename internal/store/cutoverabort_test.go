@@ -147,3 +147,62 @@ func TestAbortLegacyV18CutoverFreezeRefusesAbsentActive(t *testing.T) {
 		t.Fatalf("refused abort changed the moved bridge: %s, %v", got, err)
 	}
 }
+
+// A byte-identical cp copy at the retired path, after the commit point, must not strand the home frozen.
+func TestAbortLegacyV18CutoverFreezeLeavesCopiedRetiredBridge(t *testing.T) {
+	home, bridge, _, _, _, _ := canonicalV19CutoverRecoveryFixture(t)
+	if _, err := ensureLegacyV18CutoverAbortRecord(home, bridge.MigrationID); err != nil {
+		t.Fatal(err)
+	}
+	retired := legacyV18CutoverRetiredBridgePath(home, bridge.MigrationID)
+	data, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(retired, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	aborted, err := abortLegacyV18CutoverFreeze(home)
+	if err != nil || aborted.Disposition != legacyV18CutoverAbortedDisposition {
+		t.Fatalf("abort with a copied retired bridge = %#v, %v", aborted, err)
+	}
+	if got, err := legacyV18CutoverFileSHA256(retired); err != nil || got != bridge.BridgeSHA256 {
+		t.Fatalf("copied retired bridge after abort = %s, %v; want it left in place", got, err)
+	}
+	again, err := abortLegacyV18CutoverFreeze(home)
+	if err != nil || again.Disposition != legacyV18CutoverNotFrozenDisposition || again.Record != aborted.Record {
+		t.Fatalf("not-frozen report = %#v, %v; want it to name record %s", again, err, aborted.Record)
+	}
+}
+
+func TestAbortLegacyV18CutoverFreezeNamesStaleLeftovers(t *testing.T) {
+	home, bridge, _, _, _, _ := canonicalV19CutoverRecoveryFixture(t)
+	journal := Path(home) + "-journal"
+	if err := os.WriteFile(journal, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(Dir(home), ".v19-cutover-"+bridge.MigrationID+"-restore.db.candidate")
+	if err := os.Mkdir(candidate, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := abortLegacyV18CutoverFreeze(home); err == nil || !strings.Contains(err.Error(), "restore candidate path "+candidate+" is not a regular file") {
+		t.Fatalf("abort with a directory at the restore candidate = %v", err)
+	}
+	if err := os.Remove(candidate); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(Path(home)+"-wal", []byte("wal"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := abortLegacyV18CutoverFreeze(home); !errors.Is(err, errLegacyV18CutoverAbortUnsafe) || !strings.Contains(err.Error(), "remove "+Path(home)+"-wal") {
+		t.Fatalf("abort with a WAL sidecar = %v, want a refusal naming it", err)
+	}
+	for _, sidecar := range []string{"-wal", "-shm"} {
+		if err := os.Remove(Path(home) + sidecar); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	if aborted, err := abortLegacyV18CutoverFreeze(home); err != nil || aborted.Disposition != legacyV18CutoverAbortedDisposition {
+		t.Fatalf("abort with only an empty journal = %#v, %v", aborted, err)
+	}
+}
