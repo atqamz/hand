@@ -177,8 +177,8 @@ func TestCanonicalV19SnapshotCurrentDecisionsQueryUsesTaskHistoryIndex(t *testin
 		t.Fatal(err)
 	}
 	if !strings.Contains(plan.String(), "SEARCH d USING INDEX decision_task_history") ||
-		strings.Contains(plan.String(), "SCAN d ") || strings.Contains(plan.String(), "SCAN da ") ||
-		strings.Contains(plan.String(), "SCAN dc ") {
-		t.Fatalf("current Decision query scans history instead of exact Task seeks: %s", plan.String())
+		strings.Contains(plan.String(), "SCAN t ") || strings.Contains(plan.String(), "SCAN d ") ||
+		strings.Contains(plan.String(), "SCAN da ") || strings.Contains(plan.String(), "SCAN dc ") {
+		t.Fatalf("current Decision query scans Task or Decision history instead of exact seeks: %s", plan.String())
 	}
 }
