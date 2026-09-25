@@ -118,7 +118,7 @@ func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v8.md", "348-cutover-archive-v3.md", "b67acfad620ca08ff031531ce93fe5e8e39589f9", "95b325f9aa4a78eab4a0d977579ffcc73dee886322bd6fc8e9436900f096f338")
 	})
 	t.Run("manifest-v9-input.md", func(t *testing.T) {
-		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9-input.md", "348-cutover-archive-v4.md", "c5dca977ae277ad146b1d4490edfa8d113ca3621", "bd374c3f16711e7f384ff30e6727bab2815ef7bdcb65968e919a46b054aa5872")
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9-input.md", "348-cutover-archive-v4.md", "4da2f6908f28dfda0d28da6fac2fd688f357f110", "8010d0fb54404534b7afac3cb987acbe7d2101fee8be0ebac17c65dc84f7f188")
 	})
 }
 
