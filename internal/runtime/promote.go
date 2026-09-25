@@ -212,7 +212,10 @@ func (r *Runtime) cleanupScout(homeDir, clonePath, taskID string, scout state.At
 		case state.TeardownResourceReleasing, state.TeardownResourceAmbiguous:
 			warnings = append(warnings, fmt.Sprintf("warning: worktree ownership for attempt %d is ambiguous; refusing destructive retry", scout.ID))
 		default:
-			if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
+			if scout.LeaseID == "" {
+				_ = setState("worktree", state.TeardownResourceAmbiguous)
+				warnings = append(warnings, fmt.Sprintf("warning: scout worktree %s has no Treehouse lease identity; refusing path-only return", scout.Worktree))
+			} else if err := setState("worktree", state.TeardownResourceReleasing); err != nil {
 				warnings = append(warnings, fmt.Sprintf("warning: record scout worktree release phase failed: %v", err))
 			} else if err := r.deps.worktree.returnLease(clonePath, worktree.Lease{Path: scout.Worktree, ID: scout.LeaseID}, true); err != nil {
 				_ = setState("worktree", state.TeardownResourceAmbiguous)

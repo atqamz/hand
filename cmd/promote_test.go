@@ -43,7 +43,7 @@ func setupPromoteHome(t *testing.T, oldWorktree, newWorktree string, herdr faket
 // it can only be set at the attempt's creation, same as PlannedAgainst.
 func setupPromoteHomeWithScoutBriefDigest(t *testing.T, oldWorktree, newWorktree string, herdr faketool.Herdr, scoutBriefDigest string) string {
 	t.Helper()
-	return setupPromoteHomeWithScoutAttempt(t, oldWorktree, newWorktree, herdr, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}, BriefDigest: scoutBriefDigest})
+	return setupPromoteHomeWithScoutAttempt(t, oldWorktree, newWorktree, herdr, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: oldWorktree, LeaseID: "lease-old", Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tOld", PaneID: "wA:pOld"}, BriefDigest: scoutBriefDigest})
 }
 
 // Lets a caller shape the whole scout attempt fixture up front, since atqamz/hand#481 removed
@@ -82,7 +82,7 @@ func setupPromoteHomeWithScoutAttempt(t *testing.T, oldWorktree, newWorktree str
 	bin := faketool.Bin(t)
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	t.Setenv("HERDR_CALL_LOG", callLog)
-	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}, Log: callLog}.Install(t, bin)
+	faketool.Treehouse{Slots: []string{newWorktree, oldWorktree}, Held: []string{oldWorktree}, LeaseIDs: map[string]string{oldWorktree: scoutAttempt.LeaseID}, Log: callLog}.Install(t, bin)
 	t.Chdir(home)
 	mkFleetDirs(t, home)
 	herdr = scopeHerdrForFleet(t, home, herdr)
@@ -500,7 +500,7 @@ func TestPromoteReturnsScoutResourcesWhenTheShipLaunchFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(calls), " return "+oldWt) {
+	if !strings.Contains(string(calls), " return --force --if-lease-id lease-old "+oldWt) {
 		t.Fatalf("calls = %q, want the scout worktree returned", calls)
 	}
 	if !strings.Contains(string(calls), "tab close wA:tOld") {

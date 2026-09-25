@@ -306,8 +306,7 @@ func (r *Runtime) releaseWorktree(clonePath, home, taskID string, attempt state.
 			return err
 		}
 	}
-	// Legacy attempts without a persisted lease ID retain pre-migration path-only behavior.
-	if attempt.TeardownWorktreeState == "" && attempt.LeaseID != "" {
+	if attempt.TeardownWorktreeState == "" {
 		if err := proveOwnership("return"); err != nil {
 			return err
 		}
