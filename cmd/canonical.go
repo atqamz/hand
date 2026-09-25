@@ -110,7 +110,7 @@ func newTaskAbandonCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "abandon <id>",
 		Short: "Abandon one exact active Task without a successor",
-		Long:  "Terminalize an exact active Task as abandoned. It refuses while the Task has an active Plan, unresolved external operation, open ExecutorBinding, open direct or inbound Hold, or open Repair. This records no satisfaction, cleanup or accepted worker result.",
+		Long:  "Terminalize an exact active Task in one transaction with its active Plan and, when no ExecutorBinding is open, that Plan's active Attempt: the Task and Plan become abandoned and the Attempt interrupted. It refuses while the lineage has an unresolved external operation, open ExecutorBinding or open AttemptBackoff, the Task has an open direct or inbound Hold, or the Task, active Plan or active Attempt has an open Repair. Worktree and Session bindings stay open for cleanup. This records no satisfaction, cleanup or accepted worker result.",
 		Args:  usageArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			homeDir, err := home.Resolve()

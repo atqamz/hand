@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 )
 
@@ -356,141 +355,20 @@ func canonicalV19PlanWriterCount(t *testing.T, home string) int {
 	return count
 }
 
-func TestAbandonCanonicalV19PlanTerminalizesExactPlanWithoutSuccessor(t *testing.T) {
-	home := canonicalV19AttemptWriterFixture(t).Home
-	ctx := context.Background()
-	if err := AbandonCanonicalV19Plan(ctx, home, "plan-root", "2026-09-04T09:01:00Z"); err != nil {
-		t.Fatal(err)
+func TestReplanCanonicalV19PlanRefusesOpenPlanRepair(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	canonicalV19RepairWriterExec(t, fixture.Home, `BEGIN IMMEDIATE;
+		INSERT INTO repair_target(repair_id,plan_id) VALUES('repair-1','plan-root');
+		INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
+		VALUES('repair-1','plan-check','inspect','digest','2026-09-04T09:00:30Z');
+		COMMIT`)
+	successor := canonicalV19PlanWriterInput("plan-replan")
+	_, err := ReplanCanonicalV19Plan(context.Background(), fixture.Home, CanonicalV19PlanReplanInput{
+		PredecessorPlanID: "plan-root", Successor: successor, SupersededAt: "2026-09-04T09:01:00Z",
+	})
+	if !errors.Is(err, ErrCanonicalV19PlanNotCurrent) {
+		t.Fatalf("replan with open Plan Repair = %v, want %v", err, ErrCanonicalV19PlanNotCurrent)
 	}
-	if got := canonicalV19Lifecycle(t, home, "plan", "plan-root"); got != "abandoned/2026-09-04T09:01:00Z" {
-		t.Fatalf("Plan lifecycle = %q", got)
-	}
-	if err := AbandonCanonicalV19Plan(ctx, home, "plan-root", "2026-09-04T09:02:00Z"); !errors.Is(err, ErrCanonicalV19PlanNotCurrent) {
-		t.Fatalf("replayed abandon = %v, want %v", err, ErrCanonicalV19PlanNotCurrent)
-	}
-	if _, err := CreateCanonicalV19Attempt(ctx, home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); !errors.Is(err, ErrCanonicalV19AttemptNotCurrent) {
-		t.Fatalf("retry under abandoned Plan = %v, want %v", err, ErrCanonicalV19AttemptNotCurrent)
-	}
-	if _, err := CreateCanonicalV19RootPlan(ctx, home, canonicalV19PlanWriterInput("plan-next")); !errors.Is(err, ErrCanonicalV19PlanConflict) {
-		t.Fatalf("root Plan after abandon = %v, want %v", err, ErrCanonicalV19PlanConflict)
-	}
-	if got := canonicalV19Lifecycle(t, home, "plan", "plan-root"); got != "abandoned/2026-09-04T09:01:00Z" {
-		t.Fatalf("Plan lifecycle after stale writers = %q", got)
-	}
-	if got := canonicalV19Lifecycle(t, home, "task", "task-1"); got != "active/" {
-		t.Fatalf("Task lifecycle = %q, want active", got)
-	}
-}
-
-func TestAbandonCanonicalV19PlanRefusesOpenObligationsWithoutMutation(t *testing.T) {
-	for _, tc := range []struct {
-		name, want string
-		seed       func(*testing.T) string
-	}{
-		{"ActiveAttempt", "active Attempt", func(t *testing.T) string {
-			home := canonicalV19AttemptWriterFixture(t).Home
-			if _, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
-				t.Fatal(err)
-			}
-			return home
-		}},
-		{"UnresolvedExternalOperation", "unresolved external operation", func(t *testing.T) string {
-			home := canonicalV19AttemptWriterFixture(t).Home
-			canonicalV19RepairWriterExec(t, home, `INSERT INTO external_operation(
-				id,kind,adapter_ref,operation_key,request_digest,project_id,task_id,plan_id,
-				primary_scope_kind,primary_scope_key,created_at,state_changed_at
-			) VALUES('operation-1','qualification','adapter','key','digest','project-1','task-1','plan-root',
-				'qualification','plan-root','2026-09-04T09:00:30Z','2026-09-04T09:00:30Z')`)
-			return home
-		}},
-		{"OpenExecutorBinding", "open ExecutorBinding", func(t *testing.T) string {
-			fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
-			canonicalV19RepairWriterExec(t, fixture.Home, `UPDATE attempt SET lifecycle='failed',terminal_at='2026-09-06T17:05:00Z' WHERE id='attempt-1'`)
-			return fixture.Home
-		}},
-		{"OpenRepair", "open Repair", func(t *testing.T) string {
-			home := canonicalV19AttemptWriterFixture(t).Home
-			canonicalV19RepairWriterExec(t, home, `BEGIN IMMEDIATE;
-				INSERT INTO repair_target(repair_id,plan_id) VALUES('repair-1','plan-root');
-				INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
-				VALUES('repair-1','plan-check','inspect','digest','2026-09-04T09:00:30Z');
-				COMMIT`)
-			return home
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := tc.seed(t)
-			err := AbandonCanonicalV19Plan(context.Background(), home, "plan-root", "2026-09-07T00:00:00Z")
-			if !errors.Is(err, ErrCanonicalV19PlanNotCurrent) || !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("abandon with %s = %v, want %v naming %q", tc.name, err, ErrCanonicalV19PlanNotCurrent, tc.want)
-			}
-			if got := canonicalV19Lifecycle(t, home, "plan", "plan-root"); got != "active/" {
-				t.Fatalf("Plan lifecycle = %q, want active", got)
-			}
-		})
-	}
-}
-
-func TestAbandonCanonicalV19PlanRacesSuccessorWritersWithOneWinner(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		loserErr  error
-		successor func(string) error
-	}{
-		{"Retry", ErrCanonicalV19AttemptNotCurrent, func(home string) error {
-			_, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-1", "plan-root"))
-			return err
-		}},
-		{"Replan", ErrCanonicalV19PlanNotCurrent, func(home string) error {
-			successor := canonicalV19PlanWriterInput("plan-replan")
-			_, err := ReplanCanonicalV19Plan(context.Background(), home, CanonicalV19PlanReplanInput{
-				PredecessorPlanID: "plan-root", Successor: successor, SupersededAt: "2026-09-04T09:01:00Z",
-			})
-			return err
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := canonicalV19AttemptWriterFixture(t).Home
-			start := make(chan struct{})
-			var abandonErr, successorErr error
-			var workers sync.WaitGroup
-			workers.Go(func() {
-				<-start
-				abandonErr = AbandonCanonicalV19Plan(context.Background(), home, "plan-root", "2026-09-04T09:01:00Z")
-			})
-			workers.Go(func() {
-				<-start
-				successorErr = tc.successor(home)
-			})
-			close(start)
-			workers.Wait()
-			lifecycle := canonicalV19Lifecycle(t, home, "plan", "plan-root")
-			switch {
-			case abandonErr == nil && errors.Is(successorErr, tc.loserErr):
-				if lifecycle != "abandoned/2026-09-04T09:01:00Z" || canonicalV19AttemptWriterCount(t, home) != 0 || canonicalV19PlanWriterCount(t, home) != 1 {
-					t.Fatalf("abandon winner left Plan %q with successor history", lifecycle)
-				}
-			case successorErr == nil && errors.Is(abandonErr, ErrCanonicalV19PlanNotCurrent):
-				if lifecycle == "abandoned/2026-09-04T09:01:00Z" {
-					t.Fatalf("successor winner still abandoned Plan")
-				}
-			default:
-				t.Fatalf("abandon/%s = %v/%v, want one winner and one typed loser", tc.name, abandonErr, successorErr)
-			}
-		})
-	}
-}
-
-func canonicalV19Lifecycle(t *testing.T, home, table, id string) string {
-	t.Helper()
-	db, err := openReadOnly(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	var lifecycle string
-	if err := db.sql.QueryRow(`SELECT lifecycle||'/'||terminal_at FROM `+table+` WHERE id=?`, id).Scan(&lifecycle); err != nil {
-		t.Fatal(err)
-	}
-	return lifecycle
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='active'`, 1)
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan`, 1)
 }

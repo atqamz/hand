@@ -53,6 +53,9 @@ func TerminalizeCanonicalV19Attempt(ctx context.Context, homeDir string, input C
 	if err := requireCanonicalV19AttemptNoUnresolvedExternalOperation(ctx, tx, input.AttemptID); err != nil {
 		return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
 	}
+	if err := requireCanonicalV19AttemptNoOpenExecutorOrRepair(ctx, tx, input.AttemptID); err != nil {
+		return fmt.Errorf("terminalize canonical v19 Attempt: %w", err)
+	}
 	if input.BackoffResolution != nil {
 		if err := resolveCanonicalV19AttemptBackoffForTerminalization(
 			ctx, tx, input.AttemptID, *input.BackoffResolution,
@@ -137,6 +140,22 @@ func requireCanonicalV19AttemptNoUnresolvedExternalOperation(ctx context.Context
 		return canonicalV19AttemptTerminalWriteError("read unresolved external operation", err)
 	}
 	return fmt.Errorf("%w: Attempt %q has unresolved external operation %q", ErrCanonicalV19AttemptConflict, attemptID, operationID)
+}
+
+func requireCanonicalV19AttemptNoOpenExecutorOrRepair(ctx context.Context, tx *sql.Tx, attemptID string) error {
+	var obligation string
+	if err := tx.QueryRowContext(ctx, `SELECT CASE
+		WHEN EXISTS(SELECT 1 FROM executor_binding e WHERE e.attempt_id=? AND NOT EXISTS(
+			SELECT 1 FROM executor_binding_termination x WHERE x.executor_binding_id=e.id)) THEN 'open ExecutorBinding'
+		WHEN EXISTS(SELECT 1 FROM repair_target rt WHERE rt.attempt_id=? AND NOT EXISTS(
+			SELECT 1 FROM repair_resolution r WHERE r.repair_id=rt.repair_id)) THEN 'open Repair'
+		ELSE '' END`, attemptID, attemptID).Scan(&obligation); err != nil {
+		return canonicalV19AttemptTerminalWriteError("read open ExecutorBinding or Repair", err)
+	}
+	if obligation != "" {
+		return fmt.Errorf("%w: Attempt %q has %s", ErrCanonicalV19AttemptConflict, attemptID, obligation)
+	}
+	return nil
 }
 
 func canonicalV19AttemptTerminalWriteError(action string, err error) error {

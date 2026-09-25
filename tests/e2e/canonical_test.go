@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
@@ -136,7 +137,7 @@ func TestCanonicalTaskSupersedeCLIRecordsReplacementWithoutCompletion(t *testing
 	}
 }
 
-func TestCanonicalPlanfulTaskAbandonCLIReachesArchive(t *testing.T) {
+func TestCanonicalTaskAbandonCLICascadesNeverLaunchedAttemptToArchive(t *testing.T) {
 	parent := t.TempDir()
 	fleet := filepath.Join(parent, "fleet")
 	if got := runHand(t, parent, "init", "--canonical", fleet); got.code != 0 {
@@ -159,32 +160,34 @@ func TestCanonicalPlanfulTaskAbandonCLIReachesArchive(t *testing.T) {
 	ok("plan", "create", "plan-1", "--task-id", "task-1", "--workspace-binding-id", canonicalOutputField(t, registered, "workspace_binding_id"),
 		"--policy-revision-id", "policy-1", "--intent", "explore", "--judgment", "bounded",
 		"--basis", "exact registered repository", "--brief", "Explore before abandoning")
-	before := snapshotTree(t, fleet)
-	for _, args := range [][]string{{"task", "abandon", "task-1"}, {"plan", "abandon", "plan-missing"}} {
-		if got := runHand(t, fleet, args...); got.code == 0 {
-			t.Fatalf("unsafe abandon succeeded: %v %+v", args, got)
-		}
-		assertTreeUnchanged(t, fleet, before)
+	if _, err := store.CreateCanonicalV19Attempt(context.Background(), fleet, store.CanonicalV19AttemptCreateInput{
+		ID: "attempt-1", PlanID: "plan-1", WorkerHarnessRef: "worker-harness/codex", SessionAdapterRef: "builtin/session",
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if got := runHandEnv(t, fleet, []string{"HAND_ROLE=worker"}, "plan", "abandon", "plan-1"); got.code != 3 {
-		t.Fatalf("worker Plan abandon: %+v", got)
+	before := snapshotTree(t, fleet)
+	if got := runHand(t, fleet, "task", "abandon", "task-missing"); got.code == 0 {
+		t.Fatalf("missing Task abandon succeeded: %+v", got)
 	}
 	assertTreeUnchanged(t, fleet, before)
-	if got := ok("plan", "abandon", "plan-1"); canonicalOutputField(t, got, "lifecycle") != "abandoned" {
-		t.Fatalf("plan abandon: %+v", got)
+	if got := runHandEnv(t, fleet, []string{"HAND_ROLE=worker"}, "task", "abandon", "task-1"); got.code != 3 {
+		t.Fatalf("worker Task abandon: %+v", got)
 	}
+	assertTreeUnchanged(t, fleet, before)
 	if got := ok("task", "abandon", "task-1"); canonicalOutputField(t, got, "lifecycle") != "abandoned" {
 		t.Fatalf("task abandon: %+v", got)
 	}
 	ok("task", "archive", "task-1", "--actor-kind", "operator", "--actor-ref", "operator-1",
 		"--archived-at", time.Now().UTC().Format(time.RFC3339Nano), "--reason", "abandoned without effects",
 		"--evidence-digest", strings.Repeat("a", 64))
-	var plan, task string
+	var attempt, plan, task string
 	var archived int
-	if err := canonicalTestDB(t, fleet).QueryRow(`SELECT (SELECT lifecycle FROM plan WHERE id='plan-1'),
-		(SELECT lifecycle FROM task WHERE id='task-1'),(SELECT COUNT(*) FROM task_archive WHERE task_id='task-1')`).Scan(
-		&plan, &task, &archived); err != nil || plan != "abandoned" || task != "abandoned" || archived != 1 {
-		t.Fatalf("Plan/Task/archive = %q/%q/%d, %v", plan, task, archived, err)
+	if err := canonicalTestDB(t, fleet).QueryRow(`SELECT (SELECT lifecycle FROM attempt WHERE id='attempt-1'),
+		(SELECT lifecycle FROM plan WHERE id='plan-1'),(SELECT lifecycle FROM task WHERE id='task-1'),
+		(SELECT COUNT(*) FROM task_archive WHERE task_id='task-1')`).Scan(&attempt, &plan, &task, &archived); err != nil ||
+		attempt != "interrupted" || plan != "abandoned" || task != "abandoned" || archived != 1 {
+		t.Fatalf("Attempt/Plan/Task/archive = %q/%q/%q/%d, %v", attempt, plan, task, archived, err)
 	}
 }
 

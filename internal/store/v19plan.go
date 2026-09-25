@@ -212,68 +212,6 @@ func ReplanCanonicalV19Plan(ctx context.Context, homeDir string, input Canonical
 	return ordinal, nil
 }
 
-func AbandonCanonicalV19Plan(ctx context.Context, homeDir, planID, abandonedAt string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if planID == "" || abandonedAt == "" {
-		return fmt.Errorf("abandon canonical v19 Plan: Plan ID and terminal_at are required")
-	}
-	sqlDB, err := openCanonicalV19Writer(homeDir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = sqlDB.Close() }()
-	tx, err := sqlDB.BeginTx(ctx, nil)
-	if err != nil {
-		return canonicalV19PlanWriteError("abandon canonical v19 Plan", "begin writer", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
-		return fmt.Errorf("abandon canonical v19 Plan: %w", err)
-	}
-	var obligation string
-	err = tx.QueryRowContext(ctx, `SELECT CASE
-		WHEN EXISTS(SELECT 1 FROM attempt WHERE plan_id=p.id AND lifecycle='active') THEN 'active Attempt'
-		WHEN EXISTS(SELECT 1 FROM external_operation WHERE plan_id=p.id AND state IN ('prepared','submitted','uncertain'))
-			THEN 'unresolved external operation'
-		WHEN EXISTS(SELECT 1 FROM executor_binding e JOIN attempt a ON a.id=e.attempt_id
-			WHERE a.plan_id=p.id AND NOT EXISTS(
-				SELECT 1 FROM executor_binding_termination x WHERE x.executor_binding_id=e.id)) THEN 'open ExecutorBinding'
-		WHEN EXISTS(SELECT 1 FROM repair_target rt WHERE rt.plan_id=p.id AND NOT EXISTS(
-			SELECT 1 FROM repair_resolution r WHERE r.repair_id=rt.repair_id)) THEN 'open Repair'
-		ELSE '' END
-		FROM plan p
-		JOIN task t ON t.id=p.task_id AND t.lifecycle='active' AND t.terminal_at=''
-		JOIN project project_current ON project_current.id=t.project_id AND project_current.retired_at=''
-		WHERE p.id=? AND p.lifecycle='active' AND p.terminal_at=''`, planID).Scan(&obligation)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("abandon canonical v19 Plan: %w: Plan %q does not have exact active Project/Task/Plan lineage", ErrCanonicalV19PlanNotCurrent, planID)
-	}
-	if err != nil {
-		return canonicalV19PlanWriteError("abandon canonical v19 Plan", "read exact Plan", err)
-	}
-	if obligation != "" {
-		return fmt.Errorf("abandon canonical v19 Plan: %w: Plan %q has %s", ErrCanonicalV19PlanNotCurrent, planID, obligation)
-	}
-	result, err := tx.ExecContext(ctx, `UPDATE plan SET lifecycle='abandoned',terminal_at=?
-		WHERE id=? AND lifecycle='active' AND terminal_at=''`, abandonedAt, planID)
-	if err != nil {
-		return canonicalV19PlanWriteError("abandon canonical v19 Plan", "abandon exact Plan", err)
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return canonicalV19PlanWriteError("abandon canonical v19 Plan", "count abandoned Plan", err)
-	}
-	if changed != 1 {
-		return fmt.Errorf("abandon canonical v19 Plan: %w: Plan changed %d rows, want 1", ErrCanonicalV19PlanNotCurrent, changed)
-	}
-	if err := tx.Commit(); err != nil {
-		return canonicalV19PlanWriteError("abandon canonical v19 Plan", "commit writer", err)
-	}
-	return nil
-}
-
 func validateCanonicalV19PlanCreateInput(action string, input CanonicalV19PlanCreateInput) error {
 	for name, value := range map[string]string{
 		"Plan ID":             input.ID,
@@ -400,8 +338,12 @@ func requireCanonicalV19ActivePredecessor(ctx context.Context, tx *sql.Tx, taskI
 		WHERE p.id=? AND p.task_id=? AND p.lifecycle='active' AND p.terminal_at=''
 		  AND NOT EXISTS (
 			SELECT 1 FROM attempt a WHERE a.plan_id=p.id AND a.lifecycle='active'
+		  )
+		  AND NOT EXISTS (
+			SELECT 1 FROM repair_target rt WHERE rt.plan_id=p.id
+			  AND NOT EXISTS (SELECT 1 FROM repair_resolution r WHERE r.repair_id=rt.repair_id)
 		  )`, planID, taskID).Scan(&ordinal); errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("%w: predecessor Plan %q is not the exact active predecessor without an active Attempt", ErrCanonicalV19PlanNotCurrent, planID)
+		return fmt.Errorf("%w: predecessor Plan %q is not the exact active predecessor without an active Attempt or open Repair", ErrCanonicalV19PlanNotCurrent, planID)
 	} else if err != nil {
 		return canonicalV19PlanWriteError("canonical v19 Plan", "read exact predecessor", err)
 	}

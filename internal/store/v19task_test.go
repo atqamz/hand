@@ -533,27 +533,30 @@ func canonicalV19TaskWriterCount(t *testing.T, home string) int {
 	return count
 }
 
-func TestAbandonCanonicalV19TaskAfterAbandonedPlanTerminalizesExactTask(t *testing.T) {
+func TestAbandonCanonicalV19TaskCascadesNeverLaunchedAttemptAndPlanThenArchives(t *testing.T) {
 	home := canonicalV19AttemptWriterFixture(t).Home
 	ctx := context.Background()
-	err := AbandonCanonicalV19Task(ctx, home, "task-1", "2026-09-04T09:01:00Z")
-	if !errors.Is(err, ErrCanonicalV19TaskNotCurrent) || !strings.Contains(err.Error(), "active Plan") {
-		t.Fatalf("abandon with active Plan = %v, want %v", err, ErrCanonicalV19TaskNotCurrent)
-	}
-	if err := AbandonCanonicalV19Plan(ctx, home, "plan-root", "2026-09-04T09:01:00Z"); err != nil {
+	if _, err := CreateCanonicalV19Attempt(ctx, home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
 		t.Fatal(err)
 	}
 	if err := AbandonCanonicalV19Task(ctx, home, "task-1", "2026-09-04T09:02:00Z"); err != nil {
 		t.Fatal(err)
 	}
-	if got := canonicalV19Lifecycle(t, home, "task", "task-1"); got != "abandoned/2026-09-04T09:02:00Z" {
-		t.Fatalf("Task lifecycle = %q", got)
-	}
+	canonicalV19DecisionAssertCount(t, home, `SELECT (SELECT count(*) FROM attempt WHERE id='attempt-1' AND lifecycle='interrupted')+
+		(SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='abandoned')+
+		(SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='abandoned')+
+		(SELECT count(*) FROM attempt WHERE terminal_at='2026-09-04T09:02:00Z')`, 4)
 	if err := AbandonCanonicalV19Task(ctx, home, "task-1", "2026-09-04T09:03:00Z"); !errors.Is(err, ErrCanonicalV19TaskNotCurrent) {
 		t.Fatalf("replayed abandon = %v, want %v", err, ErrCanonicalV19TaskNotCurrent)
 	}
-	if got := canonicalV19Lifecycle(t, home, "task", "task-1"); got != "abandoned/2026-09-04T09:02:00Z" {
-		t.Fatalf("Task lifecycle after replay = %q", got)
+	if _, err := CreateCanonicalV19Attempt(ctx, home, canonicalV19AttemptWriterInput("attempt-2", "plan-root")); !errors.Is(err, ErrCanonicalV19AttemptNotCurrent) {
+		t.Fatalf("retry under abandoned Task = %v, want %v", err, ErrCanonicalV19AttemptNotCurrent)
+	}
+	if err := ArchiveCanonicalV19Task(ctx, home, CanonicalV19TaskArchiveInput{
+		TaskID: "task-1", ActorKind: "operator", ActorRef: "operator-1",
+		ArchivedAt: "2026-09-04T09:04:00Z", Reason: "abandoned", EvidenceDigest: canonicalV19TaskArchiveDigest,
+	}); err != nil {
+		t.Fatalf("archive abandoned lineage: %v", err)
 	}
 }
 
@@ -569,6 +572,21 @@ func TestAbandonCanonicalV19TaskRefusesOpenObligationsWithoutMutation(t *testing
 		}
 		canonicalV19RepairWriterExec(t, home, query)
 		return home
+	}
+	withAttempt := func(t *testing.T, query string) string {
+		home := canonicalV19AttemptWriterFixture(t).Home
+		if _, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
+			t.Fatal(err)
+		}
+		canonicalV19RepairWriterExec(t, home, query)
+		return home
+	}
+	repair := func(column, target string) string {
+		return `BEGIN IMMEDIATE;
+			INSERT INTO repair_target(repair_id,` + column + `) VALUES('repair-1','` + target + `');
+			INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
+			VALUES('repair-1','lineage-check','inspect','digest','2026-09-04T09:00:30Z');
+			COMMIT`
 	}
 	for _, tc := range []struct {
 		name, want string
@@ -590,17 +608,23 @@ func TestAbandonCanonicalV19TaskRefusesOpenObligationsWithoutMutation(t *testing
 				VALUES('hold-1','task-blocked',1,'blocked','wait for task-1','digest','2026-09-04T08:00:00Z');
 				INSERT INTO task_hold_blocked_on_task(hold_id,blocked_on_task_id) VALUES('hold-1','task-1')`, "task-blocked")
 		}},
-		{"OpenRepair", "open Repair", func(t *testing.T) string {
-			return planless(t, `BEGIN IMMEDIATE;
-				INSERT INTO repair_target(repair_id,task_id) VALUES('repair-1','task-1');
-				INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
-				VALUES('repair-1','task-check','inspect','digest','2026-09-04T08:00:00Z');
-				COMMIT`)
+		{"TaskRepair", "open Repair", func(t *testing.T) string {
+			return planless(t, repair("task_id", "task-1"))
+		}},
+		{"PlanRepair", "open Repair", func(t *testing.T) string {
+			home := canonicalV19AttemptWriterFixture(t).Home
+			canonicalV19RepairWriterExec(t, home, repair("plan_id", "plan-root"))
+			return home
+		}},
+		{"AttemptRepair", "open Repair", func(t *testing.T) string {
+			return withAttempt(t, repair("attempt_id", "attempt-1"))
+		}},
+		{"OpenAttemptBackoff", "open AttemptBackoff", func(t *testing.T) string {
+			return withAttempt(t, `INSERT INTO attempt_backoff(id,attempt_id,ordinal,reason,not_before,evidence_digest,created_at)
+				VALUES('backoff-1','attempt-1',1,'usage-limit','2026-09-04T10:00:00Z','digest','2026-09-04T09:00:30Z')`)
 		}},
 		{"OpenExecutorBinding", "open ExecutorBinding", func(t *testing.T) string {
 			fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
-			canonicalV19RepairWriterExec(t, fixture.Home, `UPDATE attempt SET lifecycle='failed',terminal_at='2026-09-06T17:05:00Z' WHERE id='attempt-1';
-				UPDATE plan SET lifecycle='abandoned',terminal_at='2026-09-06T17:05:01Z' WHERE id='plan-root'`)
 			return fixture.Home
 		}},
 	} {
@@ -610,9 +634,8 @@ func TestAbandonCanonicalV19TaskRefusesOpenObligationsWithoutMutation(t *testing
 			if !errors.Is(err, ErrCanonicalV19TaskNotCurrent) || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("abandon with %s = %v, want %v naming %q", tc.name, err, ErrCanonicalV19TaskNotCurrent, tc.want)
 			}
-			if got := canonicalV19Lifecycle(t, home, "task", "task-1"); got != "active/" {
-				t.Fatalf("Task lifecycle = %q, want active", got)
-			}
+			canonicalV19DecisionAssertCount(t, home, `SELECT (SELECT count(*) FROM task WHERE lifecycle<>'active')+
+				(SELECT count(*) FROM plan WHERE lifecycle<>'active')+(SELECT count(*) FROM attempt WHERE lifecycle<>'active')`, 0)
 		})
 	}
 }
@@ -628,9 +651,7 @@ func TestAbandonCanonicalV19TaskRefusesRetiredProject(t *testing.T) {
 	if err := AbandonCanonicalV19Task(context.Background(), home, "task-1", "2026-09-04T08:01:00Z"); !errors.Is(err, ErrCanonicalV19ProjectNotCurrent) {
 		t.Fatalf("abandon under retired Project = %v, want %v", err, ErrCanonicalV19ProjectNotCurrent)
 	}
-	if got := canonicalV19Lifecycle(t, home, "task", "task-1"); got != "active/" {
-		t.Fatalf("Task lifecycle = %q, want active", got)
-	}
+	canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='active'`, 1)
 }
 
 func TestAbandonCanonicalV19TaskRacesSupersedeWithOneWinner(t *testing.T) {
@@ -640,32 +661,88 @@ func TestAbandonCanonicalV19TaskRacesSupersedeWithOneWinner(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	start := make(chan struct{})
-	var abandonErr, supersedeErr error
-	var workers sync.WaitGroup
-	workers.Go(func() {
-		<-start
-		abandonErr = AbandonCanonicalV19Task(context.Background(), home, "task-1", "2026-09-24T01:01:00Z")
-	})
-	workers.Go(func() {
-		<-start
-		_, supersedeErr = SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
-			PredecessorTaskID: "task-1", SuccessorTaskID: "task-2", Goal: "new goal", GoalDigest: "digest", At: "2026-09-24T01:01:00Z",
-		})
-	})
-	close(start)
-	workers.Wait()
-	lifecycle := canonicalV19Lifecycle(t, home, "task", "task-1")
+	errs := canonicalV19RaceWriters(
+		func() error {
+			return AbandonCanonicalV19Task(context.Background(), home, "task-1", "2026-09-24T01:01:00Z")
+		},
+		func() error {
+			_, err := SupersedeCanonicalV19Task(context.Background(), home, CanonicalV19TaskSupersedeInput{
+				PredecessorTaskID: "task-1", SuccessorTaskID: "task-2", Goal: "new goal", GoalDigest: "digest", At: "2026-09-24T01:01:00Z",
+			})
+			return err
+		},
+	)
 	switch {
-	case abandonErr == nil && errors.Is(supersedeErr, ErrCanonicalV19TaskNotCurrent):
-		if lifecycle != "abandoned/2026-09-24T01:01:00Z" || canonicalV19TaskWriterCount(t, home) != 1 {
-			t.Fatalf("abandon winner left Task %q with successor", lifecycle)
-		}
-	case supersedeErr == nil && errors.Is(abandonErr, ErrCanonicalV19TaskNotCurrent):
-		if lifecycle != "superseded/2026-09-24T01:01:00Z" || canonicalV19TaskWriterCount(t, home) != 2 {
-			t.Fatalf("supersede winner left Task %q", lifecycle)
-		}
+	case errs[0] == nil && errors.Is(errs[1], ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='abandoned'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task`, 1)
+	case errs[1] == nil && errors.Is(errs[0], ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='superseded'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task`, 2)
 	default:
-		t.Fatalf("abandon/supersede = %v/%v, want one winner and one typed loser", abandonErr, supersedeErr)
+		t.Fatalf("abandon/supersede = %v/%v, want one winner and one typed loser", errs[0], errs[1])
+	}
+}
+
+func TestAbandonCanonicalV19TaskRacesTaskHoldInsertWithOneWinner(t *testing.T) {
+	home := canonicalV19TaskWriterFixture(t, false)
+	if _, err := CreateCanonicalV19Task(context.Background(), home, CanonicalV19TaskCreateInput{
+		ID: "task-1", ProjectID: "project-1", Goal: "goal", GoalDigest: "digest", CreatedAt: "2026-09-05T02:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	errs := canonicalV19RaceWriters(
+		func() error {
+			return AbandonCanonicalV19Task(context.Background(), home, "task-1", "2026-09-05T03:00:00Z")
+		},
+		func() error {
+			_, err := CreateCanonicalV19TaskHold(context.Background(), home, canonicalV19TaskHoldWriterInput("hold-1"))
+			return err
+		},
+	)
+	switch {
+	case errs[0] == nil && errors.Is(errs[1], ErrCanonicalV19TaskHoldNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='abandoned'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 0)
+	case errs[1] == nil && errors.Is(errs[0], ErrCanonicalV19TaskNotCurrent):
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task WHERE id='task-1' AND lifecycle='active'`, 1)
+		canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM task_hold`, 1)
+	default:
+		t.Fatalf("abandon/hold = %v/%v, want one winner and one typed loser", errs[0], errs[1])
+	}
+}
+
+func TestAbandonCanonicalV19TaskRacesRetryAndReplanWithoutRetarget(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		loserErr error
+		writer   func(string) error
+	}{
+		{"Retry", ErrCanonicalV19AttemptNotCurrent, func(home string) error {
+			_, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-1", "plan-root"))
+			return err
+		}},
+		{"Replan", ErrCanonicalV19PlanNotCurrent, func(home string) error {
+			_, err := ReplanCanonicalV19Plan(context.Background(), home, CanonicalV19PlanReplanInput{
+				PredecessorPlanID: "plan-root", Successor: canonicalV19PlanWriterInput("plan-replan"), SupersededAt: "2026-09-04T09:01:00Z",
+			})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := canonicalV19AttemptWriterFixture(t).Home
+			errs := canonicalV19RaceWriters(
+				func() error {
+					return AbandonCanonicalV19Task(context.Background(), home, "task-1", "2026-09-04T09:02:00Z")
+				},
+				func() error { return tc.writer(home) },
+			)
+			if errs[0] != nil || (errs[1] != nil && !errors.Is(errs[1], tc.loserErr)) {
+				t.Fatalf("abandon/%s = %v/%v, want abandon to win and %s to commit first or lose typed", tc.name, errs[0], errs[1], tc.name)
+			}
+			canonicalV19DecisionAssertCount(t, home, `SELECT (SELECT count(*) FROM task WHERE lifecycle='active')+
+				(SELECT count(*) FROM plan WHERE lifecycle='active')+(SELECT count(*) FROM attempt WHERE lifecycle='active')`, 0)
+			canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM plan WHERE lifecycle='abandoned'`, 1)
+		})
 	}
 }

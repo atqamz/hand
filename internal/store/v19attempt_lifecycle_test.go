@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,40 @@ func TestTerminalizeCanonicalV19AttemptRefusesMissingExactIdentity(t *testing.T)
 		TerminalAt: "2026-09-04T10:05:00Z",
 	}); !errors.Is(err, ErrCanonicalV19AttemptNotCurrent) {
 		t.Fatalf("missing Attempt error = %v, want %v", err, ErrCanonicalV19AttemptNotCurrent)
+	}
+}
+
+func TestTerminalizeCanonicalV19AttemptRefusesOpenExecutorOrRepair(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		seed       func(*testing.T) string
+	}{
+		{"OpenExecutorBinding", "open ExecutorBinding", func(t *testing.T) string {
+			fixture, _, _ := canonicalV19ExecutorBindingFixture(t)
+			return fixture.Home
+		}},
+		{"OpenAttemptRepair", "open Repair", func(t *testing.T) string {
+			home := canonicalV19AttemptWriterFixture(t).Home
+			if _, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
+				t.Fatal(err)
+			}
+			canonicalV19RepairWriterExec(t, home, `BEGIN IMMEDIATE;
+				INSERT INTO repair_target(repair_id,attempt_id) VALUES('repair-1','attempt-1');
+				INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
+				VALUES('repair-1','attempt-check','inspect','digest','2026-09-04T09:00:30Z');
+				COMMIT`)
+			return home
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := tc.seed(t)
+			err := TerminalizeCanonicalV19Attempt(context.Background(), home, CanonicalV19AttemptTerminalizeInput{
+				AttemptID: "attempt-1", Lifecycle: "failed", TerminalAt: "2026-09-07T00:00:00Z",
+			})
+			if !errors.Is(err, ErrCanonicalV19AttemptConflict) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("terminalize with %s = %v, want %v naming %q", tc.name, err, ErrCanonicalV19AttemptConflict, tc.want)
+			}
+			canonicalV19DecisionAssertCount(t, home, `SELECT count(*) FROM attempt WHERE id='attempt-1' AND lifecycle='active'`, 1)
+		})
 	}
 }
