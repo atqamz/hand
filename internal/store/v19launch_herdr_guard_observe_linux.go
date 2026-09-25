@@ -170,7 +170,7 @@ func observeCanonicalV19ExecGuardLaunch(
 	key.Session, _ = parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
 	switch {
 	case ceased != nil:
-		if ceased.Guard != guard || ceased.Root == nil || *ceased.Root != *running.Root || ceased.Predicate != "wait4-echild" || ceased.Exit == nil {
+		if !canonicalV19ExecGuardCeasedTree(*ceased, guard, *running.Root) {
 			return uncertain("the ceased record does not name this guard's tree and platform predicate")
 		}
 		verdict.TerminalKind = execguard.TerminalKind(*ceased, "")
