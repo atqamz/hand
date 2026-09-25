@@ -134,6 +134,7 @@ func TestLegacyCommandsRefuseCanonicalBeforeStartupMutation(t *testing.T) {
 		{"config", "set", "harness", "codex"},
 		{"status"},
 		{"orient"},
+		{"send", "task-1", "hello"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			home := t.TempDir()
