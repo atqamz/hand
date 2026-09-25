@@ -79,7 +79,7 @@ func ResolveWorkerCandidate(home, intent, judgment string, overrides WorkerCandi
 				return WorkerCandidate{}, fmt.Errorf("invalid %s candidate value", field.name)
 			}
 		}
-		if err := ValidateProfile(profile); err != nil {
+		if err := profileProblem(profile); err != nil {
 			return WorkerCandidate{}, fmt.Errorf("invalid Worker candidate: %w", err)
 		}
 		return WorkerCandidate{Profile: profile, PolicyWitness: policy.Witness}, nil
