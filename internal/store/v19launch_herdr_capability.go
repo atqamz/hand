@@ -11,6 +11,8 @@ import (
 // the selected managed Herdr provider cannot prove safely.
 var ErrCanonicalV19HerdrCapabilityUnsupported = errors.New("canonical v19 Herdr capability is unsupported")
 
+const canonicalV19ExecGuardKeyFamily = "herdr-exec-guard:"
+
 func canonicalV19HerdrCapabilityUnsupported(operation, proof string) error {
 	return fmt.Errorf("%w: %s requires provider-backed %s", ErrCanonicalV19HerdrCapabilityUnsupported, operation, proof)
 }

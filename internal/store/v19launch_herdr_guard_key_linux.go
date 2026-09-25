@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	canonicalV19ExecGuardKeyPrefix = "herdr-exec-guard:v1?"
+	canonicalV19ExecGuardKeyPrefix = canonicalV19ExecGuardKeyFamily + "v1?"
 	canonicalV19ExecGuardUnknown   = "unknown"
 )
 

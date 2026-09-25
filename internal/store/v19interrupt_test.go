@@ -243,3 +243,41 @@ func canonicalV19ExecutorBindingFixture(
 	}
 	return fixture, session, launch
 }
+
+func TestCompleteCanonicalV19InterruptRefusesAGuardedExecutorBinding(t *testing.T) {
+	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
+	launch, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, canonicalV19LaunchPrepareInput(worktree, session, "operation-launch-guarded", "executor-binding-1"))
+	if err == nil {
+		err = EstablishCanonicalV19ExecutorBinding(context.Background(), fixture.Home, CanonicalV19ExecutorBindingEvidence{
+			OperationID: launch.OperationID, ProviderExecutorKey: canonicalV19ExecGuardKeyFamily + "v1?assoc=unobserved",
+			EstablishedAt: "2026-09-06T17:04:00Z", EvidenceDigest: "executor-established-guarded",
+		})
+	}
+	var request CanonicalV19InterruptRequest
+	if err == nil {
+		request, err = PrepareCanonicalV19Interrupt(context.Background(), fixture.Home, canonicalV19InterruptPrepareInput(launch, "operation-interrupt-guarded"))
+	}
+	if err == nil {
+		_, err = SubmitCanonicalV19Interrupt(context.Background(), fixture.Home, request.OperationID, "2026-09-06T17:06:00Z", "interrupt-submit-guarded")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = CompleteCanonicalV19Interrupt(context.Background(), fixture.Home, CanonicalV19ExecutorInterruptedEvidence{
+		OperationID: request.OperationID, ObservedAt: "2026-09-06T17:07:00Z", EvidenceDigest: "executor-ceased-guarded",
+	})
+	db, openErr := openReadOnly(fixture.Home)
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	defer func() { _ = db.Close() }()
+	var state string
+	var terminations int
+	if err := db.sql.QueryRow(`SELECT o.state,(SELECT count(*) FROM executor_binding_termination WHERE executor_binding_id=?)
+		FROM external_operation o WHERE o.id=?`, launch.BindingID, request.OperationID).Scan(&state, &terminations); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(err, ErrCanonicalV19InterruptTransition) || state != "submitted" || terminations != 0 {
+		t.Fatalf("Complete = %v, Interrupt %q with %d terminations, want a refusal: a guarded binding ends only through its cessation writer (EG-9)", err, state, terminations)
+	}
+}
