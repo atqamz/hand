@@ -80,8 +80,8 @@ func TestTwoFleetHomesShareOneUserGlobalRuntime(t *testing.T) {
 	serverB := startHandRuntimeHerdrServer(t, homeB, sharedRoot, fleetB, generation, sessionB)
 	waitForRuntimeLeaseHeld(t, store, requestA, serverA)
 	waitForRuntimeLeaseHeld(t, store, requestB, serverB)
-	assertHandLeaseHeld(t, store, handExecutableLeaseRequest(t, fleetA, sessionA), true)
-	assertHandLeaseHeld(t, store, handExecutableLeaseRequest(t, fleetB, sessionB), true)
+	waitForHandLeaseHeld(t, store, handExecutableLeaseRequest(t, fleetA, sessionA), serverA)
+	waitForHandLeaseHeld(t, store, handExecutableLeaseRequest(t, fleetB, sessionB), serverB)
 
 	if got := runtimeGenerationCount(t, sharedRoot); got != 1 {
 		t.Fatalf("runtime generations before any ensure = %d, want one", got)
@@ -290,18 +290,34 @@ func runtimeGenerationCount(t *testing.T, secondhandRoot string) int {
 	return len(entries)
 }
 
+// `hand runtime herdr-server` acquires the runtime lease before it resolves and acquires the
+// Hand executable lease, so a caller that only waited for the former can still race the latter.
 func waitForRuntimeLeaseHeld(t *testing.T, store *toolchain.Store, request toolchain.LeaseRequest, server *backgroundHand) {
+	t.Helper()
+	waitForLeaseHeld(t, "runtime lease "+request.LeaseID, server, func() (bool, error) {
+		return store.RuntimeLeaseHeld(request)
+	})
+}
+
+func waitForHandLeaseHeld(t *testing.T, store *toolchain.Store, request toolchain.LeaseRequest, server *backgroundHand) {
+	t.Helper()
+	waitForLeaseHeld(t, "Hand executable lease "+request.LeaseID, server, func() (bool, error) {
+		return store.HandLeaseHeld(request)
+	})
+}
+
+func waitForLeaseHeld(t *testing.T, describe string, server *backgroundHand, held func() (bool, error)) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if held, err := store.RuntimeLeaseHeld(request); err == nil && held {
+		if ok, err := held(); err == nil && ok {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	held, err := store.RuntimeLeaseHeld(request)
-	t.Fatalf("timed out waiting for runtime lease %s to be held; held=%t err=%v herdr-server stdout=%q stderr=%q",
-		request.LeaseID, held, err, server.stdout.String(), server.stderr.String())
+	ok, err := held()
+	t.Fatalf("timed out waiting for %s to be held; held=%t err=%v herdr-server stdout=%q stderr=%q",
+		describe, ok, err, server.stdout.String(), server.stderr.String())
 }
 
 func assertRuntimeLeaseHeld(t *testing.T, store *toolchain.Store, request toolchain.LeaseRequest, want bool) {
@@ -309,14 +325,6 @@ func assertRuntimeLeaseHeld(t *testing.T, store *toolchain.Store, request toolch
 	held, err := store.RuntimeLeaseHeld(request)
 	if err != nil || held != want {
 		t.Fatalf("runtime lease %s held = %t, %v; want %t", request.LeaseID, held, err, want)
-	}
-}
-
-func assertHandLeaseHeld(t *testing.T, store *toolchain.Store, request toolchain.LeaseRequest, want bool) {
-	t.Helper()
-	held, err := store.HandLeaseHeld(request)
-	if err != nil || held != want {
-		t.Fatalf("Hand executable lease %s held = %t, %v; want %t", request.LeaseID, held, err, want)
 	}
 }
 
