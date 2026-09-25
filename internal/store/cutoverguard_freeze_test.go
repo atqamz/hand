@@ -11,7 +11,7 @@ import (
 func TestLegacyV18CutoverGuardFreezeLeavesRecoverableFrozenBridge(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home)
+	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestLegacyV18CutoverGuardFreezeLeavesRecoverableFrozenBridge(t *testing.T) 
 func TestLegacyV18CutoverGuardFreezeReusesExactManifestAcrossPrefreezeRetry(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	firstGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home)
+	firstGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestLegacyV18CutoverGuardFreezeReusesExactManifestAcrossPrefreezeRetry(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home)
+	secondGuard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home)
+	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +155,8 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 		Projects: []LegacyV18CutoverManifestProjectInput{{
 			SourceProjectID:      "fabricated-project",
 			Locator:              "projects/fabricated",
-			RepositoryPhysicalID: "unix-v1:dev=1:ino=1",
-			CommonDirPhysicalID:  "unix-v1:dev=1:ino=2",
+			RepositoryPhysicalID: "unix-v2:ino=0000000000000001:btime=1.000000000",
+			CommonDirPhysicalID:  "unix-v2:ino=0000000000000002:btime=1.000000000",
 			Revision:             strings.Repeat("a", 40),
 			LegacyName:           "fabricated",
 		}},
@@ -187,7 +187,7 @@ func TestLegacyV18CutoverGuardFreezeRejectsFabricatedProjectEvidenceBeforeSource
 func TestLegacyV18CutoverGuardFreezeRejectsNewRendezvousBeforeArchivePromotion(t *testing.T) {
 	home := createLegacyV18CutoverTestSource(t)
 	setLegacyV18CutoverTestJournalMode(t, home, "DELETE")
-	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home)
+	guard, err := acquireLegacyV18CutoverGuardForFixture(context.Background(), home, testLegacyV18CutoverFreezeEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}

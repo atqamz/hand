@@ -46,9 +46,16 @@ func newLegacyV18CutoverMarkerFixture(t *testing.T) legacyV18CutoverMarkerFixtur
 		FleetID:      fleetID,
 		SourceSHA256: sourceSHA256,
 		BridgeSHA256: strings.Repeat("c", 64),
-		Certificate:  legacyV18CutoverFreezeCertificateVersion + ":" + sourceSHA256,
 		Committed:    true,
 	}
+	evidence, err := encodeLegacyV18CutoverBootEvidence(testLegacyV18CutoverFreezeEvidence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge.Evidence = testLegacyV18CutoverFreezeEvidence()
+	bridge.ManifestSHA256 = strings.Repeat("d", 64)
+	bridge.CertificateVersion = legacyV18CutoverFreezeCertificateVersion
+	bridge.Certificate = legacyV18CutoverCertificateValue(sourceSHA256, bridge.ManifestSHA256, evidence)
 	manifest := legacyV18CutoverManifestArtifact{
 		MigrationID: migrationID,
 		Path:        legacyV18CutoverManifestPath(home, migrationID),

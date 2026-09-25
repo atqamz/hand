@@ -93,7 +93,7 @@ func TestMaterializeCanonicalV19CutoverTargetWritesOnlyPositiveEvidence(t *testi
 		t.Fatal(err)
 	}
 	defer func() { _ = frozenDB.Close() }()
-	if err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256); err != nil {
+	if _, err := validateLegacyV18CutoverFrozenBridge(frozenDB, bridge.FleetID, bridge.SourceSHA256); err != nil {
 		t.Fatalf("active source stopped being the exact frozen bridge: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestMaterializeCanonicalV19CutoverTargetRefusesManifestTargetDriftWithoutRo
 		t.Fatal(err)
 	}
 	artifact.SHA256 = canonicalV19SHA256(payload)
-	if _, err := materializeCanonicalV19CutoverTarget(home, bridge, artifact, target); err == nil || !strings.Contains(err.Error(), "target identity does not match locked #344") {
+	if _, err := materializeCanonicalV19CutoverTarget(home, bridge, artifact, target); err == nil || !strings.Contains(err.Error(), "does not bind manifest") {
 		t.Fatalf("manifest target drift error = %v", err)
 	}
 	assertCanonicalV19CutoverTargetEmpty(t, target)
@@ -197,23 +197,20 @@ func canonicalV19CutoverMaterializationFixture(t *testing.T) (string, legacyV18C
 		_ = gate.Close()
 		t.Fatal(err)
 	}
-	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive)
+	fleetID, err := legacyV18CutoverFleetID(sqliteConnQueryer{ctx: context.Background(), conn: gate.conn})
 	if err != nil {
 		_ = gate.Close()
 		t.Fatal(err)
 	}
-	if err := gate.Close(); err != nil {
-		t.Fatal(err)
-	}
 	input := LegacyV18CutoverManifestInput{
-		FleetID:    bridge.FleetID,
+		FleetID:    fleetID,
 		ImportedAt: "2026-09-03T15:59:00.123456789Z",
 		Projects: []LegacyV18CutoverManifestProjectInput{
 			{
 				SourceProjectID:      "p_00000000000000000000000000000002",
 				Locator:              "projects/beta",
-				RepositoryPhysicalID: "unix-v1:dev=0000000000000002:ino=0000000000000002",
-				CommonDirPhysicalID:  "unix-v1:dev=0000000000000002:ino=0000000000000003",
+				RepositoryPhysicalID: "unix-v2:ino=0000000000000002:btime=2.000000000",
+				CommonDirPhysicalID:  "unix-v2:ino=0000000000000003:btime=2.000000000",
 				Revision:             strings.Repeat("b", 40),
 				LegacyName:           "beta",
 				LegacyURL:            "https://example.invalid/beta.git",
@@ -223,8 +220,8 @@ func canonicalV19CutoverMaterializationFixture(t *testing.T) (string, legacyV18C
 			{
 				SourceProjectID:      "p_00000000000000000000000000000001",
 				Locator:              "projects/alpha",
-				RepositoryPhysicalID: "unix-v1:dev=0000000000000001:ino=0000000000000002",
-				CommonDirPhysicalID:  "unix-v1:dev=0000000000000001:ino=0000000000000003",
+				RepositoryPhysicalID: "unix-v2:ino=0000000000000002:btime=1.000000000",
+				CommonDirPhysicalID:  "unix-v2:ino=0000000000000003:btime=1.000000000",
 				Revision:             strings.Repeat("a", 40),
 				LegacyName:           "alpha",
 				LegacyURL:            "https://user:secret@example.invalid/alpha.git",
@@ -235,6 +232,15 @@ func canonicalV19CutoverMaterializationFixture(t *testing.T) (string, legacyV18C
 	}
 	artifact, err := writeLegacyV18CutoverManifest(home, archive, input)
 	if err != nil {
+		_ = gate.Close()
+		t.Fatal(err)
+	}
+	bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive, artifact.SHA256, testLegacyV18CutoverFreezeEvidence())
+	if err != nil {
+		_ = gate.Close()
+		t.Fatal(err)
+	}
+	if err := gate.Close(); err != nil {
 		t.Fatal(err)
 	}
 	target, err := prepareCanonicalV19CutoverTarget(home, bridge.MigrationID)

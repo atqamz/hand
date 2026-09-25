@@ -210,7 +210,7 @@ func TestLegacyV18CutoverGateAndFreezeExcludeIndependentWriters(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive)
+		bridge, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive, testLegacyV18CutoverManifestSHA256, testLegacyV18CutoverFreezeEvidence())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestLegacyV18CutoverGateAndFreezeExcludeIndependentWriters(t *testing.T) {
 		if err := os.Link(Path(home), archive.Path); err != nil {
 			t.Skipf("platform cannot create hard-link alias: %v", err)
 		}
-		if _, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive); err == nil {
+		if _, err := freezeLegacyV18CutoverSource(context.Background(), home, gate, archive, testLegacyV18CutoverManifestSHA256, testLegacyV18CutoverFreezeEvidence()); err == nil {
 			t.Fatal("freeze accepted an original archive aliased to the active source")
 		}
 		if err := os.Remove(archive.Path); err != nil {

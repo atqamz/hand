@@ -40,7 +40,7 @@ func TestPublishCanonicalV19CutoverRetiresFrozenBridgeAndPublishesExactTemp(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateLegacyV18CutoverFrozenBridge(retiredDB, bridge.FleetID, bridge.SourceSHA256); err != nil {
+	if _, err := validateLegacyV18CutoverFrozenBridge(retiredDB, bridge.FleetID, bridge.SourceSHA256); err != nil {
 		_ = retiredDB.Close()
 		t.Fatalf("retired bridge validation: %v", err)
 	}

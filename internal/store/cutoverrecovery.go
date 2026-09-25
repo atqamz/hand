@@ -131,6 +131,17 @@ func inspectLegacyV18CutoverFrozenRecovery(homeDir string) (legacyV18CutoverReco
 		}, nil
 	}
 
+	if bridge.CertificateVersion != legacyV18CutoverFreezeCertificateVersion {
+		return legacyV18CutoverRecoveryState{
+			Disposition:  legacyV18CutoverRecoveryRefuse,
+			Reason:       fmt.Sprintf("frozen bridge certificate %s carries no committed boot evidence, so publication from it is refused", bridge.CertificateVersion),
+			MigrationID:  bridge.MigrationID,
+			FleetID:      bridge.FleetID,
+			SourceSHA256: bridge.SourceSHA256,
+			BridgeSHA256: bridge.BridgeSHA256,
+		}, nil
+	}
+
 	evidence, err := inspectLegacyV18CutoverArchiveEvidence(homeDir, bridge.MigrationID)
 	if err != nil {
 		return legacyV18CutoverRecoveryState{
@@ -142,7 +153,7 @@ func inspectLegacyV18CutoverFrozenRecovery(homeDir string) (legacyV18CutoverReco
 			BridgeSHA256: bridge.BridgeSHA256,
 		}, nil
 	}
-	if evidence.Manifest.Fleet.FleetID != bridge.FleetID || evidence.Manifest.Source.DBSHA256 != bridge.SourceSHA256 || evidence.Manifest.Freeze.CertificateValue != bridge.Certificate {
+	if evidence.Manifest.Fleet.FleetID != bridge.FleetID || evidence.Manifest.Source.DBSHA256 != bridge.SourceSHA256 || evidence.Artifact.SHA256 != bridge.ManifestSHA256 {
 		return legacyV18CutoverRecoveryState{
 			Disposition:  legacyV18CutoverRecoveryRefuse,
 			Reason:       "frozen bridge and immutable archive manifest do not bind the same Fleet/source certificate",
@@ -174,11 +185,12 @@ func inspectLegacyV18CutoverRecoveryWithoutActive(homeDir string) (legacyV18Cuto
 	}
 
 	bridge := legacyV18CutoverFrozenBridge{
-		MigrationID:  evidence.Manifest.MigrationID,
-		FleetID:      evidence.Manifest.Fleet.FleetID,
-		SourceSHA256: evidence.Manifest.Source.DBSHA256,
-		Certificate:  evidence.Manifest.Freeze.CertificateValue,
-		Committed:    true,
+		MigrationID:        evidence.Manifest.MigrationID,
+		FleetID:            evidence.Manifest.Fleet.FleetID,
+		SourceSHA256:       evidence.Manifest.Source.DBSHA256,
+		CertificateVersion: evidence.Manifest.Freeze.CertificateVersion,
+		ManifestSHA256:     evidence.Artifact.SHA256,
+		Committed:          true,
 	}
 	return classifyLegacyV18CutoverTempRecovery(homeDir, bridge, evidence)
 }

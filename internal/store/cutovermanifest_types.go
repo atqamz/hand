@@ -2,7 +2,7 @@ package store
 
 import "path/filepath"
 
-const legacyV18CutoverManifestVersion = "v1"
+const legacyV18CutoverManifestVersion = "v2"
 const legacyV18CutoverManifestFileName = "manifest.json"
 const legacyV18CutoverManifestPolicyInputDomain = "hand:v19-cutover:policy-input:v1"
 const legacyV18CutoverRepositoryIdentityDomain = "hand:v19-cutover:repository-identity:v1"
@@ -69,10 +69,9 @@ type legacyV18CutoverManifestArchive struct {
 	DBSHA256     string `json:"db_sha256"`
 }
 
+// The certificate binds this manifest's digest, so the manifest records neither the certificate value nor boot evidence.
 type legacyV18CutoverManifestFreeze struct {
 	CertificateVersion string `json:"certificate_version"`
-	CertificateValue   string `json:"certificate_value"`
-	CertificateSHA256  string `json:"certificate_sha256"`
 	BridgeUserVersion  int    `json:"bridge_user_version"`
 }
 

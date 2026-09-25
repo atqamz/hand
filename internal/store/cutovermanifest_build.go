@@ -24,7 +24,6 @@ func buildLegacyV18CutoverManifest(homeDir string, archive legacyV18CutoverOrigi
 	if err != nil {
 		return legacyV18CutoverManifest{}, err
 	}
-	certificate := legacyV18CutoverFreezeCertificateVersion + ":" + archive.SHA256
 	return legacyV18CutoverManifest{
 		FormatVersion: legacyV18CutoverManifestVersion,
 		MigrationID:   archive.MigrationID,
@@ -43,8 +42,6 @@ func buildLegacyV18CutoverManifest(homeDir string, archive legacyV18CutoverOrigi
 		OriginalArchive: legacyV18CutoverManifestArchive{RelativePath: "hand.db", DBSHA256: archive.SHA256},
 		Freeze: legacyV18CutoverManifestFreeze{
 			CertificateVersion: legacyV18CutoverFreezeCertificateVersion,
-			CertificateValue:   certificate,
-			CertificateSHA256:  canonicalV19SHA256([]byte(certificate)),
 			BridgeUserVersion:  legacyV18CutoverFrozenUserVersion,
 		},
 		Target: legacyV18CutoverManifestTarget{
@@ -154,6 +151,11 @@ func buildLegacyV18CutoverManifestProjects(input []LegacyV18CutoverManifestProje
 		seenLocator[project.Locator] = struct{}{}
 		if project.RepositoryPhysicalID == "" || project.CommonDirPhysicalID == "" {
 			return nil, fmt.Errorf("build legacy v18 cutover manifest: Project %q physical identity evidence is incomplete", project.SourceProjectID)
+		}
+		for _, physicalID := range []string{project.RepositoryPhysicalID, project.CommonDirPhysicalID} {
+			if err := validateLegacyV18CutoverRestartStableIdentity(physicalID); err != nil {
+				return nil, fmt.Errorf("build legacy v18 cutover manifest: Project %q: %w", project.SourceProjectID, err)
+			}
 		}
 		if project.RepositoryPhysicalID == project.CommonDirPhysicalID {
 			return nil, fmt.Errorf("build legacy v18 cutover manifest: Project %q repository and common-dir physical identities alias", project.SourceProjectID)

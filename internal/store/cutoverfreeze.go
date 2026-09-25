@@ -10,7 +10,7 @@ import (
 const (
 	legacyV18CutoverFrozenUserVersion        = 22
 	legacyV18CutoverFreezeCertificateKey     = "v19-cutover-freeze"
-	legacyV18CutoverFreezeCertificateVersion = "v1"
+	legacyV18CutoverFreezeCertificateVersion = "v2"
 	legacyV18CutoverFreezeAbortMessage       = "legacy source frozen for v19 cutover"
 )
 
@@ -27,18 +27,28 @@ var legacyV18CutoverFreezeTables = []string{
 var legacyV18CutoverFreezeOperations = []string{"INSERT", "UPDATE", "DELETE"}
 
 type legacyV18CutoverFrozenBridge struct {
-	MigrationID  string
-	FleetID      string
-	SourceSHA256 string
-	BridgeSHA256 string
-	Certificate  string
-	Committed    bool
+	MigrationID        string
+	FleetID            string
+	SourceSHA256       string
+	BridgeSHA256       string
+	Certificate        string
+	CertificateVersion string
+	ManifestSHA256     string
+	Evidence           legacyV18CutoverBootEvidence
+	Committed          bool
 }
 
-func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *legacyV18CutoverGate, archive legacyV18CutoverOriginalArchive) (legacyV18CutoverFrozenBridge, error) {
+func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *legacyV18CutoverGate, archive legacyV18CutoverOriginalArchive, manifestSHA256 string, evidence legacyV18CutoverBootEvidence) (legacyV18CutoverFrozenBridge, error) {
 	bridge := legacyV18CutoverFrozenBridge{}
 	if gate == nil || gate.conn == nil || gate.db == nil || gate.source == nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: EXCLUSIVE gate is not held")
+	}
+	if err := validateLegacyV18CutoverSHA256(manifestSHA256); err != nil {
+		return bridge, fmt.Errorf("freeze legacy v18 cutover source: manifest digest: %w", err)
+	}
+	evidencePayload, err := encodeLegacyV18CutoverBootEvidence(evidence)
+	if err != nil {
+		return bridge, fmt.Errorf("freeze legacy v18 cutover source: boot evidence: %w", err)
 	}
 	if err := validateLegacyV18CutoverMigrationID(archive.MigrationID); err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: %w", err)
@@ -102,10 +112,13 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	}
 
 	bridge = legacyV18CutoverFrozenBridge{
-		MigrationID:  archive.MigrationID,
-		FleetID:      fleetID,
-		SourceSHA256: gate.sourceSHA256,
-		Certificate:  legacyV18CutoverFreezeCertificateVersion + ":" + gate.sourceSHA256,
+		MigrationID:        archive.MigrationID,
+		FleetID:            fleetID,
+		SourceSHA256:       gate.sourceSHA256,
+		Certificate:        legacyV18CutoverCertificateValue(gate.sourceSHA256, manifestSHA256, evidencePayload),
+		CertificateVersion: legacyV18CutoverFreezeCertificateVersion,
+		ManifestSHA256:     manifestSHA256,
+		Evidence:           evidence,
 	}
 	if _, err := gate.conn.ExecContext(ctx, `PRAGMA query_only = 0`); err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: disable query_only: %w", err)
@@ -118,14 +131,15 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	}
 
 	var existing int
-	if err := gate.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM meta WHERE key = ?`, legacyV18CutoverFreezeCertificateKey).Scan(&existing); err != nil {
+	if err := gate.conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM meta WHERE substr(key, 1, 12) = 'v19-cutover-'`).Scan(&existing); err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: inspect freeze certificate: %w", err)
 	}
 	if existing != 0 {
-		return bridge, fmt.Errorf("freeze legacy v18 cutover source: freeze certificate already exists")
+		return bridge, fmt.Errorf("freeze legacy v18 cutover source: a v19-cutover- meta row already exists")
 	}
-	if _, err := gate.conn.ExecContext(ctx, `INSERT INTO meta(key, value) VALUES(?, ?)`, legacyV18CutoverFreezeCertificateKey, bridge.Certificate); err != nil {
-		return bridge, fmt.Errorf("freeze legacy v18 cutover source: write freeze certificate: %w", err)
+	if _, err := gate.conn.ExecContext(ctx, `INSERT INTO meta(key, value) VALUES(?, ?), (?, ?)`,
+		legacyV18CutoverFreezeCertificateKey, bridge.Certificate, legacyV18CutoverFreezeEvidenceKey, string(evidencePayload)); err != nil {
+		return bridge, fmt.Errorf("freeze legacy v18 cutover source: write freeze certificate and boot evidence: %w", err)
 	}
 	for _, table := range legacyV18CutoverFreezeTables {
 		for _, operation := range legacyV18CutoverFreezeOperations {
@@ -159,7 +173,10 @@ func freezeLegacyV18CutoverSource(ctx context.Context, homeDir string, gate *leg
 	if err != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: frozen bridge committed; reopen: %w", err)
 	}
-	validationErr := validateLegacyV18CutoverFrozenBridge(frozenDB, fleetID, gate.sourceSHA256)
+	certificate, validationErr := validateLegacyV18CutoverFrozenBridge(frozenDB, fleetID, gate.sourceSHA256)
+	if validationErr == nil && certificate.Value != bridge.Certificate {
+		validationErr = fmt.Errorf("committed freeze certificate=%q, want %q", certificate.Value, bridge.Certificate)
+	}
 	frozenCloseErr := frozenDB.Close()
 	if validationErr != nil {
 		return bridge, fmt.Errorf("freeze legacy v18 cutover source: frozen bridge committed; validate: %w", validationErr)
@@ -186,7 +203,21 @@ func legacyV18CutoverFreezeTriggerSQL(table, operation string) string {
 		legacyV18CutoverFreezeTriggerName(table, operation), operation, table, legacyV18CutoverFreezeAbortMessage)
 }
 
-func validateLegacyV18CutoverFrozenBridge(q sqliteQueryer, expectedFleetID, expectedSourceSHA256 string) error {
+func validateLegacyV18CutoverFrozenBridge(q sqliteQueryer, expectedFleetID, expectedSourceSHA256 string) (legacyV18CutoverFreezeCertificate, error) {
+	if err := validateLegacyV18CutoverFrozenBridgeLayout(q, expectedFleetID, expectedSourceSHA256); err != nil {
+		return legacyV18CutoverFreezeCertificate{}, err
+	}
+	certificate, err := readLegacyV18CutoverFreezeCertificate(q)
+	if err != nil {
+		return legacyV18CutoverFreezeCertificate{}, fmt.Errorf("validate legacy v18 frozen bridge: %w", err)
+	}
+	if certificate.SourceSHA256 != expectedSourceSHA256 {
+		return legacyV18CutoverFreezeCertificate{}, fmt.Errorf("validate legacy v18 frozen bridge: certificate source=%s, want %s", certificate.SourceSHA256, expectedSourceSHA256)
+	}
+	return certificate, nil
+}
+
+func validateLegacyV18CutoverFrozenBridgeLayout(q sqliteQueryer, expectedFleetID, expectedSourceSHA256 string) error {
 	if err := validateFleetID(expectedFleetID); err != nil {
 		return fmt.Errorf("validate legacy v18 frozen bridge: expected Fleet ID: %w", err)
 	}
@@ -225,14 +256,6 @@ func validateLegacyV18CutoverFrozenBridge(q sqliteQueryer, expectedFleetID, expe
 	}
 	if fleetID != expectedFleetID {
 		return fmt.Errorf("validate legacy v18 frozen bridge: Fleet ID=%s, want %s", fleetID, expectedFleetID)
-	}
-	var certificate string
-	if err := q.QueryRow(`SELECT value FROM meta WHERE key = ?`, legacyV18CutoverFreezeCertificateKey).Scan(&certificate); err != nil {
-		return fmt.Errorf("validate legacy v18 frozen bridge: read freeze certificate: %w", err)
-	}
-	expectedCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + expectedSourceSHA256
-	if certificate != expectedCertificate {
-		return fmt.Errorf("validate legacy v18 frozen bridge: freeze certificate=%q, want %q", certificate, expectedCertificate)
 	}
 	if err := validateLegacyV18CutoverFreezeTriggers(q); err != nil {
 		return err

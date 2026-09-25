@@ -45,8 +45,7 @@ func TestWriteLegacyV18CutoverManifestPublishesDeterministicEvidence(t *testing.
 	if manifest.OriginalArchive.RelativePath != "hand.db" || manifest.OriginalArchive.DBSHA256 != archive.SHA256 {
 		t.Fatalf("manifest original archive = %#v", manifest.OriginalArchive)
 	}
-	wantCertificate := legacyV18CutoverFreezeCertificateVersion + ":" + archive.SHA256
-	if manifest.Freeze.CertificateValue != wantCertificate || manifest.Freeze.CertificateSHA256 != canonicalV19SHA256([]byte(wantCertificate)) || manifest.Freeze.BridgeUserVersion != legacyV18CutoverFrozenUserVersion {
+	if manifest.Freeze != (legacyV18CutoverManifestFreeze{CertificateVersion: legacyV18CutoverFreezeCertificateVersion, BridgeUserVersion: legacyV18CutoverFrozenUserVersion}) {
 		t.Fatalf("manifest freeze evidence = %#v", manifest.Freeze)
 	}
 	if manifest.Target.AuthorityCommit != canonicalV19AuthorityCommit || manifest.Target.DDLSHA256 != canonicalV19DDLSHA256 || manifest.Target.SchemaFingerprint != canonicalV19SchemaFingerprint || manifest.Target.SQLiteUserVersion != canonicalV19SchemaVersion {
@@ -177,8 +176,8 @@ func legacyV18CutoverManifestFixture(t *testing.T) (string, legacyV18CutoverOrig
 			{
 				SourceProjectID:      "project-b",
 				Locator:              "projects/beta",
-				RepositoryPhysicalID: "unix-v1:dev=0000000000000002:ino=0000000000000002",
-				CommonDirPhysicalID:  "unix-v1:dev=0000000000000002:ino=0000000000000003",
+				RepositoryPhysicalID: "unix-v2:ino=0000000000000002:btime=2.000000000",
+				CommonDirPhysicalID:  "unix-v2:ino=0000000000000003:btime=2.000000000",
 				Revision:             strings.Repeat("b", 40),
 				LegacyName:           "beta",
 				LegacyURL:            "https://example.invalid/beta.git",
@@ -188,8 +187,8 @@ func legacyV18CutoverManifestFixture(t *testing.T) (string, legacyV18CutoverOrig
 			{
 				SourceProjectID:      "project-a",
 				Locator:              "projects/alpha",
-				RepositoryPhysicalID: "unix-v1:dev=0000000000000001:ino=0000000000000002",
-				CommonDirPhysicalID:  "unix-v1:dev=0000000000000001:ino=0000000000000003",
+				RepositoryPhysicalID: "unix-v2:ino=0000000000000002:btime=1.000000000",
+				CommonDirPhysicalID:  "unix-v2:ino=0000000000000003:btime=1.000000000",
 				Revision:             strings.Repeat("a", 40),
 				LegacyName:           "alpha",
 				LegacyURL:            "https://user:credential-like-secret@example.invalid/alpha.git",
