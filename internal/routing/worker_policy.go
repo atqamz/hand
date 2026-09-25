@@ -64,7 +64,7 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 		return WorkerPolicy{}, fmt.Errorf("unsupported worker policy schema: want %q", WorkerPolicySchema)
 	}
 	profiles := make(map[string]bool, len(policy.Profiles))
-	for _, profile := range policy.Profiles {
+	for i, profile := range policy.Profiles {
 		for _, field := range []struct {
 			name  string
 			value string
@@ -74,26 +74,22 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 			{"effort", profile.Effort},
 		} {
 			if !validWorkerCandidateValue(field.value) {
-				return WorkerPolicy{}, fmt.Errorf("invalid worker profile %s value", field.name)
+				return WorkerPolicy{}, fmt.Errorf("worker profile %d: invalid %s value", i+1, field.name)
 			}
 		}
 		if err := ValidateProfileName(profile.Name); err != nil {
-			return WorkerPolicy{}, errors.New("invalid worker profile name: must be non-empty and filename-safe")
+			return WorkerPolicy{}, fmt.Errorf("worker profile %d: invalid name: must be non-empty and filename-safe", i+1)
 		}
-		if err := ValidateProfile(profile); err != nil {
-			var coded *profileValidationError
-			if errors.As(err, &coded) {
-				return WorkerPolicy{}, fmt.Errorf("invalid worker profile: %s", coded.code)
-			}
-			return WorkerPolicy{}, fmt.Errorf("invalid worker profile: %w", err)
+		if err := profileProblem(profile); err != nil {
+			return WorkerPolicy{}, fmt.Errorf("worker profile %d: %w", i+1, err)
 		}
 		if profiles[profile.Name] {
-			return WorkerPolicy{}, errors.New("duplicate worker profile")
+			return WorkerPolicy{}, fmt.Errorf("worker profile %d: duplicate name", i+1)
 		}
 		profiles[profile.Name] = true
 	}
 	routes := make(map[[2]string]WorkerRoute, len(policy.Routes))
-	for _, route := range policy.Routes {
+	for i, route := range policy.Routes {
 		key := [2]string{route.Intent, route.Judgment}
 		valid := false
 		for _, candidate := range workerRouteKeys {
@@ -103,10 +99,14 @@ func LoadWorkerPolicy(home string) (WorkerPolicy, error) {
 			}
 		}
 		if !valid {
-			return WorkerPolicy{}, errors.New("invalid Worker Route intent or judgment")
+			field := "judgment"
+			if !slices.ContainsFunc(workerRouteKeys, func(candidate [2]string) bool { return candidate[0] == route.Intent }) {
+				field = "intent"
+			}
+			return WorkerPolicy{}, fmt.Errorf("worker route %d: invalid %s", i+1, field)
 		}
 		if _, found := routes[key]; found {
-			return WorkerPolicy{}, errors.New("duplicate Worker Route")
+			return WorkerPolicy{}, fmt.Errorf("worker route %d: duplicate %s.%s", i+1, route.Intent, route.Judgment)
 		}
 		if !profiles[route.Profile] {
 			return WorkerPolicy{}, fmt.Errorf("worker route %s.%s names missing profile", route.Intent, route.Judgment)
@@ -133,18 +133,19 @@ func validateWorkerPolicyFields(data []byte) error {
 	}
 	for _, group := range []struct {
 		name    string
+		entry   string
 		allowed []string
 	}{
-		{name: "profiles", allowed: []string{"name", "harness", "model", "effort"}},
-		{name: "routes", allowed: []string{"intent", "judgment", "profile"}},
+		{name: "profiles", entry: "worker profile", allowed: []string{"name", "harness", "model", "effort"}},
+		{name: "routes", entry: "worker route", allowed: []string{"intent", "judgment", "profile"}},
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(fields[group.name], &entries); err != nil {
 			return fmt.Errorf("%s: %w", group.name, err)
 		}
-		for _, entry := range entries {
+		for i, entry := range entries {
 			if _, err := workerPolicyFields(entry, group.allowed...); err != nil {
-				return fmt.Errorf("%s: %w", group.name, err)
+				return fmt.Errorf("%s %d: %w", group.entry, i+1, err)
 			}
 		}
 	}

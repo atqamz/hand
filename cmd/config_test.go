@@ -143,7 +143,7 @@ func TestConfigWorkerPolicyRefusesUnsafeUnusedProfileWithoutMutation(t *testing.
 		t.Fatal(err)
 	}
 	out, err := runConfig(t, "worker-policy")
-	if err == nil || !strings.Contains(err.Error(), "invalid worker profile model value") || strings.Contains(out, "profiles[") {
+	if err == nil || !strings.Contains(err.Error(), "worker profile 2: invalid model value") || strings.Contains(out, "profiles[") {
 		t.Fatalf("unsafe policy read = %q, error %v", out, err)
 	}
 	after, err := os.ReadFile(path)
@@ -157,11 +157,14 @@ func TestConfigWorkerPolicyErrorOmitsPolicyBytes(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		data string
+		args []string
 	}{
-		{"schema", strings.Replace(validWorkerPolicyForCommand, "hand.worker-policy.v1", marker, 1)},
-		{"field", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1)},
-		{"harness", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"`+marker+`"`, 1)},
-		{"route profile", strings.Replace(validWorkerPolicyForCommand, `"profile":"worker"`, `"profile":"`+marker+`"`, 1)},
+		{"schema", strings.Replace(validWorkerPolicyForCommand, "hand.worker-policy.v1", marker, 1), nil},
+		{"field", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1), nil},
+		{"harness", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"`+marker+`"`, 1), nil},
+		{"route profile", strings.Replace(validWorkerPolicyForCommand, `"profile":"worker"`, `"profile":"`+marker+`"`, 1), nil},
+		{"candidate effort", strings.Replace(validWorkerPolicyForCommand, `"harness":"codex"`, `"harness":"codex","effort":"`+marker+`"`, 1),
+			[]string{"candidate", "execute", "bounded", "--harness-override", "antigravity"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := setupConfigHome(t)
@@ -172,7 +175,7 @@ func TestConfigWorkerPolicyErrorOmitsPolicyBytes(t *testing.T) {
 			if err := os.WriteFile(path, []byte(test.data), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			out, err := runConfig(t, "worker-policy")
+			out, err := runConfig(t, append([]string{"worker-policy"}, test.args...)...)
 			if err == nil {
 				t.Fatalf("invalid worker policy was accepted: %q", out)
 			}

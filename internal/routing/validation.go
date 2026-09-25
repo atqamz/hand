@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -46,6 +47,15 @@ func (e *profileValidationError) Error() string {
 
 func (e *profileValidationError) Unwrap() error {
 	return e.err
+}
+
+func profileProblem(profile Profile) error {
+	err := ValidateProfile(profile)
+	var coded *profileValidationError
+	if errors.As(err, &coded) {
+		return errors.New(string(coded.code))
+	}
+	return err
 }
 
 func ValidateProfileName(name string) error {

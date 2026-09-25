@@ -88,8 +88,8 @@ func TestLoadWorkerPolicyRedactsUnsupportedSchemaAndFieldNames(t *testing.T) {
 	}{
 		{"schema", strings.Replace(validWorkerPolicy, WorkerPolicySchema, marker, 1), "unsupported worker policy schema"},
 		{"root field", strings.Replace(validWorkerPolicy, `"profiles":`, `"`+marker+`":true,"profiles":`, 1), "unsupported worker policy field"},
-		{"profile field", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1), "profiles: unsupported worker policy field"},
-		{"route field", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"execute","`+marker+`":true`, 1), "routes: unsupported worker policy field"},
+		{"profile field", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","`+marker+`":true`, 1), "worker profile 1: unsupported worker policy field"},
+		{"route field", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"execute","`+marker+`":true`, 1), "worker route 1: unsupported worker policy field"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -112,15 +112,17 @@ func TestLoadWorkerPolicyRedactsInvalidProfileAndRouteValues(t *testing.T) {
 		data string
 		want string
 	}{
-		{"invalid profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":"`+marker+`/"`, 1), "invalid worker profile name: must be non-empty and filename-safe"},
-		{"empty profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":""`, 1), "invalid worker profile name: must be non-empty and filename-safe"},
-		{"invalid profile harness", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"`+marker+`"`, 1), "invalid worker profile: unsupported-harness"},
-		{"invalid profile model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"grok","model":"`+marker+`"`, 1), "invalid worker profile: unsupported-model"},
-		{"invalid profile effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"antigravity","effort":"`+marker+`"`, 1), "invalid worker profile: unsupported-effort"},
-		{"duplicate profile", strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"`+marker+`","harness":"codex"},{"name":"`+marker+`","harness":"codex"}`, 1), "duplicate worker profile"},
-		{"invalid route intent", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"`+marker+`"`, 1), "invalid Worker Route"},
-		{"invalid route judgment", strings.Replace(validWorkerPolicy, `"judgment":"substantial"`, `"judgment":"`+marker+`"`, 1), "invalid Worker Route"},
-		{"missing route profile", strings.Replace(validWorkerPolicy, `"profile":"worker"`, `"profile":"`+marker+`"`, 1), "names missing profile"},
+		{"invalid profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":"`+marker+`/"`, 1), "worker profile 1: invalid name: must be non-empty and filename-safe"},
+		{"empty profile name", strings.Replace(validWorkerPolicy, `"name":"worker"`, `"name":""`, 1), "worker profile 1: invalid name: must be non-empty and filename-safe"},
+		{"invalid profile harness", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"`+marker+`"`, 1), "worker profile 1: unsupported-harness"},
+		{"multiline profile harness", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex\n`+marker+`"`, 1), "worker profile 1: profile harness must be one line"},
+		{"invalid profile model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"grok","model":"`+marker+`"`, 1), "worker profile 1: unsupported-model"},
+		{"invalid profile effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"antigravity","effort":"`+marker+`"`, 1), "worker profile 1: unsupported-effort"},
+		{"duplicate profile", strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"`+marker+`","harness":"codex"},{"name":"`+marker+`","harness":"codex"}`, 1), "worker profile 2: duplicate name"},
+		{"invalid route intent", strings.Replace(validWorkerPolicy, `"intent":"execute"`, `"intent":"`+marker+`"`, 1), "worker route 1: invalid intent"},
+		{"invalid route judgment", strings.Replace(validWorkerPolicy, `"judgment":"substantial"`, `"judgment":"`+marker+`"`, 1), "worker route 1: invalid judgment"},
+		{"duplicate route", strings.Replace(validWorkerPolicy, `"judgment":"bounded"`, `"judgment":"substantial"`, 1), "worker route 4: duplicate explore.substantial"},
+		{"missing route profile", strings.Replace(validWorkerPolicy, `"profile":"worker"`, `"profile":"`+marker+`"`, 1), "worker route execute.substantial names missing profile"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -151,7 +153,7 @@ func TestLoadWorkerPolicyRejectsUnsafeUnusedProfiles(t *testing.T) {
 			home := t.TempDir()
 			policy := strings.Replace(validWorkerPolicy, `{"name":"worker","harness":"codex"}`, `{"name":"worker","harness":"codex"},`+test.value, 1)
 			writeWorkerPolicy(t, home, policy)
-			if _, err := LoadWorkerPolicy(home); err == nil || !strings.Contains(err.Error(), "invalid worker profile "+test.want+" value") {
+			if _, err := LoadWorkerPolicy(home); err == nil || !strings.Contains(err.Error(), "worker profile 2: invalid "+test.want+" value") {
 				t.Fatalf("unsafe unused profile accepted or lacked field diagnosis: %v", err)
 			}
 		})
@@ -234,7 +236,7 @@ func TestResolveWorkerCandidateRejectsUnknownAndStaticConflicts(t *testing.T) {
 		{name: "unknown route", intent: "ship", judgment: "bounded", want: "invalid Worker Route"},
 		{name: "missing profile override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{ProfileOverride: &missing}, want: "missing profile"},
 		{name: "empty profile override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{ProfileOverride: &empty}, want: "invalid profile override"},
-		{name: "inherited model unsupported by harness override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{HarnessOverride: &pi}, want: "takes no model"},
+		{name: "inherited model unsupported by harness override", intent: "execute", judgment: "bounded", overrides: WorkerCandidateOverrides{HarnessOverride: &pi}, want: "invalid Worker candidate: unsupported-model"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := ResolveWorkerCandidate(home, test.intent, test.judgment, test.overrides); err == nil || !strings.Contains(err.Error(), test.want) {
@@ -250,10 +252,10 @@ func TestLoadWorkerPolicyRefusesUnrenderableSelectedValues(t *testing.T) {
 		data string
 		want string
 	}{
-		{"NUL model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1), "invalid worker profile model value"},
-		{"bidi model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), "invalid worker profile model value"},
-		{"bidi effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","effort":"\u202e"`, 1), "invalid worker profile effort value"},
-		{"bidi profile", strings.ReplaceAll(validWorkerPolicy, `"worker"`, `"worker\u202e"`), "invalid worker profile name value"},
+		{"NUL model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u0000"`, 1), "worker profile 1: invalid model value"},
+		{"bidi model", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","model":"\u202e"`, 1), "worker profile 1: invalid model value"},
+		{"bidi effort", strings.Replace(validWorkerPolicy, `"harness":"codex"`, `"harness":"codex","effort":"\u202e"`, 1), "worker profile 1: invalid effort value"},
+		{"bidi profile", strings.ReplaceAll(validWorkerPolicy, `"worker"`, `"worker\u202e"`), "worker profile 1: invalid name value"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
