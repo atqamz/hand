@@ -42,7 +42,7 @@ relock Git blob: 765c1fad37685f98dbb953f15e7a7617916576ba
 | #323 | `docs/architecture/v19-contracts/323-worker-routing.md` | `6b2ce258a9e72412bcbb1cd625963806400e227b` |
 | #324 | `docs/architecture/v19-contracts/324-configuration.md` | `e322eb6bf08b3648c1a298e13b6fc4b8a2e19f7b` |
 | #343 | `docs/architecture/v19-contracts/343-external-effects-worker-wake.md` | `76be8f08e60ba1819df71669edf9cb3af3c34b14` |
-| #345 | `docs/architecture/v19-contracts/345-lifecycle-currentness-crash-recovery-v3.md` | `8fadb9d6e829aabe2268a28474a1a4d54f1ca5f8` |
+| #345 | `docs/architecture/v19-contracts/345-lifecycle-currentness-crash-recovery-v3.md` | `7e56684fd4ded7d72a1787f49f39546dfce43343` |
 | #346 | `docs/architecture/v19-contracts/346-capability-adapters-v2.md` | `74771c189378f9d6d07729339020d5861214aa76` |
 | #347 | `docs/architecture/v19-contracts/347-read-models-attention-orientation-v3.md` | `0b57e2e8f0bb480e0eac840fdeec8f909c5c5202` |
 | #348 | `docs/architecture/v19-contracts/348-cutover-archive-v4.md` | `74a3b12b44999d86835c243ba89ea943c578d581` |
@@ -54,7 +54,7 @@ The contract-set digest is SHA-256 over the UTF-8 concatenation, in table order,
 Contract-set SHA-256:
 
 ```text
-e7522e79f784dc7421cd9ac94b972a0e0be9049f1c7682d6ce50749f94d379b3
+17e3f4064f48be0ffdf5e028b3f21f0437939ce1da0d6fbb77ec21311da8d49a
 ```
 
 ## Supersession input

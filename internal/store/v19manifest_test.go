@@ -124,7 +124,7 @@ func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9.md", "345-lifecycle-currentness-crash-recovery-v2.md", "50d6747ae140e68faddf15ed3d8337bfa85596c9", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "11edcab676ebce8125c30ac54a4620c8cd84b0df5f84e35bc0098ab22a804d1d")
 	})
 	t.Run("manifest-v10-input.md", func(t *testing.T) {
-		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v10-input.md", "345-lifecycle-currentness-crash-recovery-v3.md", "8fadb9d6e829aabe2268a28474a1a4d54f1ca5f8", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "e7522e79f784dc7421cd9ac94b972a0e0be9049f1c7682d6ce50749f94d379b3")
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v10-input.md", "345-lifecycle-currentness-crash-recovery-v3.md", "7e56684fd4ded7d72a1787f49f39546dfce43343", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "17e3f4064f48be0ffdf5e028b3f21f0437939ce1da0d6fbb77ec21311da8d49a")
 	})
 }
 
