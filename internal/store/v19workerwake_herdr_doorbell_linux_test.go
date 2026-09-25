@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -53,14 +54,14 @@ func (d *doorbellTerminal) String() string {
 func TestCanonicalV19HerdrWorkerWakeDoorbellIsInertInInteractiveShells(t *testing.T) {
 	words := strings.Fields(strings.ReplaceAll(canonicalV19HerdrWorkerWakeDoorbell, "|", " "))
 	for _, shell := range []struct {
-		name, parseError, prompt string
-		args                     []string
+		name, parseError, prompt, nearMiss string
+		args                               []string
 	}{
-		{"sh", "syntax error", "", []string{"-i"}},
-		{"bash", "syntax error", "", []string{"--norc", "--noprofile", "-i"}},
-		{"dash", "syntax error", "", []string{"-i"}},
-		{"zsh", "parse error", "", []string{"-f", "-o", "correct", "-i"}},
-		{"pwsh", "empty pipe element", "PS ", []string{"-NoLogo", "-NoProfile"}},
+		{"sh", "syntax error", "", "", []string{"-i"}},
+		{"bash", "syntax error", "", "", []string{"--norc", "--noprofile", "-i"}},
+		{"dash", "syntax error", "", "", []string{"-i"}},
+		{"zsh", "parse error", "", "hanf", []string{"-f", "-o", "correct", "-i"}},
+		{"pwsh", "empty pipe element", "PS ", "", []string{"-NoLogo", "-NoProfile"}},
 	} {
 		t.Run(shell.name, func(t *testing.T) {
 			path, err := exec.LookPath(shell.name)
@@ -72,7 +73,11 @@ func TestCanonicalV19HerdrWorkerWakeDoorbellIsInertInInteractiveShells(t *testin
 			if err := os.Mkdir(bin, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			for _, word := range words {
+			stubs := words
+			if shell.nearMiss != "" {
+				stubs = append(slices.DeleteFunc(slices.Clone(words), func(word string) bool { return word == "hand" }), shell.nearMiss)
+			}
+			for _, word := range stubs {
 				if err := os.WriteFile(filepath.Join(bin, word), []byte("#!/bin/sh\necho \"$0\" >> "+filepath.Join(dir, "ran")+"\n"), 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -123,6 +128,16 @@ func TestCanonicalV19HerdrWorkerWakeDoorbellIsInertInInteractiveShells(t *testin
 			if _, err := os.Stat(filepath.Join(dir, "ran")); !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("%s ran a doorbell word (%v), want a parse error that executes nothing (EG-14); terminal:\n%s", shell.name, err, terminal)
 			}
+			if shell.nearMiss == "" {
+				return
+			}
+			if strings.Contains(terminal.String(), "[nyae]") {
+				t.Fatalf("%s offered a spelling correction for the doorbell; terminal:\n%s", shell.name, terminal)
+			}
+			typeLine("hand")
+			await("CORRECT to offer "+shell.nearMiss+" for a bare hand, proving the check above could fail", func() bool {
+				return strings.Contains(terminal.String(), "'"+shell.nearMiss+"' [nyae]")
+			})
 		})
 	}
 }
