@@ -65,20 +65,21 @@ func newWorkerInputCallerAttestationFixtureWithFleetID(t *testing.T, fleetID str
 	}
 }
 
+// A guarded ExecutorBinding closes only from its guard's cessation record or a boot
+// change (EG-8); CompleteCanonicalV19Interrupt now refuses the generic path for one. The
+// termination row itself, not how it was produced, is what the attestation check reads.
 func (f workerInputCallerAttestationFixture) terminate(t *testing.T) {
 	t.Helper()
-	interrupt := canonicalV19InterruptPrepareInput(CanonicalV19LaunchRequest{AttemptID: f.attemptID, BindingID: f.bindingID}, "operation-interrupt-attestation")
-	request, err := PrepareCanonicalV19Interrupt(context.Background(), f.home, interrupt)
+	db, err := open(Path(f.home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SubmitCanonicalV19Interrupt(context.Background(), f.home, request.OperationID,
-		"2026-09-10T00:01:00Z", "interrupt-submitted-attestation"); err != nil {
+	if _, err := db.Exec(`INSERT INTO executor_binding_termination(executor_binding_id,terminal_kind,observed_at,evidence_digest)
+		VALUES(?,'provider-gone',?,?)`, f.bindingID, "2026-09-10T00:02:00Z", "executor-ceased-attestation"); err != nil {
+		_ = db.Close()
 		t.Fatal(err)
 	}
-	if err := CompleteCanonicalV19Interrupt(context.Background(), f.home, CanonicalV19ExecutorInterruptedEvidence{
-		OperationID: request.OperationID, ObservedAt: "2026-09-10T00:02:00Z", EvidenceDigest: "executor-ceased-attestation",
-	}); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
