@@ -58,19 +58,25 @@ type canonicalV19HerdrInterruptDeps struct {
 	clientFor    func(string) canonicalV19HerdrInterruptClient
 	processAlive func(int) (bool, error)
 	now          func() time.Time
+	// Stays false outside tests while the exec-guard Launch it depends on stays dormant.
+	execGuard bool
 }
 
 // ReconcileCanonicalV19HerdrInterrupt reconciles one exact canonical v19 Interrupt.
 // The selected managed provider is refused before submission until its ExecutorBinding
 // proves exact execution identity and positive cessation.
 func ReconcileCanonicalV19HerdrInterrupt(ctx context.Context, homeDir, operationID string) (string, error) {
-	return reconcileCanonicalV19HerdrInterrupt(ctx, homeDir, operationID, canonicalV19HerdrInterruptDeps{
+	return reconcileCanonicalV19HerdrInterrupt(ctx, homeDir, operationID, canonicalV19HerdrInterruptDefaultDeps())
+}
+
+func canonicalV19HerdrInterruptDefaultDeps() canonicalV19HerdrInterruptDeps {
+	return canonicalV19HerdrInterruptDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrInterruptClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
 		processAlive: canonicalV19HerdrProcessAlive,
 		now:          time.Now,
-	})
+	}
 }
 
 func reconcileCanonicalV19HerdrInterrupt(
@@ -112,6 +118,11 @@ func reconcileCanonicalV19HerdrInterrupt(
 	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: adapter %q is not %q",
 			ErrCanonicalV19InterruptNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
+	}
+	if deps.execGuard {
+		if state, handled, err := reconcileCanonicalV19HerdrGuardInterrupt(ctx, homeDir, current, deps); handled {
+			return state, err
+		}
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Interrupt", "exact execution identity and positive cessation evidence",
