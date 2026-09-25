@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -156,33 +159,14 @@ func TestObserveCanonicalV19HerdrWorkerWakeTreatsPIDAbsenceAsUnknown(t *testing.
 	}
 }
 
-func TestCanonicalV19HerdrWorkerWakeDoorbellIsDeterministicAndBounded(t *testing.T) {
-	input := CanonicalV19HerdrWorkerWakeDoorbellInput{
-		OperationID: "operation-worker-wake-doorbell", AttemptID: "attempt-1",
-		ExecutorBindingID: "executor-binding-1", PendingThroughOrdinal: 3,
+func TestCanonicalV19HerdrWorkerWakeDoorbellMatchesTheGrammar(t *testing.T) {
+	doorbell := canonicalV19HerdrWorkerWakeDoorbell
+	if !regexp.MustCompile(`^\|[a-z |-]*$`).MatchString(doorbell) || strings.ContainsAny(doorbell, "0123456789") {
+		t.Fatalf("doorbell %q must start with | and hold only lowercase letters, spaces, - and | (EG-14)", doorbell)
 	}
-	first, err := canonicalV19HerdrWorkerWakeDoorbellFor(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := canonicalV19HerdrWorkerWakeDoorbellFor(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second || len(first.Digest) != 64 || len(first.Text) > canonicalV19HerdrWorkerWakeDoorbellMaxBytes {
-		t.Fatalf("doorbell = %#v / %#v", first, second)
-	}
-	if !strings.Contains(first.Text, `["runtime","worker-input","drain","attempt-1","executor-binding-1"]`) ||
-		!strings.Contains(first.Text, `["runtime","worker-input","acknowledge","<worker-input-id>","executor-binding-1"]`) {
-		t.Fatalf("doorbell protocol text = %q", first.Text)
-	}
-	input.PendingThroughOrdinal++
-	third, err := canonicalV19HerdrWorkerWakeDoorbellFor(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if third.Digest == first.Digest || third.Text == first.Text {
-		t.Fatal("different pending boundary produced identical doorbell")
+	digest := sha256.Sum256([]byte(doorbell))
+	if CanonicalV19HerdrWorkerWakeDoorbellDigest() != hex.EncodeToString(digest[:]) {
+		t.Fatal("doorbell digest is not the SHA-256 of the one constant doorbell")
 	}
 }
 
@@ -194,13 +178,11 @@ type canonicalV19HerdrWorkerWakeFakeClient struct {
 	livenessErr              error
 	promptCalls              int
 	promptErr                error
-	lastPrompt               string
 	requireSubmittedAtPrompt bool
 }
 
 func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(_ context.Context, target, text string) error {
 	f.promptCalls++
-	f.lastPrompt = text
 	if target != f.processInfo.PaneID {
 		f.t.Fatalf("AgentPromptContext target = %q, want %q", target, f.processInfo.PaneID)
 	}
@@ -208,16 +190,8 @@ func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(_ context.Con
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	want, err := canonicalV19HerdrWorkerWakeDoorbellFor(CanonicalV19HerdrWorkerWakeDoorbellInput{
-		OperationID: current.Current.Request.OperationID, AttemptID: current.Current.Request.AttemptID,
-		ExecutorBindingID:     current.Current.Request.ExecutorBindingID,
-		PendingThroughOrdinal: current.Current.Request.PendingThroughOrdinal,
-	})
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	if text != want.Text {
-		f.t.Fatalf("AgentPromptContext text = %q, want %q", text, want.Text)
+	if text != canonicalV19HerdrWorkerWakeDoorbell {
+		f.t.Fatalf("AgentPromptContext text = %q, want the constant doorbell (EG-14)", text)
 	}
 	if f.requireSubmittedAtPrompt && current.Current.State != "submitted" {
 		f.t.Fatalf("state at first WorkerWake provider mutation = %q, want submitted", current.Current.State)
@@ -264,13 +238,7 @@ func canonicalV19HerdrWorkerWakeFixture(
 	}
 	wakeInput := canonicalV19WorkerWakePrepareInput(launchRequest, operationID, workerInput.Ordinal)
 	wakeInput.CreatedAt = "2026-09-09T06:07:00Z"
-	wakeInput.DoorbellDigest, err = CanonicalV19HerdrWorkerWakeDoorbellDigest(CanonicalV19HerdrWorkerWakeDoorbellInput{
-		OperationID: wakeInput.OperationID, AttemptID: launchRequest.AttemptID,
-		ExecutorBindingID: launchRequest.BindingID, PendingThroughOrdinal: wakeInput.PendingThroughOrdinal,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	wakeInput.DoorbellDigest = CanonicalV19HerdrWorkerWakeDoorbellDigest()
 	request, err := PrepareCanonicalV19WorkerWake(context.Background(), fixture.Home, wakeInput)
 	if err != nil {
 		t.Fatal(err)
