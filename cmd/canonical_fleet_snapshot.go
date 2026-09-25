@@ -122,10 +122,10 @@ func newCanonicalFleetSnapshotCmd() *cobra.Command {
 			doc.Rows("current_open_attempt_backoffs", []string{"id", "project_id", "task_id", "plan_id", "attempt_id", "reason", "not_before", "evidence_digest", "created_at"}, backoffs)
 			repairs := make([][]string, 0, len(snapshot.OpenRepairs))
 			for _, repair := range snapshot.OpenRepairs {
-				repairs = append(repairs, []string{repair.ID, repair.TaskID, repair.TargetKind, repair.TargetID,
-					repair.RepairCode, repair.EvidenceDigest, repair.CreatedAt})
+				repairs = append(repairs, []string{repair.ID, repair.ProjectID, valueOrNone(repair.TaskID), repair.TargetKind,
+					repair.TargetID, repair.RepairCode, repair.EvidenceDigest, repair.CreatedAt})
 			}
-			doc.Rows("open_repairs", []string{"id", "task_id", "target_kind", "target_id", "repair_code", "evidence_digest", "created_at"}, repairs)
+			doc.Rows("open_repairs", []string{"id", "project_id", "task_id", "target_kind", "target_id", "repair_code", "evidence_digest", "created_at"}, repairs)
 			items := make([][]string, 0, len(partialAttention.Items))
 			for _, item := range partialAttention.Items {
 				items = append(items, []string{strconv.Itoa(item.Priority), item.Code, item.EvidenceID, valueOrNone(item.OperationKind),

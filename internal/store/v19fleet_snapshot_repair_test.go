@@ -38,6 +38,10 @@ func TestReadCanonicalV19FleetSnapshotShowsOnlyOpenRepairsOnActiveLineage(t *tes
 	if err := CreateCanonicalV19Repair(ctx, fixture.Home, projectScoped); err != nil {
 		t.Fatal(err)
 	}
+	workspaceScoped := canonicalV19RepairWriterInput("repair-workspace", CanonicalV19RepairTarget{WorkspaceBindingID: "workspace-1"})
+	if err := CreateCanonicalV19Repair(ctx, fixture.Home, workspaceScoped); err != nil {
+		t.Fatal(err)
+	}
 	before, err := os.ReadFile(Path(fixture.Home))
 	if err != nil {
 		t.Fatal(err)
@@ -50,25 +54,28 @@ func TestReadCanonicalV19FleetSnapshotShowsOnlyOpenRepairsOnActiveLineage(t *tes
 	if err != nil || string(after) != string(before) {
 		t.Fatalf("Repair snapshot mutated canonical database: %v", err)
 	}
-	if len(snapshot.OpenRepairs) != 3 {
+	if len(snapshot.OpenRepairs) != 5 {
 		t.Fatalf("open Repairs = %#v", snapshot.OpenRepairs)
 	}
 	byID := make(map[string]CanonicalV19SnapshotRepair, len(snapshot.OpenRepairs))
 	for _, repair := range snapshot.OpenRepairs {
 		byID[repair.ID] = repair
 	}
-	if got := byID[taskOpen.ID]; got.TargetKind != "task" || got.TargetID != "task-1" || got.TaskID != "task-1" ||
+	if got := byID[taskOpen.ID]; got.ProjectID != "project-1" || got.TargetKind != "task" || got.TargetID != "task-1" || got.TaskID != "task-1" ||
 		got.RepairCode != taskOpen.RepairCode || got.EvidenceDigest != taskOpen.EvidenceDigest || got.CreatedAt != taskOpen.CreatedAt {
 		t.Fatalf("task-targeted Repair = %#v", got)
 	}
-	if got := byID[planOpen.ID]; got.TargetKind != "plan" || got.TargetID != "plan-root" || got.TaskID != "task-1" {
+	if got := byID[planOpen.ID]; got.ProjectID != "project-1" || got.TargetKind != "plan" || got.TargetID != "plan-root" || got.TaskID != "task-1" {
 		t.Fatalf("plan-targeted Repair = %#v", got)
 	}
-	if got := byID[attemptOpen.ID]; got.TargetKind != "attempt" || got.TargetID != "attempt-1" || got.TaskID != "task-1" {
+	if got := byID[attemptOpen.ID]; got.ProjectID != "project-1" || got.TargetKind != "attempt" || got.TargetID != "attempt-1" || got.TaskID != "task-1" {
 		t.Fatalf("attempt-targeted Repair = %#v", got)
 	}
-	if _, ok := byID[projectScoped.ID]; ok {
-		t.Fatalf("project-scoped Repair unexpectedly nested under active Task lineage: %#v", byID)
+	if got := byID[projectScoped.ID]; got.ProjectID != "project-1" || got.TargetKind != "project" || got.TargetID != "project-1" || got.TaskID != "" {
+		t.Fatalf("project-targeted Repair = %#v", got)
+	}
+	if got := byID[workspaceScoped.ID]; got.ProjectID != "project-1" || got.TargetKind != "workspace" || got.TargetID != "workspace-1" || got.TaskID != "" {
+		t.Fatalf("workspace-targeted Repair = %#v", got)
 	}
 	if _, ok := byID[resolved.ID]; ok {
 		t.Fatalf("resolved Repair unexpectedly still open: %#v", byID)
@@ -84,8 +91,8 @@ func TestReadCanonicalV19FleetSnapshotShowsOnlyOpenRepairsOnActiveLineage(t *tes
 		t.Fatal(err)
 	}
 	retired, err := ReadCanonicalV19FleetSnapshot(ctx, fixture.Home)
-	if err != nil || len(retired.OpenRepairs) != 3 {
-		t.Fatalf("retired Project hid active Task Repairs: %#v, %v", retired.OpenRepairs, err)
+	if err != nil || len(retired.OpenRepairs) != 5 {
+		t.Fatalf("retired Project hid open Repairs: %#v, %v", retired.OpenRepairs, err)
 	}
 }
 
@@ -117,13 +124,14 @@ func TestCanonicalV19SnapshotOpenRepairsQueryUsesActiveIndexes(t *testing.T) {
 	for _, index := range []string{
 		"task_active_by_project", "plan_active_by_task", "attempt_active_by_plan",
 		"repair_target_task", "repair_target_plan", "repair_target_attempt",
+		"repair_target_project", "repair_target_workspace", "workspace_binding_project_history",
 	} {
 		if !strings.Contains(plan.String(), index) {
 			t.Fatalf("open Repair query missed %s:\n%s", index, plan.String())
 		}
 	}
 	if strings.Contains(plan.String(), "SCAN rt ") || strings.Contains(plan.String(), "SCAN r ") ||
-		strings.Contains(plan.String(), "SCAN rr ") {
+		strings.Contains(plan.String(), "SCAN rr ") || strings.Contains(plan.String(), "SCAN wb ") {
 		t.Fatalf("open Repair query scans Repair family tables instead of exact seeks:\n%s", plan.String())
 	}
 }

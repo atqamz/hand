@@ -195,7 +195,7 @@ func TestFleetSnapshotShowsOpenAttemptBackoffAndRepairAsDigestsNotProse(t *testi
 		t.Fatalf("snapshot did not project AttemptBackoff rows: %q", output)
 	}
 	if !strings.Contains(output, "open_repairs[1]") ||
-		!strings.Contains(output, `repair-1,task-1,task,task-1,worktree-drift,digest-repair,"2026-09-24T00:06:00Z"`) ||
+		!strings.Contains(output, `repair-1,project-1,task-1,task,task-1,worktree-drift,digest-repair,"2026-09-24T00:06:00Z"`) ||
 		strings.Contains(output, "free-text diagnosis") {
 		t.Fatalf("snapshot did not project Repair as digest rows: %q", output)
 	}
