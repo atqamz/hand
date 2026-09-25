@@ -53,6 +53,8 @@ func initGitRepo(t *testing.T, dir string) {
 // The PR recorded on a task whose test does not exercise detection.
 const teardownTestPR = "https://example.com/pr/1"
 
+const teardownTestLease = "lease-1"
+
 // The PR state teardown's landed-work check reads. From internal/faketool so a
 // merge through the fake moves it, which is what keeps a test from asserting a
 // state nothing could have produced.
@@ -70,7 +72,7 @@ func writeFakeTreehouseReturn(t *testing.T, worktree string) {
 	t.Helper()
 	bin := faketool.Bin(t)
 	log := invocationLog(worktree)
-	faketool.Treehouse{Held: []string{worktree}, Log: log}.Install(t, bin)
+	faketool.Treehouse{Held: []string{worktree}, LeaseIDs: map[string]string{worktree: teardownTestLease}, Log: log}.Install(t, bin)
 	faketool.Herdr{Log: log, Workspaces: []faketool.HerdrWorkspace{
 		{ID: "wA", Label: "hand:myproj", Tabs: []faketool.HerdrTab{{ID: "wA:tB", Label: "task-1", Pane: "wA:pB"}}},
 	}}.Install(t, bin)
@@ -159,7 +161,7 @@ func TestTeardownDetectsGateOpenedPRonDeclaredUpstream(t *testing.T) {
 	writeFakeGHForkPRListAndView(t, "up/repo", "owner/repo",
 		ghFakePR{Number: 7, URL: "https://github.com/up/repo/pull/7", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +188,7 @@ func TestTeardownDetectsPRWithUpstreamDeclaredAsOwnRepoInOtherCasing(t *testing.
 	writeFakeGHForkPRListAndView(t, "owner/repo", "owner/repo",
 		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +211,7 @@ func TestTeardownDetectsAndTearsDownGateOpenedMergedPR(t *testing.T) {
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +246,7 @@ func TestTeardownAfterProjectSetURLDetectsRenamedRepositoryPR(t *testing.T) {
 	faketool.GH{PRs: []faketool.GHPR{{
 		Number: 185, URL: prURL, Branch: "task-1-branch", Repo: "atqamz/hand", State: "MERGED",
 	}}}.Install(t, faketool.Bin(t))
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +268,7 @@ func TestTeardownRefusesGateOpenedClosedUnmergedPR(t *testing.T) {
 	setupTeardownGateProject(t, home, worktree, "task-1-branch")
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "CLOSED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +303,7 @@ func TestTeardownTearsDownWhenBranchHasMergedAndClosedUnmergedPR(t *testing.T) {
 		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "CLOSED"},
 		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +328,7 @@ func TestTeardownRefusesAmbiguousBranch(t *testing.T) {
 		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"},
 		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +366,7 @@ func TestTeardownRefusesMergedAndOpenPR(t *testing.T) {
 		ghFakePR{Number: 5, URL: "https://github.com/owner/repo/pull/5", State: "MERGED"},
 		ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "OPEN"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +492,7 @@ func TestTeardownDoesNotReleaseAWorktreeWhosePRSearchCouldNotBeObserved(t *testi
 		{Command: "pr list", Stderr: ghRejectedCredential, Exit: 1},
 	}}.Install(t, faketool.Bin(t))
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +517,7 @@ func TestTeardownShipSucceedsWhenPRMerged(t *testing.T) {
 	writeFakeGHPRState(t, "MERGED")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +579,7 @@ func TestTeardownRefusesLaunchedProvisioningWithUnlandedWork(t *testing.T) {
 	runGitIn(t, worktree, "add", "feature.txt")
 	runGitIn(t, worktree, "commit", "-q", "-m", "feature")
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj", PR: teardownTestPR}, state.Attempt{
-		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LeaseID: teardownTestLease, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
 	}); err != nil {
 		t.Fatal(err)
@@ -602,7 +604,7 @@ func TestTeardownDoesNotCallConfirmedProvisioningNeverLaunched(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeFakeGHPRState(t, "MERGED")
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj", PR: teardownTestPR}, state.Attempt{
-		Lifecycle: state.AttemptProvisioning, Worktree: worktree,
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LeaseID: teardownTestLease,
 		LaunchSubmittedAt: "2026-08-14T00:00:01Z", LaunchConfirmedAt: "2026-08-14T00:00:02Z",
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
 	}); err != nil {
@@ -650,7 +652,7 @@ func TestTeardownRefusesLaunchedProvisioningWithoutWorktree(t *testing.T) {
 func TestTeardownForceInterruptsLaunchedProvisioning(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{
-		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
+		Lifecycle: state.AttemptProvisioning, Worktree: worktree, LeaseID: teardownTestLease, LaunchSubmittedAt: "2026-08-14T00:00:01Z",
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB", PaneID: "wA:pB"},
 	}); err != nil {
 		t.Fatal(err)
@@ -685,7 +687,7 @@ func TestTeardownRetriesAfterReportRemovalFails(t *testing.T) {
 	writeFakeGHPRState(t, "MERGED")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -728,7 +730,7 @@ func TestTeardownRecordsCompletionBeforeStateRemoval(t *testing.T) {
 	identity := registerStoreProject(t, home, "myproj")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -791,7 +793,7 @@ func TestTeardownCompletionAppendFailureLeavesStateIntact(t *testing.T) {
 	writeFakeGHPRState(t, "MERGED")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +843,7 @@ func TestTeardownRetiresTheTasksPendingQuestion(t *testing.T) {
 	writeFakeGHPRState(t, "MERGED")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -879,7 +881,7 @@ func TestTeardownRetiresAMachineSetLimitHoldButNotAnOperatorsOwn(t *testing.T) {
 			writeFakeGHPRState(t, "MERGED")
 
 			if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-				PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+				PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 				Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 				t.Fatal(err)
 			}
@@ -979,7 +981,7 @@ func TestTeardownScoutFailsWhenReportMissing(t *testing.T) {
 func TestTeardownScoutSucceedsWhenReportPresent(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeScoutReport(t, home, "task-1")
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -999,7 +1001,7 @@ func TestTeardownAcceptsAShipRowThatDeliveredAScoutReport(t *testing.T) {
 	runGitIn(t, worktree, "checkout", "-q", "-b", "task-1-branch")
 	writeScoutReport(t, home, "task-1")
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1039,7 +1041,7 @@ func TestTeardownStillRefusesAShipTaskWhosePRWasNeverOpened(t *testing.T) {
 	runGitIn(t, worktree, "commit", "-q", "-m", "feature")
 	writeScoutReport(t, home, "task-1")
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1076,7 +1078,7 @@ func TestTeardownRecordsMergedWhenALocallyMergedShipRowKeptItsScoutReport(t *tes
 	writeScoutReport(t, home, "task-1")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1109,7 +1111,7 @@ func TestTeardownStillRefusesAMergedShipRowWithNoPRToConfirm(t *testing.T) {
 	writeScoutReport(t, home, "task-1")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1136,7 +1138,7 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 
 	pr := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1173,7 +1175,7 @@ func TestTeardownAcceptsDeliveredWorkWithAnOpenPRWithoutForce(t *testing.T) {
 func TestTeardownAcceptsDeliveredWorkWithNoPRRegardlessOfKind(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "report at data/task-1/report.md, no code to land"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "report at data/task-1/report.md, no code to land"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1229,7 +1231,7 @@ func TestTeardownRecordsMergedWhenDeliveredWorkActuallyLanded(t *testing.T) {
 	pr := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
 		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream, maintainer decides",
-		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		MergeExecuted: true, MergeExecutedAt: "2026-08-04T00:00:00Z"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1262,7 +1264,7 @@ func TestTeardownRecordsMergedWhenAnObservedMergeFollowedDelivery(t *testing.T) 
 	pr := "https://github.com/kunchenguid/no-mistakes/pull/597"
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
 		PR: pr, DeliveredAt: "2026-08-03T00:00:00Z", DeliveredReason: "offered upstream",
-		MergeAnnounced: true}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		MergeAnnounced: true}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
@@ -1307,7 +1309,7 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1327,7 +1329,7 @@ func TestTeardownForceSkipsLandedWorkChecks(t *testing.T) {
 func TestTeardownRendersGenuineWorkerFailureAsOutcomeFailed(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"},
-		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"},
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"},
 			LastReportState: state.ReportFailed, LastReportNote: "tests would not pass"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1352,7 +1354,7 @@ func TestTeardownForceOnATaskWithNoFailureReportNeverRendersOutcomeFailed(t *tes
 		t.Fatal(err)
 	}
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"},
-		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
+		state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease, Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1371,7 +1373,7 @@ func TestTeardownForceOnATaskWithNoFailureReportNeverRendersOutcomeFailed(t *tes
 func TestTeardownWaitsForProjectLockBeforeClosingResources(t *testing.T) {
 	home, worktree := setupTeardownHome(t)
 	writeScoutReport(t, home, "task-1")
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Project: "myproj", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1428,7 +1430,7 @@ func TestTeardownClosesWorkspaceWhenLastTab(t *testing.T) {
 		{Command: "workspace close", Stdout: "{\"id\":\"cli:1\",\"result\":{}}"},
 	}}.Install(t, bin)
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindScout}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1497,7 +1499,7 @@ func TestTeardownProceedsWhenDirtAlreadyMatchesMergedBase(t *testing.T) {
 	registerGateProject(t, home)
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1580,7 +1582,7 @@ func TestTeardownForcesWorktreeReturnPastSafeDirt(t *testing.T) {
 	registerGateProject(t, home)
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1605,7 +1607,7 @@ func TestTeardownReturnsCleanWorktreeUnforced(t *testing.T) {
 	writeFakeGHPRState(t, "MERGED")
 
 	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj",
-		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+		PR: "https://example.com/pr/1"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1638,7 +1640,7 @@ func TestTeardownProceedsWhenDirtMatchesOriginDefaultBranchTip(t *testing.T) {
 	registerGateProject(t, home)
 	writeFakeGHPRListAndView(t, ghFakePR{Number: 9, URL: "https://github.com/owner/repo/pull/9", State: "MERGED"})
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1668,7 +1670,7 @@ func TestTeardownRefusesDirtWhenStagedContentDiffersFromBase(t *testing.T) {
 	}
 	registerGateProject(t, home)
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1693,7 +1695,7 @@ func TestTeardownRefusesDirtWhenContentDiffersFromBase(t *testing.T) {
 	}
 	registerGateProject(t, home)
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1720,7 +1722,7 @@ func TestTeardownRefusesDirtWithUntrackedFileEvenWhenTrackedChangeMatchesBase(t 
 	}
 	registerGateProject(t, home)
 
-	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree,
+	if err := writeTaskAttempt(t, home, state.Task{ID: "task-1", Kind: state.KindShip, Project: "myproj"}, state.Attempt{Lifecycle: state.AttemptRunning, Worktree: worktree, LeaseID: teardownTestLease,
 		Herdr: state.Herdr{WorkspaceID: "wA", TabID: "wA:tB"}}); err != nil {
 		t.Fatal(err)
 	}

@@ -17,11 +17,12 @@ import (
 )
 
 func TestTeardownFailureAfterWorktreeReturnPreservesOwnershipEvidence(t *testing.T) {
-	home, worktree := teardownFixture(t, true)
+	home, worktree, _ := leasedTeardownFixture(t)
 	phaseErr := errors.New("stop after worktree return")
 	returned := false
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(_, path string, force bool) error {
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(_, path, _ string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -90,10 +91,11 @@ func TestTeardownMigratesLegacyCompletionsBeforeAppending(t *testing.T) {
 }
 
 func TestTeardownCompletionAppendFailureLeavesStateRetryable(t *testing.T) {
-	home, _ := teardownFixture(t, true)
+	home, _, _ := leasedTeardownFixture(t)
 	appendErr := errors.New("completion store unavailable")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(string, string, bool) error { return nil }
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(string, string, string, bool) error { return nil }
 	deps.appendCompletion = func(string, completion.Record) error { return appendErr }
 
 	_, err := (&Runtime{deps: deps}).Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"})
@@ -115,10 +117,11 @@ func TestTeardownCompletionAppendFailureLeavesStateRetryable(t *testing.T) {
 }
 
 func TestTeardownFailureAfterCompletionAppendLeavesBoundaryObservable(t *testing.T) {
-	home, _ := teardownFixture(t, true)
+	home, _, _ := leasedTeardownFixture(t)
 	phaseErr := errors.New("stop after completion append")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(string, string, bool) error { return nil }
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(string, string, string, bool) error { return nil }
 	deps.phase = func(phase lifecyclePhase) error {
 		if phase == phaseCompletionAppended {
 			return phaseErr
@@ -147,12 +150,13 @@ func TestTeardownFailureAfterCompletionAppendLeavesBoundaryObservable(t *testing
 }
 
 func TestTeardownRetryAfterCompletionAppendDoesNotRepeatCleanup(t *testing.T) {
-	home, worktree := teardownFixture(t, true)
+	home, worktree, _ := leasedTeardownFixture(t)
 	returned := 0
 	phaseFailure := true
 	phaseErr := errors.New("stop after completion append")
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(_, path string, force bool) error {
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(_, path, _ string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -578,11 +582,12 @@ func TestTeardownRetryPreservesForcedDisposition(t *testing.T) {
 }
 
 func TestTeardownForcedRetryKeepsForcedWorktreeReturn(t *testing.T) {
-	home, worktree := teardownFixture(t, true)
+	home, worktree, _ := leasedTeardownFixture(t)
 	phaseFailure := true
 	returned := 0
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(_, path string, force bool) error {
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(_, path, _ string, force bool) error {
 		if path != worktree || !force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, true)", path, force, worktree)
 		}
@@ -644,12 +649,13 @@ func TestTeardownRetryPreservesCompletedDisposition(t *testing.T) {
 }
 
 func TestTeardownRetrySkipsReleasedWorktreeAfterLeaseReused(t *testing.T) {
-	home, worktree := teardownFixture(t, true)
+	home, worktree, _ := leasedTeardownFixture(t)
 	returns := 0
 	reacquired := false
 	phaseFailure := true
 	deps := defaultDependencies()
-	deps.worktree.returnWorktree = func(_, path string, force bool) error {
+	deps.worktree.observeLease = exactFixtureLease
+	deps.worktree.returnWithID = func(_, path, _ string, force bool) error {
 		if path != worktree || force {
 			t.Fatalf("returnWorktree(%q, %t), want (%q, false)", path, force, worktree)
 		}
@@ -841,6 +847,10 @@ func leasedTeardownFixture(t *testing.T) (string, string, state.Attempt) {
 		t.Fatal(err)
 	}
 	return home, worktreePath, attempt
+}
+
+func exactFixtureLease(string, string, string) worktree.LeaseObservation {
+	return worktree.LeaseObservation{State: worktree.LeaseExact, LeaseID: "lease-1"}
 }
 
 func terminalResourceFixture(t *testing.T) (string, string, state.Attempt) {
@@ -1037,31 +1047,57 @@ func TestTeardownKeepsALatchedWorktreeWhenOwnershipStaysUnobservable(t *testing.
 	}
 }
 
-func TestTeardownRetryRefusesWorktreeWithoutLeaseIdentity(t *testing.T) {
+// atqamz/hand#519: a legacy Attempt with no persisted lease ID names its slot by path alone, and
+// Treehouse resolves a return by that path whatever --root says, so the slot may by now be another
+// Fleet's live lease. Even a forced teardown must leave it, its lease and its work in place.
+func TestTeardownRefusesAPathOnlyWorktreeAnotherFleetHolds(t *testing.T) {
 	home, worktreePath := teardownFixture(t, true)
-	returns := 0
-	observed := 0
-	deps := defaultDependencies()
-	deps.worktree.observeLease = func(_, path, leaseID string) worktree.LeaseObservation {
-		if path != worktreePath || leaseID != "" {
-			t.Fatalf("observeLease(%q, %q), want (%q, empty)", path, leaseID, worktreePath)
+	faketool.InitRepo(t, worktreePath)
+	foreignWork := filepath.Join(worktreePath, "foreign.txt")
+	if err := os.WriteFile(foreignWork, []byte("another Fleet's uncommitted work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(t.TempDir(), "treehouse.log")
+	faketool.Treehouse{
+		Held: []string{worktreePath}, LeaseIDs: map[string]string{worktreePath: "foreign-lease"},
+		LeaseHolders: map[string]string{worktreePath: "hand:f_other:task-9"}, Log: log,
+	}.Install(t, faketool.Bin(t))
+
+	for _, force := range []bool{true, false} {
+		_, err := New().Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: force})
+		if err == nil || !strings.Contains(err.Error(), "prove worktree ownership") || !strings.Contains(err.Error(), "`hand reconcile task-1 --abandon-worktree`") {
+			t.Fatalf("Teardown(force=%t) = %v, want an unproven-ownership refusal naming its exit", force, err)
 		}
-		observed++
-		return worktree.LeaseObservation{State: worktree.LeaseUnprovable}
 	}
-	deps.worktree.returnWorktree = func(string, string, bool) error {
-		returns++
-		return worktree.ErrReturnAborted
+	history, err := state.ReadHistory(home, "task-1")
+	if err != nil {
+		t.Fatal(err)
 	}
-	runtime := &Runtime{deps: deps}
-	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1"}); !errors.Is(err, worktree.ErrReturnAborted) {
-		t.Fatalf("first Teardown() = %v, want known abort", err)
+	if history.Task.Lifecycle != state.TaskOpen || history.ActiveAttempt == nil || history.ActiveAttempt.TeardownWorktreeState != state.TeardownResourceAmbiguous {
+		t.Fatalf("history after refused teardown = %+v, want open task with ambiguous worktree residue", history)
 	}
-	if _, err := runtime.Teardown(context.Background(), TeardownRequest{Home: home, ID: "task-1", Force: true}); err == nil {
-		t.Fatal("forced retry succeeded without a lease identity")
+	if _, err := New().Reconcile(ReconcileRequest{Home: home, ID: "task-1", AbandonWorktree: true}); err != nil {
+		t.Fatalf("Reconcile(--abandon-worktree) = %v, want the named treatment to settle the residue", err)
 	}
-	if returns != 1 || observed != 1 {
-		t.Fatalf("retry returns=%d observed=%d, want one initial return and one unproven observation", returns, observed)
+	if history, err = state.ReadHistory(home, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if history.Task.Lifecycle != state.TaskTerminal || history.Attempts[0].TeardownWorktreeState != state.TeardownResourceAbandoned {
+		t.Fatalf("history after abandon = %+v, want terminal task with the worktree abandoned", history)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(calls), " return ") {
+		t.Fatalf("treehouse calls = %q, want no return of a path-only worktree", calls)
+	}
+	if _, err := os.Stat(foreignWork); err != nil {
+		t.Fatalf("foreign work after teardown and abandon: %v, want it untouched", err)
+	}
+	clonePath := filepath.Join(home, "projects", "demo")
+	if observation := worktree.ObserveLease(clonePath, worktreePath, "foreign-lease"); observation.State != worktree.LeaseExact {
+		t.Fatalf("foreign lease after teardown and abandon = %+v, want still held", observation)
 	}
 }
 
