@@ -53,41 +53,70 @@ func requireCanonicalV19WorkerInputCallerAttestation(
 	if attestation != nil && attestation.executorBindingID == executorBindingID {
 		return nil
 	}
+	_, err := verifyCanonicalV19WorkerInputCredential(ctx, tx, executorBindingID, credential)
+	return err
+}
+
+// VerifyCanonicalV19WorkerInputCallerCredential runs the same acceptance predicate as
+// drain/acknowledge and, on success, returns V_B so a caller can bind its own evidence to
+// this exact verification without ever handling S_B itself.
+func VerifyCanonicalV19WorkerInputCallerCredential(
+	ctx context.Context,
+	homeDir string,
+	executorBindingID string,
+	credential string,
+) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	db, err := openReadOnly(homeDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.sql.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", canonicalV19WorkerInputCallerAttestationReadError("begin snapshot", err)
+	}
+	defer func() { _ = tx.Rollback() }()
 	return verifyCanonicalV19WorkerInputCredential(ctx, tx, executorBindingID, credential)
 }
 
-func verifyCanonicalV19WorkerInputCredential(ctx context.Context, tx *sql.Tx, executorBindingID, credential string) error {
+func verifyCanonicalV19WorkerInputCredential(ctx context.Context, tx *sql.Tx, executorBindingID, credential string) (string, error) {
 	unsupported := canonicalV19HerdrCapabilityUnsupported("WorkerInput protocol", "exact caller-to-ExecutorBinding attestation")
 	secret, err := base64.RawURLEncoding.DecodeString(credential)
 	if credential == "" || err != nil || len(secret) != 32 {
-		return unsupported
+		return "", unsupported
 	}
 	var fleetID string
 	if err := tx.QueryRowContext(ctx, `SELECT fleet_id FROM fleet WHERE singleton=1`).Scan(&fleetID); err != nil {
-		return canonicalV19WorkerInputCallerAttestationReadError("read Fleet identity", err)
+		return "", canonicalV19WorkerInputCallerAttestationReadError("read Fleet identity", err)
 	}
-	var providerExecutorKey, stored string
-	err = tx.QueryRowContext(ctx, `SELECT e.provider_executor_key, le.value_digest
+	var providerExecutorKey, valueKind, valueMaterial, stored string
+	err = tx.QueryRowContext(ctx, `SELECT e.provider_executor_key, le.value_kind, le.value_material, le.value_digest
 		FROM executor_binding e
 		JOIN attempt a ON a.id=e.attempt_id AND a.lifecycle='active' AND a.terminal_at=''
 		JOIN launch_environment le ON le.operation_id=e.launch_operation_id AND le.name=?
 		WHERE e.id=?
 		  AND NOT EXISTS (SELECT 1 FROM executor_binding_termination x WHERE x.executor_binding_id=e.id)`,
-		execguard.CredentialEnv, executorBindingID).Scan(&providerExecutorKey, &stored)
+		execguard.CredentialEnv, executorBindingID).Scan(&providerExecutorKey, &valueKind, &valueMaterial, &stored)
 	if errors.Is(err, sql.ErrNoRows) {
-		return unsupported
+		return "", unsupported
 	}
 	if err != nil {
-		return canonicalV19WorkerInputCallerAttestationReadError("read exact ExecutorBinding credential", err)
+		return "", canonicalV19WorkerInputCallerAttestationReadError("read exact ExecutorBinding credential", err)
+	}
+	if valueKind != "secret-ref" || valueMaterial != execguard.Protocol {
+		return "", unsupported
 	}
 	if !strings.HasPrefix(providerExecutorKey, canonicalV19ExecGuardKeyPrefix) {
-		return unsupported
+		return "", unsupported
 	}
 	verifier := launch.ExecGuardCredentialVerifier(fleetID, executorBindingID, credential)
 	if subtle.ConstantTimeCompare([]byte(verifier), []byte(stored)) != 1 {
-		return unsupported
+		return "", unsupported
 	}
-	return nil
+	return verifier, nil
 }
 
 func canonicalV19WorkerInputCallerAttestationReadError(action string, err error) error {

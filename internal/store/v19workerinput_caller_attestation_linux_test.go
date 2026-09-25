@@ -14,9 +14,9 @@ import (
 	"github.com/atqamz/hand/internal/execguard"
 )
 
-// One real exec-guard ExecutorBinding, established the same way the Launch adapter tests
-// do (newExecGuardLaunchTest, prepareCanonicalV19ExecGuardLaunch), so the WorkerInput
-// caller-attestation tests exercise the real V_B committed at Tx A.
+// One real exec-guard ExecutorBinding, established the same way the Launch adapter tests do,
+// so these tests exercise the real V_B committed at Tx A end to end. Credential edge cases are
+// unit-tested directly in v19workerinput_caller_attestation_test.go.
 type workerInputCallerAttestationFixture struct {
 	home       string
 	attemptID  string
@@ -119,51 +119,24 @@ func TestWorkerInputCallerAttestationAcceptsExactCredentialForAcknowledge(t *tes
 	}
 }
 
-func TestWorkerInputCallerAttestationRefusesMissingCredential(t *testing.T) {
+func TestVerifyCanonicalV19WorkerInputCallerCredentialReturnsExactVerifierOnSuccess(t *testing.T) {
 	f := newWorkerInputCallerAttestationFixture(t)
-	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: f.attemptID, ExecutorBindingID: f.bindingID,
-	})
-	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("drain with no credential error = %v, want attestation refusal", err)
+	current, err := readCanonicalV19HerdrLaunchCurrent(context.Background(), f.home, "operation-exec-guard-launch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := current.Current.Request.Spec.Environment[execguard.CredentialEnv].ValueDigest
+	got, err := VerifyCanonicalV19WorkerInputCallerCredential(context.Background(), f.home, f.bindingID, f.credential)
+	if err != nil || got != want {
+		t.Fatalf("verify = %q, %v, want the committed V_B %q", got, err, want)
 	}
 }
 
-func TestWorkerInputCallerAttestationRefusesMalformedCredential(t *testing.T) {
-	f := newWorkerInputCallerAttestationFixture(t)
-	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: f.attemptID, ExecutorBindingID: f.bindingID, Credential: "not-base64url-32-bytes",
-	})
-	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("drain with malformed credential error = %v, want attestation refusal", err)
-	}
-}
-
-func TestWorkerInputCallerAttestationRefusesWrongCredential(t *testing.T) {
+func TestVerifyCanonicalV19WorkerInputCallerCredentialRefusesWrongCredential(t *testing.T) {
 	f := newWorkerInputCallerAttestationFixture(t)
 	wrong := make([]byte, 32)
-	if f.credential == base64.RawURLEncoding.EncodeToString(wrong) {
-		wrong[0] ^= 0xFF
-	}
-	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: f.attemptID, ExecutorBindingID: f.bindingID, Credential: base64.RawURLEncoding.EncodeToString(wrong),
-	})
-	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("drain with the wrong credential error = %v, want attestation refusal (counterexample 6)", err)
-	}
-}
-
-func TestWorkerInputCallerAttestationRefusesCredentialFromAnotherFleet(t *testing.T) {
-	f1 := newWorkerInputCallerAttestationFixture(t)
-	f2 := newWorkerInputCallerAttestationFixture(t)
-	if f1.bindingID != f2.bindingID {
-		t.Fatalf("fixtures must share one literal ExecutorBinding ID to exercise cross-Fleet contamination, got %q and %q", f1.bindingID, f2.bindingID)
-	}
-	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f2.home, CanonicalV19WorkerInputDrainInput{
-		AttemptID: f2.attemptID, ExecutorBindingID: f2.bindingID, Credential: f1.credential,
-	})
-	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("drain against another Fleet's DB with this Fleet's B but the other Fleet's S_B error = %v, want attestation refusal (counterexample 7)", err)
+	if _, err := VerifyCanonicalV19WorkerInputCallerCredential(context.Background(), f.home, f.bindingID, base64.RawURLEncoding.EncodeToString(wrong)); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("verify with the wrong credential error = %v, want attestation refusal", err)
 	}
 }
 
@@ -175,6 +148,26 @@ func TestWorkerInputCallerAttestationRefusesTerminatedBinding(t *testing.T) {
 	})
 	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
 		t.Fatalf("drain after termination error = %v, want attestation refusal (counterexample 6)", err)
+	}
+}
+
+func TestWorkerInputCallerAttestationDerivesAttemptFromBindingWhenArgvOmitsIt(t *testing.T) {
+	f := newWorkerInputCallerAttestationFixture(t)
+	created, err := CreateCanonicalV19WorkerInput(context.Background(), f.home, CanonicalV19WorkerInputCreateInput{
+		ID: "worker-input-attested-derived-attempt", AttemptID: f.attemptID, ExecutorBindingID: f.bindingID,
+		Payload: "instruction", PayloadDigest: "digest-attested-derived-attempt", OriginKind: "operator", CreatedAt: "2026-09-10T00:00:30Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
+		ExecutorBindingID: f.bindingID, Credential: f.credential,
+	})
+	if err != nil {
+		t.Fatalf("drain with no argv Attempt ID: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != created.ID {
+		t.Fatalf("pending WorkerInputs = %#v, want the exact input of B's derived Attempt", pending)
 	}
 }
 

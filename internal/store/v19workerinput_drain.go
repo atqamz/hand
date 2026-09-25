@@ -11,6 +11,8 @@ import (
 var ErrCanonicalV19WorkerInputDrainNotCurrent = errors.New("canonical v19 WorkerInput drain is not current")
 
 // CanonicalV19WorkerInputDrainInput identifies one exact Worker execution generation.
+// AttemptID is optional: the doorbell and the harness environment carry no Attempt ID, so
+// an empty AttemptID is resolved from ExecutorBindingID; a non-empty one must name it exactly.
 type CanonicalV19WorkerInputDrainInput struct {
 	AttemptID         string
 	ExecutorBindingID string
@@ -30,8 +32,8 @@ func DrainCanonicalV19WorkerInputs(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if input.AttemptID == "" || input.ExecutorBindingID == "" {
-		return nil, fmt.Errorf("drain canonical v19 WorkerInput: Attempt ID and ExecutorBinding ID are required")
+	if input.ExecutorBindingID == "" {
+		return nil, fmt.Errorf("drain canonical v19 WorkerInput: ExecutorBinding ID is required")
 	}
 
 	db, err := openReadOnly(homeDir)
@@ -50,6 +52,9 @@ func DrainCanonicalV19WorkerInputs(
 		ctx, tx, input.ExecutorBindingID, input.callerAttestation, input.Credential,
 	); err != nil {
 		return nil, fmt.Errorf("drain canonical v19 WorkerInput: %w", err)
+	}
+	if input.AttemptID, err = resolveCanonicalV19WorkerInputDrainAttempt(ctx, tx, input); err != nil {
+		return nil, err
 	}
 	if err := requireCanonicalV19WorkerInputDrainCurrent(ctx, tx, input); err != nil {
 		return nil, err
@@ -84,6 +89,28 @@ func DrainCanonicalV19WorkerInputs(
 		return nil, canonicalV19WorkerInputDrainReadError("iterate pending inputs", err)
 	}
 	return pending, nil
+}
+
+// An empty input.AttemptID is derived from B; a non-empty one must already name it, since
+// the caller supplied it only as an optional argv cross-check, never as identity authority.
+func resolveCanonicalV19WorkerInputDrainAttempt(
+	ctx context.Context,
+	tx *sql.Tx,
+	input CanonicalV19WorkerInputDrainInput,
+) (string, error) {
+	var attemptID string
+	err := tx.QueryRowContext(ctx, `SELECT attempt_id FROM executor_binding WHERE id=?`, input.ExecutorBindingID).Scan(&attemptID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("%w: ExecutorBinding %q does not exist", ErrCanonicalV19WorkerInputDrainNotCurrent, input.ExecutorBindingID)
+	}
+	if err != nil {
+		return "", canonicalV19WorkerInputDrainReadError("resolve exact Attempt from ExecutorBinding", err)
+	}
+	if input.AttemptID != "" && input.AttemptID != attemptID {
+		return "", fmt.Errorf("%w: argv Attempt %q does not name ExecutorBinding %q's exact Attempt",
+			ErrCanonicalV19WorkerInputDrainNotCurrent, input.AttemptID, input.ExecutorBindingID)
+	}
+	return attemptID, nil
 }
 
 func requireCanonicalV19WorkerInputDrainCurrent(

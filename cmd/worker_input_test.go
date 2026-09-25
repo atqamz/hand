@@ -29,6 +29,52 @@ func TestWorkerInputProtocolRequiresWorkerRole(t *testing.T) {
 	}
 }
 
+func TestWorkerInputProtocolAcceptsOptionalArgvIDs(t *testing.T) {
+	// The doorbell and the harness environment carry no Attempt or ExecutorBinding ID
+	// (346-v2 lines 258-259, 390), so drain/acknowledge must accept 0/1 argv IDs, not just 2.
+	tests := [][]string{
+		{"drain"},
+		{"drain", "attempt-1"},
+		{"drain", "attempt-1", "executor-1"},
+		{"acknowledge", "input-1"},
+		{"acknowledge", "input-1", "executor-1"},
+	}
+	for _, args := range tests {
+		t.Run(strings.Join(args, "-"), func(t *testing.T) {
+			cmd := newWorkerInputCmdWithDeps(workerInputCommandDeps{
+				role: func() string { return harness.WorkerRole },
+			})
+			cmd.SetArgs(args)
+			cmd.SetOut(new(strings.Builder))
+			cmd.SetErr(new(strings.Builder))
+			_, err := cmd.ExecuteC()
+			var exitErr *ExitError
+			if !errors.As(err, &exitErr) || exitErr.Code != 3 || !errors.Is(err, store.ErrCanonicalV19HerdrCapabilityUnsupported) {
+				t.Fatalf("%v: error = %v, want the attestation precondition (exit 3), not a usage error", args, err)
+			}
+		})
+	}
+}
+
+func TestWorkerInputAcknowledgeObservedAtConvergesOnReplayOfTheSameBinding(t *testing.T) {
+	existing := store.CanonicalV19WorkerInputAcknowledgement{ExecutorBindingID: "executor-1", ObservedAt: "2026-09-10T00:00:00Z"}
+	if got := workerInputAcknowledgeObservedAt("2026-09-10T00:05:00Z", existing, true, "executor-1"); got != existing.ObservedAt {
+		t.Fatalf("replay observed_at = %q, want the first-recorded %q so the writer's exact-evidence-match idempotency converges", got, existing.ObservedAt)
+	}
+}
+
+func TestWorkerInputAcknowledgeObservedAtIsFreshWhenNotFoundOrExecutorDiffers(t *testing.T) {
+	const now = "2026-09-10T00:05:00Z"
+	notFound := store.CanonicalV19WorkerInputAcknowledgement{}
+	if got := workerInputAcknowledgeObservedAt(now, notFound, false, "executor-1"); got != now {
+		t.Fatalf("first-time observed_at = %q, want the fresh %q", got, now)
+	}
+	otherExecutor := store.CanonicalV19WorkerInputAcknowledgement{ExecutorBindingID: "executor-2", ObservedAt: "2026-09-10T00:00:00Z"}
+	if got := workerInputAcknowledgeObservedAt(now, otherExecutor, true, "executor-1"); got != now {
+		t.Fatalf("executor-mismatch observed_at = %q, want the fresh %q so the writer's own conflict check refuses it", got, now)
+	}
+}
+
 func TestWorkerInputProtocolRefusesMissingOrMismatchedEnvironment(t *testing.T) {
 	tests := []struct {
 		name       string

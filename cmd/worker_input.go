@@ -40,19 +40,34 @@ func newWorkerInputCmdWithDeps(deps workerInputCommandDeps) *cobra.Command {
 		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
 	}
 	cmd.AddCommand(&cobra.Command{
-		Use:   "drain <attempt-id> <executor-binding-id>",
+		Use:   "drain [attempt-id] [executor-binding-id]",
 		Short: "Read pending canonical WorkerInputs for this exact worker execution",
-		Args:  usageArgs(cobra.ExactArgs(2)),
+		Long: "B comes from HAND_WORKER_EXECUTOR_BINDING and its Attempt is derived from B; the doorbell\n" +
+			"carries neither. Argv IDs are optional and, if given, must name that exact Attempt/B.",
+		Args: usageArgs(cobra.MaximumNArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkerInputDrain(cmd, deps, args[0], args[1])
+			attemptID, executorBindingID := "", ""
+			if len(args) > 0 {
+				attemptID = args[0]
+			}
+			if len(args) > 1 {
+				executorBindingID = args[1]
+			}
+			return runWorkerInputDrain(cmd, deps, attemptID, executorBindingID)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
-		Use:   "acknowledge <worker-input-id> <executor-binding-id>",
+		Use:   "acknowledge <worker-input-id> [executor-binding-id]",
 		Short: "Record that this worker observed one exact canonical WorkerInput",
-		Args:  usageArgs(cobra.ExactArgs(2)),
+		Long: "B comes from HAND_WORKER_EXECUTOR_BINDING. The argv ExecutorBinding ID is optional and,\n" +
+			"if given, must name that exact B.",
+		Args: usageArgs(cobra.RangeArgs(1, 2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWorkerInputAcknowledge(cmd, deps, args[0], args[1])
+			executorBindingID := ""
+			if len(args) > 1 {
+				executorBindingID = args[1]
+			}
+			return runWorkerInputAcknowledge(cmd, deps, args[0], executorBindingID)
 		},
 	})
 	return cmd
@@ -62,17 +77,17 @@ func runWorkerInputDrain(
 	cmd *cobra.Command,
 	deps workerInputCommandDeps,
 	attemptID string,
-	executorBindingID string,
+	executorBindingIDArg string,
 ) error {
 	if err := requireWorkerInputProtocolRole(deps); err != nil {
 		return err
 	}
-	homeDir, credential, err := workerInputCallerCredential(deps, executorBindingID)
+	homeDir, binding, credential, err := workerInputCallerCredential(deps, executorBindingIDArg)
 	if err != nil {
 		return err
 	}
 	pending, err := store.DrainCanonicalV19WorkerInputs(cmd.Context(), homeDir, store.CanonicalV19WorkerInputDrainInput{
-		AttemptID: attemptID, ExecutorBindingID: executorBindingID, Credential: credential,
+		AttemptID: attemptID, ExecutorBindingID: binding, Credential: credential,
 	})
 	if err != nil {
 		return workerInputExitError(err)
@@ -92,20 +107,28 @@ func runWorkerInputAcknowledge(
 	cmd *cobra.Command,
 	deps workerInputCommandDeps,
 	workerInputID string,
-	executorBindingID string,
+	executorBindingIDArg string,
 ) error {
 	if err := requireWorkerInputProtocolRole(deps); err != nil {
 		return err
 	}
-	homeDir, credential, err := workerInputCallerCredential(deps, executorBindingID)
+	homeDir, binding, credential, err := workerInputCallerCredential(deps, executorBindingIDArg)
 	if err != nil {
 		return err
 	}
-	observedAt := time.Now().UTC().Format(time.RFC3339)
+	verifier, err := store.VerifyCanonicalV19WorkerInputCallerCredential(cmd.Context(), homeDir, binding, credential)
+	if err != nil {
+		return workerInputExitError(err)
+	}
+	existing, found, err := store.ReadCanonicalV19WorkerInputAcknowledgement(cmd.Context(), homeDir, workerInputID)
+	if err != nil {
+		return workerInputExitError(err)
+	}
+	observedAt := workerInputAcknowledgeObservedAt(time.Now().UTC().Format(time.RFC3339), existing, found, binding)
 	acknowledgement, err := store.CreateCanonicalV19WorkerInputAcknowledgement(cmd.Context(), homeDir,
 		store.CanonicalV19WorkerInputAcknowledgementCreateInput{
-			WorkerInputID: workerInputID, ExecutorBindingID: executorBindingID, ObservedAt: observedAt,
-			EvidenceDigest: store.CanonicalV19WorkerInputAcknowledgementEvidenceDigest(workerInputID, executorBindingID, observedAt),
+			WorkerInputID: workerInputID, ExecutorBindingID: binding, ObservedAt: observedAt,
+			EvidenceDigest: store.CanonicalV19WorkerInputAcknowledgementEvidenceDigest(workerInputID, binding, observedAt, verifier),
 			Credential:     credential,
 		})
 	if err != nil {
@@ -118,22 +141,34 @@ func runWorkerInputAcknowledge(
 	return doc.Render(cmd.OutOrStdout())
 }
 
-// B and S_B come from the caller's own environment, never from argv; an argv
-// ExecutorBinding ID must name that exact B.
-func workerInputCallerCredential(deps workerInputCommandDeps, executorBindingID string) (string, string, error) {
+// A replay after a lost reply must converge on the first-recorded observed_at, not a fresh
+// one, or the writer's exact-evidence-match idempotency sees drift and refuses it as a conflict.
+func workerInputAcknowledgeObservedAt(now string, existing store.CanonicalV19WorkerInputAcknowledgement, found bool, binding string) string {
+	if found && existing.ExecutorBindingID == binding {
+		return existing.ObservedAt
+	}
+	return now
+}
+
+// B and S_B come from the caller's own environment, never from argv. An argv ExecutorBinding
+// ID is an optional cross-check and, if given, must name that exact B.
+func workerInputCallerCredential(deps workerInputCommandDeps, executorBindingIDArg string) (string, string, string, error) {
 	binding := workerInputEnvValue(deps.binding)
 	credential := workerInputEnvValue(deps.credential)
-	if binding == "" || credential == "" || binding != executorBindingID {
-		return "", "", workerInputCallerAttestationUnsupported()
+	if binding == "" || credential == "" {
+		return "", "", "", workerInputMissingEnvironment()
+	}
+	if executorBindingIDArg != "" && executorBindingIDArg != binding {
+		return "", "", "", workerInputCallerAttestationUnsupported()
 	}
 	if deps.homeDir == nil {
-		return "", "", fmt.Errorf("worker-input protocol home dependency is unavailable")
+		return "", "", "", fmt.Errorf("worker-input protocol home dependency is unavailable")
 	}
 	homeDir, err := deps.homeDir()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return homeDir, credential, nil
+	return homeDir, binding, credential, nil
 }
 
 func workerInputEnvValue(get func() string) string {
@@ -153,9 +188,16 @@ func requireWorkerInputProtocolRole(deps workerInputCommandDeps) error {
 	return nil
 }
 
+func workerInputMissingEnvironment() error {
+	return &ExitError{Err: fmt.Errorf(
+		"%w: %s and %s must both be set in this worker's environment",
+		store.ErrCanonicalV19HerdrCapabilityUnsupported, execguard.ExecutorBindingEnv, execguard.CredentialEnv,
+	), Code: 3}
+}
+
 func workerInputCallerAttestationUnsupported() error {
 	return &ExitError{Err: fmt.Errorf(
-		"%w: selected managed Herdr provider cannot supply exact WorkerInput caller attestation",
+		"%w: the argv ExecutorBinding ID does not name this environment's exact ExecutorBinding",
 		store.ErrCanonicalV19HerdrCapabilityUnsupported,
 	), Code: 3}
 }

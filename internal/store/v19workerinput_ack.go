@@ -111,14 +111,16 @@ func CreateCanonicalV19WorkerInputAcknowledgement(
 	return result, nil
 }
 
-// The caller-attested evidence commitment for one WorkerInputAcknowledgement: the
-// credential-verified caller's own report that it observed exactly this WorkerInput at observedAt.
-func CanonicalV19WorkerInputAcknowledgementEvidenceDigest(workerInputID, executorBindingID, observedAt string) string {
+// The caller-attested evidence commitment for one WorkerInputAcknowledgement. verifier is
+// the V_B VerifyCanonicalV19WorkerInputCallerCredential returned, binding this evidence to
+// that exact successful attestation; it is never S_B itself.
+func CanonicalV19WorkerInputAcknowledgementEvidenceDigest(workerInputID, executorBindingID, observedAt, verifier string) string {
 	hash := sha256.New()
 	writeCanonicalV19DigestField(hash, "domain", "hand:v19:worker-input-acknowledgement:v1")
 	writeCanonicalV19DigestField(hash, "worker_input_id", workerInputID)
 	writeCanonicalV19DigestField(hash, "executor_binding_id", executorBindingID)
 	writeCanonicalV19DigestField(hash, "observed_at", observedAt)
+	writeCanonicalV19DigestField(hash, "verifier", verifier)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
