@@ -5,12 +5,14 @@
 // docs/architecture/v19-contracts/346-capability-adapters-v2.md ("Execution incarnation").
 package osfacts
 
-// Observation is Hand's classification of a re-read incarnation against a previously
-// recorded one. A zero-value Incarnation always observes Unknown, never Ceased.
+// Observation is Hand's classification of a re-read incarnation. A zero-value
+// Incarnation always observes Unknown. The names avoid the contract's "ceased"
+// record: Absent says nothing about T(G); BootChanged is strictly stronger.
 type Observation string
 
 const (
-	Alive   Observation = "alive"
-	Ceased  Observation = "ceased"
-	Unknown Observation = "unknown"
+	Alive       Observation = "alive"
+	Absent      Observation = "absent"
+	BootChanged Observation = "boot-changed"
+	Unknown     Observation = "unknown"
 )

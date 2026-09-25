@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestBootChangedOnlyWhenTickCountDrops(t *testing.T) {
+func TestBootTickChangedOnlyWhenTickCountDrops(t *testing.T) {
 	cases := []struct {
 		current, recorded uint64
 		want              bool
@@ -18,8 +18,8 @@ func TestBootChangedOnlyWhenTickCountDrops(t *testing.T) {
 		{current: 3000, recorded: 2000, want: false},
 	}
 	for _, c := range cases {
-		if got := bootChanged(c.current, c.recorded); got != c.want {
-			t.Errorf("bootChanged(%d, %d) = %v, want %v", c.current, c.recorded, got, c.want)
+		if got := bootTickChanged(c.current, c.recorded); got != c.want {
+			t.Errorf("bootTickChanged(%d, %d) = %v, want %v", c.current, c.recorded, got, c.want)
 		}
 	}
 }

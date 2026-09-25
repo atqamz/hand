@@ -17,7 +17,7 @@ func ReadIncarnation(int) (Incarnation, error) {
 	return Incarnation{}, fmt.Errorf("os facts are not read on %s: %w", runtime.GOOS, errors.ErrUnsupported)
 }
 
-// Observe always reports Unknown: a zero-value Incarnation is never Ceased.
+// Observe always reports Unknown: a zero-value Incarnation is never Absent.
 func Observe(Incarnation) Observation {
 	return Unknown
 }

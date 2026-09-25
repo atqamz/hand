@@ -43,7 +43,7 @@ func Observe(incarnation Incarnation) Observation {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, incarnation.PID)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return Ceased
+			return Absent
 		}
 		return Unknown
 	}
@@ -53,14 +53,14 @@ func Observe(incarnation Incarnation) Observation {
 		return Unknown
 	}
 	if creation != incarnation.CreationTime {
-		return Ceased
+		return Absent
 	}
 	event, err := windows.WaitForSingleObject(handle, 0)
 	switch {
 	case err != nil:
 		return Unknown
 	case event == windows.WAIT_OBJECT_0:
-		return Ceased
+		return Absent
 	case event == uint32(windows.WAIT_TIMEOUT):
 		return Alive
 	default:
@@ -84,12 +84,12 @@ func TickCount() uint64 {
 	return uint64(r0)
 }
 
-// BootChanged reports the contract's positive Windows boot-change witness: the
-// current tick count is lower than the value recorded at an earlier read.
-func BootChanged(recorded uint64) bool {
-	return bootChanged(TickCount(), recorded)
+// BootTickChanged reports the contract's positive Windows boot-change witness:
+// the current tick count is lower than the value recorded at an earlier read.
+func BootTickChanged(recorded uint64) bool {
+	return bootTickChanged(TickCount(), recorded)
 }
 
-func bootChanged(current, recorded uint64) bool {
+func bootTickChanged(current, recorded uint64) bool {
 	return current < recorded
 }
