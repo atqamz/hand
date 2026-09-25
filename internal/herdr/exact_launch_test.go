@@ -9,19 +9,17 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/faketool"
-	"github.com/atqamz/hand/internal/launch"
 )
 
-func TestPaneRunExactSpecRefusesForeignForegroundProcess(t *testing.T) {
+func TestPaneRunExecGuardRefusesForeignForegroundProcess(t *testing.T) {
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	faketool.Herdr{Responses: []faketool.HerdrResponse{
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/work"},{"pid":99,"name":"vim","cwd":"/tmp/work"}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	spec := launch.LaunchSpec{Executable: "worker", Cwd: "/tmp/work"}
-	err := NewClient().PaneRunExactSpec("wA:pB", spec)
+	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff")
 	if err == nil || !strings.Contains(err.Error(), "foreign foreground process") || !IsProcessNotStarted(err) {
-		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -32,15 +30,15 @@ func TestPaneRunExactSpecRefusesForeignForegroundProcess(t *testing.T) {
 	}
 }
 
-func TestPaneRunExactSpecRefusesShellCwdMismatch(t *testing.T) {
+func TestPaneRunExecGuardRefusesShellCwdMismatch(t *testing.T) {
 	callLog := filepath.Join(t.TempDir(), "calls.log")
 	faketool.Herdr{Responses: []faketool.HerdrResponse{
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/other"}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	err := NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: "/tmp/work"})
+	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff")
 	if err == nil || !strings.Contains(err.Error(), "cwd") || !IsProcessNotStarted(err) {
-		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -51,7 +49,7 @@ func TestPaneRunExactSpecRefusesShellCwdMismatch(t *testing.T) {
 	}
 }
 
-func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
+func TestPaneRunExecGuardAcceptsEquivalentShellCwd(t *testing.T) {
 	root := t.TempDir()
 	work := filepath.Join(root, "WorkDir")
 	if err := os.Mkdir(work, 0o755); err != nil {
@@ -75,7 +73,7 @@ func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":`+strconv.Quote(observed)+`}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	if err := NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: work}); err != nil {
+	if err := NewClient().PaneRunExecGuard("wA:pB", work, "/opt/hand", "/fleet/state/exec-guard/op/handoff"); err != nil {
 		t.Fatal(err)
 	}
 	calls, err := os.ReadFile(callLog)
@@ -87,7 +85,7 @@ func TestPaneRunExactSpecAcceptsEquivalentShellCwd(t *testing.T) {
 	}
 }
 
-func TestPaneRunExactSpecRefusesMissingShellCwd(t *testing.T) {
+func TestPaneRunExecGuardRefusesMissingShellCwd(t *testing.T) {
 	work, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -97,9 +95,9 @@ func TestPaneRunExactSpecRefusesMissingShellCwd(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":""}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	err = NewClient().PaneRunExactSpec("wA:pB", launch.LaunchSpec{Executable: "worker", Cwd: work})
+	err = NewClient().PaneRunExecGuard("wA:pB", work, "/opt/hand", "/fleet/state/exec-guard/op/handoff")
 	if err == nil || !strings.Contains(err.Error(), "missing shell cwd") || !IsProcessNotStarted(err) {
-		t.Fatalf("PaneRunExactSpec() = %v, want pre-mutation refusal", err)
+		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
 	calls, readErr := os.ReadFile(callLog)
 	if readErr != nil {
@@ -110,56 +108,25 @@ func TestPaneRunExactSpecRefusesMissingShellCwd(t *testing.T) {
 	}
 }
 
-func TestRenderExactPOSIXLaunchSpecAppliesCwdAndSortedEnvironment(t *testing.T) {
-	spec := launch.LaunchSpec{
-		Executable: "worker name",
-		Args:       []string{"arg with spaces"},
-		Env:        map[string]string{"Z_LAST": "z value", "A_FIRST": "$literal;value"},
-		Cwd:        "/tmp/work tree",
-	}
-	got, err := renderExactLaunchSpec(shellPOSIX, spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := `cd -- '/tmp/work tree' && A_FIRST='$literal;value' Z_LAST='z value' 'worker name' 'arg with spaces'`
-	if got != want {
-		t.Fatalf("render exact POSIX = %q, want %q", got, want)
-	}
-}
-
-func TestRenderExactPowerShellLaunchSpecScopesCwdAndEnvironment(t *testing.T) {
-	spec := launch.LaunchSpec{
-		Executable: "worker name",
-		Args:       []string{"arg with 'quote'"},
-		Env:        map[string]string{"TOKEN": "value'with;syntax"},
-		Cwd:        `C:\\work tree`,
-	}
-	got, err := renderExactLaunchSpec(shellPowerShell, spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{
-		`[Environment]::GetEnvironmentVariable('TOKEN', 'Process')`,
-		`[Environment]::SetEnvironmentVariable('TOKEN', 'value''with;syntax', 'Process')`,
-		`Set-Location -LiteralPath 'C:\\work tree'`,
-		`& 'worker name' 'arg with ''quote'''`,
-		`[Environment]::SetEnvironmentVariable('TOKEN', $null, 'Process')`,
+func TestPaneRunExecGuardTypesOnlyTheFixedShapeInvocation(t *testing.T) {
+	for _, test := range []struct{ shell, want string }{
+		{"bash", `'/opt/hand' 'exec-guard' '/fleet/state/exec-guard/op/handoff'`},
+		{"pwsh", `& '/opt/hand' 'exec-guard' '/fleet/state/exec-guard/op/handoff'`},
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("render exact PowerShell = %q, missing %q", got, want)
+		callLog := filepath.Join(t.TempDir(), "calls.log")
+		faketool.Herdr{Responses: []faketool.HerdrResponse{
+			herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"`+test.shell+`","cwd":"/tmp/work"}]}}}`),
+			herdrResponse("pane run", ""),
+		}, Log: callLog, LogCommands: []string{"pane run"}}.Install(t, faketool.Bin(t))
+		if err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff"); err != nil {
+			t.Fatal(err)
 		}
-	}
-}
-
-func TestRenderExactLaunchSpecRejectsInvalidTransportData(t *testing.T) {
-	for _, spec := range []launch.LaunchSpec{
-		{Executable: "", Cwd: "/tmp"},
-		{Executable: "worker", Cwd: "/tmp\nother"},
-		{Executable: "worker", Cwd: "/tmp", Env: map[string]string{"BAD-NAME": "value"}},
-		{Executable: "worker", Cwd: "/tmp", Env: map[string]string{"TOKEN": "value\x00"}},
-	} {
-		if _, err := renderExactLaunchSpec(shellPOSIX, spec); err == nil {
-			t.Fatalf("invalid spec unexpectedly rendered: %#v", spec)
+		calls, err := os.ReadFile(callLog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(string(calls)); got != "herdr pane run wA:pB "+test.want {
+			t.Fatalf("%s pane run = %q, want only the guard invocation and its locator (EG-14)", test.shell, got)
 		}
 	}
 }

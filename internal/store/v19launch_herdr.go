@@ -13,7 +13,6 @@ import (
 
 	handgit "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/herdr"
-	"github.com/atqamz/hand/internal/launch"
 )
 
 type canonicalV19HerdrLaunchObservationState string
@@ -63,7 +62,7 @@ type canonicalV19HerdrLaunchClient interface {
 	TabList(string) ([]herdr.Tab, error)
 	PaneGetContext(context.Context, string) (herdr.Pane, error)
 	PaneProcessInfo(string) (herdr.ProcessInfo, error)
-	PaneRunExactSpec(string, launch.LaunchSpec) error
+	PaneRunExecGuard(paneID, cwd, hand, locator string) error
 }
 
 type canonicalV19HerdrLaunchDeps struct {

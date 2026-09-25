@@ -2,20 +2,18 @@ package herdr
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 
 	handgit "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/launch"
-	"github.com/atqamz/hand/internal/shellquote"
 )
 
-// PaneRunExactSpec starts one exact structured process with explicit LaunchSpec cwd and environment.
-// Unlike transitional PaneRunSpec, it does not inherit semantic child settings from daemon/pane state.
-// Errors before pane run are marked process-not-started.
-func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
-	if err := spec.Validate(); err != nil {
-		return &ExecError{Started: false, Err: fmt.Errorf("validate exact launch spec: %w", err)}
+// PaneRunExecGuard types only `<hand> exec-guard <locator>` into the pane shell, once the pane
+// shell alone holds the foreground in cwd. The harness spec, its environment and every secret
+// stay in the handoff. Errors before pane run are marked process-not-started.
+func (c *Client) PaneRunExecGuard(paneID, cwd, hand, locator string) error {
+	spec, err := launch.NewSpec(launch.LaunchSpec{Executable: hand, Args: []string{"exec-guard", locator}, Cwd: cwd})
+	if err != nil {
+		return &ExecError{Started: false, Err: fmt.Errorf("validate exec guard invocation: %w", err)}
 	}
 	info, err := c.PaneProcessInfo(paneID)
 	if err != nil {
@@ -37,86 +35,13 @@ func (c *Client) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
 	if !handgit.SamePath(info.ForegroundProcesses[0].Cwd, spec.Cwd) {
 		return &ExecError{Started: false, Err: fmt.Errorf("refuse exact launch: shell cwd %q does not match launch cwd %q", info.ForegroundProcesses[0].Cwd, spec.Cwd)}
 	}
-	command, err := renderExactLaunchSpec(shell, spec)
+	render := renderPOSIX
+	if shell == shellPowerShell {
+		render = renderPowerShell
+	}
+	command, err := render(spec.Executable, spec.Args)
 	if err != nil {
-		return &ExecError{Started: false, Err: fmt.Errorf("render exact launch for %s: %w", shell, err)}
+		return &ExecError{Started: false, Err: fmt.Errorf("render exec guard invocation for %s: %w", shell, err)}
 	}
 	return c.paneRun(paneID, command)
-}
-
-func renderExactLaunchSpec(shell shellFamily, spec launch.LaunchSpec) (string, error) {
-	if err := spec.Validate(); err != nil {
-		return "", err
-	}
-	switch shell {
-	case shellPOSIX:
-		return renderExactPOSIXLaunchSpec(spec)
-	case shellPowerShell:
-		return renderExactPowerShellLaunchSpec(spec)
-	default:
-		return "", fmt.Errorf("unsupported shell %q", shell)
-	}
-}
-
-func renderExactPOSIXLaunchSpec(spec launch.LaunchSpec) (string, error) {
-	command, err := renderPOSIX(spec.Executable, spec.Args)
-	if err != nil {
-		return "", err
-	}
-	parts := make([]string, 0, len(spec.Env)+1)
-	for _, name := range sortedLaunchEnvironmentNames(spec.Env) {
-		parts = append(parts, name+"="+shellquote.Quote(spec.Env[name]))
-	}
-	parts = append(parts, command)
-	return "cd -- " + shellquote.Quote(spec.Cwd) + " && " + joinShellParts(parts), nil
-}
-
-func renderExactPowerShellLaunchSpec(spec launch.LaunchSpec) (string, error) {
-	command, err := renderPowerShell(spec.Executable, spec.Args)
-	if err != nil {
-		return "", err
-	}
-	names := sortedLaunchEnvironmentNames(spec.Env)
-	var b strings.Builder
-	b.WriteString("& { $handOldLocation = Get-Location; $handOldEnv = @{}; try { ")
-	for _, name := range names {
-		quotedName := powerShellQuote(name)
-		b.WriteString("$handOldEnv[")
-		b.WriteString(quotedName)
-		b.WriteString("] = [Environment]::GetEnvironmentVariable(")
-		b.WriteString(quotedName)
-		b.WriteString(", 'Process'); [Environment]::SetEnvironmentVariable(")
-		b.WriteString(quotedName)
-		b.WriteString(", ")
-		b.WriteString(powerShellQuote(spec.Env[name]))
-		b.WriteString(", 'Process'); ")
-	}
-	b.WriteString("Set-Location -LiteralPath ")
-	b.WriteString(powerShellQuote(spec.Cwd))
-	b.WriteString("; ")
-	b.WriteString(command)
-	b.WriteString(" } finally { Set-Location -LiteralPath $handOldLocation.Path; ")
-	for _, name := range names {
-		quotedName := powerShellQuote(name)
-		b.WriteString("if ($null -eq $handOldEnv[")
-		b.WriteString(quotedName)
-		b.WriteString("]) { [Environment]::SetEnvironmentVariable(")
-		b.WriteString(quotedName)
-		b.WriteString(", $null, 'Process') } else { [Environment]::SetEnvironmentVariable(")
-		b.WriteString(quotedName)
-		b.WriteString(", $handOldEnv[")
-		b.WriteString(quotedName)
-		b.WriteString("], 'Process') }; ")
-	}
-	b.WriteString("} }")
-	return b.String(), nil
-}
-
-func sortedLaunchEnvironmentNames(environment map[string]string) []string {
-	names := make([]string, 0, len(environment))
-	for name := range environment {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
