@@ -4,6 +4,7 @@ package store
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -119,10 +120,14 @@ func parseCanonicalV19ExecGuardKey(value string) (canonicalV19ExecGuardKey, erro
 		return key, fmt.Errorf("assoc %q is not observed, unobserved or mismatch", key.Assoc)
 	case key.ObjectClass != execguard.ClassExact && key.ObjectClass != execguard.ClassSampled && key.ObjectClass != canonicalV19ExecGuardUnknown:
 		return key, fmt.Errorf("exe_class %q is not exact, sampled or unknown", key.ObjectClass)
+	case key.Assoc == "observed" && (key.Guard == nil || key.Root == nil):
+		return key, errors.New("an observed pane association needs a known guard and harness root")
 	case key.Root != nil && key.ProcessGroup <= 0:
 		return key, errors.New("a known harness root needs a process group")
-	case key.Object != nil && len(key.Object.SHA256) != sha256.Size*2:
-		return key, errors.New("a known executable object needs its SHA-256")
+	case key.ObjectClass != canonicalV19ExecGuardUnknown && key.Object == nil:
+		return key, errors.New("a known object class needs its pinned object")
+	case key.Object != nil && !canonicalV19ExecGuardDigest(key.Object.SHA256):
+		return key, errors.New("a known executable object needs its lowercase hex SHA-256")
 	case formatCanonicalV19ExecGuardKey(key) != value:
 		return key, errors.New("key is not in canonical form")
 	}
@@ -143,4 +148,9 @@ func parseCanonicalV19ExecGuardIncarnation(value string) (*osfacts.Incarnation, 
 		return nil, fmt.Errorf("incarnation %q is not boot.pid.starttime", value)
 	}
 	return &osfacts.Incarnation{BootID: parts[0], PID: pid, StartTicks: ticks}, nil
+}
+
+func canonicalV19ExecGuardDigest(value string) bool {
+	_, err := hex.DecodeString(value)
+	return err == nil && len(value) == sha256.Size*2 && value == strings.ToLower(value)
 }

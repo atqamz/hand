@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/atqamz/hand/internal/execguard"
 	"github.com/atqamz/hand/internal/launch"
@@ -23,6 +25,10 @@ func prepareCanonicalV19ExecGuardLaunch(
 	input CanonicalV19LaunchPrepareInput,
 ) (canonicalV19HerdrLaunchCurrent, error) {
 	if err := validateCanonicalV19ExecGuardSpec(input.Spec); err != nil {
+		return canonicalV19HerdrLaunchCurrent{}, fmt.Errorf("launch canonical v19 Herdr: %w", err)
+	}
+	dir, err := canonicalV19ExecGuardDir(homeDir, input.OperationID)
+	if err != nil {
 		return canonicalV19HerdrLaunchCurrent{}, fmt.Errorf("launch canonical v19 Herdr: %w", err)
 	}
 	fleetID, err := readCanonicalV19FleetID(ctx, homeDir)
@@ -52,7 +58,7 @@ func prepareCanonicalV19ExecGuardLaunch(
 	if err != nil {
 		return canonicalV19HerdrLaunchCurrent{}, fmt.Errorf("launch canonical v19 Herdr: %w", err)
 	}
-	if err := writeCanonicalV19ExecGuardHandoff(canonicalV19ExecGuardDir(homeDir, input.OperationID), current, credential); err != nil {
+	if err := writeCanonicalV19ExecGuardHandoff(dir, current, credential); err != nil {
 		return current, fmt.Errorf("launch canonical v19 Herdr: write exec guard handoff: %w", err)
 	}
 	return current, nil
@@ -63,6 +69,9 @@ func validateCanonicalV19ExecGuardSpec(spec CanonicalV19LaunchSpec) error {
 		return fmt.Errorf("launch executable %q is not an absolute path", spec.Executable)
 	}
 	for name, value := range spec.Environment {
+		if strings.ContainsAny(name, "=\x00") {
+			return fmt.Errorf("launch environment name %q is not one variable", name)
+		}
 		if name == execguard.ExecutorBindingEnv || name == execguard.CredentialEnv {
 			return fmt.Errorf("launch environment %q is reserved for Hand core", name)
 		}
@@ -86,8 +95,15 @@ func readCanonicalV19FleetID(ctx context.Context, homeDir string) (string, error
 	return fleetID, db.sql.QueryRowContext(ctx, `SELECT fleet_id FROM fleet WHERE singleton=1`).Scan(&fleetID)
 }
 
-func canonicalV19ExecGuardDir(homeDir, operationID string) string {
-	return filepath.Join(homeDir, "state", "exec-guard", operationID)
+// The operation ID becomes one path element of the Fleet-private directory and part of the
+// typed locator, so anything that could escape it or reach the terminal is refused.
+func canonicalV19ExecGuardDir(homeDir, operationID string) (string, error) {
+	if operationID == "" || operationID == "." || operationID == ".." || strings.ContainsFunc(operationID, func(r rune) bool {
+		return r == '/' || r == '\\' || unicode.IsControl(r)
+	}) {
+		return "", fmt.Errorf("operation ID %q cannot name an exec guard directory", operationID)
+	}
+	return filepath.Join(homeDir, "state", "exec-guard", operationID), nil
 }
 
 func writeCanonicalV19ExecGuardHandoff(dir string, current canonicalV19HerdrLaunchCurrent, credential string) error {

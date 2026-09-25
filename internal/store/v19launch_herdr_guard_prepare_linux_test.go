@@ -38,10 +38,11 @@ func newExecGuardLaunchTest(t *testing.T, argv ...string) *execGuardLaunchTest {
 			"HAND_ROLE": {ValueKind: "literal", ValueMaterial: "worker", ValueDigest: launch.EnvironmentValueDigest("worker")},
 		},
 	}
-	return &execGuardLaunchTest{
-		home: fixture.Home, dir: canonicalV19ExecGuardDir(fixture.Home, input.OperationID),
-		session: session, key: key, input: input,
+	dir, err := canonicalV19ExecGuardDir(fixture.Home, input.OperationID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return &execGuardLaunchTest{home: fixture.Home, dir: dir, session: session, key: key, input: input}
 }
 
 func TestExecGuardPrepareCommitsOnlyTheVerifierAndHandsSBToTheHandoff(t *testing.T) {
@@ -87,25 +88,36 @@ func TestExecGuardPrepareValidationRefusesBeforeAnyOperationRow(t *testing.T) {
 	before := canonicalV19WorktreeCreateOperationCount(t, l.home)
 	for _, test := range []struct {
 		name   string
-		mutate func(*CanonicalV19LaunchSpec)
+		mutate func(*CanonicalV19LaunchPrepareInput)
 	}{
-		{"relative executable", func(spec *CanonicalV19LaunchSpec) { spec.Executable = "sh" }},
-		{"reserved ExecutorBinding name", func(spec *CanonicalV19LaunchSpec) {
-			spec.Environment[execguard.ExecutorBindingEnv] = spec.Environment["HAND_ROLE"]
+		{"relative executable", func(input *CanonicalV19LaunchPrepareInput) { input.Spec.Executable = "sh" }},
+		{"reserved ExecutorBinding name", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment[execguard.ExecutorBindingEnv] = input.Spec.Environment["HAND_ROLE"]
 		}},
-		{"reserved credential name", func(spec *CanonicalV19LaunchSpec) {
-			spec.Environment[execguard.CredentialEnv] = spec.Environment["HAND_ROLE"]
+		{"reserved credential name", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment[execguard.CredentialEnv] = input.Spec.Environment["HAND_ROLE"]
 		}},
-		{"unresolvable secret-ref", func(spec *CanonicalV19LaunchSpec) {
-			spec.Environment["TOKEN"] = CanonicalV19LaunchEnvironmentValue{ValueKind: "secret-ref", ValueMaterial: "secret://token", ValueDigest: "digest"}
+		{"a name that assigns the credential", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment[execguard.CredentialEnv+"=x"] = execGuardLiteral("x")
 		}},
-		{"literal digest the guard would refuse", func(spec *CanonicalV19LaunchSpec) {
-			spec.Environment["HAND_ROLE"] = CanonicalV19LaunchEnvironmentValue{ValueKind: "literal", ValueMaterial: "worker", ValueDigest: "digest"}
+		{"a name that assigns the ExecutorBinding", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment[execguard.ExecutorBindingEnv+"=eb_other"] = execGuardLiteral("eb_other")
 		}},
+		{"a name with NUL", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment["HAND\x00ROLE"] = execGuardLiteral("worker")
+		}},
+		{"unresolvable secret-ref", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment["TOKEN"] = CanonicalV19LaunchEnvironmentValue{ValueKind: "secret-ref", ValueMaterial: "secret://token", ValueDigest: "digest"}
+		}},
+		{"literal digest the guard would refuse", func(input *CanonicalV19LaunchPrepareInput) {
+			input.Spec.Environment["HAND_ROLE"] = CanonicalV19LaunchEnvironmentValue{ValueKind: "literal", ValueMaterial: "worker", ValueDigest: "digest"}
+		}},
+		{"an operation ID that leaves the exec-guard directory", func(input *CanonicalV19LaunchPrepareInput) { input.OperationID = "../escape" }},
+		{"an operation ID that reaches the terminal", func(input *CanonicalV19LaunchPrepareInput) { input.OperationID = "op\nrm -rf ~" }},
 	} {
 		input := l.input
 		input.Spec = cloneCanonicalV19LaunchSpec(input.Spec)
-		test.mutate(&input.Spec)
+		test.mutate(&input)
 		if _, err := prepareCanonicalV19ExecGuardLaunch(context.Background(), l.home, input); err == nil || canonicalV19WorktreeCreateOperationCount(t, l.home) != before {
 			t.Errorf("%s: prepare = %v, want a refusal before any operation row", test.name, err)
 		}
@@ -144,6 +156,10 @@ func TestExecGuardKeyRoundTripsItsObservedAndAttestedForms(t *testing.T) {
 		strings.Replace(valid, "p=4101", "p=unknown", 1),
 		strings.Replace(valid, "r="+guard.BootID+".4101.8813", "r=unknown", 1),
 		strings.Replace(valid, "exe_class=exact", "exe_class=verified", 1),
+		strings.Replace(strings.Replace(valid, "exe=64769%3A1311", "exe=unknown", 1), "exe_sha256="+object.SHA256, "exe_sha256=unknown", 1),
+		strings.Replace(valid, "g="+guard.BootID+".4100.8812", "g=unknown", 1),
+		strings.Replace(valid, "exe_sha256="+object.SHA256, "exe_sha256="+strings.ToUpper(object.SHA256), 1),
+		strings.Replace(valid, "exe_sha256="+object.SHA256, "exe_sha256="+strings.Repeat("zz", 32), 1),
 		strings.Replace(valid, "&g=", "&g=unknown&g=", 1),
 		valid + "&extra=1",
 	} {
@@ -151,6 +167,10 @@ func TestExecGuardKeyRoundTripsItsObservedAndAttestedForms(t *testing.T) {
 			t.Errorf("parse accepted %q", broken)
 		}
 	}
+}
+
+func execGuardLiteral(value string) CanonicalV19LaunchEnvironmentValue {
+	return CanonicalV19LaunchEnvironmentValue{ValueKind: "literal", ValueMaterial: value, ValueDigest: launch.EnvironmentValueDigest(value)}
 }
 
 func assertExecGuardSecretOnlyIn(t *testing.T, secret string, root string, allowed ...string) {
