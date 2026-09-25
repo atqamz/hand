@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	handlaunch "github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/osfacts"
-	"github.com/atqamz/hand/internal/store"
 	"github.com/atqamz/hand/internal/testtag"
 	"golang.org/x/sys/unix"
 )
@@ -202,22 +202,22 @@ func newLaunch(t *testing.T, executable string, arguments ...string) *launch {
 		FleetID:           fleet,
 		ExecutorBindingID: binding,
 		RequestDigest:     "request-" + randomHex(t, 8),
-		Spec: store.CanonicalV19LaunchSpec{
+		Spec: handlaunch.CanonicalSpec{
 			Executable: executable,
 			Arguments:  arguments,
 			Cwd:        worktree,
-			Environment: map[string]store.CanonicalV19LaunchEnvironmentValue{
+			Environment: map[string]handlaunch.CanonicalEnvironmentValue{
 				ExecutorBindingEnv: literal(binding),
 				CredentialEnv: {
 					ValueKind:     "secret-ref",
 					ValueMaterial: Protocol,
-					ValueDigest:   store.CanonicalV19ExecGuardCredentialVerifier(fleet, binding, credential),
+					ValueDigest:   handlaunch.ExecGuardCredentialVerifier(fleet, binding, credential),
 				},
 				"HAND_ROLE": literal("worker"),
 				"TOKEN": {
 					ValueKind:     "secret-ref",
 					ValueMaterial: "secret://worker/token",
-					ValueDigest:   store.CanonicalV19LaunchEnvironmentValueDigest(values["TOKEN"]),
+					ValueDigest:   handlaunch.EnvironmentValueDigest(values["TOKEN"]),
 				},
 			},
 		},
@@ -231,12 +231,12 @@ func newLaunch(t *testing.T, executable string, arguments ...string) *launch {
 	return l
 }
 
-func literal(value string) store.CanonicalV19LaunchEnvironmentValue {
-	return store.CanonicalV19LaunchEnvironmentValue{ValueKind: "literal", ValueMaterial: value, ValueDigest: store.CanonicalV19LaunchEnvironmentValueDigest(value)}
+func literal(value string) handlaunch.CanonicalEnvironmentValue {
+	return handlaunch.CanonicalEnvironmentValue{ValueKind: "literal", ValueMaterial: value, ValueDigest: handlaunch.EnvironmentValueDigest(value)}
 }
 
 func (l *launch) seal() {
-	l.handoff.LaunchSpecDigest = store.CanonicalV19LaunchSpecDigest(l.handoff.Spec)
+	l.handoff.LaunchSpecDigest = handlaunch.CanonicalSpecDigest(l.handoff.Spec)
 }
 
 func (l *launch) write(t *testing.T) {

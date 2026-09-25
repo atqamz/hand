@@ -7,7 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"sort"
+
+	"github.com/atqamz/hand/internal/launch"
 )
 
 // ErrCanonicalV19LaunchConflict marks an exact Launch resource, dependency,
@@ -22,24 +23,10 @@ var ErrCanonicalV19LaunchNotCurrent = errors.New("canonical v19 launch is not cu
 // operation transition for Launch.
 var ErrCanonicalV19LaunchTransition = errors.New("canonical v19 launch transition conflict")
 
-// CanonicalV19LaunchEnvironmentValue is one exact persisted process environment
-// entry. Secret values use value_kind=secret-ref so plaintext need not be stored;
-// ValueDigest pins the resolved value that the later provider adapter must verify.
-type CanonicalV19LaunchEnvironmentValue struct {
-	ValueKind     string
-	ValueMaterial string
-	ValueDigest   string
-}
-
-// CanonicalV19LaunchSpec is the exact structured process request persisted for
-// one canonical Launch. It contains process data only, never shell source or
-// provider workspace/tab/pane identity.
-type CanonicalV19LaunchSpec struct {
-	Executable  string
-	Arguments   []string
-	Environment map[string]CanonicalV19LaunchEnvironmentValue
-	Cwd         string
-}
+type (
+	CanonicalV19LaunchEnvironmentValue = launch.CanonicalEnvironmentValue
+	CanonicalV19LaunchSpec             = launch.CanonicalSpec
+)
 
 // CanonicalV19LaunchPrepareInput identifies one fresh logical Launch for the
 // exact active Attempt and open SessionBinding.
@@ -156,7 +143,7 @@ func PrepareCanonicalV19Launch(
 			return CanonicalV19LaunchRequest{}, canonicalV19LaunchConstraintError("prepare", "insert Launch argument", request.OperationID, err)
 		}
 	}
-	for _, name := range canonicalV19LaunchEnvironmentNames(request.Spec.Environment) {
+	for _, name := range launch.CanonicalEnvironmentNames(request.Spec.Environment) {
 		value := request.Spec.Environment[name]
 		if _, err := tx.ExecContext(ctx, `INSERT INTO launch_environment(
 			operation_id,name,value_kind,value_material,value_digest
@@ -458,7 +445,7 @@ func buildCanonicalV19LaunchRequest(
 	if request.Spec.Cwd != worktreePath {
 		return CanonicalV19LaunchRequest{}, fmt.Errorf("%w: Launch cwd %q does not equal exact WorktreeBinding path %q", ErrCanonicalV19LaunchNotCurrent, request.Spec.Cwd, worktreePath)
 	}
-	request.LaunchSpecDigest = CanonicalV19LaunchSpecDigest(request.Spec)
+	request.LaunchSpecDigest = launch.CanonicalSpecDigest(request.Spec)
 	request.RequestDigest = canonicalV19LaunchRequestDigest(request)
 	return request, nil
 }
@@ -522,7 +509,7 @@ func loadCanonicalV19LaunchCurrent(
 	if err := validateCanonicalV19LaunchSpec(request.Spec); err != nil {
 		return canonicalV19LaunchCurrent{}, fmt.Errorf("%w: operation %q persisted LaunchSpec invalid: %v", ErrCanonicalV19LaunchNotCurrent, operationID, err)
 	}
-	if CanonicalV19LaunchSpecDigest(request.Spec) != request.LaunchSpecDigest {
+	if launch.CanonicalSpecDigest(request.Spec) != request.LaunchSpecDigest {
 		return canonicalV19LaunchCurrent{}, fmt.Errorf("%w: operation %q LaunchSpec digest does not match persisted request", ErrCanonicalV19LaunchNotCurrent, operationID)
 	}
 	if canonicalV19LaunchRequestDigest(*request) != request.RequestDigest {
@@ -598,49 +585,6 @@ func canonicalV19LaunchSuccessTransitionAllowed(from string) bool {
 	return from == "prepared" || from == "submitted" || from == "uncertain"
 }
 
-// CanonicalV19LaunchSpecDigest is the launch-spec commitment Tx A persists and
-// the exec guard recomputes from its handoff before starting the harness.
-func CanonicalV19LaunchSpecDigest(spec CanonicalV19LaunchSpec) string {
-	hash := sha256.New()
-	writeCanonicalV19DigestField(hash, "domain", "hand:v19:launch-spec:v1")
-	writeCanonicalV19DigestField(hash, "executable", spec.Executable)
-	writeCanonicalV19DigestField(hash, "cwd", spec.Cwd)
-	writeCanonicalV19DigestField(hash, "argument_count", fmt.Sprintf("%d", len(spec.Arguments)))
-	for ordinal, value := range spec.Arguments {
-		writeCanonicalV19DigestField(hash, fmt.Sprintf("argument_%d", ordinal), value)
-	}
-	names := canonicalV19LaunchEnvironmentNames(spec.Environment)
-	writeCanonicalV19DigestField(hash, "environment_count", fmt.Sprintf("%d", len(names)))
-	for _, name := range names {
-		value := spec.Environment[name]
-		writeCanonicalV19DigestField(hash, "environment_name", name)
-		writeCanonicalV19DigestField(hash, "environment_kind", value.ValueKind)
-		writeCanonicalV19DigestField(hash, "environment_material", value.ValueMaterial)
-		writeCanonicalV19DigestField(hash, "environment_digest", value.ValueDigest)
-	}
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// CanonicalV19LaunchEnvironmentValueDigest is the ValueDigest committed for one
-// resolved environment value other than the exec-guard credential.
-func CanonicalV19LaunchEnvironmentValueDigest(value string) string {
-	hash := sha256.New()
-	writeCanonicalV19DigestField(hash, "domain", "hand:v19:launch-environment-value:v1")
-	writeCanonicalV19DigestField(hash, "value", value)
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
-// CanonicalV19ExecGuardCredentialVerifier is V_B, the ValueDigest of the
-// HAND_WORKER_CREDENTIAL entry for one Fleet and ExecutorBinding.
-func CanonicalV19ExecGuardCredentialVerifier(fleetID, executorBindingID, credential string) string {
-	hash := sha256.New()
-	writeCanonicalV19DigestField(hash, "domain", "hand:v19:exec-guard-credential:v1")
-	writeCanonicalV19DigestField(hash, "fleet_id", fleetID)
-	writeCanonicalV19DigestField(hash, "executor_binding_id", executorBindingID)
-	writeCanonicalV19DigestField(hash, "credential", credential)
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
 func canonicalV19LaunchRequestDigest(request CanonicalV19LaunchRequest) string {
 	hash := sha256.New()
 	writeCanonicalV19DigestField(hash, "domain", "hand:v19:launch-request:v1")
@@ -654,15 +598,6 @@ func canonicalV19LaunchRequestDigest(request CanonicalV19LaunchRequest) string {
 	writeCanonicalV19DigestField(hash, "adapter_ref", request.AdapterRef)
 	writeCanonicalV19DigestField(hash, "launch_spec_digest", request.LaunchSpecDigest)
 	return hex.EncodeToString(hash.Sum(nil))
-}
-
-func canonicalV19LaunchEnvironmentNames(environment map[string]CanonicalV19LaunchEnvironmentValue) []string {
-	names := make([]string, 0, len(environment))
-	for name := range environment {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func cloneCanonicalV19LaunchSpec(spec CanonicalV19LaunchSpec) CanonicalV19LaunchSpec {
