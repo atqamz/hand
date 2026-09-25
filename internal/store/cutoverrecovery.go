@@ -131,6 +131,20 @@ func inspectLegacyV18CutoverFrozenRecovery(homeDir string) (legacyV18CutoverReco
 		}, nil
 	}
 
+	if record, found, err := findLegacyV18CutoverAbortRecord(homeDir, bridge.MigrationID); err != nil || found {
+		reason := fmt.Sprintf("abort passed its commit point at %s; only hand cutover offline --abort may continue", record)
+		if err != nil {
+			reason = fmt.Sprintf("abort record is unobservable: %v", err)
+		}
+		return legacyV18CutoverRecoveryState{
+			Disposition:  legacyV18CutoverRecoveryRefuse,
+			Reason:       reason,
+			MigrationID:  bridge.MigrationID,
+			FleetID:      bridge.FleetID,
+			SourceSHA256: bridge.SourceSHA256,
+			BridgeSHA256: bridge.BridgeSHA256,
+		}, nil
+	}
 	if bridge.CertificateVersion != legacyV18CutoverFreezeCertificateVersion {
 		return legacyV18CutoverRecoveryState{
 			Disposition:  legacyV18CutoverRecoveryRefuse,
