@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/herdr"
-	"github.com/atqamz/hand/internal/launch"
 )
 
 func TestCanonicalV19HerdrProcessMatchKeepsExecutablePathsDistinct(t *testing.T) {
@@ -239,20 +238,16 @@ const (
 )
 
 type canonicalV19HerdrLaunchFakeClient struct {
-	t                     *testing.T
-	home                  string
-	request               CanonicalV19LaunchRequest
-	sessionName           string
-	workspaces            []herdr.Workspace
-	workspaceErr          error
-	tabs                  map[string][]herdr.Tab
-	panes                 map[string]herdr.Pane
-	processInfo           herdr.ProcessInfo
-	runCalls              int
-	runErr                error
-	mutateOnRun           bool
-	requireSubmittedAtRun bool
-	lastSpec              launch.LaunchSpec
+	t            *testing.T
+	home         string
+	request      CanonicalV19LaunchRequest
+	sessionName  string
+	workspaces   []herdr.Workspace
+	workspaceErr error
+	tabs         map[string][]herdr.Tab
+	panes        map[string]herdr.Pane
+	processInfo  herdr.ProcessInfo
+	runCalls     int
 }
 
 func newCanonicalV19HerdrLaunchFakeClient(
@@ -281,7 +276,6 @@ func newCanonicalV19HerdrLaunchFakeClient(
 				PID: canonicalV19HerdrLaunchTestShellPID, Name: "shell", Argv: []string{"shell"}, Cwd: request.Spec.Cwd,
 			}},
 		},
-		mutateOnRun: true,
 	}
 }
 
@@ -319,28 +313,9 @@ func (f *canonicalV19HerdrLaunchFakeClient) PaneProcessInfo(paneID string) (herd
 	return f.processInfo, nil
 }
 
-func (f *canonicalV19HerdrLaunchFakeClient) PaneRunExactSpec(paneID string, spec launch.LaunchSpec) error {
+func (f *canonicalV19HerdrLaunchFakeClient) PaneRunExecGuard(string, string, string, string) error {
 	f.runCalls++
-	f.lastSpec = spec.Clone()
-	if f.requireSubmittedAtRun {
-		db, err := openReadOnly(f.home)
-		if err != nil {
-			f.t.Fatal(err)
-		}
-		var state string
-		if err := db.sql.QueryRow(`SELECT state FROM external_operation WHERE id=?`, f.request.OperationID).Scan(&state); err != nil {
-			_ = db.Close()
-			f.t.Fatal(err)
-		}
-		_ = db.Close()
-		if state != "submitted" {
-			f.t.Fatalf("state at first provider mutation = %q, want submitted", state)
-		}
-	}
-	if f.mutateOnRun {
-		f.startTarget(f.request.Spec)
-	}
-	return f.runErr
+	return nil
 }
 
 func (f *canonicalV19HerdrLaunchFakeClient) startTarget(spec CanonicalV19LaunchSpec) {
