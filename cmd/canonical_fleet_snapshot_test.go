@@ -110,8 +110,69 @@ func TestFleetSnapshotShowsCurrentTaskHoldWithoutInventingAttention(t *testing.T
 		!strings.Contains(out.String(), "hold-1,task-1,1,blocked,digest-hold,") ||
 		strings.Contains(out.String(), "waiting for task-2") ||
 		!strings.Contains(out.String(), "task-2,decision-1,") ||
+		!strings.Contains(out.String(), "current_open_decisions[1]") ||
+		!strings.Contains(out.String(), `decision-1,task-1,none,none,task,"",none,`) ||
 		!strings.Contains(out.String(), "partial_attention_items[0]") {
-		t.Fatalf("snapshot did not separate TaskHold from Attention: %q", out.String())
+		t.Fatalf("snapshot did not separate TaskHold and Decision from Attention: %q", out.String())
+	}
+	after, err := os.ReadFile(store.Path(home))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("snapshot mutated canonical database: %v", err)
+	}
+}
+
+func TestFleetSnapshotHidesClosedDecisionAndItsFreeTextQuestion(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "fleet")
+	fleetID, err := store.InitializeCanonicalV19(context.Background(), home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HAND_HOME", home)
+	t.Setenv("SECONDHAND_HOME", filepath.Join(t.TempDir(), "registry"))
+	db, err := sql.Open("sqlite", "file:"+store.Path(home)+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO project(id,fleet_id,ordinal,display_name,created_at)
+		VALUES('project-1',?,1,'demo','2026-09-24T00:00:00Z')`, fleetID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateCanonicalV19Task(context.Background(), home, store.CanonicalV19TaskCreateInput{
+		ID: "task-1", ProjectID: "project-1", Goal: "task-1", GoalDigest: "digest-task-1",
+		CreatedAt: "2026-09-24T00:01:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateCanonicalV19Decision(context.Background(), home, store.CanonicalV19DecisionCreateInput{
+		ID: "decision-closed", TaskID: "task-1", ScopeKind: "task",
+		Question: "Should the free-text question stay hidden from CLI rows?", CreatedAt: "2026-09-24T00:02:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CloseCanonicalV19Decision(context.Background(), home, store.CanonicalV19DecisionCloseInput{
+		DecisionID: "decision-closed", Reason: "cancelled", ClosedAt: "2026-09-24T00:03:00Z", EvidenceDigest: "digest-closure",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(store.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := newRootCmd(devBuild("test"))
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetArgs([]string{"fleet", "snapshot"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "current_open_decisions[0]") ||
+		strings.Contains(output, "decision-closed") ||
+		strings.Contains(output, "Should the free-text question") {
+		t.Fatalf("snapshot did not hide closed Decision and its free text: %q", output)
 	}
 	after, err := os.ReadFile(store.Path(home))
 	if err != nil || string(after) != string(before) {
