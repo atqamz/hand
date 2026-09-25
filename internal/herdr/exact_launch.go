@@ -2,6 +2,7 @@ package herdr
 
 import (
 	"fmt"
+	"path/filepath"
 
 	handgit "github.com/atqamz/hand/internal/git"
 	"github.com/atqamz/hand/internal/launch"
@@ -11,6 +12,9 @@ import (
 // shell alone holds the foreground in cwd. The harness spec, its environment and every secret
 // stay in the handoff. Errors before pane run are marked process-not-started.
 func (c *Client) PaneRunExecGuard(paneID, cwd, hand, locator string) error {
+	if !filepath.IsAbs(hand) || !filepath.IsAbs(locator) {
+		return &ExecError{Started: false, Err: fmt.Errorf("exec guard invocation needs an absolute hand %q and handoff locator %q", hand, locator)}
+	}
 	spec, err := launch.NewSpec(launch.LaunchSpec{Executable: hand, Args: []string{"exec-guard", locator}, Cwd: cwd})
 	if err != nil {
 		return &ExecError{Started: false, Err: fmt.Errorf("validate exec guard invocation: %w", err)}

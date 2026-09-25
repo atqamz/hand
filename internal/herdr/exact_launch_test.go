@@ -17,7 +17,7 @@ func TestPaneRunExecGuardRefusesForeignForegroundProcess(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/work"},{"pid":99,"name":"vim","cwd":"/tmp/work"}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff")
+	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", testGuardHand, testGuardLocator)
 	if err == nil || !strings.Contains(err.Error(), "foreign foreground process") || !IsProcessNotStarted(err) {
 		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
@@ -36,7 +36,7 @@ func TestPaneRunExecGuardRefusesShellCwdMismatch(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":"/tmp/other"}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff")
+	err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", testGuardHand, testGuardLocator)
 	if err == nil || !strings.Contains(err.Error(), "cwd") || !IsProcessNotStarted(err) {
 		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
@@ -73,7 +73,7 @@ func TestPaneRunExecGuardAcceptsEquivalentShellCwd(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":`+strconv.Quote(observed)+`}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	if err := NewClient().PaneRunExecGuard("wA:pB", work, "/opt/hand", "/fleet/state/exec-guard/op/handoff"); err != nil {
+	if err := NewClient().PaneRunExecGuard("wA:pB", work, testGuardHand, testGuardLocator); err != nil {
 		t.Fatal(err)
 	}
 	calls, err := os.ReadFile(callLog)
@@ -95,7 +95,7 @@ func TestPaneRunExecGuardRefusesMissingShellCwd(t *testing.T) {
 		herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"bash","cwd":""}]}}}`),
 		herdrResponse("pane run", ""),
 	}, Log: callLog}.Install(t, faketool.Bin(t))
-	err = NewClient().PaneRunExecGuard("wA:pB", work, "/opt/hand", "/fleet/state/exec-guard/op/handoff")
+	err = NewClient().PaneRunExecGuard("wA:pB", work, testGuardHand, testGuardLocator)
 	if err == nil || !strings.Contains(err.Error(), "missing shell cwd") || !IsProcessNotStarted(err) {
 		t.Fatalf("PaneRunExecGuard() = %v, want pre-mutation refusal", err)
 	}
@@ -110,15 +110,15 @@ func TestPaneRunExecGuardRefusesMissingShellCwd(t *testing.T) {
 
 func TestPaneRunExecGuardTypesOnlyTheFixedShapeInvocation(t *testing.T) {
 	for _, test := range []struct{ shell, want string }{
-		{"bash", `'/opt/hand' 'exec-guard' '/fleet/state/exec-guard/op/handoff'`},
-		{"pwsh", `& '/opt/hand' 'exec-guard' '/fleet/state/exec-guard/op/handoff'`},
+		{"bash", "'" + testGuardHand + "' 'exec-guard' '" + testGuardLocator + "'"},
+		{"pwsh", "& '" + testGuardHand + "' 'exec-guard' '" + testGuardLocator + "'"},
 	} {
 		callLog := filepath.Join(t.TempDir(), "calls.log")
 		faketool.Herdr{Responses: []faketool.HerdrResponse{
 			herdrResponse("pane process-info", `{"id":"cli:1","result":{"process_info":{"pane_id":"wA:pB","shell_pid":42,"foreground_process_group_id":42,"foreground_processes":[{"pid":42,"name":"`+test.shell+`","cwd":"/tmp/work"}]}}}`),
 			herdrResponse("pane run", ""),
 		}, Log: callLog, LogCommands: []string{"pane run"}}.Install(t, faketool.Bin(t))
-		if err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", "/opt/hand", "/fleet/state/exec-guard/op/handoff"); err != nil {
+		if err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", testGuardHand, testGuardLocator); err != nil {
 			t.Fatal(err)
 		}
 		calls, err := os.ReadFile(callLog)
@@ -130,3 +130,24 @@ func TestPaneRunExecGuardTypesOnlyTheFixedShapeInvocation(t *testing.T) {
 		}
 	}
 }
+
+func TestPaneRunExecGuardRefusesAnInexactInvocationBeforeAnyHerdrCall(t *testing.T) {
+	for _, test := range []struct{ name, hand, locator string }{
+		{"relative hand", "hand", testGuardLocator},
+		{"relative locator", testGuardHand, filepath.Join("state", "exec-guard", "op", "handoff")},
+		{"newline in locator", testGuardHand, testGuardLocator + "\nrm -rf ~"},
+	} {
+		callLog := filepath.Join(t.TempDir(), "calls.log")
+		faketool.Herdr{Log: callLog}.Install(t, faketool.Bin(t))
+		err := NewClient().PaneRunExecGuard("wA:pB", "/tmp/work", test.hand, test.locator)
+		if _, statErr := os.Stat(callLog); err == nil || !IsProcessNotStarted(err) || statErr == nil {
+			t.Fatalf("%s: PaneRunExecGuard() = %v with Herdr log %v, want a not-started refusal before any Herdr call (EG-7, EG-14)", test.name, err, statErr)
+		}
+	}
+}
+
+var (
+	testGuardRoot    = filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
+	testGuardHand    = filepath.Join(testGuardRoot, "opt", "hand")
+	testGuardLocator = filepath.Join(testGuardRoot, "fleet", "state", "exec-guard", "op", "handoff")
+)
