@@ -21,13 +21,15 @@ type execGuardWakeTest struct {
 	launch CanonicalV19LaunchRequest
 	input  CanonicalV19WorkerInput
 	root   osfacts.Incarnation
+	assoc  string
 	client *canonicalV19HerdrWorkerWakeFakeClient
 	deps   canonicalV19HerdrWorkerWakeDeps
 	wakes  int
 }
 
-// A(B) needs a real controlling terminal whose foreground group is R's.
-func newExecGuardWakeTest(t *testing.T) *execGuardWakeTest {
+// A(B) needs a real controlling terminal whose foreground group is R's. atLaunch changes what
+// Herdr reports while the Launch records assoc; the wake then sees the true pane again.
+func newExecGuardWakeTest(t *testing.T, atLaunch ...func(*herdr.ProcessInfo)) *execGuardWakeTest {
 	t.Helper()
 	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exec sleep 30")
 	launchDeps := l.submit(t)
@@ -39,15 +41,7 @@ func newExecGuardWakeTest(t *testing.T) *execGuardWakeTest {
 	}
 	t.Cleanup(func() { l.stopGuard(t); _ = guard.Wait() })
 	waitExecGuard(t, "the running record", func() bool { _, err := execguard.ReadRecord(l.dir, execguard.KindRunning); return err == nil })
-	if state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, launchDeps); state != "succeeded" {
-		t.Fatalf("Launch = %q, %v, want an established guarded ExecutorBinding", state, err)
-	}
 	current, err := readCanonicalV19HerdrLaunchCurrent(context.Background(), l.home, l.input.OperationID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	input, err := CreateCanonicalV19WorkerInput(context.Background(), l.home,
-		canonicalV19WorkerInputCreateInput(current.Current.Request, "worker-input-guard-wake", "semantic payload must not enter the doorbell", "digest-worker-input-guard-wake"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +51,27 @@ func newExecGuardWakeTest(t *testing.T) *execGuardWakeTest {
 	pane := base.panes[l.key.PaneID]
 	pane.Agent, pane.AgentStatus = "worker", herdr.StatusIdle
 	base.panes[l.key.PaneID] = pane
+	live := base.processInfo
+	for _, change := range atLaunch {
+		change(&base.processInfo)
+	}
+	launchDeps.clientFor = func(string) canonicalV19HerdrLaunchClient { return base }
+	if state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, launchDeps); state != "succeeded" {
+		t.Fatalf("Launch = %q, %v, want an established guarded ExecutorBinding", state, err)
+	}
+	base.processInfo = live
+	_, key, _ := l.binding(t)
+	recorded, err := parseCanonicalV19ExecGuardKey(key)
+	if err != nil || (len(atLaunch) == 0 && recorded.Assoc != "observed") {
+		t.Fatalf("Launch key %q (%v), want assoc observed when Herdr reports the guard's terminal and group", key, err)
+	}
+	input, err := CreateCanonicalV19WorkerInput(context.Background(), l.home,
+		canonicalV19WorkerInputCreateInput(current.Current.Request, "worker-input-guard-wake", "semantic payload must not enter the doorbell", "digest-worker-input-guard-wake"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	w := &execGuardWakeTest{
-		execGuardLaunchTest: l, launch: current.Current.Request, input: input, root: *running.Root,
+		execGuardLaunchTest: l, launch: current.Current.Request, input: input, root: *running.Root, assoc: recorded.Assoc,
 		client: &canonicalV19HerdrWorkerWakeFakeClient{canonicalV19HerdrLaunchFakeClient: base, requireSubmittedAtPrompt: true},
 		deps:   canonicalV19HerdrWorkerWakeDefaultDeps(),
 	}
@@ -166,11 +179,24 @@ func TestExecGuardWakeRefusesBeforeThePromptWhenWFails(t *testing.T) {
 	}
 }
 
+func TestExecGuardWakeOfABindingWhoseLaunchDidNotObserveTheAssociationIsRefused(t *testing.T) {
+	for _, test := range []struct{ assoc, tty string }{{"unobserved", ""}, {"mismatch", "/dev/null"}} {
+		w := newExecGuardWakeTest(t, func(info *herdr.ProcessInfo) { info.TTY = test.tty })
+		if w.assoc != test.assoc {
+			t.Fatalf("recorded assoc = %q, want %q", w.assoc, test.assoc)
+		}
+		if state, persisted, err := w.wake(t); state != "no-effect" || persisted != "no-effect" || err == nil || w.client.herdrCalls != 0 {
+			t.Fatalf("wake of an assoc=%s binding = %q (%q), %v with %d Herdr calls, want no-effect before any Herdr call although the pane now matches (counterexamples 16, 17)",
+				test.assoc, state, persisted, err, w.client.herdrCalls)
+		}
+	}
+}
+
 func TestExecGuardWakeOfAnEndedHarnessIsNoEffect(t *testing.T) {
 	w := newExecGuardWakeTest(t)
 	w.endHarness(t)
-	if state, persisted, err := w.wake(t); state != "no-effect" || persisted != "no-effect" || err == nil || w.client.promptCalls != 0 {
-		t.Fatalf("wake = %q (%q), %v with %d prompts, want no-effect before the prompt once R ended (counterexample 5)", state, persisted, err, w.client.promptCalls)
+	if state, persisted, err := w.wake(t); state != "no-effect" || persisted != "no-effect" || err == nil || w.client.herdrCalls != 0 {
+		t.Fatalf("wake = %q (%q), %v with %d Herdr calls, want no-effect before any Herdr call once R ended (counterexample 5)", state, persisted, err, w.client.herdrCalls)
 	}
 }
 

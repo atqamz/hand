@@ -102,7 +102,8 @@ func wakeCanonicalV19Herdr(
 	return settle("succeeded", "")
 }
 
-// W(B) on Linux reads the OS-only facts first, so a gone or ceased guard never reaches Herdr.
+// W(B) on Linux reads the recorded key and the OS facts first, so a binding whose Launch did
+// not observe A(B), or a gone or ceased guard, never reaches Herdr.
 func checkCanonicalV19HerdrGuardWake(
 	parent context.Context,
 	current canonicalV19HerdrWorkerWakeCurrent,
@@ -110,6 +111,9 @@ func checkCanonicalV19HerdrGuardWake(
 	dir string,
 	client canonicalV19HerdrWorkerWakeClient,
 ) string {
+	if key.Assoc != "observed" {
+		return "the Launch recorded the pane association A(B) as " + key.Assoc
+	}
 	if key.Guard == nil || key.Root == nil {
 		return "the ExecutorBinding key names no guard incarnation and harness root"
 	}
