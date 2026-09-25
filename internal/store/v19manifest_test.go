@@ -117,12 +117,27 @@ func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 	t.Run("manifest-v8.md", func(t *testing.T) {
 		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v8.md", "348-cutover-archive-v3.md", "b67acfad620ca08ff031531ce93fe5e8e39589f9", "95b325f9aa4a78eab4a0d977579ffcc73dee886322bd6fc8e9436900f096f338")
 	})
+	t.Run("manifest-v9-input.md", func(t *testing.T) {
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9-input.md", "348-cutover-archive-v4.md", "c5dca977ae277ad146b1d4490edfa8d113ca3621", "bd374c3f16711e7f384ff30e6727bab2815ef7bdcb65968e919a46b054aa5872")
+	})
 }
 
-func TestCanonicalV19PermanentManifestRevision8Artifacts(t *testing.T) {
-	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v8.md"))
-	for _, field := range []string{
+func TestCanonicalV19Revision9InputMatchesArtifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v9-input.md"))
+	for _, field := range append(canonicalV19RelationalManifestFields(),
 		"b5e4a324543df1762ba23b336b7cda9eec26029a",
+		"source base commit: 3812a730318a27bda794cc9a7e9f421a57d74413",
+		"source base tree: 436875884c28fd0d0049738065ed1a3196b4daf8",
+		"supersedes revision 3 blob `b67acfad620ca08ff031531ce93fe5e8e39589f9`",
+	) {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-9 input missing %q", field)
+		}
+	}
+}
+
+func canonicalV19RelationalManifestFields() []string {
+	return []string{
 		"content commit: " + canonicalV19AuthorityCommit,
 		"DDL: " + canonicalV19AuthorityDDLPath,
 		"Git blob: " + canonicalV19AuthorityDDLGitBlobSHA1,
@@ -134,7 +149,12 @@ func TestCanonicalV19PermanentManifestRevision8Artifacts(t *testing.T) {
 		fmt.Sprintf("schema-defined objects: %d tables / %d explicit indexes / %d triggers", canonicalV19TableCount, canonicalV19IndexCount, canonicalV19TriggerCount),
 		"proof Git blob: b66b4ee1aa59dccc7315e4ed4079715cc0e0fce5",
 		"relock Git blob: 765c1fad37685f98dbb953f15e7a7617916576ba",
-	} {
+	}
+}
+
+func TestCanonicalV19PermanentManifestRevision8Artifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v8.md"))
+	for _, field := range append(canonicalV19RelationalManifestFields(), "b5e4a324543df1762ba23b336b7cda9eec26029a") {
 		if !strings.Contains(manifest, field) {
 			t.Errorf("revision-8 manifest missing %q", field)
 		}
