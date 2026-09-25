@@ -71,15 +71,19 @@ type canonicalV19HerdrLaunchDeps struct {
 }
 
 // ReconcileCanonicalV19HerdrLaunch reconciles one exact canonical v19 Launch against Herdr.
-// The selected managed provider is refused before submission until it supplies exact executable
-// object and never-reused execution-incarnation identity.
+// On Linux a Launch prepared with the exec-guard credential is classified from its guard
+// records; every other Launch is refused until its provider supplies identity proofs.
 func ReconcileCanonicalV19HerdrLaunch(ctx context.Context, homeDir, operationID string) (string, error) {
-	return reconcileCanonicalV19HerdrLaunch(ctx, homeDir, operationID, canonicalV19HerdrLaunchDeps{
+	return reconcileCanonicalV19HerdrLaunch(ctx, homeDir, operationID, canonicalV19HerdrLaunchDefaultDeps())
+}
+
+func canonicalV19HerdrLaunchDefaultDeps() canonicalV19HerdrLaunchDeps {
+	return canonicalV19HerdrLaunchDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrLaunchClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
 		now: time.Now,
-	})
+	}
 }
 
 func reconcileCanonicalV19HerdrLaunch(
@@ -104,7 +108,7 @@ func reconcileCanonicalV19HerdrLaunch(
 			if state, found, terminalErr := readCanonicalV19HerdrLaunchTerminal(ctx, homeDir, operationID); terminalErr != nil {
 				return "", fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", terminalErr)
 			} else if found {
-				return state, nil
+				return state, settleCanonicalV19ExecGuardFiles(homeDir, operationID)
 			}
 		}
 		return "", fmt.Errorf("reconcile canonical v19 Herdr Launch: %w", err)
@@ -112,7 +116,7 @@ func reconcileCanonicalV19HerdrLaunch(
 	request := current.Current.Request
 	switch current.Current.State {
 	case "succeeded", "rejected", "no-effect":
-		return current.Current.State, nil
+		return current.Current.State, settleCanonicalV19ExecGuardFiles(homeDir, operationID)
 	case "prepared", "submitted", "uncertain":
 	default:
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: operation %q is %q",
@@ -121,6 +125,9 @@ func reconcileCanonicalV19HerdrLaunch(
 	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: adapter %q is not %q",
 			ErrCanonicalV19LaunchNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
+	}
+	if state, handled, err := reconcileCanonicalV19HerdrGuardLaunch(ctx, homeDir, current, deps); handled {
+		return state, err
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Launch", "exact executable-object and never-reused execution-incarnation identity",

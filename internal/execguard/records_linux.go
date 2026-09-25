@@ -135,6 +135,22 @@ func Locator(dir string) string {
 	return filepath.Join(dir, handoffName)
 }
 
+// Settle removes the tombstone and any claim file a crashed guard left, the files that can
+// still hold S_B. Hand calls it only once L has settled, after its fence.
+func Settle(dir string) error {
+	claims, err := filepath.Glob(filepath.Join(dir, claimPrefix+"*"))
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, path := range append(claims, filepath.Join(dir, tombstoneName)) {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // RequestInterrupt asks exactly guard to terminate its tree for Interrupt operation id.
 // Every other incarnation ignores the request, and a replay rewrites the same bytes.
 func RequestInterrupt(dir string, guard osfacts.Incarnation, interruptOperationID string) error {
