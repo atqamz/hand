@@ -21,6 +21,9 @@ func TestReleasePublicationWaitsForExactMainCI(t *testing.T) {
 	if qualify.Permissions["actions"] != "read" || qualify.Permissions["contents"] != "read" {
 		t.Fatalf("qualification permissions = %v, want read-only Actions and contents", qualify.Permissions)
 	}
+	if qualify.TimeoutMinutes != 0 {
+		t.Fatalf("qualification timeout = %d minutes, want the job default so it outlasts the CI jobs it watches", qualify.TimeoutMinutes)
+	}
 	if got := workflowValue(t, qualify.Steps, "checkout", "ref"); got != "${{ needs.release-please.outputs.sha }}" {
 		t.Fatalf("qualification checkout ref = %q", got)
 	}
@@ -34,6 +37,9 @@ func TestReleasePublicationWaitsForExactMainCI(t *testing.T) {
 		if !containsString(workflowJobNeeds(t, jobs[name].Needs), "qualify") {
 			t.Fatalf("%s can run without exact CI qualification", name)
 		}
+	}
+	if got := jobs["publish"].Environment; got != "github-release" {
+		t.Fatalf("publish job environment = %#v, want the operator-approved %q environment", got, "github-release")
 	}
 }
 

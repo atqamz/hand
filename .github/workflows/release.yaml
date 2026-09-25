@@ -34,7 +34,6 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     permissions:
       actions: read
       contents: read
@@ -172,10 +171,11 @@ jobs:
   publish:
     name: Publish release assets
     # Deliberately independent of npm-publish: the GitHub release is the primary
-    # distribution channel and npm is additional, so a pending operator approval, a
+    # distribution channel and npm is additional, so a pending npm approval, a
     # rejected gate, or an npm outage must never hold back the primary one.
     needs: [release-please, qualify, build]
     runs-on: ubuntu-latest
+    environment: github-release
     steps:
       - uses: actions/checkout@v7
         with:

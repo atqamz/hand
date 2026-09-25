@@ -18,6 +18,9 @@ func TestEdgePublicationWaitsForExactMainCI(t *testing.T) {
 	if qualify.Permissions["actions"] != "read" || qualify.Permissions["contents"] != "read" {
 		t.Fatalf("qualification permissions = %v, want read-only Actions and contents", qualify.Permissions)
 	}
+	if qualify.TimeoutMinutes != 0 {
+		t.Fatalf("edge qualification timeout = %d minutes, want the job default so it outlasts the CI jobs it watches", qualify.TimeoutMinutes)
+	}
 	if got := workflowValue(t, qualify.Steps, "checkout", "ref"); got != "${{ inputs.sha }}" {
 		t.Fatalf("qualification checkout ref = %q", got)
 	}

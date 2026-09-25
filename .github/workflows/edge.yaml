@@ -77,7 +77,6 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.eligible == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     permissions:
       actions: read
       contents: read
