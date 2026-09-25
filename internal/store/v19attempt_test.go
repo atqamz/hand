@@ -387,7 +387,12 @@ type canonicalV19AttemptWriterTestFixture struct {
 
 func canonicalV19AttemptWriterFixture(t *testing.T) canonicalV19AttemptWriterTestFixture {
 	t.Helper()
-	fixture := canonicalV19PlanWriterFixture(t, "")
+	return canonicalV19AttemptWriterFixtureWithFleetID(t, "fleet-1")
+}
+
+func canonicalV19AttemptWriterFixtureWithFleetID(t *testing.T, fleetID string) canonicalV19AttemptWriterTestFixture {
+	t.Helper()
+	fixture := canonicalV19PlanWriterFixtureWithFleetID(t, fleetID, "")
 	if _, err := CreateCanonicalV19RootPlan(context.Background(), fixture.Home, canonicalV19PlanWriterInput("plan-root")); err != nil {
 		t.Fatal(err)
 	}

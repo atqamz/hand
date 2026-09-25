@@ -491,6 +491,12 @@ func TestCreateCanonicalV19TaskDoesNotCreateOrRepairDatabase(t *testing.T) {
 
 func canonicalV19TaskWriterFixture(t *testing.T, retired bool) string {
 	t.Helper()
+	return canonicalV19TaskWriterFixtureWithFleetID(t, "fleet-1", retired)
+}
+
+// fleet_id is anchored immutable, so a cross-Fleet test must choose it here, at Tx A.
+func canonicalV19TaskWriterFixtureWithFleetID(t *testing.T, fleetID string, retired bool) string {
+	t.Helper()
 	home := t.TempDir()
 	db, err := open(Path(home))
 	if err != nil {
@@ -500,7 +506,7 @@ func canonicalV19TaskWriterFixture(t *testing.T, retired bool) string {
 		_ = db.Close()
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO fleet(singleton,fleet_id,created_at) VALUES(1,'fleet-1','2026-09-04T06:39:00Z')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO fleet(singleton,fleet_id,created_at) VALUES(1,?,'2026-09-04T06:39:00Z')`, fleetID); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
 	}
@@ -509,7 +515,7 @@ func canonicalV19TaskWriterFixture(t *testing.T, retired bool) string {
 		retiredAt = "2026-09-04T06:39:30Z"
 	}
 	if _, err := db.Exec(`INSERT INTO project(id,fleet_id,ordinal,display_name,created_at,retired_at)
-		VALUES('project-1','fleet-1',1,'demo','2026-09-04T06:39:00Z',?)`, retiredAt); err != nil {
+		VALUES('project-1',?,1,'demo','2026-09-04T06:39:00Z',?)`, fleetID, retiredAt); err != nil {
 		_ = db.Close()
 		t.Fatal(err)
 	}

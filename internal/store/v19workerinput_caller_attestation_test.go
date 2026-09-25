@@ -12,9 +12,9 @@ import (
 	"github.com/atqamz/hand/internal/launch"
 )
 
-// A minimal schema carrying only the columns verifyCanonicalV19WorkerInputCredential
-// queries, so these tests can freely construct wrong-shaped rows the anchored canonical
-// schema's immutability triggers would otherwise refuse to ever produce.
+// A minimal schema carrying only the columns verifyCanonicalV19WorkerInputCredential queries.
+// It exists solely for row shapes the anchored schema's CHECKs and immutability triggers can
+// never actually produce; every other case runs against the real DDL in the linux-tagged file.
 func newWorkerInputCredentialTx(t *testing.T) *sql.Tx {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -53,7 +53,6 @@ type workerInputCredentialRow struct {
 	valueKind           string
 	valueMaterial       string
 	credential          string
-	terminated          bool
 }
 
 func defaultWorkerInputCredentialRow() workerInputCredentialRow {
@@ -84,69 +83,6 @@ func seedWorkerInputCredentialRow(t *testing.T, tx *sql.Tx, row workerInputCrede
 		row.launchOperationID, execguard.CredentialEnv, row.valueKind, row.valueMaterial, digest); err != nil {
 		t.Fatal(err)
 	}
-	if row.terminated {
-		if _, err := tx.Exec(`INSERT INTO executor_binding_termination(executor_binding_id) VALUES(?)`, row.executorBindingID); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestVerifyCanonicalV19WorkerInputCredentialAcceptsExactRow(t *testing.T) {
-	tx := newWorkerInputCredentialTx(t)
-	row := defaultWorkerInputCredentialRow()
-	seedWorkerInputCredentialRow(t, tx, row)
-	got, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, row.credential)
-	want := launch.ExecGuardCredentialVerifier(row.fleetID, row.executorBindingID, row.credential)
-	if err != nil || got != want {
-		t.Fatalf("verify = %q, %v, want the committed V_B %q", got, err, want)
-	}
-}
-
-func TestVerifyCanonicalV19WorkerInputCredentialRefusesMissingOrMalformedCredential(t *testing.T) {
-	tx := newWorkerInputCredentialTx(t)
-	row := defaultWorkerInputCredentialRow()
-	seedWorkerInputCredentialRow(t, tx, row)
-	for _, credential := range []string{"", "not-base64url!", base64.RawURLEncoding.EncodeToString([]byte("too-short"))} {
-		if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, credential); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-			t.Fatalf("credential %q error = %v, want attestation refusal", credential, err)
-		}
-	}
-}
-
-func TestVerifyCanonicalV19WorkerInputCredentialRefusesWrongCredential(t *testing.T) {
-	tx := newWorkerInputCredentialTx(t)
-	row := defaultWorkerInputCredentialRow()
-	seedWorkerInputCredentialRow(t, tx, row)
-	wrong := base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("\x22", 32)))
-	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, wrong); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("wrong credential error = %v, want attestation refusal (counterexample 6)", err)
-	}
-}
-
-// The exact same B and Attempt shape exist in two Fleets; each Fleet's own credential
-// verifies only against its own Fleet, because V_B recomputes with this DB's fleet_id.
-func TestVerifyCanonicalV19WorkerInputCredentialRefusesCredentialFromAnotherFleet(t *testing.T) {
-	rowA := defaultWorkerInputCredentialRow()
-	rowA.fleetID = "fleet-unit-a-genuinely-distinct"
-	rowA.credential = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("\x33", 32)))
-	txA := newWorkerInputCredentialTx(t)
-	seedWorkerInputCredentialRow(t, txA, rowA)
-
-	rowB := defaultWorkerInputCredentialRow()
-	rowB.fleetID = "fleet-unit-b-genuinely-distinct"
-	rowB.credential = base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("\x44", 32)))
-	txB := newWorkerInputCredentialTx(t)
-	seedWorkerInputCredentialRow(t, txB, rowB)
-
-	if rowA.fleetID == rowB.fleetID {
-		t.Fatal("fixture Fleets must be genuinely distinct to exercise cross-Fleet contamination")
-	}
-	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), txA, rowA.executorBindingID, rowA.credential); err != nil {
-		t.Fatalf("Fleet A's own credential against its own Fleet: %v", err)
-	}
-	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), txB, rowB.executorBindingID, rowA.credential); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("Fleet A's credential against Fleet B's DB for the same B error = %v, want attestation refusal (counterexample 7)", err)
-	}
 }
 
 func TestVerifyCanonicalV19WorkerInputCredentialRefusesWrongValueKindOrMaterial(t *testing.T) {
@@ -171,25 +107,5 @@ func TestVerifyCanonicalV19WorkerInputCredentialRefusesWrongKeyGrammar(t *testin
 	seedWorkerInputCredentialRow(t, tx, row)
 	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, row.credential); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
 		t.Fatalf("credential against a non-guard-grammar key error = %v, want attestation refusal", err)
-	}
-}
-
-func TestVerifyCanonicalV19WorkerInputCredentialRefusesTerminatedBinding(t *testing.T) {
-	tx := newWorkerInputCredentialTx(t)
-	row := defaultWorkerInputCredentialRow()
-	row.terminated = true
-	seedWorkerInputCredentialRow(t, tx, row)
-	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, row.credential); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("credential against a terminated binding error = %v, want attestation refusal (counterexample 6)", err)
-	}
-}
-
-func TestVerifyCanonicalV19WorkerInputCredentialRefusesInactiveAttempt(t *testing.T) {
-	tx := newWorkerInputCredentialTx(t)
-	row := defaultWorkerInputCredentialRow()
-	row.lifecycle, row.terminalAt = "terminated", "2026-09-10T00:00:00Z"
-	seedWorkerInputCredentialRow(t, tx, row)
-	if _, err := verifyCanonicalV19WorkerInputCredential(context.Background(), tx, row.executorBindingID, row.credential); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
-		t.Fatalf("credential against an inactive Attempt error = %v, want attestation refusal", err)
 	}
 }

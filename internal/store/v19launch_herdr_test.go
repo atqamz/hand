@@ -200,7 +200,14 @@ func canonicalV19HerdrSessionFixture(t *testing.T) (
 	canonicalV19WorktreeCreateTestFixture, CanonicalV19WorktreeCreateRequest, CanonicalV19SessionAcquireRequest, canonicalV19HerdrSessionProviderKey,
 ) {
 	t.Helper()
-	base := canonicalV19AttemptWriterFixture(t)
+	return canonicalV19HerdrSessionFixtureWithFleetID(t, "fleet-1")
+}
+
+func canonicalV19HerdrSessionFixtureWithFleetID(t *testing.T, fleetID string) (
+	canonicalV19WorktreeCreateTestFixture, CanonicalV19WorktreeCreateRequest, CanonicalV19SessionAcquireRequest, canonicalV19HerdrSessionProviderKey,
+) {
+	t.Helper()
+	base := canonicalV19AttemptWriterFixtureWithFleetID(t, fleetID)
 	attempt := canonicalV19AttemptWriterInput("attempt-1", "plan-root")
 	attempt.SessionAdapterRef = CanonicalV19HerdrSessionAdapterRef
 	if _, err := CreateCanonicalV19Attempt(context.Background(), base.Home, attempt); err != nil {

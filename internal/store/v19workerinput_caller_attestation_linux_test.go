@@ -15,8 +15,8 @@ import (
 )
 
 // One real exec-guard ExecutorBinding, established the same way the Launch adapter tests do,
-// so these tests exercise the real V_B committed at Tx A end to end. Credential edge cases are
-// unit-tested directly in v19workerinput_caller_attestation_test.go.
+// so these tests exercise the real V_B committed at Tx A end to end. Row shapes the anchored
+// schema can never produce are unit-tested in v19workerinput_caller_attestation_test.go.
 type workerInputCallerAttestationFixture struct {
 	home       string
 	attemptID  string
@@ -26,7 +26,14 @@ type workerInputCallerAttestationFixture struct {
 
 func newWorkerInputCallerAttestationFixture(t *testing.T) workerInputCallerAttestationFixture {
 	t.Helper()
-	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	return newWorkerInputCallerAttestationFixtureWithFleetID(t, "fleet-1")
+}
+
+// fleetID lets a cross-Fleet test commit V_B under a genuinely distinct Fleet identity;
+// fleet is anchored immutable, so it must be chosen at Tx A, not patched in afterward.
+func newWorkerInputCallerAttestationFixtureWithFleetID(t *testing.T, fleetID string) workerInputCallerAttestationFixture {
+	t.Helper()
+	l := newExecGuardLaunchTestWithFleetID(t, fleetID, "/bin/sh", "-c", "exit 0")
 	current, err := prepareCanonicalV19ExecGuardLaunch(context.Background(), l.home, l.input)
 	if err != nil {
 		t.Fatal(err)
@@ -137,6 +144,47 @@ func TestVerifyCanonicalV19WorkerInputCallerCredentialRefusesWrongCredential(t *
 	wrong := make([]byte, 32)
 	if _, err := VerifyCanonicalV19WorkerInputCallerCredential(context.Background(), f.home, f.bindingID, base64.RawURLEncoding.EncodeToString(wrong)); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
 		t.Fatalf("verify with the wrong credential error = %v, want attestation refusal", err)
+	}
+}
+
+// Two real Fleet homes, built through the anchored DDL, share the same literal B
+// ("executor-binding-1") but have genuinely distinct fleet_id values. Fleet A's own
+// exact credential must be refused against Fleet B's DB (counterexample 7).
+func TestWorkerInputCallerAttestationRefusesCredentialFromAnotherFleet(t *testing.T) {
+	a := newWorkerInputCallerAttestationFixtureWithFleetID(t, "fleet-attestation-a")
+	b := newWorkerInputCallerAttestationFixtureWithFleetID(t, "fleet-attestation-b")
+	if a.bindingID != b.bindingID {
+		t.Fatalf("fixtures must share one literal ExecutorBinding ID to exercise cross-Fleet contamination, got %q and %q", a.bindingID, b.bindingID)
+	}
+	if _, err := DrainCanonicalV19WorkerInputs(context.Background(), a.home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: a.attemptID, ExecutorBindingID: a.bindingID, Credential: a.credential,
+	}); err != nil {
+		t.Fatalf("Fleet A's own credential against its own Fleet: %v", err)
+	}
+	if _, err := DrainCanonicalV19WorkerInputs(context.Background(), b.home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: b.attemptID, ExecutorBindingID: b.bindingID, Credential: a.credential,
+	}); !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("drain against Fleet B's DB with Fleet A's S_B for the same literal B error = %v, want attestation refusal (counterexample 7)", err)
+	}
+}
+
+func TestWorkerInputCallerAttestationRefusesMissingCredential(t *testing.T) {
+	f := newWorkerInputCallerAttestationFixture(t)
+	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: f.attemptID, ExecutorBindingID: f.bindingID,
+	})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("drain with no credential error = %v, want attestation refusal", err)
+	}
+}
+
+func TestWorkerInputCallerAttestationRefusesMalformedCredential(t *testing.T) {
+	f := newWorkerInputCallerAttestationFixture(t)
+	_, err := DrainCanonicalV19WorkerInputs(context.Background(), f.home, CanonicalV19WorkerInputDrainInput{
+		AttemptID: f.attemptID, ExecutorBindingID: f.bindingID, Credential: "not-base64url-32-bytes",
+	})
+	if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
+		t.Fatalf("drain with malformed credential error = %v, want attestation refusal", err)
 	}
 }
 

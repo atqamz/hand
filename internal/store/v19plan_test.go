@@ -265,7 +265,12 @@ type canonicalV19PlanWriterTestFixture struct {
 
 func canonicalV19PlanWriterFixture(t *testing.T, storedRevision string) canonicalV19PlanWriterTestFixture {
 	t.Helper()
-	home := canonicalV19TaskWriterFixture(t, false)
+	return canonicalV19PlanWriterFixtureWithFleetID(t, "fleet-1", storedRevision)
+}
+
+func canonicalV19PlanWriterFixtureWithFleetID(t *testing.T, fleetID, storedRevision string) canonicalV19PlanWriterTestFixture {
+	t.Helper()
+	home := canonicalV19TaskWriterFixtureWithFleetID(t, fleetID, false)
 	if _, err := CreateCanonicalV19Task(context.Background(), home, CanonicalV19TaskCreateInput{
 		ID: "task-1", ProjectID: "project-1", Goal: "ship canonical Plan semantics", GoalDigest: "goal-digest", CreatedAt: "2026-09-04T07:59:00Z",
 	}); err != nil {

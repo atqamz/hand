@@ -27,7 +27,12 @@ type execGuardLaunchTest struct {
 
 func newExecGuardLaunchTest(t *testing.T, argv ...string) *execGuardLaunchTest {
 	t.Helper()
-	fixture, worktree, session, key := canonicalV19HerdrSessionFixture(t)
+	return newExecGuardLaunchTestWithFleetID(t, "fleet-1", argv...)
+}
+
+func newExecGuardLaunchTestWithFleetID(t *testing.T, fleetID string, argv ...string) *execGuardLaunchTest {
+	t.Helper()
+	fixture, worktree, session, key := canonicalV19HerdrSessionFixtureWithFleetID(t, fleetID)
 	if err := os.MkdirAll(worktree.RequestedPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
