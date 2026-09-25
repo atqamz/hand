@@ -20,6 +20,14 @@ func renderPowerShell(executable string, args []string) (string, error) {
 	return joinShellParts(parts), nil
 }
 
+var powerShellQuoteReplacer = strings.NewReplacer(
+	"'", "''",
+	"‘", "‘‘",
+	"’", "’’",
+	"‚", "‚‚",
+	"‛", "‛‛",
+)
+
 func powerShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	return "'" + powerShellQuoteReplacer.Replace(value) + "'"
 }
