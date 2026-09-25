@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/brief"
+	"github.com/atqamz/hand/internal/faketool"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/herdr"
 	"github.com/atqamz/hand/internal/project"
@@ -148,7 +149,7 @@ func TestProjectBaseCommitResolvesLocalDefaultBranchCommit(t *testing.T) {
 
 func TestProjectBaseCommitRefreshesOriginDefaultBranchForConsecutiveChecks(t *testing.T) {
 	clonePath := filepath.Join(t.TempDir(), "clone")
-	initRuntimeGitRepo(t, clonePath)
+	faketool.InitRepo(t, clonePath)
 	remote := filepath.Join(t.TempDir(), "origin.git")
 	if err := os.MkdirAll(remote, 0o755); err != nil {
 		t.Fatal(err)

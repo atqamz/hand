@@ -94,7 +94,7 @@ func TestNativeCanonicalBootstrap(t *testing.T) {
 	if err := os.Mkdir(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"-c", "user.name=Native fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture"}} {
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"-c", "user.name=Native fixture", "-c", "user.email=fixture@example.invalid", "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false", "commit", "--allow-empty", "-qm", "fixture"}} {
 		spec, err := managedRuntime.Process(gitPath, toolchain.GitArgsWithTemplate(managedRuntime.GitTemplateDir, args)...)
 		if err != nil {
 			t.Fatal(err)
