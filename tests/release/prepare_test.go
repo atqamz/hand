@@ -49,6 +49,7 @@ type workflowJobDef struct {
 	Steps           []workflowStepDef      `yaml:"steps"`
 	Strategy        workflowJobStrategyDef `yaml:"strategy"`
 	ContinueOnError bool                   `yaml:"continue-on-error"`
+	TimeoutMinutes  int                    `yaml:"timeout-minutes"`
 }
 
 // YAML's needs: is a bare string for one dependency or a list for several; normalizing
@@ -361,7 +362,7 @@ func TestReleaseWorkflowPublishesOneDraftAssetSetFromExactCheckout(t *testing.T)
 		t.Fatalf("release upload inputs = %#v, want a complete draft upload", upload.With)
 	}
 	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Verify complete draft before publication"), "view")
-	executeWorkflowGhStep(t, workflowStep(t, publish.Steps, "Publish complete release"), "edit")
+	executeWorkflowGhStep(t, workflowStep(t, document.Jobs["publish-release"].Steps, "Publish complete release"), "edit")
 }
 
 func TestReleaseTargetsMatchRuntimeLockSupport(t *testing.T) {

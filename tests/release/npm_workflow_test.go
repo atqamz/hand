@@ -102,13 +102,14 @@ func TestNpmPublishJobIsGatedForOperatorApproval(t *testing.T) {
 // edit reintroducing needs: npm-publish would silently invert that priority even though
 // the job would still look correct on its own.
 func TestPublishJobDoesNotDependOnNpmPublish(t *testing.T) {
-	job, ok := loadReleaseWorkflowJobs(t)["publish"]
-	if !ok {
-		t.Fatal("release workflow has no publish job")
-	}
-	needs := workflowJobNeeds(t, job.Needs)
-	if containsString(needs, "npm-publish") {
-		t.Fatalf("publish needs = %v, want it to not depend on npm-publish", needs)
+	for _, name := range []string{"publish", "publish-release"} {
+		job, ok := loadReleaseWorkflowJobs(t)[name]
+		if !ok {
+			t.Fatalf("release workflow has no %s job", name)
+		}
+		if needs := workflowJobNeeds(t, job.Needs); containsString(needs, "npm-publish") {
+			t.Fatalf("%s needs = %v, want it to not depend on npm-publish", name, needs)
+		}
 	}
 }
 
