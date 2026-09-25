@@ -354,3 +354,21 @@ func canonicalV19PlanWriterCount(t *testing.T, home string) int {
 	}
 	return count
 }
+
+func TestReplanCanonicalV19PlanRefusesOpenPlanRepair(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	canonicalV19RepairWriterExec(t, fixture.Home, `BEGIN IMMEDIATE;
+		INSERT INTO repair_target(repair_id,plan_id) VALUES('repair-1','plan-root');
+		INSERT INTO repair(id,repair_code,reason,evidence_digest,created_at)
+		VALUES('repair-1','plan-check','inspect','digest','2026-09-04T09:00:30Z');
+		COMMIT`)
+	successor := canonicalV19PlanWriterInput("plan-replan")
+	_, err := ReplanCanonicalV19Plan(context.Background(), fixture.Home, CanonicalV19PlanReplanInput{
+		PredecessorPlanID: "plan-root", Successor: successor, SupersededAt: "2026-09-04T09:01:00Z",
+	})
+	if !errors.Is(err, ErrCanonicalV19PlanNotCurrent) {
+		t.Fatalf("replan with open Plan Repair = %v, want %v", err, ErrCanonicalV19PlanNotCurrent)
+	}
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan WHERE id='plan-root' AND lifecycle='active'`, 1)
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM plan`, 1)
+}

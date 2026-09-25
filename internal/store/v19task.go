@@ -14,7 +14,7 @@ import (
 // identity or ordinal constraint. Callers must not retarget another Task.
 var ErrCanonicalV19TaskConflict = errors.New("canonical v19 task write conflict")
 
-var ErrCanonicalV19TaskNotCurrent = errors.New("canonical v19 task is not current for supersession")
+var ErrCanonicalV19TaskNotCurrent = errors.New("canonical v19 task is not current")
 
 // ErrCanonicalV19ProjectNotCurrent marks a missing or retired exact Project.
 var ErrCanonicalV19ProjectNotCurrent = errors.New("canonical v19 project is not current")
@@ -196,6 +196,90 @@ func SupersedeCanonicalV19Task(ctx context.Context, homeDir string, input Canoni
 	return ordinal, nil
 }
 
+func AbandonCanonicalV19Task(ctx context.Context, homeDir, taskID, abandonedAt string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if taskID == "" {
+		return errors.New("abandon canonical v19 Task: Task ID is required")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, abandonedAt); err != nil {
+		return fmt.Errorf("abandon canonical v19 Task: terminal timestamp: %w", err)
+	}
+	sqlDB, err := openCanonicalV19Writer(homeDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = sqlDB.Close() }()
+	tx, err := sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return canonicalV19WriteError("begin Task abandonment", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return fmt.Errorf("abandon canonical v19 Task: %w", err)
+	}
+	var projectID, retiredAt, obligation string
+	err = tx.QueryRowContext(ctx, `SELECT t.project_id,p.retired_at,CASE
+		WHEN EXISTS(SELECT 1 FROM external_operation WHERE task_id=t.id AND state IN ('prepared','submitted','uncertain'))
+			THEN 'unresolved external operation'
+		WHEN EXISTS(SELECT 1 FROM executor_binding e JOIN attempt a ON a.id=e.attempt_id JOIN plan pl ON pl.id=a.plan_id
+			WHERE pl.task_id=t.id AND NOT EXISTS(
+				SELECT 1 FROM executor_binding_termination x WHERE x.executor_binding_id=e.id)) THEN 'open ExecutorBinding'
+		WHEN EXISTS(SELECT 1 FROM attempt_backoff b JOIN attempt a ON a.id=b.attempt_id JOIN plan pl ON pl.id=a.plan_id
+			WHERE pl.task_id=t.id AND NOT EXISTS(
+				SELECT 1 FROM attempt_backoff_resolution r WHERE r.backoff_id=b.id)) THEN 'open AttemptBackoff'
+		WHEN EXISTS(SELECT 1 FROM task_hold h WHERE h.task_id=t.id AND NOT EXISTS(
+			SELECT 1 FROM task_hold_resolution r WHERE r.hold_id=h.id)) THEN 'open TaskHold'
+		WHEN EXISTS(SELECT 1 FROM task_hold_blocked_on_task b WHERE b.blocked_on_task_id=t.id AND NOT EXISTS(
+			SELECT 1 FROM task_hold_resolution r WHERE r.hold_id=b.hold_id)) THEN 'open inbound TaskHold'
+		WHEN EXISTS(SELECT 1 FROM repair_target rt WHERE NOT EXISTS(
+			SELECT 1 FROM repair_resolution r WHERE r.repair_id=rt.repair_id) AND (rt.task_id=t.id OR
+			rt.plan_id IN (SELECT id FROM plan WHERE task_id=t.id AND lifecycle='active') OR
+			rt.attempt_id IN (SELECT a.id FROM attempt a JOIN plan pl ON pl.id=a.plan_id
+				WHERE pl.task_id=t.id AND pl.lifecycle='active' AND a.lifecycle='active'))) THEN 'open Repair'
+		ELSE '' END
+		FROM task t JOIN project p ON p.id=t.project_id
+		WHERE t.id=? AND t.lifecycle='active' AND t.terminal_at=''`, taskID).Scan(&projectID, &retiredAt, &obligation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("abandon canonical v19 Task: %w: Task %q", ErrCanonicalV19TaskNotCurrent, taskID)
+	}
+	if err != nil {
+		return canonicalV19WriteError("read exact Task", err)
+	}
+	if retiredAt != "" {
+		return fmt.Errorf("abandon canonical v19 Task: %w: Project %q is retired", ErrCanonicalV19ProjectNotCurrent, projectID)
+	}
+	if obligation != "" {
+		return fmt.Errorf("abandon canonical v19 Task: %w: Task %q has %s", ErrCanonicalV19TaskNotCurrent, taskID, obligation)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE attempt SET lifecycle='interrupted',terminal_at=?
+		WHERE lifecycle='active' AND plan_id IN (SELECT id FROM plan WHERE task_id=? AND lifecycle='active')`,
+		abandonedAt, taskID); err != nil {
+		return canonicalV19WriteError("interrupt active Attempt", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE plan SET lifecycle='abandoned',terminal_at=?
+		WHERE task_id=? AND lifecycle='active'`, abandonedAt, taskID); err != nil {
+		return canonicalV19WriteError("abandon active Plan", err)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE task SET lifecycle='abandoned',terminal_at=?
+		WHERE id=? AND lifecycle='active' AND terminal_at=''`, abandonedAt, taskID)
+	if err != nil {
+		return canonicalV19WriteError("abandon exact Task", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return canonicalV19WriteError("count abandoned Task", err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("abandon canonical v19 Task: %w: Task changed %d rows", ErrCanonicalV19TaskNotCurrent, changed)
+	}
+	if err := tx.Commit(); err != nil {
+		return canonicalV19WriteError("commit Task abandonment", err)
+	}
+	return nil
+}
+
 func validateCanonicalV19TaskCreateInput(input CanonicalV19TaskCreateInput) error {
 	for name, value := range map[string]string{
 		"Task ID":     input.ID,
@@ -267,7 +351,7 @@ func validateCanonicalV19WriterTransaction(ctx context.Context, tx *sql.Tx) erro
 
 func canonicalV19WriteError(action string, err error) error {
 	if isSQLiteBusy(err) {
-		return fmt.Errorf("create canonical v19 Task: %s: %w", action, ErrContention)
+		return fmt.Errorf("canonical v19 Task: %s: %w", action, ErrContention)
 	}
-	return fmt.Errorf("create canonical v19 Task: %s: %w", action, err)
+	return fmt.Errorf("canonical v19 Task: %s: %w", action, err)
 }

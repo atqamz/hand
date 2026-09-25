@@ -102,8 +102,32 @@ func newTaskCmd() *cobra.Command {
 	}
 	create.Flags().StringVar(&projectID, "project-id", "", "Exact canonical Project ID")
 	create.Flags().StringVar(&goal, "goal", "", "Immutable operator goal")
-	cmd.AddCommand(create, newTaskSupersedeCmd(), newTaskHoldCmd(), newTaskArchiveCmd(), newTaskShowCmd(), newTaskListCmd())
+	cmd.AddCommand(create, newTaskSupersedeCmd(), newTaskAbandonCmd(), newTaskHoldCmd(), newTaskArchiveCmd(), newTaskShowCmd(), newTaskListCmd())
 	return cmd
+}
+
+func newTaskAbandonCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "abandon <id>",
+		Short: "Abandon one exact active Task without a successor",
+		Long:  "Terminalize an exact active Task in one transaction with its active Plan and, when no ExecutorBinding is open, that Plan's active Attempt: the Task and Plan become abandoned and the Attempt interrupted. It refuses while the lineage has an unresolved external operation, open ExecutorBinding or open AttemptBackoff, the Task has an open direct or inbound Hold, or the Task, active Plan or active Attempt has an open Repair. Worktree and Session bindings stay open for cleanup. This records no satisfaction, cleanup or accepted worker result.",
+		Args:  usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			homeDir, err := home.Resolve()
+			if err != nil {
+				return err
+			}
+			at := time.Now().UTC().Format(time.RFC3339Nano)
+			if err := store.AbandonCanonicalV19Task(cmd.Context(), homeDir, args[0], at); err != nil {
+				return err
+			}
+			var doc axi.Doc
+			doc.Field("task_id", args[0])
+			doc.Field("lifecycle", "abandoned")
+			doc.Field("terminal_at", at)
+			return doc.Render(cmd.OutOrStdout())
+		},
+	}
 }
 
 func newTaskSupersedeCmd() *cobra.Command {
