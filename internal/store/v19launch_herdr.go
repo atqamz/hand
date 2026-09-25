@@ -72,7 +72,7 @@ type canonicalV19HerdrLaunchDeps struct {
 	hand      func() (string, error)
 	settle    time.Duration
 	// Stays false outside tests until the Linux platform acceptance tests pass (O1, pane tty,
-	// real Herdr) and a cessation observer can close an established binding.
+	// real Herdr) and the cessation observer runs for every open guarded binding.
 	execGuard bool
 }
 
