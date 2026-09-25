@@ -258,3 +258,61 @@ func TestCanonicalV19DecisionConflictingAnswersHaveOneWinner(t *testing.T) {
 	}
 	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision_answer`, 1)
 }
+
+// atqamz/hand#304 required test: "Presentation exact Answer and Supervisor-mediated
+// operator Answer converge on same writer semantics." Both channels are provenance
+// only (carried in ActorRef); the writer contract does not branch on channel.
+func TestCanonicalV19DecisionAnswerConvergesAcrossPresentationAndSupervisorChannels(t *testing.T) {
+	fixture, _ := canonicalV19WorkerReportAttemptFixture(t)
+	question := canonicalV19DecisionTestInput("attempt")
+	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
+		t.Fatal(err)
+	}
+	answer := "Use A.\nPreserve operator whitespace. "
+	digest := canonicalV19SHA256([]byte(answer))
+	channels := []CanonicalV19DecisionAnswerCreateInput{
+		{ID: "answer-presentation", DecisionID: question.ID, Answer: answer, AnswerDigest: digest,
+			ActorKind: "operator", ActorRef: "operator:board-presentation", AnsweredAt: "2026-09-21T09:02:00Z"},
+		{ID: "answer-supervisor", DecisionID: question.ID, Answer: answer, AnswerDigest: digest,
+			ActorKind: "operator", ActorRef: "operator:supervisor-harness", AnsweredAt: "2026-09-21T09:02:00Z"},
+	}
+	start := make(chan struct{})
+	results := make(chan error, len(channels))
+	for _, input := range channels {
+		go func() {
+			<-start
+			results <- CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, input)
+		}()
+	}
+	close(start)
+	wins := 0
+	for range channels {
+		err := <-results
+		if err == nil {
+			wins++
+		} else if !errors.Is(err, ErrCanonicalV19DecisionConflict) {
+			t.Fatal(err)
+		}
+	}
+	if wins != 1 {
+		t.Fatalf("channel race winners = %d, want 1", wins)
+	}
+	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision_answer`, 1)
+	db, err := openReadOnly(fixture.Home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.sql.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	persisted, found, err := loadCanonicalV19DecisionAnswer(context.Background(), tx, question.ID)
+	if err != nil || !found {
+		t.Fatalf("persisted Answer found=%t, err=%v", found, err)
+	}
+	if persisted.Answer != answer || persisted.ActorKind != "operator" {
+		t.Fatalf("persisted Answer = %+v, want channel-independent operator Answer %q", persisted, answer)
+	}
+}

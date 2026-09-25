@@ -81,6 +81,40 @@ func TestCutoverOfflineDriftAbortsToLegacy(t *testing.T) {
 	}
 }
 
+// atqamz/hand#304: the legacy fixture carries a terminal Attempt whose last WorkerReport
+// claimed needs-decision plus a finalized operator send_attempt answering it - report prose
+// and send-like state the #304 contract forbids treating as Decision/Answer/WorkerInput authority.
+func TestCutoverOfflinePublishesNoDecisionAnswerOrWorkerInputRows(t *testing.T) {
+	home := offlineCutoverHome(t)
+	execFleetFixtureSQL(t, home, `INSERT INTO task(id,lifecycle,created_at) VALUES('task-legacy-1','terminal','2026-09-20T00:00:00Z')`)
+	execFleetFixtureSQL(t, home, `INSERT INTO attempt(id,task_id,ordinal,lifecycle,last_report_state,last_report_note,created_at)
+		VALUES(1,'task-legacy-1',1,'completed','needs-decision','needs-decision: choose approach A or B','2026-09-20T00:00:30Z')`)
+	execFleetFixtureSQL(t, home, `INSERT INTO send_attempt(task_id,attempt_id,origin,message,state,created_at,finalized_at)
+		VALUES('task-legacy-1',1,'operator','approved: use approach A','submitted','2026-09-20T00:01:00Z','2026-09-20T00:02:00Z')`)
+	cutoverBootEnv(t, false)
+	if got := runHand(t, home, "cutover", "offline", home); got.code != 0 || !strings.Contains(got.stdout, "disposition: frozen") {
+		t.Fatalf("freeze run = %+v", got)
+	}
+	cutoverBootEnv(t, true)
+	if got := runHand(t, home, "cutover", "offline", home); got.code != 0 || !strings.Contains(got.stdout, "disposition: canonical-authority") {
+		t.Fatalf("completion after a restart = %+v", got)
+	}
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: filepath.ToSlash(store.Path(home))}).EscapedPath()+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, table := range []string{"decision", "decision_answer", "worker_input", "worker_input_answer_origin", "worker_input_acknowledgement"} {
+		var count int
+		if err := db.QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("published v19 home has %d row(s) in %s, want 0 (cutover must not fabricate history)", count, table)
+		}
+	}
+}
+
 // #348 revision 4 C4-13: an unobservable subject is retryable and completes once it can be observed.
 func TestCutoverOfflineRetriesObservationUnknown(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
