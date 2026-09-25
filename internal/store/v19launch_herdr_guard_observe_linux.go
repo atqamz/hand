@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"time"
 
 	"github.com/atqamz/hand/internal/execguard"
 	"github.com/atqamz/hand/internal/osfacts"
+	"golang.org/x/sys/unix"
 )
 
 const canonicalV19ExecGuardStarting = "starting"
@@ -56,13 +58,17 @@ func reconcileCanonicalV19HerdrGuardLaunch(
 		}
 		return state, true, err
 	}
-	verdict, err := observeCanonicalV19ExecGuardLaunch(dir, current)
+	var client canonicalV19HerdrLaunchClient
+	if key, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey); err == nil {
+		client = deps.clientFor(key.SessionName)
+	}
+	verdict, err := observeCanonicalV19ExecGuardLaunch(dir, current, client)
 	if err == nil && verdict.State == "" {
 		switch fenceErr := execguard.Fence(dir); {
 		case fenceErr == nil:
 			verdict.State, verdict.Reason = "uncertain", "fenced before any claim; no-effect also needs the unqualified Herdr property O1"
 		case errors.Is(fenceErr, fs.ErrNotExist):
-			if verdict, err = observeCanonicalV19ExecGuardLaunch(dir, current); err == nil && verdict.State == "" {
+			if verdict, err = observeCanonicalV19ExecGuardLaunch(dir, current, client); err == nil && verdict.State == "" {
 				verdict.State, verdict.Reason = "uncertain", "the handoff was claimed or fenced and no decisive guard record exists"
 			}
 		default:
@@ -97,7 +103,11 @@ func fenceCanonicalV19ExecGuard(dir string) error {
 
 // An empty State means no guard has claimed L yet; starting means a live guard claimed it
 // and has not written running, which is no reason for any transition or fence.
-func observeCanonicalV19ExecGuardLaunch(dir string, current canonicalV19HerdrLaunchCurrent) (canonicalV19ExecGuardVerdict, error) {
+func observeCanonicalV19ExecGuardLaunch(
+	dir string,
+	current canonicalV19HerdrLaunchCurrent,
+	client canonicalV19HerdrLaunchClient,
+) (canonicalV19ExecGuardVerdict, error) {
 	request := current.Current.Request
 	var verdict canonicalV19ExecGuardVerdict
 	records, err := readCanonicalV19ExecGuardRecords(dir, request.OperationID)
@@ -120,8 +130,8 @@ func observeCanonicalV19ExecGuardLaunch(dir string, current canonicalV19HerdrLau
 		verdict.State, verdict.Reason = "uncertain", reason
 		return verdict, nil
 	}
-	claimed, running, refused, ceased := records[execguard.KindClaimed], records[execguard.KindRunning],
-		records[execguard.KindRefused], records[execguard.KindCeased]
+	claimed, pinned, running, refused, ceased := records[execguard.KindClaimed], records[execguard.KindPinned],
+		records[execguard.KindRunning], records[execguard.KindRefused], records[execguard.KindCeased]
 	if running == nil {
 		switch {
 		case refused != nil && (claimed == nil || claimed.Guard == refused.Guard):
@@ -136,7 +146,53 @@ func observeCanonicalV19ExecGuardLaunch(dir string, current canonicalV19HerdrLau
 		}
 		return verdict, nil
 	}
-	return uncertain("the exec guard started a harness, and this build does not yet establish its ExecutorBinding")
+	guard := running.Guard
+	committed := request.Spec.Environment[execguard.CredentialEnv].ValueDigest
+	switch {
+	case refused != nil:
+		return uncertain("the exec guard recorded both a running harness and a refusal")
+	case claimed == nil || pinned == nil || claimed.Guard != guard || pinned.Guard != guard:
+		return uncertain("claimed, pinned and running records do not name one guard incarnation")
+	case pinned.RequestDigest != request.RequestDigest || running.RequestDigest != request.RequestDigest ||
+		pinned.LaunchSpecDigest != request.LaunchSpecDigest || running.LaunchSpecDigest != request.LaunchSpecDigest ||
+		pinned.CredentialVerifier != committed || running.CredentialVerifier != committed:
+		return uncertain("guard records do not name the committed request, launch-spec and credential digests")
+	case pinned.Executable == nil || pinned.Executable.Path != request.Spec.Executable ||
+		(running.ObjectClass != execguard.ClassExact && running.ObjectClass != execguard.ClassSampled):
+		return uncertain("guard records do not pin the Launch executable with a known class")
+	case running.Root == nil || running.Root.BootID != guard.BootID || running.Root.StartTicks < guard.StartTicks || running.ProcessGroup != running.Root.PID:
+		return uncertain("the running record names no harness root of this guard")
+	}
+	key := canonicalV19ExecGuardKey{
+		Assoc: "unobserved", Guard: &guard, Root: running.Root, ProcessGroup: running.ProcessGroup,
+		Terminal: running.Terminal, Object: pinned.Executable, ObjectClass: running.ObjectClass,
+	}
+	key.Session, _ = parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
+	switch {
+	case ceased != nil:
+		if ceased.Guard != guard || ceased.Root == nil || *ceased.Root != *running.Root || ceased.Predicate != "wait4-echild" || ceased.Exit == nil {
+			return uncertain("the ceased record does not name this guard's tree and platform predicate")
+		}
+		verdict.TerminalKind = execguard.TerminalKind(*ceased, "")
+	case liveness == osfacts.BootChanged:
+		verdict.TerminalKind = "provider-gone"
+	case liveness != osfacts.Alive:
+		return uncertain("the exec guard is " + string(liveness) + " without a ceased record")
+	default:
+		if reason := checkCanonicalV19ExecGuardOSFacts(guard, running.Terminal); reason != "" {
+			if osfacts.Observe(guard) != osfacts.Alive {
+				return verdict, nil
+			}
+			return uncertain(reason)
+		}
+		key.Assoc = canonicalV19ExecGuardAssociation(client, key.Session.PaneID, guard, running.ProcessGroup)
+	}
+	encoded, err := encodeCanonicalV19ExecGuardKey(key)
+	if err != nil {
+		return uncertain("the guard records do not form a provider executor key: " + err.Error())
+	}
+	verdict.State, verdict.Key = "succeeded", encoded
+	return verdict, nil
 }
 
 func readCanonicalV19ExecGuardRecords(dir, operationID string) (map[string]*execguard.Record, error) {
@@ -156,6 +212,22 @@ func readCanonicalV19ExecGuardRecords(dir, operationID string) (map[string]*exec
 	return records, nil
 }
 
+func checkCanonicalV19ExecGuardOSFacts(guard osfacts.Incarnation, terminal uint64) string {
+	namespace, nsErr := osfacts.PIDNamespace(guard.PID)
+	self, selfErr := osfacts.SelfPIDNamespace()
+	uid, uidErr := osfacts.RealUID(guard.PID)
+	tty, ttyErr := osfacts.ControllingTerminal(guard.PID)
+	switch {
+	case errors.Join(nsErr, selfErr, uidErr, ttyErr) != nil || osfacts.Observe(guard) != osfacts.Alive:
+		return "the exec guard's OS facts could not be read"
+	case namespace != self || uid != uint32(os.Getuid()):
+		return "the exec guard runs in another PID namespace or as another user"
+	case tty != terminal:
+		return "the running record names another controlling terminal than the OS reports"
+	}
+	return ""
+}
+
 func applyCanonicalV19ExecGuardVerdict(
 	ctx context.Context,
 	homeDir string,
@@ -171,6 +243,11 @@ func applyCanonicalV19ExecGuardVerdict(
 	evidence := canonicalV19ExecGuardEvidenceDigest(current, verdict)
 	var err error
 	switch verdict.State {
+	case "succeeded":
+		err = EstablishCanonicalV19ExecutorBinding(ctx, homeDir, CanonicalV19ExecutorBindingEvidence{
+			OperationID: request.OperationID, ProviderExecutorKey: verdict.Key, EstablishedAt: observedAt,
+			EvidenceDigest: evidence, TerminalKind: verdict.TerminalKind,
+		})
 	case "no-effect":
 		err = classifyCanonicalV19LaunchPreparedNoEffect(ctx, homeDir, CanonicalV19LaunchTransitionInput{
 			OperationID: request.OperationID, State: "no-effect", ObservedAt: observedAt, EvidenceDigest: evidence,
@@ -204,4 +281,28 @@ func canonicalV19ExecGuardEvidenceDigest(current canonicalV19HerdrLaunchCurrent,
 	writeCanonicalV19DigestField(hash, "reason", verdict.Reason)
 	writeCanonicalV19DigestField(hash, "records", string(records))
 	return hex.EncodeToString(hash.Sum(nil))
+}
+
+func canonicalV19ExecGuardAssociation(client canonicalV19HerdrLaunchClient, paneID string, guard osfacts.Incarnation, group int) string {
+	if client == nil {
+		return "unobserved"
+	}
+	info, err := client.PaneProcessInfo(paneID)
+	var device unix.Stat_t
+	if err != nil || info.PaneID != paneID || info.TTY == "" || unix.Stat(info.TTY, &device) != nil {
+		return "unobserved"
+	}
+	terminal, ttyErr := osfacts.ControllingTerminal(guard.PID)
+	foreground, fgErr := osfacts.ForegroundGroup(guard.PID)
+	if ttyErr != nil || fgErr != nil || osfacts.Observe(guard) != osfacts.Alive {
+		return "unobserved"
+	}
+	return canonicalV19ExecGuardAssociationOf(uint64(device.Rdev), info.ForegroundProcessGroupID, terminal, foreground, group)
+}
+
+func canonicalV19ExecGuardAssociationOf(paneTerminal uint64, paneForeground int, terminal uint64, foreground, group int) string {
+	if paneTerminal == terminal && foreground == group && paneForeground == group {
+		return "observed"
+	}
+	return "mismatch"
 }
