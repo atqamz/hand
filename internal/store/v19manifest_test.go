@@ -111,14 +111,17 @@ func TestCanonicalV19PermanentManifestRevision4Artifacts(t *testing.T) {
 func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 	for _, name := range []string{"manifest-v4.md", "manifest-v5-input.md", "manifest-v6-input.md", "manifest-v7-input.md"} {
 		t.Run(name, func(t *testing.T) {
-			assertCanonicalV19ManifestSnapshotSet(t, name, "348-cutover-archive-v2.md", "94c018d0bce8c2427d01b9af89e513cfb5f3ce96", "afe7c61f34af416bda15c46c6edeacc35a4a43f36d85ee407cb55b690d4fb401")
+			assertCanonicalV19ManifestSnapshotSet(t, name, "346-capability-adapters.md", "859b80207a625fb4be8f5ff1a5eaf336bb7e8c77", "348-cutover-archive-v2.md", "94c018d0bce8c2427d01b9af89e513cfb5f3ce96", "afe7c61f34af416bda15c46c6edeacc35a4a43f36d85ee407cb55b690d4fb401")
 		})
 	}
 	t.Run("manifest-v8.md", func(t *testing.T) {
-		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v8.md", "348-cutover-archive-v3.md", "b67acfad620ca08ff031531ce93fe5e8e39589f9", "95b325f9aa4a78eab4a0d977579ffcc73dee886322bd6fc8e9436900f096f338")
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v8.md", "346-capability-adapters.md", "859b80207a625fb4be8f5ff1a5eaf336bb7e8c77", "348-cutover-archive-v3.md", "b67acfad620ca08ff031531ce93fe5e8e39589f9", "95b325f9aa4a78eab4a0d977579ffcc73dee886322bd6fc8e9436900f096f338")
 	})
 	t.Run("manifest-v9-input.md", func(t *testing.T) {
-		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9-input.md", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "48ca4547978486262d41d62cab7424d6e7e4ec67fb5e7740edeb00dc6b17c834")
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9-input.md", "346-capability-adapters.md", "859b80207a625fb4be8f5ff1a5eaf336bb7e8c77", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "48ca4547978486262d41d62cab7424d6e7e4ec67fb5e7740edeb00dc6b17c834")
+	})
+	t.Run("manifest-v9.md", func(t *testing.T) {
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v9.md", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "11edcab676ebce8125c30ac54a4620c8cd84b0df5f84e35bc0098ab22a804d1d")
 	})
 }
 
@@ -169,6 +172,23 @@ func TestCanonicalV19PermanentManifestRevision8Artifacts(t *testing.T) {
 		if got := v19ManifestGitBlob(readV19ManifestArtifact(t, artifact.path)); got != artifact.blob {
 			t.Errorf("revision-8 artifact %s Git blob = %s, want %s", artifact.path, got, artifact.blob)
 		}
+	}
+}
+
+func TestCanonicalV19PermanentManifestRevision9Artifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v9.md"))
+	for _, field := range append(canonicalV19RelationalManifestFields(),
+		"44eb00b6f051d1c04e250f9952c652dbf0d6814d",
+		"It supersedes `manifest-v8.md` as current authority.",
+		"supersedes revision-1 blob `859b80207a625fb4be8f5ff1a5eaf336bb7e8c77`",
+		"supersedes revision-3 blob `b67acfad620ca08ff031531ce93fe5e8e39589f9`",
+	) {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-9 manifest missing %q", field)
+		}
+	}
+	if strings.Contains(manifest, "__MAIN_ANCHOR__") {
+		t.Fatal("revision-9 manifest retains an unbound main anchor")
 	}
 }
 
@@ -228,7 +248,7 @@ func TestCanonicalV19Revision5InputMatchesArtifacts(t *testing.T) {
 	}
 }
 
-func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name, cutoverName, cutoverBlob, want string) {
+func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name, adapterName, adapterBlob, cutoverName, cutoverBlob, want string) {
 	t.Helper()
 	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/"+name))
 	snapshots := []struct{ name, blob string }{
@@ -237,7 +257,7 @@ func assertCanonicalV19ManifestSnapshotSet(t *testing.T, name, cutoverName, cuto
 		{"324-configuration.md", "e322eb6bf08b3648c1a298e13b6fc4b8a2e19f7b"},
 		{"343-external-effects-worker-wake.md", "76be8f08e60ba1819df71669edf9cb3af3c34b14"},
 		{"345-lifecycle-currentness-crash-recovery-v2.md", "50d6747ae140e68faddf15ed3d8337bfa85596c9"},
-		{"346-capability-adapters.md", "859b80207a625fb4be8f5ff1a5eaf336bb7e8c77"},
+		{adapterName, adapterBlob},
 		{"347-read-models-attention-orientation-v3.md", "0b57e2e8f0bb480e0eac840fdeec8f909c5c5202"},
 		{cutoverName, cutoverBlob},
 		{"497-no-soft-turn-cancel.md", "5be1875efa61b4c4f68f988156fb3c4d746b0ebb"},
