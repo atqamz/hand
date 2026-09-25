@@ -58,13 +58,12 @@ Freeze run:
 
 1. Preflight, before MigrationLock and before any archive, manifest, or source change:
    - Refuse unless the filesystem that holds `state/hand.db` is classified local (see "Kernel scope").
-   - Probe `state/`: create probe file A and hard-link it as B; create probe file C and atomically rename it over B, replacing it; confirm that B then has C's file identity and A keeps its own; then remove all probe names. Refuse if any step fails. Publication step 1 and abort step 5 depend on hard links, and every replacement depends on replace-existing rename. A local filesystem without them, such as FAT or exFAT, is refused here and never frozen.
-   - Read the freeze boot evidence E_F for this platform (see "Boot witness"). Unreadable or malformed evidence, or a Windows uptime below the floor, refuses.
+   - Probe `state/`: create probe file A and hard-link it as B; create probe file C and atomically rename it over B, replacing it; confirm that B then has C's file identity and A keeps its own; then remove all probe names. Each probe name carries 128 random bits and is created no-replace, because two runs can overlap before MigrationLock. A collision or any failed step refuses. Publication step 1 and abort step 5 depend on hard links, and every replacement depends on replace-existing rename. A local filesystem without them, such as FAT or exFAT, is refused here and never frozen.
+   - Read the freeze boot evidence E_F for this platform (see "Boot witness"). Unreadable or malformed evidence, a machine identity that is not persistent, or a Windows uptime below the floor refuses. This one read is the E_F that the freeze transaction commits.
 2. Acquire MigrationLock.
 3. Run revision 2's gate, nonblocking Fleet-local lock closure, durable-state classification, and provider/resource quiescence. Here they are preconditions for a consistent snapshot, not cessation proof. A busy or unknown result still refuses.
 4. Promote the original archive and persist the pre-freeze manifest as revision 2 requires. Manifest format v2 records revision 2's manifest facts, with every Project physical identity in the restart-stable form (see "Drift gate"). It records the certificate version but neither the certificate value nor any digest of itself; the certificate binds the manifest's digest. A Project whose restart-stable identity is unavailable refuses the freeze.
-5. Re-read E_F and require it to equal the step-1 value. A difference refuses before any source mutation.
-6. In the one freeze transaction on OUR EXCLUSIVE connection:
+5. In the one freeze transaction on OUR EXCLUSIVE connection:
    - require that no `meta` key starting with `v19-cutover-` exists;
    - insert `meta.key = 'v19-cutover-freeze'` with value `v2:<source-sha256>:<manifest-sha256>:<evidence-sha256>`;
    - insert `meta.key = 'v19-cutover-freeze-evidence'` whose value is exactly the E_F bytes hashed into the certificate;
@@ -72,7 +71,7 @@ Freeze run:
    - set `user_version = 22`;
    - COMMIT.
    Every digest is a lowercase 64-hex SHA-256.
-7. Release locks and handles as revision 2 requires. Perform no provider, Git, registry, or network action after F. Report that a full restart is required before completion and, on Windows, the completion window.
+6. Release locks and handles as revision 2 requires. Perform no provider, Git, registry, or network action after F. Report that a full restart is required before completion and, on Windows, the completion window.
 
 Completion run, after the restart:
 
@@ -91,9 +90,12 @@ Every path that builds for publication, retires, or publishes from a frozen brid
 
 - E_F is authoritative only as committed inside the freeze transaction. A copy in a manifest, marker, log, or earlier attempt never counts.
   - Counterexample: attempt 1 writes the manifest in boot session B1 and crashes before F. The machine restarts. Attempt 2 reuses the persisted manifest and commits F in B2. Evidence taken from the manifest would name B1, so the witness would pass with no restart after F.
-- The freezing process reads E_F in preflight and re-reads it before the freeze transaction. The process cannot survive a restart, so a committed E_F always names the boot session of F.
+- The freezing process reads E_F once, in preflight, and commits that read. The process cannot survive a restart, so the committed E_F always names the boot session of F. No re-read is compared, because wall time and the Windows tick count differ between any two reads. On Windows the preflight tick count precedes F and is no larger than the count at F, so the decrease rule stays sound.
 - E_F contains: evidence format `v1`; platform (`linux`, `darwin`, or `windows`); machine identity; token kind; token value; an informational UTC wall time. Wall time never decides an outcome.
-- Machine identity is `/etc/machine-id` on Linux (`/var/lib/dbus/machine-id` when absent), `gethostuuid(2)` on macOS, and `MachineGuid` under `HKLM\SOFTWARE\Microsoft\Cryptography` on Windows. A freeze refuses when it is unreadable. At completion a different or unreadable machine identity is `cessation-unknown`: a home moved to another machine is never completed there, and abort is its way back.
+- Machine identity is `/etc/machine-id` on Linux, `gethostuuid(2)` on macOS, and `MachineGuid` under `HKLM\SOFTWARE\Microsoft\Cryptography` on Windows.
+- A freeze refuses when the machine identity is unreadable or not persistent across restarts. On Linux that covers a missing, empty, or `uninitialized` `/etc/machine-id`, a value that is not 32 lowercase hex digits, and a file that is a mount point or lives on tmpfs or ramfs. systemd regenerates such an identity at every boot, often bind-mounting it from `/run`. Accepting it would make every completion `cessation-unknown`.
+- The command's operator documentation must say that a container or image without a persistent machine identity cannot run the offline cutover.
+- At completion a different or unreadable machine identity is `cessation-unknown`. A home moved to another machine is never completed there; abort is its way back.
 - The certificate binds the manifest digest, so the drift baseline is unique. A manifest whose digest differs from the certificate refuses.
 - A `v1:<source-sha256>` bridge has no E_F and never satisfies the witness. Read-only inspection still recognizes it; recovery refuses to build from it or publish it. No command in any released or `main` build ever called the freeze; only tests did, so no production home holds a v1 bridge.
 
@@ -133,6 +135,7 @@ Physical identity, as recorded in manifest v2 and compared here, must stay stabl
 - Windows: volume serial number plus file index.
 - A `unix-v1` identity (device and inode) is never compared across a restart.
 - Birth time or file index unavailable at completion is `observation-unknown`, not drift.
+- Canonical v19 uses the same form. The import copies the manifest's repository and common-dir identity digests into `workspace_binding`. Canonical Project registration and Plan git-basis verification recompute those identities under the same digest domains, so they must recompute this restart-stable form. A canonical consumer that recomputes `unix-v1` rejects every imported Project after publication, and after any device renumbering. Digests of different identity forms are never treated as equal.
 
 Subjects:
 
@@ -142,7 +145,7 @@ Subjects:
   - A Herdr server positively observed as stopped for both the `hand-<fleet_id>` and `default` sessions proves that no pane of this Fleet exists; that passes.
   - In a running server, a resource belongs to this Fleet when it is in session `hand-<fleet_id>` or carries a label starting `hand:<fleet_id>:`. A live resource of this Fleet is `observation-unknown`: this Fleet's legacy commands refuse before any Herdr call after F, so such a resource was created or restored after the restart, and closing it resolves the refusal.
   - A label `hand:<other_fleet_id>:...` belongs to another Fleet and passes.
-  - The v0.7.2 label `hand:<project>` in `default` carries no Fleet ID. When `<project>` names no manifest Project, it passes. When it does, it is `observation-unknown` until `internal/faketool/FIDELITY.md` records that Herdr does not restore workspaces across a server restart. After that record exists it passes, because no process of this Fleet can have created it after the restart.
+  - The v0.7.2 label `hand:<project>` in `default` carries no Fleet ID. When `<project>` names no manifest Project, it passes. When it does, it is `observation-unknown` in this revision, because Herdr's workspace-restore behavior across a server restart is not established. The workspace may belong to another Fleet, so the operator must not close it (#519 cross-Fleet ownership). The exits are waiting until that Fleet no longer holds it, or abort. Only a later #348 revision that states Herdr's restore behavior as its own evidence can make this label pass.
   - A Herdr client that cannot reach or classify a server is `observation-unknown`.
 - A drift result is never repaired, re-baselined, or imported. A drifted frozen home stays frozen until the operator aborts.
 
@@ -267,13 +270,14 @@ Each invariant names a trace that falsifies it.
 - C4-11: Unfreezing happens only through abort's replacement with the original archive. No path drops the guards, rewrites the sentinel, or edits the bridge in place.
 - C4-12: A physical-identity comparison across the restart never reports drift for the same object and never passes for a different one. Falsified by a device renumbering that yields `drift`, or by an inode reused at the same path that yields `pass`.
 - C4-13: `observation-unknown` never requires abort, and `drift` is never retried into `pass` without an abort and a new freeze. Falsified by a stopped Herdr server after a positive witness that blocks, or by a drifted bridge that later publishes.
+- C4-14: Imported WorkspaceBinding identities verify under canonical v19 after publication. Falsified by an imported Project that canonical Project registration or Plan git-basis verification rejects because it recomputes a different identity form.
 
 ## Unknowns
 
 - Cross-kernel access through exports and VM or container shares (see "Kernel scope").
 - Process checkpoint/restore and VM memory snapshot restore.
 - macOS `kern.bootsessionuuid` behavior and Windows Fast Startup behavior need native qualification. CI cannot provide it because both need a real restart.
-- Whether Herdr restores workspaces across a server restart is unrecorded; until it is, a legacy `hand:<project>` label naming a manifest Project stays `observation-unknown` (see "Drift gate").
+- Whether Herdr restores workspaces across a server restart is not established. Until a later revision states it, a legacy `hand:<project>` label naming a manifest Project stays `observation-unknown` (see "Drift gate").
 - Birth-time availability varies by filesystem (for example, ext4 with 128-byte inodes has none). Such a Project cannot be frozen.
 - A stale v0.7.2 binary run against a published canonical home. Static reading shows its schema step fails at `attempt_one_active` (`no such column`) inside a transaction that rolls back. E1–E3 still run first, and E2 can rename `config/model` or `config/effort`. This needs a separate-process proof, and canonical configuration (#324) must not treat those legacy file names as authority.
 
@@ -283,7 +287,8 @@ Each invariant names a trace that falsifies it.
 - Witness, per platform: equal, different, malformed, unreadable, and cross-platform tokens; on Windows, a tick count that decreased and one that did not.
 - Freeze transaction: the v2 certificate, evidence row, 21 guards, and sentinel commit atomically. A crash before COMMIT leaves exact v0.7.2.
 - Retried freeze across a restart: attempt 1 crashes after manifest persistence. The machine restarts, and attempt 2 commits F. Its committed E_F names the second boot session, and completion in that session refuses `reboot-required`.
-- Preflight: a filesystem without hard links or replace-existing rename refuses before MigrationLock with no archive, manifest, or source change. A Windows uptime below the floor refuses. An unreadable machine identity refuses.
+- Preflight: a filesystem without hard links or replace-existing rename refuses before MigrationLock with no archive, manifest, or source change. A Windows uptime below the floor refuses. An unreadable machine identity refuses, and so does an empty, `uninitialized`, mount-point, or tmpfs `/etc/machine-id`. Two overlapping preflights do not collide on probe names. A Windows freeze succeeds even though its tick count and wall time advance between reads.
+- Canonical identity: after publication, canonical Project registration and Plan git-basis verification accept every imported Project, including after a device renumbering.
 - Absent active DB after F: completion, recover, and abort all refuse.
 - Recover on a v2 bridge in F's boot session refuses `reboot-required`.
 - Machine identity differs at completion: `cessation-unknown`.
@@ -294,6 +299,7 @@ Each invariant names a trace that falsifies it.
   - `pass` for a stopped Herdr server after a positive witness.
   - `pass` for another Fleet's `hand:<fleet_id>:` workspace, and for a legacy `hand:<project>` label naming no manifest Project.
   - `observation-unknown` for a live resource of this Fleet, for Herdr or Treehouse unreachable, and for birth time unavailable.
+  - `observation-unknown` for a legacy `hand:<project>` label naming a manifest Project, with no Herdr mutation.
 - Publication: `state/hand.db` is never absent; a concurrent legacy open during publication cannot mint a Fleet; a Windows sharing violation or access denial leaves the bridge active and retryable.
 - 0.8.0: before F the legacy home keeps working; after F every ordinary command refuses the frozen bridge with zero changes under H.
 - Filesystem classification refuses remote and unclassifiable filesystems.

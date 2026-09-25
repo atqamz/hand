@@ -45,7 +45,7 @@ relock Git blob: 765c1fad37685f98dbb953f15e7a7617916576ba
 | #345 | `docs/architecture/v19-contracts/345-lifecycle-currentness-crash-recovery-v2.md` | `50d6747ae140e68faddf15ed3d8337bfa85596c9` |
 | #346 | `docs/architecture/v19-contracts/346-capability-adapters.md` | `859b80207a625fb4be8f5ff1a5eaf336bb7e8c77` |
 | #347 | `docs/architecture/v19-contracts/347-read-models-attention-orientation-v3.md` | `0b57e2e8f0bb480e0eac840fdeec8f909c5c5202` |
-| #348 | `docs/architecture/v19-contracts/348-cutover-archive-v4.md` | `9bd2a73911ef5c1d547310036187f9f2b565d2e5` |
+| #348 | `docs/architecture/v19-contracts/348-cutover-archive-v4.md` | `74a3b12b44999d86835c243ba89ea943c578d581` |
 | #497 | `docs/architecture/v19-contracts/497-no-soft-turn-cancel.md` | `5be1875efa61b4c4f68f988156fb3c4d746b0ebb` |
 | #519 | `docs/architecture/v19-contracts/519-user-global-runtime-generations.md` | `c712c65dad085103dcc7752a8c09a31b62c82711` |
 
@@ -54,12 +54,12 @@ The contract-set digest is SHA-256 over the UTF-8 concatenation in table order o
 Contract-set SHA-256:
 
 ```text
-d89cefa954a41058f06cc86f8e923c93cc4d3bf154974786975964f611f39a87
+48ca4547978486262d41d62cab7424d6e7e4ec67fb5e7740edeb00dc6b17c834
 ```
 
 ## Supersession input
 
-- #348 revision 4 supersedes revision 3 blob `b67acfad620ca08ff031531ce93fe5e8e39589f9` without changing its bytes. It makes cutover offline only and requires a committed boot-identity witness and a post-witness drift gate before publication. It adds an operator abort that restores the exact pre-freeze DB before publication starts. It requires a restart-stable physical identity in the drift gate, and it replaces retire-then-publish with atomic replacement.
+- #348 revision 4 supersedes revision 3 blob `b67acfad620ca08ff031531ce93fe5e8e39589f9` without changing its bytes. It makes cutover offline only and requires a committed boot-identity witness and a post-witness drift gate before publication. It adds an operator abort that restores the exact pre-freeze DB before publication starts. It requires a restart-stable physical identity in the drift gate and in canonical WorkspaceBinding verification, and it replaces retire-then-publish with atomic replacement.
 - Every other row is unchanged from `manifest-v8.md`.
 - DDL impact on #344: NONE.
 
