@@ -38,7 +38,7 @@ Subjects:
 What each fact proves:
 
 - The frozen bridge proves that no legacy DML and no new legacy open of `state/hand.db` succeeds after F. It proves nothing about external effects of pre-freeze writers.
-- The boot witness proves that no process alive at F is alive now. It observes kernel identity, not Hand.
+- The boot witness proves that no process that was alive on this kernel at F is alive now. It observes kernel identity, not Hand.
 - The drift gate proves that imported and quiescence-relevant external state equals the frozen evidence when the gate runs. Only after the witness is that result stable, because no pre-freeze writer remains to change it.
 
 ## 0.8.0 behavior for a legacy home
@@ -56,11 +56,14 @@ The operator runs one command twice, with a restart of the machine between the t
 
 Freeze run:
 
-1. Refuse unless the filesystem that holds `state/hand.db` is classified local (see "Kernel scope").
+1. Preflight, before MigrationLock and before any archive, manifest, or source change:
+   - Refuse unless the filesystem that holds `state/hand.db` is classified local (see "Kernel scope").
+   - Probe `state/`: create probe file A and hard-link it as B; create probe file C and atomically rename it over B, replacing it; confirm that B then has C's file identity and A keeps its own; then remove all probe names. Refuse if any step fails. Publication step 1 and abort step 5 depend on hard links, and every replacement depends on replace-existing rename. A local filesystem without them, such as FAT or exFAT, is refused here and never frozen.
+   - Read the freeze boot evidence E_F for this platform (see "Boot witness"). Unreadable or malformed evidence, or a Windows uptime below the floor, refuses.
 2. Acquire MigrationLock.
 3. Run revision 2's gate, nonblocking Fleet-local lock closure, durable-state classification, and provider/resource quiescence. Here they are preconditions for a consistent snapshot, not cessation proof. A busy or unknown result still refuses.
-4. Promote the original archive and persist the pre-freeze manifest as revision 2 requires. Manifest format v2 records revision 2's manifest facts and the certificate version. It omits the certificate value, which depends on the manifest digest.
-5. Read the freeze boot evidence E_F for this platform (see "Boot witness"). Unreadable or malformed evidence refuses before any source mutation.
+4. Promote the original archive and persist the pre-freeze manifest as revision 2 requires. Manifest format v2 records revision 2's manifest facts, with every Project physical identity in the restart-stable form (see "Drift gate"). It records the certificate version but neither the certificate value nor any digest of itself; the certificate binds the manifest's digest. A Project whose restart-stable identity is unavailable refuses the freeze.
+5. Re-read E_F and require it to equal the step-1 value. A difference refuses before any source mutation.
 6. In the one freeze transaction on OUR EXCLUSIVE connection:
    - require that no `meta` key starting with `v19-cutover-` exists;
    - insert `meta.key = 'v19-cutover-freeze'` with value `v2:<source-sha256>:<manifest-sha256>:<evidence-sha256>`;
@@ -69,15 +72,15 @@ Freeze run:
    - set `user_version = 22`;
    - COMMIT.
    Every digest is a lowercase 64-hex SHA-256.
-7. Release locks and handles as revision 2 requires. Perform no provider, Git, registry, or network action after F. Report that a full restart is required before completion.
+7. Release locks and handles as revision 2 requires. Perform no provider, Git, registry, or network action after F. Report that a full restart is required before completion and, on Windows, the completion window.
 
 Completion run, after the restart:
 
 1. Refuse unless the filesystem is classified local.
 2. Acquire MigrationLock.
 3. Recognize the exact v2 bridge: revision 2's recognition rules, exactly the two `v19-cutover-` `meta` rows above, a matching original archive and manifest, and no abort record for it.
-4. Evaluate the witness against E_F read from that bridge. A negative result is `reboot-required`; an unknown result is `cessation-unknown`. Both leave every file unchanged.
-5. Run the drift gate. Drift or unknown is `drift`, names the differing subjects, and changes nothing.
+4. Evaluate the witness against E_F read from that bridge. A negative result is `reboot-required`; an unknown result is `cessation-unknown`. Both are retryable and leave every file unchanged.
+5. Run the drift gate. It returns `pass`, `observation-unknown`, or `drift`, naming each subject. `observation-unknown` is retryable. `drift` means a frozen fact no longer holds, and only abort resolves it. Neither changes any file.
 6. Build and validate the canonical temp from the original archive and import plan, as revision 2 requires.
 7. Publish by atomic replacement (see "Publication without an absent active DB").
 8. Continue with revision 2's post-publication validation and registry projection.
@@ -88,20 +91,21 @@ Every path that builds for publication, retires, or publishes from a frozen brid
 
 - E_F is authoritative only as committed inside the freeze transaction. A copy in a manifest, marker, log, or earlier attempt never counts.
   - Counterexample: attempt 1 writes the manifest in boot session B1 and crashes before F. The machine restarts. Attempt 2 reuses the persisted manifest and commits F in B2. Evidence taken from the manifest would name B1, so the witness would pass with no restart after F.
-- The freezing process reads E_F after manifest persistence and before COMMIT. A restart between the read and COMMIT kills that process, so a committed E_F always names the boot session of F.
-- E_F contains: evidence format `v1`; platform (`linux`, `darwin`, or `windows`); token kind; token value; an informational UTC wall time. Wall time never decides an outcome.
+- The freezing process reads E_F in preflight and re-reads it before the freeze transaction. The process cannot survive a restart, so a committed E_F always names the boot session of F.
+- E_F contains: evidence format `v1`; platform (`linux`, `darwin`, or `windows`); machine identity; token kind; token value; an informational UTC wall time. Wall time never decides an outcome.
+- Machine identity is `/etc/machine-id` on Linux (`/var/lib/dbus/machine-id` when absent), `gethostuuid(2)` on macOS, and `MachineGuid` under `HKLM\SOFTWARE\Microsoft\Cryptography` on Windows. A freeze refuses when it is unreadable. At completion a different or unreadable machine identity is `cessation-unknown`: a home moved to another machine is never completed there, and abort is its way back.
 - The certificate binds the manifest digest, so the drift baseline is unique. A manifest whose digest differs from the certificate refuses.
 - A `v1:<source-sha256>` bridge has no E_F and never satisfies the witness. Read-only inspection still recognizes it; recovery refuses to build from it or publish it. No command in any released or `main` build ever called the freeze; only tests did, so no production home holds a v1 bridge.
 
 ## Boot witness
 
-The witness is positive only when current evidence is read positively, on the platform recorded in E_F, and meets that platform's rule. Every read failure, malformed value, and platform mismatch is unknown and refuses.
+The witness is positive only when current evidence is read positively, on the platform and machine recorded in E_F, and meets that platform's rule. Every read failure, malformed value, platform mismatch, and machine mismatch is unknown and refuses.
 
 | Platform | Token | Positive when | Limits |
 | --- | --- | --- | --- |
 | Linux | `/proc/sys/kernel/random/boot_id` | current UUID differs from recorded UUID | This is the host kernel's identity. A container restart is not a machine restart, so completion refuses. Hibernate and resume keep the ID and the processes. |
 | macOS | `sysctl kern.bootsessionuuid` | current UUID differs from recorded UUID | Apple does not formally document this interface. Qualification must show it stays stable across sleep and changes across restart on each supported major version. `kern.boottime` may be recorded for diagnostics only, because the kernel can adjust it when the clock is set. |
-| Windows | milliseconds since boot from `GetTickCount64` | current value is less than recorded value | Completion refuses once uptime since the restart reaches the uptime recorded at F. The freeze report states that bound. Shutdown with Fast Startup resumes a hibernated kernel and is expected not to reset the count, so a full Restart is required. Wall-clock boot time is rejected because clock changes move it. |
+| Windows | milliseconds since boot from `GetTickCount64` | current value is less than recorded value | The freeze refuses when uptime is below one hour, so every completion window after a restart is at least one hour. Completion refuses once uptime since the restart reaches the recorded uptime; another restart reopens the window, so a missed window never strands the home. The freeze report states the bound. Shutdown with Fast Startup resumes a hibernated kernel and is expected not to reset the count, so a full Restart is required. Wall-clock boot time is rejected because clock changes move it. |
 
 The witness assumes that no process survives a change of boot session. Process checkpoint/restore (for example CRIU) and VM memory snapshot restore are outside the model.
 
@@ -118,11 +122,28 @@ The only sound rule is that every non-kernel process alive at F is a possible wr
 
 ## Drift gate
 
-The gate runs after a positive witness, under MigrationLock, before the canonical build, and again on every resume:
+The gate runs after a positive witness, under MigrationLock, before the canonical build, and again on every resume. It separates two refusals:
 
-- Projects: for every manifest Project, the re-observed canonical locator, repository physical identity, common-dir physical identity, and HEAD revision equal the manifest values exactly. A missing clone, a changed HEAD, or an alias blocks.
-- Managed namespace and Treehouse: revision 2's Project and Treehouse quiescence, evaluated against the plan derived from the original archive, is positive. A same-Fleet lease, an unresolved or colliding pool slot, or a managed Project path without a manifest Project blocks.
-- Herdr: revision 2's Herdr quiescence for that plan is positive. Any Hand workspace, tab, or pane for this Fleet blocks. Herdr unavailable or unclassifiable is unknown and blocks.
+- `observation-unknown`: an observation could not be made or classified, or a resource the operator can stop is live. It is retryable and never requires abort.
+- `drift`: a fact recorded at F no longer holds. Only abort resolves it.
+
+Physical identity, as recorded in manifest v2 and compared here, must stay stable across the required restart and must distinguish a different object reallocated at the same path:
+
+- POSIX: `unix-v2`, the inode number plus the file birth time (Linux `statx` `STATX_BTIME`; macOS `st_birthtimespec`). The device number is excluded because btrfs, ZFS, LVM, device-mapper, and disk reordering can renumber it at boot. `statfs` `f_fsid` is excluded because XFS derives it from the device number.
+- Windows: volume serial number plus file index.
+- A `unix-v1` identity (device and inode) is never compared across a restart.
+- Birth time or file index unavailable at completion is `observation-unknown`, not drift.
+
+Subjects:
+
+- Projects: for every manifest Project, the re-observed canonical locator, repository physical identity, common-dir physical identity, and HEAD revision must equal the manifest values exactly. A difference, a missing clone, or an alias is `drift`. An unreadable clone or identity is `observation-unknown`.
+- Managed namespace and Treehouse: revision 2's Project and Treehouse quiescence is evaluated against the plan derived from the original archive. A same-Fleet lease, an unresolved or colliding pool slot, or a managed Project path without a manifest Project is `drift`. Treehouse unavailable or unclassifiable is `observation-unknown`.
+- Herdr: after a positive witness, the restart has killed every Herdr server and pane that existed at F. Herdr identities recorded before F belong to a dead server instance and are never matched.
+  - A Herdr server positively observed as stopped for both the `hand-<fleet_id>` and `default` sessions proves that no pane of this Fleet exists; that passes.
+  - In a running server, a resource belongs to this Fleet when it is in session `hand-<fleet_id>` or carries a label starting `hand:<fleet_id>:`. A live resource of this Fleet is `observation-unknown`: this Fleet's legacy commands refuse before any Herdr call after F, so such a resource was created or restored after the restart, and closing it resolves the refusal.
+  - A label `hand:<other_fleet_id>:...` belongs to another Fleet and passes.
+  - The v0.7.2 label `hand:<project>` in `default` carries no Fleet ID. When `<project>` names no manifest Project, it passes. When it does, it is `observation-unknown` until `internal/faketool/FIDELITY.md` records that Herdr does not restore workspaces across a server restart. After that record exists it passes, because no process of this Fleet can have created it after the restart.
+  - A Herdr client that cannot reach or classify a server is `observation-unknown`.
 - A drift result is never repaired, re-baselined, or imported. A drifted frozen home stays frozen until the operator aborts.
 
 ## New legacy processes after the freeze
@@ -147,10 +168,18 @@ Revision 2 retires the frozen bridge and then publishes the canonical temp. Betw
 This revision replaces that order:
 
 1. Durably link the frozen bridge to its deterministic retired path. The active name keeps pointing at the bridge.
-2. Atomically replace `state/hand.db` with the validated canonical temp: `rename` on POSIX, a replace-existing write-through move on Windows. A Windows sharing violation stops the attempt and leaves the bridge active and retryable.
+2. Atomically replace `state/hand.db` with the validated canonical temp: `rename` on POSIX, a replace-existing write-through move on Windows. On Windows, `ERROR_SHARING_VIOLATION` and `ERROR_ACCESS_DENIED` both stop the attempt and leave the bridge active and retryable.
 3. Flush the parent directory and revalidate as revision 2 requires.
 
-After F, `state/hand.db` names the frozen bridge, the validated canonical DB, or, after abort, the restored pre-freeze DB at every instant. An absent active DB after F comes only from pre-revision-4 code or outside action. Recovery publishes into it only with no-replace semantics and refuses if anything appears.
+After F, the path `state/hand.db` names the frozen bridge, the validated canonical DB, or, after abort, the restored pre-freeze DB at every instant. A POSIX handle opened before a replacement keeps its old file. A pre-freeze process holding a bridge handle keeps reading the bridge, and the guards refuse its writes.
+
+After F, an absent active DB refuses in every run: completion, `hand cutover recover`, and abort. Revision 2's "active missing" recovery rows no longer publish.
+
+- Counterexample: a v2 freeze commits in boot session B1, and something outside Hand moves `state/hand.db` away. `hand cutover recover` in B1 takes revision 2's "active missing + archive + temp" row and publishes in F's boot session. A pre-read lock waiter then fast-forwards the clone.
+
+The operator restores the bridge at `state/hand.db`; then the normal rules apply.
+
+Between a replacement and its parent-directory flush, other processes can already open the new file. A power loss in that window can revert the name and lose writes they made. Publication and abort flush immediately, which bounds the window but does not close it. After such a revert, the recovery rules above apply to whatever the path names.
 
 Replacement relies on the guards. A stale connection on the bridge inode cannot write a page, so it cannot leave a hot journal at `state/hand.db-journal` for SQLite to pair with the replacement file. Publication, like abort, refuses when a non-empty `-journal` or any `-wal` exists at replacement time.
 
@@ -166,7 +195,7 @@ Start state, classified under MigrationLock:
 | --- | --- | --- |
 | exact frozen bridge (v1 or v2) with a matching original archive | any | abort runs or continues |
 | exact v0.7.2 | any | repeat only the parent-directory flush; report `not-frozen`, naming any abort record |
-| canonical, absent, or anything else | any | refuse; revision 2's recovery rules apply |
+| canonical, absent, or anything else | any | refuse; a canonical DB follows revision 2's recovery rules, and an absent one follows "Publication without an absent active DB" |
 
 Sequence:
 
@@ -174,10 +203,13 @@ Sequence:
 2. Classify the start state as above.
 3. Re-hash the original archive. Require that it equals the certificate source digest.
 4. Refuse if a non-empty `state/hand.db-journal` or any `state/hand.db-wal` exists.
-5. Create the abort record by durably linking the active bridge, no-replace, to a deterministic path. The path derives from the migration identity and the bridge SHA-256. Resuming requires the same inode, or an existing record with the same digest. This link is the abort commit point: from here, completion and recover refuse for this bridge, and only abort continues.
-6. Durably move the frozen manifest into the abort record. Remove the canonical temp, and any retired-bridge link to the same inode, by exact path.
+5. Create the abort record:
+   - Create a new directory `state/v19-cutover-<migration_id>/aborted-<nonce>` no-replace, where the nonce is 128 random bits.
+   - Durably link the active bridge into it, no-replace. This link is the abort commit point: from here, completion and recover refuse for this bridge, and only abort continues.
+   - On resume, the record is the `aborted-*` directory whose bridge link has the same file identity as the active bridge. A record directory without a bridge link is non-authoritative, and abort removes it by exact path.
+6. Durably move the frozen manifest into the abort record. Remove the canonical temp, and any retired-bridge link with the same file identity, by exact path.
 7. Copy the original archive to a same-volume, non-authoritative restore candidate beside `state/hand.db`. Flush it, reopen it, and require its SHA-256 to equal the certificate source digest.
-8. Atomically replace `state/hand.db` with the restore candidate, using the primitives from "Publication without an absent active DB". A Windows sharing violation stops the attempt. The bridge stays active and abort remains the only continuation.
+8. Atomically replace `state/hand.db` with the restore candidate, using the primitives from "Publication without an absent active DB". On Windows, `ERROR_SHARING_VIOLATION` and `ERROR_ACCESS_DENIED` stop the attempt. The bridge stays active and abort remains the only continuation.
 9. Flush the parent directory. Reopen read-only and require exact v0.7.2 validation, with a SHA-256 equal to the certificate source digest.
 
 Record and scope:
@@ -187,6 +219,10 @@ Record and scope:
 - The original archive stays in place. A later offline cutover may reuse it only under revision 2's exact-digest rule. That cutover writes a fresh manifest and commits a fresh E_F.
 - Abort performs no Git, Treehouse, Herdr, registry, or network action.
 - Abort does not reconcile external effects that a pre-freeze writer made while the source was frozen. Those effects are legacy residuals whose DB record was refused, the same as a crashed legacy command. Legacy repair owns them.
+
+## Residuals after publication
+
+The drift gate checks imported facts and quiescence, not every effect. A pre-freeze writer may have acted while the source was frozen and had its DB record refused. Examples: `gh` calls, `git push`, `git branch -D`, a `.git/info/exclude` write, or `project sync` changing a clone's `origin` URL mid-repoint. After publication, each of these remains as external state that neither the archive nor canonical v19 records, the same as the residue of a crashed legacy command. Canonical v19 imports no Task, branch, PR, or remote history, so it asserts nothing these effects contradict. Canonical Project policy derived from the archived legacy URL can disagree with such a clone's `origin` until canonical repair observes it.
 
 ## Kernel scope
 
@@ -198,11 +234,14 @@ A local filesystem that another kernel reaches through an export, a VM share, or
 
 | Point | Durable state | Next run |
 | --- | --- | --- |
+| Preflight refusal | exact v0.7.2 source; probe files removed | fix the cause and rerun |
 | Before F | exact v0.7.2 source; candidate or original archive; manifest | new freeze attempt under revision 2's candidate/archive rules, with a new E_F |
 | COMMIT outcome lost | v0.7.2 source or v2 bridge | read-only reclassification decides; a freeze never runs on a bridge |
 | After F, before restart | v2 bridge | `reboot-required`; no change |
 | Witness positive, crash in drift gate or canonical build | v2 bridge; maybe an invalid temp | witness and drift gate rerun; temp rebuilt |
+| Drift gate unknown | v2 bridge | `observation-unknown`; rerun after the cause is fixed |
 | Drift found | v2 bridge | `drift`; stays frozen until abort |
+| Active DB absent after F | archive; maybe temp | every run refuses until the bridge is restored at `state/hand.db` |
 | After bridge link, before replace | active bridge plus retired link to the same inode | recovery requires the same inode, then replaces |
 | Replace outcome lost | active bridge or canonical DB | a valid canonical DB wins; otherwise continue from the bridge |
 | After replace | canonical DB | revision 2's post-publication rules; abort refuses |
@@ -217,8 +256,8 @@ Each invariant names a trace that falsifies it.
 
 - C4-1: No canonical build for publication, bridge retirement, or publication happens unless the witness is positive against E_F committed in the same bridge, within the same MigrationLock hold. Falsified by publication from a bridge in F's boot session, from a v1 bridge, or with evidence read from a manifest.
 - C4-2: No canonical publication happens unless the drift gate passed after that positive witness, within the same MigrationLock hold. Falsified by the revision-3 lock waiter fast-forwarding a clone after F and before the restart, followed by a successful publication.
-- C4-3: An unreadable, malformed, cross-platform, or non-qualifying witness input causes a refusal with zero file changes. Falsified by any mutation under H after such an input.
-- C4-4: After F, `state/hand.db` is never absent. It is replaced only by the validated canonical DB or by abort's restored pre-freeze DB. Falsified by a legacy open during publication or abort that creates a fresh legacy DB.
+- C4-3: An unreadable, malformed, cross-platform, cross-machine, or non-qualifying witness input causes a refusal with zero file changes in completion and recover. In the freeze run, such an input refuses in preflight, before MigrationLock, and leaves only the removed probe files. Falsified by any other mutation under H after such an input.
+- C4-4: After F, no Hand path makes `state/hand.db` absent, and no Hand path publishes into an absent `state/hand.db`. Hand replaces it only with the validated canonical DB or abort's restored pre-freeze DB. Falsified by a legacy open during publication or abort that creates a fresh legacy DB, or by any run that publishes after the active DB was moved away.
 - C4-5: A legacy process started after F causes no side effect on an imported fact, a drift-gate subject, or the frozen source. Falsified by any pre-check Git, Treehouse, Herdr, clone, or DB write in v0.7.2 or in 0.8.0's legacy path.
 - C4-6: Live cutover stays refused. Falsified by any path that freezes a source and publishes from it in the same boot session.
 - C4-7: Abort never runs after the first publish mutation. It acts only while `state/hand.db` is the exact frozen bridge. Falsified by an abort that changes a canonical, absent, or unknown active DB.
@@ -226,25 +265,47 @@ Each invariant names a trace that falsifies it.
 - C4-9: Abort is safe to repeat from every crash point, including a crash in the freeze run. Before F it changes nothing. After F each rerun resumes from durable state and converges on the same restored bytes. Falsified by a rerun that writes different bytes or refuses permanently from a state abort itself produced.
 - C4-10: After abort, the bytes of `state/hand.db` equal the original archive, whose SHA-256 equals the certificate source digest. A legacy writer that resumes sees exactly the pre-freeze DB. Falsified by any byte difference, or by an abort record that a later decision reads as input.
 - C4-11: Unfreezing happens only through abort's replacement with the original archive. No path drops the guards, rewrites the sentinel, or edits the bridge in place.
+- C4-12: A physical-identity comparison across the restart never reports drift for the same object and never passes for a different one. Falsified by a device renumbering that yields `drift`, or by an inode reused at the same path that yields `pass`.
+- C4-13: `observation-unknown` never requires abort, and `drift` is never retried into `pass` without an abort and a new freeze. Falsified by a stopped Herdr server after a positive witness that blocks, or by a drifted bridge that later publishes.
 
 ## Unknowns
 
 - Cross-kernel access through exports and VM or container shares (see "Kernel scope").
 - Process checkpoint/restore and VM memory snapshot restore.
 - macOS `kern.bootsessionuuid` behavior and Windows Fast Startup behavior need native qualification. CI cannot provide it because both need a real restart.
+- Whether Herdr restores workspaces across a server restart is unrecorded; until it is, a legacy `hand:<project>` label naming a manifest Project stays `observation-unknown` (see "Drift gate").
+- Birth-time availability varies by filesystem (for example, ext4 with 128-byte inodes has none). Such a Project cannot be frozen.
 - A stale v0.7.2 binary run against a published canonical home. Static reading shows its schema step fails at `attempt_one_active` (`no such column`) inside a transaction that rolls back. E1–E3 still run first, and E2 can rename `config/model` or `config/effort`. This needs a separate-process proof, and canonical configuration (#324) must not treat those legacy file names as authority.
 
 ## Required tests
 
 - Separate process: the revision-3 lock waiter acts after F. Completion then refuses with `reboot-required` in the same boot session. With a test-only evidence source that makes the witness positive, completion refuses on the resulting drift.
 - Witness, per platform: equal, different, malformed, unreadable, and cross-platform tokens; on Windows, a tick count that decreased and one that did not.
-- Freeze transaction: the v2 certificate, evidence row, 21 guards, and sentinel commit atomically. A crash before COMMIT leaves exact v0.7.2. Evidence carried in a manifest from an earlier attempt is ignored.
+- Freeze transaction: the v2 certificate, evidence row, 21 guards, and sentinel commit atomically. A crash before COMMIT leaves exact v0.7.2.
+- Retried freeze across a restart: attempt 1 crashes after manifest persistence. The machine restarts, and attempt 2 commits F. Its committed E_F names the second boot session, and completion in that session refuses `reboot-required`.
+- Preflight: a filesystem without hard links or replace-existing rename refuses before MigrationLock with no archive, manifest, or source change. A Windows uptime below the floor refuses. An unreadable machine identity refuses.
+- Absent active DB after F: completion, recover, and abort all refuse.
+- Recover on a v2 bridge in F's boot session refuses `reboot-required`.
+- Machine identity differs at completion: `cessation-unknown`.
 - v1 bridge: inspect recognizes it; recover and completion refuse it.
-- Drift gate: changed HEAD, missing clone, new managed path, new same-Fleet lease, Hand Herdr pane, Herdr unavailable.
-- Publication: `state/hand.db` is never absent; a concurrent legacy open during publication cannot mint a Fleet; a Windows sharing violation leaves the bridge active and retryable.
+- Drift gate:
+  - `drift` for a changed HEAD, a missing clone, a new managed path, a new same-Fleet lease, and a different inode or birth time at the same path.
+  - `pass` when the device number changes but the filesystem object is the same.
+  - `pass` for a stopped Herdr server after a positive witness.
+  - `pass` for another Fleet's `hand:<fleet_id>:` workspace, and for a legacy `hand:<project>` label naming no manifest Project.
+  - `observation-unknown` for a live resource of this Fleet, for Herdr or Treehouse unreachable, and for birth time unavailable.
+- Publication: `state/hand.db` is never absent; a concurrent legacy open during publication cannot mint a Fleet; a Windows sharing violation or access denial leaves the bridge active and retryable.
 - 0.8.0: before F the legacy home keeps working; after F every ordinary command refuses the frozen bridge with zero changes under H.
 - Filesystem classification refuses remote and unclassifiable filesystems.
-- Abort: a crash at each abort step, with a rerun that converges; abort before F reports `not-frozen` with zero changes; abort after the canonical replace refuses; completion and recover refuse after the abort record link. The restored DB's bytes equal the original archive. A pre-freeze lock waiter that resumes after abort reads the pre-freeze rows. A stale connection on the bridge inode cannot leave a journal that pairs with the restored file.
+- Abort:
+  - A crash at each abort step, with a rerun that converges.
+  - Abort before F reports `not-frozen` with zero changes.
+  - Abort after the canonical replace refuses.
+  - Completion and recover refuse after the abort record link.
+  - An empty `aborted-*` directory is removed and a fresh record is created.
+  - A Windows sharing violation or access denial leaves the bridge active and abort retryable.
+  - The restored DB's bytes equal the original archive, and a pre-freeze lock waiter that resumes after abort reads the pre-freeze rows.
+  - A stale connection on the bridge inode cannot leave a journal that pairs with the restored file.
 
 ## Remaining acceptance
 
