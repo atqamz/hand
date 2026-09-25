@@ -58,7 +58,7 @@ These revision-1 sections stay normative without change:
 Two sections stay normative with the additions stated below:
 
 - WorkerWake adapter: live-identity preconditions and the doorbell grammar.
-- Session / Herdr environment boundary: the guard scrubs the environment. The rule "Daemon PID/ancestry/environment is observation, never identity authority" holds without exception.
+- Session / Herdr environment boundary: the guard scrubs the environment, and Session release runs a guarded-execution pre-check ("Session release with guarded executions"). The rule "Daemon PID/ancestry/environment is observation, never identity authority" holds without exception.
 
 This revision restates the "Launch / Executor / Interrupt" section for the `herdr` adapter. Its revision-1 rules stay as lower bounds:
 
@@ -128,7 +128,7 @@ Records and the handoff live in a Fleet-private directory under the Fleet home. 
 
 A torn or unparsable record counts as absent.
 
-A record with a protocol version Hand does not know is refused as a typed error. It does not count as absent. Every Hand build keeps a reader for each guard protocol version that appears in the key of any open ExecutorBinding. An upgrade that would drop such a reader refuses before replacing the binary.
+A record with a protocol version Hand does not know is refused as a typed error. It does not count as absent. Every Hand build keeps a reader for each guard protocol version that appears in the key of any open ExecutorBinding. Generations are user-global (#519), so the check reaches beyond one Fleet. Before an upgrade replaces the binary, it scans the open ExecutorBinding keys of every Fleet in the user-global registry, and the live guard leases. It refuses if the new build would drop a reader that any of them needs. A Fleet it cannot read also refuses the upgrade.
 
 The guard holds a managed Hand generation lease for the generation it executes from, per #519, through `toolchain.Store.AcquireHandLease`, as the supervision waiter does (`internal/supervision/wait.go`, `acquireWaiterGenerationLeases`). It holds the lease until it exits. A guard run from an unmanaged checkout build has no generation to lease.
 
@@ -211,6 +211,8 @@ Guard sequence. Every step before `running` fails closed.
 Pane association, A(B), is a WorkerWake precondition only (W(B) in "WorkerWake"). Launch success never requires it on any platform, and Launch success never implies that a wake can be delivered.
 
 ExecutorBinding identity is the guard incarnation G plus the harness root R. It is proven by the guard claiming the exact handoff of L, and L already names the SessionBinding and pane that Hand targeted. Interrupt and cessation act on the guard directly, not through the pane, so they do not need A(B). An established B can therefore always be interrupted, with no abort operation and no relock. Executor-control exclusion still applies: an `uncertain` wake blocks Interrupt until that wake settles.
+
+The preflight and `pane run` are separate Herdr calls (`internal/herdr/exact_launch.go`). If Herdr reuses a pane ID between them, the guard can land in another Session's pane. For that reason the key records whether Launch observed A(B) (`assoc=observed|unobserved|mismatch`). Session release also re-checks where every live guard actually sits ("Session release with guarded executions").
 
 A(B) is:
 
@@ -415,13 +417,15 @@ Delivery uses Herdr's `agent prompt`. Its v0.8.2 contract refuses `agent_blocked
 | --- | --- |
 | W fails immediately after Tx B | Herdr is not called; this process records `no-effect` |
 | Herdr returns a pre-side-effect rejection | `rejected` |
-| W holds before delivery, Herdr returns success, W holds after with the same G and R | `succeeded`: the mechanism postcondition only, never acknowledgement |
+| W holds before delivery, Herdr returns success, W holds after with the same G and R | `succeeded` |
 | W fails after delivery | `uncertain`, with typed residual evidence |
 | The Herdr reply is lost | `uncertain`, then settlement below |
 
+**Mechanism postcondition.** A `succeeded` WorkerWake for the `herdr` adapter means exactly this: the doorbell was applied at most once and whole, only to T(G), while G and R stayed the same incarnations. It never means that the doorbell was read, that input was acknowledged, or that the harness acted. A `succeeded` wake never suppresses a later wake while input stays pending.
+
 **Settling a lost reply.** Settlement requires a qualified Herdr property O1: once the sending client has ended and a later exact pane observation has completed, no earlier request from that client can still be applied, and every applied request was applied whole. Hand runs every Herdr client with a bounded timeout, and O1 must cover a client that died mid-request.
 
-With O1, the reconciler settles an `uncertain` wake as follows. It waits until the client has ended. It then observes W again. If W still holds with the same G and R, the send was either applied while P owned the terminal or not applied at all, and the reconciler settles `succeeded`. A send that was not applied leaves input pending, and #347 Attention surfaces it. Without O1, or when W fails, the wake stays `uncertain` until operator-attested settlement.
+With O1, the reconciler settles an `uncertain` wake as follows. It waits until the client has ended. It then observes W again. If W still holds with the same G and R, O1 positively establishes the postcondition: the send was applied at most once, whole, and only while P owned the terminal. The reconciler then settles `succeeded`. A send that was never applied still satisfies "at most once". The input stays pending, #347 Attention surfaces it, and a later wake remains allowed. Without O1, or when W fails, the wake stays `uncertain` until operator-attested settlement.
 
 An `uncertain` wake keeps its executor-control claim on B. The anchored `operation_scope_claim_guard` trigger then refuses every Interrupt, residual cleanup and later wake for B until the wake settles. Natural or hangup cessation is not an operation, so it still closes B.
 
@@ -432,6 +436,18 @@ An `uncertain` wake keeps its executor-control claim on B. The anchored `operati
 - After cessation, and before it exits, the guard flushes pending terminal input.
 - Windows has no foreground fact. Whichever console-attached process reads the input consumes it.
 - Without the `console` association, Windows WorkerWake keeps the revision-1 refusal. A wake that could only ever be `uncertain` would block B.
+
+# Session release with guarded executions
+
+The anchored trigger already refuses Session release while the Session's own ExecutorBinding is open. Pane-ID reuse at Launch can put another binding's guard in this Session's workspace, so the `herdr` release adds a pre-check. The check runs before Tx B of the release, and again immediately before `WorkspaceClose` (`internal/store/v19session_herdr_release.go`). For every open ExecutorBinding of this Fleet whose key uses a guard grammar:
+
+- **Live(G), Linux.** Hand reads G's controlling terminal from the OS and compares it with the terminal device of every pane in the workspace being closed, as Herdr reports them.
+- **Live(G), Windows.** Hand needs a `console` record written after the check began. It compares that record's PIDs and creation times with every pane shell in the workspace.
+- **Absent(G) on Linux, R known.** If Live(R), Hand compares R's controlling terminal the same way.
+- **Absent(G) on Linux, R unknown.** The result is `unknown`.
+- **Absent(G) on Windows.** Kill-on-close already ended T(G), so the binding is skipped.
+
+A match refuses the release. So does anything that cannot be observed: an unknown incarnation, unobservable pane terminals, or a stale `console` record. A refusal before Tx B settles the release `no-effect`. A refusal after Tx B leaves it `uncertain`, and the reconciler retries the pre-check before any close. The recorded `assoc` value only points to likely offenders; the check always covers every guarded binding.
 
 # Operator-attested settlement
 
@@ -446,10 +462,23 @@ Every settlement runs in one writer transaction that:
 | Repair code | Target | Precondition, re-observed in the same writer | Settlement |
 | --- | --- | --- | --- |
 | `exec-guard-wake-uncertain` | the wake `external_operation` | the wake is `uncertain`; no settlement through O1 applies | the operator attests `succeeded` (doorbell seen at the harness) or `no-effect` (not delivered and no residual) |
-| `exec-guard-lost` | `executor_binding` B | Absent(G) on the same boot; no `ceased` record; no boot change | termination `provider-gone`; every `submitted` or `uncertain` Interrupt for B settles `succeeded`, citing the attested termination |
-| `exec-guard-launch-uncertain` | the Launch `external_operation` | L is `uncertain`; G is absent or never claimed; no `ceased` record | L settles `rejected`; no B is created |
+| `exec-guard-lost` | `executor_binding` B | no `ceased` record; no boot change; the absence check below holds | termination `provider-gone`; every `submitted` or `uncertain` Interrupt for B settles `succeeded`, citing the attested termination |
+| `exec-guard-launch-uncertain`, claimed | the Launch `external_operation` | L is `uncertain`; a `claimed` record exists; no `ceased` record; the absence check below holds | in one transaction: L settles `succeeded`, B is established from the records (`r=unknown` when no `running` record exists), and B gets an attested `provider-gone` termination |
+| `exec-guard-launch-uncertain`, never claimed | the Launch `external_operation` | L is `uncertain`; no `claimed` record; Hand's fence won on the boot recorded in the handoff | L settles `no-effect`; the attestation replaces O1 (no late guard-invocation bytes remain) |
+
+**Absence check.** It runs in the same writer, and every part must hold:
+
+- Absent(G) on the same boot.
+- Absent(R), whenever R is known from a `running` record or the key.
+- **Linux.** No process whose real uid is the Fleet user, in Hand's PID namespace, carries `HAND_WORKER_EXECUTOR_BINDING=B` in `/proc/<pid>/environ`. B is pre-allocated, so this check works without a `running` record. If any such process's environ is unreadable, the check is `unknown` and the repair refuses.
+- **Windows.** Absent(G) and Absent(R) suffice. The guard held the job's only handle, so its death closed the job, and kill-on-close terminated T(G).
+
+Only a `refused` record, which is an observation, produces `rejected`. An attestation never produces it.
+
+The environ scan cannot see a descendant that re-executed with a cleaned environment. The operator's attestation covers that case.
 
 - An `uncertain` Interrupt whose B already has an observed termination settles `succeeded` by observation, without Repair.
+- `repair_resolution.actor_ref` defaults to `''` in the DDL. The Repair writer must refuse an empty actor (EG-16).
 - Read models must project each attested settlement as attested. That is a required #347 follow-up.
 
 ---
@@ -461,7 +490,7 @@ Every settlement runs in one writer transaction that:
 | guard protocol marker and credential verifier V_B | `launch_environment(name='HAND_WORKER_CREDENTIAL', value_kind='secret-ref', value_material='hand-exec-guard:v1', value_digest=V_B)` | Tx A |
 | B for the harness environment | `launch_environment(name='HAND_WORKER_EXECUTOR_BINDING', value_kind='literal', value_material=B)` | Tx A |
 | request and launch-spec commitment covering both rows | `external_operation.request_digest`, `launch_operation.launch_spec_digest` | Tx A |
-| G, R, P, pane locator and terminal, OS, object identity, digest and class | `executor_binding.provider_executor_key` with grammar `herdr-exec-guard:v1?...`; `executor_binding.adapter_ref='herdr'` | Launch success |
+| G, R (or `r=unknown`), P, pane locator and terminal, the association Launch observed (`assoc`), OS, object identity, digest and class | `executor_binding.provider_executor_key` with grammar `herdr-exec-guard:v1?...`; `executor_binding.adapter_ref='herdr'` | Launch success |
 | Launch, WorkerWake and Interrupt evidence | `external_operation.state_evidence_digest`, `external_operation_event.evidence_digest` | each transition |
 | cessation | `executor_binding_termination(terminal_kind, interrupt_operation_id, observed_at, evidence_digest)` | executor observation, Interrupt writer, or attested settlement |
 | attested settlement | `repair_target`, `repair(repair_code, reason, evidence_digest)`, `repair_resolution(resolution='operator-attested', actor_ref, evidence_digest)` | Repair writer |
@@ -484,7 +513,7 @@ Every settlement runs in one writer transaction that:
 | Item | Launch | WorkerWake | Interrupt |
 | --- | --- | --- | --- |
 | first mutation boundary | `herdr pane run` after Tx B | `herdr agent prompt` after Tx B and a passing W | interrupt-request write after Tx B |
-| strongest positive postcondition | guard records plus Live(G), or accepted cessation; never wake-deliverability | W before and after, or O1 settlement | termination accepted |
+| strongest positive postcondition | guard records plus Live(G), or accepted cessation; never wake-deliverability | at most one whole application, only to T(G), with the same G and R; shown by W before and after, or by O1 settlement | termination accepted |
 | same-key idempotency | no replay; the single claim bounds effects to one execution | no; coalescing-safe | yes |
 | destructive identity | G, verified from the OS | — | G, bound by the request record |
 | unknown | `uncertain`, no fabricated binding, attested Repair | `uncertain`, O1 or attested Repair | `uncertain`, attested Repair |
@@ -516,7 +545,7 @@ Every settlement runs in one writer transaction that:
 - **EG-5 Launch success.** A binding exists only with valid `claimed`, `pinned` and `running` records that name the committed digests, together with either Live(G) or accepted cessation. Launch success never depends on A(B) and never implies it.
 - **EG-6 Positive no-effect.** `no-effect` for a `submitted` Launch requires a winning fence on the recorded boot, plus O1.
 - **EG-7 Object honesty.** The recorded object is the object the guard opened, with its true class. Neither a PATH search nor a basename or argv match is ever object evidence.
-- **EG-8 Termination source.** A termination row requires one of: a `ceased` record for exactly G with the platform predicate; a positive boot change; or an operator-attested `exec-guard-lost` settlement taken while Absent(G) holds.
+- **EG-8 Termination source.** A termination row requires one of: a `ceased` record for exactly G with the platform predicate; a positive boot change; or an operator-attested settlement whose absence check held (Absent(G), Absent(R) when R is known, and on Linux an empty environ scan for B).
 - **EG-9 Interrupt success.** `succeeded` requires an accepted termination for B. Request acceptance is never success. The kind is `interrupted` only when the `ceased` cause names that exact pending Interrupt.
 - **EG-10 Wake success.** `succeeded` requires W before and after delivery, or O1 settlement, or attestation. A failed pre-check means Herdr is never called.
 - **EG-11 Attestation.** Drain or acknowledge is accepted if and only if the presented secret hashes, for this Fleet and B, to B's stored V_B, and B is open and current.
@@ -524,27 +553,30 @@ Every settlement runs in one writer transaction that:
 - **EG-13 Generation isolation.** No record, request, credential or key derived from G1 or B1 changes any state of G2 or B2.
 - **EG-14 Terminal inertness.** The terminal carries only the fixed-shape guard invocation and a doorbell that conforms to the grammar.
 - **EG-15 No guard writes.** The guard never opens the canonical SQLite DB.
-- **EG-16 Attestation is not observation.** Every non-observed settlement has exactly one `operator-attested` Repair resolution, with an actor, created by an operator request. No code path creates one automatically.
+- **EG-16 Attestation is not observation.** Every non-observed settlement has exactly one `operator-attested` Repair resolution, created by an operator request. The writer refuses an empty `actor_ref`. No code path creates one automatically.
+- **EG-18 Release safety.** A Session release never closes a workspace that holds a live guard of any open binding, whichever Session that binding names.
 - **EG-17 Version continuity.** A record from a guard protocol version present in any open key is always readable. An unknown version is refused, never read as absent.
 
 # Counterexamples and the point that excludes each
 
 1. **A stale G1 guard acts on G2.** G1 knows only L1 and writes only records that name G1. Hand checks each record's incarnation against B2's key (EG-3, EG-13). A request for G2 names G2, so G1 ignores it.
 2. **PID reuse impersonates G.** G dies and an unrelated process receives its PID. The start time differs, so Absent(G) holds. No request can reach the new process, because control never signals by PID (EG-3).
-3. **The guard crashes.** SIGKILL hits G after `running`, and the orphans reparent outward. Hand sees Absent(G), no `ceased` and the same boot, so the state is `unknown` with no termination row (EG-8). Recovery comes from a boot change, or from `exec-guard-lost` attestation, which also settles a pending Interrupt.
-4. **A wake reaches a replaced pane process.** R exits, the guard records `ceased`, and the shell regains the foreground. Pre-W then fails, Hand makes no send, and the wake is `no-effect`. If the replacement happens between pre-W and post-W, the wake is `uncertain`. The doorbell is then a parse error in the shell (EG-10, EG-14).
-5. **A stale caller secret.** A caller presents S_B1 to drain B2: the hash differs, so the call is refused. A caller presents S_B1 after B1 terminated: refused, because positive cessation leaves no process of T(G1) (EG-11).
-6. **Cross-Fleet environment leak.** A Fleet-B Herdr daemon started inside a Fleet-A worker inherits `HAND_HOME=A` and Fleet A's `HAND_WORKER_*` values. The Fleet-B guard scrubs them before starting its harness (EG-12). A Fleet-A harness that presents S_A to Fleet B is refused, because V is recomputed with Fleet B's ID (EG-11). That daemon also ends with T(G_A), as described under "Nested Fleets".
-7. **Two guards for one handoff.** The pane shell runs the typed command twice. The second rename fails, and that guard starts no harness (EG-2).
-8. **Path swap between pin and exec.** On Linux a native binary runs from the pinned descriptor. On Windows the guard verifies the suspended child against the pinned object and refuses on a mismatch (EG-7). A script records `sampled`.
-9. **Crash after Tx B, before `pane run`.** The reconciler fences handoff(L). With O1 on the same boot the Launch is `no-effect`; otherwise it is `uncertain`, with no execution possible. There is never a second invocation (EG-6).
-10. **The Interrupt is accepted but the tree survives.** No `ceased` is recorded, so the Interrupt stays `submitted` or `uncertain` (EG-9).
-11. **A `setsid` grandchild.** On Linux it reparents to the guard, and `ECHILD` waits for it. On Windows it stays in the job.
-12. **Fast exit.** R exits before Hand observes it. `running` and `ceased` exist, so Hand writes `succeeded` together with the binding and its termination, never `no-effect`.
-13. **Power loss, then history recall.** The boot changes, and every earlier T(G) positively ceased. An operator recalls the old guard command from shell history. The guard compares the handoff's boot with the current boot and records `refused` (EG-2). A synced claim also makes a later fence fail.
-14. **A forged interrupt request.** A same-user process writes a request that names G and no pending Interrupt. The guard terminates T(G), and Hand labels the termination `failed`, never `interrupted` (EG-9).
-15. **A pane that Herdr cannot observe.** The guard claims L and writes `running`, and G is live, but Herdr reports no usable pane association. L settles `succeeded`, B exists, and Interrupt works through the guard. Every wake for B is refused before any Herdr call, and on Windows the revision-1 refusal stays (EG-5, EG-10).
-16. **A lost wake reply.** The wake stays `uncertain`, and Interrupt for B is refused. With O1 and the same G and R, the reconciler settles `succeeded`. Otherwise the operator attests the outcome (EG-10, EG-16).
+3. **The guard crashes.** SIGKILL hits only G after `running`. On Linux, R reparents to init and keeps running with S_B. Hand sees Absent(G), no `ceased` and the same boot, so the state is `unknown` with no termination row. An `exec-guard-lost` attestation is refused while Live(R) holds, or while any readable environ carries B (EG-8). Recovery comes after R and every carrier of B are gone, or after a boot change.
+4. **The guard dies before `running`.** On Linux, R starts and the guard dies before it writes `running`. L is `uncertain` and R is unknown. The environ scan finds R through `HAND_WORKER_EXECUTOR_BINDING=B`, so attestation is refused while R lives. Once no carrier remains, L settles `succeeded`, with B marked `r=unknown` and given an attested termination. It never settles `rejected` (EG-8).
+5. **A wake reaches a replaced pane process.** R exits, the guard records `ceased`, and the shell regains the foreground. Pre-W then fails, Hand makes no send, and the wake is `no-effect`. If the replacement happens between pre-W and post-W, the wake is `uncertain`. The doorbell is then a parse error in the shell (EG-10, EG-14).
+6. **A stale caller secret.** A caller presents S_B1 to drain B2: the hash differs, so the call is refused. A caller presents S_B1 after B1 terminated: refused, because positive cessation leaves no process of T(G1) (EG-11).
+7. **Cross-Fleet environment leak.** A Fleet-B Herdr daemon started inside a Fleet-A worker inherits `HAND_HOME=A` and Fleet A's `HAND_WORKER_*` values. The Fleet-B guard scrubs them before starting its harness (EG-12). A Fleet-A harness that presents S_A to Fleet B is refused, because V is recomputed with Fleet B's ID (EG-11). That daemon also ends with T(G_A), as described under "Nested Fleets".
+8. **Two guards for one handoff.** The pane shell runs the typed command twice. The second rename fails, and that guard starts no harness (EG-2).
+9. **Path swap between pin and exec.** On Linux a native binary runs from the pinned descriptor. On Windows the guard verifies the suspended child against the pinned object and refuses on a mismatch (EG-7). A script records `sampled`.
+10. **Crash after Tx B, before `pane run`.** The reconciler fences handoff(L). With O1 on the same boot the Launch is `no-effect`; otherwise it is `uncertain`, with no execution possible. There is never a second invocation (EG-6).
+11. **The Interrupt is accepted but the tree survives.** No `ceased` is recorded, so the Interrupt stays `submitted` or `uncertain` (EG-9).
+12. **A `setsid` grandchild.** On Linux it reparents to the guard, and `ECHILD` waits for it. On Windows it stays in the job.
+13. **Fast exit.** R exits before Hand observes it. `running` and `ceased` exist, so Hand writes `succeeded` together with the binding and its termination, never `no-effect`.
+14. **Power loss, then history recall.** The boot changes, and every earlier T(G) positively ceased. An operator recalls the old guard command from shell history. The guard compares the handoff's boot with the current boot and records `refused` (EG-2). A synced claim also makes a later fence fail.
+15. **A forged interrupt request.** A same-user process writes a request that names G and no pending Interrupt. The guard terminates T(G), and Hand labels the termination `failed`, never `interrupted` (EG-9).
+16. **Pane-ID reuse at Launch.** Herdr reuses a pane ID between the L2 preflight and its `pane run`, so the guard for B2 lands in Session 1's pane. L2 succeeds with `assoc=mismatch`, and wakes for B2 are refused. When B1 ends, the Session 1 release pre-check reads G2's controlling terminal (or, on Windows, its console list) on Session 1's workspace pane. It refuses, so B2 is not destroyed (EG-18).
+17. **A pane that Herdr cannot observe.** The guard claims L and writes `running`, and G is live, but Herdr reports no usable pane association. L settles `succeeded`, B exists, and Interrupt works through the guard. Every wake for B is refused before any Herdr call, and on Windows the revision-1 refusal stays (EG-5, EG-10).
+18. **A lost wake reply.** The wake stays `uncertain`, and Interrupt for B is refused. With O1 and the same G and R, the reconciler settles `succeeded`. Otherwise the operator attests the outcome (EG-10, EG-16).
 
 # Known limits this revision does not close
 
@@ -561,6 +593,9 @@ Every settlement runs in one writer transaction that:
 - A Linux guard stopped between R's start and its `running` record leaves a live harness with no B until the guard resumes or disappears.
 - An established B whose pane association Hand never observes can be interrupted, but never woken.
 - These Herdr 0.8.2 behaviors are unmeasured: O1, pane-close signals (SIGHUP versus SIGKILL to the guard), daemon restart, and agent-status accuracy. A SIGKILL of the guard degrades cessation to `unknown`.
+- A harness that Herdr does not recognize as an agent gets `agent_not_found`, so every wake for it is `rejected`. Wake support is qualified per harness (#305).
+- The Linux environ scan misses a descendant that re-executed with a cleaned environment. Attestation covers that case.
+- A Session release whose pre-check cannot observe every guard of an open binding refuses.
 - On a Linux kernel without `CONFIG_PROC_CHILDREN`, a fast-forking descendant can prevent convergence.
 - A crash can leave the handoff or claim file, which holds S_B and every resolved secret-ref plaintext, until reconciliation deletes it.
 - A Fleet started inside a guarded execution ends with that execution.
@@ -574,6 +609,10 @@ Every settlement runs in one writer transaction that:
   - `CompleteCanonicalV19Interrupt` must support an executor that already terminated.
   - The doorbell must be replaced.
   - drain/acknowledge must read B from the environment.
+  - The Repair writer must refuse an empty `actor_ref`.
+  - Session release must add the guarded-execution pre-check.
+  - The upgrade path must add the cross-Fleet reader scan.
+- **#305.** Qualify Herdr agent recognition per harness.
 
 # Acceptance tests implementation must add
 
@@ -616,6 +655,8 @@ Each test cites the invariant it checks. Native process tests run real processes
 
 - The Interrupt succeeds only after `ceased`. A stalled guard keeps it `submitted` (EG-9).
 - A boot change gives `succeeded`. A guard crash gives `uncertain` and then `exec-guard-lost` attestation (EG-8, EG-16).
+- `exec-guard-lost` is refused in each of these cases: Live(R); a readable environ carrying B; an unreadable same-uid environ; an empty `actor_ref`. On Windows, Absent(G) and Absent(R) are accepted (EG-8, EG-16).
+- `exec-guard-launch-uncertain` with a `claimed` record gives `succeeded`, with B marked `r=unknown` and given an attested termination. Without a claim, and with a winning fence, it gives `no-effect`. No attestation produces `rejected` (EG-8).
 - G2 ignores a G1 request (EG-13).
 - A forged request is labeled `failed`. A natural exit before the request is labeled `completed` or `failed`, and the Interrupt succeeds (EG-9).
 
@@ -623,6 +664,7 @@ Each test cites the invariant it checks. Native process tests run real processes
 
 - A pre-check failure makes no Herdr call. `agent_blocked` gives `rejected`. A replaced pane process or R exit between pre-W and post-W gives `uncertain` (EG-10).
 - A lost reply settles `succeeded` only with O1 and the same G and R. Without O1, it needs attestation. While `uncertain`, an Interrupt is refused, and natural cessation still closes B (EG-10, EG-16).
+- A `succeeded` wake does not suppress a later wake while input stays pending (EG-10).
 - The doorbell is constant, has no digits, and matches the grammar. Interactive `bash` and `zsh` (with `CORRECT` on), `sh` and `pwsh` all report a parse error, execute nothing, and read the next line normally (EG-14).
 - Windows: without the console association, the wake refuses. On any platform, a failed A(B) refuses the wake before any Herdr call.
 
@@ -631,6 +673,11 @@ Each test cites the invariant it checks. Native process tests run real processes
 - A valid credential drains in ordinal order.
 - Each of these is refused: a missing credential; a wrong credential; S_B1 against B2; S_B1 after B1 terminated; another Fleet; B not yet established; argv IDs that differ from the environment's B.
 - The comparison runs in constant time (EG-11).
+
+**Session release and upgrade.**
+
+- A release refuses while a live guard of another open binding sits in the workspace (simulated pane-ID reuse), and also while any guarded binding cannot be observed (EG-18).
+- An upgrade refuses when the new build lacks a reader for a protocol version in any registered Fleet's open keys, or when it cannot read a registered Fleet (EG-17).
 
 **Real provider (Herdr 0.8.2 with a stub harness and the real guard).**
 
@@ -648,7 +695,8 @@ Each test cites the invariant it checks. Native process tests run real processes
 - [ ] Credential, handoff and terminal confinement is explicit. The threat model excludes hostile same-user processes.
 - [ ] Linux and Windows classes are explicit and persisted. macOS keeps the revision-1 refusals, and no macOS test gates Linux or Windows.
 - [ ] A guard crash is `unknown`. Only a `ceased` record, a boot change, or operator-attested `exec-guard-lost` terminates B.
-- [ ] Each emitted repair code has the settlement path defined here.
+- [ ] Each emitted repair code has the settlement path defined here, including its absence check.
+- [ ] Session release refuses while any live guard of an open binding sits in the Session's workspace.
 - [ ] "DDL impact: NONE" is verified against `docs/architecture/v19-v6.sql.gz`, with `adapter_ref='herdr'` and a versioned key grammar.
 - [ ] The acceptance tests for a platform pass before any refusal is removed on that platform.
 - [ ] A reviewed manifest anchors this blob before dependent implementation starts.
