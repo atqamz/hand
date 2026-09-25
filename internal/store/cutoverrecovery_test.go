@@ -98,62 +98,34 @@ func TestInspectLegacyV18CutoverRecoveryFrozenBridgeRequiresMatchingArchive(t *t
 	}
 }
 
-func TestInspectLegacyV18CutoverRecoveryMissingActiveWithValidArchiveAndTempIsPublishReady(t *testing.T) {
-	home, _, _, artifact, _, materialized := canonicalV19CutoverRecoveryFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
-
-	state, err := inspectLegacyV18CutoverRecovery(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Disposition != legacyV18CutoverRecoveryPublishCanonicalTemp || state.Manifest != artifact || state.Materialized != materialized {
-		t.Fatalf("missing-active publication recovery state = %#v", state)
-	}
-}
-
-func TestInspectLegacyV18CutoverRecoveryMissingActiveWithArchiveAndNoTempRequiresRebuild(t *testing.T) {
-	home, bridge, _, artifact, target := canonicalV19CutoverMaterializationFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(target.Path); err != nil {
-		t.Fatal(err)
-	}
-
-	state, err := inspectLegacyV18CutoverRecovery(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Disposition != legacyV18CutoverRecoveryRebuildCanonicalTemp || state.MigrationID != bridge.MigrationID || state.Manifest != artifact || !strings.Contains(state.Reason, "absent") {
-		t.Fatalf("missing temp recovery state = %#v", state)
-	}
-}
-
-func TestInspectLegacyV18CutoverRecoveryMissingActiveWithCorruptDirectTempRequiresRebuild(t *testing.T) {
-	home, bridge, _, artifact, target := canonicalV19CutoverMaterializationFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(target.Path, []byte("corrupt non-authoritative temp\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	state, err := inspectLegacyV18CutoverRecovery(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Disposition != legacyV18CutoverRecoveryRebuildCanonicalTemp || state.MigrationID != bridge.MigrationID || state.Manifest != artifact || !strings.Contains(state.Reason, "must be rebuilt") {
-		t.Fatalf("corrupt temp recovery state = %#v", state)
+// #348 revision 4: revision 2's "active missing" rows no longer rebuild or publish.
+func TestInspectLegacyV18CutoverRecoveryRefusesMissingActiveAfterFreeze(t *testing.T) {
+	for name, temp := range map[string]func(string) error{
+		"valid temp":   func(string) error { return nil },
+		"absent temp":  os.Remove,
+		"corrupt temp": func(path string) error { return os.WriteFile(path, []byte("corrupt non-authoritative temp\n"), 0o600) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			home, bridge, _, artifact, target := canonicalV19CutoverMaterializationFixture(t)
+			if err := os.Remove(Path(home)); err != nil {
+				t.Fatal(err)
+			}
+			if err := temp(target.Path); err != nil {
+				t.Fatal(err)
+			}
+			state, err := inspectLegacyV18CutoverRecovery(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state.Disposition != legacyV18CutoverRecoveryRefuse || state.MigrationID != bridge.MigrationID || state.Manifest != artifact || !strings.Contains(state.Reason, "absent after a freeze") {
+				t.Fatalf("missing-active recovery state = %#v", state)
+			}
+		})
 	}
 }
 
 func TestInspectLegacyV18CutoverRecoveryRefusesUnsafeTempPath(t *testing.T) {
 	home, _, _, _, target := canonicalV19CutoverMaterializationFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(target.Path); err != nil {
 		t.Fatal(err)
 	}

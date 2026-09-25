@@ -184,15 +184,14 @@ func inspectLegacyV18CutoverRecoveryWithoutActive(homeDir string) (legacyV18Cuto
 		return legacyV18CutoverRecoveryState{Disposition: legacyV18CutoverRecoveryNoState}, nil
 	}
 
-	bridge := legacyV18CutoverFrozenBridge{
-		MigrationID:        evidence.Manifest.MigrationID,
-		FleetID:            evidence.Manifest.Fleet.FleetID,
-		SourceSHA256:       evidence.Manifest.Source.DBSHA256,
-		CertificateVersion: evidence.Manifest.Freeze.CertificateVersion,
-		ManifestSHA256:     evidence.Artifact.SHA256,
-		Committed:          true,
-	}
-	return classifyLegacyV18CutoverTempRecovery(homeDir, bridge, evidence)
+	return legacyV18CutoverRecoveryState{
+		Disposition:  legacyV18CutoverRecoveryRefuse,
+		Reason:       "active state database is absent after a freeze; restore the frozen bridge at state/hand.db, because nothing publishes into an absent active database",
+		MigrationID:  evidence.Manifest.MigrationID,
+		FleetID:      evidence.Manifest.Fleet.FleetID,
+		SourceSHA256: evidence.Manifest.Source.DBSHA256,
+		Manifest:     evidence.Artifact,
+	}, nil
 }
 
 func classifyLegacyV18CutoverTempRecovery(homeDir string, bridge legacyV18CutoverFrozenBridge, evidence legacyV18CutoverArchiveEvidence) (legacyV18CutoverRecoveryState, error) {

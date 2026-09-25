@@ -33,16 +33,13 @@ func TestRecoverCanonicalV19CutoverPublishesReadyTemp(t *testing.T) {
 	}
 }
 
-func TestRecoverCanonicalV19CutoverRebuildsThenPublishesAfterBridgeRetirement(t *testing.T) {
+func TestRecoverCanonicalV19CutoverRebuildsThenPublishes(t *testing.T) {
 	home, bridge, archive, artifact, _, materialized := canonicalV19CutoverPublicationFixture(t)
 	before := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
 	if err := os.Remove(materialized.Path); err != nil {
 		t.Fatal(err)
 	}
 	retiredPath := legacyV18CutoverRetiredBridgePath(home, bridge.MigrationID)
-	if err := moveLegacyV18CutoverNoReplaceDurable(Path(home), retiredPath); err != nil {
-		t.Fatal(err)
-	}
 
 	pre, err := inspectLegacyV18CutoverRecovery(home)
 	if err != nil {

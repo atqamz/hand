@@ -7,14 +7,10 @@ import (
 	"testing"
 )
 
-func TestRebuildCanonicalV19CutoverTempFromArchiveAfterBridgeRetirement(t *testing.T) {
+func TestRebuildCanonicalV19CutoverTempFromArchiveWithActiveBridge(t *testing.T) {
 	home, bridge, archive, artifact, _, materialized := canonicalV19CutoverRecoveryFixture(t)
 	before := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
 	if err := os.Remove(materialized.Path); err != nil {
-		t.Fatal(err)
-	}
-	retiredPath := legacyV18CutoverRetiredBridgePath(home, bridge.MigrationID)
-	if err := moveLegacyV18CutoverNoReplaceDurable(Path(home), retiredPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,21 +40,18 @@ func TestRebuildCanonicalV19CutoverTempFromArchiveAfterBridgeRetirement(t *testi
 	if strings.Join(before, "\n") != strings.Join(after, "\n") {
 		t.Fatalf("rebuild changed authoritative archive evidence: before=%v after=%v", before, after)
 	}
-	retiredDigest, err := legacyV18CutoverFileSHA256(retiredPath)
+	activeDigest, err := legacyV18CutoverFileSHA256(Path(home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if retiredDigest != bridge.BridgeSHA256 {
-		t.Fatalf("retired bridge digest=%s, want %s", retiredDigest, bridge.BridgeSHA256)
+	if activeDigest != bridge.BridgeSHA256 {
+		t.Fatalf("active bridge digest=%s, want %s", activeDigest, bridge.BridgeSHA256)
 	}
 }
 
 func TestRebuildCanonicalV19CutoverTempDiscardsCorruptDirectResidue(t *testing.T) {
 	home, _, archive, artifact, _, materialized := canonicalV19CutoverRecoveryFixture(t)
 	before := recoveryEvidenceDigests(t, archive.Path, artifact.Path)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(materialized.Path, []byte("corrupt non-authoritative canonical temp\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -100,9 +93,6 @@ func TestRebuildCanonicalV19CutoverTempDiscardsCorruptDirectResidue(t *testing.T
 
 func TestRebuildCanonicalV19CutoverTempRefusesUnsafePath(t *testing.T) {
 	home, _, _, _, target := canonicalV19CutoverMaterializationFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(target.Path); err != nil {
 		t.Fatal(err)
 	}
@@ -128,9 +118,6 @@ func TestRebuildCanonicalV19CutoverTempRefusesUnsafePath(t *testing.T) {
 
 func TestRebuildCanonicalV19CutoverTempRequiresMigrationLock(t *testing.T) {
 	home, _, _, _, target := canonicalV19CutoverMaterializationFixture(t)
-	if err := os.Remove(Path(home)); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(target.Path); err != nil {
 		t.Fatal(err)
 	}
