@@ -130,6 +130,11 @@ func Fence(dir string) error {
 	return os.Rename(filepath.Join(dir, handoffName), filepath.Join(dir, tombstoneName))
 }
 
+// Locator is the handoff path Hand types into the pane after `hand exec-guard`.
+func Locator(dir string) string {
+	return filepath.Join(dir, handoffName)
+}
+
 // RequestInterrupt asks exactly guard to terminate its tree for Interrupt operation id.
 // Every other incarnation ignores the request, and a replay rewrites the same bytes.
 func RequestInterrupt(dir string, guard osfacts.Incarnation, interruptOperationID string) error {

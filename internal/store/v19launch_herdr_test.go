@@ -185,6 +185,21 @@ func canonicalV19HerdrLaunchFixture(
 	environment map[string]CanonicalV19LaunchEnvironmentValue,
 ) (canonicalV19WorktreeCreateTestFixture, CanonicalV19LaunchRequest, canonicalV19HerdrSessionProviderKey) {
 	t.Helper()
+	fixture, worktree, session, key := canonicalV19HerdrSessionFixture(t)
+	launchInput := canonicalV19LaunchPrepareInput(worktree, session, launchOperationID, "executor-binding-1")
+	launchInput.Spec.Environment = environment
+	launchInput.CreatedAt = "2026-09-08T03:05:00Z"
+	request, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, launchInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fixture, request, key
+}
+
+func canonicalV19HerdrSessionFixture(t *testing.T) (
+	canonicalV19WorktreeCreateTestFixture, CanonicalV19WorktreeCreateRequest, CanonicalV19SessionAcquireRequest, canonicalV19HerdrSessionProviderKey,
+) {
+	t.Helper()
 	base := canonicalV19AttemptWriterFixture(t)
 	attempt := canonicalV19AttemptWriterInput("attempt-1", "plan-root")
 	attempt.SessionAdapterRef = CanonicalV19HerdrSessionAdapterRef
@@ -221,14 +236,7 @@ func canonicalV19HerdrLaunchFixture(
 	}); err != nil {
 		t.Fatal(err)
 	}
-	launchInput := canonicalV19LaunchPrepareInput(worktree, session, launchOperationID, "executor-binding-1")
-	launchInput.Spec.Environment = environment
-	launchInput.CreatedAt = "2026-09-08T03:05:00Z"
-	request, err := PrepareCanonicalV19Launch(context.Background(), fixture.Home, launchInput)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return fixture, request, key
+	return fixture, worktree, session, key
 }
 
 const (
