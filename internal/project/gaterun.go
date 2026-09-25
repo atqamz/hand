@@ -48,7 +48,7 @@ func ClassifyGateRun(prs map[string]bool, err error, pr string) GateRunObservati
 		probe.Reason = "the newest no-mistakes run that recorded this pull request has not completed"
 		return GateRunObservation{State: ghutil.ObservationUnknown, Probe: probe}
 	}
-	probe.Reason = "no no-mistakes run recorded this pull request, or its newest run failed or was cancelled"
+	probe.Reason = "no no-mistakes run recorded this pull request, or its newest run failed"
 	return GateRunObservation{State: ghutil.ObservationAbsent, Probe: probe}
 }
 
@@ -63,8 +63,8 @@ func ObserveGateRun(home string, p Project, registered bool, pr string, runPRs f
 	return ClassifyGateRun(prs, err, pr).State
 }
 
-// GateRunPRs maps each PR URL whose newest no-mistakes run in clonePath neither failed nor was cancelled
-// to whether that run completed, scraped from `no-mistakes runs` text the way GateStatus does, never out
+// GateRunPRs maps each PR URL whose newest no-mistakes run in clonePath did not fail to whether that
+// run completed, scraped from `no-mistakes runs` text the way GateStatus does, never out
 // of `~/.no-mistakes` directly. Per clone rather than per PR, so many tasks on one project pay one process.
 func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) {
 	// Every way of failing to ask no-mistakes at all is an error, never an empty set, so a
@@ -111,7 +111,7 @@ func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) 
 			continue
 		}
 		seen[pr] = true
-		if fields[0] != "failed" && fields[0] != "cancelled" {
+		if fields[0] != "failed" {
 			prs[pr] = fields[0] == "completed"
 		}
 	}

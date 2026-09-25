@@ -42,7 +42,8 @@ func TestGateRunObservationFollowsNewestRunStatusForPR(t *testing.T) {
 	}{
 		{"completed", row("completed") + "\n  (3 more runs, use --limit to see more)\n", ghutil.ObservationFound},
 		{"failed", row("failed"), ghutil.ObservationAbsent},
-		{"cancelled", row("cancelled"), ghutil.ObservationAbsent},
+		{"cancelled", row("cancelled"), ghutil.ObservationUnknown},
+		{"cancelled after completed", row("cancelled") + row("completed"), ghutil.ObservationUnknown},
 		{"pending", row("pending"), ghutil.ObservationUnknown},
 		{"running", row("running"), ghutil.ObservationUnknown},
 		{"ci monitor interrupted", row("ci_monitor_interrupted"), ghutil.ObservationUnknown},
