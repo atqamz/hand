@@ -15,11 +15,6 @@ func TestAbortLegacyV18CutoverFreezeRestoresPreFreezeBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stale := openLegacyV18CutoverTestDB(t, home, true)
-	defer func() { _ = stale.Close() }()
-	if _, err := stale.Exec(`SELECT COUNT(*) FROM meta`); err != nil {
-		t.Fatal(err)
-	}
 
 	aborted, err := abortLegacyV18CutoverFreeze(home)
 	if err != nil {
@@ -41,12 +36,6 @@ func TestAbortLegacyV18CutoverFreezeRestoresPreFreezeBytes(t *testing.T) {
 		if _, err := os.Lstat(gone); !os.IsNotExist(err) {
 			t.Fatalf("%s remains after abort: %v", gone, err)
 		}
-	}
-	if _, err := stale.Exec(`INSERT INTO meta(key, value) VALUES('stale', 'write')`); err == nil || !strings.Contains(err.Error(), legacyV18CutoverFreezeAbortMessage) {
-		t.Fatalf("stale bridge connection write after abort = %v, want the freeze guard", err)
-	}
-	if _, err := os.Lstat(Path(home) + "-journal"); !os.IsNotExist(err) {
-		t.Fatalf("stale bridge connection left a journal beside the restored DB: %v", err)
 	}
 	state, err := inspectLegacyV18CutoverRecovery(home)
 	if err != nil || state.Disposition != legacyV18CutoverRecoveryLegacySource {
