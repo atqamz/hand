@@ -379,7 +379,6 @@ func gateRunApplies(t state.Task, reportedDone bool) bool {
 // `hand status` invocation.
 const gateRunTimeout = 5 * time.Second
 
-// Answers "which PRs did completed no-mistakes runs record" for one clone path.
 type gateRunReader func(clonePath string) (map[string]bool, error)
 
 // Caches each clone path's answer for the life of one render, so a fleet with several done ship tasks on

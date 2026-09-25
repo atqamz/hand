@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/ghutil"
@@ -17,7 +16,7 @@ import (
 // literally unbounded output on every check.
 const gateRunLimit = "10000"
 
-// GateRunObservation answers whether a completed no-mistakes gate run recorded a pull request, in
+// GateRunObservation answers whether the newest no-mistakes gate run for a pull request completed, in
 // the same found/absent/unknown vocabulary ghutil.PRObservation uses (atqamz/hand#241). Absent is a
 // positive finding; any reason the run list could not be read is unknown, never absent.
 type GateRunObservation struct {
@@ -46,10 +45,10 @@ func ClassifyGateRun(prs map[string]bool, err error, pr string) GateRunObservati
 		return GateRunObservation{State: ghutil.ObservationFound, Probe: probe}
 	}
 	if recorded {
-		probe.Reason = "the no-mistakes run that recorded this pull request is still open"
+		probe.Reason = "the newest no-mistakes run that recorded this pull request has not completed"
 		return GateRunObservation{State: ghutil.ObservationUnknown, Probe: probe}
 	}
-	probe.Reason = "no completed no-mistakes run recorded this pull request"
+	probe.Reason = "no no-mistakes run recorded this pull request, or its newest run failed or was cancelled"
 	return GateRunObservation{State: ghutil.ObservationAbsent, Probe: probe}
 }
 
@@ -64,9 +63,9 @@ func ObserveGateRun(home string, p Project, registered bool, pr string, runPRs f
 	return ClassifyGateRun(prs, err, pr).State
 }
 
-// GateRunPRs maps each PR URL an open or completed no-mistakes run in clonePath recorded to whether a
-// run completed, scraped from `no-mistakes runs` text the way GateStatus does, never out of
-// `~/.no-mistakes` directly. Per clone rather than per PR, so many tasks on one project pay one process.
+// GateRunPRs maps each PR URL whose newest no-mistakes run in clonePath neither failed nor was cancelled
+// to whether that run completed, scraped from `no-mistakes runs` text the way GateStatus does, never out
+// of `~/.no-mistakes` directly. Per clone rather than per PR, so many tasks on one project pay one process.
 func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) {
 	// Every way of failing to ask no-mistakes at all is an error, never an empty set, so a
 	// caller can keep "the gate recorded no such run" separate from "the question could not be
@@ -94,20 +93,27 @@ func GateRunPRs(ctx context.Context, clonePath string) (map[string]bool, error) 
 	if err != nil {
 		return nil, fmt.Errorf("no-mistakes binary not found or not runnable: %w", err)
 	}
-	// A true entry establishes only that the `pr` step opened that exact PR from a run that
+	// A true entry establishes only that the `pr` step opened that exact PR from a newest run that
 	// reached completed, not a per-commit answer: no-mistakes keys its state on working_path
 	// and hand records no head commit to compare against.
 	prs := make(map[string]bool)
+	seen := make(map[string]bool)
 	for _, line := range strings.Split(text, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 2 || !slices.Contains([]string{"completed", "pending", "running"}, fields[0]) {
+		if len(fields) < 2 {
 			continue
 		}
-		// So a push amending the PR after its matched run reads as gated exactly as it did
-		// before that push, and a PR opened outside the `pr` step reads as absent even behind a
+		// So a push amending the PR outside the gate after its matched run reads as gated exactly as
+		// it did before that push, and a PR opened outside the `pr` step reads as absent even behind a
 		// run that did complete. Both gaps are real, and documented rather than papered over.
 		pr := fields[len(fields)-1]
-		prs[pr] = prs[pr] || fields[0] == "completed"
+		if seen[pr] {
+			continue
+		}
+		seen[pr] = true
+		if fields[0] != "failed" && fields[0] != "cancelled" {
+			prs[pr] = fields[0] == "completed"
+		}
 	}
 	return prs, nil
 }
