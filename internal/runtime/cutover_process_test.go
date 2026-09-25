@@ -65,6 +65,10 @@ func TestLegacyV18CutoverPreReadLockWaiterIsCaughtByWitnessAndDrift(t *testing.T
 	}
 
 	expectLine("read")
+	initialHead, err := gitrepo.HeadCommit(clone)
+	if err != nil {
+		t.Fatal(err)
+	}
 	guard, err := store.AcquireLegacyV18CutoverGuardFixture(context.Background(), home)
 	if err != nil {
 		t.Fatal(err)
@@ -74,8 +78,8 @@ func TestLegacyV18CutoverPreReadLockWaiterIsCaughtByWitnessAndDrift(t *testing.T
 	}
 	expectLine("locking")
 	frozenHead, err := gitrepo.HeadCommit(clone)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || frozenHead != initialHead {
+		t.Fatalf("clone moved while the freeze held the project lock: %s, want %s (%v)", frozenHead, initialHead, err)
 	}
 	if err := guard.Freeze(context.Background(), home, legacyV18CutoverWaiterManifestInput(t, home, guard, frozenHead)); err != nil {
 		t.Fatal(err)
