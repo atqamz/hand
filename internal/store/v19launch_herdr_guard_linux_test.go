@@ -86,8 +86,32 @@ func TestExecGuardLaunchThatNoGuardClaimsIsUncertainAndNeverRetyped(t *testing.T
 	if state != "uncertain" || err == nil {
 		t.Fatalf("Launch = %q, %v, want uncertain while no guard claims", state, err)
 	}
+	if _, err := os.Stat(filepath.Join(l.dir, "fenced")); err != nil {
+		t.Fatalf("tombstone after the settle timeout: %v, want the handoff fenced before uncertain", err)
+	}
 	deps := canonicalV19HerdrLaunchDefaultDeps()
+	deps.execGuard = true
 	if state, err := reconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID, deps); state != "uncertain" || err == nil || paneRuns(t, log) != 1 {
 		t.Fatalf("reconcile = %q, %v with %d pane runs, want uncertain and no second invocation (EG-6)", state, err, paneRuns(t, log))
+	}
+}
+
+func TestExecGuardLaunchRefusesAHandBinaryReplacedInPlace(t *testing.T) {
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	deps, log := l.installHerdr(t, faketool.Herdr{PaneCwd: l.input.Spec.Cwd})
+	deps.hand = func() (string, error) { return "/opt/hand/hand (deleted)", nil }
+	before := canonicalV19WorktreeCreateOperationCount(t, l.home)
+	state, err := launchCanonicalV19Herdr(context.Background(), l.home, l.input, deps)
+	if state != "" || err == nil || canonicalV19WorktreeCreateOperationCount(t, l.home) != before || paneRuns(t, log) != 0 {
+		t.Fatalf("Launch = %q, %v, want a refusal before any row or typing when os.Executable names a deleted binary", state, err)
+	}
+}
+
+func TestProductionReconcileKeepsTheRevisionOneRefusalForAGuardedLaunch(t *testing.T) {
+	l := newExecGuardLaunchTest(t, "/bin/sh", "-c", "exit 0")
+	l.submit(t)
+	state, err := ReconcileCanonicalV19HerdrLaunch(context.Background(), l.home, l.input.OperationID)
+	if _, statErr := os.Stat(execguard.Locator(l.dir)); state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) || statErr != nil {
+		t.Fatalf("production reconcile = %q, %v (handoff %v), want the revision-1 refusal untouched until the platform acceptance tests pass", state, err, statErr)
 	}
 }

@@ -582,9 +582,9 @@ func canonicalV19LaunchNonsuccessTransitionAllowed(from, to string) bool {
 	case "prepared":
 		return to == "no-effect"
 	case "submitted":
-		return to == "uncertain" || to == "rejected" || to == "no-effect"
+		return to == "uncertain" || to == "rejected"
 	case "uncertain":
-		return to == "rejected" || to == "no-effect"
+		return to == "rejected"
 	default:
 		return false
 	}
