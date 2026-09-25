@@ -43,7 +43,7 @@ func TestCutoverRecoveryCLIRefusesToCompleteFrozenCutover(t *testing.T) {
 	}
 	before = snapshotTree(t, home)
 	got = runHand(t, home, "cutover", "recover", home)
-	if got.code == 0 {
+	if got.code == 0 || !strings.Contains(got.stderr, "absent after a freeze") {
 		t.Fatalf("recover with absent active DB = %+v, want refusal", got)
 	}
 	assertTreeUnchanged(t, home, before)

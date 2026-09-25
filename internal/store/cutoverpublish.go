@@ -3,7 +3,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -58,38 +57,31 @@ func publishCanonicalV19Cutover(homeDir string) (canonicalV19CutoverPublication,
 
 	activePath := Path(homeDir)
 	retiredPath := legacyV18CutoverRetiredBridgePath(homeDir, before.MigrationID)
-	activeInfo, activeErr := os.Lstat(activePath)
-	switch {
-	case activeErr == nil:
-		if before.BridgeSHA256 == "" {
-			return canonicalV19CutoverPublication{}, fmt.Errorf("%w: active database exists but recovery evidence has no frozen bridge digest", errLegacyV18CutoverPublicationUnsafe)
-		}
-		if activeInfo.Mode()&os.ModeSymlink != 0 || !activeInfo.Mode().IsRegular() {
-			return canonicalV19CutoverPublication{}, fmt.Errorf("%w: active frozen bridge %s is not a direct regular file", errLegacyV18CutoverPublicationUnsafe, activePath)
-		}
-		if err := revalidateCanonicalV19CutoverFrozenBridgeForPublication(homeDir, before, evidence); err != nil {
-			return canonicalV19CutoverPublication{}, err
-		}
-		if err := syncLegacyV18CutoverFile(activePath); err != nil {
-			return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: flush frozen bridge before retirement: %w", err)
-		}
-		if err := moveLegacyV18CutoverNoReplaceDurable(activePath, retiredPath); err != nil {
-			return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: retire frozen bridge: %w", err)
-		}
-	case os.IsNotExist(activeErr):
-		// Recovery may resume after a crash that already retired the frozen bridge.
-		// Exact archive+manifest+temp evidence is sufficient; the bridge is mechanism
-		// state and is not required to remain available after retirement.
-	default:
-		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: inspect active database before retirement: %w", activeErr)
+	if before.BridgeSHA256 == "" {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: recovery evidence has no active frozen bridge", errLegacyV18CutoverPublicationUnsafe)
+	}
+	if err := requireLegacyV18CutoverDirectRegularFile(activePath, "active frozen bridge"); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: %v", errLegacyV18CutoverPublicationUnsafe, err)
+	}
+	if err := revalidateCanonicalV19CutoverFrozenBridgeForPublication(homeDir, before, evidence); err != nil {
+		return canonicalV19CutoverPublication{}, err
+	}
+	if err := requireLegacyV18CutoverNoSQLiteSidecars(activePath, "active frozen bridge"); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: %v", errLegacyV18CutoverPublicationUnsafe, err)
+	}
+	if err := syncLegacyV18CutoverFile(activePath); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: flush frozen bridge before linking it aside: %w", err)
+	}
+	if err := linkLegacyV18CutoverNoReplaceDurable(activePath, retiredPath); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: link frozen bridge aside: %w", err)
 	}
 
 	afterRetire, err := inspectLegacyV18CutoverRecovery(homeDir)
 	if err != nil {
-		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: reclassify after bridge retirement: %w", err)
+		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: reclassify after linking the bridge aside: %w", err)
 	}
 	if afterRetire.Disposition != legacyV18CutoverRecoveryPublishCanonicalTemp {
-		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: after bridge retirement recovery disposition=%s: %s", errLegacyV18CutoverPublicationUnsafe, afterRetire.Disposition, afterRetire.Reason)
+		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: after linking the bridge aside recovery disposition=%s: %s", errLegacyV18CutoverPublicationUnsafe, afterRetire.Disposition, afterRetire.Reason)
 	}
 	if err := requireSameCanonicalV19CutoverPublicationState(before, afterRetire); err != nil {
 		return canonicalV19CutoverPublication{}, err
@@ -97,13 +89,11 @@ func publishCanonicalV19Cutover(homeDir string) (canonicalV19CutoverPublication,
 	if err := syncAndRevalidateCanonicalV19CutoverTemp(afterRetire.Materialized); err != nil {
 		return canonicalV19CutoverPublication{}, err
 	}
-	if _, err := os.Lstat(activePath); err == nil {
-		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: active database unexpectedly reappeared before canonical publication", errLegacyV18CutoverPublicationUnsafe)
-	} else if !os.IsNotExist(err) {
-		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: inspect active destination: %w", err)
+	if err := requireLegacyV18CutoverNoSQLiteSidecars(activePath, "active frozen bridge"); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: %v", errLegacyV18CutoverPublicationUnsafe, err)
 	}
-	if err := moveLegacyV18CutoverNoReplaceDurable(afterRetire.Materialized.Path, activePath); err != nil {
-		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: publish canonical temp: %w", err)
+	if err := replaceLegacyV18CutoverDurable(afterRetire.Materialized.Path, activePath); err != nil {
+		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: replace frozen bridge with canonical temp: %w", err)
 	}
 
 	publication, err := validatePublishedCanonicalV19Cutover(homeDir, afterRetire, retiredPath)
