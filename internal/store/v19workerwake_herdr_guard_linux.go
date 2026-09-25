@@ -18,18 +18,13 @@ import (
 
 const canonicalV19HerdrWorkerWakeCallTimeout = 30 * time.Second
 
-// One fresh WorkerWake of a guarded ExecutorBinding: Tx A and Tx B, then W(B), the constant
-// doorbell through `herdr agent prompt`, and W(B) again. Reachable only with deps.execGuard,
-// which production leaves off, so the revision-1 refusal still governs every platform.
-func wakeCanonicalV19Herdr(
+// Tx A and Tx B, then W(B), the constant doorbell through `herdr agent prompt`, and W(B) again.
+func wakeCanonicalV19HerdrGuarded(
 	ctx context.Context,
 	homeDir string,
 	input CanonicalV19WorkerWakePrepareInput,
 	deps canonicalV19HerdrWorkerWakeDeps,
 ) (string, error) {
-	if !deps.execGuard {
-		return "", canonicalV19HerdrCapabilityUnsupported("WorkerWake", "exact live execution identity")
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

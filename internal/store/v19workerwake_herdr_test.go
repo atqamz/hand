@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -223,6 +224,29 @@ func (f *canonicalV19HerdrWorkerWakeFakeClient) AgentPromptContext(ctx context.C
 		f.onPrompt()
 	}
 	return f.promptErr
+}
+
+func TestHerdrWorkerWakeKeepsTheRevisionOneRefusalOnEveryPlatform(t *testing.T) {
+	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-refusal")
+	deps := canonicalV19HerdrWorkerWakeDefaultDeps()
+	deps.clientFor = func(string) canonicalV19HerdrWorkerWakeClient { return client }
+	if state, _ := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps); state != "no-effect" {
+		t.Fatalf("first legacy wake = %q, want no-effect", state)
+	}
+	for _, execGuard := range []bool{false, true} {
+		deps.execGuard = execGuard
+		before := canonicalV19WorktreeCreateOperationCount(t, fixture.Home)
+		id := fmt.Sprintf("operation-herdr-worker-wake-refusal-%t", execGuard)
+		state, err := wakeCanonicalV19Herdr(context.Background(), fixture.Home, CanonicalV19WorkerWakePrepareInput{
+			OperationID: id, OperationKey: "operation-key-" + id, ExecutorBindingID: request.ExecutorBindingID,
+			PendingThroughOrdinal: request.PendingThroughOrdinal, WakeReason: request.WakeReason, CreatedAt: "2026-09-09T06:20:00Z",
+		}, deps)
+		rows := canonicalV19WorktreeCreateOperationCount(t, fixture.Home) - before
+		if !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) || client.herdrCalls != 0 || (!execGuard && (state != "" || rows != 0)) {
+			t.Fatalf("wake with execGuard=%t = %q, %v with %d new rows and %d Herdr calls, want the revision-1 refusal: before any row in production, and for a key without a guard grammar or off Linux",
+				execGuard, state, err, rows, client.herdrCalls)
+		}
+	}
 }
 
 func canonicalV19HerdrWorkerWakeFixture(

@@ -39,6 +39,20 @@ func ReconcileCanonicalV19HerdrWorkerWake(ctx context.Context, homeDir, operatio
 	return reconcileCanonicalV19HerdrWorkerWake(ctx, homeDir, operationID, canonicalV19HerdrWorkerWakeDefaultDeps())
 }
 
+// One fresh WorkerWake. Reachable only with deps.execGuard, which production leaves off, so the
+// revision-1 refusal still governs every platform; only Linux has a guarded path behind it.
+func wakeCanonicalV19Herdr(
+	ctx context.Context,
+	homeDir string,
+	input CanonicalV19WorkerWakePrepareInput,
+	deps canonicalV19HerdrWorkerWakeDeps,
+) (string, error) {
+	if !deps.execGuard {
+		return "", canonicalV19HerdrCapabilityUnsupported("WorkerWake", "exact live execution identity")
+	}
+	return wakeCanonicalV19HerdrGuarded(ctx, homeDir, input, deps)
+}
+
 func canonicalV19HerdrWorkerWakeDefaultDeps() canonicalV19HerdrWorkerWakeDeps {
 	return canonicalV19HerdrWorkerWakeDeps{
 		clientFor: func(sessionName string) canonicalV19HerdrWorkerWakeClient {

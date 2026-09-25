@@ -270,31 +270,3 @@ func TestExecGuardWakeWhoseWFailsDuringDeliveryIsUncertain(t *testing.T) {
 		}
 	}
 }
-
-func TestProductionWakeKeepsTheRevisionOneRefusal(t *testing.T) {
-	w := newExecGuardWakeTest(t)
-	w.deps.execGuard = false
-	state, persisted, err := w.wake(t)
-	if state != "" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) || persisted != "absent" || w.client.promptCalls != 0 {
-		t.Fatalf("production wake = %q (%q), %v with %d prompts, want the revision-1 refusal before any row until the platform acceptance tests pass", state, persisted, err, w.client.promptCalls)
-	}
-}
-
-func TestExecGuardWakeOfALegacyBindingKeepsTheRefusal(t *testing.T) {
-	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-legacy-wake-first")
-	deps := canonicalV19HerdrWorkerWakeDefaultDeps()
-	deps.clientFor = func(string) canonicalV19HerdrWorkerWakeClient { return client }
-	deps.execGuard = true
-	if state, _ := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps); state != "no-effect" {
-		t.Fatalf("first legacy wake = %q, want no-effect", state)
-	}
-	input := CanonicalV19WorkerWakePrepareInput{
-		OperationID: "operation-legacy-wake-second", OperationKey: "operation-key-legacy-wake-second",
-		ExecutorBindingID: request.ExecutorBindingID, PendingThroughOrdinal: request.PendingThroughOrdinal,
-		WakeReason: request.WakeReason, CreatedAt: "2026-09-09T06:20:00Z",
-	}
-	state, err := wakeCanonicalV19Herdr(context.Background(), fixture.Home, input, deps)
-	if state != "no-effect" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) || client.promptCalls != 0 {
-		t.Fatalf("legacy-key wake = %q, %v with %d prompts, want the revision-1 refusal for a key without a guard grammar", state, err, client.promptCalls)
-	}
-}
