@@ -16,9 +16,8 @@ import (
 func TestReconcileCanonicalV19HerdrWorkerWakeFailsClosedForLegacyBindingBeforePrompt(t *testing.T) {
 	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-unsupported")
 	deps := canonicalV19HerdrWorkerWakeDeps{
-		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
-		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
-		now:          func() time.Time { return time.Date(2026, 9, 9, 6, 9, 0, 0, time.UTC) },
+		clientFor: func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		now:       func() time.Time { return time.Date(2026, 9, 9, 6, 9, 0, 0, time.UTC) },
 	}
 
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
@@ -69,9 +68,8 @@ func TestReconcileCanonicalV19HerdrWorkerWakeSubmittedBecomesUncertainWithoutRep
 		t.Fatal(err)
 	}
 	deps := canonicalV19HerdrWorkerWakeDeps{
-		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
-		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
-		now:          func() time.Time { return time.Date(2026, 9, 9, 6, 13, 0, 0, time.UTC) },
+		clientFor: func(string) canonicalV19HerdrWorkerWakeClient { return client },
+		now:       func() time.Time { return time.Date(2026, 9, 9, 6, 13, 0, 0, time.UTC) },
 	}
 	state, err := reconcileCanonicalV19HerdrWorkerWake(context.Background(), fixture.Home, request.OperationID, deps)
 	if state != "uncertain" || !errors.Is(err, ErrCanonicalV19HerdrCapabilityUnsupported) {
@@ -102,8 +100,7 @@ func TestReconcileCanonicalV19HerdrWorkerWakePreparedSettlementRejectsConcurrent
 	fixture, request, _, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-prepared-submit-race")
 	submitted := false
 	deps := canonicalV19HerdrWorkerWakeDeps{
-		clientFor:    func(string) canonicalV19HerdrWorkerWakeClient { return client },
-		processAlive: func(int) (bool, error) { return client.targetAlive, client.livenessErr },
+		clientFor: func(string) canonicalV19HerdrWorkerWakeClient { return client },
 		now: func() time.Time {
 			if !submitted {
 				submitted = true
@@ -140,25 +137,6 @@ func TestReconcileCanonicalV19HerdrWorkerWakePreparedSettlementRejectsConcurrent
 	}
 }
 
-func TestObserveCanonicalV19HerdrWorkerWakeTreatsPIDAbsenceAsUnknown(t *testing.T) {
-	fixture, request, executorKey, client, _ := canonicalV19HerdrWorkerWakeFixture(t, "operation-herdr-worker-wake-pid-absence")
-	client.targetAlive = false
-	current, err := readCanonicalV19HerdrWorkerWakeCurrent(context.Background(), fixture.Home, request.OperationID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sessionKey, err := parseCanonicalV19HerdrSessionProviderKey(current.ProviderSessionKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	observed := observeCanonicalV19HerdrWorkerWake(context.Background(), current, executorKey, sessionKey, client,
-		func(int) (bool, error) { return client.targetAlive, client.livenessErr })
-	if observed.State != canonicalV19HerdrWorkerWakeUnknown {
-		t.Fatalf("PID absence observation = %q, want unknown", observed.State)
-	}
-}
-
 func TestCanonicalV19HerdrWorkerWakeDoorbellMatchesTheGrammar(t *testing.T) {
 	doorbell := canonicalV19HerdrWorkerWakeDoorbell
 	if !regexp.MustCompile(`^\|[a-z |-]*$`).MatchString(doorbell) || strings.ContainsAny(doorbell, "0123456789") {
@@ -173,9 +151,6 @@ func TestCanonicalV19HerdrWorkerWakeDoorbellMatchesTheGrammar(t *testing.T) {
 type canonicalV19HerdrWorkerWakeFakeClient struct {
 	*canonicalV19HerdrLaunchFakeClient
 	wakeOperationID          string
-	targetPID                int
-	targetAlive              bool
-	livenessErr              error
 	promptCalls              int
 	promptErr                error
 	requireSubmittedAtPrompt bool
@@ -246,8 +221,6 @@ func canonicalV19HerdrWorkerWakeFixture(
 	client := &canonicalV19HerdrWorkerWakeFakeClient{
 		canonicalV19HerdrLaunchFakeClient: baseClient,
 		wakeOperationID:                   operationID,
-		targetPID:                         target.PID,
-		targetAlive:                       true,
 	}
 	return fixture, request, executorKey, client, workerInput
 }

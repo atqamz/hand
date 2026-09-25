@@ -9,42 +9,9 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 )
 
-type canonicalV19HerdrWorkerWakeObservationState string
-
-const (
-	canonicalV19HerdrWorkerWakeReady    canonicalV19HerdrWorkerWakeObservationState = "ready"
-	canonicalV19HerdrWorkerWakeBlocked  canonicalV19HerdrWorkerWakeObservationState = "blocked"
-	canonicalV19HerdrWorkerWakeNotReady canonicalV19HerdrWorkerWakeObservationState = "not-ready"
-	canonicalV19HerdrWorkerWakeCeased   canonicalV19HerdrWorkerWakeObservationState = "ceased"
-	canonicalV19HerdrWorkerWakeMismatch canonicalV19HerdrWorkerWakeObservationState = "mismatch"
-	canonicalV19HerdrWorkerWakeUnknown  canonicalV19HerdrWorkerWakeObservationState = "unknown"
-)
-
-type canonicalV19HerdrWorkerWakeObservation struct {
-	State            canonicalV19HerdrWorkerWakeObservationState
-	PendingInput     bool
-	ProcessAlive     bool
-	ProviderAccepted bool
-	Agent            string
-	AgentStatus      herdr.Status
-	WorkspaceID      string
-	TabID            string
-	PaneID           string
-	PaneCwd          string
-	ShellPID         int
-	ProcessGroupID   int
-	ProcessID        int
-	ProcessDigest    string
-	EvidenceDigest   string
-	Reason           string
-}
-
 type canonicalV19HerdrWorkerWakeCurrent struct {
 	Current            canonicalV19WorkerWakeCurrent
-	FleetID            string
-	WorktreePath       string
 	ProviderSessionKey string
-	PendingInput       bool
 }
 
 type canonicalV19HerdrWorkerWakeClient interface {
@@ -57,9 +24,8 @@ type canonicalV19HerdrWorkerWakeClient interface {
 }
 
 type canonicalV19HerdrWorkerWakeDeps struct {
-	clientFor    func(string) canonicalV19HerdrWorkerWakeClient
-	processAlive func(int) (bool, error)
-	now          func() time.Time
+	clientFor func(string) canonicalV19HerdrWorkerWakeClient
+	now       func() time.Time
 }
 
 // ReconcileCanonicalV19HerdrWorkerWake reconciles one exact mechanism-only WorkerWake.
@@ -70,8 +36,7 @@ func ReconcileCanonicalV19HerdrWorkerWake(ctx context.Context, homeDir, operatio
 		clientFor: func(sessionName string) canonicalV19HerdrWorkerWakeClient {
 			return herdr.NewManagedSessionClient(sessionName)
 		},
-		processAlive: canonicalV19HerdrProcessAlive,
-		now:          time.Now,
+		now: time.Now,
 	})
 }
 
@@ -87,7 +52,7 @@ func reconcileCanonicalV19HerdrWorkerWake(
 	if operationID == "" {
 		return "", fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: operation ID is empty")
 	}
-	if deps.clientFor == nil || deps.processAlive == nil || deps.now == nil {
+	if deps.clientFor == nil || deps.now == nil {
 		return "", fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: adapter dependencies are incomplete")
 	}
 
