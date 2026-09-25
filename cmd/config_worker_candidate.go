@@ -9,7 +9,8 @@ import (
 )
 
 func newConfigWorkerCandidateCmd() *cobra.Command {
-	var profile, harness, model, effort, planID string
+	var planID string
+	var readOverrides func() (routing.WorkerCandidateOverrides, [][]string)
 	cmd := &cobra.Command{
 		Use: "candidate [<intent> <judgment>]", Short: "Preview one unqualified Worker Route candidate",
 		Long: "Resolve the selected Worker Profile and explicit field overrides from the exact configured policy bytes. With --plan-id, derive intent and judgment from one exact active canonical Plan instead of caller-supplied axes. This read does not verify live capability or availability, apply fallback, or create an Attempt.",
@@ -35,23 +36,7 @@ func newConfigWorkerCandidateCmd() *cobra.Command {
 			} else {
 				intent, judgment = args[0], args[1]
 			}
-			var overrides routing.WorkerCandidateOverrides
-			var requested [][]string
-			for _, flag := range []struct {
-				name  string
-				value *string
-				dest  **string
-			}{
-				{"profile-override", &profile, &overrides.ProfileOverride},
-				{"harness-override", &harness, &overrides.HarnessOverride},
-				{"model-override", &model, &overrides.ModelOverride},
-				{"effort-override", &effort, &overrides.EffortOverride},
-			} {
-				if cmd.Flags().Changed(flag.name) {
-					*flag.dest = flag.value
-					requested = append(requested, []string{flag.name, *flag.value})
-				}
-			}
+			overrides, requested := readOverrides()
 			candidate, err := routing.ResolveWorkerCandidate(homeDir, intent, judgment, overrides)
 			if err != nil {
 				return err
@@ -75,10 +60,32 @@ func newConfigWorkerCandidateCmd() *cobra.Command {
 			return doc.Render(cmd.OutOrStdout())
 		},
 	}
-	cmd.Flags().StringVar(&profile, "profile-override", "", "Select an approved Worker Profile by name")
-	cmd.Flags().StringVar(&harness, "harness-override", "", "Replace the selected Worker Harness")
-	cmd.Flags().StringVar(&model, "model-override", "", "Replace or explicitly clear the selected model")
-	cmd.Flags().StringVar(&effort, "effort-override", "", "Replace or explicitly clear the selected effort")
+	readOverrides = bindWorkerCandidateOverrides(cmd)
 	cmd.Flags().StringVar(&planID, "plan-id", "", "Preview the exact active canonical Plan's Worker Route; omit intent and judgment arguments")
 	return cmd
+}
+
+func bindWorkerCandidateOverrides(cmd *cobra.Command) func() (routing.WorkerCandidateOverrides, [][]string) {
+	flags := []struct{ name, help string }{
+		{"profile-override", "Select an approved Worker Profile by name"},
+		{"harness-override", "Replace the selected Worker Harness"},
+		{"model-override", "Replace or explicitly clear the selected model"},
+		{"effort-override", "Replace or explicitly clear the selected effort"},
+	}
+	values := make([]string, len(flags))
+	for i, flag := range flags {
+		cmd.Flags().StringVar(&values[i], flag.name, "", flag.help)
+	}
+	return func() (routing.WorkerCandidateOverrides, [][]string) {
+		var overrides routing.WorkerCandidateOverrides
+		dests := []**string{&overrides.ProfileOverride, &overrides.HarnessOverride, &overrides.ModelOverride, &overrides.EffortOverride}
+		var requested [][]string
+		for i, flag := range flags {
+			if cmd.Flags().Changed(flag.name) {
+				*dests[i] = &values[i]
+				requested = append(requested, []string{flag.name, values[i]})
+			}
+		}
+		return overrides, requested
+	}
 }

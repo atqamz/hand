@@ -161,7 +161,8 @@ func TestCanonicalTaskAbandonCLICascadesNeverLaunchedAttemptToArchive(t *testing
 		"--policy-revision-id", "policy-1", "--intent", "explore", "--judgment", "bounded",
 		"--basis", "exact registered repository", "--brief", "Explore before abandoning")
 	if _, err := store.CreateCanonicalV19Attempt(context.Background(), fleet, store.CanonicalV19AttemptCreateInput{
-		ID: "attempt-1", PlanID: "plan-1", WorkerHarnessRef: "worker-harness/codex", SessionAdapterRef: "builtin/session",
+		ID: "attempt-1", PlanID: "plan-1", RequirePolicyWitnessCurrent: func() error { return nil },
+		WorkerHarnessRef: "worker-harness/codex", SessionAdapterRef: "builtin/session",
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}); err != nil {
 		t.Fatal(err)

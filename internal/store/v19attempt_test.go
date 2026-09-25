@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -39,7 +40,8 @@ func TestCreateCanonicalV19AttemptPersistsExactResolvedProvenance(t *testing.T) 
 	); err != nil {
 		t.Fatal(err)
 	}
-	if got != input || gotOrdinal != 1 || lifecycle != "active" || terminalAt != "" ||
+	input.RequirePolicyWitnessCurrent = nil
+	if !reflect.DeepEqual(got, input) || gotOrdinal != 1 || lifecycle != "active" || terminalAt != "" ||
 		profileOverride.Valid || harnessOverride.Valid || modelOverride.Valid || effortOverride.Valid {
 		t.Fatalf("persisted Attempt = %#v ordinal=%d lifecycle=%q terminal_at=%q", got, gotOrdinal, lifecycle, terminalAt)
 	}
@@ -139,6 +141,18 @@ func TestCreateCanonicalV19AttemptRejectsInvalidRequestedOverrides(t *testing.T)
 	}
 }
 
+func TestCreateCanonicalV19AttemptRequiresPolicyWitnessRecheck(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	input := canonicalV19AttemptWriterInput("attempt-unchecked", "plan-root")
+	input.RequirePolicyWitnessCurrent = nil
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, input); err == nil {
+		t.Fatal("Attempt without worker policy witness recheck accepted")
+	}
+	if got := canonicalV19AttemptWriterCount(t, fixture.Home); got != 0 {
+		t.Fatalf("Attempt rows after missing recheck = %d, want 0", got)
+	}
+}
+
 func TestCreateCanonicalV19AttemptRefusesSecondActiveAttempt(t *testing.T) {
 	fixture := canonicalV19AttemptWriterFixture(t)
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
@@ -161,7 +175,7 @@ func TestCreateCanonicalV19AttemptRetriesSamePlanAfterTerminalAttempt(t *testing
 	}
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, first.ID, "failed", "2026-09-04T09:01:00Z")
 
-	second := canonicalV19AttemptWriterInput("attempt-2", "plan-root")
+	second := canonicalV19AttemptRetryInput("attempt-2", "plan-root", first.ID)
 	second.CreatedAt = "2026-09-04T09:02:00Z"
 	ordinal, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, second)
 	if err != nil {
@@ -196,12 +210,41 @@ func TestCreateCanonicalV19AttemptDuplicateIdentityAfterTerminalRefusesWithoutNe
 	}
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, first.ID, "failed", "2026-09-04T09:01:00Z")
 
-	_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput(first.ID, "plan-root"))
+	_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput(first.ID, "plan-root", first.ID))
 	if !errors.Is(err, ErrCanonicalV19AttemptConflict) {
 		t.Fatalf("duplicate Attempt identity error = %v, want %v", err, ErrCanonicalV19AttemptConflict)
 	}
 	if got := canonicalV19AttemptWriterCount(t, fixture.Home); got != 1 {
 		t.Fatalf("Attempt rows after duplicate identity = %d, want 1", got)
+	}
+}
+
+func TestCreateCanonicalV19AttemptRefusesStaleRetryPredecessorWithoutRow(t *testing.T) {
+	fixture := canonicalV19AttemptWriterFixture(t)
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-1", "plan-root")); err != nil {
+		t.Fatal(err)
+	}
+	canonicalV19AttemptWriterTerminalize(t, fixture.Home, "attempt-1", "failed", "2026-09-04T09:01:00Z")
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-fresh", "plan-root")); !errors.Is(err, ErrCanonicalV19AttemptNotCurrent) {
+		t.Fatalf("create after Attempt history error = %v, want %v", err, ErrCanonicalV19AttemptNotCurrent)
+	}
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-2", "plan-root", "attempt-1")); err != nil {
+		t.Fatal(err)
+	}
+	for _, successor := range []struct {
+		lifecycle string
+		want      error
+	}{{"active", ErrCanonicalV19AttemptConflict}, {"failed", ErrCanonicalV19AttemptNotCurrent}} {
+		if successor.lifecycle != "active" {
+			canonicalV19AttemptWriterTerminalize(t, fixture.Home, "attempt-2", successor.lifecycle, "2026-09-04T09:03:00Z")
+		}
+		_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-3", "plan-root", "attempt-1"))
+		if !errors.Is(err, successor.want) {
+			t.Fatalf("stale retry with %s successor error = %v, want %v", successor.lifecycle, err, successor.want)
+		}
+		if got := canonicalV19AttemptWriterCount(t, fixture.Home); got != 2 {
+			t.Fatalf("Attempt rows after stale retry with %s successor = %d, want 2", successor.lifecycle, got)
+		}
 	}
 }
 
@@ -271,7 +314,7 @@ func TestCreateCanonicalV19AttemptConcurrentRetriesHaveOneWinner(t *testing.T) {
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, "attempt-1", "failed", "2026-09-04T09:01:00Z")
 	retry := func(id string) func() error {
 		return func() error {
-			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput(id, "plan-root"))
+			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput(id, "plan-root", "attempt-1"))
 			return err
 		}
 	}
@@ -300,7 +343,7 @@ func TestCanonicalV19RetryAndReplanRaceHasOneWinnerWithoutRetarget(t *testing.T)
 	successor.CreatedAt = "2026-09-04T09:03:00Z"
 	errs := canonicalV19RaceWriters(
 		func() error {
-			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-2", "plan-root"))
+			_, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-2", "plan-root", "attempt-1"))
 			return err
 		},
 		func() error {
@@ -353,16 +396,23 @@ func canonicalV19AttemptWriterFixture(t *testing.T) canonicalV19AttemptWriterTes
 
 func canonicalV19AttemptWriterInput(id, planID string) CanonicalV19AttemptCreateInput {
 	return CanonicalV19AttemptCreateInput{
-		ID:                   id,
-		PlanID:               planID,
-		WorkerHarnessRef:     "worker-harness/codex",
-		WorkerHarnessVersion: "1.0.0",
-		WorkerProfileRef:     "profile/default",
-		ModelRef:             "model/example",
-		EffortRef:            "medium",
-		SessionAdapterRef:    "builtin/session",
-		CreatedAt:            "2026-09-04T09:00:00Z",
+		ID:                          id,
+		PlanID:                      planID,
+		RequirePolicyWitnessCurrent: func() error { return nil },
+		WorkerHarnessRef:            "worker-harness/codex",
+		WorkerHarnessVersion:        "1.0.0",
+		WorkerProfileRef:            "profile/default",
+		ModelRef:                    "model/example",
+		EffortRef:                   "medium",
+		SessionAdapterRef:           "builtin/session",
+		CreatedAt:                   "2026-09-04T09:00:00Z",
 	}
+}
+
+func canonicalV19AttemptRetryInput(id, planID, predecessorID string) CanonicalV19AttemptCreateInput {
+	input := canonicalV19AttemptWriterInput(id, planID)
+	input.PredecessorAttemptID = predecessorID
+	return input
 }
 
 func canonicalV19AttemptWriterTerminalize(t *testing.T, home, attemptID, lifecycle, terminalAt string) {

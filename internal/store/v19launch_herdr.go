@@ -119,9 +119,9 @@ func reconcileCanonicalV19HerdrLaunch(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: operation %q is %q",
 			ErrCanonicalV19LaunchTransition, operationID, current.Current.State)
 	}
-	if request.AdapterRef != canonicalV19HerdrSessionAdapterRef {
+	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Launch: %w: adapter %q is not %q",
-			ErrCanonicalV19LaunchNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
+			ErrCanonicalV19LaunchNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Launch", "exact executable-object and never-reused execution-incarnation identity",

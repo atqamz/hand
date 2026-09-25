@@ -64,7 +64,7 @@ func TestCanonicalV19DecisionAnswerPersistsAuthorityWithoutDelivery(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-2", question.PlanID)); err != nil {
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-2", question.PlanID, question.AttemptID)); err != nil {
 		t.Fatal(err)
 	}
 	if err := CreateCanonicalV19Decision(context.Background(), fixture.Home, question); err != nil {
@@ -122,7 +122,7 @@ func TestCanonicalV19DecisionAnswerRefusesRetryAndReplanTargets(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-2", "plan-root")); err != nil {
+			if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-2", "plan-root", attemptID)); err != nil {
 				t.Fatal(err)
 			}
 			if err := CreateCanonicalV19DecisionAnswer(context.Background(), fixture.Home, canonicalV19DecisionTestAnswer(question.ID)); !errors.Is(err, ErrCanonicalV19DecisionNotCurrent) {
@@ -212,7 +212,7 @@ func TestCanonicalV19DecisionAnswerCompetesWithExactAttemptTermination(t *testin
 	} else if !errors.Is(answerErr, ErrCanonicalV19DecisionNotCurrent) {
 		t.Fatalf("racing Answer = %v", answerErr)
 	}
-	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptWriterInput("attempt-2", question.PlanID)); err != nil {
+	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, canonicalV19AttemptRetryInput("attempt-2", question.PlanID, question.AttemptID)); err != nil {
 		t.Fatal(err)
 	}
 	canonicalV19DecisionAssertCount(t, fixture.Home, `SELECT count(*) FROM decision_answer`, wantAnswers)

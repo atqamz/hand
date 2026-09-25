@@ -151,7 +151,8 @@ func TestCanonicalFleetSnapshotShowsLatestWorkerReportAndExactAcknowledgement(t 
 		"--policy-revision-id", "policy-1", "--intent", "explore", "--judgment", "bounded",
 		"--basis", "registered repository", "--brief", "inspect exact state")
 	if _, err := store.CreateCanonicalV19Attempt(context.Background(), fleet, store.CanonicalV19AttemptCreateInput{
-		ID: "attempt-1", PlanID: "plan-1", WorkerHarnessRef: "worker-harness/codex",
+		ID: "attempt-1", PlanID: "plan-1", RequirePolicyWitnessCurrent: func() error { return nil },
+		WorkerHarnessRef:     "worker-harness/codex",
 		WorkerHarnessVersion: "1.0.0", WorkerProfileRef: "profile/default", ModelRef: "model/example",
 		EffortRef: "medium", SessionAdapterRef: "builtin/session", CreatedAt: "2026-09-24T00:00:00Z",
 	}); err != nil {
@@ -212,7 +213,8 @@ func TestCanonicalFleetSnapshotShowsOnlyOpenResourceIdentities(t *testing.T) {
 		"--basis", "registered repository", "--brief", "inspect exact state")
 	ctx := context.Background()
 	if _, err := store.CreateCanonicalV19Attempt(ctx, fleet, store.CanonicalV19AttemptCreateInput{
-		ID: "attempt-1", PlanID: "plan-1", WorkerHarnessRef: "worker-harness/codex",
+		ID: "attempt-1", PlanID: "plan-1", RequirePolicyWitnessCurrent: func() error { return nil },
+		WorkerHarnessRef:     "worker-harness/codex",
 		WorkerHarnessVersion: "1.0.0", WorkerProfileRef: "profile/default", ModelRef: "model/example",
 		EffortRef: "medium", SessionAdapterRef: "builtin/session", CreatedAt: "2026-09-24T00:00:00Z",
 	}); err != nil {

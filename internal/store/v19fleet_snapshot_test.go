@@ -18,7 +18,7 @@ func TestReadCanonicalV19FleetSnapshotCoreLineage(t *testing.T) {
 		t.Fatal(err)
 	}
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, first.ID, "failed", "2026-09-04T09:01:00Z")
-	second := canonicalV19AttemptWriterInput("attempt-2", "plan-root")
+	second := canonicalV19AttemptRetryInput("attempt-2", "plan-root", first.ID)
 	second.CreatedAt = "2026-09-04T09:02:00Z"
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, second); err != nil {
 		t.Fatal(err)
@@ -424,7 +424,7 @@ func TestReadCanonicalV19FleetSnapshotOpenResourcesFollowReleases(t *testing.T) 
 func TestReadCanonicalV19FleetSnapshotOpenResourcesDoNotRetargetSuccessor(t *testing.T) {
 	fixture, worktree, session := canonicalV19SessionBindingFixture(t)
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, worktree.AttemptID, "failed", "2026-09-09T05:20:00Z")
-	successor := canonicalV19AttemptWriterInput("attempt-2", worktree.PlanID)
+	successor := canonicalV19AttemptRetryInput("attempt-2", worktree.PlanID, worktree.AttemptID)
 	successor.CreatedAt = "2026-09-09T05:21:00Z"
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, successor); err != nil {
 		t.Fatal(err)
@@ -457,7 +457,7 @@ func TestReadCanonicalV19FleetSnapshotOpenResourcesDoNotRetargetSuccessor(t *tes
 func TestReadCanonicalV19FleetSnapshotExcludesHistoricalOpenExecutor(t *testing.T) {
 	fixture, _, launch := canonicalV19ExecutorBindingFixture(t)
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, launch.AttemptID, "failed", "2026-09-09T05:20:00Z")
-	successor := canonicalV19AttemptWriterInput("attempt-2", launch.PlanID)
+	successor := canonicalV19AttemptRetryInput("attempt-2", launch.PlanID, launch.AttemptID)
 	successor.CreatedAt = "2026-09-09T05:21:00Z"
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, successor); err != nil {
 		t.Fatal(err)
@@ -667,7 +667,7 @@ func TestReadCanonicalV19FleetSnapshotLatestReportFollowsExactActiveAttempt(t *t
 		t.Fatalf("latest report metadata and exact acknowledgement = %#v", snapshot.LatestReportMetadata)
 	}
 	canonicalV19AttemptWriterTerminalize(t, fixture.Home, attemptID, "failed", "2026-09-15T10:02:00Z")
-	successor := canonicalV19AttemptWriterInput("attempt-2", "plan-root")
+	successor := canonicalV19AttemptRetryInput("attempt-2", "plan-root", attemptID)
 	successor.CreatedAt = "2026-09-15T10:03:00Z"
 	if _, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, successor); err != nil {
 		t.Fatal(err)
