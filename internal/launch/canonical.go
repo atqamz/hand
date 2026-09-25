@@ -3,7 +3,7 @@ package launch
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"hash"
+	"io"
 	"sort"
 	"strconv"
 )
@@ -30,21 +30,21 @@ type CanonicalSpec struct {
 // recomputes from its handoff before starting the harness.
 func CanonicalSpecDigest(spec CanonicalSpec) string {
 	hash := sha256.New()
-	writeDigestField(hash, "domain", "hand:v19:launch-spec:v1")
-	writeDigestField(hash, "executable", spec.Executable)
-	writeDigestField(hash, "cwd", spec.Cwd)
-	writeDigestField(hash, "argument_count", strconv.Itoa(len(spec.Arguments)))
+	WriteDigestField(hash, "domain", "hand:v19:launch-spec:v1")
+	WriteDigestField(hash, "executable", spec.Executable)
+	WriteDigestField(hash, "cwd", spec.Cwd)
+	WriteDigestField(hash, "argument_count", strconv.Itoa(len(spec.Arguments)))
 	for ordinal, value := range spec.Arguments {
-		writeDigestField(hash, "argument_"+strconv.Itoa(ordinal), value)
+		WriteDigestField(hash, "argument_"+strconv.Itoa(ordinal), value)
 	}
 	names := CanonicalEnvironmentNames(spec.Environment)
-	writeDigestField(hash, "environment_count", strconv.Itoa(len(names)))
+	WriteDigestField(hash, "environment_count", strconv.Itoa(len(names)))
 	for _, name := range names {
 		value := spec.Environment[name]
-		writeDigestField(hash, "environment_name", name)
-		writeDigestField(hash, "environment_kind", value.ValueKind)
-		writeDigestField(hash, "environment_material", value.ValueMaterial)
-		writeDigestField(hash, "environment_digest", value.ValueDigest)
+		WriteDigestField(hash, "environment_name", name)
+		WriteDigestField(hash, "environment_kind", value.ValueKind)
+		WriteDigestField(hash, "environment_material", value.ValueMaterial)
+		WriteDigestField(hash, "environment_digest", value.ValueDigest)
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }
@@ -53,8 +53,8 @@ func CanonicalSpecDigest(spec CanonicalSpec) string {
 // value other than the exec-guard credential.
 func EnvironmentValueDigest(value string) string {
 	hash := sha256.New()
-	writeDigestField(hash, "domain", "hand:v19:launch-environment-value:v1")
-	writeDigestField(hash, "value", value)
+	WriteDigestField(hash, "domain", "hand:v19:launch-environment-value:v1")
+	WriteDigestField(hash, "value", value)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -62,10 +62,10 @@ func EnvironmentValueDigest(value string) string {
 // entry for one Fleet and ExecutorBinding.
 func ExecGuardCredentialVerifier(fleetID, executorBindingID, credential string) string {
 	hash := sha256.New()
-	writeDigestField(hash, "domain", "hand:v19:exec-guard-credential:v1")
-	writeDigestField(hash, "fleet_id", fleetID)
-	writeDigestField(hash, "executor_binding_id", executorBindingID)
-	writeDigestField(hash, "credential", credential)
+	WriteDigestField(hash, "domain", "hand:v19:exec-guard-credential:v1")
+	WriteDigestField(hash, "fleet_id", fleetID)
+	WriteDigestField(hash, "executor_binding_id", executorBindingID)
+	WriteDigestField(hash, "credential", credential)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
@@ -78,9 +78,9 @@ func CanonicalEnvironmentNames(environment map[string]CanonicalEnvironmentValue)
 	return names
 }
 
-// Must stay byte-identical to store's canonical v19 digest framing, or every committed
-// launch-spec digest stops verifying.
-func writeDigestField(digest hash.Hash, name, value string) {
+// WriteDigestField writes one length-prefixed field of the framing every canonical v19
+// digest shares, store's included.
+func WriteDigestField(digest io.Writer, name, value string) {
 	for _, field := range []string{name, value} {
 		_, _ = digest.Write([]byte(strconv.Itoa(len(field)) + ":" + field))
 	}

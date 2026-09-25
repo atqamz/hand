@@ -7,7 +7,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
+	"io"
+
+	"github.com/atqamz/hand/internal/launch"
 )
 
 const canonicalV19GitWorktreeAdapterRef = "builtin/git-worktree"
@@ -517,17 +519,8 @@ func canonicalV19WorktreeCreateDigest(request CanonicalV19WorktreeCreateRequest)
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-type canonicalV19DigestWriter interface {
-	Write([]byte) (int, error)
-}
-
-func writeCanonicalV19DigestField(writer canonicalV19DigestWriter, name, value string) {
-	_, _ = writer.Write([]byte(strconv.Itoa(len(name))))
-	_, _ = writer.Write([]byte(":"))
-	_, _ = writer.Write([]byte(name))
-	_, _ = writer.Write([]byte(strconv.Itoa(len(value))))
-	_, _ = writer.Write([]byte(":"))
-	_, _ = writer.Write([]byte(value))
+func writeCanonicalV19DigestField(writer io.Writer, name, value string) {
+	launch.WriteDigestField(writer, name, value)
 }
 
 func requireCanonicalV19OneChanged(result sql.Result, operation, operationID string) error {
