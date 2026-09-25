@@ -126,6 +126,9 @@ func TestCanonicalV19ManifestSnapshotSet(t *testing.T) {
 	t.Run("manifest-v10-input.md", func(t *testing.T) {
 		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v10-input.md", "345-lifecycle-currentness-crash-recovery-v3.md", "7e56684fd4ded7d72a1787f49f39546dfce43343", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "17e3f4064f48be0ffdf5e028b3f21f0437939ce1da0d6fbb77ec21311da8d49a")
 	})
+	t.Run("manifest-v10.md", func(t *testing.T) {
+		assertCanonicalV19ManifestSnapshotSet(t, "manifest-v10.md", "345-lifecycle-currentness-crash-recovery-v3.md", "7e56684fd4ded7d72a1787f49f39546dfce43343", "346-capability-adapters-v2.md", "74771c189378f9d6d07729339020d5861214aa76", "348-cutover-archive-v4.md", "74a3b12b44999d86835c243ba89ea943c578d581", "17e3f4064f48be0ffdf5e028b3f21f0437939ce1da0d6fbb77ec21311da8d49a")
+	})
 }
 
 func TestCanonicalV19Revision9InputMatchesArtifacts(t *testing.T) {
@@ -206,6 +209,22 @@ func TestCanonicalV19PermanentManifestRevision9Artifacts(t *testing.T) {
 	}
 	if strings.Contains(manifest, "__MAIN_ANCHOR__") {
 		t.Fatal("revision-9 manifest retains an unbound main anchor")
+	}
+}
+
+func TestCanonicalV19PermanentManifestRevision10Artifacts(t *testing.T) {
+	manifest := string(readV19ManifestArtifact(t, "docs/architecture/v19-contracts/manifest-v10.md"))
+	for _, field := range append(canonicalV19RelationalManifestFields(),
+		"b9c857807765d6829fbed48b5c3c7627ac32c925",
+		"It supersedes `manifest-v9.md` as current authority.",
+		"supersedes revision-2 blob `50d6747ae140e68faddf15ed3d8337bfa85596c9`",
+	) {
+		if !strings.Contains(manifest, field) {
+			t.Errorf("revision-10 manifest missing %q", field)
+		}
+	}
+	if strings.Contains(manifest, "__MAIN_ANCHOR__") {
+		t.Fatal("revision-10 manifest retains an unbound main anchor")
 	}
 }
 
