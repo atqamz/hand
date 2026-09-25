@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -169,7 +170,7 @@ func TestPublishCanonicalV19CutoverRefusesUnexpectedRetiredDestination(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := publishCanonicalV19Cutover(home); err == nil || !strings.Contains(err.Error(), "link frozen bridge aside") {
+	if _, err := publishCanonicalV19Cutover(home); !errors.Is(err, errLegacyV18CutoverPublicationUnsafe) || !strings.Contains(err.Error(), "not the active frozen bridge") {
 		t.Fatalf("unexpected destination publication error = %v", err)
 	}
 	if got, err := legacyV18CutoverFileSHA256(Path(home)); err != nil || got != bridgeBefore {
@@ -223,4 +224,58 @@ func canonicalV19CutoverPublicationFixture(t *testing.T) (string, legacyV18Cutov
 		t.Fatal(err)
 	}
 	return home, bridge, archive, artifact, target, materialized
+}
+
+// A bridge restored with cp leaves a byte-identical file at the retired path; the refusal names the fix.
+func TestPublishCanonicalV19CutoverNamesFixForCopiedRetiredBridge(t *testing.T) {
+	home, bridge, _, _, _, materialized := canonicalV19CutoverPublicationFixture(t)
+	retiredPath := legacyV18CutoverRetiredBridgePath(home, bridge.MigrationID)
+	data, err := os.ReadFile(Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(retiredPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publishCanonicalV19Cutover(home); !errors.Is(err, errLegacyV18CutoverPublicationUnsafe) || !strings.Contains(err.Error(), "byte-identical copy") || !strings.Contains(err.Error(), "remove "+retiredPath) {
+		t.Fatalf("copied retired bridge publication = %v, want a refusal naming the fix", err)
+	}
+	if got, err := legacyV18CutoverFileSHA256(Path(home)); err != nil || got != bridge.BridgeSHA256 {
+		t.Fatalf("refused publication changed the bridge: %s, %v", got, err)
+	}
+	if err := os.Remove(retiredPath); err != nil {
+		t.Fatal(err)
+	}
+	if publication, err := publishCanonicalV19Cutover(home); err != nil || publication.TargetSHA256 != materialized.SHA256 {
+		t.Fatalf("publication after removing the copy = %#v, %v", publication, err)
+	}
+}
+
+// The replace proceeds only while the active name is still the file linked aside, with an unchanged bridge digest.
+func TestPublishCanonicalV19CutoverRequiresLinkedBridgeBeforeReplace(t *testing.T) {
+	dir := t.TempDir()
+	active, retired := filepath.Join(dir, "hand.db"), filepath.Join(dir, "frozen-bridge.db")
+	for _, path := range []string{active, retired} {
+		if err := os.WriteFile(path, []byte("bridge"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := requireLegacyV18CutoverBridgeLinkedAside(active, retired); !errors.Is(err, errLegacyV18CutoverPublicationUnsafe) {
+		t.Fatalf("unlinked copies = %v, want refusal", err)
+	}
+	if err := os.Remove(retired); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(active, retired); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	if err := requireLegacyV18CutoverBridgeLinkedAside(active, retired); err != nil {
+		t.Fatalf("linked bridge = %v", err)
+	}
+	before := legacyV18CutoverRecoveryState{BridgeSHA256: strings.Repeat("a", 64)}
+	after := before
+	after.BridgeSHA256 = strings.Repeat("b", 64)
+	if err := requireSameCanonicalV19CutoverPublicationState(before, after); !errors.Is(err, errLegacyV18CutoverPublicationUnsafe) {
+		t.Fatalf("changed bridge digest = %v, want refusal", err)
+	}
 }

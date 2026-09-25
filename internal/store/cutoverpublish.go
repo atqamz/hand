@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 )
 
@@ -72,6 +73,9 @@ func publishCanonicalV19Cutover(homeDir string) (canonicalV19CutoverPublication,
 	if err := syncLegacyV18CutoverFile(activePath); err != nil {
 		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: flush frozen bridge before linking it aside: %w", err)
 	}
+	if err := requireLegacyV18CutoverRetiredPathFree(activePath, retiredPath, before.BridgeSHA256); err != nil {
+		return canonicalV19CutoverPublication{}, err
+	}
 	if err := linkLegacyV18CutoverNoReplaceDurable(activePath, retiredPath); err != nil {
 		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: link frozen bridge aside: %w", err)
 	}
@@ -91,6 +95,9 @@ func publishCanonicalV19Cutover(homeDir string) (canonicalV19CutoverPublication,
 	}
 	if err := requireLegacyV18CutoverNoSQLiteSidecars(activePath, "active frozen bridge"); err != nil {
 		return canonicalV19CutoverPublication{}, fmt.Errorf("%w: %v", errLegacyV18CutoverPublicationUnsafe, err)
+	}
+	if err := requireLegacyV18CutoverBridgeLinkedAside(activePath, retiredPath); err != nil {
+		return canonicalV19CutoverPublication{}, err
 	}
 	if err := replaceLegacyV18CutoverDurable(afterRetire.Materialized.Path, activePath); err != nil {
 		return canonicalV19CutoverPublication{}, fmt.Errorf("publish canonical v19 cutover: replace frozen bridge with canonical temp: %w", err)
@@ -177,7 +184,7 @@ func revalidateCanonicalV19CutoverFrozenBridgeForPublication(homeDir string, sta
 }
 
 func requireSameCanonicalV19CutoverPublicationState(before, after legacyV18CutoverRecoveryState) error {
-	if before.MigrationID != after.MigrationID || before.FleetID != after.FleetID || before.SourceSHA256 != after.SourceSHA256 || before.Manifest.SHA256 != after.Manifest.SHA256 {
+	if before.MigrationID != after.MigrationID || before.FleetID != after.FleetID || before.SourceSHA256 != after.SourceSHA256 || before.Manifest.SHA256 != after.Manifest.SHA256 || before.BridgeSHA256 != after.BridgeSHA256 {
 		return fmt.Errorf("%w: recovery identity changed across frozen-bridge retirement", errLegacyV18CutoverPublicationUnsafe)
 	}
 	if before.Materialized.MigrationID != after.Materialized.MigrationID || before.Materialized.Path != after.Materialized.Path || before.Materialized.SHA256 != after.Materialized.SHA256 || before.Materialized.ManifestSHA256 != after.Materialized.ManifestSHA256 || before.Materialized.ImportID != after.Materialized.ImportID || before.Materialized.ProjectCount != after.Materialized.ProjectCount {
@@ -249,4 +256,35 @@ func validatePublishedCanonicalV19Cutover(homeDir string, state legacyV18Cutover
 		ProjectCount:      state.Materialized.ProjectCount,
 		RetiredBridgePath: retiredPath,
 	}, nil
+}
+
+// A name at the retired path that is not this bridge would make the link fail with a bare "file exists".
+func requireLegacyV18CutoverRetiredPathFree(activePath, retiredPath, bridgeSHA256 string) error {
+	retired, err := os.Lstat(retiredPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("publish canonical v19 cutover: inspect retired bridge path: %w", err)
+	}
+	active, err := os.Lstat(activePath)
+	if err != nil {
+		return fmt.Errorf("publish canonical v19 cutover: inspect active frozen bridge: %w", err)
+	}
+	if os.SameFile(retired, active) {
+		return nil
+	}
+	if digest, err := legacyV18CutoverFileSHA256(retiredPath); err == nil && digest == bridgeSHA256 {
+		return fmt.Errorf("%w: %s is a byte-identical copy of state/hand.db, not a link to it; confirm both hold the same frozen bridge, remove %s, and retry", errLegacyV18CutoverPublicationUnsafe, retiredPath, retiredPath)
+	}
+	return fmt.Errorf("%w: %s holds a file that is not the active frozen bridge", errLegacyV18CutoverPublicationUnsafe, retiredPath)
+}
+
+func requireLegacyV18CutoverBridgeLinkedAside(activePath, retiredPath string) error {
+	active, activeErr := os.Lstat(activePath)
+	retired, retiredErr := os.Lstat(retiredPath)
+	if activeErr != nil || retiredErr != nil || !os.SameFile(active, retired) {
+		return fmt.Errorf("%w: the active frozen bridge is no longer the file linked at %s (%v, %v)", errLegacyV18CutoverPublicationUnsafe, retiredPath, activeErr, retiredErr)
+	}
+	return nil
 }
