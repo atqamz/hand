@@ -14,6 +14,8 @@ var ErrCanonicalV19WorkerInputDrainNotCurrent = errors.New("canonical v19 Worker
 type CanonicalV19WorkerInputDrainInput struct {
 	AttemptID         string
 	ExecutorBindingID string
+	// S_B, HAND_WORKER_CREDENTIAL from the caller's own environment.
+	Credential        string
 	callerAttestation *canonicalV19WorkerInputCallerAttestation
 }
 
@@ -31,9 +33,6 @@ func DrainCanonicalV19WorkerInputs(
 	if input.AttemptID == "" || input.ExecutorBindingID == "" {
 		return nil, fmt.Errorf("drain canonical v19 WorkerInput: Attempt ID and ExecutorBinding ID are required")
 	}
-	if err := requireCanonicalV19WorkerInputCallerAttestation(input.ExecutorBindingID, input.callerAttestation); err != nil {
-		return nil, fmt.Errorf("drain canonical v19 WorkerInput: %w", err)
-	}
 
 	db, err := openReadOnly(homeDir)
 	if err != nil {
@@ -47,6 +46,11 @@ func DrainCanonicalV19WorkerInputs(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := requireCanonicalV19WorkerInputCallerAttestation(
+		ctx, tx, input.ExecutorBindingID, input.callerAttestation, input.Credential,
+	); err != nil {
+		return nil, fmt.Errorf("drain canonical v19 WorkerInput: %w", err)
+	}
 	if err := requireCanonicalV19WorkerInputDrainCurrent(ctx, tx, input); err != nil {
 		return nil, err
 	}

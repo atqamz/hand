@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 )
@@ -16,6 +18,8 @@ type CanonicalV19WorkerInputAcknowledgementCreateInput struct {
 	ExecutorBindingID string
 	ObservedAt        string
 	EvidenceDigest    string
+	// S_B, HAND_WORKER_CREDENTIAL from the caller's own environment.
+	Credential        string
 	callerAttestation *canonicalV19WorkerInputCallerAttestation
 }
 
@@ -42,9 +46,6 @@ func CreateCanonicalV19WorkerInputAcknowledgement(
 	if err := validateCanonicalV19WorkerInputAcknowledgementCreateInput(input); err != nil {
 		return CanonicalV19WorkerInputAcknowledgement{}, err
 	}
-	if err := requireCanonicalV19WorkerInputCallerAttestation(input.ExecutorBindingID, input.callerAttestation); err != nil {
-		return CanonicalV19WorkerInputAcknowledgement{}, fmt.Errorf("create canonical v19 WorkerInputAcknowledgement: %w", err)
-	}
 
 	sqlDB, err := openCanonicalV19Writer(homeDir)
 	if err != nil {
@@ -63,6 +64,11 @@ func CreateCanonicalV19WorkerInputAcknowledgement(
 		}
 	}()
 	if err := validateCanonicalV19WriterTransaction(ctx, tx); err != nil {
+		return CanonicalV19WorkerInputAcknowledgement{}, fmt.Errorf("create canonical v19 WorkerInputAcknowledgement: %w", err)
+	}
+	if err := requireCanonicalV19WorkerInputCallerAttestation(
+		ctx, tx, input.ExecutorBindingID, input.callerAttestation, input.Credential,
+	); err != nil {
 		return CanonicalV19WorkerInputAcknowledgement{}, fmt.Errorf("create canonical v19 WorkerInputAcknowledgement: %w", err)
 	}
 
@@ -103,6 +109,17 @@ func CreateCanonicalV19WorkerInputAcknowledgement(
 	}
 	committed = true
 	return result, nil
+}
+
+// The caller-attested evidence commitment for one WorkerInputAcknowledgement: the
+// credential-verified caller's own report that it observed exactly this WorkerInput at observedAt.
+func CanonicalV19WorkerInputAcknowledgementEvidenceDigest(workerInputID, executorBindingID, observedAt string) string {
+	hash := sha256.New()
+	writeCanonicalV19DigestField(hash, "domain", "hand:v19:worker-input-acknowledgement:v1")
+	writeCanonicalV19DigestField(hash, "worker_input_id", workerInputID)
+	writeCanonicalV19DigestField(hash, "executor_binding_id", executorBindingID)
+	writeCanonicalV19DigestField(hash, "observed_at", observedAt)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func validateCanonicalV19WorkerInputAcknowledgementCreateInput(

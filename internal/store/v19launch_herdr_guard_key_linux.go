@@ -15,11 +15,6 @@ import (
 	"github.com/atqamz/hand/internal/osfacts"
 )
 
-const (
-	canonicalV19ExecGuardKeyPrefix = canonicalV19ExecGuardKeyFamily + "v1?"
-	canonicalV19ExecGuardUnknown   = "unknown"
-)
-
 type canonicalV19ExecGuardKey struct {
 	Session      canonicalV19HerdrSessionProviderKey
 	Assoc        string
