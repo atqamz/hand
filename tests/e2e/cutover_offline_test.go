@@ -81,10 +81,16 @@ func TestCutoverOfflineDriftAbortsToLegacy(t *testing.T) {
 	}
 }
 
-// atqamz/hand#304 required test: the offline cutover import fabricates no
-// Decision/Answer/WorkerInput/acknowledgement history from unprovable legacy evidence.
+// atqamz/hand#304: the legacy fixture carries a terminal Attempt whose last WorkerReport
+// claimed needs-decision plus a finalized operator send_attempt answering it - report prose
+// and send-like state the #304 contract forbids treating as Decision/Answer/WorkerInput authority.
 func TestCutoverOfflinePublishesNoDecisionAnswerOrWorkerInputRows(t *testing.T) {
 	home := offlineCutoverHome(t)
+	execFleetFixtureSQL(t, home, `INSERT INTO task(id,lifecycle,created_at) VALUES('task-legacy-1','terminal','2026-09-20T00:00:00Z')`)
+	execFleetFixtureSQL(t, home, `INSERT INTO attempt(id,task_id,ordinal,lifecycle,last_report_state,last_report_note,created_at)
+		VALUES(1,'task-legacy-1',1,'completed','needs-decision','needs-decision: choose approach A or B','2026-09-20T00:00:30Z')`)
+	execFleetFixtureSQL(t, home, `INSERT INTO send_attempt(task_id,attempt_id,origin,message,state,created_at,finalized_at)
+		VALUES('task-legacy-1',1,'operator','approved: use approach A','submitted','2026-09-20T00:01:00Z','2026-09-20T00:02:00Z')`)
 	cutoverBootEnv(t, false)
 	if got := runHand(t, home, "cutover", "offline", home); got.code != 0 || !strings.Contains(got.stdout, "disposition: frozen") {
 		t.Fatalf("freeze run = %+v", got)
