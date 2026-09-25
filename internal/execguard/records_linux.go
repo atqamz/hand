@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 
 	"github.com/atqamz/hand/internal/atomicfile"
+	handlaunch "github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/osfacts"
-	"github.com/atqamz/hand/internal/store"
 )
 
 // Protocol versions the handoff and every guard record. It is also the secret-ref
@@ -59,18 +59,18 @@ var (
 // Handoff is handoff(L): the persisted Launch spec with its resolved values, written by
 // Hand core before Tx B into L's Fleet-private directory and claimed by exactly one guard.
 type Handoff struct {
-	Protocol          string                       `json:"protocol"`
-	LaunchOperationID string                       `json:"launch_operation_id"`
-	FleetID           string                       `json:"fleet_id"`
-	ExecutorBindingID string                       `json:"executor_binding_id"`
-	RequestDigest     string                       `json:"request_digest"`
-	LaunchSpecDigest  string                       `json:"launch_spec_digest"`
-	Spec              store.CanonicalV19LaunchSpec `json:"spec"`
-	Values            map[string]string            `json:"values"`
-	WorktreePath      string                       `json:"worktree_path"`
-	BootID            string                       `json:"boot_id"`
-	PIDNamespace      uint64                       `json:"pid_namespace"`
-	UID               uint32                       `json:"uid"`
+	Protocol          string                   `json:"protocol"`
+	LaunchOperationID string                   `json:"launch_operation_id"`
+	FleetID           string                   `json:"fleet_id"`
+	ExecutorBindingID string                   `json:"executor_binding_id"`
+	RequestDigest     string                   `json:"request_digest"`
+	LaunchSpecDigest  string                   `json:"launch_spec_digest"`
+	Spec              handlaunch.CanonicalSpec `json:"spec"`
+	Values            map[string]string        `json:"values"`
+	WorktreePath      string                   `json:"worktree_path"`
+	BootID            string                   `json:"boot_id"`
+	PIDNamespace      uint64                   `json:"pid_namespace"`
+	UID               uint32                   `json:"uid"`
 }
 
 type Object struct {

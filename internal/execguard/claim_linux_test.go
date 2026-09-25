@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"testing"
 
+	handlaunch "github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/osfacts"
-	"github.com/atqamz/hand/internal/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -114,7 +114,7 @@ func TestHandoffThatFailsItsCheckIsRefusedBeforeAnyHarness(t *testing.T) {
 		{name: "spec changed after commitment", mutate: func(l *launch) { l.handoff.Spec.Arguments = append(l.handoff.Spec.Arguments, "extra") }},
 		{name: "credential verifier for another Fleet", mutate: func(l *launch) {
 			entry := l.handoff.Spec.Environment[CredentialEnv]
-			entry.ValueDigest = store.CanonicalV19ExecGuardCredentialVerifier("f_00000000000000000000000000000000", l.handoff.ExecutorBindingID, l.credential())
+			entry.ValueDigest = handlaunch.ExecGuardCredentialVerifier("f_00000000000000000000000000000000", l.handoff.ExecutorBindingID, l.credential())
 			l.handoff.Spec.Environment[CredentialEnv] = entry
 			l.seal()
 		}},

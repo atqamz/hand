@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/herdr"
+	handlaunch "github.com/atqamz/hand/internal/launch"
 	"github.com/atqamz/hand/internal/osfacts"
-	"github.com/atqamz/hand/internal/store"
 	"github.com/atqamz/hand/internal/toolchain"
 	"golang.org/x/sys/unix"
 )
@@ -139,7 +139,7 @@ func (g *execution) check(handoff Handoff) (string, string) {
 		return "", "the handoff was written by another user"
 	}
 	spec := handoff.Spec
-	if store.CanonicalV19LaunchSpecDigest(spec) != handoff.LaunchSpecDigest {
+	if handlaunch.CanonicalSpecDigest(spec) != handoff.LaunchSpecDigest {
 		return "", "the launch-spec digest does not match the persisted spec"
 	}
 	if !filepath.IsAbs(spec.Executable) {
@@ -165,9 +165,9 @@ func (g *execution) check(handoff Handoff) (string, string) {
 		if entry.ValueKind == "literal" && value != entry.ValueMaterial {
 			return "", "a literal Launch environment value differs from its material"
 		}
-		digest := store.CanonicalV19LaunchEnvironmentValueDigest(value)
+		digest := handlaunch.EnvironmentValueDigest(value)
 		if name == CredentialEnv {
-			digest = store.CanonicalV19ExecGuardCredentialVerifier(handoff.FleetID, handoff.ExecutorBindingID, value)
+			digest = handlaunch.ExecGuardCredentialVerifier(handoff.FleetID, handoff.ExecutorBindingID, value)
 		}
 		if digest != entry.ValueDigest {
 			return "", "a resolved Launch environment value does not match its committed digest"
