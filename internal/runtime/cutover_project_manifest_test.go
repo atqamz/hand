@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,26 +38,6 @@ func TestBuildLegacyV18CutoverProjectManifestEvidenceCapturesVerifiedProjectFact
 	}
 	if project.LegacyName != "demo" || project.LegacyURL != "https://example.invalid/demo.git" || project.LegacyMode != "clone" || project.LegacyUpstream != "origin/main" {
 		t.Fatalf("legacy provenance evidence = %#v", project)
-	}
-}
-
-func TestLegacyV18CutoverPhysicalIdentityIsStableForObservedDirectory(t *testing.T) {
-	home, clone, _, _ := legacyV18CutoverProjectTreehouseFixture(t)
-	_ = home
-	info, err := os.Lstat(clone)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := legacyV18CutoverPhysicalIdentity(clone, info)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := legacyV18CutoverPhysicalIdentity(clone, info)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first == "" || second != first {
-		t.Fatalf("physical identity first=%q second=%q, want stable non-empty identity", first, second)
 	}
 }
 
@@ -109,6 +88,6 @@ func legacyV18CutoverProjectManifestTestDeps(observerDeps legacyV18CutoverProjec
 		commonDir:        observerDeps.commonDir,
 		isBare:           observerDeps.isBare,
 		headCommit:       observerDeps.headCommit,
-		physicalIdentity: legacyV18CutoverPhysicalIdentity,
+		physicalIdentity: store.CanonicalV19WorktreePhysicalIdentity,
 	}
 }

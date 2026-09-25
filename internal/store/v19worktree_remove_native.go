@@ -373,7 +373,7 @@ func observeCanonicalV19GitWorktreeRemoveLockState(
 	if err != nil || !os.SameFile(info, finalInfo) {
 		return canonicalV19UnknownGitWorktreeRemove(request, "worktree physical identity changed during observation")
 	}
-	physicalIdentity, err := canonicalV19WorktreePhysicalIdentity(request.Path, finalInfo)
+	physicalIdentity, err := CanonicalV19WorktreePhysicalIdentity(request.Path, finalInfo)
 	if err != nil {
 		return canonicalV19UnknownGitWorktreeRemove(request, fmt.Sprintf("capture worktree physical identity: %v", err))
 	}

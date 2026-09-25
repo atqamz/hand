@@ -272,7 +272,7 @@ func verifyCanonicalV19PlanGitBasis(homeDir string, observed canonicalV19PlanBas
 			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("%w: repository/common directory must remain direct directories", ErrCanonicalV19PlanGitBasis)
 			}
-			physical, err := canonicalV19WorktreePhysicalIdentity(identity.path, info)
+			physical, err := CanonicalV19WorktreePhysicalIdentity(identity.path, info)
 			if err != nil || legacyV18CutoverManifestIdentitySHA256(identity.domain, physical) != identity.digest {
 				return fmt.Errorf("%w: captured repository/common directory physical identity changed or is unknown", ErrCanonicalV19PlanGitBasis)
 			}
