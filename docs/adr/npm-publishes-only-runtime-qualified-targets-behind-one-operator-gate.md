@@ -46,6 +46,6 @@ Every release, including the first, pauses for operator approval before any `npm
 
 `NPM_BOOTSTRAP_TOKEN` lives as a secret scoped to the `npm-publish` environment, not a bare repository secret, so that only a job already past the approval gate can ever read it - not merely a requirement but a verified fact as of 2026-08-29 (`gh api repos/atqamz/hand/environments/npm-publish/secrets` lists it; the repository-level secret of the same name was deleted).
 
-A failed, rejected, or still-pending `npm-publish` job leaves the GitHub release fully complete and non-draft. The overall workflow run still shows failed (GitHub Actions marks a run failed if any job fails), but the release itself is never held back or left half-published.
+A failed, rejected, or still-pending `npm-publish` job leaves the GitHub release untouched: it uploads and verifies its complete draft, then becomes non-draft through its own `publish-release` job once the separate `github-release` environment approval is given (atqamz/hand#305). The overall workflow run still shows failed (GitHub Actions marks a run failed if any job fails), but the release itself is never held back or left half-published.
 
 The second stable release fails at its npm-publish job for any package name that published a first version but was never enrolled in Trusted Publishing - see `docs/npm-trusted-publisher-enrollment.md`. That enrollment is required operator follow-up after the first release, not optional cleanup.

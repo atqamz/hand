@@ -175,7 +175,6 @@ jobs:
     # rejected gate, or an npm outage must never hold back the primary one.
     needs: [release-please, qualify, build]
     runs-on: ubuntu-latest
-    environment: github-release
     steps:
       - uses: actions/checkout@v7
         with:
@@ -224,6 +223,13 @@ jobs:
             checksums.txt; do
             printf '%s\n' "$assets" | grep -Fx "$asset" >/dev/null
           done
+
+  publish-release:
+    name: Publish approved release
+    needs: [release-please, qualify, publish]
+    runs-on: ubuntu-latest
+    environment: github-release
+    steps:
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}

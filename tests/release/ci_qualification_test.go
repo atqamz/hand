@@ -33,13 +33,17 @@ func TestReleasePublicationWaitsForExactMainCI(t *testing.T) {
 		!strings.Contains(step.Run, `.github/scripts/qualify-ci.sh "$RELEASE_SHA"`) {
 		t.Fatalf("qualification step does not inspect exact release SHA: %#v", step)
 	}
-	for _, name := range []string{"build", "npm-publish", "publish"} {
+	for _, name := range []string{"build", "npm-publish", "publish", "publish-release"} {
 		if !containsString(workflowJobNeeds(t, jobs[name].Needs), "qualify") {
 			t.Fatalf("%s can run without exact CI qualification", name)
 		}
 	}
-	if got := jobs["publish"].Environment; got != "github-release" {
-		t.Fatalf("publish job environment = %#v, want the operator-approved %q environment", got, "github-release")
+	publish := jobs["publish-release"]
+	if publish.Environment != "github-release" || !containsString(workflowJobNeeds(t, publish.Needs), "publish") {
+		t.Fatalf("publish-release job = %#v, want the operator-approved %q environment after the verified draft", publish, "github-release")
+	}
+	if len(publish.Steps) != 1 || publish.Steps[0].Name != "Publish complete release" {
+		t.Fatalf("publish-release steps = %#v, want only the draft-to-published edit behind approval", publish.Steps)
 	}
 }
 
