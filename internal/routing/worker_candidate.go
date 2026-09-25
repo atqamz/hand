@@ -1,11 +1,14 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+var ErrWorkerPolicyStale = errors.New("worker policy changed since Worker Route resolution")
 
 type WorkerCandidateOverrides struct {
 	ProfileOverride *string
@@ -85,6 +88,17 @@ func ResolveWorkerCandidate(home, intent, judgment string, overrides WorkerCandi
 		return WorkerCandidate{Profile: profile, PolicyWitness: policy.Witness}, nil
 	}
 	return WorkerCandidate{}, fmt.Errorf("worker candidate names missing profile %q", profileName)
+}
+
+func RequireWorkerPolicyWitness(home, witness string) error {
+	policy, err := LoadWorkerPolicy(home)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrWorkerPolicyStale, err)
+	}
+	if policy.Witness != witness {
+		return fmt.Errorf("%w: resolved %s, current %s", ErrWorkerPolicyStale, witness, policy.Witness)
+	}
+	return nil
 }
 
 func validWorkerCandidateValue(value string) bool {

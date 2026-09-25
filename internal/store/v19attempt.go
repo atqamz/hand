@@ -20,19 +20,21 @@ var ErrCanonicalV19AttemptNotCurrent = errors.New("canonical v19 attempt lineage
 // CanonicalV19AttemptCreateInput is the immutable resolved execution
 // provenance frozen by one Attempt.
 type CanonicalV19AttemptCreateInput struct {
-	ID                   string
-	PlanID               string
-	ProfileOverride      *string
-	HarnessOverride      *string
-	ModelOverride        *string
-	EffortOverride       *string
-	WorkerHarnessRef     string
-	WorkerHarnessVersion string
-	WorkerProfileRef     string
-	ModelRef             string
-	EffortRef            string
-	SessionAdapterRef    string
-	CreatedAt            string
+	ID                          string
+	PlanID                      string
+	PredecessorAttemptID        string
+	RequirePolicyWitnessCurrent func() error
+	ProfileOverride             *string
+	HarnessOverride             *string
+	ModelOverride               *string
+	EffortOverride              *string
+	WorkerHarnessRef            string
+	WorkerHarnessVersion        string
+	WorkerProfileRef            string
+	ModelRef                    string
+	EffortRef                   string
+	SessionAdapterRef           string
+	CreatedAt                   string
 }
 
 // CreateCanonicalV19Attempt creates one fresh active Attempt under the exact
@@ -71,6 +73,14 @@ func CreateCanonicalV19Attempt(ctx context.Context, homeDir string, input Canoni
 	}
 	if err := requireCanonicalV19AttemptSlotOpen(ctx, tx, input.PlanID); err != nil {
 		return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
+	}
+	if err := requireCanonicalV19AttemptPredecessorLatest(ctx, tx, input.PlanID, input.PredecessorAttemptID); err != nil {
+		return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
+	}
+	if input.RequirePolicyWitnessCurrent != nil {
+		if err := input.RequirePolicyWitnessCurrent(); err != nil {
+			return 0, fmt.Errorf("create canonical v19 Attempt: %w", err)
+		}
 	}
 
 	ordinal, err := nextCanonicalV19AttemptOrdinal(ctx, tx, input.PlanID)
@@ -160,6 +170,18 @@ func requireCanonicalV19AttemptSlotOpen(ctx context.Context, tx *sql.Tx, planID 
 		return canonicalV19AttemptWriteError("read active Attempt", err)
 	}
 	return fmt.Errorf("%w: Plan %q already has active Attempt %q", ErrCanonicalV19AttemptConflict, planID, activeAttemptID)
+}
+
+func requireCanonicalV19AttemptPredecessorLatest(ctx context.Context, tx *sql.Tx, planID, predecessorID string) error {
+	var latestID string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM attempt WHERE plan_id=? ORDER BY ordinal DESC LIMIT 1`, planID).Scan(&latestID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return canonicalV19AttemptWriteError("read latest Attempt", err)
+	}
+	if latestID != predecessorID {
+		return fmt.Errorf("%w: Plan %q latest Attempt is %q, not expected predecessor %q", ErrCanonicalV19AttemptNotCurrent, planID, latestID, predecessorID)
+	}
+	return nil
 }
 
 func nextCanonicalV19AttemptOrdinal(ctx context.Context, tx *sql.Tx, planID string) (int64, error) {

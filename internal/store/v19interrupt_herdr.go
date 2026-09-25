@@ -109,9 +109,9 @@ func reconcileCanonicalV19HerdrInterrupt(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: operation %q is %q",
 			ErrCanonicalV19InterruptTransition, operationID, current.Current.State)
 	}
-	if request.AdapterRef != canonicalV19HerdrSessionAdapterRef {
+	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr Interrupt: %w: adapter %q is not %q",
-			ErrCanonicalV19InterruptNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
+			ErrCanonicalV19InterruptNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"Interrupt", "exact execution identity and positive cessation evidence",

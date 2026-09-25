@@ -217,7 +217,7 @@ func canonicalV19HerdrSessionAcquireFixture(
 	t.Helper()
 	base := canonicalV19AttemptWriterFixture(t)
 	attempt := canonicalV19AttemptWriterInput("attempt-1", "plan-root")
-	attempt.SessionAdapterRef = canonicalV19HerdrSessionAdapterRef
+	attempt.SessionAdapterRef = CanonicalV19HerdrSessionAdapterRef
 	if _, err := CreateCanonicalV19Attempt(context.Background(), base.Home, attempt); err != nil {
 		t.Fatal(err)
 	}

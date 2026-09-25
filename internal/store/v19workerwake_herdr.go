@@ -111,9 +111,9 @@ func reconcileCanonicalV19HerdrWorkerWake(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: %w: operation %q is %q",
 			ErrCanonicalV19WorkerWakeTransition, operationID, current.Current.State)
 	}
-	if request.AdapterRef != canonicalV19HerdrSessionAdapterRef {
+	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr WorkerWake: %w: adapter %q is not %q",
-			ErrCanonicalV19WorkerWakeNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
+			ErrCanonicalV19WorkerWakeNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
 	unsupportedErr := canonicalV19HerdrCapabilityUnsupported(
 		"WorkerWake", "exact live execution identity",

@@ -14,7 +14,7 @@ import (
 	"github.com/atqamz/hand/internal/herdr"
 )
 
-const canonicalV19HerdrSessionAdapterRef = "herdr"
+const CanonicalV19HerdrSessionAdapterRef = "herdr"
 
 type canonicalV19HerdrSessionObservationState string
 
@@ -104,9 +104,9 @@ func reconcileCanonicalV19HerdrSessionAcquire(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: %w: operation %q is %q",
 			ErrCanonicalV19SessionTransition, operationID, current.Current.State)
 	}
-	if request.AdapterRef != canonicalV19HerdrSessionAdapterRef {
+	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: %w: adapter %q is not %q",
-			ErrCanonicalV19SessionNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
+			ErrCanonicalV19SessionNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
 	if request.RequestedProviderSessionKey != "" {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionAcquire: provider-assigned Session key must be empty before fresh acquisition")

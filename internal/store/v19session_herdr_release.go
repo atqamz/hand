@@ -80,9 +80,9 @@ func reconcileCanonicalV19HerdrSessionRelease(
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionRelease: %w: operation %q is %q",
 			ErrCanonicalV19SessionTransition, operationID, current.Current.State)
 	}
-	if request.AdapterRef != canonicalV19HerdrSessionAdapterRef {
+	if request.AdapterRef != CanonicalV19HerdrSessionAdapterRef {
 		return current.Current.State, fmt.Errorf("reconcile canonical v19 Herdr SessionRelease: %w: adapter %q is not %q",
-			ErrCanonicalV19SessionNotCurrent, request.AdapterRef, canonicalV19HerdrSessionAdapterRef)
+			ErrCanonicalV19SessionNotCurrent, request.AdapterRef, CanonicalV19HerdrSessionAdapterRef)
 	}
 	key, err := parseCanonicalV19HerdrSessionProviderKey(request.ExpectedProviderSessionKey)
 	if err != nil {

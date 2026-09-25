@@ -119,7 +119,7 @@ func TestTerminalizeCanonicalV19AttemptEnablesFreshRetry(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	second := canonicalV19AttemptWriterInput("attempt-2", "plan-root")
+	second := canonicalV19AttemptRetryInput("attempt-2", "plan-root", first.ID)
 	second.CreatedAt = "2026-09-04T10:04:00Z"
 	ordinal, err := CreateCanonicalV19Attempt(context.Background(), fixture.Home, second)
 	if err != nil {

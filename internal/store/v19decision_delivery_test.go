@@ -138,7 +138,7 @@ func canonicalV19DecisionTestRetryExecutor(t *testing.T, home, predecessorID str
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptWriterInput("attempt-2", "plan-root")); err != nil {
+	if _, err := CreateCanonicalV19Attempt(context.Background(), home, canonicalV19AttemptRetryInput("attempt-2", "plan-root", predecessorID)); err != nil {
 		t.Fatal(err)
 	}
 	create := canonicalV19WorktreeCreatePrepareInput(home, "worktree-create-2", "worktree-binding-2")
