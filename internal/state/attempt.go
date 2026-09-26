@@ -120,11 +120,17 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 		if live != 0 {
 			return fmt.Errorf("%w: task %s already has live attempt %s", ErrConflict, TaskRef(spec.TaskID), AttemptRef(live))
 		}
+		var fleet string
+		if err := tx.QueryRow(`SELECT id FROM fleet`).Scan(&fleet); errors.Is(err, sql.ErrNoRows) {
+			return errNoFleet
+		} else if err != nil {
+			return err
+		}
 		if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) + 1 FROM attempt`).Scan(&a.ID); err != nil {
 			return err
 		}
 		name := TaskRef(spec.TaskID) + "-" + AttemptRef(a.ID)
-		a.Worktree, a.Branch = filepath.Join(worktreeRoot, name), "hand/"+name
+		a.Worktree, a.Branch = filepath.Join(worktreeRoot, name), "hand/"+fleet+"/"+name
 		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.CreatedAt); err != nil {
 			return err

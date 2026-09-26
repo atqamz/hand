@@ -86,3 +86,8 @@ func (h *harness) worktree(name string) string {
 	h.t.Helper()
 	return filepath.Join(h.vars["SECONDHAND_HOME"], "worktrees", field(h.ok("init", h.home), "id"), name)
 }
+
+func (h *harness) branch(name string) string {
+	h.t.Helper()
+	return "hand/" + filepath.Base(filepath.Dir(h.worktree(name))) + "/" + name
+}

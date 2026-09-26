@@ -19,7 +19,7 @@ import (
 func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	fx := newAttemptFixture(t)
 	out := fx.start()
-	for _, want := range []string{"attempt: a1", "status: running", "branch: hand/t1-a1", "pane: 2"} {
+	for _, want := range []string{"attempt: a1", "status: running", "branch: " + fx.h.branch("t1-a1"), "pane: 2"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("start = %q, missing %q", out, want)
 		}
@@ -73,7 +73,7 @@ func TestFailedLaunchRemovesItsWorktreeAndBranch(t *testing.T) {
 	if _, err := os.Stat(fx.h.worktree("t1-a1")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktree left behind: %v", err)
 	}
-	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "--quiet", "hand/t1-a1").CombinedOutput(); err == nil {
+	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "--quiet", fx.h.branch("t1-a1")).CombinedOutput(); err == nil {
 		t.Fatalf("branch left behind: %s", out)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") || !strings.Contains(show, "terminal failed to start") {

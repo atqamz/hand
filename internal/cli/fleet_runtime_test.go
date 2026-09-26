@@ -10,13 +10,14 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 )
 
-func TestTwoFleetsKeepTheirWorkersApart(t *testing.T) {
+func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
 	luvusHome, err := os.MkdirTemp("", "lv")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(luvusHome) })
 	root := t.TempDir()
+	repo := gitRepo(t)
 	brief := filepath.Join(t.TempDir(), "brief.md")
 	if err := os.WriteFile(brief, []byte("Fix it."), 0o644); err != nil {
 		t.Fatal(err)
@@ -38,11 +39,11 @@ func TestTwoFleetsKeepTheirWorkersApart(t *testing.T) {
 			t.Fatal(err)
 		}
 		rt := startRuntime(t, sock)
-		h.ok("project", "add", "app", gitRepo(t))
+		h.ok("project", "add", "app", repo)
 		h.ok("task", "add", "app", "Fix login")
 		h.ok("task", "start", "t1")
 		out := h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", brief, "t1")
-		if !strings.Contains(out, "luvus session attach "+fleet.Session(id)) {
+		if !strings.Contains(out, "luvus session attach "+fleet.Session(id)) || !strings.Contains(out, "branch: hand/"+id+"/t1-a1") {
 			t.Fatalf("start help = %q", out)
 		}
 		return side{h, rt, id}

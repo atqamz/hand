@@ -82,7 +82,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 	if !fx.rt.isClosed(restored) {
 		t.Fatal("a terminal left inside the worktree was not closed")
 	}
-	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "hand/t1-a1").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", fx.h.branch("t1-a1")).CombinedOutput(); err != nil {
 		t.Fatalf("branch deleted: %s", out)
 	}
 	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 3 || !strings.Contains(errOut, "already cleaned") {
