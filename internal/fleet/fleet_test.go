@@ -148,6 +148,29 @@ func TestConcurrentFirstChecksAllSucceed(t *testing.T) {
 	}
 }
 
+func TestTwoCopiesRegisteringAtOnceCannotBothWin(t *testing.T) {
+	for range 20 {
+		root, a, b := t.TempDir(), t.TempDir(), t.TempDir()
+		f := home(t, a, "alpha")
+		db, err := os.ReadFile(filepath.Join(a, "hand.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(b, "hand.db"), db, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		won := make([]bool, 2)
+		for i, dir := range []string{a, b} {
+			wg.Go(func() { won[i] = fleet.Check(root, f.ID, dir) == nil })
+		}
+		wg.Wait()
+		if won[0] && won[1] {
+			t.Fatal("both copies claimed the same fleet id")
+		}
+	}
+}
+
 func TestListShowsEachFleetAndItsState(t *testing.T) {
 	root := t.TempDir()
 	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()

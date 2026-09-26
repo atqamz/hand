@@ -44,7 +44,12 @@ func Check(root, id, home string) error {
 	target, err := os.Readlink(link(root, id))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return point(root, id, home)
+		if err := claim(root, id, home); errors.Is(err, fs.ErrExist) {
+			return Check(root, id, home)
+		} else if err != nil {
+			return err
+		}
+		return nil
 	case err != nil:
 		return err
 	case target == home:
@@ -62,7 +67,12 @@ func Register(root, id, home string) (string, error) {
 	target, err := os.Readlink(link(root, id))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return "", point(root, id, home)
+		if err := claim(root, id, home); errors.Is(err, fs.ErrExist) {
+			return Register(root, id, home)
+		} else if err != nil {
+			return "", err
+		}
+		return "", nil
 	case err != nil:
 		return "", err
 	case target == home:
@@ -117,6 +127,13 @@ func List(root string) ([]Entry, error) {
 }
 
 func link(root, id string) string { return filepath.Join(root, "fleets", id) }
+
+func claim(root, id, home string) error {
+	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+		return err
+	}
+	return os.Symlink(home, link(root, id))
+}
 
 func point(root, id, home string) error {
 	dir := filepath.Join(root, "fleets")
