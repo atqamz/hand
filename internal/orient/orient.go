@@ -55,7 +55,15 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		if err != nil {
 			return nil, err
 		}
-		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, strconv.Itoa(n)})
+		attempt := "none"
+		a, ok, err := st.LatestAttempt(ctx, t.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			attempt = state.AttemptRef(a.ID) + " " + a.Status
+		}
+		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, attempt, strconv.Itoa(n)})
 	}
 
 	decisions, err := st.OpenDecisions(ctx, 0, b.Decisions)
@@ -100,7 +108,7 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 	memLines := lines(mem)
 
 	sections := []*section{
-		{"active", []string{"id", "project", "title", "plan", "open_decisions"}, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
+		{"active", []string{"id", "project", "title", "plan", "attempt", "open_decisions"}, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
 		{"open_decisions", []string{"id", "task", "question"}, decisionRows, openTotal, "hand decision list --limit 500"},
 		{"inbox", []string{"id", "project", "title"}, inboxRows, counts[state.StatusInbox], "hand task list --status inbox --limit 500"},
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},

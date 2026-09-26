@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -51,4 +52,13 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) Project(ctx context.Context, name string) (Project, error) {
+	var p Project
+	err := s.db.QueryRowContext(ctx, `SELECT name, repo, created_at FROM project WHERE name = ?`, name).Scan(&p.Name, &p.Repo, &p.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, fmt.Errorf("%w: project %s", ErrNotFound, name)
+	}
+	return p, err
 }

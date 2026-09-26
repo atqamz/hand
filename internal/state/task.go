@@ -148,6 +148,15 @@ func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, erro
 		if !slices.Contains(transitions[cur.Status], to) {
 			return fmt.Errorf("%w: task %s is %s and cannot become %s", ErrConflict, TaskRef(id), cur.Status, to)
 		}
+		if to == StatusDone || to == StatusAbandoned {
+			live, err := liveAttempt(tx, id)
+			if err != nil {
+				return err
+			}
+			if live != 0 {
+				return fmt.Errorf("%w: task %s has live attempt %s; stop it first", ErrConflict, TaskRef(id), AttemptRef(live))
+			}
+		}
 		from, now := cur.Status, s.stamp()
 		res, err := tx.Exec(`UPDATE task SET status = ?, updated_at = ? WHERE id = ? AND status = ?`, to, now, id, from)
 		if err != nil {

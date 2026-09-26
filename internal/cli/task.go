@@ -74,6 +74,15 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("plan", "none")
 	}
+	a, ok, err := st.LatestAttempt(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if ok {
+		d.Field("attempt", state.AttemptRef(a.ID)+" "+a.Status)
+	} else {
+		d.Field("attempt", "none")
+	}
 	ds, err := st.OpenDecisions(context.Background(), id, 20)
 	if err != nil {
 		return err

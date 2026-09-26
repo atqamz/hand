@@ -35,7 +35,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	}
 	want := "home: " + home + "\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
-		"active[0]{id,project,title,plan,open_decisions}:\n" +
+		"active[0]{id,project,title,plan,attempt,open_decisions}:\n" +
 		"open_decisions[0]{id,task,question}:\n" +
 		"inbox[0]{id,project,title}:\n" +
 		"recent[0]{seq,kind,task}:\n" +
@@ -68,7 +68,7 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 		t.Fatal("orient is not deterministic")
 	}
 	out := first.String()
-	for _, want := range []string{"t1,hand,Fix login,p1,1", "d1,t1,Keep cookie name?", "t2,hand,Write docs", "decision.asked"} {
+	for _, want := range []string{"t1,hand,Fix login,p1,none,1", "d1,t1,Keep cookie name?", "t2,hand,Write docs", "decision.asked"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
@@ -144,5 +144,23 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestOrientShowsTheLatestAttempt(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "t1,hand,Fix login,none,a1 launching,0") {
+		t.Fatalf("orient =\n%s", out)
 	}
 }
