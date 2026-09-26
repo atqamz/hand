@@ -16,13 +16,14 @@ type Budget struct {
 	Active      int
 	Inbox       int
 	Decisions   int
+	Reports     int
 	Events      int
 	MemoryBytes int
 	TitleBytes  int
 	Bytes       int
 }
 
-var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Events: 10, MemoryBytes: 1200, TitleBytes: 50, Bytes: 6000}
+var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, MemoryBytes: 1200, TitleBytes: 50, Bytes: 6000}
 
 type section struct {
 	name   string
@@ -67,7 +68,15 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		if ok {
 			attempt = state.AttemptRef(a.ID) + " " + a.Status
 		}
-		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, attempt, strconv.Itoa(n)})
+		report := "none"
+		rep, ok, err := st.LatestReport(ctx, state.ReportFilter{TaskID: t.ID})
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			report = state.ReportRef(rep.ID) + " " + rep.Status
+		}
+		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)})
 	}
 
 	decisions, err := st.OpenDecisions(ctx, 0, b.Decisions)
@@ -81,6 +90,19 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 	decisionRows := make([][]string, 0, len(decisions))
 	for _, dec := range decisions {
 		decisionRows = append(decisionRows, []string{state.DecisionRef(dec.ID), state.TaskRef(dec.TaskID), clip(dec.Question, b.TitleBytes)})
+	}
+
+	reports, err := st.Reports(ctx, state.ReportFilter{Unacked: true}, b.Reports)
+	if err != nil {
+		return nil, err
+	}
+	unacked, err := st.UnackedReportCount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reportRows := make([][]string, 0, len(reports))
+	for _, rep := range reports {
+		reportRows = append(reportRows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), rep.Status, clip(rep.Summary(), b.TitleBytes)})
 	}
 
 	inbox, err := st.Tasks(ctx, []string{state.StatusInbox}, b.Inbox)
@@ -112,8 +134,9 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 	memLines := lines(mem)
 
 	sections := []*section{
-		{"active", []string{"id", "project", "title", "plan", "attempt", "open_decisions"}, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
+		{"active", []string{"id", "project", "title", "plan", "attempt", "report", "open_decisions"}, activeRows, counts[state.StatusActive], "hand task list --status active --limit 500"},
 		{"open_decisions", []string{"id", "task", "question"}, decisionRows, openTotal, "hand decision list --limit 500"},
+		{"unacked_reports", []string{"id", "attempt", "status", "summary"}, reportRows, unacked, "hand report list --unacked --limit 500"},
 		{"inbox", []string{"id", "project", "title"}, inboxRows, counts[state.StatusInbox], "hand task list --status inbox --limit 500"},
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
