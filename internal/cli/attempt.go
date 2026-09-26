@@ -117,12 +117,22 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
 		if harness.Prefills(running.Harness) {
-			if submitPrefilled(r.ctx(), c, running) {
+			sent, confirmed := submitPrefilled(r.ctx(), c, running)
+			if sent {
 				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
 					return err
 				}
+			}
+			switch {
+			case confirmed:
 				d.Field("prompt", "submitted")
-			} else {
+			case sent:
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing sent but not confirmed; check the screen"); err != nil {
+					return err
+				}
+				d.Field("prompt", "sent unconfirmed")
+				help = append(help, "Enter was sent but the agent did not react: check `hand attempt read "+ref+"`, and press Enter with `hand attempt keys --revision N "+ref+" enter` only if the briefing is still in the input box")
+			default:
 				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing not submitted; press Enter"); err != nil {
 					return err
 				}
@@ -140,7 +150,7 @@ const (
 	submitConfirm = 5 * time.Second
 )
 
-func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) bool {
+func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -149,28 +159,32 @@ func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) bool 
 		s, err := c.Read(ctx, a.PaneID, 60)
 		switch {
 		case luvus.Code(err) != "":
-			return false
+			return false, false
 		case err == nil && strings.Contains(s.Text, reportMarker):
+			before := ""
+			if ag, err := c.Explain(ctx, a.PaneID); err == nil {
+				before = ag.Status
+			}
 			err := c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID)
 			if err == nil {
-				return leftIdle(ctx, c, a.PaneID, tick.C)
+				return true, reacted(ctx, c, a.PaneID, before, tick.C)
 			}
 			if luvus.Code(err) != "content_revision_conflict" {
-				return false
+				return false, false
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return false, false
 		case <-tick.C:
 		}
 	}
 }
 
-func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
+func reacted(ctx context.Context, c luvus.Client, pane, before string, tick <-chan time.Time) bool {
 	deadline := time.After(submitConfirm)
 	for {
-		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != "idle" {
+		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != before && ag.Status != "idle" {
 			return true
 		}
 		select {

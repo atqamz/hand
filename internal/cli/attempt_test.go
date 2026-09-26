@@ -76,7 +76,9 @@ const opencodeScreen = "┃  Fix the login bug, commit, then stop.\n┃  When yo
 
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
-	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.revision = opencodeScreen, 7 })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.status, rt.afterKeys = opencodeScreen, 7, "idle", "working"
+	})
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
 	if !strings.Contains(out, "prompt: submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
@@ -109,12 +111,17 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 	}
 }
 
-func TestOpencodeEnterThatLeavesTheAgentIdleIsNotSubmitted(t *testing.T) {
-	fx := newAttemptFixture(t)
-	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
-	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
-	if !strings.Contains(out, "prompt: not submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
-		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
+	for _, status := range []string{"idle", "working"} {
+		fx := newAttemptFixture(t)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, status })
+		out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+		if !strings.Contains(out, "prompt: sent unconfirmed") || !strings.Contains(out, "only if the briefing is still in the input box") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+			t.Fatalf("status %s: start = %q, keys = %q", status, out, fx.rt.keysSent())
+		}
+		if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: briefing sent but not confirmed; check the screen"`) {
+			t.Fatalf("status %s: wait = %q", status, woke)
+		}
 	}
 }
 

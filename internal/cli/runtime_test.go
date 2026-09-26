@@ -44,6 +44,7 @@ type fakeRuntime struct {
 	keyed      []string
 	screen     string
 	readFail   string
+	afterKeys  string
 	closeDelay time.Duration
 }
 
@@ -230,6 +231,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}
 	rt.keyed = append(rt.keyed, p.Keys...)
+	if rt.afterKeys != "" {
+		rt.status = rt.afterKeys
+	}
 	return map[string]any{"type": "ok"}, nil
 }
 
