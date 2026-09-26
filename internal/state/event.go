@@ -76,3 +76,25 @@ func (s *Store) EventsAfter(ctx context.Context, after int64, kinds []string, li
 	}
 	return events, rows.Err()
 }
+
+func (s *Store) TaskEvents(ctx context.Context, taskID int64, limit int) ([]Event, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, task_id, detail FROM (
+		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event WHERE task_id = ? ORDER BY seq DESC LIMIT ?
+	) ORDER BY seq`, taskID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}

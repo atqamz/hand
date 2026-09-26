@@ -104,3 +104,18 @@ func TestListsRefuseUnknownStatusAndNonPositiveLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionByID(t *testing.T) {
+	s, _ := openTest(t)
+	seedProject(t, s)
+	ctx := context.Background()
+	task, _ := s.AddTask(ctx, "hand", "Fix login", "")
+	asked, _ := s.Ask(ctx, task.ID, "Keep it?")
+	got, err := s.Decision(ctx, asked.ID)
+	if err != nil || got.Question != "Keep it?" || got.Status != DecisionOpen {
+		t.Fatalf("decision = %+v, %v", got, err)
+	}
+	if _, err := s.Decision(ctx, 99); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing decision err = %v", err)
+	}
+}

@@ -169,3 +169,20 @@ func TestEventsAfterFiltersByCursorAndKind(t *testing.T) {
 		t.Fatalf("limit 0 err = %v", err)
 	}
 }
+
+func TestTaskEventsAreScopedAndOrdered(t *testing.T) {
+	s, _ := openTest(t)
+	seedProject(t, s)
+	ctx := context.Background()
+	one, _ := s.AddTask(ctx, "hand", "One", "")
+	two, _ := s.AddTask(ctx, "hand", "Two", "")
+	_, _ = s.Transition(ctx, one.ID, StatusActive)
+	_, _ = s.Transition(ctx, two.ID, StatusActive)
+	events, err := s.TaskEvents(ctx, one.ID, 10)
+	if err != nil || len(events) != 2 || events[0].Kind != "task.added" || events[1].Kind != "task.active" || events[1].TaskID != one.ID {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+	if _, err := s.TaskEvents(ctx, one.ID, 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("limit 0 err = %v", err)
+	}
+}
