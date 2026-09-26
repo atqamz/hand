@@ -15,6 +15,7 @@ type harness struct {
 	home string
 	now  time.Time
 	vars map[string]string
+	cwd  string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -39,6 +40,12 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			return kv
 		},
 		Now: func() time.Time { return h.now },
+		Getwd: func() (string, error) {
+			if h.cwd != "" {
+				return h.cwd, nil
+			}
+			return h.home, nil
+		},
 	}
 }
 

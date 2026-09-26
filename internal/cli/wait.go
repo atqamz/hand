@@ -9,7 +9,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered"}
+var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered"}
 
 const waitPoll = 250 * time.Millisecond
 

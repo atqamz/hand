@@ -20,9 +20,12 @@ var schema string
 //go:embed attempt.sql
 var attemptSchema string
 
-var migrations = []string{schema, attemptSchema}
+//go:embed report.sql
+var reportSchema string
 
-const SchemaVersion = 2
+var migrations = []string{schema, attemptSchema, reportSchema}
+
+const SchemaVersion = 3
 
 var (
 	ErrNotFound = errors.New("not found")

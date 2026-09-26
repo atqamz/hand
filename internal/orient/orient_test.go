@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,8 +37,9 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	want := "home: " + home + "\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
 		"cursor: 0\n" +
-		"active[0]{id,project,title,plan,attempt,open_decisions}:\n" +
+		"active[0]{id,project,title,plan,attempt,report,open_decisions}:\n" +
 		"open_decisions[0]{id,task,question}:\n" +
+		"unacked_reports[0]{id,attempt,status,summary}:\n" +
 		"inbox[0]{id,project,title}:\n" +
 		"recent[0]{seq,kind,task}:\n" +
 		"operator_memory[2]:\n" +
@@ -70,7 +72,7 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 		t.Fatal("orient is not deterministic")
 	}
 	out := first.String()
-	for _, want := range []string{"t1,hand,Fix login,p1,none,1", "d1,t1,Keep cookie name?", "t2,hand,Write docs", "decision.asked"} {
+	for _, want := range []string{"t1,hand,Fix login,p1,none,none,1", "d1,t1,Keep cookie name?", "t2,hand,Write docs", "decision.asked"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
@@ -162,7 +164,73 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out := doc.String(); !strings.Contains(out, "t1,hand,Fix login,none,a1 launching,0") {
+	if out := doc.String(); !strings.Contains(out, "t1,hand,Fix login,none,a1 launching,none,0") {
 		t.Fatalf("orient =\n%s", out)
+	}
+}
+
+func TestOrientShowsReportsWithinBudget(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	for i := range 40 {
+		task, _ := st.AddTask(ctx, "hand", "Task", "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		body := "Done with task " + strconv.Itoa(i) + "\n" + strings.Repeat("detail ", 9000)
+		if _, err := st.AddReport(ctx, a.ID, state.ReportDone, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= 6000 {
+		t.Fatalf("orient is %d bytes", len(out))
+	}
+	for _, want := range []string{"unacked_reports[", "r40,a40,done,Done with task 39", "unacked_reports_more:", ",a1 running,r1 done,0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	spec := state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
+	term := state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}
+	a1, _ := st.AddAttempt(ctx, spec, "/w")
+	_, _ = st.AttemptRunning(ctx, a1.ID, term)
+	_, _ = st.AddReport(ctx, a1.ID, state.ReportDone, "first try")
+	_, _ = st.EndAttempt(ctx, a1.ID, state.AttemptStopped, "retry")
+	a2, _ := st.AddAttempt(ctx, spec, "/w")
+	_, _ = st.AttemptRunning(ctx, a2.ID, term)
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "t1,hand,Fix login,none,a2 running,none,0") {
+		t.Fatalf("orient =\n%s", out)
+	}
+}
+
+func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
+	st, home := setup(t)
+	b := DefaultBudget
+	b.Reports = 0
+	if _, err := Build(context.Background(), st, home, b); err != nil {
+		t.Fatalf("zero report budget: %v", err)
 	}
 }

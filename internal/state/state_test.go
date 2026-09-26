@@ -130,7 +130,7 @@ func TestOpenMigratesAVersionOneHome(t *testing.T) {
 	}
 	defer s.Close()
 	var v, n int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 2 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if err := s.db.QueryRow(`SELECT count(*) FROM attempt`).Scan(&n); err != nil {

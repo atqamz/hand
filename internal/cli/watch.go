@@ -192,22 +192,24 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 			return nil
 		}
 		w.seen[a.ID] = ev.Status
-		var kind, detail string
+		ref := state.AttemptRef(a.ID)
 		switch ev.Status {
 		case "blocked":
-			kind = "blocked"
+			detail := ""
 			if ag, err := c.Explain(ctx, a.PaneID); err == nil {
 				detail = ag.Hint
 			}
+			if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
+				return err
+			}
+			w.alert(ctx, ref+" blocked: "+detail)
 		case "done":
-			kind, detail = "quiet", "turn ended"
-		default:
-			return nil
+			detail, err := w.st.RecordQuiet(ctx, a.ID)
+			if err != nil {
+				return err
+			}
+			w.alert(ctx, ref+" quiet: "+detail)
 		}
-		if err := w.st.NoteAttempt(ctx, a.ID, kind, detail); err != nil {
-			return err
-		}
-		w.alert(ctx, state.AttemptRef(a.ID)+" "+kind+": "+detail)
 		return nil
 	}
 	return nil
