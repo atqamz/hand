@@ -269,3 +269,22 @@ func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
 		t.Fatalf("project list = %q", list)
 	}
 }
+
+func TestA07FleetGetsTheMigrationHint(t *testing.T) {
+	h := newHarness(t)
+	old := t.TempDir()
+	for _, d := range []string{"state", "data", "data/145-ship"} {
+		if err := os.MkdirAll(filepath.Join(old, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(old, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.vars["HAND_HOME"] = ""
+	h.cwd = filepath.Join(old, "data", "145-ship")
+	_, errOut, code := h.run("task", "list")
+	if code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") || !strings.Contains(errOut, "secondhand-migrate") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}

@@ -63,13 +63,15 @@ func canonical(p string) (string, error) {
 	}
 }
 
-func findHome(dir string) (string, error) {
+func findHome(dir string) (string, error) { return findUp(dir, "hand.db") }
+
+func findUp(dir, marker string) (string, error) {
 	dir, err := canonical(dir)
 	if err != nil {
 		return "", err
 	}
 	for {
-		info, err := os.Stat(filepath.Join(dir, "hand.db"))
+		info, err := os.Stat(filepath.Join(dir, marker))
 		switch {
 		case err == nil && info.Mode().IsRegular():
 			return dir, nil
@@ -86,6 +88,11 @@ func findHome(dir string) (string, error) {
 
 func (r *runner) needHome() error {
 	if r.home == "" {
+		if wd, err := r.getwd(); err == nil {
+			if old, err := findUp(wd, filepath.Join("state", "hand.db")); err == nil && old != "" {
+				return fmt.Errorf("%w: %s is a Hand 0.7 fleet; run `hand init` there, then ask its supervisor to use the secondhand-migrate skill", state.ErrNotFound, old)
+			}
+		}
 		return fmt.Errorf("%w: not inside a fleet home; cd into one, pass --home DIR, or run `hand init` to make this folder one", state.ErrNotFound)
 	}
 	if _, err := os.Stat(r.dbPath()); errors.Is(err, fs.ErrNotExist) {
