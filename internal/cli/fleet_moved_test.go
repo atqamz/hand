@@ -58,14 +58,11 @@ func TestBoardStopsServingAMovedHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	defer cancel()
+	done := make(chan int, 1)
 	go func() {
-		defer close(done)
-		h.runCtx(ctx, "board", "--addr", addr)
-	}()
-	defer func() {
-		cancel()
-		<-done
+		_, _, code := h.runCtx(ctx, "board", "--addr", addr)
+		done <- code
 	}()
 	get := func() int {
 		resp, err := http.Get("http://" + addr + "/")
@@ -85,5 +82,44 @@ func TestBoardStopsServingAMovedHome(t *testing.T) {
 	adopt.ok("init")
 	if c := get(); c != http.StatusServiceUnavailable {
 		t.Fatalf("board after a move answered %d, want 503", c)
+	}
+	select {
+	case code := <-done:
+		if code != 3 {
+			t.Fatalf("board exit = %d, want 3", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the board kept its port after its home moved")
+	}
+}
+
+func TestWatchStopsOnTheFirstEventAfterAMove(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	done := make(chan int, 1)
+	go func() {
+		_, _, code := fx.h.runCtx(context.Background(), "watch", "--every", "1h", "--notify=false")
+		done <- code
+	}()
+	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
+	moved := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(fx.h.home, moved); err != nil {
+		t.Fatal(err)
+	}
+	adopt := *fx.h
+	adopt.home = moved
+	adopt.ok("init")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	select {
+	case code := <-done:
+		if code != 3 {
+			t.Fatalf("watch exit = %d, want 3", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch handled an event after its home moved")
+	}
+	if strings.Contains(adopt.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,") {
+		t.Fatal("the moved watcher still recorded the event")
 	}
 }

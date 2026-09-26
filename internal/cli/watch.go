@@ -143,6 +143,9 @@ func (w *watcher) session(ctx context.Context) error {
 }
 
 func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabilities, ev luvus.Event) error {
+	if err := w.r.stillHome(); err != nil {
+		return err
+	}
 	switch ev.Event {
 	case "pane.agent_status_changed":
 		return w.agentStatus(ctx, c, caps, ev.Data)

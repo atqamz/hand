@@ -46,7 +46,15 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv := &http.Server{Handler: r.whileHome(board.New(st, token)), ReadHeaderTimeout: 10 * time.Second}
+	moved := make(chan error, 1)
+	gone := func(err error) {
+		select {
+		case moved <- err:
+		default:
+		}
+		stop()
+	}
+	srv := &http.Server{Handler: r.whileHome(board.New(st, token), gone), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -68,13 +76,19 @@ func cmdBoard(r *runner, args []string) error {
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	return nil
+	select {
+	case err := <-moved:
+		return fmt.Errorf("%w; restart hand board from the fleet's new place", err)
+	default:
+		return nil
+	}
 }
 
-func (r *runner) whileHome(h http.Handler) http.Handler {
+func (r *runner) whileHome(h http.Handler, gone func(error)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if err := r.stillHome(); err != nil {
 			http.Error(w, "this fleet moved; restart hand board from its new place", http.StatusServiceUnavailable)
+			gone(err)
 			return
 		}
 		h.ServeHTTP(w, req)
