@@ -43,6 +43,8 @@ func TestLoadPolicyRejectsBadFiles(t *testing.T) {
 		`{"profiles":{}}`,
 		`{"profiles":{"Deep":{"harness":"claude","model":"opus","effort":"high"}}}`,
 		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high","temperature":1}}}`,
+		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"}}}{`,
+		`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"}}} {"profiles":{}}`,
 	} {
 		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) {
 			t.Fatalf("policy %q err = %v", body, err)

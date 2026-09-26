@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -43,6 +44,9 @@ func LoadPolicy(home string) (Policy, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
 		return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
+	}
+	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+		return Policy{}, fmt.Errorf("%w: %s holds data after the policy", state.ErrInvalid, path)
 	}
 	if len(p.Profiles) == 0 {
 		return Policy{}, fmt.Errorf("%w: %s defines no profiles", state.ErrInvalid, path)
