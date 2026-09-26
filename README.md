@@ -18,7 +18,11 @@ hand init                                      # home: $HAND_HOME, or ~/.hand
 hand project add myrepo /absolute/path/to/repo
 ```
 
-Claude asks once to trust a folder. Trust `<home>/worktrees` once (`cd ~/.hand/worktrees && claude`), or answer the first attempt's prompt with `hand attempt read` and `hand attempt keys`.
+Claude asks once to trust a folder. Trust `<home>/worktrees` once, or answer the first attempt's prompt with `hand attempt read` and `hand attempt keys`:
+
+```sh
+w="${HAND_HOME:-$HOME/.hand}/worktrees"; mkdir -p "$w" && cd "$w" && claude
+```
 
 ## Keep the watcher and the board running
 
