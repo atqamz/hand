@@ -29,6 +29,7 @@ func TestWaitBlocksUntilAWakeEventArrives(t *testing.T) {
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "start", "t1")
 	h.ok("decision", "ask", "t1", "Keep it?")
+	cursor := field(h.ok("orient"), "cursor")
 	type result struct {
 		out  string
 		code int
@@ -36,7 +37,7 @@ func TestWaitBlocksUntilAWakeEventArrives(t *testing.T) {
 	done := make(chan result, 1)
 	start := time.Now()
 	go func() {
-		out, _, code := h.run("wait", "--timeout", "10s")
+		out, _, code := h.run("wait", "--after", cursor, "--timeout", "10s")
 		done <- result{out, code}
 	}()
 	time.Sleep(400 * time.Millisecond)
@@ -49,7 +50,9 @@ func TestWaitBlocksUntilAWakeEventArrives(t *testing.T) {
 
 func TestWaitRejectsABadTimeout(t *testing.T) {
 	h := initWithProject(t)
-	if _, _, code := h.run("wait", "--timeout", "soon"); code != 2 {
-		t.Fatalf("code = %d, want 2", code)
+	for _, bad := range []string{"soon", "-1s"} {
+		if _, _, code := h.run("wait", "--timeout", bad); code != 2 {
+			t.Fatalf("--timeout %s code = %d, want 2", bad, code)
+		}
 	}
 }

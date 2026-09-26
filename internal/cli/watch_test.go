@@ -2,11 +2,14 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/luvus"
 )
 
 func eventually(t *testing.T, ok func() bool) {
@@ -35,7 +38,7 @@ func fakeNotify(t *testing.T, fx *attemptFixture) string {
 	return log
 }
 
-func startWatch(t *testing.T, fx *attemptFixture) func() (string, int) {
+func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (string, int) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
@@ -44,7 +47,7 @@ func startWatch(t *testing.T, fx *attemptFixture) func() (string, int) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		out, _, code := fx.h.runCtx(ctx, "watch")
+		out, _, code := fx.h.runCtx(ctx, append([]string{"watch"}, flags...)...)
 		done <- result{out, code}
 	}()
 	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
@@ -79,14 +82,11 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 	if !strings.Contains(out, `observed: "a1 blocked: Do you want to proceed?"`) {
 		t.Fatalf("watch out = %q", out)
 	}
-	log, err := os.ReadFile(notes)
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, want := range []string{"--app-name=hand hand a1 blocked: Do you want to proceed?", "--app-name=hand hand a1 quiet: turn ended"} {
-		if !strings.Contains(string(log), want) {
-			t.Fatalf("notifications = %q, missing %q", log, want)
-		}
+		eventually(t, func() bool {
+			log, _ := os.ReadFile(notes)
+			return strings.Contains(string(log), want)
+		})
 	}
 }
 
@@ -125,5 +125,58 @@ func TestStopWhileWatchingRecordsStopped(t *testing.T) {
 	out, errOut, code := fx.h.run("attempt", "stop", "a1")
 	if code != 0 || !strings.Contains(out, "status: stopped") {
 		t.Fatalf("stop with a watcher: code=%d out=%q stderr=%q", code, out, errOut)
+	}
+}
+
+func TestWatchRecordsAQuietTurnAgainAfterAReconnect(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	done := map[string]any{"pane": "2", "status": "done", "agent": "claude"}
+	fx.rt.srv.Publish("pane.agent_status_changed", done)
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	fx.rt.srv.DropSubscribers()
+	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
+	fx.rt.srv.Publish("pane.agent_status_changed", done)
+	eventually(t, func() bool {
+		return strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.quiet,") == 2
+	})
+}
+
+func TestWatchReconcilesWithoutAnyEvent(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	fx.rt.exitAll()
+	eventually(t, func() bool { return woken(fx, "attempt.exited") })
+}
+
+func TestWatchIsNotBlockedByASlowNotifier(t *testing.T) {
+	fx := newAttemptFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "notify-send"), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	start := time.Now()
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if time.Since(start) > 3*time.Second {
+		t.Fatalf("quiet recorded after %s behind a slow notifier", time.Since(start))
+	}
+}
+
+func TestOnlyWatchNeedsTheEventStream(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.srv.Handle("uhp.capabilities", func(json.RawMessage) (any, error) {
+		return map[string]any{"protocol": map[string]any{"name": "luvus-uhp", "major": 1}, "methods": luvus.Required, "server_generation": "gen-1"}, nil
+	})
+	fx.h.ok("attempt", "list")
+	if _, errOut, code := fx.h.run("watch"); code == 0 || !strings.Contains(errOut, "lacks method events.subscribe") {
+		t.Fatalf("watch without event stream: code=%d stderr=%q", code, errOut)
 	}
 }

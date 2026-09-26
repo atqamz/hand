@@ -24,6 +24,9 @@ func cmdWait(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
+	if *timeout < 0 {
+		return usageError{"wait: --timeout must not be negative"}
+	}
 	st, err := r.store()
 	if err != nil {
 		return err

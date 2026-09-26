@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -19,7 +20,10 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const reconnectDelay = 500 * time.Millisecond
+const (
+	reconnectDelay = 500 * time.Millisecond
+	notifyTimeout  = 10 * time.Second
+)
 
 func init() {
 	commands["watch"] = cmdWatch
@@ -29,14 +33,19 @@ type watcher struct {
 	r      *runner
 	st     *state.Store
 	notify bool
+	every  time.Duration
 	seen   map[int64]string
 }
 
 func cmdWatch(r *runner, args []string) error {
 	fs := flags("watch")
 	notify := fs.Bool("notify", true, "send desktop notifications with notify-send")
+	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
+	}
+	if *every <= 0 {
+		return usageError{"watch: --every must be positive"}
 	}
 	st, err := r.store()
 	if err != nil {
@@ -53,9 +62,13 @@ func cmdWatch(r *runner, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	w := &watcher{r: r, st: st, notify: *notify, seen: map[int64]string{}}
+	w := &watcher{r: r, st: st, notify: *notify, every: *every}
 	for ctx.Err() == nil {
-		if err := w.session(ctx); err != nil && ctx.Err() == nil {
+		err := w.session(ctx)
+		if errors.Is(err, luvus.ErrIncompatible) {
+			return err
+		}
+		if err != nil && ctx.Err() == nil {
 			w.say("luvus: " + err.Error())
 		}
 		select {
@@ -71,34 +84,68 @@ func (w *watcher) session(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	stream, err := c.Subscribe(ctx)
+	if !slices.Contains(caps.Methods, "events.subscribe") {
+		return fmt.Errorf("%w: server lacks method events.subscribe", luvus.ErrIncompatible)
+	}
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream, err := c.Subscribe(sctx)
 	if err != nil {
 		return runtimeErr(err)
 	}
 	defer stream.Close()
-	if err := w.reconcile(ctx, c, caps); err != nil {
+	w.seen = map[int64]string{}
+	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
+	events := make(chan luvus.Event)
+	failed := make(chan error, 1)
+	go func() {
+		for {
+			ev, err := stream.Next()
+			if err != nil {
+				failed <- err
+				return
+			}
+			select {
+			case events <- ev:
+			case <-sctx.Done():
+				return
+			}
+		}
+	}()
+	tick := time.NewTicker(w.every)
+	defer tick.Stop()
 	for {
-		ev, err := stream.Next()
-		if errors.Is(err, io.EOF) {
-			return errors.New("event stream closed; reconnecting")
-		}
-		if err != nil {
+		select {
+		case <-sctx.Done():
+			return sctx.Err()
+		case err := <-failed:
+			if errors.Is(err, io.EOF) {
+				return errors.New("event stream closed; reconnecting")
+			}
 			return err
-		}
-		switch ev.Event {
-		case "pane.agent_status_changed":
-			err = w.agentStatus(ctx, c, caps, ev.Data)
-		case "terminal.exited", "pane.closed":
-			err = w.reconcile(ctx, c, caps)
-		case "events.resync_required":
-			return errors.New("event stream overflowed; reconnecting")
+		case <-tick.C:
+			err = w.reconcile(sctx, c, caps)
+		case ev := <-events:
+			err = w.handle(sctx, c, caps, ev)
 		}
 		if err != nil {
 			return err
 		}
 	}
+}
+
+func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabilities, ev luvus.Event) error {
+	switch ev.Event {
+	case "pane.agent_status_changed":
+		return w.agentStatus(ctx, c, caps, ev.Data)
+	case "terminal.exited", "pane.closed":
+		return w.reconcile(ctx, c, caps)
+	case "events.resync_required":
+		return errors.New("event stream overflowed; reconnecting")
+	}
+	return nil
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
@@ -116,7 +163,7 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
-			w.alert(state.AttemptRef(a.ID) + " " + now.Status + ": " + now.Reason)
+			w.alert(ctx, state.AttemptRef(a.ID)+" "+now.Status+": "+now.Reason)
 		}
 	}
 	return nil
@@ -157,13 +204,13 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 		if err := w.st.NoteAttempt(ctx, a.ID, kind, detail); err != nil {
 			return err
 		}
-		w.alert(state.AttemptRef(a.ID) + " " + kind + ": " + detail)
+		w.alert(ctx, state.AttemptRef(a.ID)+" "+kind+": "+detail)
 		return nil
 	}
 	return nil
 }
 
-func (w *watcher) alert(text string) {
+func (w *watcher) alert(ctx context.Context, text string) {
 	w.say(text)
 	if !w.notify {
 		return
@@ -172,7 +219,11 @@ func (w *watcher) alert(text string) {
 	if err != nil {
 		return
 	}
-	_ = exec.Command(bin, "--app-name=hand", "hand", text).Run()
+	go func() {
+		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
+		defer cancel()
+		_ = exec.CommandContext(nctx, bin, "--app-name=hand", "hand", text).Run()
+	}()
 }
 
 func (w *watcher) say(text string) {
