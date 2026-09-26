@@ -34,6 +34,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
 	base := fs.String("base", "HEAD", "git ref the worktree starts from")
+	profile := fs.String("profile", "", "routing profile from routing.json")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
@@ -50,6 +51,18 @@ func cmdAttemptStart(r *runner, args []string) error {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
 	spec := harness.Spec{Harness: *name, Model: *model, Effort: *effort}
+	if *profile != "" {
+		if spec != (harness.Spec{}) {
+			return usageError{"attempt start: give either --profile or --harness/--model/--effort"}
+		}
+		p, err := harness.LoadPolicy(r.home)
+		if err != nil {
+			return err
+		}
+		if spec, err = p.Profile(*profile); err != nil {
+			return err
+		}
+	}
 	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
 		return err
 	}
