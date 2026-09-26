@@ -1,0 +1,4 @@
+/hand
+*.db
+*.db-wal
+*.db-shm
