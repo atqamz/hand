@@ -1,0 +1,47 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+<title>{{.Title}} · hand</title>
+<style>
+:root{color-scheme:light dark;--bg:#f6f6f8;--fg:#1d1d1f;--muted:#6e6e73;--card:#fff;--line:#e3e3e8;--accent:#0a66c2;--warn:#b25000;--ok:#1f7a3d}
+@media (prefers-color-scheme:dark){:root{--bg:#111214;--fg:#ececf1;--muted:#9a9aa3;--card:#1b1c1f;--line:#2c2d31;--accent:#6aa8ff;--warn:#ffb15c;--ok:#5fd28a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+header,main{max-width:960px;margin:0 auto;padding:12px 16px}
+header{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}
+h1{font-size:18px;margin:0}
+a{color:var(--accent)}
+.muted{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 12px;overflow-wrap:anywhere}
+.card h2{font-size:16px;margin:0 0 4px}
+.row{margin:6px 0}
+.tag{display:inline-block;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-size:12px}
+.blocked,.stuck,.interrupted,.failed,.open{color:var(--warn)}
+.done,.running,.answered,.active{color:var(--ok)}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0;font-size:13px}
+textarea{width:100%;min-height:6em;font:inherit}
+button{font:inherit;padding:4px 12px}
+form.inline{display:inline}
+</style>
+</head>
+<body>
+{{end}}
+
+{{define "foot"}}</body>
+</html>
+{{end}}
+
+{{define "card"}}<section class="card" id="{{task .Task.ID}}">
+<h2><a href="/task/{{task .Task.ID}}">{{task .Task.ID}}</a> {{.Task.Title}}</h2>
+<div class="row muted">{{.Task.Project}} · <span class="{{.Task.Status}}">{{.Task.Status}}</span>{{with .Plan}} · plan {{plan .Revision}}{{end}}</div>
+{{with .Task.Goal}}<div class="row">Goal: {{.}}</div>{{end}}
+{{range .Attempts}}<div class="row"><span class="tag">{{attempt .ID}}</span> {{.Harness}} {{.Model}} <span class="{{.Status}}">{{.Status}}</span>{{with .Reason}} <span class="muted">({{.}})</span>{{end}}</div>
+{{end}}{{with .Report}}<div class="row"><span class="tag">{{report .ID}}</span> from {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}}
+{{if .AckedAt}}<span class="muted">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}</div>
+{{end}}{{range .Decisions}}<div class="row"><span class="tag open">{{decision .ID}}</span> {{.Question}} <a href="/decision/{{decision .ID}}">answer</a></div>
+{{end}}{{range .PRs}}<div class="row"><a href="{{.}}">{{.}}</a></div>
+{{end}}</section>
+{{end}}

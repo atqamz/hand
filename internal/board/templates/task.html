@@ -1,0 +1,19 @@
+{{define "task.html"}}{{template "head" .}}<header>
+<h1><a href="/">hand</a> / {{task .Card.Task.ID}}</h1>
+</header>
+<main>
+{{template "card" .Card}}
+{{with .Card.Plan}}<section class="card"><h2>Plan {{plan .Revision}}</h2><pre>{{.Body}}</pre></section>{{end}}
+{{if .Unread}}<section class="card"><h2>Unread reports</h2>
+{{range .Unread}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}} <form class="inline" method="post" action="/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form></div>
+{{end}}</section>{{end}}
+<section class="card"><h2>Reports</h2>
+{{range .Reports}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span> <span class="muted">{{.CreatedAt}}{{with .AckedBy}} · read by {{.}}{{end}}</span>{{if not .AckedAt}} <form class="inline" method="post" action="/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}<pre>{{.Body}}</pre></div>
+{{else}}<p class="muted">No reports yet.</p>{{end}}
+{{if .MoreReports}}<p class="muted">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>{{end}}
+</section>
+<section class="card"><h2>Events</h2>
+{{range .Events}}<div class="row muted">{{.Seq}} · {{.At}} · {{.Kind}} {{.Detail}}</div>
+{{end}}{{if .MoreEvents}}<p class="muted">Only the latest 50 events are shown.</p>{{end}}</section>
+</main>
+{{template "foot"}}{{end}}

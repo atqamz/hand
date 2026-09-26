@@ -165,3 +165,11 @@ func (s *Store) OpenDecisionCount(ctx context.Context, taskID int64) (int, error
 	err := s.db.QueryRowContext(ctx, q, args...).Scan(&n)
 	return n, err
 }
+
+func (s *Store) Decision(ctx context.Context, id int64) (Decision, error) {
+	d, err := scanDecision(s.db.QueryRowContext(ctx, decisionSelect+` WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Decision{}, fmt.Errorf("%w: decision %s", ErrNotFound, DecisionRef(id))
+	}
+	return d, err
+}
