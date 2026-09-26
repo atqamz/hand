@@ -23,9 +23,14 @@ var attemptSchema string
 //go:embed report.sql
 var reportSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema}
+//go:embed fleet.sql
+var fleetSchema string
 
-const SchemaVersion = 3
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema}
+
+const SchemaVersion = 4
+
+var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -47,7 +52,7 @@ func Open(path string, now func() time.Time) (*Store, error) {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+	dsn := "file:" + uriPath.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

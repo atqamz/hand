@@ -1,0 +1,5 @@
+CREATE TABLE fleet (
+    only INTEGER PRIMARY KEY CHECK (only = 1),
+    id TEXT NOT NULL,
+    name TEXT NOT NULL
+) STRICT;
