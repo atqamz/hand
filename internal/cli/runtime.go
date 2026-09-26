@@ -84,6 +84,9 @@ func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps
 			return err
 		}
 		if err := closeAttemptTerminals(ctx, c, a); err != nil {
+			if a.Status == state.AttemptLaunching {
+				continue
+			}
 			reason += "; terminal cleanup failed: " + err.Error()
 		}
 		if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {

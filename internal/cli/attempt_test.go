@@ -224,3 +224,26 @@ func TestRestartStopsAWorkerThatSurvivedIt(t *testing.T) {
 		t.Fatalf("worker %d survived the restart and was left running", pid)
 	}
 }
+
+func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, filepath.Join(fx.h.home, "worktrees")); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	fx.rt.srv.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "unavailable", Message: "inventory is unavailable"}
+	})
+	fx.h.now = fx.h.now.Add(3 * time.Minute)
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: launching") {
+		t.Fatalf("show = %q, want the attempt kept live until cleanup succeeds", show)
+	}
+	fx.rt.srv.Handle("terminal.backend.inventory", fx.rt.inventory)
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") {
+		t.Fatalf("retry show = %q", show)
+	}
+}
