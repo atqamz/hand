@@ -175,6 +175,9 @@ func TestADirectoryIsNotThe07Marker(t *testing.T) {
 }
 
 func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any folder")
+	}
 	home := t.TempDir()
 	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
 	if err := fleet.Install(home, "hand"); err != nil {

@@ -309,3 +309,22 @@ func TestA07FleetNamedByHandHomeGetsTheMigrationHint(t *testing.T) {
 		t.Fatalf("HAND_HOME: code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestAnUnreadable07MarkerIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any folder")
+	}
+	h := newHarness(t)
+	old := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(old, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(old, "state"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(old, "state"), 0o755) })
+	h.cwd = t.TempDir()
+	if _, errOut, _ := h.run("--home", old, "task", "list"); !strings.Contains(errOut, "check the Hand 0.7 marker") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+}

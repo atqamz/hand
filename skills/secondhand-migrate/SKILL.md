@@ -101,7 +101,7 @@ Do this before the archive, while this skill is still installed.
 3. **Shared folder:** the 0.7 files there serve every 0.7 fleet on this machine, not only this one.
    1. List the other 0.7 fleets: with the old binary, use its fleet listing (for example `hand-0.7 fleet`). Otherwise, ask the operator which folders are still 0.7 fleets (a folder holding `state/hand.db`).
    2. If any other 0.7 fleet is still in use, delete nothing here.
-   3. Otherwise, only when `pools/` holds nothing the operator wants to keep, and only with approval, delete `pools/`, `runtime/`, `herdr/`, `integrations/`, `registry.db` and `registry.db.lock` from `~/.secondhand`.
+   3. Otherwise, only when `pools/` holds nothing the operator wants to keep, and only with approval, delete `pools/`, `runtime/`, `herdr/`, `integrations/`, `registry.db` and `registry.db.lock` from the same shared folder you inventoried (`$SECONDHAND_HOME` when set, otherwise `~/.secondhand`).
    4. Never touch `fleets/` or `worktrees/` there.
 
 ## 7. Archive (with approval)

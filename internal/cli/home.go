@@ -96,8 +96,12 @@ func (r *runner) needHome() error {
 		return fmt.Errorf("%w: not inside a fleet home; cd into one, pass --home DIR, or run `hand init` to make this folder one", state.ErrNotFound)
 	}
 	if _, err := os.Stat(r.dbPath()); errors.Is(err, fs.ErrNotExist) {
-		if info, err := os.Stat(filepath.Join(r.home, "state", "hand.db")); err == nil && info.Mode().IsRegular() {
+		info, err := os.Stat(filepath.Join(r.home, "state", "hand.db"))
+		switch {
+		case err == nil && info.Mode().IsRegular():
 			return fmt.Errorf("%w: %s is a Hand 0.7 fleet; run `hand init` there, then ask its supervisor to use the secondhand-migrate skill", state.ErrNotFound, r.home)
+		case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+			return fmt.Errorf("check the Hand 0.7 marker in %s: %w", r.home, err)
 		}
 		return fmt.Errorf("%w: no hand home at %s; run `hand init`", state.ErrNotFound, r.home)
 	} else if err != nil {
