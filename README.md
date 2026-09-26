@@ -69,6 +69,18 @@ The loop it follows:
 
 Routing profiles live in `<home>/routing.json`, and `hand route list` shows them.
 
+## Upgrading from 0.7
+
+The new Hand does not read 0.7 data. Its supervisor rebuilds what still matters, with your approval:
+
+1. With 0.7 still installed, finish or `hand teardown` every live task.
+2. Keep the old binary if you like, for example `cp "$(command -v hand)" ~/.local/bin/hand-0.7`.
+3. Build the new one, either as `hand-next` to try it beside 0.7 or as `hand` to replace it.
+4. In the fleet folder, run `hand init` with the new binary. The old `AGENTS.md` and skill are replaced. Everything else (`data/`, `state/`, `config/`, `projects/`) is left alone, and the folder gets a `secondhand-migrate` skill.
+5. Open the supervisor there and ask it to migrate the fleet. It lists what it would create (projects, open tasks, queue items, decisions, routing and memory), then waits for your approval before it runs any `hand` command.
+6. Afterwards it can archive the old data into `legacy-0.7/` and remove the 0.7 hooks, pool worktrees and shared files. Each of those steps waits for your approval. Once the old data is archived, the next `hand init` removes the migrate skill.
+7. Trust the worktrees folder once, as described above.
+
 ## License
 
 MIT

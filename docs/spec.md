@@ -13,7 +13,8 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 1. **One supervisor.** The operator talks to a single agent. It captures requests, dispatches workers into isolated git worktrees, watches them, and escalates only decisions that genuinely need the operator.
 2. **Fleet memory.** Operator context, project context, and task history are durable outside any chat session. A fresh supervisor orients from Hand state alone, cheaply, without re-explanation.
 3. **Determinism.** Workflow state lives in a state machine over SQLite, never in LLM memory. The same state renders the same orientation. Idle costs zero tokens: a watcher wakes the supervisor only when something changed.
-4. **Board.** One place outside chat where everything is visible:
+4. **Fleets.** A fleet is any folder `hand init` ran in, with an immutable ID and a name the operator can change. The operator opens the supervisor in that folder, and several fleets run side by side. `~/.secondhand` (`$SECONDHAND_HOME`) links each fleet ID to its folder and holds every worker worktree outside every fleet. Each fleet has its own Luvus session, watcher and board.
+5. **Board.** One place outside chat where everything is visible:
    - every operator request becomes a durable item (inbox/Task) before work starts, so nothing lives only in chat text;
    - one card per Task: goal, status, current plan, attempts, latest report, pending decisions, PR link;
    - the board is a pure projection of Hand state: deleting or restarting it loses nothing;
@@ -22,7 +23,7 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 ## Hard constraints
 
 - **Token-frugal.** Compact output (TOON). `hand orient` has a measured size budget. No LLM polling; event-driven wakes only.
-- **Few dependencies.** Required: git, the harness CLIs the operator uses (Claude Code, Codex), and Luvus (github.com/RizRiyz/luvus) as the one runtime backend. Hand uses only Luvus's runtime primitives over UHP 1.0: exact-argv terminals, agent status, fenced input, and events. Hand owns state, worktrees and the board itself, and never uses Luvus's task ledger or worktree commands. `gh` is optional. No `*-axi` tools, no private bundled runtime.
+- **Few dependencies.** Required: git, the worker harness CLIs the operator uses (Claude Code, Codex, opencode), and Luvus (github.com/RizRiyz/luvus) as the one runtime backend. Hand uses only Luvus's runtime primitives over UHP 1.0: exact-argv terminals, agent status, fenced input, and events. Hand owns state, worktrees and the board itself, and never uses Luvus's task ledger or worktree commands. `gh` is optional. No `*-axi` tools, no private bundled runtime.
 - **Upstream.** Every Luvus gap gets a Hand-side guard first. Issues and pull requests to RizRiyz/luvus run in parallel, and a guard is deleted only after the fix ships in a release Hand pins.
 - **Linux only**, the operator's machine and projects.
 - **Board** is `hand board`: a local web page from the same Go binary (`net/http` + `html/template`), read-only over state, auto-refresh (SSE or meta-refresh), no JS framework, reachable from a phone over LAN/tunnel. A Luvus dock may mirror one line per Task; it never replaces `hand board`.
@@ -32,7 +33,7 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 - Windows or macOS support; multi-platform release qualification.
 - npm packages, edge channel, public release process.
 - Versioned contract manifests, DDL relock ceremony, mutation-score gates.
-- Live or reboot-witnessed cutover from old homes: migrate the operator's fleet by hand or start a fresh home.
+- A deterministic converter from Hand 0.7 data, or a live cutover. 0.7.x fleets migrate through the `secondhand-migrate` skill: the supervisor reads the old files, proposes, and rebuilds through `hand` commands once the operator approves. Hand stays a personal tool, and this skill is the one concession to 0.7.x users.
 - Exec-guard, operator attestation, provider identity proofs beyond what the chosen backend gives natively.
 - Features for hypothetical other users.
 
