@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,48 @@ func TestTaskPageShowsPlanReportsAndEvents(t *testing.T) {
 	}
 	if rec := request(h, "GET", "/task/nope", nil, true); rec.Code != http.StatusNotFound {
 		t.Fatalf("bad id = %d", rec.Code)
+	}
+}
+
+func TestTaskPageCanAckEveryUnreadReport(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	if _, err := st.AddReport(context.Background(), 1, state.ReportProgress, "halfway"); err != nil {
+		t.Fatal(err)
+	}
+	body := request(board.New(st, token), "GET", "/task/t1", nil, true).Body.String()
+	if !strings.Contains(body, `action="/report/r1/ack"`) || !strings.Contains(body, `action="/report/r2/ack"`) {
+		t.Fatalf("task page cannot ack every unread report:\n%s", body)
+	}
+}
+
+func TestTaskPageSaysWhenHistoryIsCut(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	ctx := context.Background()
+	for i := range 55 {
+		if _, err := st.AddReport(ctx, 1, state.ReportProgress, "step "+strconv.Itoa(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := request(board.New(st, token), "GET", "/task/t1", nil, true).Body.String()
+	for _, want := range []string{"Older reports are not shown", "Only the latest 50 events are shown"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("task page missing %q", want)
+		}
+	}
+}
+
+func TestIndexSaysWhenTasksAreHidden(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	for range 501 {
+		if _, err := st.AddTask(ctx, "hand", "Chore", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if body := request(board.New(st, token), "GET", "/", nil, true).Body.String(); !strings.Contains(body, "1 more task is not shown") {
+		t.Fatal("index does not say that tasks are hidden")
 	}
 }

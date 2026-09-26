@@ -32,6 +32,11 @@ const cookieName = "hand_board"
 
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 
+const (
+	maxCards     = 500
+	historyLimit = 50
+)
+
 var statusRank = map[string]int{state.StatusActive: 0, state.StatusInbox: 1, state.StatusDone: 2, state.StatusAbandoned: 3}
 
 type Board struct {
@@ -169,7 +174,7 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if all {
 		statuses = nil
 	}
-	tasks, err := b.st.Tasks(ctx, statuses, 500)
+	tasks, err := b.st.Tasks(ctx, statuses, maxCards)
 	if err != nil {
 		b.failErr(w, err)
 		return
@@ -199,8 +204,12 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	total := counts[state.StatusActive] + counts[state.StatusInbox]
+	if all {
+		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
+	}
 	b.render(w, http.StatusOK, "index.html", map[string]any{
-		"Title": "board", "Refresh": 5, "Cards": cards, "All": all,
+		"Title": "board", "Refresh": 5, "Cards": cards, "All": all, "Hidden": total - len(cards),
 		"Active": counts[state.StatusActive], "Inbox": counts[state.StatusInbox], "Open": open, "Unacked": unacked,
 	})
 }
@@ -222,20 +231,29 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	reports, err := b.st.Reports(ctx, state.ReportFilter{TaskID: id}, 50)
+	reports, err := b.st.Reports(ctx, state.ReportFilter{TaskID: id}, historyLimit+1)
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
+	moreReports := len(reports) > historyLimit
+	if moreReports {
+		reports = reports[1:]
+	}
 	slices.Reverse(reports)
-	events, err := b.st.TaskEvents(ctx, id, 50)
+	events, err := b.st.TaskEvents(ctx, id, historyLimit+1)
 	if err != nil {
 		b.failErr(w, err)
 		return
+	}
+	moreEvents := len(events) > historyLimit
+	if moreEvents {
+		events = events[1:]
 	}
 	slices.Reverse(events)
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Refresh": 10, "Card": c, "Reports": reports, "Events": events,
+		"Title": state.TaskRef(id), "Refresh": 10, "Card": c, "Token": b.token,
+		"Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
 
