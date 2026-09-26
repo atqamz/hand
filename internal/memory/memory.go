@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const OperatorFile = "operator.md"
@@ -27,4 +28,19 @@ func Init(home string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func Read(home, name string, budget int) (string, bool, error) {
+	b, err := os.ReadFile(filepath.Join(home, "memory", name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	truncated := len(b) > budget
+	if truncated {
+		b = b[:budget]
+	}
+	return strings.ToValidUTF8(string(b), ""), truncated, nil
 }
