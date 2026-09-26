@@ -82,3 +82,35 @@ func TestBoardWarnsOnANetworkAddress(t *testing.T) {
 		t.Fatalf("loopback board warns: %q", out)
 	}
 }
+
+func TestConcurrentBoardsShareOneToken(t *testing.T) {
+	h := initWithProject(t)
+	type result struct {
+		out  string
+		code int
+	}
+	outs := make(chan result, 4)
+	for range 4 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+			defer cancel()
+			out, _, code := h.runCtx(ctx, "board", "--addr", "127.0.0.1:0")
+			outs <- result{out, code}
+		}()
+	}
+	first := ""
+	for range 4 {
+		r := <-outs
+		if r.code != 0 {
+			t.Fatalf("a concurrent board exited %d", r.code)
+		}
+		_, after, _ := strings.Cut(r.out, "?token=")
+		tok, _, _ := strings.Cut(after, `"`)
+		if first == "" {
+			first = tok
+		}
+		if tok != first || len(tok) != 48 {
+			t.Fatalf("concurrent boards printed %q and %q", first, tok)
+		}
+	}
+}

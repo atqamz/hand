@@ -73,6 +73,14 @@ func cmdBoard(r *runner, args []string) error {
 
 func boardToken(home string) (string, error) {
 	path := filepath.Join(home, "board.token")
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return "", err
+	}
 	if token, err := readBoardToken(path); !errors.Is(err, fs.ErrNotExist) {
 		return token, err
 	}
@@ -93,25 +101,10 @@ func boardToken(home string) (string, error) {
 	if werr != nil {
 		return "", werr
 	}
-	err = os.Link(tmp.Name(), path)
-	if errors.Is(err, fs.ErrExist) {
-		return readBoardToken(path)
-	}
-	if err == nil {
-		return token, nil
-	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return readBoardToken(path)
-	}
-	if err != nil {
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return "", err
 	}
-	_, werr = f.WriteString(token + "\n")
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	return token, werr
+	return token, nil
 }
 
 func readBoardToken(path string) (string, error) {
