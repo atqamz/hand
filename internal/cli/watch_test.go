@@ -198,3 +198,22 @@ func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
 		t.Fatalf("notification lost at shutdown: %q", got)
 	}
 }
+
+func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	done := map[string]any{"pane": "2", "status": "done", "agent": "claude"}
+	working := map[string]any{"pane": "2", "status": "working", "agent": "claude"}
+	fx.rt.srv.Publish("pane.agent_status_changed", done)
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), `"a1: turn ended without a new report"`)
+	})
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.srv.Publish("pane.agent_status_changed", working)
+	fx.rt.srv.Publish("pane.agent_status_changed", done)
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), `"a1: turn ended; reported r1 done"`)
+	})
+}

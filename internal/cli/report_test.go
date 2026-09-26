@@ -18,7 +18,7 @@ func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
 	if out := fx.h.ok("report", "add", "--status", "done", "--text", "Fixed login\nCommit abc123"); !strings.Contains(out, "report: r1") || !strings.Contains(out, "attempt: a1") {
 		t.Fatalf("report add = %q", out)
 	}
-	if show := fx.h.ok("report", "show", "r1"); !strings.Contains(show, `body: "Fixed login\nCommit abc123"`) || !strings.Contains(show, "acked: no") {
+	if show := fx.h.ok("report", "show", "r1"); !strings.Contains(show, `body: "Fixed login\nCommit abc123"`) || !strings.Contains(show, "acked: no") || strings.Index(show, "help[") < strings.Index(show, "body:") {
 		t.Fatalf("show = %q", show)
 	}
 	if list := fx.h.ok("report", "list", "--unacked"); !strings.Contains(list, "r1,a1,t1,done,no,Fixed login") {

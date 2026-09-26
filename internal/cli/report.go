@@ -145,11 +145,13 @@ func cmdReportShow(r *runner, args []string) error {
 	d.Field("created_at", rep.CreatedAt)
 	if rep.AckedAt == "" {
 		d.Field("acked", "no")
-		d.Help("Acknowledge it once read: `hand report ack " + state.ReportRef(rep.ID) + "`")
 	} else {
 		d.Field("acked", rep.AckedAt+" by "+rep.AckedBy)
 	}
 	d.Field("body", rep.Body)
+	if rep.AckedAt == "" {
+		d.Help("Acknowledge it once read: `hand report ack " + state.ReportRef(rep.ID) + "`")
+	}
 	return r.print(&d)
 }
 

@@ -200,7 +200,20 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 				detail = ag.Hint
 			}
 		case "done":
-			kind, detail = "quiet", "turn ended"
+			kind, detail = "quiet", "turn ended without a new report"
+			fresh, err := w.st.ReportedSinceQuiet(ctx, a.ID)
+			if err != nil {
+				return err
+			}
+			if fresh {
+				rep, ok, err := w.st.LatestReport(ctx, state.ReportFilter{AttemptID: a.ID})
+				if err != nil {
+					return err
+				}
+				if ok {
+					detail = "turn ended; reported " + state.ReportRef(rep.ID) + " " + rep.Status
+				}
+			}
 		default:
 			return nil
 		}
