@@ -83,8 +83,8 @@ func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps
 		if err := stopRoot(a.PID, a.StartMarker); err != nil {
 			return err
 		}
-		if err := closeTerminalsUnder(ctx, c, a.Worktree); err != nil {
-			return err
+		if err := closeAttemptTerminals(ctx, c, a); err != nil {
+			reason += "; terminal cleanup failed: " + err.Error()
 		}
 		if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
 			return err
@@ -123,6 +123,23 @@ func (r *runner) observe(ctx context.Context, c luvus.Client, caps luvus.Capabil
 		return state.AttemptExited, "terminal exited", nil
 	}
 	return "", "", nil
+}
+
+func closeAttemptTerminals(ctx context.Context, c luvus.Client, a state.Attempt) error {
+	terms, err := c.Inventory(ctx)
+	if err != nil {
+		return runtimeErr(err)
+	}
+	label := "hand-" + state.AttemptRef(a.ID)
+	for _, t := range terms {
+		if t.Label != label && (a.TerminalID == "" || t.TerminalID != a.TerminalID) {
+			continue
+		}
+		if err := stopWorker(ctx, c, t); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {

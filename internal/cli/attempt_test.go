@@ -120,7 +120,7 @@ func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
 	if err := os.MkdirAll(wt, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	orphan := fx.rt.addShell(t, wt)
+	orphan := fx.rt.addShell(t, wt, "hand-a1")
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: launching") {
 		t.Fatalf("fresh launching = %q", show)
 	}
@@ -172,8 +172,45 @@ func TestLostCreateReplyStopsTheWorkerAndKeepsTheWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(fx.h.home, "worktrees", "t1-a1")); err != nil {
 		t.Fatalf("worktree removed after an ambiguous failure: %v", err)
 	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: launching") {
+		t.Fatalf("ambiguous launch = %q, want it left launching for sync", show)
+	}
+}
+
+func TestLateWorkerAfterALostReplyIsStoppedBySync(t *testing.T) {
+	fx := newAttemptFixture(t)
+	late := make(chan int, 1)
+	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			_, _ = fx.rt.create(params)
+			late <- fx.rt.lastPID()
+		}()
+		return nil, fakeuhp.Drop
+	})
+	if _, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1"); code == 0 {
+		t.Fatal("start succeeded without a create reply")
+	}
+	pid := <-late
+	fx.h.now = fx.h.now.Add(3 * time.Minute)
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") {
 		t.Fatalf("show = %q", show)
+	}
+	if !gone(pid) {
+		t.Fatalf("late worker %d left running without a live attempt", pid)
+	}
+}
+
+func TestSyncLeavesTheOperatorsTerminalsAlone(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	mine := fx.rt.addShell(t, filepath.Join(fx.h.home, "worktrees", "t1-a1"), "")
+	fx.rt.srv.SetGeneration("gen-2")
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: interrupted") {
+		t.Fatalf("show = %q", show)
+	}
+	if fx.rt.isClosed(mine) {
+		t.Fatal("sync closed a terminal that does not belong to the attempt")
 	}
 }
 

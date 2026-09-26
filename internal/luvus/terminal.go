@@ -19,6 +19,7 @@ type Terminal struct {
 	PaneID           string `json:"pane_id"`
 	Root             Root   `json:"root_process"`
 	CWD              string `json:"cwd"`
+	Label            string `json:"label"`
 }
 
 type locator struct {

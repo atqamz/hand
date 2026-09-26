@@ -15,6 +15,8 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
+var errLaunchUnknown = errors.New("launch outcome unknown")
+
 var attemptCommands = map[string]handler{
 	"start": cmdAttemptStart,
 	"list":  cmdAttemptList,
@@ -73,6 +75,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 			return err
 		}
 		running, err := launch(ctx, st, c, a, project.Repo, *base)
+		if errors.Is(err, errLaunchUnknown) {
+			return err
+		}
 		if err != nil {
 			if _, endErr := st.EndAttempt(ctx, a.ID, state.AttemptFailed, err.Error()); endErr != nil {
 				return errors.Join(err, endErr)
@@ -108,7 +113,8 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 		return running, nil
 	}
 	if luvus.Code(err) == "" {
-		return a, errors.Join(err, closeTerminalsUnder(ctx, c, a.Worktree))
+		err = fmt.Errorf("%w: %w; attempt %s stays launching, and sync fails it %s after it started", errLaunchUnknown, err, state.AttemptRef(a.ID), launchGrace)
+		return a, errors.Join(err, closeAttemptTerminals(ctx, c, a))
 	}
 	err = runtimeErr(err)
 	if _, rmErr := git(ctx, repo, "worktree", "remove", "--force", a.Worktree); rmErr != nil {

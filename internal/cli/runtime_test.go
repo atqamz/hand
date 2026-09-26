@@ -22,11 +22,11 @@ type createCall struct {
 }
 
 type fakeTerm struct {
-	id, pane, cwd string
-	cmd           *exec.Cmd
-	marker        string
-	done          chan struct{}
-	closed        bool
+	id, pane, cwd, label string
+	cmd                  *exec.Cmd
+	marker               string
+	done                 chan struct{}
+	closed               bool
 }
 
 type fakeRuntime struct {
@@ -58,7 +58,7 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	return rt
 }
 
-func (rt *fakeRuntime) spawn(cwd string, argv []string) (*fakeTerm, error) {
+func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -74,7 +74,7 @@ func (rt *fakeRuntime) spawn(cwd string, argv []string) (*fakeTerm, error) {
 	if rt.marker != "" {
 		marker = rt.marker
 	}
-	term := &fakeTerm{id: "term-" + strconv.Itoa(len(rt.terms)+1), pane: strconv.Itoa(len(rt.terms) + 2), cwd: cwd, cmd: cmd, marker: marker, done: make(chan struct{})}
+	term := &fakeTerm{id: "term-" + strconv.Itoa(len(rt.terms)+1), pane: strconv.Itoa(len(rt.terms) + 2), cwd: cwd, label: label, cmd: cmd, marker: marker, done: make(chan struct{})}
 	rt.terms = append(rt.terms, term)
 	go func() { _ = cmd.Wait(); close(term.done) }()
 	return term, nil
@@ -86,6 +86,7 @@ func (rt *fakeRuntime) wire(term *fakeTerm) map[string]any {
 		"terminal_id":       term.id,
 		"pane_id":           term.pane,
 		"cwd":               term.cwd,
+		"label":             term.label,
 		"root_process":      map[string]any{"pid": term.cmd.Process.Pid, "start_marker": term.marker},
 	}
 }
@@ -104,7 +105,7 @@ func (rt *fakeRuntime) create(params json.RawMessage) (any, error) {
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, err
 	}
-	term, err := rt.spawn(call.CWD, call.Command)
+	term, err := rt.spawn(call.CWD, call.Label, call.Command)
 	if err != nil {
 		return nil, fakeuhp.Fail{Code: "create_failed", Message: err.Error()}
 	}
@@ -260,13 +261,13 @@ func (rt *fakeRuntime) exitAll() {
 	}
 }
 
-func (rt *fakeRuntime) addShell(t *testing.T, cwd string) string {
+func (rt *fakeRuntime) addShell(t *testing.T, cwd, label string) string {
 	t.Helper()
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Fatal(err)
 	}
-	term, err := rt.spawn(cwd, []string{sleep, "300"})
+	term, err := rt.spawn(cwd, label, []string{sleep, "300"})
 	if err != nil {
 		t.Fatal(err)
 	}

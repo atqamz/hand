@@ -66,7 +66,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wt, "wip.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	restored := fx.rt.addShell(t, wt)
+	restored := fx.rt.addShell(t, wt, "")
 	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 3 || !strings.Contains(errOut, "uncommitted changes") {
 		t.Fatalf("clean dirty code=%d stderr=%q", code, errOut)
 	}
