@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"bytes"
+	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,4 +55,21 @@ func (h *harness) ok(args ...string) string {
 		h.t.Fatalf("hand %q: exit %d: %s", args, code, errOut)
 	}
 	return out
+}
+
+func (h *harness) runCtx(ctx context.Context, args ...string) (string, string, int) {
+	var out, errOut bytes.Buffer
+	env := h.env(&out, &errOut)
+	env.Context = ctx
+	code := cli.Run(args, env)
+	return out.String(), errOut.String(), code
+}
+
+func field(out, name string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(l, name+": "); ok {
+			return v
+		}
+	}
+	return ""
 }
