@@ -65,6 +65,15 @@ func cmdTaskShow(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	taskFields(&d, t)
+	p, ok, err := st.CurrentPlan(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	if ok {
+		d.Field("plan", state.PlanRef(p.Revision))
+	} else {
+		d.Field("plan", "none")
+	}
 	return r.print(&d)
 }
 
