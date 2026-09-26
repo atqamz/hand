@@ -25,23 +25,32 @@ func setup(t *testing.T) (*state.Store, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.CreateFleet(context.Background(), "test"); err != nil {
+		t.Fatal(err)
+	}
 	return st, home
 }
 
 func TestEmptyHomeRendersExactly(t *testing.T) {
 	st, home := setup(t)
+	f, err := st.Fleet(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
 	doc, err := Build(context.Background(), st, home, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "home: " + home + "\n" +
+		"fleet: test (" + f.ID + ")\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
-		"cursor: 0\n" +
+		"cursor: 1\n" +
 		"active[0]{id,project,title,plan,attempt,report,open_decisions}:\n" +
 		"open_decisions[0]{id,task,question}:\n" +
 		"unacked_reports[0]{id,attempt,status,summary}:\n" +
 		"inbox[0]{id,project,title}:\n" +
-		"recent[0]{seq,kind,task}:\n" +
+		"recent[1]{seq,kind,task}:\n" +
+		"  1,fleet.created,\"\"\n" +
 		"operator_memory[2]:\n" +
 		"  - # Operator memory\n" +
 		"  - Write durable preferences and constraints for the supervisor here.\n" +

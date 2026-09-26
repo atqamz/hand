@@ -97,6 +97,10 @@ func (b *Board) valid(t string) bool {
 }
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
+	data["Fleet"] = "hand"
+	if f, err := b.st.Fleet(context.Background()); err == nil {
+		data["Fleet"] = f.Name
+	}
 	var buf bytes.Buffer
 	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -23,9 +24,14 @@ var attemptSchema string
 //go:embed report.sql
 var reportSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema}
+//go:embed fleet.sql
+var fleetSchema string
 
-const SchemaVersion = 3
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema}
+
+const SchemaVersion = 4
+
+var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -34,8 +40,9 @@ var (
 )
 
 type Store struct {
-	db  *sql.DB
-	now func() time.Time
+	db   *sql.DB
+	now  func() time.Time
+	home string
 }
 
 func Open(path string, now func() time.Time) (*Store, error) {
@@ -47,12 +54,12 @@ func Open(path string, now func() time.Time) (*Store, error) {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return nil, err
 	}
-	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+	dsn := "file:" + uriPath.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{db: db, now: now}
+	s := &Store{db: db, now: now, home: filepath.Dir(path)}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err

@@ -103,7 +103,7 @@ func TestEnsureStartsTheServerOnlyWhenUnreachable(t *testing.T) {
 }
 
 func TestScrubDropsAgentAndPaneVariables(t *testing.T) {
-	got := luvus.Scrub([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CODEX_SANDBOX=seatbelt", "LUVUS_PANE_ID=3", "LUVUS_SOCKET_PATH=/s", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep", "CODEX_HOME=/c"})
+	got := luvus.Scrub([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CODEX_SANDBOX=seatbelt", "LUVUS_PANE_ID=3", "LUVUS_SOCKET_PATH=/s", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep", "CODEX_HOME=/c", "HAND_HOME=/fleet"})
 	want := []string{"HOME=/h", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep", "CODEX_HOME=/c"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("scrub = %q", got)

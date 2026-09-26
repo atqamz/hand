@@ -19,13 +19,13 @@ import (
 func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	fx := newAttemptFixture(t)
 	out := fx.start()
-	for _, want := range []string{"attempt: a1", "status: running", "branch: hand/t1-a1", "pane: 2"} {
+	for _, want := range []string{"attempt: a1", "status: running", "branch: " + fx.h.branch("t1-a1"), "pane: 2"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("start = %q, missing %q", out, want)
 		}
 	}
 	call := fx.rt.lastCreate()
-	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	wt := fx.h.worktree("t1-a1")
 	if call.CWD != wt || call.Label != "hand-a1" || !strings.HasPrefix(call.Command[len(call.Command)-1], "Fix the login bug, commit, then stop.") {
 		t.Fatalf("create = %+v", call)
 	}
@@ -56,7 +56,7 @@ func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("bad model code = %d, want 2", code)
 	}
-	if _, err := os.Stat(filepath.Join(fx.h.home, "worktrees")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(filepath.Dir(fx.h.worktree("t1-a1"))); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktrees dir created: %v", err)
 	}
 }
@@ -70,10 +70,10 @@ func TestFailedLaunchRemovesItsWorktreeAndBranch(t *testing.T) {
 	if code != 3 || !strings.Contains(errOut, "terminal failed to start") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
-	if _, err := os.Stat(filepath.Join(fx.h.home, "worktrees", "t1-a1")); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Stat(fx.h.worktree("t1-a1")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktree left behind: %v", err)
 	}
-	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "--quiet", "hand/t1-a1").CombinedOutput(); err == nil {
+	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "--quiet", fx.h.branch("t1-a1")).CombinedOutput(); err == nil {
 		t.Fatalf("branch left behind: %s", out)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") || !strings.Contains(show, "terminal failed to start") {
@@ -112,11 +112,11 @@ func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, filepath.Join(fx.h.home, "worktrees")); err != nil {
+	if _, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, filepath.Dir(fx.h.worktree("t1-a1"))); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Close()
-	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	wt := fx.h.worktree("t1-a1")
 	if err := os.MkdirAll(wt, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestLostCreateReplyStopsTheWorkerAndKeepsTheWorktree(t *testing.T) {
 	if !gone(fx.rt.lastPID()) {
 		t.Fatal("worker from a lost create reply left running")
 	}
-	if _, err := os.Stat(filepath.Join(fx.h.home, "worktrees", "t1-a1")); err != nil {
+	if _, err := os.Stat(fx.h.worktree("t1-a1")); err != nil {
 		t.Fatalf("worktree removed after an ambiguous failure: %v", err)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: launching") {
@@ -204,7 +204,7 @@ func TestLateWorkerAfterALostReplyIsStoppedBySync(t *testing.T) {
 func TestSyncLeavesTheOperatorsTerminalsAlone(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
-	mine := fx.rt.addShell(t, filepath.Join(fx.h.home, "worktrees", "t1-a1"), "")
+	mine := fx.rt.addShell(t, fx.h.worktree("t1-a1"), "")
 	fx.rt.srv.SetGeneration("gen-2")
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: interrupted") {
 		t.Fatalf("show = %q", show)
@@ -231,7 +231,7 @@ func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, filepath.Join(fx.h.home, "worktrees")); err != nil {
+	if _, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, filepath.Dir(fx.h.worktree("t1-a1"))); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Close()

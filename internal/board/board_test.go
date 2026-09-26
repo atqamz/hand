@@ -24,7 +24,17 @@ func open(t *testing.T) *state.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.CreateFleet(context.Background(), "test"); err != nil {
+		t.Fatal(err)
+	}
 	return st
+}
+
+func TestPagesNameTheFleet(t *testing.T) {
+	body := request(board.New(open(t), token), "GET", "/", nil, true).Body.String()
+	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, "<h1>test</h1>") {
+		t.Fatalf("index does not name the fleet:\n%s", body)
+	}
 }
 
 func seed(t *testing.T, st *state.Store) {

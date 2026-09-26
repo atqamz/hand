@@ -71,6 +71,9 @@ func cmdWatch(r *runner, args []string) error {
 		if errors.Is(err, luvus.ErrIncompatible) {
 			return err
 		}
+		if errors.Is(err, errHomeMoved) {
+			return fmt.Errorf("%w; restart hand watch from the fleet's new place", err)
+		}
 		if err != nil && ctx.Err() == nil {
 			w.say("luvus: " + err.Error())
 		}
@@ -140,6 +143,9 @@ func (w *watcher) session(ctx context.Context) error {
 }
 
 func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabilities, ev luvus.Event) error {
+	if err := w.r.stillHome(); err != nil {
+		return err
+	}
 	switch ev.Event {
 	case "pane.agent_status_changed":
 		return w.agentStatus(ctx, c, caps, ev.Data)
@@ -152,6 +158,9 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	if err := w.r.stillHome(); err != nil {
+		return err
+	}
 	before, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err
@@ -229,7 +238,7 @@ func (w *watcher) alert(ctx context.Context, text string) {
 		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
-		_ = exec.CommandContext(nctx, bin, "--app-name=hand", "hand", text).Run()
+		_ = exec.CommandContext(nctx, bin, "--app-name=hand", w.r.fleet.Name, text).Run()
 	}()
 }
 

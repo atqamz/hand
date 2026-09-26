@@ -13,6 +13,9 @@ func activeTask(t *testing.T, s *Store) Task {
 	t.Helper()
 	seedProject(t, s)
 	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
 	task, err := s.AddTask(ctx, "hand", "Fix login", "")
 	if err != nil {
 		t.Fatal(err)
@@ -23,17 +26,39 @@ func activeTask(t *testing.T, s *Store) Task {
 	return task
 }
 
+func TestAttemptNeedsTheHomesFleet(t *testing.T) {
+	s, _ := openTest(t)
+	seedProject(t, s)
+	ctx := context.Background()
+	task, err := s.AddTask(ctx, "hand", "Fix login", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, task.ID, StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	spec := claudeSpec
+	spec.TaskID = task.ID
+	if _, err := s.AddAttempt(ctx, spec, t.TempDir()); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("add without a fleet = %v, want ErrNotFound", err)
+	}
+}
+
 func TestAttemptLifecycle(t *testing.T) {
 	s, _ := openTest(t)
 	task := activeTask(t, s)
 	ctx := context.Background()
+	f, err := s.Fleet(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 	spec := claudeSpec
 	spec.TaskID = task.ID
 	a, err := s.AddAttempt(ctx, spec, "/home/me/.hand/worktrees")
 	if err != nil || a.ID != 1 || a.Status != AttemptLaunching {
 		t.Fatalf("add = %+v, %v", a, err)
 	}
-	if a.Worktree != "/home/me/.hand/worktrees/t1-a1" || a.Branch != "hand/t1-a1" {
+	if a.Worktree != "/home/me/.hand/worktrees/t1-a1" || a.Branch != "hand/"+f.ID+"/t1-a1" {
 		t.Fatalf("layout = %s %s", a.Worktree, a.Branch)
 	}
 	term := Terminal{ServerGeneration: "g1", TerminalID: "tid", PaneID: "2", PID: 42, StartMarker: "900"}
@@ -76,6 +101,9 @@ func TestAddAttemptNeedsAnActiveTaskWithoutALiveAttempt(t *testing.T) {
 	s, _ := openTest(t)
 	seedProject(t, s)
 	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
 	task, _ := s.AddTask(ctx, "hand", "Fix login", "")
 	spec := claudeSpec
 	spec.TaskID = task.ID

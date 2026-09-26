@@ -10,7 +10,7 @@ import (
 func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
-	sub := filepath.Join(fx.h.home, "worktrees", "t1-a1", "pkg")
+	sub := filepath.Join(fx.h.worktree("t1-a1"), "pkg")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestReportInsideAWorktreeCannotClaimAnotherAttempt(t *testing.T) {
 	fx.h.ok("task", "add", "app", "Second task")
 	fx.h.ok("task", "start", "t2")
 	fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t2")
-	fx.h.cwd = filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	fx.h.cwd = fx.h.worktree("t1-a1")
 	if _, errOut, code := fx.h.run("report", "add", "--attempt", "a2", "--status", "done", "--text", "not mine"); code != 3 || !strings.Contains(errOut, "belongs to attempt a1") {
 		t.Fatalf("cross-attempt report: code=%d stderr=%q", code, errOut)
 	}

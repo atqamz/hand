@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -55,6 +56,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if spec != (harness.Spec{}) {
 			return usageError{"attempt start: give either --profile or --harness/--model/--effort"}
 		}
+		if err := r.needHome(); err != nil {
+			return err
+		}
 		p, err := harness.LoadPolicy(r.home)
 		if err != nil {
 			return err
@@ -87,7 +91,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv}, filepath.Join(r.home, "worktrees"))
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
@@ -109,7 +113,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("worktree", running.Worktree)
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
-		d.Help("Check it: `hand attempt show "+ref+"`", "Watch it live: `luvus session attach hand`")
+		d.Help("Check it: `hand attempt show "+ref+"`", "Watch it live: `luvus session attach "+fleet.Session(r.fleet.ID)+"`")
 		return r.print(&d)
 	})
 }

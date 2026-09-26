@@ -82,7 +82,8 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 	if !strings.Contains(out, `observed: "a1 blocked: Do you want to proceed?"`) {
 		t.Fatalf("watch out = %q", out)
 	}
-	for _, want := range []string{"--app-name=hand hand a1 blocked: Do you want to proceed?", "--app-name=hand hand a1 quiet: turn ended"} {
+	name := filepath.Base(fx.h.home)
+	for _, want := range []string{"--app-name=hand " + name + " a1 blocked: Do you want to proceed?", "--app-name=hand " + name + " a1 quiet: turn ended"} {
 		eventually(t, func() bool {
 			log, _ := os.ReadFile(notes)
 			return strings.Contains(string(log), want)

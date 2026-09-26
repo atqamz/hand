@@ -5,13 +5,14 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/atqamz/hand/internal/state"
 )
 
-var units = map[string]struct{ description, args string }{
-	"watch": {"Hand watcher", "watch"},
-	"board": {"Hand board", "board --addr 127.0.0.1:7777"},
+var units = map[string]string{
+	"watch": "Hand watcher",
+	"board": "Hand board",
 }
 
 func init() {
@@ -19,36 +20,48 @@ func init() {
 }
 
 func cmdUnit(r *runner, args []string) error {
-	pos, err := parse(flags("unit"), args, 1)
+	set := flags("unit")
+	addr := set.String("addr", "127.0.0.1:7777", "listen address baked into the board unit")
+	pos, err := parse(set, args, 1)
 	if err != nil {
 		return err
 	}
-	u, ok := units[pos[0]]
+	description, ok := units[pos[0]]
 	if !ok {
 		return usageError{"unit: want watch or board, got " + pos[0]}
 	}
-	if r.home == "" {
-		return usageError{"no home: pass --home DIR or set HAND_HOME"}
+	command := pos[0]
+	switch {
+	case pos[0] == "board" && strings.ContainsFunc(*addr, unicode.IsSpace):
+		return usageError{"unit: --addr must not contain spaces"}
+	case pos[0] == "board":
+		command += " --addr " + *addr
+	case *addr != set.Lookup("addr").DefValue:
+		return usageError{"unit: --addr is only for the board"}
 	}
-	if _, err := os.Stat(r.dbPath()); err != nil {
-		return fmt.Errorf("%w: no hand home at %s; run `hand init`", state.ErrNotFound, r.home)
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	if err := st.Close(); err != nil {
+		return err
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	home, err := unitValue(r.home)
-	if err != nil {
-		return err
+	vals := []string{r.fleet.Name, r.home, exe, command}
+	for i, v := range vals {
+		if vals[i], err = unitValue(v); err != nil {
+			return err
+		}
 	}
-	if exe, err = unitValue(exe); err != nil {
-		return err
-	}
+	name, home, exe, command := vals[0], vals[1], vals[2], vals[3]
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
-		"Description="+u.description+" for "+home+"\n\n"+
+		"Description="+description+" for "+name+" ("+home+")\n\n"+
 		"[Service]\n"+
 		`Environment="HAND_HOME=`+home+"\"\n"+
-		`ExecStart="`+exe+`" `+u.args+"\n"+
+		`ExecStart="`+exe+`" `+command+"\n"+
 		"Restart=on-failure\n"+
 		"RestartSec=5\n\n"+
 		"[Install]\n"+

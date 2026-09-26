@@ -62,7 +62,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 		t.Fatalf("clean live code=%d stderr=%q", code, errOut)
 	}
 	fx.h.ok("attempt", "stop", "a1")
-	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	wt := fx.h.worktree("t1-a1")
 	if err := os.WriteFile(filepath.Join(wt, "wip.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 	if !fx.rt.isClosed(restored) {
 		t.Fatal("a terminal left inside the worktree was not closed")
 	}
-	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", "hand/t1-a1").CombinedOutput(); err != nil {
+	if out, err := exec.Command("git", "-C", fx.repo, "rev-parse", "--verify", fx.h.branch("t1-a1")).CombinedOutput(); err != nil {
 		t.Fatalf("branch deleted: %s", out)
 	}
 	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 3 || !strings.Contains(errOut, "already cleaned") {
@@ -94,7 +94,7 @@ func TestCleanAfterTheWorktreeVanished(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
-	if err := os.RemoveAll(filepath.Join(fx.h.home, "worktrees", "t1-a1")); err != nil {
+	if err := os.RemoveAll(fx.h.worktree("t1-a1")); err != nil {
 		t.Fatal(err)
 	}
 	fx.h.ok("attempt", "clean", "a1")
