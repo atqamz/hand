@@ -12,10 +12,11 @@ type harness struct {
 	t    *testing.T
 	home string
 	now  time.Time
+	vars map[string]string
 }
 
 func newHarness(t *testing.T) *harness {
-	return &harness{t: t, home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)}
+	return &harness{t: t, home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{}}
 }
 
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
@@ -26,7 +27,14 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			if k == "HAND_HOME" {
 				return h.home
 			}
-			return ""
+			return h.vars[k]
+		},
+		Environ: func() []string {
+			var kv []string
+			for k, v := range h.vars {
+				kv = append(kv, k+"="+v)
+			}
+			return kv
 		},
 		Now: func() time.Time { return h.now },
 	}
