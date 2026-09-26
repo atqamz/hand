@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -36,14 +37,28 @@ func cmdUnit(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	home, err := unitValue(r.home)
+	if err != nil {
+		return err
+	}
+	if exe, err = unitValue(exe); err != nil {
+		return err
+	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
-		"Description="+u.description+" for "+r.home+"\n\n"+
+		"Description="+u.description+" for "+home+"\n\n"+
 		"[Service]\n"+
-		`Environment="HAND_HOME=`+r.home+"\"\n"+
+		`Environment="HAND_HOME=`+home+"\"\n"+
 		`ExecStart="`+exe+`" `+u.args+"\n"+
 		"Restart=on-failure\n"+
 		"RestartSec=5\n\n"+
 		"[Install]\n"+
 		"WantedBy=default.target\n")
 	return err
+}
+
+func unitValue(s string) (string, error) {
+	if strings.ContainsFunc(s, func(c rune) bool { return c < ' ' || c == 0x7f || strings.ContainsRune(`"'\`, c) }) {
+		return "", fmt.Errorf("%w: %q cannot go into a systemd unit; rename it without quotes, backslashes or control characters", state.ErrInvalid, s)
+	}
+	return strings.ReplaceAll(s, "%", "%%"), nil
 }
