@@ -51,6 +51,16 @@ func (d *Doc) Help(lines ...string) {
 	d.List("help", lines)
 }
 
+func (d *Doc) ReplaceHelp(old, new string) {
+	for i, b := range d.blocks {
+		if b.kind == blockList && b.name == "help" {
+			for j, item := range b.items {
+				d.blocks[i].items[j] = strings.ReplaceAll(item, old, new)
+			}
+		}
+	}
+}
+
 func (d *Doc) Render(w io.Writer) error {
 	var b strings.Builder
 	for _, blk := range d.blocks {

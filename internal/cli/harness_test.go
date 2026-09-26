@@ -12,6 +12,7 @@ import (
 )
 
 type harness struct {
+	name string
 	t    *testing.T
 	home string
 	now  time.Time
@@ -25,6 +26,7 @@ func newHarness(t *testing.T) *harness {
 
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 	return cli.Env{
+		Name:   h.name,
 		Stdout: out,
 		Stderr: errOut,
 		Getenv: func(k string) string {

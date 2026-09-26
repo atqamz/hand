@@ -16,10 +16,11 @@ import (
 
 var skillRoots = []string{".claude", ".agents", ".grok", ".pi"}
 
-func Install(home string) error {
-	files := map[string]string{"AGENTS.md": skills.Bootstrap, "CLAUDE.md": "@AGENTS.md\n"}
+func Install(home, command string) error {
+	named := strings.NewReplacer("`hand ", "`"+command+" ")
+	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
 	for _, root := range skillRoots {
-		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = skills.Secondhand
+		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
 	}
 	names := slices.Sorted(maps.Keys(files))
 	dir, err := os.OpenRoot(home)

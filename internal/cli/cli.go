@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 const Version = "0.0.0-next"
 
 type Env struct {
+	Name    string
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Getenv  func(string) string
@@ -53,8 +55,22 @@ func Run(args []string, env Env) int {
 	if err == nil {
 		return 0
 	}
-	fmt.Fprintf(env.Stderr, "error: %s\n", err)
+	fmt.Fprintf(env.Stderr, "error: %s\n", strings.ReplaceAll(err.Error(), "`hand ", "`"+env.command()+" "))
 	return exitCode(err)
+}
+
+func CommandName(executable string) string {
+	if base := filepath.Base(executable); base == "hand" || strings.HasPrefix(base, "hand-") {
+		return base
+	}
+	return "hand"
+}
+
+func (e Env) command() string {
+	if e.Name == "" {
+		return "hand"
+	}
+	return e.Name
 }
 
 func exitCode(err error) int {
@@ -132,6 +148,7 @@ func parse(fs *flag.FlagSet, args []string, want int) ([]string, error) {
 }
 
 func (r *runner) print(d *toon.Doc) error {
+	d.ReplaceHelp("`hand ", "`"+r.env.command()+" ")
 	return d.Render(r.env.Stdout)
 }
 
