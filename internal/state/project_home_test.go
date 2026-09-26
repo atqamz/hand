@@ -123,3 +123,25 @@ func TestRebaseProjectsMakesPathsUnderTheOldHomeRelative(t *testing.T) {
 		t.Fatalf("events = %+v, %v", events, err)
 	}
 }
+
+func TestAHomeThatIsItsOwnRepoFollowsAMove(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTest(t)
+	if _, err := s.AddProject(ctx, "self", s.home); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT repo FROM project WHERE name = 'self'`).Scan(&raw); err != nil || raw != "." {
+		t.Fatalf("stored repo = %q, %v", raw, err)
+	}
+	old := filepath.Join(t.TempDir(), "old")
+	if _, err := s.db.Exec(`UPDATE project SET repo = ? WHERE name = 'self'`, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RebaseProjects(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.Project(ctx, "self"); err != nil || p.Repo != s.home {
+		t.Fatalf("self = %+v, %v", p, err)
+	}
+}

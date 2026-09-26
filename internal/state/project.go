@@ -74,7 +74,7 @@ func (s *Store) stored(repo string) string {
 		real = r
 	}
 	rel, err := filepath.Rel(s.home, real)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return repo
 	}
 	return rel
@@ -101,7 +101,7 @@ func (s *Store) RebaseProjects(ctx context.Context, from string) error {
 				return err
 			}
 			rel, err := filepath.Rel(from, repo)
-			if filepath.IsAbs(repo) && err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if filepath.IsAbs(repo) && err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				moved[name] = rel
 			}
 		}
