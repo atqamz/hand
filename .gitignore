@@ -4,6 +4,7 @@
 !/.github/**
 !/AGENTS.md
 !/LICENSE
+!/README.md
 !/docs/
 !/docs/**
 !/go.mod
@@ -11,6 +12,8 @@
 !/main.go
 !/internal/
 !/internal/**
+!/skills/
+!/skills/**
 *.db
 *.db-*
 *.lock

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -42,6 +43,9 @@ func cmdInit(r *runner, args []string) error {
 	if err := memory.Init(r.home); err != nil {
 		return err
 	}
+	if _, err := harness.WriteStarterPolicy(r.home); err != nil {
+		return err
+	}
 	st, err := state.Open(r.dbPath(), r.env.Now)
 	if err != nil {
 		return err
@@ -52,6 +56,7 @@ func cmdInit(r *runner, args []string) error {
 	var d toon.Doc
 	d.Field("home", r.home)
 	d.Bool("created", created)
+	d.Field("routing", filepath.Join(r.home, harness.PolicyFile))
 	d.Help("Write your durable preferences in "+filepath.Join(r.home, "memory", memory.OperatorFile),
 		"Register a repository: `hand project add NAME ABSOLUTE_REPO_PATH`")
 	return r.print(&d)

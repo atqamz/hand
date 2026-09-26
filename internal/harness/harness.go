@@ -13,9 +13,9 @@ import (
 )
 
 type Spec struct {
-	Harness string
-	Model   string
-	Effort  string
+	Harness string `json:"harness"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
 }
 
 const MaxPromptBytes = 16384

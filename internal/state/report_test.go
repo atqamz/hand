@@ -92,3 +92,40 @@ func TestRecordQuietLabelsTheTurnInOneTransaction(t *testing.T) {
 		t.Fatalf("event = %+v", events[0])
 	}
 }
+
+func TestTaskCannotBeDoneWithAnUnreadReport(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	r, err := s.AddReport(ctx, a.ID, ReportDone, "Fixed login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, a.TaskID, StatusDone); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "unread report r1") {
+		t.Fatalf("done with an unread report err = %v", err)
+	}
+	if _, err := s.AckReport(ctx, r.ID, "supervisor"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, a.TaskID, StatusDone); err != nil {
+		t.Fatalf("done after ack: %v", err)
+	}
+}
+
+func TestAbandonIgnoresUnreadReports(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	if _, err := s.AddReport(ctx, a.ID, ReportStuck, "blocked on credentials"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "giving up"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, a.TaskID, StatusAbandoned); err != nil {
+		t.Fatalf("abandon with an unread report: %v", err)
+	}
+}
