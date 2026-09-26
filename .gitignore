@@ -11,6 +11,8 @@
 !/main.go
 !/internal/
 !/internal/**
+!/skills/
+!/skills/**
 *.db
 *.db-*
 *.lock
