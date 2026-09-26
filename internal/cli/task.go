@@ -74,6 +74,11 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("plan", "none")
 	}
+	ds, err := st.OpenDecisions(context.Background(), id, 20)
+	if err != nil {
+		return err
+	}
+	d.Rows("open_decisions", []string{"id", "task", "question"}, decisionRows(ds))
 	return r.print(&d)
 }
 
