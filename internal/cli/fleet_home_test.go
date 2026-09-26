@@ -1,12 +1,16 @@
 package cli_test
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestCommandsFindTheHomeFromAFolderInsideIt(t *testing.T) {
@@ -102,10 +106,37 @@ func TestACopiedHomeIsRefused(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cp, "hand.db"), db, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"--home", cp, "task", "list"}, {"init", cp}} {
+	for _, args := range [][]string{{"--home", cp, "task", "list"}, {"init", cp}, {"init", "--name", "renamed", cp}} {
 		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, "also at "+h.home) {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}
+	}
+	for _, f := range []string{"AGENTS.md", "memory", "routing.json"} {
+		if _, err := os.Stat(filepath.Join(cp, f)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("a refused copy was changed: %s: %v", f, err)
+		}
+	}
+	st, err := state.Open(filepath.Join(cp, "hand.db"), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if f, err := st.Fleet(context.Background()); err != nil || f.Name != filepath.Base(h.home) {
+		t.Fatalf("a refused copy was renamed: %+v, %v", f, err)
+	}
+}
+
+func TestInitRefusesAnUnusableFolderNameBeforeWriting(t *testing.T) {
+	h := newHarness(t)
+	dir := filepath.Join(t.TempDir(), strings.Repeat("x", 65))
+	if _, errOut, code := h.run("init", dir); code != 2 || !strings.Contains(errOut, "pass --name") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a refused init wrote %d entries", len(entries))
+	}
+	if out := h.ok("init", "--name", "long", dir); field(out, "fleet") != "long" {
+		t.Fatalf("init --name = %q", out)
 	}
 }
 

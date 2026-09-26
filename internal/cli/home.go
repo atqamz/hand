@@ -178,40 +178,64 @@ func cmdInit(r *runner, args []string) error {
 	if r.home, err = filepath.EvalSymlinks(dir); err != nil {
 		return err
 	}
+	ctx := r.ctx()
+	_, statErr := os.Stat(r.dbPath())
+	created := errors.Is(statErr, fs.ErrNotExist)
+	var st *state.Store
+	var f state.Fleet
+	have := false
+	if !created {
+		if st, err = state.Open(r.dbPath(), r.env.Now); err != nil {
+			return err
+		}
+		defer st.Close()
+		switch f, err = st.Fleet(ctx); {
+		case err == nil:
+			have = true
+		case !errors.Is(err, state.ErrNotFound):
+			return err
+		}
+	}
+	movedFrom := ""
+	if have {
+		if movedFrom, err = fleet.Register(root, f.ID, r.home); err != nil {
+			return err
+		}
+	}
+	n := *name
+	if !have && n == "" {
+		n = filepath.Base(r.home)
+		if err := state.ValidFleetName(n); err != nil {
+			return fmt.Errorf("%w; pass --name", err)
+		}
+	}
 	if err := fleet.Install(r.home); err != nil {
 		return err
 	}
-	_, statErr := os.Stat(r.dbPath())
-	created := errors.Is(statErr, fs.ErrNotExist)
 	if err := memory.Init(r.home); err != nil {
 		return err
 	}
 	if _, err := harness.WriteStarterPolicy(r.home); err != nil {
 		return err
 	}
-	st, err := state.Open(r.dbPath(), r.env.Now)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	ctx := r.ctx()
-	f, err := st.Fleet(ctx)
-	switch {
-	case errors.Is(err, state.ErrNotFound):
-		n := *name
-		if n == "" {
-			n = filepath.Base(r.home)
+	if st == nil {
+		if st, err = state.Open(r.dbPath(), r.env.Now); err != nil {
+			return err
 		}
-		f, err = st.CreateFleet(ctx, n)
-	case err == nil && *name != "" && *name != f.Name:
-		f, err = st.RenameFleet(ctx, *name)
+		defer st.Close()
 	}
-	if err != nil {
-		return err
-	}
-	movedFrom, err := fleet.Register(root, f.ID, r.home)
-	if err != nil {
-		return err
+	switch {
+	case !have:
+		if f, err = st.CreateFleet(ctx, n); err != nil {
+			return err
+		}
+		if movedFrom, err = fleet.Register(root, f.ID, r.home); err != nil {
+			return err
+		}
+	case n != "" && n != f.Name:
+		if f, err = st.RenameFleet(ctx, n); err != nil {
+			return err
+		}
 	}
 	if err := repairWorktrees(ctx, st); err != nil {
 		return err
