@@ -54,6 +54,9 @@ func New(st *state.Store, token string) http.Handler {
 	b := &Board{st: st, token: token, mux: http.NewServeMux()}
 	b.mux.HandleFunc("GET /{$}", b.index)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
+	b.mux.HandleFunc("GET /decision/{id}", b.decision)
+	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
+	b.mux.HandleFunc("POST /report/{id}/ack", b.ack)
 	return b
 }
 
@@ -234,4 +237,51 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 	b.render(w, http.StatusOK, "task.html", map[string]any{
 		"Title": state.TaskRef(id), "Refresh": 10, "Card": c, "Reports": reports, "Events": events,
 	})
+}
+
+func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := pathID(r, "d")
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	d, err := b.st.Decision(ctx, id)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	t, err := b.st.Task(ctx, d.TaskID)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token})
+}
+
+func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "d")
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	if _, err := b.st.Answer(r.Context(), id, r.PostFormValue("answer"), "operator (board)"); err != nil {
+		b.failErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/decision/"+state.DecisionRef(id), http.StatusSeeOther)
+}
+
+func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "r")
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	rep, err := b.st.AckReport(r.Context(), id, "operator (board)")
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	http.Redirect(w, r, "/task/"+state.TaskRef(rep.TaskID), http.StatusSeeOther)
 }
