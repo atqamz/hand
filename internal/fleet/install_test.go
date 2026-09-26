@@ -2,6 +2,7 @@ package fleet_test
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,5 +115,46 @@ func TestInstallSpeaksTheCommandName(t *testing.T) {
 	}
 	if read(t, filepath.Join(home, "AGENTS.md")) != skills.Bootstrap {
 		t.Fatal("a later init under the plain name did not restore the plain bootstrap")
+	}
+}
+
+var migratePaths = []string{".claude/skills/secondhand-migrate/SKILL.md", ".agents/skills/secondhand-migrate/SKILL.md", ".grok/skills/secondhand-migrate/SKILL.md", ".pi/skills/secondhand-migrate/SKILL.md"}
+
+func TestInstallAddsTheMigrateSkillOnlyBesideA07Fleet(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
+	if err := fleet.Install(home, "hand-next"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range migratePaths {
+		if got := read(t, filepath.Join(home, p)); !strings.Contains(got, "name: secondhand-migrate") || strings.Contains(got, "`hand ") {
+			t.Fatalf("%s = %q", p, got)
+		}
+	}
+	if err := os.Remove(filepath.Join(home, "state", "hand.db")); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.Install(home, "hand-next"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range migratePaths {
+		if _, err := os.Stat(filepath.Dir(filepath.Join(home, p))); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s left behind: %v", p, err)
+		}
+	}
+}
+
+func TestInstallLeavesAForeignMigrateSkillAlone(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, migratePaths[0]), "mine\n")
+	if err := fleet.Install(home, "hand"); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(home, migratePaths[0])) != "mine\n" {
+		t.Fatal("a foreign migrate skill was removed")
+	}
+	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
+	if err := fleet.Install(home, "hand"); !errors.Is(err, state.ErrConflict) {
+		t.Fatalf("install over a foreign migrate skill = %v", err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/skills"
@@ -17,17 +18,26 @@ import (
 var skillRoots = []string{".claude", ".agents", ".grok", ".pi"}
 
 func Install(home, command string) error {
-	named := strings.NewReplacer("`hand ", "`"+command+" ")
-	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
-	for _, root := range skillRoots {
-		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
-	}
-	names := slices.Sorted(maps.Keys(files))
 	dir, err := os.OpenRoot(home)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
+	_, err = dir.Stat(filepath.Join("state", "hand.db"))
+	legacy := err == nil
+	named := strings.NewReplacer("`hand ", "`"+command+" ")
+	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
+	var stale []string
+	for _, root := range skillRoots {
+		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
+		migrate := filepath.Join(root, "skills", "secondhand-migrate", "SKILL.md")
+		if legacy {
+			files[migrate] = named.Replace(skills.Migrate)
+		} else if have, err := dir.ReadFile(migrate); err == nil && owned(migrate, string(have)) {
+			stale = append(stale, migrate)
+		}
+	}
+	names := slices.Sorted(maps.Keys(files))
 	for _, rel := range names {
 		have, err := dir.ReadFile(rel)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -45,6 +55,14 @@ func Install(home, command string) error {
 			return err
 		}
 		if err := dir.WriteFile(rel, []byte(files[rel]), 0o644); err != nil {
+			return err
+		}
+	}
+	for _, rel := range stale {
+		if err := dir.Remove(rel); err != nil {
+			return err
+		}
+		if err := dir.Remove(filepath.Dir(rel)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
 			return err
 		}
 	}
