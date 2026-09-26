@@ -4,6 +4,7 @@
 !/.github/**
 !/AGENTS.md
 !/LICENSE
+!/README.md
 !/docs/
 !/docs/**
 !/go.mod
