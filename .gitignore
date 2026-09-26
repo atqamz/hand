@@ -11,3 +11,6 @@
 !/main.go
 !/internal/
 !/internal/**
+*.db
+*.db-*
+*.lock
