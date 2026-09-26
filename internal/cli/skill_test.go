@@ -48,23 +48,31 @@ func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
 
 func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 	h := newHarness(t)
-	h.ok("init")
-	skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", "secondhand", "SKILL.md"))
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(h.home, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
-	if len(uses) < 10 {
-		t.Fatalf("found only %d commands in the skill", len(uses))
+	if err := os.WriteFile(filepath.Join(h.home, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for _, u := range uses {
-		args := []string{u[1]}
-		if u[2] != "" {
-			args = append(args, u[2])
+	h.ok("init")
+	for _, name := range []string{"secondhand", "secondhand-migrate"} {
+		skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", name, "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		_, errOut, _ := h.run(append(args, "--no-such-flag")...)
-		if strings.Contains(errOut, "unknown command") || strings.Contains(errOut, "subcommand") {
-			t.Fatalf("skill names %q, which does not exist: %s", strings.Join(args, " "), errOut)
+		uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
+		if min := map[string]int{"secondhand": 10, "secondhand-migrate": 5}[name]; len(uses) < min {
+			t.Fatalf("%s: found only %d commands", name, len(uses))
+		}
+		for _, u := range uses {
+			args := []string{u[1]}
+			if u[2] != "" {
+				args = append(args, u[2])
+			}
+			_, errOut, _ := h.run(append(args, "--no-such-flag")...)
+			if strings.Contains(errOut, "unknown command") || strings.Contains(errOut, "subcommand") {
+				t.Fatalf("%s names %q, which does not exist: %s", name, strings.Join(args, " "), errOut)
+			}
 		}
 	}
 }
@@ -102,5 +110,36 @@ func TestInitInAnOldFleetLeavesItsDataAlone(t *testing.T) {
 	}
 	if agents, _ := os.ReadFile(filepath.Join(h.home, "AGENTS.md")); !strings.Contains(string(agents), "Run `hand orient`") {
 		t.Fatalf("the 0.7 bootstrap was not replaced: %q", agents)
+	}
+}
+
+func TestInitWarnsAboutLive07Wiring(t *testing.T) {
+	h := newHarness(t)
+	for rel, body := range map[string]string{
+		"state/hand.db":                          "0.7",
+		".claude/settings.json":                  `{"hooks":{"Stop":[{"hooks":[{"args":["supervision","claude-stop"],"command":"/usr/local/bin/hand","type":"command"}]}]}}`,
+		".pi/extensions/hand-supervisor-wake.ts": "x",
+		".opencode/plugins/hand-custom.js":       "x",
+		".pi/extensions/mine.ts":                 "x",
+	} {
+		path := filepath.Join(h.home, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := h.ok("init")
+	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", ".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-custom.js"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("init does not warn about %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "mine.ts") {
+		t.Fatalf("init warned about a file that is not Hand's:\n%s", out)
+	}
+	if clean := newHarness(t).ok("init"); strings.Contains(clean, "0.7 wiring") {
+		t.Fatalf("a fresh fleet got the 0.7 warning:\n%s", clean)
 	}
 }

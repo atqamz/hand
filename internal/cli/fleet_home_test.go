@@ -269,3 +269,62 @@ func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
 		t.Fatalf("project list = %q", list)
 	}
 }
+
+func TestA07FleetGetsTheMigrationHint(t *testing.T) {
+	h := newHarness(t)
+	old := t.TempDir()
+	for _, d := range []string{"state", "data", "data/145-ship"} {
+		if err := os.MkdirAll(filepath.Join(old, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(old, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.vars["HAND_HOME"] = ""
+	h.cwd = filepath.Join(old, "data", "145-ship")
+	_, errOut, code := h.run("task", "list")
+	if code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") || !strings.Contains(errOut, "secondhand-migrate") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestA07FleetNamedByHandHomeGetsTheMigrationHint(t *testing.T) {
+	h := newHarness(t)
+	old := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(old, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.cwd = t.TempDir()
+	for _, args := range [][]string{{"--home", old, "task", "list"}} {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	h.home = old
+	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") {
+		t.Fatalf("HAND_HOME: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestAnUnreadable07MarkerIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any folder")
+	}
+	h := newHarness(t)
+	old := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(old, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(old, "state"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(old, "state"), 0o755) })
+	h.cwd = t.TempDir()
+	if _, errOut, _ := h.run("--home", old, "task", "list"); !strings.Contains(errOut, "check the Hand 0.7 marker") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+}

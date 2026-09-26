@@ -7,3 +7,6 @@ var Secondhand string
 
 //go:embed bootstrap.md
 var Bootstrap string
+
+//go:embed secondhand-migrate/SKILL.md
+var Migrate string

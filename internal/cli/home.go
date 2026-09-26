@@ -63,13 +63,15 @@ func canonical(p string) (string, error) {
 	}
 }
 
-func findHome(dir string) (string, error) {
+func findHome(dir string) (string, error) { return findUp(dir, "hand.db") }
+
+func findUp(dir, marker string) (string, error) {
 	dir, err := canonical(dir)
 	if err != nil {
 		return "", err
 	}
 	for {
-		info, err := os.Stat(filepath.Join(dir, "hand.db"))
+		info, err := os.Stat(filepath.Join(dir, marker))
 		switch {
 		case err == nil && info.Mode().IsRegular():
 			return dir, nil
@@ -86,9 +88,21 @@ func findHome(dir string) (string, error) {
 
 func (r *runner) needHome() error {
 	if r.home == "" {
+		if wd, err := r.getwd(); err == nil {
+			if old, err := findUp(wd, filepath.Join("state", "hand.db")); err == nil && old != "" {
+				return fmt.Errorf("%w: %s is a Hand 0.7 fleet; run `hand init` there, then ask its supervisor to use the secondhand-migrate skill", state.ErrNotFound, old)
+			}
+		}
 		return fmt.Errorf("%w: not inside a fleet home; cd into one, pass --home DIR, or run `hand init` to make this folder one", state.ErrNotFound)
 	}
 	if _, err := os.Stat(r.dbPath()); errors.Is(err, fs.ErrNotExist) {
+		info, err := os.Stat(filepath.Join(r.home, "state", "hand.db"))
+		switch {
+		case err == nil && info.Mode().IsRegular():
+			return fmt.Errorf("%w: %s is a Hand 0.7 fleet; run `hand init` there, then ask its supervisor to use the secondhand-migrate skill", state.ErrNotFound, r.home)
+		case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+			return fmt.Errorf("check the Hand 0.7 marker in %s: %w", r.home, err)
+		}
 		return fmt.Errorf("%w: no hand home at %s; run `hand init`", state.ErrNotFound, r.home)
 	} else if err != nil {
 		return err
@@ -263,8 +277,25 @@ func cmdInit(r *runner, args []string) error {
 	if movedFrom != "" {
 		help = append(help, "This home moved; regenerate its systemd units with `hand unit watch` and `hand unit board`")
 	}
+	if wiring := legacyWiring(r.home); len(wiring) > 0 {
+		help = append(help, "Remove the Hand 0.7 wiring before opening a supervisor here, or it keeps waking the supervisor: "+strings.Join(wiring, ", "))
+	}
 	d.Help(help...)
 	return r.print(&d)
+}
+
+func legacyWiring(home string) []string {
+	var found []string
+	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "claude-stop") {
+		found = append(found, ".claude/settings.json (its supervision claude-stop Stop hook)")
+	}
+	for _, dir := range []string{filepath.Join(".pi", "extensions"), filepath.Join(".opencode", "plugins")} {
+		matches, _ := filepath.Glob(filepath.Join(home, dir, "hand-*"))
+		for _, m := range matches {
+			found = append(found, filepath.Join(dir, filepath.Base(m)))
+		}
+	}
+	return found
 }
 
 func refuseNesting(home, root string) error {

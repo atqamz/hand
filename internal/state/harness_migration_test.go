@@ -1,8 +1,11 @@
 package state
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,5 +70,35 @@ func TestAVersion4HomeLearnsNewHarnesses(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("the rebuild left foreign key violations")
+	}
+}
+
+func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE legacy (x INTEGER); PRAGMA user_version = 21`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path, clock); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "schema 21") {
+		t.Fatalf("open = %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("the refused database changed: %v", err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("open left %d entries beside the database", len(entries))
 	}
 }
