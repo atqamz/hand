@@ -76,3 +76,24 @@ func TestReportFromAWorktreeOfAnUnregisteredFleetIsRefused(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestReportFromAWorktreeRefusesAnotherSelectedFleet(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	other := t.TempDir()
+	fx.h.ok("init", other)
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	for _, args := range [][]string{{"--home", other, "report", "add", "--status", "done", "--text", "x"}} {
+		if _, errOut, code := fx.h.run(args...); code != 3 || !strings.Contains(errOut, "belongs to the fleet at "+fx.h.home) {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	fx.h.vars["HAND_HOME"] = other
+	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--text", "x"); code != 3 || !strings.Contains(errOut, "belongs to the fleet at "+fx.h.home) {
+		t.Fatalf("HAND_HOME: code=%d stderr=%q", code, errOut)
+	}
+	fx.h.vars["HAND_HOME"] = ""
+	if out := fx.h.ok("report", "add", "--status", "done", "--text", "mine"); !strings.Contains(out, "attempt: a1") {
+		t.Fatalf("report without a selected home = %q", out)
+	}
+}

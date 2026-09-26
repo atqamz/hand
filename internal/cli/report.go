@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,6 +61,9 @@ func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	if _, err := os.Stat(filepath.Join(home, "hand.db")); err != nil {
 		return 0, "", fmt.Errorf("%w: no hand home at %s; pass --attempt", state.ErrInvalid, home)
 	}
+	if r.home != "" && r.home != home {
+		return 0, "", fmt.Errorf("%w: this worktree belongs to the fleet at %s, not %s", state.ErrConflict, home, r.home)
+	}
 	n, err := strconv.ParseInt(m[1], 10, 64)
 	if err != nil {
 		return 0, "", err
@@ -90,6 +94,9 @@ func cmdReportAdd(r *runner, args []string) error {
 	}
 	ctx := context.Background()
 	id, top, hereErr := r.attemptHere(ctx)
+	if errors.Is(hereErr, state.ErrConflict) {
+		return hereErr
+	}
 	switch {
 	case *attempt != "":
 		n, err := parseID("a", *attempt)
