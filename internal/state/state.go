@@ -27,9 +27,12 @@ var reportSchema string
 //go:embed fleet.sql
 var fleetSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema}
+//go:embed harness.sql
+var harnessSchema string
 
-const SchemaVersion = 4
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema}
+
+const SchemaVersion = 5
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
@@ -70,25 +73,58 @@ func Open(path string, now func() time.Time) (*Store, error) {
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) migrate(ctx context.Context) error {
-	return s.tx(ctx, func(tx *sql.Tx) error {
-		var v int
-		if err := tx.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := migrateTx(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`)
+	return err
+}
+
+func migrateTx(tx *sql.Tx) error {
+	var v int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	switch {
+	case v == SchemaVersion:
+		return nil
+	case v > SchemaVersion:
+		return fmt.Errorf("%w: state schema %d is newer than this hand (%d)", ErrInvalid, v, SchemaVersion)
+	}
+	for _, m := range migrations[v:SchemaVersion] {
+		if _, err := tx.Exec(m); err != nil {
 			return err
 		}
-		switch {
-		case v == SchemaVersion:
-			return nil
-		case v > SchemaVersion:
-			return fmt.Errorf("%w: state schema %d is newer than this hand (%d)", ErrInvalid, v, SchemaVersion)
-		}
-		for _, m := range migrations[v:SchemaVersion] {
-			if _, err := tx.Exec(m); err != nil {
-				return err
-			}
-		}
-		_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion))
+	}
+	rows, err := tx.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
 		return err
-	})
+	}
+	broken := rows.Next()
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if broken {
+		return fmt.Errorf("%w: migrating to schema %d would break a foreign key", ErrInvalid, SchemaVersion)
+	}
+	_, err = tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion))
+	return err
 }
 
 func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {

@@ -1,7 +1,7 @@
-CREATE TABLE attempt (
+CREATE TABLE attempt_new (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES task(id),
-    harness TEXT NOT NULL CHECK (harness IN ('claude', 'codex')),
+    harness TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT NOT NULL,
     argv TEXT NOT NULL,
@@ -18,6 +18,12 @@ CREATE TABLE attempt (
     ended_at TEXT NOT NULL DEFAULT '',
     cleaned_at TEXT NOT NULL DEFAULT ''
 ) STRICT;
+
+INSERT INTO attempt_new SELECT * FROM attempt;
+
+DROP TABLE attempt;
+
+ALTER TABLE attempt_new RENAME TO attempt;
 
 CREATE INDEX attempt_task ON attempt(task_id, id);
 
