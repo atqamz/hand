@@ -67,7 +67,11 @@ func (s *Store) Project(ctx context.Context, name string) (Project, error) {
 }
 
 func (s *Store) stored(repo string) string {
-	rel, err := filepath.Rel(s.home, repo)
+	real := repo
+	if r, err := filepath.EvalSymlinks(repo); err == nil {
+		real = r
+	}
+	rel, err := filepath.Rel(s.home, real)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return repo
 	}

@@ -75,3 +75,27 @@ func TestUncleanedAttemptsSkipsCleanedOnes(t *testing.T) {
 		t.Fatalf("uncleaned = %+v, %v", got, err)
 	}
 }
+
+func TestProjectAddedThroughASymlinkedHomeIsStoredRelative(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "projects", "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(filepath.Join(home, "hand.db"), clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.AddProject(ctx, "app", filepath.Join(alias, "projects", "app")); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT repo FROM project WHERE name = 'app'`).Scan(&raw); err != nil || raw != filepath.Join("projects", "app") {
+		t.Fatalf("stored repo = %q, %v", raw, err)
+	}
+}
