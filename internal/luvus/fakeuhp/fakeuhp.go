@@ -110,13 +110,17 @@ func (s *Server) reply(conn net.Conn) {
 	default:
 		resp["result"] = result
 	}
-	b, _ := json.Marshal(resp)
 	if method != "events.subscribe" || err != nil {
+		b, _ := json.Marshal(resp)
 		_, _ = conn.Write(append(b, '\n'))
 		_ = conn.Close()
 		return
 	}
 	s.mu.Lock()
+	if ack, ok := result.(map[string]any); ok {
+		ack["sequence"] = s.seq
+	}
+	b, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(b, '\n'))
 	s.subs = append(s.subs, conn)
 	s.mu.Unlock()

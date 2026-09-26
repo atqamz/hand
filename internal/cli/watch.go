@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,11 +31,12 @@ func init() {
 }
 
 type watcher struct {
-	r      *runner
-	st     *state.Store
-	notify bool
-	every  time.Duration
-	seen   map[int64]string
+	r       *runner
+	st      *state.Store
+	notify  bool
+	every   time.Duration
+	seen    map[int64]string
+	pending sync.WaitGroup
 }
 
 func cmdWatch(r *runner, args []string) error {
@@ -63,6 +65,7 @@ func cmdWatch(r *runner, args []string) error {
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	w := &watcher{r: r, st: st, notify: *notify, every: *every}
+	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
 		if errors.Is(err, luvus.ErrIncompatible) {
@@ -219,7 +222,9 @@ func (w *watcher) alert(ctx context.Context, text string) {
 	if err != nil {
 		return
 	}
+	w.pending.Add(1)
 	go func() {
+		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
 		_ = exec.CommandContext(nctx, bin, "--app-name=hand", "hand", text).Run()

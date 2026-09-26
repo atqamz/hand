@@ -93,3 +93,13 @@ func TestNextRefusesAnOversizedEvent(t *testing.T) {
 		t.Fatalf("oversized next err = %v", err)
 	}
 }
+
+func TestSubscribeRefusesAnOversizedAck(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("events.subscribe", func(json.RawMessage) (any, error) {
+		return map[string]any{"type": "subscription_started", "sequence": 0, "padding": strings.Repeat("x", 2<<20)}, nil
+	})
+	if _, err := (luvus.Client{Socket: srv.Socket}).Subscribe(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized ack err = %v", err)
+	}
+}

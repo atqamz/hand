@@ -180,3 +180,21 @@ func TestOnlyWatchNeedsTheEventStream(t *testing.T) {
 		t.Fatalf("watch without event stream: code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
+	fx := newAttemptFixture(t)
+	log := filepath.Join(t.TempDir(), "notify.log")
+	script := "#!/bin/sh\nsleep 0.5\nprintf '%s\\n' \"$*\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "notify-send"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	stop()
+	got, _ := os.ReadFile(log)
+	if !strings.Contains(string(got), "a1 quiet: turn ended") {
+		t.Fatalf("notification lost at shutdown: %q", got)
+	}
+}

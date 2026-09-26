@@ -57,7 +57,10 @@ func subscribe(conn net.Conn, timeout time.Duration) (*Stream, error) {
 		return nil, err
 	}
 	lines := bufio.NewReaderSize(conn, maxEvent)
-	line, err := lines.ReadBytes('\n')
+	line, err := lines.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return nil, fmt.Errorf("luvus events.subscribe: ack exceeds %d bytes", maxEvent)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("luvus events.subscribe: no ack: %w", err)
 	}
