@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 )
@@ -22,6 +24,8 @@ type Server struct {
 	Socket     string
 	mu         sync.Mutex
 	generation string
+	seq        int64
+	subs       []net.Conn
 	handlers   map[string]func(json.RawMessage) (any, error)
 	calls      map[string][]json.RawMessage
 }
@@ -37,12 +41,17 @@ func Start(t testing.TB, socket string) *Server {
 		return map[string]any{
 			"type":              "uhp_capabilities",
 			"protocol":          map[string]any{"name": "luvus-uhp", "major": 1, "minor": 0},
-			"methods":           luvus.Required,
+			"methods":           append(slices.Clone(luvus.Required), "events.subscribe"),
 			"server_generation": s.Generation(),
 		}, nil
 	})
+	s.Handle("events.subscribe", func(json.RawMessage) (any, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return map[string]any{"type": "subscription_started", "sequence": s.seq, "replayed": 0}, nil
+	})
 	go s.serve(ln)
-	t.Cleanup(func() { _ = ln.Close() })
+	t.Cleanup(func() { _ = ln.Close(); s.DropSubscribers() })
 	return s
 }
 
@@ -81,13 +90,14 @@ func (s *Server) serve(ln net.Listener) {
 }
 
 func (s *Server) reply(conn net.Conn) {
-	defer conn.Close()
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
+		_ = conn.Close()
 		return
 	}
-	id, result, err := s.dispatch(line)
+	id, method, result, err := s.dispatch(line)
 	if errors.Is(err, Drop) {
+		_ = conn.Close()
 		return
 	}
 	resp := map[string]any{"id": id}
@@ -100,21 +110,39 @@ func (s *Server) reply(conn net.Conn) {
 	default:
 		resp["result"] = result
 	}
+	if method != "events.subscribe" || err != nil {
+		b, _ := json.Marshal(resp)
+		_, _ = conn.Write(append(b, '\n'))
+		_ = conn.Close()
+		return
+	}
+	s.mu.Lock()
+	if ack, ok := result.(map[string]any); ok {
+		ack["sequence"] = s.seq
+	}
 	b, _ := json.Marshal(resp)
 	_, _ = conn.Write(append(b, '\n'))
+	s.subs = append(s.subs, conn)
+	s.mu.Unlock()
+	go func() {
+		_, _ = io.Copy(io.Discard, conn)
+		s.mu.Lock()
+		s.subs = slices.DeleteFunc(s.subs, func(c net.Conn) bool { return c == conn })
+		s.mu.Unlock()
+	}()
 }
 
-func (s *Server) dispatch(line []byte) (string, any, error) {
+func (s *Server) dispatch(line []byte) (string, string, any, error) {
 	var req map[string]json.RawMessage
 	if err := json.Unmarshal(line, &req); err != nil {
-		return "0", nil, Fail{"invalid_request", "bad json"}
+		return "0", "", nil, Fail{"invalid_request", "bad json"}
 	}
 	var id, method string
 	_ = json.Unmarshal(req["id"], &id)
 	_ = json.Unmarshal(req["method"], &method)
 	for k := range req {
 		if k != "id" && k != "method" && k != "params" && k != "auth" {
-			return id, nil, Fail{"invalid_request", "invalid versioned API request envelope"}
+			return id, method, nil, Fail{"invalid_request", "invalid versioned API request envelope"}
 		}
 	}
 	s.mu.Lock()
@@ -122,8 +150,35 @@ func (s *Server) dispatch(line []byte) (string, any, error) {
 	s.calls[method] = append(s.calls[method], req["params"])
 	s.mu.Unlock()
 	if !ok {
-		return id, nil, Fail{"invalid_request", "unknown method: " + method}
+		return id, method, nil, Fail{"invalid_request", "unknown method: " + method}
 	}
 	result, err := fn(req["params"])
-	return id, result, err
+	return id, method, result, err
+}
+
+func (s *Server) Publish(event string, data any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	b, _ := json.Marshal(map[string]any{"event": event, "sequence": s.seq, "data": data})
+	for _, c := range s.subs {
+		_ = c.SetWriteDeadline(time.Now().Add(time.Second))
+		_, _ = c.Write(append(b, '\n'))
+	}
+}
+
+func (s *Server) Subscribers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.subs)
+}
+
+func (s *Server) DropSubscribers() {
+	s.mu.Lock()
+	subs := s.subs
+	s.subs = nil
+	s.mu.Unlock()
+	for _, c := range subs {
+		_ = c.Close()
+	}
 }

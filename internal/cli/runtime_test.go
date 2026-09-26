@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
@@ -30,17 +31,18 @@ type fakeTerm struct {
 }
 
 type fakeRuntime struct {
-	srv      *fakeuhp.Server
-	mu       sync.Mutex
-	terms    []*fakeTerm
-	creates  []createCall
-	status   string
-	hint     string
-	ready    bool
-	revision int64
-	marker   string
-	sent     []string
-	keyed    []string
+	srv        *fakeuhp.Server
+	mu         sync.Mutex
+	terms      []*fakeTerm
+	creates    []createCall
+	status     string
+	hint       string
+	ready      bool
+	revision   int64
+	marker     string
+	sent       []string
+	keyed      []string
+	closeDelay time.Duration
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -158,7 +160,10 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 	<-term.done
 	rt.mu.Lock()
 	term.closed = true
+	delay := rt.closeDelay
 	rt.mu.Unlock()
+	rt.srv.Publish("pane.closed", map[string]any{"pane": term.pane})
+	time.Sleep(delay)
 	return map[string]any{"state": "succeeded"}, nil
 }
 

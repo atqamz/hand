@@ -141,3 +141,31 @@ func TestOpenMigratesAVersionOneHome(t *testing.T) {
 		t.Fatalf("projects after migration = %+v, %v", ps, err)
 	}
 }
+
+func TestEventsAfterFiltersByCursorAndKind(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if seq, err := s.LastEventSeq(ctx); err != nil || seq != 0 {
+		t.Fatalf("empty last seq = %d, %v", seq, err)
+	}
+	seedProject(t, s)
+	task, _ := s.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = s.Transition(ctx, task.ID, StatusActive)
+	d, _ := s.Ask(ctx, task.ID, "Keep it?")
+	_, _ = s.Answer(ctx, d.ID, "yes", "operator")
+	last, err := s.LastEventSeq(ctx)
+	if err != nil || last != 5 {
+		t.Fatalf("last seq = %d, %v", last, err)
+	}
+	all, err := s.EventsAfter(ctx, 2, nil, 10)
+	if err != nil || len(all) != 3 || all[0].Seq != 3 {
+		t.Fatalf("after 2 = %+v, %v", all, err)
+	}
+	wake, err := s.EventsAfter(ctx, 0, []string{"decision.answered"}, 10)
+	if err != nil || len(wake) != 1 || wake[0].Kind != "decision.answered" || wake[0].TaskID != task.ID || wake[0].Detail != "d1" {
+		t.Fatalf("wake = %+v, %v", wake, err)
+	}
+	if _, err := s.EventsAfter(ctx, 0, nil, 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("limit 0 err = %v", err)
+	}
+}

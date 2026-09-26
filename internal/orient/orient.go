@@ -37,6 +37,10 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 	if err != nil {
 		return nil, err
 	}
+	cursor, err := st.LastEventSeq(ctx)
+	if err != nil {
+		return nil, err
+	}
 	active, err := st.Tasks(ctx, []string{state.StatusActive}, b.Active)
 	if err != nil {
 		return nil, err
@@ -114,7 +118,7 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, counts, sections, memLines, truncated)
+		d := render(home, counts, cursor, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -138,11 +142,12 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, counts map[string]int, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("tasks", fmt.Sprintf("inbox=%d active=%d done=%d abandoned=%d",
 		counts[state.StatusInbox], counts[state.StatusActive], counts[state.StatusDone], counts[state.StatusAbandoned]))
+	d.Field("cursor", strconv.FormatInt(cursor, 10))
 	for _, s := range sections {
 		d.Rows(s.name, s.fields, s.rows)
 		if s.cmd != "" && len(s.rows) < s.total {
@@ -154,7 +159,8 @@ func render(home string, counts map[string]int, sections []*section, memLines []
 		d.Field("operator_memory_truncated", "read "+filepath.Join(home, "memory", memory.OperatorFile)+" for the rest")
 	}
 	d.Help("Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`",
-		"Ask the operator only through `hand decision ask TASK QUESTION`")
+		"Ask the operator only through `hand decision ask TASK QUESTION`",
+		"Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running)")
 	return &d
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +23,7 @@ type Env struct {
 	Getenv  func(string) string
 	Environ func() []string
 	Now     func() time.Time
+	Context context.Context
 }
 
 type handler func(*runner, []string) error
@@ -129,4 +131,11 @@ func parse(fs *flag.FlagSet, args []string, want int) ([]string, error) {
 
 func (r *runner) print(d *toon.Doc) error {
 	return d.Render(r.env.Stdout)
+}
+
+func (r *runner) ctx() context.Context {
+	if r.env.Context != nil {
+		return r.env.Context
+	}
+	return context.Background()
 }
