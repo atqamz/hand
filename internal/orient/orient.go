@@ -34,6 +34,10 @@ type section struct {
 }
 
 func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.Doc, error) {
+	f, err := st.Fleet(ctx)
+	if err != nil {
+		return nil, err
+	}
 	counts, err := st.CountTasks(ctx)
 	if err != nil {
 		return nil, err
@@ -145,7 +149,7 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, counts, cursor, sections, memLines, truncated)
+		d := render(home, f, counts, cursor, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -169,9 +173,10 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
+	d.Field("fleet", f.Name+" ("+f.ID+")")
 	d.Field("tasks", fmt.Sprintf("inbox=%d active=%d done=%d abandoned=%d",
 		counts[state.StatusInbox], counts[state.StatusActive], counts[state.StatusDone], counts[state.StatusAbandoned]))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))

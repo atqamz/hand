@@ -229,7 +229,7 @@ func (w *watcher) alert(ctx context.Context, text string) {
 		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
-		_ = exec.CommandContext(nctx, bin, "--app-name=hand", "hand", text).Run()
+		_ = exec.CommandContext(nctx, bin, "--app-name=hand", w.r.fleet.Name, text).Run()
 	}()
 }
 

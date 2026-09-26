@@ -8,3 +8,4 @@ Personal supervisor layer for coding agents. Read `docs/spec.md` before changing
 - Output is TOON via `internal/toon`; keep `hand orient` within its byte budget.
 - Run `gofmt -l .`, `go vet ./...` and `go test -race ./...` before committing.
 - Luvus is reached only through `internal/luvus` (UHP over its Unix socket). Never call `luvus worktree`, `task`, `pane send`, or `server restart --all`.
+- A fleet home is any folder holding `hand.db`. `~/.secondhand` (`$SECONDHAND_HOME`) holds `fleets/<id>` links and `worktrees/<id>/`. Tests set `SECONDHAND_HOME` to a temp dir and never touch the real one.

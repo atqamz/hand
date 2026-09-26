@@ -21,8 +21,23 @@ func TestUnitFilesRunTheWatcherAndTheBoard(t *testing.T) {
 			t.Fatalf("watch unit missing %q:\n%s", want, watch)
 		}
 	}
+	if !strings.Contains(watch, "Description=Hand watcher for my fleet ("+h.home+")\n") {
+		t.Fatalf("watch unit does not name the fleet:\n%s", watch)
+	}
 	if board := h.ok("unit", "board"); !strings.Contains(board, `ExecStart="`+exe+`" board --addr 127.0.0.1:7777`) {
 		t.Fatalf("board unit:\n%s", board)
+	}
+	if board := h.ok("unit", "--addr", "127.0.0.1:7778", "board"); !strings.Contains(board, `ExecStart="`+exe+`" board --addr 127.0.0.1:7778`) {
+		t.Fatalf("board unit with --addr:\n%s", board)
+	}
+	for _, args := range [][]string{{"unit", "--addr", "127.0.0.1:7778", "watch"}, {"unit", "--addr", "127.0.0.1:7778 --x", "board"}} {
+		if _, _, code := h.run(args...); code != 2 {
+			t.Fatalf("%q code = %d, want 2", args, code)
+		}
+	}
+	h.ok("init", "--name", `say "hi"`)
+	if out, errOut, code := h.run("unit", "watch"); code != 2 || out != "" || !strings.Contains(errOut, "systemd unit") {
+		t.Fatalf("quoted fleet name: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if _, _, code := h.run("unit", "luvus"); code != 2 {
 		t.Fatalf("unknown unit code = %d, want 2", code)
@@ -38,7 +53,7 @@ func TestUnitFilesEscapeSpecifiersAndRefuseUnquotablePaths(t *testing.T) {
 	h.ok("init")
 	escaped := strings.ReplaceAll(h.home, "%", "%%")
 	watch := h.ok("unit", "watch")
-	for _, want := range []string{"Description=Hand watcher for " + escaped + "\n", `Environment="HAND_HOME=` + escaped + `"`} {
+	for _, want := range []string{"Description=Hand watcher for 100%%h fleet (" + escaped + ")\n", `Environment="HAND_HOME=` + escaped + `"`} {
 		if !strings.Contains(watch, want) {
 			t.Fatalf("watch unit missing %q:\n%s", want, watch)
 		}
