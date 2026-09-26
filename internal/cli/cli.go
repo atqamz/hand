@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -52,8 +53,11 @@ func Run(args []string, env Env) int {
 
 func exitCode(err error) int {
 	var u usageError
-	if errors.As(err, &u) {
+	switch {
+	case errors.As(err, &u), errors.Is(err, state.ErrInvalid):
 		return 2
+	case errors.Is(err, state.ErrNotFound), errors.Is(err, state.ErrConflict):
+		return 3
 	}
 	return 1
 }
