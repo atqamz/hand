@@ -156,6 +156,16 @@ func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, erro
 			if live != 0 {
 				return fmt.Errorf("%w: task %s has live attempt %s; stop it first", ErrConflict, TaskRef(id), AttemptRef(live))
 			}
+			if to == StatusDone {
+				var unread int64
+				err := tx.QueryRow(`SELECT id FROM report WHERE task_id = ? AND acked_at = '' ORDER BY id LIMIT 1`, id).Scan(&unread)
+				if err == nil {
+					return fmt.Errorf("%w: task %s has unread report %s; read and ack it first", ErrConflict, TaskRef(id), ReportRef(unread))
+				}
+				if !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+			}
 		}
 		from, now := cur.Status, s.stamp()
 		res, err := tx.Exec(`UPDATE task SET status = ?, updated_at = ? WHERE id = ? AND status = ?`, to, now, id, from)
