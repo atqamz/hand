@@ -158,6 +158,9 @@ func cmdInit(r *runner, args []string) error {
 	if r.home, err = filepath.EvalSymlinks(dir); err != nil {
 		return err
 	}
+	if err := fleet.Install(r.home); err != nil {
+		return err
+	}
 	root, err := fleet.Root(r.env.Getenv)
 	if err != nil {
 		return err

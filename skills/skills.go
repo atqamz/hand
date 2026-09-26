@@ -2,5 +2,8 @@ package skills
 
 import _ "embed"
 
-//go:embed hand/SKILL.md
-var Hand string
+//go:embed secondhand/SKILL.md
+var Secondhand string
+
+//go:embed bootstrap.md
+var Bootstrap string
