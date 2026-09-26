@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -193,6 +194,9 @@ func cmdInit(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := repairWorktrees(ctx, st); err != nil {
+		return err
+	}
 	var d toon.Doc
 	d.Field("home", r.home)
 	d.Field("fleet", f.Name)
@@ -209,4 +213,39 @@ func cmdInit(r *runner, args []string) error {
 	}
 	d.Help(help...)
 	return r.print(&d)
+}
+
+func repairWorktrees(ctx context.Context, st *state.Store) error {
+	as, err := st.UncleanedAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	var repos []string
+	byRepo := map[string][]string{}
+	for _, a := range as {
+		if _, err := os.Stat(a.Worktree); err != nil {
+			continue
+		}
+		t, err := st.Task(ctx, a.TaskID)
+		if err != nil {
+			return err
+		}
+		p, err := st.Project(ctx, t.Project)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(p.Repo); err != nil {
+			continue
+		}
+		if _, seen := byRepo[p.Repo]; !seen {
+			repos = append(repos, p.Repo)
+		}
+		byRepo[p.Repo] = append(byRepo[p.Repo], a.Worktree)
+	}
+	for _, repo := range repos {
+		if _, err := git(ctx, repo, append([]string{"worktree", "repair"}, byRepo[repo]...)...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
