@@ -49,25 +49,27 @@ func TestOpenRefusesNewerSchema(t *testing.T) {
 }
 
 func TestConcurrentFirstOpenCreatesSchemaOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	var wg sync.WaitGroup
-	errs := make(chan error, 4)
-	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s, err := Open(path, clock)
-			if err == nil {
-				err = s.Close()
+	for range 20 {
+		path := filepath.Join(t.TempDir(), "hand.db")
+		var wg sync.WaitGroup
+		errs := make(chan error, 8)
+		for range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s, err := Open(path, clock)
+				if err == nil {
+					err = s.Close()
+				}
+				errs <- err
+			}()
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("concurrent open: %v", err)
 			}
-			errs <- err
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent open: %v", err)
 		}
 	}
 }
