@@ -39,7 +39,7 @@ Write one list for the operator. Each line is one action, marked `create`, `keep
 | 0.7 | New fleet | Rule |
 |---|---|---|
 | `data/operator.md` | the operator memory file `hand orient` prints | copy the constraints verbatim; curate the prose |
-| `data/learnings.md` | the same file, or `memory/projects/<name>.md` for a lesson about one project | reusable lessons only; drop one-off incidents; keep within orient's memory budget |
+| `data/learnings.md` | the same file, or `memory/projects/<name>.md` for a lesson about one project | reusable lessons only; drop one-off incidents and lessons about 0.7-only commands (name them in the proposal); keep within orient's memory budget |
 | each project in `data/projects.md` | `hand project add NAME <this folder>/projects/NAME` | the clone stays where it is; note `mode=` in the project's memory when it matters |
 | each `## Queue` item | `hand task add --goal "…" PROJECT "title"` | keep dates and conditions in the goal |
 | each open task | `hand task add`, then `hand plan set --body-file BRIEF tN` from its brief | one line per task with its last status line, and the operator picks |
