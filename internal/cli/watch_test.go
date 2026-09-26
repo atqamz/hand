@@ -115,3 +115,15 @@ func TestSecondWatcherIsRefused(t *testing.T) {
 		t.Fatalf("second watch code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestStopWhileWatchingRecordsStopped(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.closeDelay = 300 * time.Millisecond })
+	out, errOut, code := fx.h.run("attempt", "stop", "a1")
+	if code != 0 || !strings.Contains(out, "status: stopped") {
+		t.Fatalf("stop with a watcher: code=%d out=%q stderr=%q", code, out, errOut)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -73,27 +74,67 @@ func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps
 		return err
 	}
 	for _, a := range live {
-		to, reason, err := r.observe(ctx, c, caps, a)
+		unlock, ok, err := r.attemptLock(a.ID, false)
 		if err != nil {
 			return err
 		}
-		if to == "" {
+		if !ok {
 			continue
 		}
-		if err := stopRoot(a.PID, a.StartMarker); err != nil {
-			return err
-		}
-		if err := closeAttemptTerminals(ctx, c, a); err != nil {
-			if a.Status == state.AttemptLaunching {
-				continue
-			}
-			reason += "; terminal cleanup failed: " + err.Error()
-		}
-		if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
+		err = r.settle(ctx, st, c, caps, a.ID)
+		unlock()
+		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, id int64) error {
+	a, err := st.Attempt(ctx, id)
+	if err != nil || !a.Live() {
+		return err
+	}
+	to, reason, err := r.observe(ctx, c, caps, a)
+	if err != nil || to == "" {
+		return err
+	}
+	if err := stopRoot(a.PID, a.StartMarker); err != nil {
+		return err
+	}
+	if err := closeAttemptTerminals(ctx, c, a); err != nil {
+		if a.Status == state.AttemptLaunching {
+			return nil
+		}
+		reason += "; terminal cleanup failed: " + err.Error()
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
+		return err
+	}
+	return nil
+}
+
+func (r *runner) attemptLock(id int64, wait bool) (func(), bool, error) {
+	dir := filepath.Join(r.home, "locks")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, state.AttemptRef(id)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return func() { _ = f.Close() }, true, nil
 }
 
 func (r *runner) observe(ctx context.Context, c luvus.Client, caps luvus.Capabilities, a state.Attempt) (string, string, error) {
