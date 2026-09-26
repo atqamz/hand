@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,6 +28,18 @@ func TestAFleetMadeByHandNextSaysHandNext(t *testing.T) {
 	agents, err := os.ReadFile(filepath.Join(h.home, "AGENTS.md"))
 	if err != nil || !strings.Contains(string(agents), "`hand-next orient`") {
 		t.Fatalf("AGENTS.md = %q, %v", agents, err)
+	}
+	h.ok("project", "add", "app", gitRepo(t))
+	for i := range 12 {
+		h.ok("task", "add", "app", "Task "+strconv.Itoa(i))
+	}
+	if out := h.ok("orient"); !strings.Contains(out, "run `hand-next task list") || strings.Contains(out, "`hand ") {
+		t.Fatalf("orient = %q", out)
+	}
+	for _, args := range [][]string{{}, {"task"}} {
+		if _, errOut, _ := h.run(args...); !strings.Contains(errOut, "usage: hand-next ") {
+			t.Fatalf("%q: error = %q", args, errOut)
+		}
 	}
 	h.home = filepath.Join(t.TempDir(), "nope")
 	h.cwd = t.TempDir()

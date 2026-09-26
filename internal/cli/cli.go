@@ -55,7 +55,8 @@ func Run(args []string, env Env) int {
 	if err == nil {
 		return 0
 	}
-	fmt.Fprintf(env.Stderr, "error: %s\n", strings.ReplaceAll(err.Error(), "`hand ", "`"+env.command()+" "))
+	named := strings.NewReplacer("`hand ", "`"+env.command()+" ", "usage: hand ", "usage: "+env.command()+" ")
+	fmt.Fprintf(env.Stderr, "error: %s\n", named.Replace(err.Error()))
 	return exitCode(err)
 }
 
@@ -148,7 +149,7 @@ func parse(fs *flag.FlagSet, args []string, want int) ([]string, error) {
 }
 
 func (r *runner) print(d *toon.Doc) error {
-	d.ReplaceHelp("`hand ", "`"+r.env.command()+" ")
+	d.ReplaceHints("`hand ", "`"+r.env.command()+" ")
 	return d.Render(r.env.Stdout)
 }
 
