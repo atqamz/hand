@@ -288,3 +288,24 @@ func TestA07FleetGetsTheMigrationHint(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestA07FleetNamedByHandHomeGetsTheMigrationHint(t *testing.T) {
+	h := newHarness(t)
+	old := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(old, "state"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.cwd = t.TempDir()
+	for _, args := range [][]string{{"--home", old, "task", "list"}} {
+		if _, errOut, code := h.run(args...); code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	h.home = old
+	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, old+" is a Hand 0.7 fleet") {
+		t.Fatalf("HAND_HOME: code=%d stderr=%q", code, errOut)
+	}
+}

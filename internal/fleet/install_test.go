@@ -173,3 +173,21 @@ func TestADirectoryIsNotThe07Marker(t *testing.T) {
 		t.Fatalf("a directory counted as the 0.7 marker: %v", err)
 	}
 }
+
+func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
+	if err := fleet.Install(home, "hand"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(home, "state"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(home, "state"), 0o755) })
+	if err := fleet.Install(home, "hand"); err == nil {
+		t.Fatal("install ignored an unreadable 0.7 marker")
+	}
+	if _, err := os.Stat(filepath.Join(home, migratePaths[0])); err != nil {
+		t.Fatalf("the migrate skill was removed: %v", err)
+	}
+}

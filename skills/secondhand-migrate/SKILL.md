@@ -11,11 +11,15 @@ This folder holds a Hand 0.7 fleet, and `hand init` has already made it a new fl
 
 ## First: the 0.7 wiring
 
-If `.claude/settings.json` still has a Stop hook with the arguments `supervision claude-stop`, or if `.pi/extensions/hand-*` or `.opencode/plugins/hand-*` still exist, they keep waking you with 0.7 errors. Before anything else, show the operator exactly those entries and files, and remove them once the operator approves. `hand init` warns about them too.
+If `.claude/settings.json` still has a Stop hook with the arguments `supervision claude-stop`, or if `.pi/extensions/hand-*` or `.opencode/plugins/hand-*` still exist, they keep waking you with 0.7 errors. `hand init` warns about them too. This is the one change you ask for before the proposal:
+
+1. Show the operator exactly those entries and files.
+2. Remove them only after the operator approves that removal.
+3. Then start the inventory.
 
 ## Rules
 
-- Change nothing before the operator approves your proposal. Reading is free; writing waits.
+- Change nothing before the operator approves your proposal. The only exception is the wiring removal above, which needs its own approval. Reading is free; writing waits.
 - Rebuild only through `hand` commands. Never write `hand.db`, and never query the 0.7 database `state/hand.db`.
 - Move or delete 0.7 files only in the archive and cleanup steps, and only with approval.
 - When a 0.7 fact is unclear, say so in the proposal instead of guessing.
@@ -94,7 +98,11 @@ Do this before the archive, while this skill is still installed.
    - anything else (dirty, unreachable, locked, or belonging to another or deleted clone) is `ask`, and stays until the operator decides.
 
    Never touch worktrees under `~/.secondhand/worktrees/`: they belong to the new Hand.
-3. **Shared folder:** only when `pools/` holds nothing the operator wants kept, and only with approval, delete `pools/`, `runtime/`, `herdr/`, `integrations/`, `registry.db` and `registry.db.lock` from `~/.secondhand`. Never touch `fleets/` or `worktrees/` there.
+3. **Shared folder:** the 0.7 files there serve every 0.7 fleet on this machine, not only this one.
+   1. List the other 0.7 fleets: with the old binary, use its fleet listing (for example `hand-0.7 fleet`). Otherwise, ask the operator which folders are still 0.7 fleets (a folder holding `state/hand.db`).
+   2. If any other 0.7 fleet is still in use, delete nothing here.
+   3. Otherwise, only when `pools/` holds nothing the operator wants to keep, and only with approval, delete `pools/`, `runtime/`, `herdr/`, `integrations/`, `registry.db` and `registry.db.lock` from `~/.secondhand`.
+   4. Never touch `fleets/` or `worktrees/` there.
 
 ## 7. Archive (with approval)
 

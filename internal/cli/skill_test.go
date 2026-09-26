@@ -116,10 +116,11 @@ func TestInitInAnOldFleetLeavesItsDataAlone(t *testing.T) {
 func TestInitWarnsAboutLive07Wiring(t *testing.T) {
 	h := newHarness(t)
 	for rel, body := range map[string]string{
-		"state/hand.db":                             "0.7",
-		".claude/settings.json":                     `{"hooks":{"Stop":[{"hooks":[{"args":["supervision","claude-stop"],"command":"/usr/local/bin/hand","type":"command"}]}]}}`,
-		".pi/extensions/hand-supervisor-wake.ts":    "x",
-		".opencode/plugins/hand-supervisor-wake.js": "x",
+		"state/hand.db":                          "0.7",
+		".claude/settings.json":                  `{"hooks":{"Stop":[{"hooks":[{"args":["supervision","claude-stop"],"command":"/usr/local/bin/hand","type":"command"}]}]}}`,
+		".pi/extensions/hand-supervisor-wake.ts": "x",
+		".opencode/plugins/hand-custom.js":       "x",
+		".pi/extensions/mine.ts":                 "x",
 	} {
 		path := filepath.Join(h.home, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -130,10 +131,13 @@ func TestInitWarnsAboutLive07Wiring(t *testing.T) {
 		}
 	}
 	out := h.ok("init")
-	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", ".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-supervisor-wake.js"} {
+	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", ".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-custom.js"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("init does not warn about %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "mine.ts") {
+		t.Fatalf("init warned about a file that is not Hand's:\n%s", out)
 	}
 	if clean := newHarness(t).ok("init"); strings.Contains(clean, "0.7 wiring") {
 		t.Fatalf("a fresh fleet got the 0.7 warning:\n%s", clean)

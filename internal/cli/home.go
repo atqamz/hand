@@ -96,6 +96,9 @@ func (r *runner) needHome() error {
 		return fmt.Errorf("%w: not inside a fleet home; cd into one, pass --home DIR, or run `hand init` to make this folder one", state.ErrNotFound)
 	}
 	if _, err := os.Stat(r.dbPath()); errors.Is(err, fs.ErrNotExist) {
+		if info, err := os.Stat(filepath.Join(r.home, "state", "hand.db")); err == nil && info.Mode().IsRegular() {
+			return fmt.Errorf("%w: %s is a Hand 0.7 fleet; run `hand init` there, then ask its supervisor to use the secondhand-migrate skill", state.ErrNotFound, r.home)
+		}
 		return fmt.Errorf("%w: no hand home at %s; run `hand init`", state.ErrNotFound, r.home)
 	} else if err != nil {
 		return err
@@ -282,9 +285,10 @@ func legacyWiring(home string) []string {
 	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "claude-stop") {
 		found = append(found, ".claude/settings.json (its supervision claude-stop Stop hook)")
 	}
-	for _, rel := range []string{".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-supervisor-wake.js"} {
-		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
-			found = append(found, rel)
+	for _, dir := range []string{filepath.Join(".pi", "extensions"), filepath.Join(".opencode", "plugins")} {
+		matches, _ := filepath.Glob(filepath.Join(home, dir, "hand-*"))
+		for _, m := range matches {
+			found = append(found, filepath.Join(dir, filepath.Base(m)))
 		}
 	}
 	return found

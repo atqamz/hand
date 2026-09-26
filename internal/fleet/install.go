@@ -24,6 +24,9 @@ func Install(home, command string) error {
 	}
 	defer dir.Close()
 	info, err := dir.Stat(filepath.Join("state", "hand.db"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+		return fmt.Errorf("check the Hand 0.7 marker: %w", err)
+	}
 	legacy := err == nil && info.Mode().IsRegular()
 	named := strings.NewReplacer("`hand ", "`"+command+" ", "`hand`", "`"+command+"`")
 	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
