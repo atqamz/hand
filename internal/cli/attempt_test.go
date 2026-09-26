@@ -26,7 +26,7 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	}
 	call := fx.rt.lastCreate()
 	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
-	if call.CWD != wt || call.Label != "hand-a1" || call.Command[len(call.Command)-1] != "Fix the login bug, commit, then stop." {
+	if call.CWD != wt || call.Label != "hand-a1" || !strings.HasPrefix(call.Command[len(call.Command)-1], "Fix the login bug, commit, then stop.") {
 		t.Fatalf("create = %+v", call)
 	}
 	if !strings.HasSuffix(call.Command[0], "/claude") || call.Command[1] != "--dangerously-skip-permissions" {

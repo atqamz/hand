@@ -21,7 +21,7 @@ func TestTaskLifecycleThroughCLI(t *testing.T) {
 	}
 	h.ok("task", "start", "t1")
 	show := h.ok("task", "show", "1")
-	if !strings.Contains(show, "status: active") || !strings.Contains(show, "goal: users can log in") || !strings.Contains(show, "attempt: none") {
+	if !strings.Contains(show, "status: active") || !strings.Contains(show, "goal: users can log in") || !strings.Contains(show, "attempt: none") || !strings.Contains(show, "report: none") {
 		t.Fatalf("task show = %q", show)
 	}
 	list := h.ok("task", "list")

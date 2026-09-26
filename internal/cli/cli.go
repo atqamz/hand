@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -24,6 +25,7 @@ type Env struct {
 	Environ func() []string
 	Now     func() time.Time
 	Context context.Context
+	Getwd   func() (string, error)
 }
 
 type handler func(*runner, []string) error
@@ -138,4 +140,11 @@ func (r *runner) ctx() context.Context {
 		return r.env.Context
 	}
 	return context.Background()
+}
+
+func (r *runner) getwd() (string, error) {
+	if r.env.Getwd != nil {
+		return r.env.Getwd()
+	}
+	return os.Getwd()
 }

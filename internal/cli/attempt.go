@@ -57,7 +57,11 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	argv, err := harness.Argv(bin, spec, string(prompt))
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	argv, err := harness.Argv(bin, spec, string(prompt)+reportFooter(exe))
 	if err != nil {
 		return err
 	}

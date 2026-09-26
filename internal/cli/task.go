@@ -83,6 +83,17 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("attempt", "none")
 	}
+	rep, ok, err := st.LatestReport(context.Background(), state.ReportFilter{TaskID: id})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		d.Field("report", "none")
+	} else if rep.AckedAt == "" {
+		d.Field("report", state.ReportRef(rep.ID)+" "+rep.Status+" unacked")
+	} else {
+		d.Field("report", state.ReportRef(rep.ID)+" "+rep.Status)
+	}
 	ds, err := st.OpenDecisions(context.Background(), id, 20)
 	if err != nil {
 		return err
