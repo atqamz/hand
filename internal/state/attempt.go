@@ -231,6 +231,10 @@ func (s *Store) Attempts(ctx context.Context, taskID int64, limit int) ([]Attemp
 	return s.queryAttempts(ctx, `SELECT * FROM (`+q+` ORDER BY id DESC LIMIT ?) ORDER BY id`, args...)
 }
 
+func (s *Store) UncleanedAttempts(ctx context.Context) ([]Attempt, error) {
+	return s.queryAttempts(ctx, attemptSelect+` WHERE cleaned_at = '' ORDER BY id`)
+}
+
 func (s *Store) LiveAttempts(ctx context.Context) ([]Attempt, error) {
 	return s.queryAttempts(ctx, attemptSelect+` WHERE status IN (?, ?) ORDER BY id`, AttemptLaunching, AttemptRunning)
 }
