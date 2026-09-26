@@ -6,7 +6,9 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -15,7 +17,12 @@ import (
 //go:embed schema.sql
 var schema string
 
-const SchemaVersion = 1
+//go:embed attempt.sql
+var attemptSchema string
+
+var migrations = []string{schema, attemptSchema}
+
+const SchemaVersion = 2
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -29,6 +36,14 @@ type Store struct {
 }
 
 func Open(path string, now func() time.Time) (*Store, error) {
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return nil, err
+	}
 	dsn := "file:" + path + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -56,8 +71,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		case v > SchemaVersion:
 			return fmt.Errorf("%w: state schema %d is newer than this hand (%d)", ErrInvalid, v, SchemaVersion)
 		}
-		if _, err := tx.Exec(schema); err != nil {
-			return err
+		for _, m := range migrations[v:SchemaVersion] {
+			if _, err := tx.Exec(m); err != nil {
+				return err
+			}
 		}
 		_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion))
 		return err

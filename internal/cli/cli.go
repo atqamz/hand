@@ -17,10 +17,11 @@ import (
 const Version = "0.0.0-next"
 
 type Env struct {
-	Stdout io.Writer
-	Stderr io.Writer
-	Getenv func(string) string
-	Now    func() time.Time
+	Stdout  io.Writer
+	Stderr  io.Writer
+	Getenv  func(string) string
+	Environ func() []string
+	Now     func() time.Time
 }
 
 type handler func(*runner, []string) error
