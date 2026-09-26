@@ -1,4 +1,13 @@
-/hand
-*.db
-*.db-wal
-*.db-shm
+*
+!/.gitignore
+!/.github/
+!/.github/**
+!/AGENTS.md
+!/LICENSE
+!/docs/
+!/docs/**
+!/go.mod
+!/go.sum
+!/main.go
+!/internal/
+!/internal/**
