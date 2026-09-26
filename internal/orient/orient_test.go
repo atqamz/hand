@@ -202,3 +202,35 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	spec := state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
+	term := state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}
+	a1, _ := st.AddAttempt(ctx, spec, "/w")
+	_, _ = st.AttemptRunning(ctx, a1.ID, term)
+	_, _ = st.AddReport(ctx, a1.ID, state.ReportDone, "first try")
+	_, _ = st.EndAttempt(ctx, a1.ID, state.AttemptStopped, "retry")
+	a2, _ := st.AddAttempt(ctx, spec, "/w")
+	_, _ = st.AttemptRunning(ctx, a2.ID, term)
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "t1,hand,Fix login,none,a2 running,none,0") {
+		t.Fatalf("orient =\n%s", out)
+	}
+}
+
+func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
+	st, home := setup(t)
+	b := DefaultBudget
+	b.Reports = 0
+	if _, err := Build(context.Background(), st, home, b); err != nil {
+		t.Fatalf("zero report budget: %v", err)
+	}
+}

@@ -68,7 +68,33 @@ func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	prompt := fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1]
-	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, " report add --status done|stuck|progress --file SUMMARY.md") {
+	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file SUMMARY.md\n") || strings.Contains(prompt, "done|stuck") {
 		t.Fatalf("prompt = %q", prompt)
+	}
+}
+
+func TestReportInsideAWorktreeCannotClaimAnotherAttempt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("task", "add", "app", "Second task")
+	fx.h.ok("task", "start", "t2")
+	fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t2")
+	fx.h.cwd = filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	if _, errOut, code := fx.h.run("report", "add", "--attempt", "a2", "--status", "done", "--text", "not mine"); code != 3 || !strings.Contains(errOut, "belongs to attempt a1") {
+		t.Fatalf("cross-attempt report: code=%d stderr=%q", code, errOut)
+	}
+	if out := fx.h.ok("report", "add", "--attempt", "a1", "--status", "progress", "--text", "mine"); !strings.Contains(out, "attempt: a1") {
+		t.Fatalf("own attempt = %q", out)
+	}
+}
+
+func TestTaskShowPairsTheReportWithTheLatestAttempt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "first try")
+	fx.h.ok("attempt", "stop", "a1")
+	fx.start()
+	if show := fx.h.ok("task", "show", "t1"); !strings.Contains(show, "attempt: a2 running") || !strings.Contains(show, "report: none") {
+		t.Fatalf("task show = %q", show)
 	}
 }

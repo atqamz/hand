@@ -71,27 +71,24 @@ func TestReportLifecycle(t *testing.T) {
 	}
 }
 
-func TestReportedSinceQuietFollowsTheEventLog(t *testing.T) {
+func TestRecordQuietLabelsTheTurnInOneTransaction(t *testing.T) {
 	s, _ := openTest(t)
 	a := runningAttempt(t, s)
 	ctx := context.Background()
-	check := func(want bool) {
+	check := func(want string) {
 		t.Helper()
-		if got, err := s.ReportedSinceQuiet(ctx, a.ID); err != nil || got != want {
-			t.Fatalf("ReportedSinceQuiet = %v, %v; want %v", got, err, want)
+		if got, err := s.RecordQuiet(ctx, a.ID); err != nil || got != want {
+			t.Fatalf("RecordQuiet = %q, %v; want %q", got, err, want)
 		}
 	}
-	check(false)
-	if _, err := s.AddReport(ctx, a.ID, ReportProgress, "halfway"); err != nil {
+	check("turn ended without a new report")
+	if _, err := s.AddReport(ctx, a.ID, ReportDone, "Fixed login"); err != nil {
 		t.Fatal(err)
 	}
-	check(true)
-	if err := s.NoteAttempt(ctx, a.ID, "quiet", "turn ended"); err != nil {
-		t.Fatal(err)
+	check("turn ended; reported r1 done")
+	check("turn ended without a new report")
+	events, _ := s.RecentEvents(ctx, 1)
+	if events[0].Kind != "attempt.quiet" || events[0].Detail != "a1: turn ended without a new report" {
+		t.Fatalf("event = %+v", events[0])
 	}
-	check(false)
-	if _, err := s.AddReport(ctx, a.ID, ReportDone, "done"); err != nil {
-		t.Fatal(err)
-	}
-	check(true)
 }

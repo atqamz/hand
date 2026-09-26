@@ -83,11 +83,14 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("attempt", "none")
 	}
-	rep, ok, err := st.LatestReport(context.Background(), state.ReportFilter{TaskID: id})
-	if err != nil {
-		return err
+	var rep state.Report
+	found := false
+	if ok {
+		if rep, found, err = st.LatestReport(context.Background(), state.ReportFilter{AttemptID: a.ID}); err != nil {
+			return err
+		}
 	}
-	if !ok {
+	if !found {
 		d.Field("report", "none")
 	} else if rep.AckedAt == "" {
 		d.Field("report", state.ReportRef(rep.ID)+" "+rep.Status+" unacked")

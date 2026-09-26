@@ -27,10 +27,13 @@ func init() {
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
 func reportFooter(exe string) string {
-	return "\n\n---\nWhen you finish, get stuck, or reach a milestone, report to Hand from inside this worktree:\n" +
-		"  " + exe + " report add --status done|stuck|progress --file SUMMARY.md\n" +
+	return "\n\n---\nWhen you finish, report to Hand from inside this worktree:\n" +
+		"  " + shellQuote(exe) + " report add --status done --file SUMMARY.md\n" +
+		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal."
 }
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	wd, err := r.getwd()
@@ -79,20 +82,19 @@ func cmdReportAdd(r *runner, args []string) error {
 		body = string(b)
 	}
 	ctx := context.Background()
-	var id int64
-	var top string
-	if *attempt != "" {
+	id, top, hereErr := r.attemptHere(ctx)
+	switch {
+	case *attempt != "":
 		n, err := parseID("a", *attempt)
 		if err != nil {
 			return err
 		}
-		id = n
-	} else {
-		n, dir, err := r.attemptHere(ctx)
-		if err != nil {
-			return err
+		if hereErr == nil && n != id {
+			return fmt.Errorf("%w: this worktree belongs to attempt %s, not %s", state.ErrConflict, state.AttemptRef(id), state.AttemptRef(n))
 		}
-		id, top = n, dir
+		id = n
+	case hereErr != nil:
+		return hereErr
 	}
 	st, err := r.store()
 	if err != nil {

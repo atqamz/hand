@@ -172,12 +172,27 @@ func (s *Store) UnackedReportCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
-func (s *Store) ReportedSinceQuiet(ctx context.Context, attemptID int64) (bool, error) {
-	prefix := AttemptRef(attemptID) + ": %"
-	var ok bool
-	err := s.db.QueryRowContext(ctx, `SELECT EXISTS (
-		SELECT 1 FROM event WHERE kind = 'attempt.reported' AND detail LIKE ?
-		AND seq > COALESCE((SELECT MAX(seq) FROM event WHERE kind = 'attempt.quiet' AND detail LIKE ?), 0)
-	)`, prefix, prefix).Scan(&ok)
-	return ok, err
+func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (string, error) {
+	detail := "turn ended without a new report"
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, attemptID)
+		if err != nil {
+			return err
+		}
+		prefix := AttemptRef(attemptID) + ": %"
+		var id int64
+		var status string
+		err = tx.QueryRow(`SELECT id, status FROM report WHERE attempt_id = ? AND EXISTS (
+			SELECT 1 FROM event WHERE kind = 'attempt.reported' AND detail LIKE ?
+			AND seq > COALESCE((SELECT MAX(seq) FROM event WHERE kind = 'attempt.quiet' AND detail LIKE ?), 0)
+		) ORDER BY id DESC LIMIT 1`, attemptID, prefix, prefix).Scan(&id, &status)
+		switch {
+		case err == nil:
+			detail = "turn ended; reported " + ReportRef(id) + " " + status
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+		return emit(tx, s.stamp(), "attempt.quiet", a.TaskID, AttemptRef(attemptID)+": "+detail)
+	})
+	return detail, err
 }

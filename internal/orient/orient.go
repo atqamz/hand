@@ -69,12 +69,14 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 			attempt = state.AttemptRef(a.ID) + " " + a.Status
 		}
 		report := "none"
-		rep, ok, err := st.LatestReport(ctx, state.ReportFilter{TaskID: t.ID})
-		if err != nil {
-			return nil, err
-		}
 		if ok {
-			report = state.ReportRef(rep.ID) + " " + rep.Status
+			rep, found, err := st.LatestReport(ctx, state.ReportFilter{AttemptID: a.ID})
+			if err != nil {
+				return nil, err
+			}
+			if found {
+				report = state.ReportRef(rep.ID) + " " + rep.Status
+			}
 		}
 		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)})
 	}
@@ -92,9 +94,11 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		decisionRows = append(decisionRows, []string{state.DecisionRef(dec.ID), state.TaskRef(dec.TaskID), clip(dec.Question, b.TitleBytes)})
 	}
 
-	reports, err := st.Reports(ctx, state.ReportFilter{Unacked: true}, b.Reports)
-	if err != nil {
-		return nil, err
+	var reports []state.Report
+	if b.Reports > 0 {
+		if reports, err = st.Reports(ctx, state.ReportFilter{Unacked: true}, b.Reports); err != nil {
+			return nil, err
+		}
 	}
 	unacked, err := st.UnackedReportCount(ctx)
 	if err != nil {
