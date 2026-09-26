@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -31,8 +30,10 @@ type Env struct {
 type handler func(*runner, []string) error
 
 type runner struct {
-	env  Env
-	home string
+	env   Env
+	home  string
+	root  string
+	fleet state.Fleet
 }
 
 type usageError struct{ msg string }
@@ -67,10 +68,12 @@ func exitCode(err error) int {
 	return 1
 }
 
+var homeless = map[string]bool{"version": true, "fleet": true}
+
 func dispatch(args []string, env Env) error {
-	home := ""
+	flagHome := ""
 	if len(args) >= 2 && args[0] == "--home" {
-		home, args = args[1], args[2:]
+		flagHome, args = args[1], args[2:]
 	}
 	if len(args) == 0 {
 		return usageError{"usage: hand [--home DIR] COMMAND; commands: " + names(commands)}
@@ -79,20 +82,17 @@ func dispatch(args []string, env Env) error {
 	if !ok {
 		return usageError{fmt.Sprintf("unknown command %q; commands: %s", args[0], names(commands))}
 	}
-	if home == "" {
-		home = env.Getenv("HAND_HOME")
+	r := &runner{env: env}
+	if args[0] == "init" {
+		r.home = flagHome
+		return h(r, args[1:])
 	}
-	if home == "" && env.Getenv("HOME") != "" {
-		home = filepath.Join(env.Getenv("HOME"), ".hand")
+	home, err := resolveHome(env, flagHome, r.getwd)
+	if err != nil && !homeless[args[0]] {
+		return err
 	}
-	if home != "" {
-		abs, err := filepath.Abs(home)
-		if err != nil {
-			return err
-		}
-		home = abs
-	}
-	return h(&runner{env: env, home: home}, args[1:])
+	r.home = home
+	return h(r, args[1:])
 }
 
 func sub(r *runner, args []string, name string, table map[string]handler) error {

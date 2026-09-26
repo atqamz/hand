@@ -55,6 +55,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if spec != (harness.Spec{}) {
 			return usageError{"attempt start: give either --profile or --harness/--model/--effort"}
 		}
+		if err := r.needHome(); err != nil {
+			return err
+		}
 		p, err := harness.LoadPolicy(r.home)
 		if err != nil {
 			return err

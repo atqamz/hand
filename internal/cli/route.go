@@ -17,6 +17,9 @@ func cmdRouteList(r *runner, args []string) error {
 	if _, err := parse(flags("route list"), args, 0); err != nil {
 		return err
 	}
+	if err := r.needHome(); err != nil {
+		return err
+	}
 	p, err := harness.LoadPolicy(r.home)
 	if err != nil {
 		return err
