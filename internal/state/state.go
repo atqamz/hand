@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +51,9 @@ type Store struct {
 }
 
 func Open(path string, now func() time.Time) (*Store, error) {
+	if v, ok := headerVersion(path); ok && v > SchemaVersion {
+		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d); it may be a Hand 0.7 database, which this hand never opens", ErrInvalid, path, v, SchemaVersion)
+	}
 	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
@@ -68,6 +73,19 @@ func Open(path string, now func() time.Time) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func headerVersion(path string) (int, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, false
+	}
+	defer f.Close()
+	b := make([]byte, 64)
+	if _, err := io.ReadFull(f, b); err != nil || string(b[:16]) != "SQLite format 3\x00" {
+		return 0, false
+	}
+	return int(binary.BigEndian.Uint32(b[60:64])), true
 }
 
 func (s *Store) Close() error { return s.db.Close() }

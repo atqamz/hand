@@ -160,3 +160,16 @@ func TestInstallLeavesAForeignMigrateSkillAlone(t *testing.T) {
 		t.Fatalf("install over a foreign migrate skill = %v", err)
 	}
 }
+
+func TestADirectoryIsNotThe07Marker(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "state", "hand.db"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.Install(home, "hand"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, migratePaths[0])); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a directory counted as the 0.7 marker: %v", err)
+	}
+}

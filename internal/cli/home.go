@@ -270,8 +270,24 @@ func cmdInit(r *runner, args []string) error {
 	if movedFrom != "" {
 		help = append(help, "This home moved; regenerate its systemd units with `hand unit watch` and `hand unit board`")
 	}
+	if wiring := legacyWiring(r.home); len(wiring) > 0 {
+		help = append(help, "Remove the Hand 0.7 wiring before opening a supervisor here, or it keeps waking the supervisor: "+strings.Join(wiring, ", "))
+	}
 	d.Help(help...)
 	return r.print(&d)
+}
+
+func legacyWiring(home string) []string {
+	var found []string
+	if b, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json")); err == nil && strings.Contains(string(b), "claude-stop") {
+		found = append(found, ".claude/settings.json (its supervision claude-stop Stop hook)")
+	}
+	for _, rel := range []string{".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-supervisor-wake.js"} {
+		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
+			found = append(found, rel)
+		}
+	}
+	return found
 }
 
 func refuseNesting(home, root string) error {

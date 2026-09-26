@@ -23,8 +23,8 @@ func Install(home, command string) error {
 		return err
 	}
 	defer dir.Close()
-	_, err = dir.Stat(filepath.Join("state", "hand.db"))
-	legacy := err == nil
+	info, err := dir.Stat(filepath.Join("state", "hand.db"))
+	legacy := err == nil && info.Mode().IsRegular()
 	named := strings.NewReplacer("`hand ", "`"+command+" ", "`hand`", "`"+command+"`")
 	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
 	var stale []string
