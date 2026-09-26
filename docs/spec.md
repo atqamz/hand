@@ -2,7 +2,7 @@
 
 Hand is the operator's personal tool for running a crew of coding agents through one supervisor. It is not a product for other users. Every decision is judged by one question: does this make the operator's daily loop cheaper, more deterministic, or more reliable?
 
-Written 2026-09-26 after freezing the v19 rewrite and before the Orca spike (`orca-spike-prompt.md`, report at `~/orca-spike/REPORT.md`).
+Written 2026-09-26 after freezing the v19 rewrite. The runtime was chosen the same day after two spikes: Orca (`~/orca-spike/REPORT.md`) and Luvus (`~/luvus-spike/REPORT.md`).
 
 ## Why this exists
 
@@ -22,9 +22,10 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 ## Hard constraints
 
 - **Token-frugal.** Compact output (TOON). `hand orient` has a measured size budget. No LLM polling; event-driven wakes only.
-- **Few dependencies.** Required: git and the harness CLIs the operator uses (Claude Code, Codex). One runtime backend: Orca, or Herdr with native `git worktree`. `gh` optional. No `*-axi` tools, no private bundled runtime.
+- **Few dependencies.** Required: git, the harness CLIs the operator uses (Claude Code, Codex), and Luvus (github.com/RizRiyz/luvus) as the one runtime backend. Hand uses only Luvus's runtime primitives over UHP 1.0: exact-argv terminals, agent status, fenced input, and events. Hand owns state, worktrees and the board itself, and never uses Luvus's task ledger or worktree commands. `gh` is optional. No `*-axi` tools, no private bundled runtime.
+- **Upstream.** Every Luvus gap gets a Hand-side guard first. Issues and pull requests to RizRiyz/luvus run in parallel, and a guard is deleted only after the fix ships in a release Hand pins.
 - **Linux only**, the operator's machine and projects.
-- **Board** is `hand board`: a local web page from the same Go binary (`net/http` + `html/template`), read-only over state, auto-refresh (SSE or meta-refresh), no JS framework, reachable from a phone over LAN/tunnel. Use Orca's UI instead only if the spike shows it can render Hand's own state.
+- **Board** is `hand board`: a local web page from the same Go binary (`net/http` + `html/template`), read-only over state, auto-refresh (SSE or meta-refresh), no JS framework, reachable from a phone over LAN/tunnel. A Luvus dock may mirror one line per Task; it never replaces `hand board`.
 
 ## Non-goals
 
@@ -37,6 +38,6 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 
 ## Decision path
 
-1. Orca spike decides the runtime backend. Judge it on capability and on cost: Orca is one large GUI dependency replacing Herdr, Treehouse and the bundled runtime; plain Herdr + `git worktree` is the minimal alternative.
+1. Runtime spikes, Orca and then Luvus, chose Luvus on 2026-09-26. It has fenced input that refuses at permission prompts, zero-token event waits, and exact process identity, and it is a 13 MB binary instead of a 556 MB Electron app.
 2. Then a focused redesign on an orphan branch against this spec, reusing proven legacy pieces (state machine, fleet memory, watcher, TOON output) rather than designing from zero.
 3. The frozen v19 work is reference material: its contracts list exactly what to demand from any runtime (process identity, cessation, safe cleanup, exact input delivery).

@@ -17,7 +17,12 @@ import (
 //go:embed schema.sql
 var schema string
 
-const SchemaVersion = 1
+//go:embed attempt.sql
+var attemptSchema string
+
+var migrations = []string{schema, attemptSchema}
+
+const SchemaVersion = 2
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -66,8 +71,10 @@ func (s *Store) migrate(ctx context.Context) error {
 		case v > SchemaVersion:
 			return fmt.Errorf("%w: state schema %d is newer than this hand (%d)", ErrInvalid, v, SchemaVersion)
 		}
-		if _, err := tx.Exec(schema); err != nil {
-			return err
+		for _, m := range migrations[v:SchemaVersion] {
+			if _, err := tx.Exec(m); err != nil {
+				return err
+			}
 		}
 		_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion))
 		return err
