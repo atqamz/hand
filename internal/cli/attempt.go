@@ -101,7 +101,14 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	}
 	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
 	if err == nil {
-		return st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
+		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
+		if err != nil {
+			return a, errors.Join(err, stopWorker(ctx, c, term))
+		}
+		return running, nil
+	}
+	if luvus.Code(err) == "" {
+		return a, errors.Join(err, closeTerminalsUnder(ctx, c, a.Worktree))
 	}
 	err = runtimeErr(err)
 	if _, rmErr := git(ctx, repo, "worktree", "remove", "--force", a.Worktree); rmErr != nil {

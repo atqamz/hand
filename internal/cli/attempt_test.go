@@ -116,11 +116,74 @@ func TestStaleLaunchingAttemptBecomesFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = st.Close()
+	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphan := fx.rt.addShell(t, wt)
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: launching") {
 		t.Fatalf("fresh launching = %q", show)
 	}
 	fx.h.now = fx.h.now.Add(3 * time.Minute)
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") || !strings.Contains(show, "launch did not finish") {
 		t.Fatalf("stale launching = %q", show)
+	}
+	if !fx.rt.isClosed(orphan) {
+		t.Fatal("a terminal left by the crashed launch is still open")
+	}
+}
+
+func TestLaunchStopsTheWorkerWhenRecordingFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
+		res, err := fx.rt.create(params)
+		st, openErr := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
+		if openErr != nil {
+			return nil, openErr
+		}
+		defer st.Close()
+		if _, endErr := st.EndAttempt(context.Background(), 1, state.AttemptFailed, "raced"); endErr != nil {
+			return nil, endErr
+		}
+		return res, err
+	})
+	if _, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1"); code == 0 {
+		t.Fatal("start succeeded although the attempt could not be recorded")
+	}
+	if !gone(fx.rt.lastPID()) {
+		t.Fatal("worker left running after its attempt could not be recorded")
+	}
+}
+
+func TestLostCreateReplyStopsTheWorkerAndKeepsTheWorktree(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
+		if _, err := fx.rt.create(params); err != nil {
+			return nil, err
+		}
+		return nil, fakeuhp.Drop
+	})
+	if _, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1"); code == 0 {
+		t.Fatal("start succeeded without a create reply")
+	}
+	if !gone(fx.rt.lastPID()) {
+		t.Fatal("worker from a lost create reply left running")
+	}
+	if _, err := os.Stat(filepath.Join(fx.h.home, "worktrees", "t1-a1")); err != nil {
+		t.Fatalf("worktree removed after an ambiguous failure: %v", err)
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") {
+		t.Fatalf("show = %q", show)
+	}
+}
+
+func TestRestartStopsAWorkerThatSurvivedIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	pid := fx.rt.lastPID()
+	fx.rt.srv.SetGeneration("gen-2")
+	fx.h.ok("attempt", "show", "a1")
+	if !gone(pid) {
+		t.Fatalf("worker %d survived the restart and was left running", pid)
 	}
 }

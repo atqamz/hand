@@ -42,6 +42,35 @@ func waitGone(pid int, marker string, d time.Duration) bool {
 	return !rootAlive(pid, marker)
 }
 
+func stopRoot(pid int, marker string) error {
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
+		if !rootAlive(pid, marker) {
+			return nil
+		}
+		if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return err
+		}
+		grace := stopGrace
+		if sig == syscall.SIGKILL {
+			grace = killGrace
+		}
+		if waitGone(pid, marker, grace) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: root process %d is still alive after SIGKILL", state.ErrConflict, pid)
+}
+
+func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal) error {
+	if err := stopRoot(t.Root.PID, t.Root.StartMarker); err != nil {
+		return err
+	}
+	if err := c.Close(ctx, t); err != nil && !alreadyClosed(err) {
+		return runtimeErr(err)
+	}
+	return nil
+}
+
 func alreadyClosed(err error) bool {
 	switch luvus.Code(err) {
 	case "stale_terminal", "stale_route", "terminal_gone":
@@ -66,13 +95,8 @@ func cmdAttemptStop(r *runner, args []string) error {
 		}
 		to, reason := state.AttemptExited, "root process already gone"
 		if rootAlive(a.PID, a.StartMarker) {
-			_ = syscall.Kill(-a.PID, syscall.SIGTERM)
-			if !waitGone(a.PID, a.StartMarker, stopGrace) {
-				_ = syscall.Kill(-a.PID, syscall.SIGKILL)
-				waitGone(a.PID, a.StartMarker, killGrace)
-			}
-			if err := c.Close(ctx, terminal(a)); err != nil && !alreadyClosed(err) {
-				return runtimeErr(err)
+			if err := stopWorker(ctx, c, terminal(a)); err != nil {
+				return err
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
 		}

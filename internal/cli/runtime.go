@@ -80,6 +80,12 @@ func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps
 		if to == "" {
 			continue
 		}
+		if err := stopRoot(a.PID, a.StartMarker); err != nil {
+			return err
+		}
+		if err := closeTerminalsUnder(ctx, c, a.Worktree); err != nil {
+			return err
+		}
 		if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
 			return err
 		}
