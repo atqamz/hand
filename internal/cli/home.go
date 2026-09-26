@@ -124,6 +124,18 @@ func (r *runner) claim(st *state.Store) error {
 	return nil
 }
 
+var errHomeMoved = errors.New("this fleet's home moved or was copied")
+
+func (r *runner) stillHome() error {
+	if _, err := os.Stat(r.dbPath()); err != nil {
+		return fmt.Errorf("%w: %w: %w", state.ErrConflict, errHomeMoved, err)
+	}
+	if err := fleet.Check(r.root, r.fleet.ID, r.home); err != nil {
+		return fmt.Errorf("%w: %w", errHomeMoved, err)
+	}
+	return nil
+}
+
 func cmdInit(r *runner, args []string) error {
 	set := flags("init")
 	name := set.String("name", "", "fleet name people see; default: the folder name")

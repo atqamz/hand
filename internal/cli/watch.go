@@ -71,6 +71,9 @@ func cmdWatch(r *runner, args []string) error {
 		if errors.Is(err, luvus.ErrIncompatible) {
 			return err
 		}
+		if errors.Is(err, errHomeMoved) {
+			return fmt.Errorf("%w; restart hand watch from the fleet's new place", err)
+		}
 		if err != nil && ctx.Err() == nil {
 			w.say("luvus: " + err.Error())
 		}
@@ -152,6 +155,9 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	if err := w.r.stillHome(); err != nil {
+		return err
+	}
 	before, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err

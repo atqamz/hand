@@ -46,7 +46,7 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv := &http.Server{Handler: board.New(st, token), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: r.whileHome(board.New(st, token)), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -69,6 +69,16 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func (r *runner) whileHome(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if err := r.stillHome(); err != nil {
+			http.Error(w, "this fleet moved; restart hand board from its new place", http.StatusServiceUnavailable)
+			return
+		}
+		h.ServeHTTP(w, req)
+	})
 }
 
 func boardToken(home string) (string, error) {
