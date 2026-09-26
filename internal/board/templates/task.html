@@ -1,0 +1,15 @@
+{{define "task.html"}}{{template "head" .}}<header>
+<h1><a href="/">hand</a> / {{task .Card.Task.ID}}</h1>
+</header>
+<main>
+{{template "card" .Card}}
+{{with .Card.Plan}}<section class="card"><h2>Plan {{plan .Revision}}</h2><pre>{{.Body}}</pre></section>{{end}}
+<section class="card"><h2>Reports</h2>
+{{range .Reports}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span> <span class="muted">{{.CreatedAt}}{{with .AckedBy}} · read by {{.}}{{end}}</span><pre>{{.Body}}</pre></div>
+{{else}}<p class="muted">No reports yet.</p>{{end}}
+</section>
+<section class="card"><h2>Events</h2>
+{{range .Events}}<div class="row muted">{{.Seq}} · {{.At}} · {{.Kind}} {{.Detail}}</div>
+{{end}}</section>
+</main>
+{{template "foot"}}{{end}}

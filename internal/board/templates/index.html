@@ -1,0 +1,9 @@
+{{define "index.html"}}{{template "head" .}}<header>
+<h1>hand</h1>
+<span class="muted">active {{.Active}} · inbox {{.Inbox}} · open decisions {{.Open}} · unread reports {{.Unacked}}</span>
+{{if .All}}<a href="/">hide finished</a>{{else}}<a href="/?all=1">show finished</a>{{end}}
+</header>
+<main>
+{{range .Cards}}{{template "card" .}}{{else}}<p class="muted">No tasks yet. Capture one with <code>hand task add</code>.</p>{{end}}
+</main>
+{{template "foot"}}{{end}}
