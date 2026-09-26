@@ -35,6 +35,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	}
 	want := "home: " + home + "\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
+		"cursor: 0\n" +
 		"active[0]{id,project,title,plan,attempt,open_decisions}:\n" +
 		"open_decisions[0]{id,task,question}:\n" +
 		"inbox[0]{id,project,title}:\n" +
@@ -42,9 +43,10 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 		"operator_memory[2]:\n" +
 		"  - # Operator memory\n" +
 		"  - Write durable preferences and constraints for the supervisor here.\n" +
-		"help[2]:\n" +
+		"help[3]:\n" +
 		"  - Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`\n" +
-		"  - Ask the operator only through `hand decision ask TASK QUESTION`\n"
+		"  - Ask the operator only through `hand decision ask TASK QUESTION`\n" +
+		"  - Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running)\n"
 	if got := doc.String(); got != want {
 		t.Fatalf("orient =\n%s\nwant\n%s", got, want)
 	}
