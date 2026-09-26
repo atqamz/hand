@@ -2,8 +2,8 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
-	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -32,7 +32,7 @@ func cmdPlanSet(r *runner, args []string) error {
 	if *file != "" {
 		b, err := os.ReadFile(*file)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 		}
 		*body = string(b)
 	}
@@ -84,6 +84,6 @@ func cmdPlanShow(r *runner, args []string) error {
 		return r.print(&d)
 	}
 	d.Field("plan", state.PlanRef(p.Revision))
-	d.List("body", strings.Split(strings.TrimRight(p.Body, "\n"), "\n"))
+	d.Field("body", p.Body)
 	return r.print(&d)
 }

@@ -55,3 +55,23 @@ func TestBadIDIsUsageError(t *testing.T) {
 		t.Fatalf("code = %d, want 2", code)
 	}
 }
+
+func TestBadListFiltersAreUsageErrors(t *testing.T) {
+	h := initWithProject(t)
+	for _, args := range [][]string{
+		{"task", "list", "--status", "actve"},
+		{"task", "list", "--limit", "0"},
+		{"decision", "list", "--limit", "-1"},
+	} {
+		if _, _, code := h.run(args...); code != 2 {
+			t.Fatalf("%q code = %d, want 2", args, code)
+		}
+	}
+}
+
+func TestTransitionUsageNamesTheCommand(t *testing.T) {
+	h := initWithProject(t)
+	if _, errOut, code := h.run("task", "start"); code != 2 || !strings.Contains(errOut, "task start:") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}

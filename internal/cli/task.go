@@ -13,9 +13,9 @@ var taskCommands = map[string]handler{
 	"add":     cmdTaskAdd,
 	"show":    cmdTaskShow,
 	"list":    cmdTaskList,
-	"start":   transitionCommand(state.StatusActive),
-	"done":    transitionCommand(state.StatusDone),
-	"abandon": transitionCommand(state.StatusAbandoned),
+	"start":   transitionCommand("start", state.StatusActive),
+	"done":    transitionCommand("done", state.StatusDone),
+	"abandon": transitionCommand("abandon", state.StatusAbandoned),
 }
 
 func init() {
@@ -118,9 +118,9 @@ func cmdTaskList(r *runner, args []string) error {
 	return r.print(&d)
 }
 
-func transitionCommand(to string) handler {
+func transitionCommand(name, to string) handler {
 	return func(r *runner, args []string) error {
-		pos, err := parse(flags("task "+to), args, 1)
+		pos, err := parse(flags("task "+name), args, 1)
 		if err != nil {
 			return err
 		}
