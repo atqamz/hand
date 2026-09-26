@@ -2,8 +2,10 @@ package luvus_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,5 +61,35 @@ func TestSubscribeEndsWithItsContext(t *testing.T) {
 func TestSubscribeReportsAnUnreachableServer(t *testing.T) {
 	if _, err := (luvus.Client{Socket: sock(t)}).Subscribe(context.Background()); !errors.Is(err, luvus.ErrUnreachable) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSubscribeCancelsWhileWaitingForTheAck(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.Handle("events.subscribe", func(json.RawMessage) (any, error) {
+		<-release
+		return nil, nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := (luvus.Client{Socket: srv.Socket}).Subscribe(ctx); err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("subscribe = %v after %s", err, time.Since(start))
+	}
+}
+
+func TestNextRefusesAnOversizedEvent(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	stream, err := luvus.Client{Socket: srv.Socket}.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Publish("pane.closed", map[string]any{"pane": strings.Repeat("x", 2<<20)})
+	_, err = stream.Next()
+	_ = stream.Close()
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized next err = %v", err)
 	}
 }

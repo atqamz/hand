@@ -28,7 +28,6 @@ var (
 
 var Required = []string{
 	"uhp.capabilities",
-	"events.subscribe",
 	"terminal.backend.create",
 	"terminal.backend.inventory",
 	"terminal.backend.validate",

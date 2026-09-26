@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"time"
 )
+
+const maxEvent = 1 << 20
 
 type Event struct {
 	Event    string          `json:"event"`
@@ -34,12 +37,13 @@ func (c Client) Subscribe(ctx context.Context) (*Stream, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w at %s: %w", ErrUnreachable, c.Socket, err)
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	s, err := subscribe(conn, timeout)
 	if err != nil {
+		stop()
 		_ = conn.Close()
 		return nil, err
 	}
-	context.AfterFunc(ctx, func() { _ = conn.Close() })
 	return s, nil
 }
 
@@ -52,7 +56,7 @@ func subscribe(conn net.Conn, timeout time.Duration) (*Stream, error) {
 	if _, err := conn.Write(append(req, '\n')); err != nil {
 		return nil, err
 	}
-	lines := bufio.NewReader(conn)
+	lines := bufio.NewReaderSize(conn, maxEvent)
 	line, err := lines.ReadBytes('\n')
 	if err != nil {
 		return nil, fmt.Errorf("luvus events.subscribe: no ack: %w", err)
@@ -74,7 +78,10 @@ func subscribe(conn net.Conn, timeout time.Duration) (*Stream, error) {
 }
 
 func (s *Stream) Next() (Event, error) {
-	line, err := s.lines.ReadBytes('\n')
+	line, err := s.lines.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return Event{}, fmt.Errorf("luvus event exceeds %d bytes", maxEvent)
+	}
 	if err != nil {
 		return Event{}, err
 	}

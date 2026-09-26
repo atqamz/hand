@@ -43,7 +43,9 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 	if err != nil || caps.ServerGeneration == "" {
 		t.Fatalf("ensure = %+v, %v", caps, err)
 	}
-	stream, err := c.Subscribe(ctx)
+	streamCtx, cancelStream := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelStream()
+	stream, err := c.Subscribe(streamCtx)
 	if err != nil {
 		t.Fatal(err)
 	}

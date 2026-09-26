@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 )
@@ -40,7 +41,7 @@ func Start(t testing.TB, socket string) *Server {
 		return map[string]any{
 			"type":              "uhp_capabilities",
 			"protocol":          map[string]any{"name": "luvus-uhp", "major": 1, "minor": 0},
-			"methods":           luvus.Required,
+			"methods":           append(slices.Clone(luvus.Required), "events.subscribe"),
 			"server_generation": s.Generation(),
 		}, nil
 	})
@@ -110,12 +111,13 @@ func (s *Server) reply(conn net.Conn) {
 		resp["result"] = result
 	}
 	b, _ := json.Marshal(resp)
-	_, _ = conn.Write(append(b, '\n'))
 	if method != "events.subscribe" || err != nil {
+		_, _ = conn.Write(append(b, '\n'))
 		_ = conn.Close()
 		return
 	}
 	s.mu.Lock()
+	_, _ = conn.Write(append(b, '\n'))
 	s.subs = append(s.subs, conn)
 	s.mu.Unlock()
 	go func() {
@@ -152,11 +154,11 @@ func (s *Server) dispatch(line []byte) (string, string, any, error) {
 
 func (s *Server) Publish(event string, data any) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.seq++
 	b, _ := json.Marshal(map[string]any{"event": event, "sequence": s.seq, "data": data})
-	subs := slices.Clone(s.subs)
-	s.mu.Unlock()
-	for _, c := range subs {
+	for _, c := range s.subs {
+		_ = c.SetWriteDeadline(time.Now().Add(time.Second))
 		_, _ = c.Write(append(b, '\n'))
 	}
 }
