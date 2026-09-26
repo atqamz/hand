@@ -131,6 +131,15 @@ func TestAddAttemptNeedsAnActiveTaskWithoutALiveAttempt(t *testing.T) {
 	}
 }
 
+func TestAddAttemptAcceptsOpencode(t *testing.T) {
+	s, _ := openTest(t)
+	task := activeTask(t, s)
+	spec := AttemptSpec{TaskID: task.ID, Harness: "opencode", Argv: []string{"/usr/bin/opencode", "--auto", "--prompt", "fix it"}}
+	if a, err := s.AddAttempt(context.Background(), spec, t.TempDir()); err != nil || a.Harness != "opencode" {
+		t.Fatalf("add = %+v, %v", a, err)
+	}
+}
+
 func TestTaskCannotCloseWithALiveAttempt(t *testing.T) {
 	s, _ := openTest(t)
 	task := activeTask(t, s)

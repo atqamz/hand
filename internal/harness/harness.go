@@ -37,9 +37,16 @@ func Validate(s Spec, codexHome string) error {
 		return nil
 	case "codex":
 		return validateCodex(s, filepath.Join(codexHome, "models_cache.json"))
+	case "opencode":
+		if s.Model != "" || s.Effort != "" {
+			return fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
+		}
+		return nil
 	}
-	return fmt.Errorf("%w: harness %q must be claude or codex", state.ErrInvalid, s.Harness)
+	return fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
 }
+
+func Prefills(name string) bool { return name == "opencode" }
 
 func validateCodex(s Spec, cache string) error {
 	b, err := os.ReadFile(cache)
@@ -93,10 +100,15 @@ func Argv(bin string, s Spec, prompt string) ([]string, error) {
 	case strings.ContainsRune(prompt, 0):
 		return nil, fmt.Errorf("%w: prompt must not contain NUL", state.ErrInvalid)
 	}
-	if s.Harness == "claude" {
+	switch s.Harness {
+	case "opencode":
+		return []string{bin, "--standalone", "--auto", "--prompt", prompt}, nil
+	case "claude":
 		return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
+	case "codex":
+		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
 	}
-	return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }
 
 func LookPath(name, path string) (string, error) {

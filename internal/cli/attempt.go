@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
@@ -30,7 +32,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude or codex")
+	name := fs.String("harness", "", "claude, codex or opencode")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -113,9 +115,87 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("worktree", running.Worktree)
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
-		d.Help("Check it: `hand attempt show "+ref+"`", "Watch it live: `luvus session attach "+fleet.Session(r.fleet.ID)+"`")
+		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
+		if harness.Prefills(running.Harness) {
+			sent, confirmed := submitPrefilled(r.ctx(), c, running)
+			if sent {
+				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
+					return err
+				}
+			}
+			switch {
+			case confirmed:
+				d.Field("prompt", "submitted")
+			case sent:
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing sent but not confirmed; check the screen"); err != nil {
+					return err
+				}
+				d.Field("prompt", "sent unconfirmed")
+				help = append(help, "Enter was sent but the agent did not react: check `hand attempt read "+ref+"`, and press Enter with `hand attempt keys --revision N "+ref+" enter` only if the briefing is still in the input box")
+			default:
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing not submitted; press Enter"); err != nil {
+					return err
+				}
+				d.Field("prompt", "not submitted")
+				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
+			}
+		}
+		d.Help(help...)
 		return r.print(&d)
 	})
+}
+
+const (
+	prefillWait   = 30 * time.Second
+	submitConfirm = 5 * time.Second
+)
+
+func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) (sent, confirmed bool) {
+	ctx, cancel := context.WithTimeout(ctx, prefillWait)
+	defer cancel()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		s, err := c.Read(ctx, a.PaneID, 60)
+		switch {
+		case luvus.Code(err) != "":
+			return false, false
+		case err == nil && strings.Contains(s.Text, reportMarker) && idle(ctx, c, a.PaneID):
+			err := c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID)
+			if err == nil {
+				return true, leftIdle(ctx, c, a.PaneID, tick.C)
+			}
+			if luvus.Code(err) != "content_revision_conflict" {
+				return false, false
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false, false
+		case <-tick.C:
+		}
+	}
+}
+
+func idle(ctx context.Context, c luvus.Client, pane string) bool {
+	ag, err := c.Explain(ctx, pane)
+	return err == nil && ag.Status == "idle"
+}
+
+func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
+	deadline := time.After(submitConfirm)
+	for {
+		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != "idle" {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			return false
+		case <-tick:
+		}
+	}
 }
 
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
@@ -195,7 +275,7 @@ func cmdAttemptShow(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("task", state.TaskRef(a.TaskID))
-		d.Field("harness", a.Harness+" "+a.Model+" "+a.Effort)
+		d.Field("harness", strings.Join(slices.DeleteFunc([]string{a.Harness, a.Model, a.Effort}, func(v string) bool { return v == "" }), " "))
 		d.Field("status", a.Status)
 		if a.Reason != "" {
 			d.Field("reason", a.Reason)

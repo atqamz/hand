@@ -26,10 +26,12 @@ func init() {
 	commands["report"] = func(r *runner, args []string) error { return sub(r, args, "report", reportCommands) }
 }
 
+const reportMarker = "When you finish, report to Hand"
+
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
 func reportFooter(exe string) string {
-	return "\n\n---\nWhen you finish, report to Hand from inside this worktree:\n" +
+	return "\n\n---\n" + reportMarker + " from inside this worktree:\n" +
 		"  " + shellQuote(exe) + " report add --status done --file SUMMARY.md\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal."

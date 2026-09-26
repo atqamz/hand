@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 const (
@@ -18,6 +19,8 @@ const (
 	AttemptInterrupted = "interrupted"
 	AttemptFailed      = "failed"
 )
+
+var Harnesses = []string{"claude", "codex", "opencode"}
 
 var attemptEnds = map[string][]string{
 	AttemptLaunching: {AttemptFailed},
@@ -90,8 +93,8 @@ func liveAttempt(tx *sql.Tx, taskID int64) (int64, error) {
 }
 
 func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot string) (Attempt, error) {
-	if spec.Harness != "claude" && spec.Harness != "codex" {
-		return Attempt{}, fmt.Errorf("%w: harness %q must be claude or codex", ErrInvalid, spec.Harness)
+	if !slices.Contains(Harnesses, spec.Harness) {
+		return Attempt{}, fmt.Errorf("%w: harness %q must be one of %s", ErrInvalid, spec.Harness, strings.Join(Harnesses, ", "))
 	}
 	if len(spec.Argv) == 0 {
 		return Attempt{}, fmt.Errorf("%w: attempt needs a launch command", ErrInvalid)

@@ -31,18 +31,22 @@ type fakeTerm struct {
 }
 
 type fakeRuntime struct {
-	srv        *fakeuhp.Server
-	mu         sync.Mutex
-	terms      []*fakeTerm
-	creates    []createCall
-	status     string
-	hint       string
-	ready      bool
-	revision   int64
-	marker     string
-	sent       []string
-	keyed      []string
-	closeDelay time.Duration
+	srv         *fakeuhp.Server
+	mu          sync.Mutex
+	terms       []*fakeTerm
+	creates     []createCall
+	status      string
+	hint        string
+	ready       bool
+	revision    int64
+	marker      string
+	sent        []string
+	keyed       []string
+	screen      string
+	readFail    string
+	afterKeys   string
+	explainFail string
+	closeDelay  time.Duration
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -182,6 +186,9 @@ func (rt *fakeRuntime) inventory(json.RawMessage) (any, error) {
 func (rt *fakeRuntime) explain(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.explainFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.explainFail, Message: "explain failed"}
+	}
 	return map[string]any{"pane": "2", "agent": "claude", "status": rt.status, "state_evidence": map[string]any{"blocked_hint": rt.hint}}, nil
 }
 
@@ -204,7 +211,14 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	return map[string]any{"text": "Do you want to proceed?\n❯ 1. Yes", "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
+	if rt.readFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
+	}
+	text := "Do you want to proceed?\n❯ 1. Yes"
+	if rt.screen != "" {
+		text = rt.screen
+	}
+	return map[string]any{"text": text, "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 }
 
 func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
@@ -221,6 +235,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}
 	rt.keyed = append(rt.keyed, p.Keys...)
+	if rt.afterKeys != "" {
+		rt.status = rt.afterKeys
+	}
 	return map[string]any{"type": "ok"}, nil
 }
 
@@ -314,7 +331,7 @@ func gitRepo(t *testing.T) string {
 func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, name := range []string{"claude", "codex"} {
+	for _, name := range []string{"claude", "codex", "opencode"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}

@@ -1,13 +1,13 @@
 # Hand
 
-Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, dispatches Claude Code or Codex workers into isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and `hand board` shows it.
+Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, dispatches Claude Code, Codex or opencode workers into isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and `hand board` shows it.
 
 Linux only. The design and its non-goals are in [`docs/spec.md`](docs/spec.md).
 
 ## Requirements
 
 - Go 1.26.5, git, and Luvus 0.14.x (`luvus` on `PATH`).
-- Claude Code and/or Codex, logged in.
+- Claude Code, Codex and/or opencode 2.x, logged in. opencode uses the model from its own configuration.
 - Optional: `notify-send` for desktop notifications.
 
 ## Install and make a fleet

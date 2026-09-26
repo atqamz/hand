@@ -13,7 +13,7 @@ func TestInitWritesAStarterRoutingPolicy(t *testing.T) {
 		t.Fatalf("init = %q", out)
 	}
 	list := h.ok("route", "list")
-	for _, want := range []string{"profiles[3]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "deep,claude,opus,xhigh,yes"} {
+	for _, want := range []string{"profiles[3]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "deep,claude,opus,xhigh,yes", "harnesses: claude codex opencode"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("route list = %q, missing %q", list, want)
 		}
