@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -83,4 +85,41 @@ func (s *Store) resolved(repo string) string {
 		return repo
 	}
 	return filepath.Join(s.home, repo)
+}
+
+func (s *Store) RebaseProjects(ctx context.Context, from string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.Query(`SELECT name, repo FROM project ORDER BY name`)
+		if err != nil {
+			return err
+		}
+		moved := map[string]string{}
+		for rows.Next() {
+			var name, repo string
+			if err := rows.Scan(&name, &repo); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			rel, err := filepath.Rel(from, repo)
+			if filepath.IsAbs(repo) && err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				moved[name] = rel
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		at := s.stamp()
+		for _, name := range slices.Sorted(maps.Keys(moved)) {
+			if _, err := tx.Exec(`UPDATE project SET repo = ? WHERE name = ?`, moved[name], name); err != nil {
+				return err
+			}
+			if err := emit(tx, at, "project.rebased", 0, name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

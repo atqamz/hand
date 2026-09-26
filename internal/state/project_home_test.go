@@ -99,3 +99,27 @@ func TestProjectAddedThroughASymlinkedHomeIsStoredRelative(t *testing.T) {
 		t.Fatalf("stored repo = %q, %v", raw, err)
 	}
 }
+
+func TestRebaseProjectsMakesPathsUnderTheOldHomeRelative(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTest(t)
+	old := filepath.Join(t.TempDir(), "old")
+	for name, repo := range map[string]string{"inner": filepath.Join(old, "projects", "inner"), "outer": "/srv/outer"} {
+		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at) VALUES (?, ?, 'x')`, name, repo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.RebaseProjects(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := s.Project(ctx, "inner"); err != nil || p.Repo != filepath.Join(s.home, "projects", "inner") {
+		t.Fatalf("inner = %+v, %v", p, err)
+	}
+	if p, err := s.Project(ctx, "outer"); err != nil || p.Repo != "/srv/outer" {
+		t.Fatalf("outer = %+v, %v", p, err)
+	}
+	events, err := s.RecentEvents(ctx, 1)
+	if err != nil || len(events) != 1 || events[0].Kind != "project.rebased" || events[0].Detail != "inner" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}

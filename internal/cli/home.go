@@ -202,7 +202,7 @@ func cmdInit(r *runner, args []string) error {
 	}
 	movedFrom := ""
 	if have {
-		if movedFrom, err = fleet.Register(root, f.ID, r.home); err != nil {
+		if movedFrom, err = fleet.Moved(root, f.ID, r.home); err != nil {
 			return err
 		}
 	}
@@ -233,15 +233,20 @@ func cmdInit(r *runner, args []string) error {
 		if f, err = st.CreateFleet(ctx, n); err != nil {
 			return err
 		}
-		if movedFrom, err = fleet.Register(root, f.ID, r.home); err != nil {
-			return err
-		}
 	case n != "" && n != f.Name:
 		if f, err = st.RenameFleet(ctx, n); err != nil {
 			return err
 		}
 	}
+	if movedFrom != "" {
+		if err := st.RebaseProjects(ctx, movedFrom); err != nil {
+			return err
+		}
+	}
 	if err := repairWorktrees(ctx, st); err != nil {
+		return err
+	}
+	if _, err := fleet.Register(root, f.ID, r.home); err != nil {
 		return err
 	}
 	var d toon.Doc

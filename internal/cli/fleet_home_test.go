@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
+	_ "modernc.org/sqlite"
 )
 
 func TestCommandsFindTheHomeFromAFolderInsideIt(t *testing.T) {
@@ -217,5 +219,53 @@ func TestInitSeesThroughASymlinkedParent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.vars["SECONDHAND_HOME"], "new")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("init created a fleet inside the shared folder: %v", err)
+	}
+}
+
+func TestAFailedAdoptionLeavesTheMoveUnadopted(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	old := h.home
+	h.home = filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(old, h.home); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.home, "AGENTS.md"), []byte("# someone else's rules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, code := h.run("init"); code != 3 {
+		t.Fatalf("init with a foreign AGENTS.md: code=%d", code)
+	}
+	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, "moved here from "+old) {
+		t.Fatalf("after a failed adoption: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	repo := filepath.Join(h.home, "projects", "app")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.ok("project", "add", "app", repo)
+	db, err := sql.Open("sqlite", filepath.Join(h.home, "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE project SET repo = ? WHERE name = 'app'`, repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(h.home, moved); err != nil {
+		t.Fatal(err)
+	}
+	h.home = moved
+	h.ok("init")
+	if list := h.ok("project", "list"); !strings.Contains(list, "app,"+filepath.Join(moved, "projects", "app")) {
+		t.Fatalf("project list = %q", list)
 	}
 }

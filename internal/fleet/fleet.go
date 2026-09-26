@@ -86,6 +86,22 @@ func Register(root, id, home string) (string, error) {
 	return target, point(root, id, home)
 }
 
+func Moved(root, id, home string) (string, error) {
+	target, err := os.Readlink(link(root, id))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case err != nil:
+		return "", err
+	case target == home || sameDir(target, home):
+		return "", nil
+	}
+	if err := refuseCopy(target, id); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
 func Home(root, id string) (string, error) {
 	target, err := os.Readlink(link(root, id))
 	if errors.Is(err, fs.ErrNotExist) {
