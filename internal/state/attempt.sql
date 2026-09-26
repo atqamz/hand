@@ -1,7 +1,7 @@
 CREATE TABLE attempt (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES task(id),
-    harness TEXT NOT NULL CHECK (harness IN ('claude', 'codex')),
+    harness TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT NOT NULL,
     argv TEXT NOT NULL,

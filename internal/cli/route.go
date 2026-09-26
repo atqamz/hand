@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -35,6 +38,7 @@ func cmdRouteList(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid"}, rows)
+	d.Field("harnesses", strings.Join(state.Harnesses, " "))
 	d.Help("Edit profiles in " + r.home + "/" + harness.PolicyFile + "; start with one: `hand attempt start --profile NAME --prompt-file BRIEF.md tN`")
 	return r.print(&d)
 }

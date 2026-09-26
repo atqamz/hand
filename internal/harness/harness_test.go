@@ -72,6 +72,27 @@ func TestArgvIsExact(t *testing.T) {
 	}
 }
 
+func TestOpencodeTakesNoModelOrEffort(t *testing.T) {
+	if err := Validate(Spec{Harness: "opencode"}, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []Spec{{"opencode", "opencode/big-pickle", ""}, {"opencode", "", "high"}} {
+		if err := Validate(bad, t.TempDir()); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "its own configuration") {
+			t.Fatalf("%+v err = %v", bad, err)
+		}
+	}
+}
+
+func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
+	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it")
+	if err != nil || !slices.Equal(o, []string{"/usr/bin/opencode", "--auto", "--prompt", "fix it"}) {
+		t.Fatalf("opencode argv = %q, %v", o, err)
+	}
+	if !Prefills("opencode") || Prefills("claude") || Prefills("codex") {
+		t.Fatal("only opencode pre-fills its prompt")
+	}
+}
+
 func TestLookPathWantsAnAbsoluteExecutable(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex")

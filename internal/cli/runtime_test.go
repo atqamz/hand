@@ -314,7 +314,7 @@ func gitRepo(t *testing.T) string {
 func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, name := range []string{"claude", "codex"} {
+	for _, name := range []string{"claude", "codex", "opencode"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}

@@ -61,6 +61,16 @@ func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
 	}
 }
 
+func TestOpencodeRefusesAModelBeforeTouchingGit(t *testing.T) {
+	fx := newAttemptFixture(t)
+	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "opencode", "--model", "opencode/big-pickle", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "its own configuration") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Dir(fx.h.worktree("t1-a1"))); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("worktrees dir created: %v", err)
+	}
+}
+
 func TestFailedLaunchRemovesItsWorktreeAndBranch(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
