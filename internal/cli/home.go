@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -148,8 +149,15 @@ func cmdInit(r *runner, args []string) error {
 		}
 		dir = wd
 	}
-	dir, err := filepath.Abs(dir)
+	dir, err := canonical(dir)
 	if err != nil {
+		return err
+	}
+	root, err := fleet.Root(r.env.Getenv)
+	if err != nil {
+		return err
+	}
+	if err := refuseNesting(dir, root); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -159,10 +167,6 @@ func cmdInit(r *runner, args []string) error {
 		return err
 	}
 	if err := fleet.Install(r.home); err != nil {
-		return err
-	}
-	root, err := fleet.Root(r.env.Getenv)
-	if err != nil {
 		return err
 	}
 	_, statErr := os.Stat(r.dbPath())
@@ -216,6 +220,28 @@ func cmdInit(r *runner, args []string) error {
 	}
 	d.Help(help...)
 	return r.print(&d)
+}
+
+func refuseNesting(home, root string) error {
+	if within(root, home) {
+		return fmt.Errorf("%w: %s holds Hand's shared folder %s; make the fleet in a folder of its own", state.ErrConflict, home, root)
+	}
+	if within(home, root) {
+		return fmt.Errorf("%w: %s is inside Hand's shared folder %s; make the fleet somewhere else", state.ErrConflict, home, root)
+	}
+	outer, err := findHome(filepath.Dir(home))
+	if err != nil {
+		return err
+	}
+	if outer != "" {
+		return fmt.Errorf("%w: %s is inside the fleet at %s; make the fleet somewhere else", state.ErrConflict, home, outer)
+	}
+	return nil
+}
+
+func within(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func repairWorktrees(ctx context.Context, st *state.Store) error {

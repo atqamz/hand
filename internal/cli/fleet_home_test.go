@@ -140,3 +140,25 @@ func TestAMissingHomeCreatesNothing(t *testing.T) {
 		t.Fatalf("a missing home was created: %v", err)
 	}
 }
+
+func TestInitRefusesToNestAFleet(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	outer := t.TempDir()
+	cases := map[string]struct{ root, dir, want string }{
+		"holds the shared folder":  {filepath.Join(outer, ".secondhand"), outer, "holds Hand's shared folder"},
+		"inside the shared folder": {h.vars["SECONDHAND_HOME"], filepath.Join(h.vars["SECONDHAND_HOME"], "worktrees", "x"), "inside Hand's shared folder"},
+		"inside another fleet":     {h.vars["SECONDHAND_HOME"], filepath.Join(h.home, "projects", "app"), "inside the fleet at " + h.home},
+	}
+	for name, c := range cases {
+		h.vars["SECONDHAND_HOME"] = c.root
+		if _, errOut, code := h.run("init", c.dir); code != 3 || !strings.Contains(errOut, c.want) {
+			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
+		}
+		for _, f := range []string{"hand.db", "AGENTS.md"} {
+			if _, err := os.Stat(filepath.Join(c.dir, f)); !errors.Is(err, fs.ErrNotExist) {
+				t.Fatalf("%s: refused init wrote %s: %v", name, f, err)
+			}
+		}
+	}
+}
