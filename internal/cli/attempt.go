@@ -160,14 +160,10 @@ func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) (sent
 		switch {
 		case luvus.Code(err) != "":
 			return false, false
-		case err == nil && strings.Contains(s.Text, reportMarker):
-			before := ""
-			if ag, err := c.Explain(ctx, a.PaneID); err == nil {
-				before = ag.Status
-			}
+		case err == nil && strings.Contains(s.Text, reportMarker) && idle(ctx, c, a.PaneID):
 			err := c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID)
 			if err == nil {
-				return true, reacted(ctx, c, a.PaneID, before, tick.C)
+				return true, leftIdle(ctx, c, a.PaneID, tick.C)
 			}
 			if luvus.Code(err) != "content_revision_conflict" {
 				return false, false
@@ -181,10 +177,15 @@ func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) (sent
 	}
 }
 
-func reacted(ctx context.Context, c luvus.Client, pane, before string, tick <-chan time.Time) bool {
+func idle(ctx context.Context, c luvus.Client, pane string) bool {
+	ag, err := c.Explain(ctx, pane)
+	return err == nil && ag.Status == "idle"
+}
+
+func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
 	deadline := time.After(submitConfirm)
 	for {
-		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != before && ag.Status != "idle" {
+		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != "idle" {
 			return true
 		}
 		select {

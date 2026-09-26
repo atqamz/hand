@@ -31,21 +31,22 @@ type fakeTerm struct {
 }
 
 type fakeRuntime struct {
-	srv        *fakeuhp.Server
-	mu         sync.Mutex
-	terms      []*fakeTerm
-	creates    []createCall
-	status     string
-	hint       string
-	ready      bool
-	revision   int64
-	marker     string
-	sent       []string
-	keyed      []string
-	screen     string
-	readFail   string
-	afterKeys  string
-	closeDelay time.Duration
+	srv         *fakeuhp.Server
+	mu          sync.Mutex
+	terms       []*fakeTerm
+	creates     []createCall
+	status      string
+	hint        string
+	ready       bool
+	revision    int64
+	marker      string
+	sent        []string
+	keyed       []string
+	screen      string
+	readFail    string
+	afterKeys   string
+	explainFail string
+	closeDelay  time.Duration
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -185,6 +186,9 @@ func (rt *fakeRuntime) inventory(json.RawMessage) (any, error) {
 func (rt *fakeRuntime) explain(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.explainFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.explainFail, Message: "explain failed"}
+	}
 	return map[string]any{"pane": "2", "agent": "claude", "status": rt.status, "state_evidence": map[string]any{"blocked_hint": rt.hint}}, nil
 }
 

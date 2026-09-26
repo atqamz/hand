@@ -112,15 +112,29 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 }
 
 func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
-	for _, status := range []string{"idle", "working"} {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: sent unconfirmed") || !strings.Contains(out, "only if the briefing is still in the input box") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: briefing sent but not confirmed; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestOpencodeGetsEnterOnlyWhileItIsKnownIdle(t *testing.T) {
+	for name, set := range map[string]func(*fakeRuntime){
+		"working":        func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "working" },
+		"explain failed": func(rt *fakeRuntime) { rt.screen, rt.explainFail = opencodeScreen, "unavailable" },
+	} {
 		fx := newAttemptFixture(t)
-		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, status })
-		out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
-		if !strings.Contains(out, "prompt: sent unconfirmed") || !strings.Contains(out, "only if the briefing is still in the input box") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
-			t.Fatalf("status %s: start = %q, keys = %q", status, out, fx.rt.keysSent())
-		}
-		if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: briefing sent but not confirmed; check the screen"`) {
-			t.Fatalf("status %s: wait = %q", status, woke)
+		fx.rt.set(set)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		out, errOut, code := fx.h.runCtx(ctx, "attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+		cancel()
+		if code != 0 || !strings.Contains(out, "prompt: not submitted") || len(fx.rt.keysSent()) != 0 {
+			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
 		}
 	}
 }
