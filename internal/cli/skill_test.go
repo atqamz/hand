@@ -48,23 +48,31 @@ func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
 
 func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 	h := newHarness(t)
-	h.ok("init")
-	skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", "secondhand", "SKILL.md"))
-	if err != nil {
+	if err := os.MkdirAll(filepath.Join(h.home, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
-	if len(uses) < 10 {
-		t.Fatalf("found only %d commands in the skill", len(uses))
+	if err := os.WriteFile(filepath.Join(h.home, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for _, u := range uses {
-		args := []string{u[1]}
-		if u[2] != "" {
-			args = append(args, u[2])
+	h.ok("init")
+	for _, name := range []string{"secondhand", "secondhand-migrate"} {
+		skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", name, "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		_, errOut, _ := h.run(append(args, "--no-such-flag")...)
-		if strings.Contains(errOut, "unknown command") || strings.Contains(errOut, "subcommand") {
-			t.Fatalf("skill names %q, which does not exist: %s", strings.Join(args, " "), errOut)
+		uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
+		if len(uses) < 5 {
+			t.Fatalf("%s: found only %d commands", name, len(uses))
+		}
+		for _, u := range uses {
+			args := []string{u[1]}
+			if u[2] != "" {
+				args = append(args, u[2])
+			}
+			_, errOut, _ := h.run(append(args, "--no-such-flag")...)
+			if strings.Contains(errOut, "unknown command") || strings.Contains(errOut, "subcommand") {
+				t.Fatalf("%s names %q, which does not exist: %s", name, strings.Join(args, " "), errOut)
+			}
 		}
 	}
 }

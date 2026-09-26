@@ -100,13 +100,15 @@ func TestInstallNeverWritesOutsideTheHome(t *testing.T) {
 
 func TestInstallSpeaksTheCommandName(t *testing.T) {
 	home := t.TempDir()
+	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
 	if err := fleet.Install(home, "hand-next"); err != nil {
 		t.Fatal(err)
 	}
 	agents := read(t, filepath.Join(home, "AGENTS.md"))
 	skill := read(t, filepath.Join(home, skillPaths[0]))
-	for name, text := range map[string]string{"AGENTS.md": agents, "SKILL.md": skill} {
-		if !strings.Contains(text, "`hand-next orient`") || strings.Contains(text, "`hand ") {
+	migrate := read(t, filepath.Join(home, ".claude/skills/secondhand-migrate/SKILL.md"))
+	for name, text := range map[string]string{"AGENTS.md": agents, "SKILL.md": skill, "migrate SKILL.md": migrate} {
+		if !strings.Contains(text, "`hand-next orient`") || strings.Contains(text, "`hand ") || strings.Contains(text, "`hand`") {
 			t.Fatalf("%s does not name hand-next throughout:\n%s", name, text)
 		}
 	}
