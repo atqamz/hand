@@ -19,6 +19,8 @@ hand init                                      # or: hand init --name work DIR
 hand project add myrepo /absolute/path/to/repo
 ```
 
+To try it next to an older Hand, build it under another name such as `~/.local/bin/hand-next`. Hand calls itself by its binary's name in the fleet's `AGENTS.md`, its skill, its help lines and its errors, so a supervisor in that fleet runs `hand-next`. When you later install it as plain `hand`, run that `hand init` in each fleet to rewrite them.
+
 A fleet is any folder `hand init` has run in. Commands find it from the working directory or any folder inside it, from `--home DIR`, or from `$HAND_HOME`. Run as many fleets as you like: each has its own Luvus session, worktrees, watcher and board. `hand fleet list` shows them all.
 
 Rename a fleet with `hand init --name NEW`. To move one, `mv` the folder and run `hand init` in its new place.

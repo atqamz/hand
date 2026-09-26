@@ -213,7 +213,7 @@ func cmdInit(r *runner, args []string) error {
 			return fmt.Errorf("%w; pass --name", err)
 		}
 	}
-	if err := fleet.Install(r.home); err != nil {
+	if err := fleet.Install(r.home, r.env.command()); err != nil {
 		return err
 	}
 	if err := memory.Init(r.home); err != nil {

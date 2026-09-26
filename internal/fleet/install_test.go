@@ -36,7 +36,7 @@ func write(t *testing.T, path, body string) {
 func TestInstallWritesTheBootstrapAndTheSkill(t *testing.T) {
 	home := t.TempDir()
 	for range 2 {
-		if err := fleet.Install(home); err != nil {
+		if err := fleet.Install(home, "hand"); err != nil {
 			t.Fatal(err)
 		}
 		if got := read(t, filepath.Join(home, "AGENTS.md")); got != skills.Bootstrap {
@@ -58,7 +58,7 @@ func TestInstallReplacesTheOldFleetBootstrap(t *testing.T) {
 	write(t, filepath.Join(home, "AGENTS.md"), "## Secondhand supervisor bootstrap\n\nold rules\n")
 	write(t, filepath.Join(home, "CLAUDE.md"), "@AGENTS.md")
 	write(t, filepath.Join(home, skillPaths[0]), "---\nname: secondhand\nmetadata:\n  source: atqamz/hand\n  managed-by: hand\n---\nold skill\n")
-	if err := fleet.Install(home); err != nil {
+	if err := fleet.Install(home, "hand"); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(home, "AGENTS.md")) != skills.Bootstrap || read(t, filepath.Join(home, skillPaths[0])) != skills.Secondhand {
@@ -70,7 +70,7 @@ func TestInstallRefusesForeignFilesAndWritesNothing(t *testing.T) {
 	for _, rel := range []string{"AGENTS.md", "CLAUDE.md", skillPaths[1]} {
 		home := t.TempDir()
 		write(t, filepath.Join(home, rel), "mine\n")
-		err := fleet.Install(home)
+		err := fleet.Install(home, "hand")
 		if !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), rel) {
 			t.Fatalf("%s: install = %v", rel, err)
 		}
@@ -89,10 +89,30 @@ func TestInstallNeverWritesOutsideTheHome(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(home, ".claude")); err != nil {
 		t.Fatal(err)
 	}
-	if err := fleet.Install(home); err == nil {
+	if err := fleet.Install(home, "hand"); err == nil {
 		t.Fatal("install followed a symlink out of the home")
 	}
 	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
 		t.Fatalf("install wrote %d entries outside the home", len(entries))
+	}
+}
+
+func TestInstallSpeaksTheCommandName(t *testing.T) {
+	home := t.TempDir()
+	if err := fleet.Install(home, "hand-next"); err != nil {
+		t.Fatal(err)
+	}
+	agents := read(t, filepath.Join(home, "AGENTS.md"))
+	skill := read(t, filepath.Join(home, skillPaths[0]))
+	for name, text := range map[string]string{"AGENTS.md": agents, "SKILL.md": skill} {
+		if !strings.Contains(text, "`hand-next orient`") || strings.Contains(text, "`hand ") {
+			t.Fatalf("%s does not name hand-next throughout:\n%s", name, text)
+		}
+	}
+	if err := fleet.Install(home, "hand"); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(home, "AGENTS.md")) != skills.Bootstrap {
+		t.Fatal("a later init under the plain name did not restore the plain bootstrap")
 	}
 }

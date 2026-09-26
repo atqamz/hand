@@ -31,3 +31,15 @@ func TestEmptyRowsStillRenderHeader(t *testing.T) {
 		t.Fatalf("render = %q, want %q", got, want)
 	}
 }
+
+func TestReplaceHintsTouchesOnlyHelpAndMoreLines(t *testing.T) {
+	var d Doc
+	d.Field("title", "`hand x` stays")
+	d.Field("inbox_more", "10 of 12 shown; run `hand task list`")
+	d.Help("Run `hand orient`", "then `hand wait`")
+	d.ReplaceHints("`hand ", "`hand-next ")
+	want := "title: `hand x` stays\ninbox_more: 10 of 12 shown; run `hand-next task list`\nhelp[2]:\n  - Run `hand-next orient`\n  - then `hand-next wait`\n"
+	if got := d.String(); got != want {
+		t.Fatalf("doc = %q, want %q", got, want)
+	}
+}

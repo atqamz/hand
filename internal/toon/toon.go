@@ -51,6 +51,19 @@ func (d *Doc) Help(lines ...string) {
 	d.List("help", lines)
 }
 
+func (d *Doc) ReplaceHints(old, new string) {
+	for i, b := range d.blocks {
+		switch {
+		case b.kind == blockList && b.name == "help":
+			for j, item := range b.items {
+				d.blocks[i].items[j] = strings.ReplaceAll(item, old, new)
+			}
+		case b.kind == blockField && strings.HasSuffix(b.name, "_more"):
+			d.blocks[i].value = strings.ReplaceAll(b.value, old, new)
+		}
+	}
+}
+
 func (d *Doc) Render(w io.Writer) error {
 	var b strings.Builder
 	for _, blk := range d.blocks {
