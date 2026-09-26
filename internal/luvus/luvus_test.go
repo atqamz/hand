@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
@@ -102,9 +103,24 @@ func TestEnsureStartsTheServerOnlyWhenUnreachable(t *testing.T) {
 }
 
 func TestScrubDropsAgentAndPaneVariables(t *testing.T) {
-	got := luvus.Scrub([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CODEX_SANDBOX=seatbelt", "LUVUS_PANE_ID=3", "LUVUS_SOCKET_PATH=/s", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep"})
-	want := []string{"HOME=/h", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep"}
+	got := luvus.Scrub([]string{"HOME=/h", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "CODEX_SANDBOX=seatbelt", "LUVUS_PANE_ID=3", "LUVUS_SOCKET_PATH=/s", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep", "CODEX_HOME=/c"})
+	want := []string{"HOME=/h", "LUVUS_HOME=/l", "PATH=/bin", "CLAUDECODEX=keep", "CODEX_HOME=/c"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("scrub = %q", got)
+	}
+}
+
+func TestCallGivesUpOnASilentServer(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	srv.Handle("hang", func(json.RawMessage) (any, error) {
+		<-release
+		return nil, nil
+	})
+	start := time.Now()
+	err := luvus.Client{Socket: srv.Socket, Timeout: 200 * time.Millisecond}.Call(context.Background(), "hang", nil, nil)
+	if err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("call = %v after %s", err, time.Since(start))
 	}
 }

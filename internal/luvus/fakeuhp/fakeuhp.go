@@ -16,6 +16,8 @@ type Fail struct{ Code, Message string }
 
 func (f Fail) Error() string { return f.Code + ": " + f.Message }
 
+var Drop = errors.New("drop the connection without a reply")
+
 type Server struct {
 	Socket     string
 	mu         sync.Mutex
@@ -85,6 +87,9 @@ func (s *Server) reply(conn net.Conn) {
 		return
 	}
 	id, result, err := s.dispatch(line)
+	if errors.Is(err, Drop) {
+		return
+	}
 	resp := map[string]any{"id": id}
 	var f Fail
 	switch {

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 const Session = "hand"
@@ -52,7 +53,12 @@ func Code(err error) string {
 	return ""
 }
 
-type Client struct{ Socket string }
+const DefaultTimeout = 30 * time.Second
+
+type Client struct {
+	Socket  string
+	Timeout time.Duration
+}
 
 func SocketPath(getenv func(string) string, session string) string {
 	if p := getenv("HAND_LUVUS_SOCKET"); p != "" {
@@ -85,6 +91,12 @@ func (c Client) Call(ctx context.Context, method string, params, out any) error 
 	if err != nil {
 		return err
 	}
+	timeout := c.Timeout
+	if timeout == 0 {
+		timeout = DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", c.Socket)
 	if err != nil {
@@ -174,7 +186,7 @@ func Scrub(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		agent := name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_")
+		agent := name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
 		pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
 		if !agent && !pane {
 			out = append(out, kv)
