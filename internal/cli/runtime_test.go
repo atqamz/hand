@@ -42,6 +42,7 @@ type fakeRuntime struct {
 	marker     string
 	sent       []string
 	keyed      []string
+	screen     string
 	closeDelay time.Duration
 }
 
@@ -204,7 +205,11 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	return map[string]any{"text": "Do you want to proceed?\n❯ 1. Yes", "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
+	text := "Do you want to proceed?\n❯ 1. Yes"
+	if rt.screen != "" {
+		text = rt.screen
+	}
+	return map[string]any{"text": text, "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 }
 
 func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {

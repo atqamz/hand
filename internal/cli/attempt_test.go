@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,34 @@ func TestOpencodeRefusesAModelBeforeTouchingGit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Dir(fx.h.worktree("t1-a1"))); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("worktrees dir created: %v", err)
+	}
+}
+
+func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "┃  Fix the login bug, commit, then stop.\n┃  When you finish, report to Hand from inside this worktree:"
+	})
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	call := fx.rt.lastCreate()
+	if !strings.HasSuffix(call.Command[0], "/opencode") || !slices.Equal(call.Command[1:3], []string{"--auto", "--prompt"}) {
+		t.Fatalf("argv = %q", call.Command)
+	}
+}
+
+func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
+	fx := newAttemptFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	out, errOut, code := fx.h.runCtx(ctx, "attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if code != 0 || !strings.Contains(out, "prompt: not submitted") || !strings.Contains(out, "hand attempt keys --revision N a1 enter") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: running") {
+		t.Fatalf("show = %q", show)
 	}
 }
 

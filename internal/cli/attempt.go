@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
@@ -113,9 +114,39 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("worktree", running.Worktree)
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
-		d.Help("Check it: `hand attempt show "+ref+"`", "Watch it live: `luvus session attach "+fleet.Session(r.fleet.ID)+"`")
+		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
+		if harness.Prefills(running.Harness) {
+			if submitPrefilled(r.ctx(), c, running) {
+				d.Field("prompt", "submitted")
+			} else {
+				d.Field("prompt", "not submitted")
+				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
+			}
+		}
+		d.Help(help...)
 		return r.print(&d)
 	})
+}
+
+const prefillWait = 30 * time.Second
+
+func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) bool {
+	ctx, cancel := context.WithTimeout(ctx, prefillWait)
+	defer cancel()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if s, err := c.Read(ctx, a.PaneID, 60); err == nil && strings.Contains(s.Text, reportMarker) {
+			if c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID) == nil {
+				return true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick.C:
+		}
+	}
 }
 
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
