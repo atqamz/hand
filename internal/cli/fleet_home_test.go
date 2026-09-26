@@ -193,3 +193,29 @@ func TestInitRefusesToNestAFleet(t *testing.T) {
 		}
 	}
 }
+
+func TestInitSeesThroughASymlinkedParent(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(h.home, alias); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(alias, "new")
+	if _, errOut, code := h.run("init", target); code != 3 || !strings.Contains(errOut, "inside the fleet at "+h.home) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "new")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("init created a nested fleet through the symlink: %v", err)
+	}
+	shared := filepath.Join(t.TempDir(), "shared")
+	if err := os.Symlink(h.vars["SECONDHAND_HOME"], shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("init", filepath.Join(shared, "new")); code != 3 || !strings.Contains(errOut, "inside Hand's shared folder") {
+		t.Fatalf("through a link into the shared folder: code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(h.vars["SECONDHAND_HOME"], "new")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("init created a fleet inside the shared folder: %v", err)
+	}
+}

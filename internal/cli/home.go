@@ -53,10 +53,14 @@ func canonical(p string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if real, err := filepath.EvalSymlinks(abs); err == nil {
-		return real, nil
+	for dir, rest := abs, ""; ; dir, rest = filepath.Dir(dir), filepath.Join(filepath.Base(dir), rest) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest), nil
+		}
+		if filepath.Dir(dir) == dir {
+			return abs, nil
+		}
 	}
-	return abs, nil
 }
 
 func findHome(dir string) (string, error) {
