@@ -93,12 +93,25 @@ func boardToken(home string) (string, error) {
 	if werr != nil {
 		return "", werr
 	}
-	if err := os.Link(tmp.Name(), path); errors.Is(err, fs.ErrExist) {
+	err = os.Link(tmp.Name(), path)
+	if errors.Is(err, fs.ErrExist) {
 		return readBoardToken(path)
-	} else if err != nil {
+	}
+	if err == nil {
+		return token, nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return readBoardToken(path)
+	}
+	if err != nil {
 		return "", err
 	}
-	return token, nil
+	_, werr = f.WriteString(token + "\n")
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	return token, werr
 }
 
 func readBoardToken(path string) (string, error) {
@@ -110,7 +123,7 @@ func readBoardToken(path string) (string, error) {
 		return "", err
 	}
 	token := string(bytes.TrimSpace(b))
-	if len(token) != 48 {
+	if _, err := hex.DecodeString(token); err != nil || len(token) != 48 {
 		return "", fmt.Errorf("%w: %s is not a board token; delete it to make a new one", state.ErrInvalid, path)
 	}
 	return token, nil

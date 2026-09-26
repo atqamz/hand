@@ -63,11 +63,13 @@ func TestBoardFixesTokenPermissionsAndRefusesAMalformedToken(t *testing.T) {
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("token mode = %v, want 0600", info.Mode().Perm())
 	}
-	if err := os.WriteFile(path, []byte("short\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, errOut, code := h.run("board", "--addr", "127.0.0.1:0"); code != 2 || !strings.Contains(errOut, "not a board token") {
-		t.Fatalf("malformed token: code=%d stderr=%q", code, errOut)
+	for _, bad := range []string{"short", strings.Repeat("#", 48)} {
+		if err := os.WriteFile(path, []byte(bad+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, errOut, code := h.run("board", "--addr", "127.0.0.1:0"); code != 2 || !strings.Contains(errOut, "not a board token") {
+			t.Fatalf("malformed token %q: code=%d stderr=%q", bad, code, errOut)
+		}
 	}
 }
 

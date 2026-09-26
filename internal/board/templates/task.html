@@ -4,6 +4,9 @@
 <main>
 {{template "card" .Card}}
 {{with .Card.Plan}}<section class="card"><h2>Plan {{plan .Revision}}</h2><pre>{{.Body}}</pre></section>{{end}}
+{{if .Unread}}<section class="card"><h2>Unread reports</h2>
+{{range .Unread}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}} <form class="inline" method="post" action="/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form></div>
+{{end}}</section>{{end}}
 <section class="card"><h2>Reports</h2>
 {{range .Reports}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span> <span class="muted">{{.CreatedAt}}{{with .AckedBy}} · read by {{.}}{{end}}</span>{{if not .AckedAt}} <form class="inline" method="post" action="/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}<pre>{{.Body}}</pre></div>
 {{else}}<p class="muted">No reports yet.</p>{{end}}

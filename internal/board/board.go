@@ -37,8 +37,6 @@ const (
 	historyLimit = 50
 )
 
-var statusRank = map[string]int{state.StatusActive: 0, state.StatusInbox: 1, state.StatusDone: 2, state.StatusAbandoned: 3}
-
 type Board struct {
 	st    *state.Store
 	token string
@@ -170,16 +168,22 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	all := r.URL.Query().Get("all") == "1"
-	statuses := []string{state.StatusActive, state.StatusInbox}
+	groups := []string{state.StatusActive, state.StatusInbox}
 	if all {
-		statuses = nil
+		groups = append(groups, state.StatusDone, state.StatusAbandoned)
 	}
-	tasks, err := b.st.Tasks(ctx, statuses, maxCards)
-	if err != nil {
-		b.failErr(w, err)
-		return
+	var tasks []state.Task
+	for _, status := range groups {
+		if len(tasks) >= maxCards {
+			break
+		}
+		part, err := b.st.Tasks(ctx, []string{status}, maxCards-len(tasks))
+		if err != nil {
+			b.failErr(w, err)
+			return
+		}
+		tasks = append(tasks, part...)
 	}
-	slices.SortStableFunc(tasks, func(x, y state.Task) int { return statusRank[x.Status] - statusRank[y.Status] })
 	cards := make([]card, 0, len(tasks))
 	for _, t := range tasks {
 		c, err := b.card(ctx, t, 3)
@@ -236,6 +240,11 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	unread, err := b.st.Reports(ctx, state.ReportFilter{TaskID: id, Unacked: true}, maxCards)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
 	moreReports := len(reports) > historyLimit
 	if moreReports {
 		reports = reports[1:]
@@ -253,7 +262,7 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 	slices.Reverse(events)
 	b.render(w, http.StatusOK, "task.html", map[string]any{
 		"Title": state.TaskRef(id), "Refresh": 10, "Card": c, "Token": b.token,
-		"Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
+		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
 

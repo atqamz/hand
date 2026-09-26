@@ -5,6 +5,6 @@
 </header>
 <main>
 {{range .Cards}}{{template "card" .}}{{else}}<p class="muted">No tasks yet. Capture one with <code>hand task add</code>.</p>{{end}}
-{{if gt .Hidden 0}}<p class="muted">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list --limit 1000</code>.</p>{{end}}
+{{if gt .Hidden 0}}<p class="muted">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}
 </main>
 {{template "foot"}}{{end}}
