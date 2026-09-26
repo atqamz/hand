@@ -83,3 +83,16 @@ func TestInstallRefusesForeignFilesAndWritesNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestInstallNeverWritesOutsideTheHome(t *testing.T) {
+	home, outside := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.Install(home); err == nil {
+		t.Fatal("install followed a symlink out of the home")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Fatalf("install wrote %d entries outside the home", len(entries))
+	}
+}

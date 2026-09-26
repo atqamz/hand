@@ -22,8 +22,13 @@ func Install(home string) error {
 		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = skills.Secondhand
 	}
 	names := slices.Sorted(maps.Keys(files))
+	dir, err := os.OpenRoot(home)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
 	for _, rel := range names {
-		have, err := os.ReadFile(filepath.Join(home, rel))
+		have, err := dir.ReadFile(rel)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -35,11 +40,10 @@ func Install(home string) error {
 		}
 	}
 	for _, rel := range names {
-		path := filepath.Join(home, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := dir.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, []byte(files[rel]), 0o644); err != nil {
+		if err := dir.WriteFile(rel, []byte(files[rel]), 0o644); err != nil {
 			return err
 		}
 	}
