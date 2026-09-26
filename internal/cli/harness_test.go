@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -79,4 +80,9 @@ func field(out, name string) string {
 		}
 	}
 	return ""
+}
+
+func (h *harness) worktree(name string) string {
+	h.t.Helper()
+	return filepath.Join(h.vars["SECONDHAND_HOME"], "worktrees", field(h.ok("init", h.home), "id"), name)
 }

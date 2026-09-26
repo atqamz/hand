@@ -62,7 +62,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 		t.Fatalf("clean live code=%d stderr=%q", code, errOut)
 	}
 	fx.h.ok("attempt", "stop", "a1")
-	wt := filepath.Join(fx.h.home, "worktrees", "t1-a1")
+	wt := fx.h.worktree("t1-a1")
 	if err := os.WriteFile(filepath.Join(wt, "wip.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestCleanAfterTheWorktreeVanished(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
-	if err := os.RemoveAll(filepath.Join(fx.h.home, "worktrees", "t1-a1")); err != nil {
+	if err := os.RemoveAll(fx.h.worktree("t1-a1")); err != nil {
 		t.Fatal(err)
 	}
 	fx.h.ok("attempt", "clean", "a1")

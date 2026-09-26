@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -46,19 +47,25 @@ func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	}
 	top := strings.TrimSpace(out)
 	m := worktreeName.FindStringSubmatch(filepath.Base(top))
-	if m == nil || filepath.Base(filepath.Dir(top)) != "worktrees" {
+	id := filepath.Base(filepath.Dir(top))
+	worktrees := filepath.Dir(filepath.Dir(top))
+	if m == nil || !state.FleetID.MatchString(id) || filepath.Base(worktrees) != "worktrees" {
 		return 0, "", fmt.Errorf("%w: %s is not a Hand worktree; pass --attempt", state.ErrInvalid, top)
 	}
-	home := filepath.Dir(filepath.Dir(top))
+	root := filepath.Dir(worktrees)
+	home, err := fleet.Home(root, id)
+	if err != nil {
+		return 0, "", fmt.Errorf("%w; pass --attempt", err)
+	}
 	if _, err := os.Stat(filepath.Join(home, "hand.db")); err != nil {
 		return 0, "", fmt.Errorf("%w: no hand home at %s; pass --attempt", state.ErrInvalid, home)
 	}
-	id, err := strconv.ParseInt(m[1], 10, 64)
+	n, err := strconv.ParseInt(m[1], 10, 64)
 	if err != nil {
 		return 0, "", err
 	}
-	r.home = home
-	return id, top, nil
+	r.home, r.root = home, root
+	return n, top, nil
 }
 
 func cmdReportAdd(r *runner, args []string) error {

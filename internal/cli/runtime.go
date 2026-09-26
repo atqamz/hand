@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -20,7 +21,11 @@ import (
 const launchGrace = 2 * time.Minute
 
 func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, error) {
-	c := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, luvus.Session)}
+	if r.fleet.ID == "" {
+		return luvus.Client{}, luvus.Capabilities{}, errors.New("hand reached luvus before claiming its fleet")
+	}
+	session := fleet.Session(r.fleet.ID)
+	c := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
 	caps, err := luvus.Ensure(ctx, c, func() error {
 		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
 		if err != nil {
@@ -30,7 +35,7 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		return luvus.StartServer(bin, luvus.Session, dir, r.env.Environ())
+		return luvus.StartServer(bin, session, dir, r.env.Environ())
 	})
 	return c, caps, runtimeErr(err)
 }

@@ -19,8 +19,6 @@ import (
 	"time"
 )
 
-const Session = "hand"
-
 var (
 	ErrUnreachable  = errors.New("luvus server unreachable")
 	ErrIncompatible = errors.New("luvus is incompatible")
@@ -186,7 +184,7 @@ func Scrub(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		agent := name == "CLAUDECODE" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
+		agent := name == "CLAUDECODE" || name == "HAND_HOME" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
 		pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
 		if !agent && !pane {
 			out = append(out, kv)
