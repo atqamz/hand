@@ -49,6 +49,8 @@ func Check(root, id, home string) error {
 		return err
 	case target == home:
 		return nil
+	case sameDir(target, home):
+		return point(root, id, home)
 	}
 	if err := refuseCopy(target, id); err != nil {
 		return err
@@ -65,6 +67,8 @@ func Register(root, id, home string) (string, error) {
 		return "", err
 	case target == home:
 		return "", nil
+	case sameDir(target, home):
+		return "", point(root, id, home)
 	}
 	if err := refuseCopy(target, id); err != nil {
 		return "", err
@@ -128,6 +132,15 @@ func point(root, id, home string) error {
 		return err
 	}
 	return nil
+}
+
+func sameDir(a, b string) bool {
+	x, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	y, err := os.Stat(b)
+	return err == nil && os.SameFile(x, y)
 }
 
 func refuseCopy(other, id string) error {

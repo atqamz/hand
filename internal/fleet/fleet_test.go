@@ -100,6 +100,34 @@ func TestACopyIsRefusedAndAMoveNeedsRegister(t *testing.T) {
 	}
 }
 
+func TestAMovedHomeWithASymlinkBackIsTheSameFleet(t *testing.T) {
+	root, parent := t.TempDir(), t.TempDir()
+	old := filepath.Join(parent, "old")
+	if err := os.Mkdir(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := home(t, old, "alpha")
+	if err := fleet.Check(root, f.ID, old); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(parent, "moved")
+	if err := os.Rename(old, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(moved, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.Check(root, f.ID, moved); err != nil {
+		t.Fatalf("check through the old symlink = %v", err)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != moved {
+		t.Fatalf("link = %q, %v; want it re-pointed at %s", got, err, moved)
+	}
+	if prev, err := fleet.Register(root, f.ID, moved); err != nil || prev != "" {
+		t.Fatalf("register = %q, %v", prev, err)
+	}
+}
+
 func TestConcurrentFirstChecksAllSucceed(t *testing.T) {
 	root, dir := t.TempDir(), t.TempDir()
 	f := home(t, dir, "alpha")
