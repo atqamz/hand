@@ -110,3 +110,39 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 		}
 	}
 }
+
+func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	project := strings.Repeat("p", 64)
+	if _, err := st.AddProject(ctx, project, "/home/me/p"); err != nil {
+		t.Fatal(err)
+	}
+	titles := []string{strings.Repeat(`"`, 200), strings.Repeat("🙂", 200), strings.Repeat("漢,", 100)}
+	for i := range 60 {
+		task, err := st.AddTask(ctx, project, titles[i%len(titles)], "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i < 40 {
+			_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+			_, _ = st.Ask(ctx, task.ID, strings.Repeat("問", 2000))
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(strings.Repeat("a\n", 100000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= 6000 || !utf8.ValidString(out) {
+		t.Fatalf("orient is %d bytes (valid UTF-8: %v), want < 6000:\n%s", len(out), utf8.ValidString(out), out)
+	}
+	for _, want := range []string{"active_more:", "operator_memory_truncated:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+}
