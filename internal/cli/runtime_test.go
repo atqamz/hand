@@ -43,6 +43,7 @@ type fakeRuntime struct {
 	sent       []string
 	keyed      []string
 	screen     string
+	readFail   string
 	closeDelay time.Duration
 }
 
@@ -205,6 +206,9 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.readFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
+	}
 	text := "Do you want to proceed?\n❯ 1. Yes"
 	if rt.screen != "" {
 		text = rt.screen

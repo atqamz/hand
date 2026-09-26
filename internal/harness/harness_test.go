@@ -85,8 +85,11 @@ func TestOpencodeTakesNoModelOrEffort(t *testing.T) {
 
 func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
 	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it")
-	if err != nil || !slices.Equal(o, []string{"/usr/bin/opencode", "--auto", "--prompt", "fix it"}) {
+	if err != nil || !slices.Equal(o, []string{"/usr/bin/opencode", "--standalone", "--auto", "--prompt", "fix it"}) {
 		t.Fatalf("opencode argv = %q, %v", o, err)
+	}
+	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("unknown harness argv err = %v", err)
 	}
 	if !Prefills("opencode") || Prefills("claude") || Prefills("codex") {
 		t.Fatal("only opencode pre-fills its prompt")

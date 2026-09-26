@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude or codex")
+	name := fs.String("harness", "", "claude, codex or opencode")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -117,8 +118,14 @@ func cmdAttemptStart(r *runner, args []string) error {
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
 		if harness.Prefills(running.Harness) {
 			if submitPrefilled(r.ctx(), c, running) {
+				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
+					return err
+				}
 				d.Field("prompt", "submitted")
 			} else {
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing not submitted; press Enter"); err != nil {
+					return err
+				}
 				d.Field("prompt", "not submitted")
 				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
 			}
@@ -128,7 +135,10 @@ func cmdAttemptStart(r *runner, args []string) error {
 	})
 }
 
-const prefillWait = 30 * time.Second
+const (
+	prefillWait   = 30 * time.Second
+	submitConfirm = 5 * time.Second
+)
 
 func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) bool {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
@@ -136,15 +146,39 @@ func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) bool 
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		if s, err := c.Read(ctx, a.PaneID, 60); err == nil && strings.Contains(s.Text, reportMarker) {
-			if c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID) == nil {
-				return true
+		s, err := c.Read(ctx, a.PaneID, 60)
+		switch {
+		case luvus.Code(err) != "":
+			return false
+		case err == nil && strings.Contains(s.Text, reportMarker):
+			err := c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID)
+			if err == nil {
+				return leftIdle(ctx, c, a.PaneID, tick.C)
+			}
+			if luvus.Code(err) != "content_revision_conflict" {
+				return false
 			}
 		}
 		select {
 		case <-ctx.Done():
 			return false
 		case <-tick.C:
+		}
+	}
+}
+
+func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
+	deadline := time.After(submitConfirm)
+	for {
+		if ag, err := c.Explain(ctx, pane); err == nil && ag.Status != "idle" {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			return false
+		case <-tick:
 		}
 	}
 }
@@ -226,7 +260,7 @@ func cmdAttemptShow(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("task", state.TaskRef(a.TaskID))
-		d.Field("harness", a.Harness+" "+a.Model+" "+a.Effort)
+		d.Field("harness", strings.Join(slices.DeleteFunc([]string{a.Harness, a.Model, a.Effort}, func(v string) bool { return v == "" }), " "))
 		d.Field("status", a.Status)
 		if a.Reason != "" {
 			d.Field("reason", a.Reason)

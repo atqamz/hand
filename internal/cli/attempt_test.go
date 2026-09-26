@@ -72,18 +72,24 @@ func TestOpencodeRefusesAModelBeforeTouchingGit(t *testing.T) {
 	}
 }
 
+const opencodeScreen = "┃  Fix the login bug, commit, then stop.\n┃  When you finish, report to Hand from inside this worktree:"
+
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
-	fx.rt.set(func(rt *fakeRuntime) {
-		rt.screen = "┃  Fix the login bug, commit, then stop.\n┃  When you finish, report to Hand from inside this worktree:"
-	})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.revision = opencodeScreen, 7 })
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
 	if !strings.Contains(out, "prompt: submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
 	}
 	call := fx.rt.lastCreate()
-	if !strings.HasSuffix(call.Command[0], "/opencode") || !slices.Equal(call.Command[1:3], []string{"--auto", "--prompt"}) {
+	if !strings.HasSuffix(call.Command[0], "/opencode") || !slices.Equal(call.Command[1:4], []string{"--standalone", "--auto", "--prompt"}) {
 		t.Fatalf("argv = %q", call.Command)
+	}
+	if recent := fx.h.ok("orient"); !strings.Contains(recent, ",attempt.keys,t1") {
+		t.Fatalf("orient = %q", recent)
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "harness: opencode\n") {
+		t.Fatalf("show = %q", show)
 	}
 }
 
@@ -97,6 +103,28 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: running") {
 		t.Fatalf("show = %q", show)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: briefing not submitted; press Enter"`) {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestOpencodeEnterThatLeavesTheAgentIdleIsNotSubmitted(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: not submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestOpencodeStopsWaitingOnAGoneTerminal(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) { rt.readFail = "terminal_gone" })
+	start := time.Now()
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: not submitted") || time.Since(start) > 5*time.Second {
+		t.Fatalf("start = %q after %s", out, time.Since(start))
 	}
 }
 
