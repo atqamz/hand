@@ -81,6 +81,14 @@ func (s *Store) Task(ctx context.Context, id int64) (Task, error) {
 }
 
 func (s *Store) Tasks(ctx context.Context, want []string, limit int) ([]Task, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	for _, st := range want {
+		if !slices.Contains(statuses, st) {
+			return nil, fmt.Errorf("%w: unknown task status %q; want one of %s", ErrInvalid, st, strings.Join(statuses, ", "))
+		}
+	}
 	q, args := taskSelect, []any{}
 	if len(want) > 0 {
 		q += ` WHERE status IN (` + strings.TrimSuffix(strings.Repeat("?,", len(want)), ",") + `)`
@@ -150,7 +158,13 @@ func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, erro
 		}
 		cur.Status, cur.UpdatedAt = to, now
 		out = cur
-		return emit(tx, now, "task."+to, id, from+"->"+to)
+		if err := emit(tx, now, "task."+to, id, from+"->"+to); err != nil {
+			return err
+		}
+		if to == StatusDone || to == StatusAbandoned {
+			return withdrawOpen(tx, id, now)
+		}
+		return nil
 	})
 	return out, err
 }

@@ -53,3 +53,54 @@ func TestAskRefusesClosedTaskAndEmptyQuestion(t *testing.T) {
 		t.Fatalf("missing decision err = %v", err)
 	}
 }
+
+func TestClosingATaskWithdrawsItsOpenDecisions(t *testing.T) {
+	for _, to := range []string{StatusDone, StatusAbandoned} {
+		s, _ := openTest(t)
+		seedProject(t, s)
+		ctx := context.Background()
+		task, _ := s.AddTask(ctx, "hand", "Fix login", "")
+		if _, err := s.Transition(ctx, task.ID, StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		d, err := s.Ask(ctx, task.ID, "Keep the old cookie name?")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Transition(ctx, task.ID, to); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := s.OpenDecisionCount(ctx, 0); n != 0 {
+			t.Fatalf("%s: open decisions = %d, want 0", to, n)
+		}
+		if _, err := s.Answer(ctx, d.ID, "yes", "operator"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("%s: answer after close err = %v, want ErrConflict", to, err)
+		}
+		events, _ := s.RecentEvents(ctx, 10)
+		var withdrawn bool
+		for _, e := range events {
+			withdrawn = withdrawn || (e.Kind == "decision.withdrawn" && e.TaskID == task.ID && e.Detail == DecisionRef(d.ID))
+		}
+		if !withdrawn {
+			t.Fatalf("%s: no decision.withdrawn event in %+v", to, events)
+		}
+	}
+}
+
+func TestListsRefuseUnknownStatusAndNonPositiveLimit(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		statuses []string
+		limit    int
+	}{{[]string{"actve"}, 10}, {[]string{""}, 10}, {nil, 0}, {nil, -1}} {
+		if _, err := s.Tasks(ctx, tc.statuses, tc.limit); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("Tasks(%q, %d) err = %v, want ErrInvalid", tc.statuses, tc.limit, err)
+		}
+	}
+	for _, limit := range []int{0, -1} {
+		if _, err := s.OpenDecisions(ctx, 0, limit); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("OpenDecisions limit %d err = %v, want ErrInvalid", limit, err)
+		}
+	}
+}

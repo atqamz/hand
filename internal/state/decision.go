@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -100,7 +101,37 @@ func (s *Store) closeDecision(ctx context.Context, id int64, to, answer, by stri
 	return out, err
 }
 
+func withdrawOpen(tx *sql.Tx, taskID int64, now string) error {
+	rows, err := tx.Query(`UPDATE decision SET status = ?, closed_at = ? WHERE task_id = ? AND status = ? RETURNING id`,
+		DecisionWithdrawn, now, taskID, DecisionOpen)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		if err := emit(tx, now, "decision."+DecisionWithdrawn, taskID, DecisionRef(id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) OpenDecisions(ctx context.Context, taskID int64, limit int) ([]Decision, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
 	q, args := decisionSelect+` WHERE status = ?`, []any{DecisionOpen}
 	if taskID != 0 {
 		q += ` AND task_id = ?`
