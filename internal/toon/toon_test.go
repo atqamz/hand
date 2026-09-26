@@ -5,7 +5,7 @@ import "testing"
 func TestRenderFieldsRowsListsAndHelp(t *testing.T) {
 	var d Doc
 	d.Field("home", "/tmp/h")
-	d.Int("count", 2)
+	d.Field("count", "2")
 	d.Rows("tasks", []string{"id", "title"}, [][]string{{"t1", "fix, now"}, {"t2", ""}})
 	d.List("memory", []string{"line one", "line\ntwo"})
 	d.Help("run `hand orient`")
