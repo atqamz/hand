@@ -81,7 +81,8 @@ func WriteStarterPolicy(home string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	f, err := os.OpenFile(filepath.Join(home, PolicyFile), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	path := filepath.Join(home, PolicyFile)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, fs.ErrExist) {
 		return false, nil
 	}
@@ -92,5 +93,8 @@ func WriteStarterPolicy(home string) (bool, error) {
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
-	return werr == nil, werr
+	if werr != nil {
+		return false, errors.Join(werr, os.Remove(path))
+	}
+	return true, nil
 }
