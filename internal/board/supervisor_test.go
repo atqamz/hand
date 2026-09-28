@@ -116,27 +116,15 @@ func lacks(t *testing.T, what, body string, nots ...string) {
 	}
 }
 
-func TestTheShellNeverRefreshes(t *testing.T) {
-	fx := newFixture(t)
-	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	h := fx.handler()
-	shell := get(t, h, "/")
-	lacks(t, "shell", shell, `http-equiv="refresh"`)
-	contains(t, "shell", shell, `<iframe src="/supervisor/panel"`, `<iframe src="/supervisor/log" `, `<iframe src="/cards"`, `action="/supervisor/send"`, `name="csrf" value="`+token+`"`)
-	lacks(t, "shell", shell, "#end")
-	contains(t, "cards", get(t, h, "/cards"), `http-equiv="refresh" content="5"`, `<base target="_top">`)
-	contains(t, "live panel", get(t, h, "/supervisor/panel"), `http-equiv="refresh" content="3"`)
+func TestTheStartFormAndThePickPage(t *testing.T) {
 	fresh := newFixture(t)
-	lacks(t, "start panel", get(t, fresh.handler(), "/supervisor/panel"), `http-equiv="refresh"`)
+	contains(t, "fleet page before the first start", get(t, fresh.handler(), "/"), `action="/supervisor/send"`, `name="harness"`)
 	ended := newFixture(t)
 	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
-	panel := get(t, ended.handler(), "/supervisor/panel")
-	contains(t, "ended panel", panel, `http-equiv="refresh" content="10"`, `action="/supervisor/resume"`, `href="/supervisor/panel?pick=1"`)
-	lacks(t, "ended panel", panel, `name="harness"`)
-	pick := get(t, ended.handler(), "/supervisor/panel?pick=1")
-	contains(t, "picking a harness", pick, `name="harness"`, `name="profile"`)
-	lacks(t, "picking a harness", pick, `http-equiv="refresh"`)
-	contains(t, "shell before the first start", get(t, fresh.handler(), "/"), `action="/supervisor/send"`)
+	page := get(t, ended.handler(), "/")
+	contains(t, "ended", page, `action="/supervisor/resume"`, `href="/?pick=1"`)
+	lacks(t, "ended", page, `name="harness"`)
+	contains(t, "picking a harness", get(t, ended.handler(), "/?pick=1"), `name="harness"`, `name="profile"`)
 }
 
 func TestEveryPanelState(t *testing.T) {
@@ -158,7 +146,7 @@ func TestEveryPanelState(t *testing.T) {
 			if c.status != "" {
 				fx.supervisor(t, c.status, "gen-1")
 			}
-			body := get(t, fx.handler(), "/supervisor/panel")
+			body := get(t, fx.handler(), "/")
 			for _, f := range forms {
 				if slices.Contains(c.want, f) != strings.Contains(body, f) {
 					t.Fatalf("%s: form %s present=%v:\n%s", c.name, f, strings.Contains(body, f), body)
@@ -181,7 +169,7 @@ func TestEveryPanelState(t *testing.T) {
 	if _, err := fx.st.EndSupervisor(ctx, sup.ID, state.AttemptFailed, "launch did not finish"); err != nil {
 		t.Fatal(err)
 	}
-	body := get(t, fx.handler(), "/supervisor/panel")
+	body := get(t, fx.handler(), "/")
 	lacks(t, "failed without a session", body, `action="/supervisor/resume"`)
 	contains(t, "failed without a session", body, `action="/supervisor/start"`, "New session")
 }
@@ -190,7 +178,7 @@ func TestAStaleGenerationShowsNoKeys(t *testing.T) {
 	fx := newFixture(t)
 	fx.status = "blocked"
 	fx.supervisor(t, state.AttemptRunning, "gen-0")
-	body := get(t, fx.handler(), "/supervisor/panel")
+	body := get(t, fx.handler(), "/")
 	contains(t, "stale", body, "luvus restarted")
 	lacks(t, "stale", body, `action="/supervisor/keys"`, "Trust this folder?")
 	if n := len(fx.srv.Calls("agent.read")) + len(fx.srv.Calls("agent.explain")); n != 0 {
@@ -218,14 +206,14 @@ func TestControlsCallTheCLI(t *testing.T) {
 		want []string
 		back string
 	}{
-		{"/supervisor/start", url.Values{"profile": {"default"}}, []string{"start", "--profile", "default"}, "/supervisor/panel"},
-		{"/supervisor/start", url.Values{"harness": {"opencode"}}, []string{"start", "--harness", "opencode"}, "/supervisor/panel"},
-		{"/supervisor/start", url.Values{"harness": {"claude"}, "model": {"sonnet"}, "effort": {"low"}}, []string{"start", "--harness", "claude", "--model", "sonnet", "--effort", "low"}, "/supervisor/panel"},
-		{"/supervisor/start", nil, []string{"start"}, "/supervisor/panel"},
-		{"/supervisor/resume", nil, []string{"resume"}, "/supervisor/panel"},
-		{"/supervisor/stop", nil, []string{"stop"}, "/supervisor/panel"},
-		{"/supervisor/interrupt", nil, []string{"interrupt"}, "/supervisor/panel"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/supervisor/panel"},
+		{"/supervisor/start", url.Values{"profile": {"default"}}, []string{"start", "--profile", "default"}, "/"},
+		{"/supervisor/start", url.Values{"harness": {"opencode"}}, []string{"start", "--harness", "opencode"}, "/"},
+		{"/supervisor/start", url.Values{"harness": {"claude"}, "model": {"sonnet"}, "effort": {"low"}}, []string{"start", "--harness", "claude", "--model", "sonnet", "--effort", "low"}, "/"},
+		{"/supervisor/start", nil, []string{"start"}, "/"},
+		{"/supervisor/resume", nil, []string{"resume"}, "/"},
+		{"/supervisor/stop", nil, []string{"stop"}, "/"},
+		{"/supervisor/interrupt", nil, []string{"interrupt"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"send", "--text", "line one\nline two"}, "/"},
 	}
@@ -269,7 +257,7 @@ func TestALanBoardIsReadOnly(t *testing.T) {
 		t.Fatalf("control called: %q", got)
 	}
 	lacks(t, "LAN shell", get(t, h, "/"), "<form", "<textarea")
-	lacks(t, "LAN panel", get(t, h, "/supervisor/panel"), "<form")
+	lacks(t, "LAN page", get(t, h, "/"), `action="/supervisor/`)
 	get(t, h, "/supervisor/log")
 }
 
@@ -298,7 +286,7 @@ func TestAStaleKeyPressIsRefused(t *testing.T) {
 	fx := newFixture(t)
 	fx.fail = fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/supervisor/keys", url.Values{"csrf": {token}, "revision": {"7"}, "key": {"enter"}}, true)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "the screen changed, try again") || !strings.Contains(rec.Body.String(), `target="_top"`) {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "the screen changed, try again") {
 		t.Fatalf("stale key = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	fx.fail = errors.New("start failed at /home/me/.codex/models_cache.json")
@@ -339,12 +327,11 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `content="3;url=/supervisor/log"`, `class="log"`)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `class="timeline"`)
 	lacks(t, "log", body, "#end")
 	if !(strings.Index(body, "queued: second queued") < strings.Index(body, "queued: first queued") && strings.Index(body, "queued: first queued") < strings.Index(body, "Hi, operator.")) {
 		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
 	}
-	lacks(t, "paused", get(t, h, "/supervisor/log?live=0"), `http-equiv="refresh"`)
 	fresh := newFixture(t)
 	fresh.supervisor(t, state.AttemptRunning, "gen-1")
 	var lines []string
@@ -358,17 +345,4 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 	older := get(t, fresh.handler(), "/supervisor/log?before=10")
 	contains(t, "older page", older, "m01", "m10")
 	lacks(t, "older page", older, "m11")
-}
-
-func TestHeadersAllowOnlySameOriginFrames(t *testing.T) {
-	fx := newFixture(t)
-	for _, p := range []string{"/", "/cards", "/supervisor/panel", "/supervisor/log"} {
-		rec := request(fx.handler(), "GET", p, nil, true)
-		if got := rec.Header().Get("Content-Security-Policy"); got != "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-src 'self'; frame-ancestors 'self'" {
-			t.Fatalf("%s CSP = %q", p, got)
-		}
-		if got := rec.Header().Get("X-Frame-Options"); got != "SAMEORIGIN" {
-			t.Fatalf("%s X-Frame-Options = %q", p, got)
-		}
-	}
 }

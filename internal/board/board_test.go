@@ -115,10 +115,9 @@ func TestIndexShowsOneCardPerOpenTask(t *testing.T) {
 	st := open(t)
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
-	rec := request(h, "GET", "/cards", nil, true)
+	rec := request(h, "GET", "/", nil, true)
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<meta http-equiv="refresh" content="5">`,
 		"Fix login", "users can log in again", "plan p1", "a1", "claude sonnet", "running",
 		"r1", "Cookie fixed", `href="https://github.com/atqamz/hand/pull/42"`,
 		"Keep the old cookie name?", `href="/decision/d1"`, "Write docs",
@@ -131,7 +130,7 @@ func TestIndexShowsOneCardPerOpenTask(t *testing.T) {
 	if strings.Contains(body, "Old chore") {
 		t.Fatal("abandoned task shown without ?all=1")
 	}
-	if all := request(h, "GET", "/cards?all=1", nil, true).Body.String(); !strings.Contains(all, "Old chore") {
+	if all := request(h, "GET", "/?all=1", nil, true).Body.String(); !strings.Contains(all, "Old chore") {
 		t.Fatal("?all=1 hides the abandoned task")
 	}
 }
@@ -141,7 +140,7 @@ func TestBoardEscapesUserText(t *testing.T) {
 	ctx := context.Background()
 	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
 	_, _ = st.AddTask(ctx, "hand", "<script>alert(1)</script>", `"><img src=x onerror=alert(2)>`)
-	body := request(board.New(st, token, board.Options{}), "GET", "/cards", nil, true).Body.String()
+	body := request(board.New(st, token, board.Options{}), "GET", "/", nil, true).Body.String()
 	if strings.Contains(body, "<script>alert") || strings.Contains(body, "<img src=x") || !strings.Contains(body, "&lt;script&gt;") {
 		t.Fatalf("user text not escaped:\n%s", body)
 	}
@@ -204,10 +203,10 @@ func TestIndexSaysWhenTasksAreHidden(t *testing.T) {
 		}
 	}
 	h := board.New(st, token, board.Options{})
-	if body := request(h, "GET", "/cards", nil, true).Body.String(); !strings.Contains(body, "1 more task is not shown") {
+	if body := request(h, "GET", "/", nil, true).Body.String(); !strings.Contains(body, "1 more task is not shown") {
 		t.Fatal("index does not say that tasks are hidden")
 	}
-	if all := request(h, "GET", "/cards?all=1", nil, true).Body.String(); !strings.Contains(all, "--status inbox,active,done,abandoned") {
+	if all := request(h, "GET", "/?all=1", nil, true).Body.String(); !strings.Contains(all, "--status inbox,active,done,abandoned") {
 		t.Fatal("?all=1 hint does not include every status")
 	}
 }
@@ -223,7 +222,7 @@ func TestIndexShowsActiveTasksBeforeOldInboxTasks(t *testing.T) {
 	}
 	late, _ := st.AddTask(ctx, "hand", "Urgent active work", "")
 	_, _ = st.Transition(ctx, late.ID, state.StatusActive)
-	if body := request(board.New(st, token, board.Options{}), "GET", "/cards", nil, true).Body.String(); !strings.Contains(body, "Urgent active work") {
+	if body := request(board.New(st, token, board.Options{}), "GET", "/", nil, true).Body.String(); !strings.Contains(body, "Urgent active work") {
 		t.Fatal("a newer active task was pushed out by older inbox tasks")
 	}
 }

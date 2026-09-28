@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -29,9 +31,13 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"report":   state.ReportRef,
 	"decision": state.DecisionRef,
 	"plan":     func(rev int) string { return state.PlanRef(rev) },
+	"asset":    assetURL,
 }).ParseFS(files, "templates/*.html"))
 
-const cookieName = "hand_board"
+const (
+	cookieName = "hand_board"
+	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
+)
 
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 
@@ -46,6 +52,8 @@ type Options struct {
 	Luvus      luvus.Client
 	Transcript *transcript.Reader
 	Home       string
+	Base       string
+	Tick       time.Duration
 }
 
 type Board struct {
@@ -63,14 +71,13 @@ type card struct {
 	Decisions []state.Decision
 	PRs       []string
 	Token     string
+	Base      string
 }
 
 func New(st *state.Store, token string, o Options) http.Handler {
 	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux()}
-	b.mux.HandleFunc("GET /{$}", b.shell)
-	b.mux.HandleFunc("GET /cards", b.index)
-	b.mux.HandleFunc("GET /supervisor/panel", b.panel)
-	b.mux.HandleFunc("GET /supervisor/log", b.log)
+	b.mux.HandleFunc("GET /{$}", b.fleet)
+	b.mux.HandleFunc("GET /supervisor/log", b.history)
 	b.mux.HandleFunc("POST /supervisor/start", b.start)
 	b.mux.HandleFunc("POST /supervisor/resume", b.simple("resume"))
 	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
@@ -85,17 +92,21 @@ func New(st *state.Store, token string, o Options) http.Handler {
 }
 
 func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-src 'self'; frame-ancestors 'self'")
-	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", csp)
+	w.Header().Set("X-Frame-Options", "DENY")
+	if strings.HasPrefix(r.URL.Path, "/static/") {
+		ServeStatic(w, r)
+		return
+	}
 	if t := r.URL.Query().Get("token"); t != "" {
 		if !b.valid(t) {
 			b.fail(w, http.StatusForbidden, "this board link is not valid")
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: b.o.Base + "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		q := r.URL.Query()
 		q.Del("token")
-		next := r.URL.Path
+		next := b.o.Base + r.URL.Path
 		if len(q) > 0 {
 			next += "?" + q.Encode()
 		}
@@ -118,6 +129,7 @@ func (b *Board) valid(t string) bool {
 }
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
+	data["Base"] = b.o.Base
 	data["Fleet"] = "hand"
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"] = f.Name
@@ -167,7 +179,7 @@ func pathID(r *http.Request, prefix string) (int64, error) {
 }
 
 func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, error) {
-	c := card{Task: t, Token: b.token}
+	c := card{Task: t, Token: b.token, Base: b.o.Base}
 	p, ok, err := b.st.CurrentPlan(ctx, t.ID)
 	if err != nil {
 		return c, err
@@ -199,9 +211,27 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	return c, nil
 }
 
-func (b *Board) index(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	all := r.URL.Query().Get("all") == "1"
+func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
+	counts, err := b.st.CountTasks(ctx)
+	if err != nil {
+		return err
+	}
+	decisions, err := b.st.OpenDecisions(ctx, 0, maxCards)
+	if err != nil {
+		return err
+	}
+	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true}, maxCards)
+	if err != nil {
+		return err
+	}
+	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
+	data["OpenDecisions"], data["UnreadReports"] = decisions, unread
+	data["Waiting"] = len(decisions) + len(unread)
+	return nil
+}
+
+func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values) error {
+	all := q.Get("all") == "1"
 	groups := []string{state.StatusActive, state.StatusInbox}
 	if all {
 		groups = append(groups, state.StatusDone, state.StatusAbandoned)
@@ -213,8 +243,7 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 		}
 		part, err := b.st.Tasks(ctx, []string{status}, maxCards-len(tasks))
 		if err != nil {
-			b.failErr(w, err)
-			return
+			return err
 		}
 		tasks = append(tasks, part...)
 	}
@@ -222,34 +251,20 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	for _, t := range tasks {
 		c, err := b.card(ctx, t, 3)
 		if err != nil {
-			b.failErr(w, err)
-			return
+			return err
 		}
 		cards = append(cards, c)
 	}
 	counts, err := b.st.CountTasks(ctx)
 	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	open, err := b.st.OpenDecisionCount(ctx, 0)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	unacked, err := b.st.UnackedReportCount(ctx)
-	if err != nil {
-		b.failErr(w, err)
-		return
+		return err
 	}
 	total := counts[state.StatusActive] + counts[state.StatusInbox]
 	if all {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
-	b.render(w, http.StatusOK, "cards.html", map[string]any{
-		"Title": "tasks", "Refresh": cardsRefresh, "BaseTop": true, "Cards": cards, "All": all, "Hidden": total - len(cards),
-		"Active": counts[state.StatusActive], "Inbox": counts[state.StatusInbox], "Open": open, "Unacked": unacked,
-	})
+	data["Cards"], data["All"], data["Hidden"] = cards, all, total-len(cards)
+	return nil
 }
 
 func (b *Board) task(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +310,7 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 	}
 	slices.Reverse(events)
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Refresh": 10, "Card": c, "Token": b.token,
+		"Title": state.TaskRef(id), "Card": c, "Token": b.token,
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -330,7 +345,7 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, "/decision/"+state.DecisionRef(id), http.StatusSeeOther)
+	http.Redirect(w, r, b.o.Base+"/decision/"+state.DecisionRef(id), http.StatusSeeOther)
 }
 
 func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
@@ -344,5 +359,5 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, "/task/"+state.TaskRef(rep.TaskID), http.StatusSeeOther)
+	http.Redirect(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), http.StatusSeeOther)
 }
