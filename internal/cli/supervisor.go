@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
@@ -24,18 +23,16 @@ const (
 	supervisorLabel  = "hand-supervisor"
 	supervisorMarker = "You are supervisor "
 	wakeHeader       = "[hand v1 wake]"
-	envelopePrefix   = "[hand v1"
 )
 
-var supervisorKeys = []string{"enter", "esc", "up", "down", "1", "2", "3"}
-
 var supervisorCommands = map[string]handler{
-	"start":  cmdSupervisorStart,
-	"resume": cmdSupervisorResume,
-	"stop":   cmdSupervisorStop,
-	"show":   cmdSupervisorShow,
-	"keys":   cmdSupervisorKeys,
-	"send":   cmdSupervisorSend,
+	"start":     cmdSupervisorStart,
+	"resume":    cmdSupervisorResume,
+	"stop":      cmdSupervisorStop,
+	"show":      cmdSupervisorShow,
+	"keys":      cmdSupervisorKeys,
+	"send":      cmdSupervisorSend,
+	"interrupt": cmdSupervisorInterrupt,
 }
 
 func init() {
@@ -338,7 +335,7 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			d.Field("agent", ag.Status)
 			if ag.Hint != "" {
 				d.Field("blocked_on", ag.Hint)
-				d.Help("Answer it: `hand supervisor keys --revision " + strconv.FormatInt(s.ContentRevision, 10) + " KEY...` with " + strings.Join(supervisorKeys, ", "))
+				d.Help("Answer it: `hand supervisor keys --revision " + strconv.FormatInt(s.ContentRevision, 10) + " KEY...` with " + strings.Join(state.SupervisorKeys, ", "))
 			}
 			if s.TerminalID == sup.TerminalID {
 				d.Field("revision", strconv.FormatInt(s.ContentRevision, 10))
@@ -364,8 +361,8 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	}
 	keys := fs.Args()
 	for _, k := range keys {
-		if !slices.Contains(supervisorKeys, k) {
-			return fmt.Errorf("%w: key %q is not allowed; use %s", state.ErrInvalid, k, strings.Join(supervisorKeys, ", "))
+		if !slices.Contains(state.SupervisorKeys, k) {
+			return fmt.Errorf("%w: key %q is not allowed; use %s", state.ErrInvalid, k, strings.Join(state.SupervisorKeys, ", "))
 		}
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
@@ -501,7 +498,7 @@ func cmdSupervisorSend(r *runner, args []string) error {
 		}
 		*text = string(b)
 	}
-	if err := checkMessage(*text); err != nil {
+	if err := state.CheckMessage(*text); err != nil {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
@@ -531,25 +528,6 @@ func cmdSupervisorSend(r *runner, args []string) error {
 		d.Help("It is delivered once the supervisor can take it; check with `hand supervisor show`")
 		return r.print(&d)
 	})
-}
-
-func checkMessage(text string) error {
-	switch {
-	case strings.TrimSpace(text) == "":
-		return fmt.Errorf("%w: message must not be empty", state.ErrInvalid)
-	case len(text) > harness.MaxPromptBytes:
-		return fmt.Errorf("%w: message is %d bytes; the most is %d", state.ErrInvalid, len(text), harness.MaxPromptBytes)
-	case !utf8.ValidString(text):
-		return fmt.Errorf("%w: message is not valid UTF-8", state.ErrInvalid)
-	case strings.HasPrefix(strings.TrimLeftFunc(text, unicode.IsSpace), envelopePrefix):
-		return fmt.Errorf("%w: message must not start with %q, which Hand keeps for its own envelopes", state.ErrInvalid, envelopePrefix)
-	}
-	for _, ch := range text {
-		if unicode.IsControl(ch) && ch != '\n' && ch != '\t' {
-			return fmt.Errorf("%w: message holds control character %U; only newlines and tabs are allowed", state.ErrInvalid, ch)
-		}
-	}
-	return nil
 }
 
 func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool) (string, error) {
@@ -650,4 +628,54 @@ func wakeDigest(events []state.Event) (string, int64) {
 		last = e.Seq
 	}
 	return b.String(), last
+}
+
+const escGap = 300 * time.Millisecond
+
+func cmdSupervisorInterrupt(r *runner, args []string) error {
+	if _, err := parse(flags("supervisor interrupt"), args, 0); err != nil {
+		return err
+	}
+	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
+		sup, err := runningSupervisor(ctx, st)
+		if err != nil {
+			return err
+		}
+		presses := 1
+		if sup.Harness == "opencode" {
+			presses = 2
+		}
+		for i := range presses {
+			if i > 0 {
+				time.Sleep(escGap)
+			}
+			if err := pressEsc(ctx, c, sup); err != nil {
+				return err
+			}
+		}
+		var d toon.Doc
+		d.Field("supervisor", state.SupervisorRef(sup.ID))
+		d.Field("keys", strings.TrimSpace(strings.Repeat("esc ", presses)))
+		return r.print(&d)
+	})
+}
+
+func pressEsc(ctx context.Context, c luvus.Client, sup state.Supervisor) error {
+	for range 3 {
+		s, err := c.Read(ctx, sup.PaneID, 1)
+		if err != nil {
+			return runtimeErr(err)
+		}
+		if s.TerminalID != sup.TerminalID {
+			return fmt.Errorf("%w: pane %s now shows another terminal; nothing more was sent", state.ErrConflict, sup.PaneID)
+		}
+		err = c.Keys(ctx, sup.PaneID, []string{"esc"}, s.ContentRevision, sup.TerminalID)
+		if err == nil {
+			return nil
+		}
+		if luvus.Code(err) != "content_revision_conflict" {
+			return runtimeErr(err)
+		}
+	}
+	return fmt.Errorf("%w: the screen kept changing; nothing was sent; try again", state.ErrConflict)
 }

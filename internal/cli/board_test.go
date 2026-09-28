@@ -2,8 +2,12 @@ package cli_test
 
 import (
 	"context"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -112,5 +116,85 @@ func TestConcurrentBoardsShareOneToken(t *testing.T) {
 		if tok != first || len(tok) != 48 {
 			t.Fatalf("concurrent boards printed %q and %q", first, tok)
 		}
+	}
+}
+
+func serveBoard(t *testing.T, h *harness, host string) (string, string, func() string) {
+	t.Helper()
+	ln, err := net.Listen("tcp", host+":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan string, 1)
+	go func() {
+		out, _, _ := h.runCtx(ctx, "board", "--addr", addr)
+		done <- out
+	}()
+	_, port, _ := net.SplitHostPort(addr)
+	base := "http://127.0.0.1:" + port
+	var token string
+	eventually(t, func() bool {
+		b, err := os.ReadFile(filepath.Join(h.home, "board.token"))
+		if err != nil {
+			return false
+		}
+		token = strings.TrimSpace(string(b))
+		res, err := http.Get(base + "/?token=" + token)
+		if err != nil {
+			return false
+		}
+		_ = res.Body.Close()
+		return true
+	})
+	return base, token, func() string { cancel(); return <-done }
+}
+
+func postBoard(t *testing.T, base, token, path string, form url.Values) int {
+	t.Helper()
+	form.Set("csrf", token)
+	req, err := http.NewRequest("POST", base+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	return res.StatusCode
+}
+
+func TestALoopbackBoardServesControls(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	base, token, stop := serveBoard(t, h, "127.0.0.1")
+	if code := postBoard(t, base, token, "/supervisor/send", url.Values{"text": {"hello from the board"}}); code != http.StatusSeeOther {
+		t.Fatalf("send = %d", code)
+	}
+	if got := rt.prompts(); !slices.Equal(got, []string{"hello from the board"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+	if out := stop(); !strings.Contains(out, "Chat with the supervisor") {
+		t.Fatalf("board out = %q", out)
+	}
+}
+
+func TestANetworkBoardIsReadOnly(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	base, token, stop := serveBoard(t, h, "0.0.0.0")
+	if code := postBoard(t, base, token, "/supervisor/send", url.Values{"text": {"hello"}}); code != http.StatusForbidden {
+		t.Fatalf("send on a network board = %d", code)
+	}
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("prompts = %q", got)
+	}
+	if out := stop(); !strings.Contains(out, "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work") {
+		t.Fatalf("board out = %q", out)
 	}
 }

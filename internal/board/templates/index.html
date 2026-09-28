@@ -1,10 +1,17 @@
 {{define "index.html"}}{{template "head" .}}<header>
 <h1>{{.Fleet}}</h1>
-<span class="muted">active {{.Active}} · inbox {{.Inbox}} · open decisions {{.Open}} · unread reports {{.Unacked}}</span>
 {{if .All}}<a href="/">hide finished</a>{{else}}<a href="/?all=1">show finished</a>{{end}}
 </header>
-<main>
-{{range .Cards}}{{template "card" .}}{{else}}<p class="muted">No tasks yet. Capture one with <code>hand task add</code>.</p>{{end}}
-{{if gt .Hidden 0}}<p class="muted">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}
+<main class="grid">
+<section>
+<iframe src="/supervisor/panel" title="supervisor" class="panel"></iframe>
+<iframe src="/supervisor/log" title="conversation" class="log"></iframe>
+{{if .Send}}<form method="post" action="/supervisor/send">
+<input type="hidden" name="csrf" value="{{.Token}}">
+<textarea name="text" required placeholder="Message the supervisor"></textarea>
+<div class="row"><button>Send</button></div>
+</form>{{end}}
+</section>
+<iframe src="/cards{{if .All}}?all=1{{end}}" title="tasks" class="cards"></iframe>
 </main>
 {{template "foot"}}{{end}}

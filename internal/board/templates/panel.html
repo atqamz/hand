@@ -1,0 +1,19 @@
+{{define "panel.html"}}{{template "head" .}}<main>
+{{with .Sup}}<div class="row"><b>{{$.Ref}}</b> {{.Harness}} {{.Model}} <span class="{{.Status}}">{{.Status}}</span>{{with .Reason}} <span class="muted">({{.}})</span>{{end}}{{with $.Agent}} · agent <span class="{{.}}">{{.}}</span>{{end}} · pending {{$.Pending}}</div>
+{{else}}<div class="row muted">No supervisor yet · pending {{.Pending}}</div>
+{{end}}{{with .Stale}}<div class="row warn">{{.}}</div>
+{{end}}{{if .Blocked}}<div class="row warn">{{.Hint}}</div>
+<pre>{{.Screen}}</pre>
+{{if .Controls}}<div class="row">{{range .Keys}}<form class="inline" method="post" action="/supervisor/keys"><input type="hidden" name="csrf" value="{{$.Token}}"><input type="hidden" name="revision" value="{{$.Revision}}"><button name="key" value="{{.Name}}">{{.Label}}</button></form> {{end}}</div>
+{{end}}{{end}}{{if .Controls}}{{if and .Sup (eq .Sup.Status "running")}}<div class="row">{{if and .Agent (not .Blocked)}}<form class="inline" method="post" action="/supervisor/interrupt"><input type="hidden" name="csrf" value="{{.Token}}"><button>Interrupt</button></form> {{end}}<form class="inline" method="post" action="/supervisor/stop"><input type="hidden" name="csrf" value="{{.Token}}"><button>Stop</button></form></div>
+{{else if and .Sup .Sup.Live}}<div class="row muted">launching…</div>
+{{else}}<div class="row">{{if .Resumable}}<form class="inline" method="post" action="/supervisor/resume"><input type="hidden" name="csrf" value="{{.Token}}"><button>Resume</button></form> {{end}}{{if .Sup}}<form class="inline" method="post" action="/supervisor/start"><input type="hidden" name="csrf" value="{{.Token}}"><button>New session</button></form>{{end}}{{if not .Pick}} <a href="/supervisor/panel?pick=1">other harness…</a>{{end}}</div>
+{{if .Pick}}<form method="post" action="/supervisor/start">
+<input type="hidden" name="csrf" value="{{.Token}}">
+<div class="row"><select name="profile"><option value="">profile…</option>{{range .Profiles}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+or <select name="harness"><option value="">harness…</option>{{range .Harnesses}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+<input name="model" placeholder="model" size="10"> <input name="effort" placeholder="effort" size="6">
+<button>Start</button></div>
+</form>
+{{end}}{{end}}{{end}}</main>
+{{template "foot"}}{{end}}

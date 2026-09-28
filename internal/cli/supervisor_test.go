@@ -1,8 +1,10 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -474,5 +477,115 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 	h.ok("supervisor", "resume")
 	if n := reads.Load(); n < 8 {
 		t.Fatalf("resume returned after %d screen reads, before the restored screen settled", n)
+	}
+}
+
+func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	var calls atomic.Int32
+	var always atomic.Bool
+	rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+		var p struct {
+			Keys     []string `json:"keys"`
+			Revision int64    `json:"if_content_revision"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		n := calls.Add(1)
+		rt.mu.Lock()
+		defer rt.mu.Unlock()
+		if always.Load() || n == 1 {
+			rt.revision++
+			return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "moved"}
+		}
+		if p.Revision != rt.revision {
+			return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "stale"}
+		}
+		rt.keyed = append(rt.keyed, p.Keys...)
+		return map[string]any{"type": "ok"}, nil
+	})
+	has(t, "interrupt", h.ok("supervisor", "interrupt"), "supervisor: s1", "keys: esc")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"esc"}) || calls.Load() != 2 {
+		t.Fatalf("keys = %q after %d calls", got, calls.Load())
+	}
+	always.Store(true)
+	if _, errOut, code := h.run("supervisor", "interrupt"); code != 3 || !strings.Contains(errOut, "nothing was sent") {
+		t.Fatalf("always stale: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	var out, errOut bytes.Buffer
+	control := cli.SupervisorControl(h.env(&out, &errOut), h.home)
+	ctx := context.Background()
+	if err := control(ctx, "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
+		t.Fatalf("resume with none = %v", err)
+	}
+	if err := control(ctx, "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
+		t.Fatalf("path in error = %v", err)
+	}
+	startClaudeSupervisor(h)
+	if err := control(ctx, "send", "--text", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.prompts(); !slices.Equal(got, []string{"hi"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+	if err := control(ctx, "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("bad key = %v", err)
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("control wrote to the caller's streams: %q %q", out.String(), errOut.String())
+	}
+}
+
+func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n int32)) {
+	t.Helper()
+	script := "#!/bin/sh\nif [ \"$1\" = session ]; then echo '[]'; exit 0; fi\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.status = "┃  You are supervisor s1 of the Hand fleet", 7, "idle"
+	})
+	var calls atomic.Int32
+	rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+		var p struct {
+			Keys []string `json:"keys"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		rt.mu.Lock()
+		rt.keyed = append(rt.keyed, strings.Join(p.Keys, "+"))
+		rt.mu.Unlock()
+		keys(calls.Add(1))
+		return map[string]any{"type": "ok"}, nil
+	})
+}
+
+func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(n int32) {
+		if n == 2 {
+			rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+		}
+	})
+	has(t, "start", h.ok("supervisor", "start", "--harness", "opencode"), "prompt: submitted")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"enter", "enter"}) {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestOpencodeInterruptPressesEscTwice(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
+	h.ok("supervisor", "start", "--harness", "opencode")
+	has(t, "interrupt", h.ok("supervisor", "interrupt"), "keys: esc esc")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"enter", "esc", "esc"}) {
+		t.Fatalf("keys = %q, want two separate fenced esc presses: opencode reads esc+esc in one write as one sequence", got)
 	}
 }

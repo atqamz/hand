@@ -48,13 +48,16 @@ journalctl --user -u secondhand-board-work | grep board:   # the private board l
 
 The board listens on `127.0.0.1:7777`. Give a second fleet its own port with `hand unit --addr 127.0.0.1:7778 board`. To reach a board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`. After you move a fleet, generate its units again.
 
+The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and acknowledging reports still work.
+
 ## The supervisor
 
-Open your agent in the fleet folder:
+Open the board and press **Start**. Pick a routing profile, or a harness with its model and effort. Hand runs the supervisor in the background in the fleet's Luvus session, in full-auto mode:
+- `claude --dangerously-skip-permissions`;
+- `codex --dangerously-bypass-approvals-and-sandbox`;
+- `opencode --auto`.
 
-```sh
-cd ~/fleet-work && claude      # or codex
-```
+The board shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus: `luvus session attach secondhand-<id>` opens it, but you never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
 
 `hand init` writes the folder's `AGENTS.md` and `CLAUDE.md`, which make the agent run `hand orient` every turn. It also installs the `secondhand` skill for Claude Code, Codex, Grok and Pi. Every `hand init` rewrites these files, so put your own preferences in `memory/operator.md` instead.
 
@@ -62,12 +65,18 @@ The loop it follows:
 1. `hand orient`
 2. capture with `hand task add`
 3. dispatch with `hand attempt start --profile …`
-4. wait with `hand wait --after CURSOR`
+4. wait: wakes arrive as messages that start with `[hand v1 wake]`
 5. read and ack reports
 6. ask with `hand decision ask`
 7. finish with `hand task done`
 
 Routing profiles live in `<home>/routing.json`, and `hand route list` shows them.
+
+You can still open an agent in the fleet folder by hand (`cd ~/fleet-work && claude`). It then waits with `hand wait --after CURSOR`, and it stands down while a managed supervisor runs.
+
+### After a reboot
+
+The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
 
 ## Upgrading from 0.7
 

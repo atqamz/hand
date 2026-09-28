@@ -3,14 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+{{if .RefreshURL}}<meta http-equiv="refresh" content="{{.Refresh}};url={{.RefreshURL}}">{{else if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+{{if .BaseTop}}<base target="_top">{{end}}
 <title>{{.Title}} · {{.Fleet}}</title>
 <style>
 :root{color-scheme:light dark;--bg:#f6f6f8;--fg:#1d1d1f;--muted:#6e6e73;--card:#fff;--line:#e3e3e8;--accent:#0a66c2;--warn:#b25000;--ok:#1f7a3d}
 @media (prefers-color-scheme:dark){:root{--bg:#111214;--fg:#ececf1;--muted:#9a9aa3;--card:#1b1c1f;--line:#2c2d31;--accent:#6aa8ff;--warn:#ffb15c;--ok:#5fd28a}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
-header,main{max-width:960px;margin:0 auto;padding:12px 16px}
+header,main{max-width:1400px;margin:0 auto;padding:12px 16px}
+.grid{display:grid;gap:12px;align-items:start}
+@media (min-width:900px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+iframe{display:block;width:100%;border:1px solid var(--line);border-radius:10px;background:var(--card);margin:0 0 12px}
+iframe.panel{height:18em}
+iframe.log{height:60vh}
+iframe.cards{height:85vh}
+.msg{margin:6px 0;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.msg pre{border:0;background:none;padding:0;margin:2px 0 0;font:inherit}
+.msg.operator{border-color:var(--accent)}
+.msg.hand{border-style:dashed;color:var(--muted);font-size:13px}
+.msg.queued{opacity:.7}
+.warn{color:var(--warn)}
+main.log{display:flex;flex-direction:column-reverse;height:100vh;overflow-y:auto;padding:8px 12px}
+body:has(main.log){margin:0;overflow:hidden}
 header{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}
 h1{font-size:18px;margin:0}
 a{color:var(--accent)}

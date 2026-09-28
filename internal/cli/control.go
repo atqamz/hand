@@ -1,0 +1,40 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"strings"
+
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
+)
+
+type controlError struct {
+	msg  string
+	kind error
+}
+
+func (e controlError) Error() string { return e.msg }
+
+func (e controlError) Unwrap() error { return e.kind }
+
+func supervisorControl(env Env, home string) func(context.Context, ...string) error {
+	return func(ctx context.Context, args ...string) error {
+		var stderr bytes.Buffer
+		run := env
+		run.Stdout, run.Stderr, run.Context = io.Discard, &stderr, ctx
+		code := Run(append([]string{"--home", home, "supervisor"}, args...), run)
+		if code == 0 {
+			return nil
+		}
+		msg := board.Scrub(strings.TrimPrefix(strings.TrimSpace(stderr.String()), "error: "))
+		switch code {
+		case 2:
+			return controlError{msg, state.ErrInvalid}
+		case 3:
+			return controlError{msg, state.ErrConflict}
+		}
+		return controlError{msg: msg}
+	}
+}

@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 //go:embed templates/*.html
@@ -37,9 +40,18 @@ const (
 	historyLimit = 50
 )
 
+type Options struct {
+	Controls   bool
+	Control    func(ctx context.Context, args ...string) error
+	Luvus      luvus.Client
+	Transcript *transcript.Reader
+	Home       string
+}
+
 type Board struct {
 	st    *state.Store
 	token string
+	o     Options
 	mux   *http.ServeMux
 }
 
@@ -53,9 +65,18 @@ type card struct {
 	Token     string
 }
 
-func New(st *state.Store, token string) http.Handler {
-	b := &Board{st: st, token: token, mux: http.NewServeMux()}
-	b.mux.HandleFunc("GET /{$}", b.index)
+func New(st *state.Store, token string, o Options) http.Handler {
+	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux()}
+	b.mux.HandleFunc("GET /{$}", b.shell)
+	b.mux.HandleFunc("GET /cards", b.index)
+	b.mux.HandleFunc("GET /supervisor/panel", b.panel)
+	b.mux.HandleFunc("GET /supervisor/log", b.log)
+	b.mux.HandleFunc("POST /supervisor/start", b.start)
+	b.mux.HandleFunc("POST /supervisor/resume", b.simple("resume"))
+	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
+	b.mux.HandleFunc("POST /supervisor/interrupt", b.simple("interrupt"))
+	b.mux.HandleFunc("POST /supervisor/keys", b.keys)
+	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
 	b.mux.HandleFunc("GET /decision/{id}", b.decision)
 	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
@@ -64,8 +85,8 @@ func New(st *state.Store, token string) http.Handler {
 }
 
 func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
-	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-src 'self'; frame-ancestors 'self'")
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 	if t := r.URL.Query().Get("token"); t != "" {
 		if !b.valid(t) {
 			b.fail(w, http.StatusForbidden, "this board link is not valid")
@@ -125,7 +146,16 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, state.ErrInvalid):
 		status = http.StatusBadRequest
 	}
-	b.fail(w, status, err.Error())
+	b.fail(w, status, Scrub(err.Error()))
+}
+
+var absPath = regexp.MustCompile(`(^|[\s"'(=])/[^\s"'():,]+`)
+
+func Scrub(msg string) string {
+	return absPath.ReplaceAllStringFunc(msg, func(m string) string {
+		i := strings.IndexByte(m, '/')
+		return m[:i] + filepath.Base(m[i:])
+	})
 }
 
 func pathID(r *http.Request, prefix string) (int64, error) {
@@ -216,8 +246,8 @@ func (b *Board) index(w http.ResponseWriter, r *http.Request) {
 	if all {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
-	b.render(w, http.StatusOK, "index.html", map[string]any{
-		"Title": "board", "Refresh": 5, "Cards": cards, "All": all, "Hidden": total - len(cards),
+	b.render(w, http.StatusOK, "cards.html", map[string]any{
+		"Title": "tasks", "Refresh": cardsRefresh, "BaseTop": true, "Cards": cards, "All": all, "Hidden": total - len(cards),
 		"Active": counts[state.StatusActive], "Inbox": counts[state.StatusInbox], "Open": open, "Unacked": unacked,
 	})
 }

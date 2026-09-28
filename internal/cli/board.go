@@ -17,8 +17,12 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 func init() {
@@ -54,7 +58,19 @@ func cmdBoard(r *runner, args []string) error {
 		}
 		stop()
 	}
-	srv := &http.Server{Handler: r.whileHome(board.New(st, token), gone), ReadHeaderTimeout: 10 * time.Second}
+	loopback := false
+	if host, _, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+		ip := net.ParseIP(host)
+		loopback = ip != nil && ip.IsLoopback()
+	}
+	opts := board.Options{
+		Controls:   loopback,
+		Control:    supervisorControl(r.env, r.home),
+		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(r.fleet.ID))},
+		Transcript: &transcript.Reader{Paths: r.transcriptPaths()},
+		Home:       r.home,
+	}
+	srv := &http.Server{Handler: r.whileHome(board.New(st, token, opts), gone), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -63,13 +79,12 @@ func cmdBoard(r *runner, args []string) error {
 	}()
 	var d toon.Doc
 	d.Field("board", "http://"+ln.Addr().String()+"/?token="+token)
-	if host, _, err := net.SplitHostPort(ln.Addr().String()); err == nil {
-		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-			d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take the token; prefer a loopback board behind ssh -L or tailscale serve")
-		}
+	control := "Chat with the supervisor and control it from this page; reach it from a phone through ssh -L or tailscale serve"
+	if !loopback {
+		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take the token; prefer a loopback board behind ssh -L or tailscale serve")
+		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
-	d.Help("Keep the link private: the token is the only thing guarding the two board actions",
-		"From a phone on the same network, run it with `--addr 0.0.0.0:7777` and open the machine's LAN address")
+	d.Help("Keep the link private: the token is the only thing guarding this board", control)
 	if err := r.print(&d); err != nil {
 		return err
 	}
@@ -82,6 +97,20 @@ func cmdBoard(r *runner, args []string) error {
 	default:
 		return nil
 	}
+}
+
+func (r *runner) transcriptPaths() transcript.Paths {
+	getenv := r.env.Getenv
+	claude := getenv("CLAUDE_CONFIG_DIR")
+	if claude == "" {
+		claude = filepath.Join(getenv("HOME"), ".claude")
+	}
+	data := getenv("XDG_DATA_HOME")
+	if data == "" {
+		data = filepath.Join(getenv("HOME"), ".local", "share")
+	}
+	opencode, _ := harness.LookPath("opencode", getenv("PATH"))
+	return transcript.Paths{Claude: claude, Codex: harness.CodexHome(getenv), Opencode: opencode, OpencodeData: filepath.Join(data, "opencode")}
 }
 
 func (r *runner) whileHome(h http.Handler, gone func(error)) http.Handler {

@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type SupervisorSpec struct {
@@ -203,7 +205,36 @@ func (s *Store) oneSupervisor(ctx context.Context, q string, args ...any) (Super
 	return sup, err == nil, err
 }
 
+const (
+	MaxMessageBytes = 16384
+	envelopePrefix  = "[hand v1"
+)
+
+var SupervisorKeys = []string{"enter", "esc", "up", "down", "1", "2", "3"}
+
+func CheckMessage(text string) error {
+	switch {
+	case strings.TrimSpace(text) == "":
+		return fmt.Errorf("%w: message must not be empty", ErrInvalid)
+	case len(text) > MaxMessageBytes:
+		return fmt.Errorf("%w: message is %d bytes; the most is %d", ErrInvalid, len(text), MaxMessageBytes)
+	case !utf8.ValidString(text):
+		return fmt.Errorf("%w: message is not valid UTF-8", ErrInvalid)
+	case strings.HasPrefix(strings.TrimLeftFunc(text, unicode.IsSpace), envelopePrefix):
+		return fmt.Errorf("%w: message must not start with %q, which Hand keeps for its own envelopes", ErrInvalid, envelopePrefix)
+	}
+	for _, ch := range text {
+		if unicode.IsControl(ch) && ch != '\n' && ch != '\t' {
+			return fmt.Errorf("%w: message holds control character %U; only newlines and tabs are allowed", ErrInvalid, ch)
+		}
+	}
+	return nil
+}
+
 func (s *Store) AddSupervisorInput(ctx context.Context, body string) (SupervisorInput, error) {
+	if err := CheckMessage(body); err != nil {
+		return SupervisorInput{}, err
+	}
 	in := SupervisorInput{Body: body, CreatedAt: s.stamp()}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		res, err := tx.Exec(`INSERT INTO supervisor_input(body, created_at) VALUES (?, ?)`, body, in.CreatedAt)
