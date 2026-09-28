@@ -235,9 +235,17 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	if err != nil {
 		return err
 	}
+	open, err := b.st.OpenDecisionCount(ctx, 0)
+	if err != nil {
+		return err
+	}
+	unacked, err := b.st.UnackedReportCount(ctx)
+	if err != nil {
+		return err
+	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
 	data["OpenDecisions"], data["UnreadReports"] = decisions, unread
-	data["Waiting"] = len(decisions) + len(unread)
+	data["DecisionCount"], data["UnreadCount"], data["Waiting"] = open, unacked, open+unacked
 	return nil
 }
 

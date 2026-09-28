@@ -1,6 +1,8 @@
 package board_test
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -123,4 +125,23 @@ func TestLinksFollowTheBase(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, res.Body)
 	_ = board.New
+}
+
+func TestWaitingCountsAreNotCapped(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask(ctx, "hand", "Many questions", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 501 {
+		if _, err := st.Ask(ctx, task.ID, fmt.Sprintf("question %d?", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	contains(t, "fleet page", body, `data-waiting="501"`, "open decisions 501")
 }

@@ -21,7 +21,7 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 {{end}}{{if .Older}}<div class="row muted"><a href="{{.Base}}/supervisor/log?before={{.Older}}">older</a></div>
 {{end}}{{end}}
 
-{{define "region-queue"}}<div class="row muted" data-waiting="{{.Waiting}}">active {{.Active}} · inbox {{.Inbox}} · open decisions {{len .OpenDecisions}} · unread reports {{len .UnreadReports}}</div>
+{{define "region-queue"}}<div class="row muted" data-waiting="{{.Waiting}}">active {{.Active}} · inbox {{.Inbox}} · open decisions {{.DecisionCount}} · unread reports {{.UnreadCount}}</div>
 {{range .OpenDecisions}}<div class="row"><span class="tag open">{{decision .ID}}</span> {{.Question}} <a href="{{$.Base}}/decision/{{decision .ID}}">answer</a></div>
 {{end}}{{range .UnreadReports}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}} <a href="{{$.Base}}/task/{{task .TaskID}}#{{report .ID}}">read</a></div>
 {{end}}{{end}}
