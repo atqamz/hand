@@ -1,9 +1,16 @@
 *
 !/.gitignore
+!/.impeccable/
+/.impeccable/*
+!/.impeccable/surfaces/
+!/.impeccable/surfaces/**
+!/.impeccable/design.json
 !/.github/
 !/.github/**
 !/AGENTS.md
+!/DESIGN.md
 !/LICENSE
+!/PRODUCT.md
 !/README.md
 !/docs/
 !/docs/**
