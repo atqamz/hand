@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -32,10 +33,11 @@ const reportMarker = "When you finish, report to Hand"
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
 func reportFooter(exe string) string {
+	end := "HAND_REPORT_" + rand.Text()[:8]
 	return "\n\n---\n" + reportMarker + " from inside this worktree, passing the report on stdin so no file is left in it:\n" +
-		shellQuote(exe) + " report add --status done --file - <<'EOF'\n" +
+		shellQuote(exe) + " report add --status done --file - <<'" + end + "'\n" +
 		"YOUR REPORT\n" +
-		"EOF\n" +
+		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal."
 }
@@ -91,13 +93,16 @@ func cmdReportAdd(r *runner, args []string) error {
 	}
 	body := *text
 	if *file != "" {
-		var b []byte
-		var err error
-		if *file == "-" {
-			b, err = io.ReadAll(r.env.Stdin)
-		} else {
-			b, err = os.ReadFile(*file)
+		src := r.env.Stdin
+		if *file != "-" {
+			f, err := os.Open(*file)
+			if err != nil {
+				return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+			}
+			defer f.Close()
+			src = f
 		}
+		b, err := io.ReadAll(io.LimitReader(src, state.MaxReportBytes+1))
 		if err != nil {
 			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 		}

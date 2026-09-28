@@ -1,10 +1,13 @@
 package cli_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
@@ -68,8 +71,57 @@ func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	prompt := fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1]
-	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file - <<'EOF'\n") || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
+	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file - <<'") || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
 		t.Fatalf("prompt = %q", prompt)
+	}
+}
+
+func heredocDelimiter(t *testing.T, prompt string) string {
+	t.Helper()
+	_, after, ok := strings.Cut(prompt, "--file - <<'")
+	delim, rest, ok2 := strings.Cut(after, "'\n")
+	if !ok || !ok2 || delim == "" {
+		t.Fatalf("no heredoc in %q", prompt)
+	}
+	if !strings.Contains(rest, "\n"+delim+"\n") {
+		t.Fatalf("heredoc %q is never closed in %q", delim, prompt)
+	}
+	return delim
+}
+
+func TestEachBriefingClosesItsReportWithAnUnguessableDelimiter(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	first := heredocDelimiter(t, fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1])
+	fx.h.ok("task", "add", "app", "Second task")
+	fx.h.ok("task", "start", "t2")
+	fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t2")
+	second := heredocDelimiter(t, fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1])
+	if first == "EOF" || first == second {
+		t.Fatalf("delimiters %q and %q: a report line could end the heredoc early", first, second)
+	}
+}
+
+type endless struct{ read int }
+
+func (e *endless) Read(p []byte) (int, error) {
+	if e.read > 4*state.MaxReportBytes {
+		return 0, errors.New("read past the report limit")
+	}
+	for i := range p {
+		p[i] = 'x'
+	}
+	e.read += len(p)
+	return len(p), nil
+}
+
+func TestEndlessStdinIsCutAtTheReportLimit(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.in = &endless{}
+	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--file", "-"); code != 2 || !strings.Contains(errOut, "report body must be 1-65536 bytes") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
 
@@ -103,7 +155,7 @@ func TestReportBodyFromStdinLeavesTheWorktreeClean(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.h.cwd = fx.h.worktree("t1-a1")
-	fx.h.in = "Fixed login\nCommit abc123\n"
+	fx.h.in = strings.NewReader("Fixed login\nCommit abc123\n")
 	if out := fx.h.ok("report", "add", "--status", "done", "--file", "-"); !strings.Contains(out, "report: r1") {
 		t.Fatalf("report add = %q", out)
 	}
@@ -114,5 +166,23 @@ func TestReportBodyFromStdinLeavesTheWorktreeClean(t *testing.T) {
 	fx.h.ok("attempt", "stop", "a1")
 	if out := fx.h.ok("attempt", "clean", "a1"); !strings.Contains(out, "removed: ") {
 		t.Fatalf("clean = %q", out)
+	}
+}
+
+func TestReportBodyFromAFileOutsideTheWorktree(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	file := filepath.Join(t.TempDir(), "report.md")
+	if err := os.WriteFile(file, []byte("Done from a file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.in = strings.NewReader("not this")
+	fx.h.ok("report", "add", "--status", "done", "--file", file)
+	if show := fx.h.ok("report", "show", "r1"); !strings.Contains(show, `body: "Done from a file\n"`) {
+		t.Fatalf("show = %q", show)
+	}
+	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--file", file+".missing"); code != 2 || !strings.Contains(errOut, "no such file") {
+		t.Fatalf("missing file: code=%d stderr=%q", code, errOut)
 	}
 }

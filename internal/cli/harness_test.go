@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ type harness struct {
 	now  time.Time
 	vars map[string]string
 	cwd  string
-	in   string
+	in   io.Reader
 }
 
 func newHarness(t *testing.T) *harness {
@@ -28,7 +29,7 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
-		Stdin:  strings.NewReader(h.in),
+		Stdin:  h.stdin(),
 		Stdout: out,
 		Stderr: errOut,
 		Getenv: func(k string) string {
@@ -52,6 +53,13 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			return h.home, nil
 		},
 	}
+}
+
+func (h *harness) stdin() io.Reader {
+	if h.in == nil {
+		return strings.NewReader("")
+	}
+	return h.in
 }
 
 func (h *harness) run(args ...string) (string, string, int) {
