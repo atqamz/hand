@@ -3,6 +3,8 @@ package board
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"hash/fnv"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,7 +27,7 @@ type version struct {
 	agent, hint string
 	stale       string
 	revision    int64
-	entries     int
+	entries     uint64
 	note        string
 }
 
@@ -56,7 +58,11 @@ func (b *Board) version(ctx context.Context) (version, error) {
 		}
 	}
 	entries, note := b.conversation(ctx, sup, ok)
-	v.entries, v.note = len(entries), note
+	sum := fnv.New64a()
+	for _, e := range entries {
+		_, _ = fmt.Fprintf(sum, "%s\x00%s\x00%t\x00%s\x00", e.Role, e.At, e.Queued, e.Text)
+	}
+	v.entries, v.note = sum.Sum64(), note
 	return v, nil
 }
 

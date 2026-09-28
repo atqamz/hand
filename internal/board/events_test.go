@@ -293,3 +293,17 @@ func TestACarriageReturnCannotSplitAnEvent(t *testing.T) {
 		t.Fatalf("after the decision = %q", got)
 	}
 }
+
+func TestEventsFollowAnEditedTranscript(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{userRecord("a first draft of the operator message that is long")})
+	base, _ := serve(t, quick(fx.st, fx.options))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 4)
+	claudeLog(t, fx, []string{userRecord("edited")})
+	evs := collect(ch, 300*time.Millisecond)
+	if got := eventNames(evs); !slices.Equal(got, []string{"timeline"}) || !strings.Contains(evs[0].data, "edited") {
+		t.Fatalf("after the transcript was rewritten = %q", evs)
+	}
+}
