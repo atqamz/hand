@@ -42,6 +42,8 @@ func init() {
 	commands["supervisor"] = func(r *runner, args []string) error { return sub(r, args, "supervisor", supervisorCommands) }
 }
 
+func launchMarker(ref string) string { return supervisorMarker + ref + " of the Hand fleet " }
+
 func (r *runner) supervisorLock(wait bool) (func(), bool, error) { return r.lock("supervisor", wait) }
 
 func cmdSupervisorStart(r *runner, args []string) error {
@@ -78,7 +80,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 			return err
 		}
 		ref := state.SupervisorRef(last.ID + 1)
-		prompt := fmt.Sprintf("You are supervisor %s of the Hand fleet %s. Follow AGENTS.md: run `%s orient` now, then work from the operator's messages and from messages that start with [hand v1 wake].", ref, r.fleet.Name, r.env.command())
+		prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + r.env.command() + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + "."
 		session := ""
 		if spec.Harness == "claude" {
 			session = harness.NewSessionID()
@@ -461,14 +463,15 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	if real, err := filepath.EvalSymlinks(r.home); err == nil {
 		dir = real
 	}
+	marker := launchMarker(state.SupervisorRef(sup.ID))
 	var id string
 	switch sup.Harness {
 	case "codex":
-		id, err = harness.CodexSession(harness.CodexHome(r.env.Getenv), dir, since)
+		id, err = harness.CodexSession(harness.CodexHome(r.env.Getenv), dir, since, marker)
 	case "opencode":
 		var bin string
 		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
-			id, err = harness.OpencodeSession(bin, dir, since)
+			id, err = harness.OpencodeSession(bin, dir, since, marker)
 		}
 	}
 	if err != nil || id == "" {

@@ -172,7 +172,8 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + cwd + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n"
+	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + cwd + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"You are supervisor s1 of the Hand fleet x."}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
 	}

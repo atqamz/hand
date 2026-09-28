@@ -104,7 +104,7 @@ func (w *watcher) session(ctx context.Context) error {
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
-	w.autoresume(sctx, c)
+	w.autoresume(sctx, c, caps)
 	events := make(chan luvus.Event)
 	failed := make(chan error, 1)
 	go func() {
@@ -189,7 +189,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	}
 }
 
-func (w *watcher) autoresume(ctx context.Context, c luvus.Client) {
+func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
 	p, err := harness.LoadPolicy(w.r.home)
 	if err != nil {
 		w.say("autoresume: " + err.Error())
@@ -204,6 +204,7 @@ func (w *watcher) autoresume(ctx context.Context, c luvus.Client) {
 		w.say("autoresume: " + err.Error())
 	case sup.ID != 0:
 		w.say("supervisor " + state.SupervisorRef(sup.ID) + " resumed")
+		w.deliver(ctx, c, caps)
 	}
 }
 

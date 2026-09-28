@@ -230,6 +230,9 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 		}
 		startClaudeSupervisor(h)
 		session := rt.lastCreate().Command[3]
+		rt.set(func(rt *fakeRuntime) { rt.status = "blocked" })
+		h.ok("supervisor", "send", "--text", "queued before the restart")
+		rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 		rt.srv.SetGeneration("gen-2")
 		stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
 		if !on {
@@ -250,6 +253,7 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 			sup, _, err := st.LatestSupervisor(context.Background())
 			return err == nil && sup.ID == 2 && sup.Status == "running"
 		})
+		eventually(t, func() bool { return slices.Contains(rt.prompts(), "queued before the restart") })
 		out, _ := stop()
 		if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--dangerously-skip-permissions", "--resume", session, "--model", "sonnet", "--effort", "low"}) {
 			t.Fatalf("argv = %q", argv)

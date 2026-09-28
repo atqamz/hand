@@ -1,16 +1,19 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
@@ -91,7 +94,9 @@ func NewSessionID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-func CodexSession(codexHome, cwd string, since time.Time) (string, error) {
+const promptScan = 1 << 20
+
+func CodexSession(codexHome, cwd string, since time.Time, marker string) (string, error) {
 	var first string
 	var firstAt time.Time
 	today := time.Now()
@@ -106,7 +111,14 @@ func CodexSession(codexHome, cwd string, since time.Time) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if from == cwd && !at.Before(since) && (first == "" || at.Before(firstAt)) {
+			if from != cwd || at.Before(since) || (first != "" && !at.Before(firstAt)) {
+				continue
+			}
+			ok, err := holds(file, marker)
+			if err != nil {
+				return "", err
+			}
+			if ok {
 				first, firstAt = id, at
 			}
 		}
@@ -120,6 +132,19 @@ func sameDay(a, b time.Time) bool {
 	ay, am, ad := a.Date()
 	by, bm, bd := b.Date()
 	return ay == by && am == bm && ad == bd
+}
+
+func holds(file, marker string) (bool, error) {
+	f, err := os.Open(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, promptScan))
+	return bytes.Contains(b, []byte(marker)), err
 }
 
 func codexMeta(file string) (string, time.Time, string, error) {
@@ -149,33 +174,52 @@ func codexMeta(file string) (string, time.Time, string, error) {
 	return line.Payload.ID, at, line.Payload.Cwd, nil
 }
 
-func OpencodeSession(bin, dir string, since time.Time) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "session", "list", "--standalone", "--format", "json")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+type opencodeSession struct {
+	ID        string `json:"id"`
+	Created   int64  `json:"created"`
+	Directory string `json:"directory"`
+}
+
+func OpencodeSession(bin, dir string, since time.Time, marker string) (string, error) {
+	out, err := opencode(bin, dir, "session", "list", "--standalone", "--format", "json")
 	if err != nil {
-		var exit *exec.ExitError
-		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
-			return "", fmt.Errorf("opencode session list: %v: %s", err, exit.Stderr)
-		}
-		return "", fmt.Errorf("opencode session list: %w", err)
+		return "", err
 	}
-	var sessions []struct {
-		ID        string `json:"id"`
-		Created   int64  `json:"created"`
-		Directory string `json:"directory"`
-	}
+	var sessions []opencodeSession
 	if err := json.Unmarshal(out, &sessions); err != nil {
 		return "", fmt.Errorf("opencode session list: %w", err)
 	}
-	var first string
-	var firstAt int64
+	sessions = slices.DeleteFunc(sessions, func(s opencodeSession) bool {
+		return filepath.Clean(s.Directory) != filepath.Clean(dir) || s.Created < since.UnixMilli()
+	})
+	slices.SortFunc(sessions, func(a, b opencodeSession) int {
+		return int(a.Created - b.Created)
+	})
 	for _, s := range sessions {
-		if filepath.Clean(s.Directory) == filepath.Clean(dir) && s.Created >= since.UnixMilli() && (first == "" || s.Created < firstAt) {
-			first, firstAt = s.ID, s.Created
+		export, err := opencode(bin, dir, "session", "export", "--standalone", s.ID)
+		if err != nil {
+			return "", err
+		}
+		if bytes.Contains(export, []byte(marker)) {
+			return s.ID, nil
 		}
 	}
-	return first, nil
+	return "", nil
+}
+
+func opencode(bin, dir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = dir
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return nil, fmt.Errorf("opencode %s %s: %v: %s", args[0], args[1], err, exit.Stderr)
+		}
+		return nil, fmt.Errorf("opencode %s %s: %w", args[0], args[1], err)
+	}
+	return out, nil
 }

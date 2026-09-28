@@ -63,14 +63,17 @@ func TestNewSessionIDIsAV4UUID(t *testing.T) {
 	}
 }
 
-func rollout(t *testing.T, home string, at time.Time, id, cwd string) {
+const marker = "You are supervisor s1 of the Hand fleet "
+
+func rollout(t *testing.T, home string, at time.Time, id, cwd, prompt string) {
 	t.Helper()
 	dir := filepath.Join(home, "sessions", at.Format("2006"), at.Format("01"), at.Format("02"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	line := `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"id":"` + id + `","cwd":"` + cwd + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `"}}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "rollout-"+id+".jsonl"), []byte(line+`{"type":"event_msg"}`+"\n"), 0o644); err != nil {
+	user := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + prompt + `"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "rollout-"+id+".jsonl"), []byte(line+`{"type":"event_msg"}`+"\n"+user), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -78,14 +81,15 @@ func rollout(t *testing.T, home string, at time.Time, id, cwd string) {
 func TestCodexSessionFindsTheFirstRolloutForTheFolderSinceLaunch(t *testing.T) {
 	home := t.TempDir()
 	since := time.Now().Add(-time.Minute)
-	rollout(t, home, time.Now(), "elsewhere", "/other")
-	rollout(t, home, since.Add(-time.Hour), "too-old", "/fleet")
-	rollout(t, home, since.Add(time.Second), "mine", "/fleet")
-	rollout(t, home, since.Add(2*time.Second), "later", "/fleet")
-	if id, err := CodexSession(home, "/fleet", since); err != nil || id != "mine" {
+	rollout(t, home, time.Now(), "elsewhere", "/other", marker+"x.")
+	rollout(t, home, since.Add(-time.Hour), "too-old", "/fleet", marker+"x.")
+	rollout(t, home, since.Add(time.Second/2), "operator", "/fleet", "Trust this folder for me")
+	rollout(t, home, since.Add(time.Second), "mine", "/fleet", marker+"x. Follow AGENTS.md")
+	rollout(t, home, since.Add(2*time.Second), "later", "/fleet", marker+"x.")
+	if id, err := CodexSession(home, "/fleet", since, marker); err != nil || id != "mine" {
 		t.Fatalf("session = %q, %v", id, err)
 	}
-	if id, err := CodexSession(t.TempDir(), "/fleet", since); err != nil || id != "" {
+	if id, err := CodexSession(t.TempDir(), "/fleet", since, marker); err != nil || id != "" {
 		t.Fatalf("empty home = %q, %v", id, err)
 	}
 }
@@ -97,17 +101,22 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\n[ \"$*\" = \"session list --standalone --format json\" ] || { echo \"bad args: $*\" >&2; exit 1; }\nsed \"s#/fleets/demo#$(pwd)#\" " + fixture + "\n"
+	script := "#!/bin/sh\ncase \"$*\" in\n" +
+		"'session list --standalone --format json') sleep 5 & sed \"s#/fleets/demo#$(pwd)#\" " + fixture + " ;;\n" +
+		"'session export --standalone ses_newer000000000000000000001') echo '{\"messages\":[{\"text\":\"" + marker + "demo.\"}]}' ;;\n" +
+		"'session export --standalone '*) echo '{\"messages\":[{\"text\":\"hello\"}]}' ;;\n" +
+		"*) echo \"bad args: $*\" >&2; exit 1 ;;\nesac\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570400000)); err != nil || id != "ses_older000000000000000000003" {
-		t.Fatalf("first session = %q, %v", id, err)
-	}
-	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570550000)); err != nil || id != "ses_newer000000000000000000001" {
+	began := time.Now()
+	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("session = %q, %v", id, err)
 	}
-	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000)); err != nil || id != "" {
+	if took := time.Since(began); took > 4*time.Second {
+		t.Fatalf("a child holding stdout kept the lookup waiting %s", took)
+	}
+	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
 		t.Fatalf("nothing newer = %q, %v", id, err)
 	}
 }
