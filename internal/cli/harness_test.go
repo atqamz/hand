@@ -20,6 +20,8 @@ type harness struct {
 	vars map[string]string
 	cwd  string
 	in   io.Reader
+	tty  bool
+	exec [][]string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -46,6 +48,11 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			return kv
 		},
 		Now: func() time.Time { return h.now },
+		Exec: func(argv0 string, argv, _ []string) error {
+			h.exec = append(h.exec, append([]string{argv0}, argv...))
+			return nil
+		},
+		Terminal: func() bool { return h.tty },
 		Getwd: func() (string, error) {
 			if h.cwd != "" {
 				return h.cwd, nil

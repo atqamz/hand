@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,67 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 		_ = json.Unmarshal(ev.Data, &d)
 		if d.Pane == term.PaneID {
 			seen[ev.Event] = true
+		}
+	}
+}
+
+func TestLiveAttachOpensThePane(t *testing.T) {
+	if os.Getenv("HAND_LUVUS_IT") != "1" {
+		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
+	}
+	bin, err := exec.LookPath("luvus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := exec.LookPath("script")
+	if err != nil {
+		t.Skip("attach needs a terminal; install util-linux script to run this")
+	}
+	root := t.TempDir()
+	env := append(luvus.Scrub(os.Environ()), "LUVUS_HOME="+root)
+	getenv := func(k string) string {
+		switch k {
+		case "LUVUS_HOME":
+			return root
+		case "HOME":
+			return os.Getenv("HOME")
+		}
+		return ""
+	}
+	const session = "hand-it-attach"
+	c := luvus.Client{Socket: luvus.SocketPath(getenv, session)}
+	t.Cleanup(func() {
+		stop := exec.Command(bin, "--session", session, "server", "stop")
+		stop.Env = env
+		_ = stop.Run()
+	})
+	ctx := context.Background()
+	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) }); err != nil {
+		t.Fatal(err)
+	}
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep, "300"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pane := range []string{term.PaneID, ""} {
+		run, cancel := context.WithTimeout(ctx, 3*time.Second)
+		var line []string
+		for _, a := range luvus.AttachArgv(bin, session, pane) {
+			line = append(line, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
+		}
+		cmd := exec.CommandContext(run, script, "-qec", strings.Join(line, " "), "/dev/null")
+		cmd.Env = env
+		out, _ := cmd.CombinedOutput()
+		cancel()
+		if !strings.Contains(string(out), "luvus · "+session) {
+			t.Fatalf("attach %q did not open the session TUI: %q", pane, out)
+		}
+		if state, err := c.Validate(ctx, term); err != nil || state != "alive" {
+			t.Fatalf("after attach %q: validate = %s, %v", pane, state, err)
 		}
 	}
 }

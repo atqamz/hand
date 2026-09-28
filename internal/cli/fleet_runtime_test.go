@@ -44,7 +44,7 @@ func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
 		h.ok("task", "add", "app", "Fix login")
 		h.ok("task", "start", "t1")
 		out := h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", brief, "t1")
-		if !strings.Contains(out, "luvus session attach "+fleet.Session(id)) || !strings.Contains(out, "branch: hand/"+id+"/t1-a1") {
+		if !strings.Contains(out, "hand attach a1") || !strings.Contains(out, "branch: hand/"+id+"/t1-a1") {
 			t.Fatalf("start help = %q", out)
 		}
 		return side{h, rt, id}

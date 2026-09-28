@@ -164,6 +164,13 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 	return c.Check(ctx)
 }
 
+func AttachArgv(bin, session, pane string) []string {
+	if pane == "" {
+		return []string{bin, "session", "attach", session}
+	}
+	return []string{bin, "--session", session, "attach", pane}
+}
+
 func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
 	env := Scrub(environ)
 	if run, ok := userManager(env); ok && unit != "" {
