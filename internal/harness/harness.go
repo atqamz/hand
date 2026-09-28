@@ -89,16 +89,23 @@ func CodexHome(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".codex")
 }
 
-func Argv(bin string, s Spec, prompt string) ([]string, error) {
+func checkPrompt(prompt string) error {
 	switch {
 	case strings.TrimSpace(prompt) == "":
-		return nil, fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
+		return fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
 	case len(prompt) > MaxPromptBytes:
-		return nil, fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument", state.ErrInvalid, len(prompt), MaxPromptBytes)
+		return fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument", state.ErrInvalid, len(prompt), MaxPromptBytes)
 	case strings.HasPrefix(prompt, "-"):
-		return nil, fmt.Errorf("%w: prompt must not start with '-', or the harness reads it as a flag", state.ErrInvalid)
+		return fmt.Errorf("%w: prompt must not start with '-', or the harness reads it as a flag", state.ErrInvalid)
 	case strings.ContainsRune(prompt, 0):
-		return nil, fmt.Errorf("%w: prompt must not contain NUL", state.ErrInvalid)
+		return fmt.Errorf("%w: prompt must not contain NUL", state.ErrInvalid)
+	}
+	return nil
+}
+
+func Argv(bin string, s Spec, prompt string) ([]string, error) {
+	if err := checkPrompt(prompt); err != nil {
+		return nil, err
 	}
 	switch s.Harness {
 	case "opencode":
