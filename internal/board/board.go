@@ -134,6 +134,10 @@ func (b *Board) render(w http.ResponseWriter, status int, name string, data map[
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"] = f.Name
 	}
+	renderPage(w, status, name, data)
+}
+
+func renderPage(w http.ResponseWriter, status int, name string, data map[string]any) {
 	var buf bytes.Buffer
 	if err := pages.ExecuteTemplate(&buf, name, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
