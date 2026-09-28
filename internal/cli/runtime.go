@@ -36,7 +36,7 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		return luvus.StartServer(bin, session, dir, r.env.Environ())
+		return luvus.StartServer(bin, session, fleet.LuvusUnit(r.fleet.ID), dir, r.env.Environ())
 	})
 	return c, caps, runtimeErr(err)
 }

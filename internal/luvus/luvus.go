@@ -164,7 +164,11 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 	return c.Check(ctx)
 }
 
-func StartServer(bin, session, dir string, environ []string) error {
+func StartServer(bin, session, unit, dir string, environ []string) error {
+	env := Scrub(environ)
+	if run, ok := userManager(env); ok {
+		return startUnit(run, bin, session, unit, dir, env)
+	}
 	logPath := filepath.Join(dir, "server-start.log")
 	log, err := os.Create(logPath)
 	if err != nil {
@@ -172,10 +176,56 @@ func StartServer(bin, session, dir string, environ []string) error {
 	}
 	defer log.Close()
 	cmd := exec.Command(bin, "--session", session, "server", "start")
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, Scrub(environ), log, log
+	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, log, log
 	if err := cmd.Run(); err != nil {
 		out, _ := os.ReadFile(logPath)
 		return fmt.Errorf("luvus server start: %w: %s", err, bytes.TrimSpace(out))
+	}
+	return nil
+}
+
+var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
+
+func userManager(env []string) (string, bool) {
+	var runtime, path string
+	for _, kv := range env {
+		switch name, value, _ := strings.Cut(kv, "="); name {
+		case "XDG_RUNTIME_DIR":
+			runtime = value
+		case "PATH":
+			path = value
+		}
+	}
+	if runtime == "" {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(runtime, "systemd", "private")); err != nil {
+		return "", false
+	}
+	for _, dir := range filepath.SplitList(path) {
+		p := filepath.Join(dir, "systemd-run")
+		if fi, err := os.Stat(p); filepath.IsAbs(dir) && err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func startUnit(run, bin, session, unit, dir string, env []string) error {
+	reset := exec.Command(filepath.Join(filepath.Dir(run), "systemctl"), "--user", "reset-failed", unit+".service")
+	reset.Env = env
+	_ = reset.Run()
+	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
+		"-p", "Type=forking", "-p", "Restart=on-failure", "-p", "RestartSec=5"}
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(systemdOwned, name) {
+			args = append(args, "-E", kv)
+		}
+	}
+	cmd := exec.Command(run, append(args, bin, "--session", session, "server", "start")...)
+	cmd.Env = env
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
 	}
 	return nil
 }
