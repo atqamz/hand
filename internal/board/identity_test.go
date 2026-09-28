@@ -181,3 +181,9 @@ func TestNoWebFonts(t *testing.T) {
 		t.Fatal("board.css loads a font or an image")
 	}
 }
+
+func TestHiddenSectionsStayHidden(t *testing.T) {
+	if !strings.Contains(asset(t, "board.css"), "[hidden]{display:none!important}") {
+		t.Fatal("board.css lets a display rule override the hidden attribute, so the phone tabs cannot hide a section")
+	}
+}

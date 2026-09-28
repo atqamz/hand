@@ -17,6 +17,8 @@ const (
 	blockedAsking = "The supervisor's screen needs a key"
 )
 
+var markers = strings.NewReplacer("**", "", "`", "")
+
 type waiting struct {
 	Kind, Ref, Title string
 	Task             state.Task
@@ -101,7 +103,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 			return err
 		}
 		excerpt := strings.Split(strings.TrimSpace(r.Body), "\n")
-		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: r.Summary(), Task: t, Report: &r, Excerpt: strings.Join(excerpt[:min(len(excerpt), excerptLines)], "\n"), Cut: len(excerpt) > excerptLines})
+		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: strings.Join(excerpt[:min(len(excerpt), excerptLines)], "\n"), Cut: len(excerpt) > excerptLines})
 	}
 	total += unacked - len(unread)
 	if live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited) {

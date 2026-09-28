@@ -49,8 +49,12 @@
 		}
 		held.delete(name);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
+		const fields = "textarea, select, input:not([type=hidden])";
+		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
+		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
 		const pinned = name === "timeline" && fromBottom(el) <= 48;
 		el.innerHTML = html;
+		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
 		for (const d of el.querySelectorAll("details[id]")) {
 			if (chosen.has(d.id)) d.open = chosen.get(d.id);
 			if (!before.has(d.id) && d.classList.contains("wait")) {

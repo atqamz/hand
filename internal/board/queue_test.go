@@ -279,3 +279,14 @@ func asset(t *testing.T, name string) string {
 	}
 	return request(h, "GET", m, nil, false).Body.String()
 }
+
+func TestReportTitlesDropMarkdownMarkers(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Docs")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportDone, "**Done.** The `renderer` escapes first"); err != nil {
+		t.Fatal(err)
+	}
+	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	contains(t, "report title", q, `<span class="wait-title">Done. The renderer escapes first</span>`)
+}
