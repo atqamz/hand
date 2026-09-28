@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
@@ -26,10 +27,13 @@ type closer func() error
 func (c closer) Close() error { return c() }
 
 type fakeFleets struct {
-	mu     sync.Mutex
-	homes  map[string]string
-	opened []string
-	closed []string
+	mu      sync.Mutex
+	homes   map[string]string
+	opened  []string
+	closed  []string
+	openers map[string]chan struct{}
+	entered chan string
+	slow    chan struct{}
 }
 
 func newFakeFleets() *fakeFleets {
@@ -48,9 +52,20 @@ func (f *fakeFleets) resolve(id string) (string, error) {
 
 func (f *fakeFleets) open(id, home string) (http.Handler, io.Closer, error) {
 	f.mu.Lock()
+	gate, entered := f.openers[id], f.entered
+	f.mu.Unlock()
+	if gate != nil {
+		entered <- id
+		<-gate
+	}
+	f.mu.Lock()
 	f.opened = append(f.opened, id+" "+home)
+	slow := f.slow
 	f.mu.Unlock()
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			<-slow
+		}
 		_, _ = fmt.Fprintf(w, "%s %s %s", id, home, r.URL.Path)
 	})
 	return h, closer(func() error {
@@ -119,6 +134,7 @@ func TestHostCachesUntilTheHomeChanges(t *testing.T) {
 	if rec := fetch(h, "/"+fleetA+"/"); rec.Body.String() != fleetA+" /homes/a2 /" {
 		t.Fatalf("after the move = %q", rec.Body.String())
 	}
+	eventually(t, func() bool { _, closed := f.seen(); return len(closed) == 1 })
 	opened, closed := f.seen()
 	if !slices.Equal(opened, []string{fleetA + " /homes/a", fleetA + " /homes/a2"}) || !slices.Equal(closed, []string{fleetA + " /homes/a"}) {
 		t.Fatalf("after the move: opened %q, closed %q", opened, closed)
@@ -146,9 +162,7 @@ func TestADeadFleetIs404(t *testing.T) {
 	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "fleet not found") || strings.Contains(rec.Body.String(), "/homes/") {
 		t.Fatalf("dead fleet = %d %q", rec.Code, rec.Body.String())
 	}
-	if _, closed := f.seen(); !slices.Equal(closed, []string{fleetA + " /homes/a"}) {
-		t.Fatalf("the dead fleet's handler stays open: closed %q", closed)
-	}
+	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
 }
 
 func TestTheFleetListIsLoopbackOnly(t *testing.T) {
@@ -217,4 +231,67 @@ func TestTwoFleetsKeepSeparateLogins(t *testing.T) {
 	if code := with("POST", "/"+fleetB+"/report/r1/ack", tokenB, url.Values{"csrf": {token}}); code != http.StatusForbidden {
 		t.Fatalf("B with A's csrf = %d", code)
 	}
+}
+
+func eventually(t *testing.T, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not reached within 3s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestHostOpensAFleetOutsideItsLock(t *testing.T) {
+	f := newFakeFleets()
+	gate := make(chan struct{})
+	f.openers, f.entered = map[string]chan struct{}{fleetA: gate}, make(chan string, 1)
+	h := f.host(true)
+	done := make(chan struct{})
+	go func() {
+		fetch(h, "/"+fleetA+"/")
+		close(done)
+	}()
+	<-f.entered
+	t.Cleanup(func() {
+		close(gate)
+		<-done
+	})
+	b := make(chan string, 1)
+	go func() { b <- fetch(h, "/"+fleetB+"/").Body.String() }()
+	select {
+	case got := <-b:
+		if got != fleetB+" /homes/b /" {
+			t.Fatalf("fleet B = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("fleet B waited on fleet A's open")
+	}
+}
+
+func TestAMoveWaitsForInFlightRequests(t *testing.T) {
+	f := newFakeFleets()
+	f.slow = make(chan struct{})
+	h := f.host(true)
+	fetch(h, "/"+fleetA+"/")
+	done := make(chan string)
+	go func() { done <- fetch(h, "/"+fleetA+"/slow").Body.String() }()
+	time.Sleep(50 * time.Millisecond)
+	f.mu.Lock()
+	f.homes[fleetA] = "/homes/a2"
+	f.mu.Unlock()
+	if rec := fetch(h, "/"+fleetA+"/"); rec.Body.String() != fleetA+" /homes/a2 /" {
+		t.Fatalf("after the move = %q", rec.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, closed := f.seen(); len(closed) != 0 {
+		t.Fatalf("the old handler closed under an in-flight request: %q", closed)
+	}
+	close(f.slow)
+	if got := <-done; got != fleetA+" /homes/a /slow" {
+		t.Fatalf("the in-flight request = %q", got)
+	}
+	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
 }

@@ -30,6 +30,7 @@ type hosted struct {
 	home string
 	h    http.Handler
 	c    io.Closer
+	busy *sync.WaitGroup
 }
 
 func NewHost(o HostOptions) *Host {
@@ -76,38 +77,59 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		hostFail(w, http.StatusNotFound, "fleet not found")
 		return
 	}
-	fh, err := h.handler(id)
+	fh, done, err := h.handler(id)
 	switch {
 	case errors.Is(err, state.ErrNotFound):
 		hostFail(w, http.StatusNotFound, "fleet not found")
 	case err != nil:
 		hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))
 	default:
+		defer done()
 		http.StripPrefix("/"+id, fh).ServeHTTP(w, r)
 	}
 }
 
-func (h *Host) handler(id string) (http.Handler, error) {
+func (h *Host) handler(id string) (http.Handler, func(), error) {
 	home, err := h.o.Resolve(id)
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	f, cached := h.fleets[id]
-	if err == nil && cached && f.home == home {
-		return f.h, nil
+	if f, ok := h.fleets[id]; ok && err == nil && f.home == home {
+		f.busy.Add(1)
+		h.mu.Unlock()
+		return f.h, f.busy.Done, nil
 	}
-	if cached {
-		_ = f.c.Close()
-		delete(h.fleets, id)
-	}
+	h.retire(id)
+	h.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	fh, c, err := h.o.Open(id, home)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	h.fleets[id] = hosted{home: home, h: fh, c: c}
-	return fh, nil
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if f, ok := h.fleets[id]; ok && f.home == home {
+		_ = c.Close()
+		f.busy.Add(1)
+		return f.h, f.busy.Done, nil
+	}
+	h.retire(id)
+	f := hosted{home: home, h: fh, c: c, busy: &sync.WaitGroup{}}
+	f.busy.Add(1)
+	h.fleets[id] = f
+	return fh, f.busy.Done, nil
+}
+
+func (h *Host) retire(id string) {
+	f, ok := h.fleets[id]
+	if !ok {
+		return
+	}
+	delete(h.fleets, id)
+	go func() {
+		f.busy.Wait()
+		_ = f.c.Close()
+	}()
 }
 
 func hostPage(w http.ResponseWriter, status int, name string, data map[string]any) {
