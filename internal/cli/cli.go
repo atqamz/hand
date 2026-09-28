@@ -20,6 +20,7 @@ const Version = "0.0.0-next"
 
 type Env struct {
 	Name    string
+	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Getenv  func(string) string

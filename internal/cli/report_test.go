@@ -68,7 +68,7 @@ func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	prompt := fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1]
-	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file SUMMARY.md\n") || strings.Contains(prompt, "done|stuck") {
+	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file - <<'EOF'\n") || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
 		t.Fatalf("prompt = %q", prompt)
 	}
 }
@@ -96,5 +96,23 @@ func TestTaskShowPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	fx.start()
 	if show := fx.h.ok("task", "show", "t1"); !strings.Contains(show, "attempt: a2 running") || !strings.Contains(show, "report: none") {
 		t.Fatalf("task show = %q", show)
+	}
+}
+
+func TestReportBodyFromStdinLeavesTheWorktreeClean(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	fx.h.in = "Fixed login\nCommit abc123\n"
+	if out := fx.h.ok("report", "add", "--status", "done", "--file", "-"); !strings.Contains(out, "report: r1") {
+		t.Fatalf("report add = %q", out)
+	}
+	if show := fx.h.ok("report", "show", "r1"); !strings.Contains(show, `body: "Fixed login\nCommit abc123\n"`) {
+		t.Fatalf("show = %q", show)
+	}
+	fx.h.ok("report", "ack", "r1")
+	fx.h.ok("attempt", "stop", "a1")
+	if out := fx.h.ok("attempt", "clean", "a1"); !strings.Contains(out, "removed: ") {
+		t.Fatalf("clean = %q", out)
 	}
 }

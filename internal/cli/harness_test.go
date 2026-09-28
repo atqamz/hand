@@ -18,6 +18,7 @@ type harness struct {
 	now  time.Time
 	vars map[string]string
 	cwd  string
+	in   string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -27,6 +28,7 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
+		Stdin:  strings.NewReader(h.in),
 		Stdout: out,
 		Stderr: errOut,
 		Getenv: func(k string) string {

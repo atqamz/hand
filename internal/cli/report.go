@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,8 +32,10 @@ const reportMarker = "When you finish, report to Hand"
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
 func reportFooter(exe string) string {
-	return "\n\n---\n" + reportMarker + " from inside this worktree:\n" +
-		"  " + shellQuote(exe) + " report add --status done --file SUMMARY.md\n" +
+	return "\n\n---\n" + reportMarker + " from inside this worktree, passing the report on stdin so no file is left in it:\n" +
+		shellQuote(exe) + " report add --status done --file - <<'EOF'\n" +
+		"YOUR REPORT\n" +
+		"EOF\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal."
 }
@@ -79,7 +82,7 @@ func cmdReportAdd(r *runner, args []string) error {
 	attempt := fs.String("attempt", "", "attempt id; default: the Hand worktree you are in")
 	status := fs.String("status", "", "progress, done or stuck")
 	text := fs.String("text", "", "report text")
-	file := fs.String("file", "", "file holding the report")
+	file := fs.String("file", "", "file holding the report; - reads it from stdin")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -88,7 +91,13 @@ func cmdReportAdd(r *runner, args []string) error {
 	}
 	body := *text
 	if *file != "" {
-		b, err := os.ReadFile(*file)
+		var b []byte
+		var err error
+		if *file == "-" {
+			b, err = io.ReadAll(r.env.Stdin)
+		} else {
+			b, err = os.ReadFile(*file)
+		}
 		if err != nil {
 			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 		}
