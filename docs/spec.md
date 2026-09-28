@@ -10,15 +10,15 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 
 ## Core
 
-1. **One supervisor.** The operator talks to a single agent. It captures requests, dispatches workers into isolated git worktrees, watches them, and escalates only decisions that genuinely need the operator.
+1. **One supervisor.** The operator talks to a single agent: the managed supervisor, which Hand runs in the background in the fleet's Luvus session and the operator reaches from the board. It captures requests, dispatches workers into isolated git worktrees, watches them, and escalates only decisions that genuinely need the operator.
 2. **Fleet memory.** Operator context, project context, and task history are durable outside any chat session. A fresh supervisor orients from Hand state alone, cheaply, without re-explanation.
 3. **Determinism.** Workflow state lives in a state machine over SQLite, never in LLM memory. The same state renders the same orientation. Idle costs zero tokens: a watcher wakes the supervisor only when something changed.
-4. **Fleets.** A fleet is any folder `hand init` ran in, with an immutable ID and a name the operator can change. The operator opens the supervisor in that folder, and several fleets run side by side. `~/.secondhand` (`$SECONDHAND_HOME`) links each fleet ID to its folder and holds every worker worktree outside every fleet. Each fleet has its own Luvus session, watcher and board.
+4. **Fleets.** A fleet is any folder `hand init` ran in, with an immutable ID and a name the operator can change. The operator runs each fleet's supervisor from its board, and several fleets run side by side. `~/.secondhand` (`$SECONDHAND_HOME`) links each fleet ID to its folder and holds every worker worktree outside every fleet. Each fleet has its own Luvus session, watcher and board.
 5. **Board.** One place outside chat where everything is visible:
    - every operator request becomes a durable item (inbox/Task) before work starts, so nothing lives only in chat text;
    - one card per Task: goal, status, current plan, attempts, latest report, pending decisions, PR link;
    - the board is a pure projection of Hand state: deleting or restarting it loses nothing;
-   - board actions are narrow and exact (answer a Decision by ID, acknowledge a report by ID); anything needing judgement goes through the supervisor.
+   - the board is the operator's interface. It answers a Decision by ID, acknowledges a report by ID, and starts, resumes, stops and chats with the supervisor. Judgement goes to the supervisor through chat, and supervisor control works over loopback only.
 
 ## Hard constraints
 
@@ -26,7 +26,7 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 - **Few dependencies.** Required: git, the worker harness CLIs the operator uses (Claude Code, Codex, opencode), and Luvus (github.com/RizRiyz/luvus) as the one runtime backend. Hand uses only Luvus's runtime primitives over UHP 1.0: exact-argv terminals, agent status, fenced input, and events. Hand owns state, worktrees and the board itself, and never uses Luvus's task ledger or worktree commands. `gh` is optional. No `*-axi` tools, no private bundled runtime.
 - **Upstream.** Every Luvus gap gets a Hand-side guard first. Issues and pull requests to RizRiyz/luvus run in parallel, and a guard is deleted only after the fix ships in a release Hand pins.
 - **Linux only**, the operator's machine and projects.
-- **Board** is `hand board`: a local web page from the same Go binary (`net/http` + `html/template`), read-only over state, auto-refresh (SSE or meta-refresh), no JS framework, reachable from a phone over LAN/tunnel. A Luvus dock may mirror one line per Task; it never replaces `hand board`.
+- **Board** is `hand board`: a local web page from the same Go binary (`net/http` + `html/template`). It is a projection of state plus supervisor control, uses meta-refresh and no JavaScript, and is reachable from a phone through a tunnel (`ssh -L`, `tailscale serve`). Supervisor control works over loopback only; on a network address the board is read-only. A Luvus dock may mirror one line per Task; it never replaces `hand board`.
 
 ## Non-goals
 
