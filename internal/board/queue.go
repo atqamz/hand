@@ -143,20 +143,26 @@ func (b *Board) facts(ctx context.Context) (facts, error) {
 	if f.unread, err = b.st.UnackedReportTasks(ctx); err != nil {
 		return f, err
 	}
-	if f.asked, err = b.st.OpenDecisionCounts(ctx); err != nil {
-		return f, err
+	f.asked, err = b.st.OpenDecisionCounts(ctx)
+	return f, err
+}
+
+func (b *Board) prLinks(ctx context.Context, tasks []state.Task) (map[int64]string, error) {
+	ids := make([]int64, 0, len(tasks))
+	for _, t := range tasks {
+		ids = append(ids, t.ID)
 	}
-	reports, err := b.st.ReportsMentioning(ctx, "/pull/")
+	reports, err := b.st.ReportsMentioning(ctx, "/pull/", ids)
 	if err != nil {
-		return f, err
+		return nil, err
 	}
-	f.prs = map[int64]string{}
+	out := map[int64]string{}
 	for _, r := range reports {
 		if links := PRLinks(r.Body); len(links) > 0 {
-			f.prs[r.TaskID] = links[len(links)-1]
+			out[r.TaskID] = links[len(links)-1]
 		}
 	}
-	return f, nil
+	return out, nil
 }
 
 func (f facts) failing(a state.Attempt) bool {

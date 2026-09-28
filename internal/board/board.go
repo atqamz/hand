@@ -277,6 +277,11 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		tasks = append(tasks, part...)
 	}
 	f, _ := data["facts"].(facts)
+	prs, err := b.prLinks(ctx, tasks)
+	if err != nil {
+		return err
+	}
+	f.prs = prs
 	checks := make([]check, 0, len(tasks))
 	for _, t := range tasks {
 		checks = append(checks, f.check(t))

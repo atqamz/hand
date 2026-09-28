@@ -194,8 +194,14 @@ func TestBoardFactsAreGroupedQueries(t *testing.T) {
 	if err != nil || asked[tasks[2].ID] != 2 || asked[tasks[0].ID] != 0 {
 		t.Fatalf("asked = %v, %v", asked, err)
 	}
-	prs, err := s.ReportsMentioning(ctx, "/pull/")
+	prs, err := s.ReportsMentioning(ctx, "/pull/", []int64{tasks[0].ID, tasks[2].ID})
 	if err != nil || len(prs) != 1 || prs[0].AttemptID != first.ID {
 		t.Fatalf("prs = %v, %v", prs, err)
+	}
+	if other, err := s.ReportsMentioning(ctx, "/pull/", []int64{tasks[1].ID}); err != nil || len(other) != 0 {
+		t.Fatalf("reports of tasks not asked for = %v, %v", other, err)
+	}
+	if none, err := s.ReportsMentioning(ctx, "/pull/", nil); err != nil || len(none) != 0 {
+		t.Fatalf("no tasks = %v, %v", none, err)
 	}
 }

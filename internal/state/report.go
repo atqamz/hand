@@ -174,8 +174,15 @@ func (s *Store) DoneReportAttempts(ctx context.Context) (map[int64]bool, error) 
 	return s.idSet(ctx, `SELECT DISTINCT attempt_id FROM report WHERE status = ?`, ReportDone)
 }
 
-func (s *Store) ReportsMentioning(ctx context.Context, needle string) ([]Report, error) {
-	rows, err := s.db.QueryContext(ctx, reportSelect+` WHERE instr(body, ?) > 0 ORDER BY id`, needle)
+func (s *Store) ReportsMentioning(ctx context.Context, needle string, taskIDs []int64) ([]Report, error) {
+	if len(taskIDs) == 0 {
+		return nil, nil
+	}
+	args := []any{needle}
+	for _, id := range taskIDs {
+		args = append(args, id)
+	}
+	rows, err := s.db.QueryContext(ctx, reportSelect+` WHERE instr(body, ?) > 0 AND task_id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(taskIDs)), ",")+`) ORDER BY id`, args...)
 	if err != nil {
 		return nil, err
 	}
