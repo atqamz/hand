@@ -157,7 +157,7 @@ func TestTheTaskPageIsOneRegion(t *testing.T) {
 	st := open(t)
 	seed(t, st)
 	body := get(t, board.New(st, token, board.Options{}), "/task/t1")
-	if strings.Count(body, "data-region=") != 1 || !strings.Contains(body, `<main data-region="task">`) || strings.Contains(body, "http-equiv") {
+	if strings.Count(body, "data-region=") != 1 || !strings.Contains(body, `<main class="thread" data-region="task">`) || strings.Contains(body, "http-equiv") {
 		t.Fatalf("task page regions:\n%s", body)
 	}
 }

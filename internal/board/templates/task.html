@@ -1,19 +1,25 @@
-{{define "task.html"}}{{template "head" .}}<header>
-<h1><a href="{{.Base}}/">{{.Fleet}}</a> / {{task .Card.Task.ID}}</h1>
+{{define "task.html"}}{{template "head" .}}{{template "top" .}}<main class="thread" data-region="task">
+<header class="thread-head">
+<p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
+<h2 class="thread-title">{{.Card.Task.Title}}</h2>
+<div class="status-line"><span class="pill" data-state="{{.Pill}}">{{.Card.Task.Status}}</span> <span class="meta">{{.Card.Task.Project}}{{with .Card.Plan}} · plan {{plan .Revision}}{{end}}</span>{{range .Card.PRs}} <a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</div>
 </header>
-<main data-region="task">
-{{template "card" .Card}}
-{{with .Card.Plan}}<section class="card"><h2>Plan {{plan .Revision}}</h2><pre>{{.Body}}</pre></section>{{end}}
-{{if .Unread}}<section class="card"><h2>Unread reports</h2>
-{{range .Unread}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}} <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form></div>
+{{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">
+{{range .Card.Decisions}}<div class="need">{{template "icon-decision"}}<span class="ref">{{decision .ID}}</span> <span class="need-title">{{.Question}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
+{{end}}{{range .Unread}}<div class="need">{{template "icon-report"}}<a class="ref" href="#{{report .ID}}">{{report .ID}}</a> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form></div>
 {{end}}</section>{{end}}
-<section class="card"><h2>Reports</h2>
-{{range .Reports}}<div class="row" id="{{report .ID}}"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span> <span class="muted">{{.CreatedAt}}{{with .AckedBy}} · read by {{.}}{{end}}</span>{{if not .AckedAt}} <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}<pre>{{.Body}}</pre></div>
-{{else}}<p class="muted">No reports yet.</p>{{end}}
-{{if .MoreReports}}<p class="muted">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>{{end}}
-</section>
-<section class="card"><h2>Events</h2>
-{{range .Events}}<div class="row muted">{{.Seq}} · {{.At}} · {{.Kind}} {{.Detail}}</div>
-{{end}}{{if .MoreEvents}}<p class="muted">Only the latest 50 events are shown.</p>{{end}}</section>
+{{with .Card.Task.Goal}}<article class="comment" data-role="goal"><header><b>Goal</b></header><div class="body plain">{{.}}</div></article>{{end}}
+{{with .Card.Plan}}<article class="comment" data-role="plan"><header><b>Plan {{plan .Revision}}</b> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><pre class="body">{{.Body}}</pre></article>{{end}}
+<h3>Attempts</h3>
+{{with .Attempts}}<ol class="checks">{{range .}}<li class="check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<span class="ref">{{attempt .Attempt.ID}}</span> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
+{{else}}<p class="quiet">No attempts yet.</p>
+{{end}}<h3>Reports</h3>
+{{range .Reports}}<article class="comment report" id="{{report .ID}}" data-status="{{.Status}}"><header><b>{{report .ID}}</b> <span class="meta">from {{attempt .AttemptID}}</span> <span class="state {{.Status}}">{{.Status}}</span> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time><span class="spacer"></span>{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}</header><div class="body md">{{md .Body}}</div></article>
+{{else}}<p class="quiet">No reports yet.</p>
+{{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>
+{{end}}<h3>Events</h3>
+<ol class="events">{{range .Events}}<li class="event">{{template "icon-event"}}<span class="event-text">{{.Kind}} {{.Detail}}</span> <time datetime="{{.At}}">{{when .At}}</time></li>
+{{end}}</ol>
+{{if .MoreEvents}}<p class="more">Only the latest 50 events are shown.</p>{{end}}
 </main>
 {{template "foot"}}{{end}}

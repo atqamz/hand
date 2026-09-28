@@ -50,6 +50,11 @@ const (
 
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 
+var (
+	taskPill     = map[string]string{state.StatusActive: "running", state.StatusInbox: "neutral", state.StatusDone: "passing", state.StatusAbandoned: "neutral"}
+	decisionPill = map[string]string{state.DecisionOpen: "waiting", state.DecisionAnswered: "passing", state.DecisionWithdrawn: "neutral"}
+)
+
 const (
 	maxCards     = 500
 	historyLimit = 50
@@ -79,8 +84,6 @@ type card struct {
 	Report    *state.Report
 	Decisions []state.Decision
 	PRs       []string
-	Token     string
-	Base      string
 }
 
 func New(st *state.Store, token string, o Options) http.Handler {
@@ -221,7 +224,7 @@ func pathID(r *http.Request, prefix string) (int64, error) {
 }
 
 func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, error) {
-	c := card{Task: t, Token: b.token, Base: b.o.Base}
+	c := card{Task: t}
 	p, ok, err := b.st.CurrentPlan(ctx, t.ID)
 	if err != nil {
 		return c, err
@@ -332,8 +335,26 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		events = events[1:]
 	}
 	slices.Reverse(events)
+	rows := make([]check, 0, len(c.Attempts))
+	for _, a := range c.Attempts {
+		row := check{Task: t, Attempt: &a, State: "idle"}
+		failed, err := b.failing(ctx, a)
+		if err != nil {
+			b.failErr(w, err)
+			return
+		}
+		switch {
+		case a.Live():
+			row.State = "running"
+		case failed:
+			row.State = "failing"
+		case a.Status == state.AttemptExited:
+			row.State = "passing"
+		}
+		rows = append(rows, row)
+	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Card": c, "Token": b.token,
+		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows,
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -355,7 +376,7 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token})
+	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status]})
 }
 
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {

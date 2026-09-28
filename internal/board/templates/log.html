@@ -1,7 +1,5 @@
-{{define "log.html"}}{{template "head" .}}<header>
-<h1><a href="{{.Base}}/">{{.Fleet}}</a> / conversation</h1>
-</header>
-<main>
+{{define "log.html"}}{{template "head" .}}{{template "top" .}}<main class="thread">
+<p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / conversation</p>
 <section class="timeline">{{template "region-timeline" .}}</section>
 </main>
 {{template "foot"}}{{end}}
