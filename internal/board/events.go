@@ -11,7 +11,10 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var regionNames = []string{"status", "timeline", "queue", "tasks"}
+var (
+	regionNames = []string{"status", "timeline", "queue", "tasks"}
+	lineBreaks  = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+)
 
 type version struct {
 	seq         int64
@@ -118,7 +121,7 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 func event(name, html string) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("event: " + name + "\n")
-	for line := range strings.SplitSeq(html, "\n") {
+	for line := range strings.SplitSeq(lineBreaks.Replace(html), "\n") {
 		buf.WriteString("data: " + line + "\n")
 	}
 	buf.WriteString("\n")

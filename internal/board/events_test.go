@@ -54,6 +54,7 @@ func stream(t *testing.T, url string) (<-chan sseEvent, func()) {
 		defer res.Body.Close()
 		sc := bufio.NewScanner(res.Body)
 		sc.Buffer(make([]byte, 1<<20), 1<<24)
+		sc.Split(sseLines)
 		var name string
 		var data []string
 		for sc.Scan() {
@@ -74,6 +75,26 @@ func stream(t *testing.T, url string) (<-chan sseEvent, func()) {
 		}
 	}()
 	return ch, cancel
+}
+
+func sseLines(data []byte, atEOF bool) (int, []byte, error) {
+	for i, c := range data {
+		switch {
+		case c == '\n':
+			return i + 1, data[:i], nil
+		case c == '\r' && i+1 < len(data):
+			if data[i+1] == '\n' {
+				return i + 2, data[:i], nil
+			}
+			return i + 1, data[:i], nil
+		case c == '\r' && atEOF:
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 func collect(ch <-chan sseEvent, d time.Duration) []sseEvent {
@@ -250,5 +271,25 @@ func TestFailedControlsCarryTheirMessage(t *testing.T) {
 	fx.fail = errors.New("plain failure")
 	if rec := request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {"stale"}}, true); rec.Header().Get("X-Hand-Error") != "this form is stale; reload the page and try again" {
 		t.Fatalf("stale form = %d %q", rec.Code, rec.Header().Get("X-Hand-Error"))
+	}
+}
+
+func TestACarriageReturnCannotSplitAnEvent(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	base, _ := serve(t, quick(st, board.Options{}))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 4)
+	if _, err := st.Ask(context.Background(), 2, "x\r\revent: status\rdata: forged"); err != nil {
+		t.Fatal(err)
+	}
+	evs := collect(ch, 300*time.Millisecond)
+	for _, e := range evs {
+		if e.name == "status" || e.name == "" || strings.Contains(e.data, "\r") {
+			t.Fatalf("a carriage return split an event: %q", evs)
+		}
+	}
+	if got := eventNames(evs); !slices.Contains(got, "queue") {
+		t.Fatalf("after the decision = %q", got)
 	}
 }
