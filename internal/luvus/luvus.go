@@ -164,10 +164,10 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 	return c.Check(ctx)
 }
 
-func StartServer(bin, session, unit, dir string, environ []string) error {
+func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
 	env := Scrub(environ)
 	if run, ok := userManager(env); ok && unit != "" {
-		if err := startUnit(run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
+		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
 			return err
 		}
 	}
@@ -177,8 +177,8 @@ func StartServer(bin, session, unit, dir string, environ []string) error {
 		return err
 	}
 	defer log.Close()
-	cmd := exec.Command(bin, "--session", session, "server", "start")
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, env, log, log
+	cmd := command(ctx, env, bin, "--session", session, "server", "start")
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
 	if err := cmd.Run(); err != nil {
 		out, _ := os.ReadFile(logPath)
 		return fmt.Errorf("luvus server start: %w: %s", err, bytes.TrimSpace(out))
@@ -215,11 +215,15 @@ func userManager(env []string) (string, bool) {
 	return "", false
 }
 
-func startUnit(run, bin, session, unit, dir string, env []string) error {
+func command(ctx context.Context, env []string, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env, cmd.WaitDelay = env, time.Second
+	return cmd
+}
+
+func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []string) error {
 	systemctl := func(args ...string) error {
-		cmd := exec.Command(filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...)
-		cmd.Env = env
-		return cmd.Run()
+		return command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...).Run()
 	}
 	_ = systemctl("reset-failed", unit+".service")
 	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
@@ -229,15 +233,13 @@ func startUnit(run, bin, session, unit, dir string, env []string) error {
 			args = append(args, "-E", name)
 		}
 	}
-	cmd := exec.Command(run, append(args, bin, "--session", session, "server", "start")...)
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	out, err := command(ctx, env, run, append(args, bin, "--session", session, "server", "start")...).CombinedOutput()
 	switch {
 	case err == nil:
 		return nil
 	case bytes.Contains(out, []byte("Failed to connect to")):
 		return errNoManager
-	case systemctl("start", unit+".service") == nil:
+	case bytes.Contains(out, []byte("already loaded")) && systemctl("start", unit+".service") == nil:
 		return nil
 	}
 	return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
