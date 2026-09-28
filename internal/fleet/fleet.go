@@ -38,6 +38,8 @@ func Root(getenv func(string) string) (string, error) {
 
 func Session(id string) string { return "secondhand-" + id }
 
+func LuvusUnit(id string) string { return "secondhand-luvus-" + id }
+
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
 
 func Check(root, id, home string) error {

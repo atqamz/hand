@@ -164,15 +164,21 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 	return c.Check(ctx)
 }
 
-func StartServer(bin, session, dir string, environ []string) error {
+func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
+	env := Scrub(environ)
+	if run, ok := userManager(env); ok && unit != "" {
+		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
+			return err
+		}
+	}
 	logPath := filepath.Join(dir, "server-start.log")
 	log, err := os.Create(logPath)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	cmd := exec.Command(bin, "--session", session, "server", "start")
-	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, Scrub(environ), log, log
+	cmd := command(ctx, env, bin, "--session", session, "server", "start")
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
 	if err := cmd.Run(); err != nil {
 		out, _ := os.ReadFile(logPath)
 		return fmt.Errorf("luvus server start: %w: %s", err, bytes.TrimSpace(out))
@@ -180,15 +186,89 @@ func StartServer(bin, session, dir string, environ []string) error {
 	return nil
 }
 
+var errNoManager = errors.New("no systemd user manager")
+
+var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
+
+func userManager(env []string) (string, bool) {
+	var runtime, path string
+	for _, kv := range env {
+		switch name, value, _ := strings.Cut(kv, "="); name {
+		case "XDG_RUNTIME_DIR":
+			runtime = value
+		case "PATH":
+			path = value
+		}
+	}
+	if runtime == "" {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(runtime, "systemd", "private")); err != nil {
+		return "", false
+	}
+	for _, dir := range filepath.SplitList(path) {
+		p := filepath.Join(dir, "systemd-run")
+		if fi, err := os.Stat(p); filepath.IsAbs(dir) && err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func command(ctx context.Context, env []string, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env, cmd.WaitDelay = env, time.Second
+	return cmd
+}
+
+func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []string) error {
+	systemctl := func(args ...string) error {
+		return command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...).Run()
+	}
+	_ = systemctl("reset-failed", unit+".service")
+	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
+		"-p", "Type=forking", "-p", "Restart=on-failure", "-p", "RestartSec=5"}
+	manager, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show-environment").CombinedOutput()
+	switch {
+	case err != nil && bytes.Contains(manager, []byte("Failed to connect to")):
+		return errNoManager
+	case err != nil:
+		return fmt.Errorf("systemctl --user show-environment: %w: %s", err, bytes.TrimSpace(manager))
+	}
+	for _, line := range strings.Split(string(manager), "\n") {
+		if name, _, ok := strings.Cut(line, "="); ok && scrubbed(name) {
+			args = append(args, "-p", "UnsetEnvironment="+name)
+		}
+	}
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(systemdOwned, name) {
+			args = append(args, "-E", name)
+		}
+	}
+	out, err := command(ctx, env, run, append(args, bin, "--session", session, "server", "start")...).CombinedOutput()
+	switch {
+	case err == nil:
+		return nil
+	case bytes.Contains(out, []byte("Failed to connect to")):
+		return errNoManager
+	case bytes.Contains(out, []byte("already loaded")) && systemctl("start", unit+".service") == nil:
+		return nil
+	}
+	return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
+}
+
 func Scrub(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
-		name, _, _ := strings.Cut(kv, "=")
-		agent := name == "CLAUDECODE" || name == "HAND_HOME" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
-		pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
-		if !agent && !pane {
+		if name, _, _ := strings.Cut(kv, "="); !scrubbed(name) {
 			out = append(out, kv)
 		}
 	}
 	return out
+}
+
+func scrubbed(name string) bool {
+	agent := name == "CLAUDECODE" || name == "HAND_HOME" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
+	pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
+	return agent || pane
 }

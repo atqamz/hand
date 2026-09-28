@@ -39,7 +39,7 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 		_ = stop.Run()
 	})
 	ctx := context.Background()
-	caps, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(bin, session, root, env) })
+	caps, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) })
 	if err != nil || caps.ServerGeneration == "" {
 		t.Fatalf("ensure = %+v, %v", caps, err)
 	}
