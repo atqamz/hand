@@ -166,8 +166,10 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 
 func StartServer(bin, session, unit, dir string, environ []string) error {
 	env := Scrub(environ)
-	if run, ok := userManager(env); ok {
-		return startUnit(run, bin, session, unit, dir, env)
+	if run, ok := userManager(env); ok && unit != "" {
+		if err := startUnit(run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
+			return err
+		}
 	}
 	logPath := filepath.Join(dir, "server-start.log")
 	log, err := os.Create(logPath)
@@ -183,6 +185,8 @@ func StartServer(bin, session, unit, dir string, environ []string) error {
 	}
 	return nil
 }
+
+var errNoManager = errors.New("no systemd user manager")
 
 var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
 
@@ -212,22 +216,31 @@ func userManager(env []string) (string, bool) {
 }
 
 func startUnit(run, bin, session, unit, dir string, env []string) error {
-	reset := exec.Command(filepath.Join(filepath.Dir(run), "systemctl"), "--user", "reset-failed", unit+".service")
-	reset.Env = env
-	_ = reset.Run()
+	systemctl := func(args ...string) error {
+		cmd := exec.Command(filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...)
+		cmd.Env = env
+		return cmd.Run()
+	}
+	_ = systemctl("reset-failed", unit+".service")
 	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
 		"-p", "Type=forking", "-p", "Restart=on-failure", "-p", "RestartSec=5"}
 	for _, kv := range env {
 		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(systemdOwned, name) {
-			args = append(args, "-E", kv)
+			args = append(args, "-E", name)
 		}
 	}
 	cmd := exec.Command(run, append(args, bin, "--session", session, "server", "start")...)
 	cmd.Env = env
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
+	out, err := cmd.CombinedOutput()
+	switch {
+	case err == nil:
+		return nil
+	case bytes.Contains(out, []byte("Failed to connect to")):
+		return errNoManager
+	case systemctl("start", unit+".service") == nil:
+		return nil
 	}
-	return nil
+	return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
 }
 
 func Scrub(environ []string) []string {
