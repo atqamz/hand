@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -226,7 +225,7 @@ func (r *runner) reportLaunch(c luvus.Client, running state.Supervisor, prompted
 	d.Field("status", running.Status)
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
-	help := []string{"Check it: `hand supervisor show`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
+	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
 	if prompted && harness.Prefills(running.Harness) {
 		sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, supervisorMarker)
 		switch {

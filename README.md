@@ -59,7 +59,7 @@ Open the board and press **Start**. Pick a routing profile, or a harness with it
 - `codex --dangerously-bypass-approvals-and-sandbox`;
 - `opencode --auto`.
 
-The board shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus: `luvus session attach secondhand-<id>` opens it, but you never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
+The board shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
 
 `hand init` writes the folder's `AGENTS.md` and `CLAUDE.md`, which make the agent run `hand orient` every turn. It also installs the `secondhand` skill for Claude Code, Codex, Grok and Pi. Every `hand init` rewrites these files, so put your own preferences in `memory/operator.md` instead.
 

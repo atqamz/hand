@@ -103,7 +103,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("worktree", running.Worktree)
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
-		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
+		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
 		if harness.Prefills(running.Harness) {
 			sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, reportMarker)
 			if sent {

@@ -19,15 +19,17 @@ import (
 const Version = "0.0.0-next"
 
 type Env struct {
-	Name    string
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
-	Getenv  func(string) string
-	Environ func() []string
-	Now     func() time.Time
-	Context context.Context
-	Getwd   func() (string, error)
+	Name     string
+	Stdin    io.Reader
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Getenv   func(string) string
+	Environ  func() []string
+	Now      func() time.Time
+	Context  context.Context
+	Getwd    func() (string, error)
+	Exec     func(argv0 string, argv, envv []string) error
+	Terminal func() bool
 }
 
 type handler func(*runner, []string) error
