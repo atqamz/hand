@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"io"
 	"net/http"
@@ -39,6 +40,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"asset":    assetURL,
 	"md":       markdown.Render,
 	"when":     when,
+	"tint":     tint,
 }).ParseFS(files, "templates/*.html"))
 
 const (
@@ -155,7 +157,7 @@ func (b *Board) render(w http.ResponseWriter, status int, name string, data map[
 	data["Base"] = b.o.Base
 	data["Fleet"] = "hand"
 	if f, err := b.st.Fleet(context.Background()); err == nil {
-		data["Fleet"] = f.Name
+		data["Fleet"], data["FleetID"] = f.Name, f.ID
 	}
 	renderPage(w, status, name, data)
 }
@@ -187,6 +189,16 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 		status = http.StatusBadRequest
 	}
 	b.fail(w, status, Scrub(err.Error()))
+}
+
+func tint(id any) int {
+	s, _ := id.(string)
+	if s == "" {
+		return 0
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return int(h.Sum32() % 12)
 }
 
 func PRLinks(text string) []string { return prLink.FindAllString(text, -1) }

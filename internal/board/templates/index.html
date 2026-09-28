@@ -1,20 +1,18 @@
-{{define "index.html"}}{{template "head" .}}<header>
-<h1>{{.Fleet}}</h1>
-{{if .All}}<a href="{{.Base}}/">hide finished</a>{{else}}<a href="{{.Base}}/?all=1">show finished</a>{{end}}
-</header>
-<main class="grid">
-<div>
+{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board"><a href="#needs" data-tab="needs">Needs you (<span class="n">{{.Waiting}}</span>)</a><a href="#chat" data-tab="chat">Chat</a></nav>
+<main class="board">
+<div class="column" id="needs">
+<section class="queue" data-region="queue">{{template "region-queue" .}}</section>
+<section class="tasks" data-region="tasks">{{template "region-tasks" .}}</section>
+<p class="finished">{{if .All}}<a href="{{.Base}}/">Hide finished tasks</a>{{else}}<a href="{{.Base}}/?all=1">Show finished tasks</a>{{end}}</p>
+</div>
+<div class="column" id="chat">
 <section class="panel" data-region="status">{{template "region-status" .}}</section>
 <section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
 {{if .Controls}}<form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
-<textarea name="text" required placeholder="Message the supervisor"></textarea>
-<div class="row"><button>Send</button> <button type="button" id="notify" hidden>Notify me</button></div>
+<textarea name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
+<div class="actions"><span class="hint">Plain text; the supervisor reads it on its next turn.</span><button class="primary">Send</button></div>
 </form>{{end}}
-</div>
-<div>
-<section class="queue" data-region="queue">{{template "region-queue" .}}</section>
-<section data-region="tasks">{{template "region-tasks" .}}</section>
 </div>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>

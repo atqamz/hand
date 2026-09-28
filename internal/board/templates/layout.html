@@ -7,7 +7,10 @@
 <link rel="stylesheet" href="{{asset "board.css"}}">
 <script src="{{asset "app.js"}}" defer></script>
 </head>
-<body data-base="{{.Base}}" data-fleet="{{.Fleet}}">
+<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}">
+{{end}}
+
+{{define "top"}}<header class="top"><div class="top-inner"><a class="brand" href="{{.Base}}/">{{template "icon-mark"}}<h1>{{.Fleet}}</h1></a>{{with .FleetID}}<span class="ref fleet-id">{{.}}</span>{{end}}<span class="spacer"></span><button type="button" id="notify" class="quiet-button" hidden>{{template "icon-bell"}} Notify me</button></div></header>
 {{end}}
 
 {{define "foot"}}</body>

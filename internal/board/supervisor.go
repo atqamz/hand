@@ -43,6 +43,7 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	data["Page"] = "fleet"
 	b.render(w, http.StatusOK, "index.html", data)
 }
 

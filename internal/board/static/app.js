@@ -7,11 +7,22 @@
 	const regions = new Map();
 	for (const el of document.querySelectorAll("[data-region]")) regions.set(el.dataset.region, el);
 	const held = new Map();
+	const chosen = new Map();
+	const narrow = matchMedia("(max-width: 899px)");
 
 	const reversed = (el) => getComputedStyle(el).flexDirection === "column-reverse";
 	const fromBottom = (el) => (reversed(el) ? -el.scrollTop : el.scrollHeight - el.scrollTop - el.clientHeight);
 	const toBottom = (el) => {
 		el.scrollTop = reversed(el) ? 0 : el.scrollHeight;
+	};
+
+	const local = (root) => {
+		for (const t of root.querySelectorAll("time[datetime]")) {
+			const d = new Date(t.dateTime);
+			if (Number.isNaN(d.getTime())) continue;
+			t.textContent = d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+			t.title = d.toLocaleString();
+		}
 	};
 
 	const waitingNow = () => {
@@ -21,6 +32,7 @@
 	let waiting = waitingNow();
 	const title = () => {
 		document.title = waiting > 0 ? `(${waiting}) ${fleet}` : fleet;
+		for (const n of document.querySelectorAll("[data-tab=needs] .n")) n.textContent = String(waiting);
 	};
 
 	const notify = (n) => {
@@ -36,8 +48,17 @@
 			return;
 		}
 		held.delete(name);
+		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const pinned = name === "timeline" && fromBottom(el) <= 48;
 		el.innerHTML = html;
+		for (const d of el.querySelectorAll("details[id]")) {
+			if (chosen.has(d.id)) d.open = chosen.get(d.id);
+			if (!before.has(d.id) && d.classList.contains("wait")) {
+				d.dataset.new = "";
+				setTimeout(() => d.removeAttribute("data-new"), 1600);
+			}
+		}
+		local(el);
 		if (pinned) toBottom(el);
 		if (name === "queue") {
 			const n = waitingNow();
@@ -46,6 +67,13 @@
 			title();
 		}
 	};
+
+	document.addEventListener("click", (e) => {
+		const summary = e.target instanceof Element ? e.target.closest("details[id] > summary") : null;
+		if (!summary) return;
+		const d = summary.parentElement;
+		setTimeout(() => chosen.set(d.id, d.open));
+	});
 
 	document.addEventListener("focusout", () => {
 		setTimeout(() => {
@@ -89,6 +117,35 @@
 		});
 	}
 
+	const tabs = [...document.querySelectorAll("[data-tab]")];
+	let current = location.hash === "#chat" ? "chat" : "needs";
+	const select = () => {
+		for (const t of tabs) {
+			const on = t.dataset.tab === current;
+			t.setAttribute("aria-selected", String(on));
+			const panel = document.getElementById(t.dataset.tab);
+			if (panel) panel.hidden = narrow.matches && !on;
+		}
+		const timeline = regions.get("timeline");
+		if (timeline && current === "chat") toBottom(timeline);
+	};
+	if (tabs.length > 0) {
+		tabs[0].parentElement.setAttribute("role", "tablist");
+		for (const t of tabs) {
+			t.setAttribute("role", "tab");
+			t.setAttribute("aria-controls", t.dataset.tab);
+			document.getElementById(t.dataset.tab)?.setAttribute("role", "tabpanel");
+			t.addEventListener("click", (e) => {
+				e.preventDefault();
+				current = t.dataset.tab;
+				select();
+			});
+		}
+		narrow.addEventListener("change", select);
+		select();
+	}
+
+	local(document);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) title();
