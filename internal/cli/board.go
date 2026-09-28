@@ -162,16 +162,21 @@ func (f *fleetBoard) current() (http.Handler, error) {
 	if info, err := os.Stat(path); err == nil && f.h != nil && os.SameFile(info, f.token) && info.ModTime().Equal(f.token.ModTime()) {
 		return f.h, nil
 	}
-	token, err := boardToken(f.home)
-	if err != nil {
-		return nil, err
+	for {
+		before, _ := os.Stat(path)
+		token, err := boardToken(f.home)
+		if err != nil {
+			return nil, err
+		}
+		after, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if before != nil && os.SameFile(before, after) && before.ModTime().Equal(after.ModTime()) {
+			f.h, f.token = board.New(f.st, token, f.opts), after
+			return f.h, nil
+		}
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	f.h, f.token = board.New(f.st, token, f.opts), info
-	return f.h, nil
 }
 
 func boardFleets(root string) ([]board.FleetLink, error) {
