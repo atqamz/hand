@@ -19,7 +19,10 @@ import (
 const PolicyFile = "routing.json"
 
 type Policy struct {
-	Profiles map[string]Spec `json:"profiles"`
+	Profiles   map[string]Spec `json:"profiles"`
+	Supervisor struct {
+		Autoresume bool `json:"autoresume"`
+	} `json:"supervisor,omitzero"`
 }
 
 var StarterPolicy = Policy{Profiles: map[string]Spec{
