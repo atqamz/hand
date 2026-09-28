@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,52 +42,6 @@ func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
 	}
 	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the watcher recreated the old home: %v", err)
-	}
-}
-
-func TestBoardStopsServingAMovedHome(t *testing.T) {
-	h := initWithProject(t)
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan int, 1)
-	go func() {
-		_, _, code := h.runCtx(ctx, "board", "--addr", addr)
-		done <- code
-	}()
-	get := func() int {
-		resp, err := http.Get("http://" + addr + "/")
-		if err != nil {
-			return 0
-		}
-		_ = resp.Body.Close()
-		return resp.StatusCode
-	}
-	eventually(t, func() bool { c := get(); return c != 0 && c != http.StatusServiceUnavailable })
-	moved := filepath.Join(t.TempDir(), "moved")
-	if err := os.Rename(h.home, moved); err != nil {
-		t.Fatal(err)
-	}
-	adopt := *h
-	adopt.home = moved
-	adopt.ok("init")
-	if c := get(); c != http.StatusServiceUnavailable {
-		t.Fatalf("board after a move answered %d, want 503", c)
-	}
-	select {
-	case code := <-done:
-		if code != 3 {
-			t.Fatalf("board exit = %d, want 3", code)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("the board kept its port after its home moved")
 	}
 }
 

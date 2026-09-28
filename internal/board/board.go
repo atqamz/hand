@@ -114,7 +114,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c, err := r.Cookie(cookieName); err != nil || !b.valid(c.Value) {
-		b.fail(w, http.StatusForbidden, "open the board with the link `hand board` printed")
+		b.fail(w, http.StatusForbidden, "open this fleet with `hand open` from inside it")
 		return
 	}
 	if r.Method == http.MethodPost && !b.valid(r.PostFormValue("csrf")) {
