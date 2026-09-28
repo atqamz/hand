@@ -129,3 +129,79 @@ func TestAbandonIgnoresUnreadReports(t *testing.T) {
 		t.Fatalf("abandon with an unread report: %v", err)
 	}
 }
+
+func TestBoardFactsAreGroupedQueries(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	seedProject(t, s)
+	if _, err := s.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var tasks []Task
+	for _, title := range []string{"one", "two", "three"} {
+		task, err := s.AddTask(ctx, "hand", title, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task, err = s.Transition(ctx, task.ID, StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, task)
+	}
+	start := func(taskID int64) Attempt {
+		spec := claudeSpec
+		spec.TaskID = taskID
+		a, err := s.AddAttempt(ctx, spec, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a, err = s.AttemptRunning(ctx, a.ID, Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	first := start(tasks[0].ID)
+	if _, err := s.AddReport(ctx, first.ID, ReportDone, "PR: https://github.com/a/b/pull/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, first.ID, AttemptExited, "terminal exited"); err != nil {
+		t.Fatal(err)
+	}
+	second := start(tasks[0].ID)
+	third := start(tasks[1].ID)
+	for _, step := range []func() error{
+		func() error { _, err := s.AddReport(ctx, third.ID, ReportProgress, "halfway"); return err },
+		func() error { _, err := s.Ask(ctx, tasks[2].ID, "which?"); return err },
+		func() error { _, err := s.Ask(ctx, tasks[2].ID, "and?"); return err },
+	} {
+		if err := step(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	latest, err := s.LatestAttempts(ctx)
+	if err != nil || len(latest) != 2 || latest[tasks[0].ID].ID != second.ID || latest[tasks[1].ID].ID != third.ID {
+		t.Fatalf("latest = %v, %v", latest, err)
+	}
+	done, err := s.DoneReportAttempts(ctx)
+	if err != nil || !done[first.ID] || done[third.ID] {
+		t.Fatalf("done = %v, %v", done, err)
+	}
+	unread, err := s.UnackedReportTasks(ctx)
+	if err != nil || !unread[tasks[0].ID] || !unread[tasks[1].ID] || unread[tasks[2].ID] {
+		t.Fatalf("unread = %v, %v", unread, err)
+	}
+	asked, err := s.OpenDecisionCounts(ctx)
+	if err != nil || asked[tasks[2].ID] != 2 || asked[tasks[0].ID] != 0 {
+		t.Fatalf("asked = %v, %v", asked, err)
+	}
+	prs, err := s.ReportsMentioning(ctx, "/pull/", []int64{tasks[0].ID, tasks[2].ID})
+	if err != nil || len(prs) != 1 || prs[0].AttemptID != first.ID {
+		t.Fatalf("prs = %v, %v", prs, err)
+	}
+	if other, err := s.ReportsMentioning(ctx, "/pull/", []int64{tasks[1].ID}); err != nil || len(other) != 0 {
+		t.Fatalf("reports of tasks not asked for = %v, %v", other, err)
+	}
+	if none, err := s.ReportsMentioning(ctx, "/pull/", nil); err != nil || len(none) != 0 {
+		t.Fatalf("no tasks = %v, %v", none, err)
+	}
+}

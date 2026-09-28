@@ -43,11 +43,17 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	data["Page"] = "fleet"
 	b.render(w, http.StatusOK, "index.html", data)
 }
 
 func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
 	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token}
+	f, err := b.facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data["facts"] = f
 	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
 		if err := part(ctx, data, q); err != nil {
 			return nil, err
@@ -76,14 +82,32 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	}
 	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
+	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)
 		}
+		data["Pill"], data["PillLabel"] = pill(sup, data)
 	}
 	return nil
+}
+
+func pill(sup state.Supervisor, data map[string]any) (string, string) {
+	_, stale := data["Stale"]
+	blocked, _ := data["Blocked"].(bool)
+	switch {
+	case sup.Status == state.AttemptRunning && stale:
+		return "failing", "unreachable"
+	case blocked:
+		return "failing", "blocked"
+	case sup.Live():
+		return "running", sup.Status
+	case sup.Status == state.AttemptStopped:
+		return "neutral", sup.Status
+	}
+	return "failing", sup.Status
 }
 
 func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]any) {
@@ -131,7 +155,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		return err
 	}
 	for _, in := range pending {
-		entries = append(entries, transcript.Entry{Role: "operator", Text: "queued: " + in.Body, At: in.CreatedAt, Queued: true})
+		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
 	}
 	end := len(entries)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {

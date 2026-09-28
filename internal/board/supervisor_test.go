@@ -32,13 +32,14 @@ type fixture struct {
 	status   string
 	hint     string
 	revision int
+	screen   string
 	claude   string
 	options  board.Options
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	fx := &fixture{st: open(t), status: "working", revision: 7, claude: t.TempDir()}
+	fx := &fixture{st: open(t), status: "working", revision: 7, screen: "Trust this folder?\n❯ 1. Yes", claude: t.TempDir()}
 	fx.srv = fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
 	fx.srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
@@ -48,7 +49,7 @@ func newFixture(t *testing.T) *fixture {
 	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
-		return map[string]any{"text": "Trust this folder?\n❯ 1. Yes", "content_revision": fx.revision, "terminal_id": "t1"}, nil
+		return map[string]any{"text": fx.screen, "content_revision": fx.revision, "terminal_id": "t1"}, nil
 	})
 	fx.options = board.Options{
 		Controls:   true,
@@ -330,9 +331,9 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `class="timeline"`)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", ">Queued<", `class="timeline"`)
 	lacks(t, "log", body, "#end")
-	if !(strings.Index(body, "queued: second queued") < strings.Index(body, "queued: first queued") && strings.Index(body, "queued: first queued") < strings.Index(body, "Hi, operator.")) {
+	if !(strings.Index(body, "second queued") < strings.Index(body, "first queued") && strings.Index(body, "first queued") < strings.Index(body, "Hi, operator.")) {
 		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
 	}
 	fresh := newFixture(t)

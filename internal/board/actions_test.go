@@ -66,8 +66,11 @@ func TestAckAReportFromTheBoard(t *testing.T) {
 	if missing := request(h, "POST", "/report/r9/ack", url.Values{"csrf": {token}}, true); missing.Code != http.StatusNotFound {
 		t.Fatalf("missing report = %d", missing.Code)
 	}
-	if index := request(h, "GET", "/", nil, true).Body.String(); !strings.Contains(index, "read by operator (board)") {
-		t.Fatalf("index after ack:\n%s", index)
+	if page := request(h, "GET", "/task/t1", nil, true).Body.String(); !strings.Contains(page, "read by operator (board)") {
+		t.Fatalf("task page after ack:\n%s", page)
+	}
+	if index := request(h, "GET", "/", nil, true).Body.String(); strings.Contains(index, `id="wait-r1"`) {
+		t.Fatalf("the acked report still waits:\n%s", index)
 	}
 }
 

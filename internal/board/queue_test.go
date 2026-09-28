@@ -1,0 +1,371 @@
+package board_test
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
+)
+
+var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]+)"( open)?>`)
+
+func waits(body string) (kinds, refs []string, open []bool) {
+	for _, m := range waitItem.FindAllStringSubmatch(region(body, "queue"), -1) {
+		kinds, refs, open = append(kinds, m[1]), append(refs, m[2]), append(open, m[3] != "")
+	}
+	return kinds, refs, open
+}
+
+func region(body, name string) string {
+	start := strings.Index(body, `data-region="`+name+`">`)
+	if start < 0 {
+		return ""
+	}
+	start += len(`data-region="` + name + `">`)
+	depth := 1
+	for i := start; i < len(body); i++ {
+		switch {
+		case strings.HasPrefix(body[i:], "<section"):
+			depth++
+		case strings.HasPrefix(body[i:], "</section>"):
+			if depth--; depth == 0 {
+				return body[start:i]
+			}
+		}
+	}
+	return body[start:]
+}
+
+func active(t *testing.T, st *state.Store, title string) state.Task {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := st.Project(ctx, "hand"); err != nil {
+		if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	task, err := st.AddTask(ctx, "hand", title, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task, err = st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	return task
+}
+
+func attempt(t *testing.T, st *state.Store, taskID int64, end, reason string) state.Attempt {
+	t.Helper()
+	ctx := context.Background()
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if end == state.AttemptFailed {
+		if a, err = st.EndAttempt(ctx, a.ID, end, reason); err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	if a, err = st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "3", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if end != state.AttemptRunning {
+		if a, err = st.EndAttempt(ctx, a.ID, end, reason); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return a
+}
+
+func TestQueueOrdersWhatNeedsYou(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Trust this folder?"
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	one := active(t, fx.st, "Fix login")
+	for _, q := range []string{"Keep the old cookie name?", "Ship on Friday?"} {
+		if _, err := fx.st.Ask(ctx, one.ID, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	two := active(t, fx.st, "Flaky test")
+	attempt(t, fx.st, two.ID, state.AttemptFailed, "launch did not finish")
+	three := active(t, fx.st, "Docs")
+	a := attempt(t, fx.st, three.ID, state.AttemptRunning, "")
+	if _, err := fx.st.AddReport(ctx, a.ID, state.ReportProgress, "Halfway there"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/")
+	kinds, refs, open := waits(body)
+	if !slices.Equal(kinds, []string{"blocked", "decision", "decision", "failure", "report"}) || !slices.Equal(refs, []string{"s2", "d1", "d2", "a1", "r1"}) {
+		t.Fatalf("queue = %q %q:\n%s", kinds, refs, region(body, "queue"))
+	}
+	if !slices.Equal(open, []bool{true, false, false, false, false}) {
+		t.Fatalf("open = %v", open)
+	}
+	contains(t, "queue", region(body, "queue"), `data-waiting="5"`)
+}
+
+func TestDecisionsAnswerInPlace(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Fix login")
+	if _, err := st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	h := board.New(st, token, board.Options{})
+	q := region(get(t, h, "/"), "queue")
+	contains(t, "decision item", q, `action="/decision/d1/answer" data-fetch`, `name="csrf" value="`+token+`"`, `<textarea name="answer"`, "Keep the old cookie name?")
+	if res := post(h, "/decision/d1/answer", url.Values{"answer": {"yes"}}); res.StatusCode != 303 {
+		t.Fatalf("answer = %d", res.StatusCode)
+	}
+	if kinds, _, _ := waits(get(t, h, "/")); len(kinds) != 0 {
+		t.Fatalf("after the answer the queue holds %q", kinds)
+	}
+}
+
+func TestTheBlockedScreenJoinsTheQueue(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Trust this folder?"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/")
+	q := region(body, "queue")
+	contains(t, "blocked item", q, `data-kind="blocked"`, "Trust this folder?", "❯ 1. Yes", `action="/supervisor/keys" data-fetch`)
+	if n := strings.Count(q, `name="revision" value="7"`); n != len(state.SupervisorKeys) {
+		t.Fatalf("key forms with the revision = %d, want %d", n, len(state.SupervisorKeys))
+	}
+	lacks(t, "status region", region(body, "status"), "<pre", `action="/supervisor/keys"`)
+	fx.options.Controls = false
+	q = region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "read-only blocked item", q, "❯ 1. Yes")
+	lacks(t, "read-only blocked item", q, `action="/supervisor/keys"`)
+}
+
+func TestFailingChecksComeAndGo(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	task := active(t, st, "Flaky test")
+	attempt(t, st, task.ID, state.AttemptInterrupted, "pane gone")
+	h := board.New(st, token, board.Options{})
+	q := region(get(t, h, "/"), "queue")
+	contains(t, "failure item", q, `data-kind="failure"`, `href="/task/t1#a1"`, "pane gone")
+	attempt(t, st, task.ID, state.AttemptRunning, "")
+	if kinds, _, _ := waits(get(t, h, "/")); slices.Contains(kinds, "failure") {
+		t.Fatalf("a running attempt left the failure in the queue: %q", kinds)
+	}
+	done := active(t, st, "Done work")
+	a := attempt(t, st, done.ID, state.AttemptRunning, "")
+	r, err := st.AddReport(ctx, a.ID, state.ReportDone, "Done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AckReport(ctx, r.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptExited, "terminal exited"); err != nil {
+		t.Fatal(err)
+	}
+	if kinds, _, _ := waits(get(t, h, "/")); slices.Contains(kinds, "failure") {
+		t.Fatalf("an exited attempt with a done report is a failure: %q", kinds)
+	}
+}
+
+func TestReportsAckInPlace(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Docs")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportDone, "Docs written\n**All** pages"); err != nil {
+		t.Fatal(err)
+	}
+	h := board.New(st, token, board.Options{})
+	q := region(get(t, h, "/"), "queue")
+	contains(t, "report item", q, `data-kind="report"`, `action="/report/r1/ack" data-fetch`, "<strong>All</strong>", ">Mark read</button>")
+	if res := post(h, "/report/r1/ack", nil); res.StatusCode != 303 {
+		t.Fatalf("ack = %d", res.StatusCode)
+	}
+	if kinds, _, _ := waits(get(t, h, "/")); len(kinds) != 0 {
+		t.Fatalf("after the ack the queue holds %q", kinds)
+	}
+}
+
+func TestAnInterruptedSupervisorAsksToResume(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	body := get(t, fx.handler(), "/")
+	kinds, refs, _ := waits(body)
+	if !slices.Equal(kinds, []string{"resume"}) || !slices.Equal(refs, []string{"s1"}) {
+		t.Fatalf("queue = %q %q", kinds, refs)
+	}
+	contains(t, "resume item", region(body, "queue"), `action="/supervisor/resume" data-fetch`, `action="/supervisor/start" data-fetch`)
+	lacks(t, "status region", region(body, "status"), `action="/supervisor/resume"`)
+	fx.options.Controls = false
+	lacks(t, "read-only resume item", region(get(t, fx.handler(), "/"), "queue"), `action="/supervisor/resume"`)
+	stopped := newFixture(t)
+	stopped.supervisor(t, state.AttemptStopped, "gen-1")
+	body = get(t, stopped.handler(), "/")
+	if kinds, _, _ := waits(body); len(kinds) != 0 {
+		t.Fatalf("a supervisor stopped on purpose waits: %q", kinds)
+	}
+	contains(t, "stopped status", region(body, "status"), `action="/supervisor/resume"`)
+}
+
+func TestLongWaitingContentIsBounded(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Big report")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	lines := make([]string, 400)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %d", i+1)
+	}
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportDone, strings.Join(lines, "\n")); err != nil {
+		t.Fatal(err)
+	}
+	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	contains(t, "report excerpt", q, "line 12", `href="/task/t1#r1"`, "read more")
+	lacks(t, "report excerpt", q, "line 13")
+	fx := newFixture(t)
+	fx.status = "blocked"
+	screen := make([]string, 60)
+	for i := range screen {
+		screen[i] = fmt.Sprintf("row %d", i+1)
+	}
+	fx.screen = strings.Join(screen, "\n")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	q = region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "screen excerpt", q, "row 41", "row 60")
+	lacks(t, "screen excerpt", q, "row 40\n")
+	long := active(t, st, "One long line")
+	b := attempt(t, st, long.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), b.ID, state.ReportDone, strings.Repeat("x", 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Ask(context.Background(), long.ID, strings.Repeat("why ", 490)+"really?"); err != nil {
+		t.Fatal(err)
+	}
+	q = region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	if len(q) > 24<<10 {
+		t.Fatalf("a 64 KB one-line report makes the queue %d bytes", len(q))
+	}
+	title := regexp.MustCompile(`<span class="wait-title">([^<]*)</span>`)
+	for _, m := range title.FindAllStringSubmatch(q, -1) {
+		if n := len([]rune(m[1])); n > 201 {
+			t.Fatalf("a waiting title holds %d runes", n)
+		}
+	}
+	contains(t, "long question", q, `<p class="question">why why`, "really?")
+	css := asset(t, "board.css")
+	for _, want := range []string{".wait{", "overflow-wrap:anywhere", "pre{", "overflow-x:auto", "grid-template-columns:minmax(0,1fr)"} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("board.css lacks %q", want)
+		}
+	}
+}
+
+func TestTheQueueShowsAtMostFifty(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Many questions")
+	for i := range 80 {
+		if _, err := st.Ask(context.Background(), task.ID, fmt.Sprintf("question %d?", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	if kinds, _, _ := waits(body); len(kinds) != 50 {
+		t.Fatalf("queue shows %d items", len(kinds))
+	}
+	contains(t, "queue", region(body, "queue"), "30 more waiting", `data-waiting="80"`)
+}
+
+func TestAnEmptyQueueSaysSo(t *testing.T) {
+	q := region(get(t, board.New(open(t), token, board.Options{}), "/"), "queue")
+	contains(t, "empty queue", q, "Nothing needs you", `data-waiting="0"`)
+}
+
+func asset(t *testing.T, name string) string {
+	t.Helper()
+	h := board.New(open(t), token, board.Options{})
+	stem, ext, _ := strings.Cut(name, ".")
+	m := regexp.MustCompile(`/static/` + stem + `\.[0-9a-f]{12}\.` + ext).FindString(get(t, h, "/"))
+	if m == "" {
+		t.Fatalf("the page links no %s", name)
+	}
+	return request(h, "GET", m, nil, false).Body.String()
+}
+
+func TestReportTitlesDropMarkdownMarkers(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Docs")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportDone, "**Done.** The `renderer` escapes first"); err != nil {
+		t.Fatal(err)
+	}
+	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	contains(t, "report title", q, `<span class="wait-title">Done. The renderer escapes first</span>`)
+}
+
+func TestResumeSurvivesAFullQueue(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	task := active(t, fx.st, "Many questions")
+	for i := range 50 {
+		if _, err := fx.st.Ask(context.Background(), task.ID, fmt.Sprintf("question %d?", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contains(t, "fleet page", get(t, fx.handler(), "/"), `action="/supervisor/resume"`, "1 more waiting")
+}
+
+func TestAFailureBeyondFiveHundredTasksStillWaits(t *testing.T) {
+	st := open(t)
+	for i := range 500 {
+		active(t, st, fmt.Sprintf("quiet %d", i))
+	}
+	late := active(t, st, "Newest task")
+	attempt(t, st, late.ID, state.AttemptFailed, "launch did not finish")
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	kinds, refs, _ := waits(body)
+	if !slices.Equal(kinds, []string{"failure"}) || !slices.Equal(refs, []string{"a1"}) {
+		t.Fatalf("queue = %q %q", kinds, refs)
+	}
+}
+
+func TestADoneReportBuriedUnderProgressStillCounts(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	task := active(t, st, "Chatty worker")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	done, err := st.AddReport(ctx, a.ID, state.ReportDone, "Done. PR: https://github.com/atqamz/hand/pull/9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AckReport(ctx, done.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 25 {
+		r, err := st.AddReport(ctx, a.ID, state.ReportProgress, fmt.Sprintf("note %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AckReport(ctx, r.ID, "operator"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptExited, "terminal exited"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	if kinds, _, _ := waits(body); len(kinds) != 0 {
+		t.Fatalf("an exited attempt with a buried done report waits: %q", kinds)
+	}
+	row := checks(body)["t1"]
+	if s, _, _ := strings.Cut(row, "|"); s != "passing" || !strings.Contains(row, "pull/9") {
+		t.Fatalf("check row = %q", row)
+	}
+}

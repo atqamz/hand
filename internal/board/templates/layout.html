@@ -7,21 +7,12 @@
 <link rel="stylesheet" href="{{asset "board.css"}}">
 <script src="{{asset "app.js"}}" defer></script>
 </head>
-<body data-base="{{.Base}}" data-fleet="{{.Fleet}}">
+<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}">
+{{end}}
+
+{{define "top"}}<header class="top"><div class="top-inner"><a class="brand" href="{{.Base}}/">{{template "icon-mark"}}<h1>{{.Fleet}}</h1></a>{{with .FleetID}}<span class="ref fleet-id">{{.}}</span>{{end}}<span class="spacer"></span>{{if .FleetID}}<button type="button" id="notify" class="quiet-button" hidden>{{template "icon-bell"}} Notify me</button>{{end}}</div></header>
 {{end}}
 
 {{define "foot"}}</body>
 </html>
-{{end}}
-
-{{define "card"}}<section class="card" id="{{task .Task.ID}}">
-<h2><a href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> {{.Task.Title}}</h2>
-<div class="row muted">{{.Task.Project}} · <span class="{{.Task.Status}}">{{.Task.Status}}</span>{{with .Plan}} · plan {{plan .Revision}}{{end}}</div>
-{{with .Task.Goal}}<div class="row">Goal: {{.}}</div>{{end}}
-{{range .Attempts}}<div class="row" id="{{attempt .ID}}"><span class="tag">{{attempt .ID}}</span> {{.Harness}} {{.Model}} <span class="{{.Status}}">{{.Status}}</span>{{with .Reason}} <span class="muted">({{.}})</span>{{end}}</div>
-{{end}}{{with .Report}}<div class="row"><span class="tag">{{report .ID}}</span> from {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}}
-{{if .AckedAt}}<span class="muted">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}</div>
-{{end}}{{range .Decisions}}<div class="row"><span class="tag open">{{decision .ID}}</span> {{.Question}} <a href="{{$.Base}}/decision/{{decision .ID}}">answer</a></div>
-{{end}}{{range .PRs}}<div class="row"><a href="{{.}}">{{.}}</a></div>
-{{end}}</section>
 {{end}}

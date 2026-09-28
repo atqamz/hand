@@ -1,16 +1,14 @@
-{{define "decision.html"}}{{template "head" .}}<header>
-<h1><a href="{{.Base}}/">{{.Fleet}}</a> / {{decision .Decision.ID}}</h1>
+{{define "decision.html"}}{{template "head" .}}{{template "top" .}}<main class="thread">
+<header class="thread-head">
+<p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <a class="ref" href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{decision .Decision.ID}}</span></p>
+<h2 class="thread-title">{{.Decision.Question}}</h2>
+<div class="status-line"><span class="pill" data-state="{{.Pill}}">{{.Decision.Status}}</span> <span class="meta">for {{.Task.Title}}</span> <time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></div>
 </header>
-<main>
-<section class="card">
-<h2>{{.Decision.Question}}</h2>
-<div class="row muted">for <a href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> {{.Task.Title}} · <span class="{{.Decision.Status}}">{{.Decision.Status}}</span></div>
-{{if eq .Decision.Status "open"}}<form method="post" action="{{.Base}}/decision/{{decision .Decision.ID}}/answer">
+{{if eq .Decision.Status "open"}}<form class="answer" method="post" action="{{.Base}}/decision/{{decision .Decision.ID}}/answer">
 <input type="hidden" name="csrf" value="{{.Token}}">
-<textarea name="answer" required></textarea>
-<div class="row"><button>Answer</button></div>
+<textarea name="answer" required rows="5" placeholder="Your answer" aria-label="Your answer"></textarea>
+<div class="actions"><button class="primary">Answer</button></div>
 </form>
-{{else}}{{with .Decision.Answer}}<pre>{{.}}</pre>{{end}}{{with .Decision.AnsweredBy}}<div class="row muted">answered by {{.}}</div>{{end}}{{end}}
-</section>
-</main>
+{{else}}{{with .Decision.Answer}}<article class="comment" data-role="operator"><header><b>{{$.Decision.AnsweredBy}}</b> <span class="meta">answered</span></header><div class="body plain">{{.}}</div></article>{{end}}
+{{end}}</main>
 {{template "foot"}}{{end}}
