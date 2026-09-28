@@ -83,8 +83,9 @@ func TestCodexSessionFindsTheFirstRolloutForTheFolderSinceLaunch(t *testing.T) {
 	since := time.Now().Add(-time.Minute)
 	rollout(t, home, time.Now(), "elsewhere", "/other", marker+"x.")
 	rollout(t, home, since.Add(-time.Hour), "too-old", "/fleet", marker+"x.")
-	rollout(t, home, since.Add(time.Second/2), "operator", "/fleet", "Trust this folder for me")
-	rollout(t, home, since.Add(time.Second), "mine", "/fleet", marker+"x. Follow AGENTS.md")
+	rollout(t, home, since.Add(time.Second/4), "operator", "/fleet", "Trust this folder for me")
+	rollout(t, home, since.Add(time.Second/2), "quoting", "/fleet", "Why did Hand say "+marker+"x.?")
+	rollout(t, home, since.Add(time.Second), "mine", "/fleet", "\\n"+marker+"x. Follow AGENTS.md")
 	rollout(t, home, since.Add(2*time.Second), "later", "/fleet", marker+"x.")
 	if id, err := CodexSession(home, "/fleet", since, marker); err != nil || id != "mine" {
 		t.Fatalf("session = %q, %v", id, err)
@@ -103,8 +104,9 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	}
 	script := "#!/bin/sh\ncase \"$*\" in\n" +
 		"'session list --standalone --format json') sleep 5 & sed \"s#/fleets/demo#$(pwd)#\" " + fixture + " ;;\n" +
-		"'session export --standalone ses_newer000000000000000000001') echo '{\"messages\":[{\"text\":\"" + marker + "demo.\"}]}' ;;\n" +
-		"'session export --standalone '*) echo '{\"messages\":[{\"text\":\"hello\"}]}' ;;\n" +
+		"'session export --standalone ses_newer000000000000000000001') echo '{\"messages\":[{\"type\":\"user\",\"text\":\"\\\"" + marker + "demo.\\\"\"}]}' ;;\n" +
+		"'session export --standalone ses_older000000000000000000003') echo '{\"messages\":[{\"type\":\"user\",\"text\":\"quote: " + marker + "demo.\"},{\"type\":\"assistant\",\"text\":\"" + marker + "demo.\"}]}' ;;\n" +
+		"'session export --standalone '*) echo '{\"messages\":[{\"type\":\"user\",\"text\":\"hello\"}]}' ;;\n" +
 		"*) echo \"bad args: $*\" >&2; exit 1 ;;\nesac\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

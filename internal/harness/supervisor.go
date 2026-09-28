@@ -1,7 +1,6 @@
 package harness
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -14,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
@@ -114,7 +114,7 @@ func CodexSession(codexHome, cwd string, since time.Time, marker string) (string
 			if from != cwd || at.Before(since) || (first != "" && !at.Before(firstAt)) {
 				continue
 			}
-			ok, err := holds(file, marker)
+			ok, err := codexLaunched(file, marker)
 			if err != nil {
 				return "", err
 			}
@@ -134,7 +134,11 @@ func sameDay(a, b time.Time) bool {
 	return ay == by && am == bm && ad == bd
 }
 
-func holds(file, marker string) (bool, error) {
+func launches(text, marker string) bool {
+	return strings.HasPrefix(strings.TrimLeft(text, "\" \t\r\n"), marker)
+}
+
+func codexLaunched(file, marker string) (bool, error) {
 	f, err := os.Open(file)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
@@ -143,8 +147,30 @@ func holds(file, marker string) (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, promptScan))
-	return bytes.Contains(b, []byte(marker)), err
+	dec := json.NewDecoder(io.LimitReader(f, promptScan))
+	for {
+		var rec struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type    string `json:"type"`
+				Role    string `json:"role"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"payload"`
+		}
+		if err := dec.Decode(&rec); err != nil {
+			return false, nil
+		}
+		if rec.Type != "response_item" || rec.Payload.Type != "message" || rec.Payload.Role != "user" {
+			continue
+		}
+		for _, c := range rec.Payload.Content {
+			if launches(c.Text, marker) {
+				return true, nil
+			}
+		}
+	}
 }
 
 func codexMeta(file string) (string, time.Time, string, error) {
@@ -180,6 +206,11 @@ type opencodeSession struct {
 	Directory string `json:"directory"`
 }
 
+type opencodeMessage struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 func OpencodeSession(bin, dir string, since time.Time, marker string) (string, error) {
 	out, err := opencode(bin, dir, "session", "list", "--standalone", "--format", "json")
 	if err != nil {
@@ -196,11 +227,19 @@ func OpencodeSession(bin, dir string, since time.Time, marker string) (string, e
 		return int(a.Created - b.Created)
 	})
 	for _, s := range sessions {
-		export, err := opencode(bin, dir, "session", "export", "--standalone", s.ID)
+		out, err := opencode(bin, dir, "session", "export", "--standalone", s.ID)
 		if err != nil {
 			return "", err
 		}
-		if bytes.Contains(export, []byte(marker)) {
+		var export struct {
+			Messages []opencodeMessage `json:"messages"`
+		}
+		if err := json.Unmarshal(out, &export); err != nil {
+			return "", fmt.Errorf("opencode session export: %w", err)
+		}
+		if slices.ContainsFunc(export.Messages, func(m opencodeMessage) bool {
+			return m.Type == "user" && launches(m.Text, marker)
+		}) {
 			return s.ID, nil
 		}
 	}
