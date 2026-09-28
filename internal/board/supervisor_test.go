@@ -122,11 +122,13 @@ func TestTheShellNeverRefreshes(t *testing.T) {
 	h := fx.handler()
 	shell := get(t, h, "/")
 	lacks(t, "shell", shell, `http-equiv="refresh"`)
-	contains(t, "shell", shell, `<iframe src="/supervisor/panel"`, `<iframe src="/supervisor/log#end"`, `<iframe src="/cards"`, `action="/supervisor/send"`, `name="csrf" value="`+token+`"`)
+	contains(t, "shell", shell, `<iframe src="/supervisor/panel"`, `<iframe src="/supervisor/log" `, `<iframe src="/cards"`, `action="/supervisor/send"`, `name="csrf" value="`+token+`"`)
+	lacks(t, "shell", shell, "#end")
 	contains(t, "cards", get(t, h, "/cards"), `http-equiv="refresh" content="5"`, `<base target="_top">`)
 	contains(t, "live panel", get(t, h, "/supervisor/panel"), `http-equiv="refresh" content="3"`)
 	fresh := newFixture(t)
 	lacks(t, "start panel", get(t, fresh.handler(), "/supervisor/panel"), `http-equiv="refresh"`)
+	contains(t, "shell before the first start", get(t, fresh.handler(), "/"), `action="/supervisor/send"`)
 }
 
 func TestEveryPanelState(t *testing.T) {
@@ -217,6 +219,7 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/interrupt", nil, []string{"interrupt"}, "/supervisor/panel"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/supervisor/panel"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"send", "--text", "hi"}, "/"},
+		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"send", "--text", "line one\nline two"}, "/"},
 	}
 	for i, c := range cases {
 		res := post(h, c.path, c.form)
@@ -287,7 +290,7 @@ func TestAStaleKeyPressIsRefused(t *testing.T) {
 	fx := newFixture(t)
 	fx.fail = fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/supervisor/keys", url.Values{"csrf": {token}, "revision": {"7"}, "key": {"enter"}}, true)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "the screen changed, try again") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "the screen changed, try again") || !strings.Contains(rec.Body.String(), `target="_top"`) {
 		t.Fatalf("stale key = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	fx.fail = errors.New("start failed at /home/me/.codex/models_cache.json")
@@ -328,9 +331,10 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `content="3;url=/supervisor/log#end"`, `id="end"`)
-	if strings.Index(body, "queued: first queued") < strings.Index(body, "Hi, operator.") {
-		t.Fatalf("queued inputs must come last:\n%s", body)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `content="3;url=/supervisor/log"`, `class="log"`)
+	lacks(t, "log", body, "#end")
+	if !(strings.Index(body, "queued: second queued") < strings.Index(body, "queued: first queued") && strings.Index(body, "queued: first queued") < strings.Index(body, "Hi, operator.")) {
+		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
 	}
 	lacks(t, "paused", get(t, h, "/supervisor/log?live=0"), `http-equiv="refresh"`)
 	fresh := newFixture(t)

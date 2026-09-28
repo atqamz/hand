@@ -82,7 +82,7 @@ func cmdBoard(r *runner, args []string) error {
 	control := "Chat with the supervisor and control it from this page; reach it from a phone through ssh -L or tailscale serve"
 	if !loopback {
 		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take the token; prefer a loopback board behind ssh -L or tailscale serve")
-		control = "Supervisor controls are off on a network address; the board is read-only there"
+		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
 	d.Help("Keep the link private: the token is the only thing guarding this board", control)
 	if err := r.print(&d); err != nil {

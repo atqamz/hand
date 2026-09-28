@@ -48,7 +48,7 @@ journalctl --user -u secondhand-board-work | grep board:   # the private board l
 
 The board listens on `127.0.0.1:7777`. Give a second fleet its own port with `hand unit --addr 127.0.0.1:7778 board`. To reach a board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`. After you move a fleet, generate its units again.
 
-The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the board is read-only.
+The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and acknowledging reports still work.
 
 ## The supervisor
 

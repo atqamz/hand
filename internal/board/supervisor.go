@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
@@ -38,13 +39,8 @@ func keyButtons() []key {
 }
 
 func (b *Board) shell(w http.ResponseWriter, r *http.Request) {
-	_, ok, err := b.st.LatestSupervisor(r.Context())
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
 	b.render(w, http.StatusOK, "index.html", map[string]any{
-		"Title": "board", "All": r.URL.Query().Get("all") == "1", "Send": b.o.Controls && ok, "Token": b.token,
+		"Title": "board", "All": r.URL.Query().Get("all") == "1", "Send": b.o.Controls, "Token": b.token,
 	})
 }
 
@@ -113,7 +109,7 @@ func (b *Board) log(w http.ResponseWriter, r *http.Request) {
 	live := r.URL.Query().Get("live") != "0" && !r.URL.Query().Has("before")
 	data := map[string]any{"Title": "conversation", "Live": live}
 	if live {
-		data["Refresh"], data["RefreshURL"] = liveRefresh, "/supervisor/log#end"
+		data["Refresh"], data["RefreshURL"] = liveRefresh, "/supervisor/log"
 	}
 	sup, ok, err := b.st.LatestSupervisor(ctx)
 	if err != nil {
@@ -145,7 +141,9 @@ func (b *Board) log(w http.ResponseWriter, r *http.Request) {
 		end = n
 	}
 	start := max(0, end-pageSize)
-	data["Entries"], data["Older"], data["Paged"] = entries[start:end], start, end < len(entries)
+	page := slices.Clone(entries[start:end])
+	slices.Reverse(page)
+	data["Entries"], data["Older"], data["Paged"] = page, start, end < len(entries)
 	b.render(w, http.StatusOK, "log.html", data)
 }
 
@@ -215,7 +213,7 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
 	}
-	text := r.PostFormValue("text")
+	text := strings.ReplaceAll(r.PostFormValue("text"), "\r\n", "\n")
 	if err := state.CheckMessage(text); err != nil {
 		b.failErr(w, err)
 		return

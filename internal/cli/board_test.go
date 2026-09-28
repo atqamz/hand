@@ -194,7 +194,7 @@ func TestANetworkBoardIsReadOnly(t *testing.T) {
 	if got := rt.prompts(); len(got) != 0 {
 		t.Fatalf("prompts = %q", got)
 	}
-	if out := stop(); !strings.Contains(out, "Supervisor controls are off on a network address") {
+	if out := stop(); !strings.Contains(out, "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work") {
 		t.Fatalf("board out = %q", out)
 	}
 }

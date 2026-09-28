@@ -38,8 +38,9 @@ func (r *Reader) codexFiles(id string) ([]string, error) {
 	for _, p := range paths {
 		got, ok := r.rollout[p]
 		if !ok {
-			got = rolloutID(p)
-			r.rollout[p] = got
+			if got = rolloutID(p); got != "" {
+				r.rollout[p] = got
+			}
 		}
 		if got == id {
 			out = append(out, p)

@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,6 +68,22 @@ func TestCodexFollowsTheSessionIDAcrossFiles(t *testing.T) {
 	got, err := (&Reader{Paths: Paths{Codex: home}}).Read(context.Background(), "codex", "codex-1", "/f")
 	if err != nil || !slices.Equal(texts(got), []string{"operator: one", "operator: two"}) {
 		t.Fatalf("entries = %q, %v", texts(got), err)
+	}
+}
+
+func TestCodexFindsARolloutWhoseFirstLineCameLate(t *testing.T) {
+	home := t.TempDir()
+	path := rollout(t, home, "rollout-2026-09-28T01-00-00-codex-1.jsonl", "")
+	r := &Reader{Paths: Paths{Codex: home}}
+	ctx := context.Background()
+	if _, err := r.Read(ctx, "codex", "codex-1", "/f"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("empty rollout err = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(meta("codex-1")+userLine("late")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.Read(ctx, "codex", "codex-1", "/f"); err != nil || !slices.Equal(texts(got), []string{"operator: late"}) {
+		t.Fatalf("after the first line = %q, %v", texts(got), err)
 	}
 }
 

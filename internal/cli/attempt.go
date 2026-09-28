@@ -153,6 +153,7 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 const (
 	prefillWait   = 30 * time.Second
 	submitConfirm = 5 * time.Second
+	submitTries   = 3
 )
 
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
@@ -160,26 +161,31 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	for {
+	for tries := 0; tries < submitTries; {
 		s, err := c.Read(ctx, pane, 60)
 		switch {
 		case luvus.Code(err) != "":
-			return false, false
+			return sent, false
 		case err == nil && strings.Contains(s.Text, marker) && idle(ctx, c, pane):
 			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
 			if err == nil {
-				return true, leftIdle(ctx, c, pane, tick.C)
+				sent, tries = true, tries+1
+				if leftIdle(ctx, c, pane, tick.C) {
+					return true, true
+				}
+				continue
 			}
 			if luvus.Code(err) != "content_revision_conflict" {
-				return false, false
+				return sent, false
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return false, false
+			return sent, false
 		case <-tick.C:
 		}
 	}
+	return sent, false
 }
 
 func idle(ctx context.Context, c luvus.Client, pane string) bool {

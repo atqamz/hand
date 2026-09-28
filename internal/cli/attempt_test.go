@@ -115,7 +115,7 @@ func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
-	if !strings.Contains(out, "prompt: sent unconfirmed") || !strings.Contains(out, "only if the briefing is still in the input box") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+	if !strings.Contains(out, "prompt: sent unconfirmed") || !strings.Contains(out, "only if the briefing is still in the input box") || !slices.Equal(fx.rt.keysSent(), []string{"enter", "enter", "enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
 	}
 	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: briefing sent but not confirmed; check the screen"`) {

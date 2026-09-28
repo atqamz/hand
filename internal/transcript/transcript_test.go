@@ -95,6 +95,7 @@ func TestClaudeTranscriptIsCalm(t *testing.T) {
 		{Role: "operator", Text: "Please look at t1.", At: "2026-09-28T01:00:10.000Z"},
 		{Role: "hand", Text: "wake: attempt.reported a1: r1 done", At: "2026-09-28T01:00:12.000Z"},
 		{Role: "operator", Text: "hello there", At: "2026-09-28T01:00:14.000Z"},
+		{Role: "hand", Text: "context compacted", At: "2026-09-28T01:00:16.000Z"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("entries =\n%+v\nwant\n%+v", got, want)

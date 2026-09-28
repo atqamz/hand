@@ -541,3 +541,51 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 		t.Fatalf("control wrote to the caller's streams: %q %q", out.String(), errOut.String())
 	}
 }
+
+func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n int32)) {
+	t.Helper()
+	script := "#!/bin/sh\nif [ \"$1\" = session ]; then echo '[]'; exit 0; fi\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "opencode"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.status = "┃  You are supervisor s1 of the Hand fleet", 7, "idle"
+	})
+	var calls atomic.Int32
+	rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+		var p struct {
+			Keys []string `json:"keys"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		rt.mu.Lock()
+		rt.keyed = append(rt.keyed, strings.Join(p.Keys, "+"))
+		rt.mu.Unlock()
+		keys(calls.Add(1))
+		return map[string]any{"type": "ok"}, nil
+	})
+}
+
+func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(n int32) {
+		if n == 2 {
+			rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+		}
+	})
+	has(t, "start", h.ok("supervisor", "start", "--harness", "opencode"), "prompt: submitted")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"enter", "enter"}) {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestOpencodeInterruptPressesEscTwice(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
+	h.ok("supervisor", "start", "--harness", "opencode")
+	has(t, "interrupt", h.ok("supervisor", "interrupt"), "keys: esc esc")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"enter", "esc", "esc"}) {
+		t.Fatalf("keys = %q, want two separate fenced esc presses: opencode reads esc+esc in one write as one sequence", got)
+	}
+}

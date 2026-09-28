@@ -5,7 +5,7 @@
 <main class="grid">
 <section>
 <iframe src="/supervisor/panel" title="supervisor" class="panel"></iframe>
-<iframe src="/supervisor/log#end" title="conversation" class="log"></iframe>
+<iframe src="/supervisor/log" title="conversation" class="log"></iframe>
 {{if .Send}}<form method="post" action="/supervisor/send">
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea name="text" required placeholder="Message the supervisor"></textarea>

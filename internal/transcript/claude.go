@@ -22,11 +22,15 @@ func (r *Reader) claude(s *session, id string) error {
 
 func (s *session) claudeLine(line []byte) {
 	var rec struct {
-		Type        string `json:"type"`
-		Timestamp   string `json:"timestamp"`
-		IsMeta      bool   `json:"isMeta"`
-		IsSidechain bool   `json:"isSidechain"`
-		Message     struct {
+		Type         string `json:"type"`
+		Timestamp    string `json:"timestamp"`
+		IsMeta       bool   `json:"isMeta"`
+		IsSidechain  bool   `json:"isSidechain"`
+		IsCompact    bool   `json:"isCompactSummary"`
+		OnlyInRecord bool   `json:"isVisibleInTranscriptOnly"`
+		IsAPIError   bool   `json:"isApiErrorMessage"`
+		Message      struct {
+			Model      string          `json:"model"`
 			StopReason string          `json:"stop_reason"`
 			Content    json.RawMessage `json:"content"`
 		} `json:"message"`
@@ -40,7 +44,13 @@ func (s *session) claudeLine(line []byte) {
 		return
 	}
 	s.known++
-	if rec.IsMeta || rec.IsSidechain {
+	switch {
+	case rec.IsCompact:
+		s.add(Entry{Role: "hand", Text: "context compacted", At: rec.Timestamp})
+		return
+	case rec.IsMeta, rec.IsSidechain, rec.OnlyInRecord:
+		return
+	case rec.Message.Model == "<synthetic>" && !rec.IsAPIError:
 		return
 	}
 	switch rec.Type {

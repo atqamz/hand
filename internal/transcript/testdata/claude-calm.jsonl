@@ -15,3 +15,5 @@
 {"type":"assistant","timestamp":"2026-09-28T01:00:13.000Z","isSidechain":true,"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"sidechain reply"}]}}
 {"type":"mode","mode":"normal"}
 {"type":"user","timestamp":"2026-09-28T01:00:14.000Z","message":{"role":"user","content":[{"type":"text","text":"hello there"}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:15.000Z","isApiErrorMessage":false,"message":{"model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","content":[{"type":"text","text":"No response requested."}]}}
+{"type":"user","timestamp":"2026-09-28T01:00:16.000Z","isCompactSummary":true,"isVisibleInTranscriptOnly":true,"message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context."}}
