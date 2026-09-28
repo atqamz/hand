@@ -118,7 +118,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if !utf8.ValidString(out) {
 		t.Fatal("orient is not valid UTF-8")
 	}
-	for _, want := range []string{"active_more: 15 of 500 shown", "open_decisions_more: 15 of 100 shown", "operator_memory_truncated:"} {
+	for _, want := range []string{" of 500 shown; run `hand task list --status active", "operator_memory_truncated:"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q", want)
 		}
@@ -287,5 +287,50 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	}
 	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude running\n") {
 		t.Fatalf("resumed = %q, want the ref the session's launch prompt named", out)
+	}
+}
+
+func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 200 {
+		task, err := st.AddTask(ctx, "hand", "task "+strconv.Itoa(i), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		if i < 50 {
+			_, _ = st.Ask(ctx, task.ID, strings.Repeat("why ", 20))
+		}
+	}
+	var constraints []string
+	for i := range 5 {
+		constraints = append(constraints, "- constraint "+strconv.Itoa(i)+": "+strings.Repeat("keep this in mind ", 38))
+	}
+	body := "# Operator memory\n" + strings.Join(constraints, "\n") + "\n"
+	if len(body) < 3200 || len(body) > 3600 {
+		t.Fatalf("fixture is %d bytes", len(body))
+	}
+	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if len(out) >= 6000 {
+		t.Fatalf("orient is %d bytes, want < 6000", len(out))
+	}
+	if strings.Contains(out, "operator_memory_truncated") || !strings.Contains(out, "constraint 4: keep this in mind") {
+		t.Fatalf("a 3.4 KB operator memory is cut while list rows remain:\n%s", out)
+	}
+	for _, want := range []string{"active_more:", "open_decisions_more:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
 	}
 }

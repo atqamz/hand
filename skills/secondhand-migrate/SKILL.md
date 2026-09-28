@@ -53,7 +53,7 @@ Write one list for the operator. Each line is one action, marked `create`, `keep
 
 | 0.7 | New fleet | Rule |
 |---|---|---|
-| `data/operator.md` | the operator memory file `hand orient` prints | copy the constraints verbatim; curate the prose; `hand orient` shows only its first 1200 bytes, so say when the constraints alone are longer |
+| `data/operator.md` | the operator memory file `hand orient` prints | copy the constraints verbatim; curate the prose; `hand orient` shows only its first 4000 bytes, so say when the constraints alone are longer |
 | `data/learnings.md` | the same file, or `memory/projects/<name>.md` for a lesson about one project | reusable lessons only; drop one-off incidents and lessons about 0.7-only commands, and name them in the proposal |
 | each project in `data/projects.md` | `hand project add NAME <this folder>/projects/NAME` | the clone stays where it is; note `mode=` in the project's memory when it matters |
 | each `## Queue` item | `hand task add --goal "…" PROJECT "title"` | keep dates and conditions in the goal |
