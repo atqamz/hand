@@ -1,6 +1,6 @@
 # Hand
 
-Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, dispatches Claude Code, Codex or opencode workers into isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and `hand board` shows it.
+Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, dispatches Claude Code, Codex or opencode workers into isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
 Linux only. The design and its non-goals are in [`docs/spec.md`](docs/spec.md).
 
@@ -21,7 +21,7 @@ hand project add myrepo /absolute/path/to/repo
 
 To try it next to an older Hand, build it under another name such as `~/.local/bin/hand-next`. Hand calls itself by its binary's name in the fleet's `AGENTS.md`, its skill, its help lines and its errors, so a supervisor in that fleet runs `hand-next`. When you later install it as plain `hand`, run that `hand init` in each fleet to rewrite them.
 
-A fleet is any folder `hand init` has run in. Commands find it from the working directory or any folder inside it, from `--home DIR`, or from `$HAND_HOME`. Run as many fleets as you like: each has its own Luvus session, worktrees, watcher and board. `hand fleet list` shows them all.
+A fleet is any folder `hand init` has run in. Commands find it from the working directory or any folder inside it, from `--home DIR`, or from `$HAND_HOME`. Run as many fleets as you like: each has its own Luvus session, worktrees and watcher, and one board serves them all. `hand fleet list` shows them.
 
 Rename a fleet with `hand init --name NEW`. To move one, `mv` the folder and run `hand init` in its new place.
 
@@ -35,18 +35,43 @@ w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" &&
 
 ## Keep the watcher and the board running
 
-From inside the fleet folder:
+Each fleet has its own watcher. From inside the fleet folder:
 
 ```sh
 mkdir -p ~/.config/systemd/user
 hand unit watch > ~/.config/systemd/user/secondhand-watch-work.service
-hand unit board > ~/.config/systemd/user/secondhand-board-work.service
 systemctl --user daemon-reload
-systemctl --user enable --now secondhand-watch-work secondhand-board-work
-journalctl --user -u secondhand-board-work | grep board:   # the private board link
+systemctl --user enable --now secondhand-watch-work
 ```
 
-The board listens on `127.0.0.1:7777`. Give a second fleet its own port with `hand unit --addr 127.0.0.1:7778 board`. To reach a board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`. After you move a fleet, generate its units again.
+One board serves every fleet. Install it once, from any folder:
+
+```sh
+hand unit board > ~/.config/systemd/user/secondhand-board.service
+systemctl --user daemon-reload
+systemctl --user enable --now secondhand-board
+```
+
+The board listens on `127.0.0.1:7777`. Each fleet has its own page at `http://127.0.0.1:7777/<fleet id>/`, and `/` lists the fleets. Each fleet keeps its own token in `board.token` in its folder, so logging in to one fleet never logs you out of another. A fleet you add or move shows up without a restart. After a move, generate only its watcher unit again. To reach the board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`.
+
+`hand open` opens a page in your browser, from inside a fleet:
+
+| Command | Opens |
+|---|---|
+| `hand open`, `hand open supervisor` | the fleet page |
+| `hand open tN` | the task |
+| `hand open dN` | the decision |
+| `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
+| `hand open tN --pr` | the task's newest PR, on GitHub |
+
+It logs the browser in with the fleet's token through `xdg-open` and never prints the token. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
+
+To move from one board per fleet, stop and remove each old board unit, then install the one above:
+
+```sh
+systemctl --user disable --now secondhand-board-work
+rm ~/.config/systemd/user/secondhand-board-work.service
+```
 
 In a systemd user session, Hand runs each fleet's Luvus server in its own user unit, `secondhand-luvus-<fleet id>`. Restarting the watcher or the board therefore never stops the agents. `systemctl --user stop secondhand-luvus-<fleet id>` stops the server and every agent in that fleet. Without a user session, for example over plain SSH, Hand starts Luvus directly.
 
@@ -54,12 +79,12 @@ The board is where you start, chat with and resume the supervisor. Those control
 
 ## The supervisor
 
-Open the board and press **Start**. Pick a routing profile, or a harness with its model and effort. Hand runs the supervisor in the background in the fleet's Luvus session, in full-auto mode:
+Open the fleet's page with `hand open` and press **Start**. Pick a routing profile, or a harness with its model and effort. Hand runs the supervisor in the background in the fleet's Luvus session, in full-auto mode:
 - `claude --dangerously-skip-permissions`;
 - `codex --dangerously-bypass-approvals-and-sandbox`;
 - `opencode --auto`.
 
-The board shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
+The page updates itself as things change, and keeps what you are typing. It shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
 
 `hand init` writes the folder's `AGENTS.md` and `CLAUDE.md`, which make the agent run `hand orient` every turn. It also installs the `secondhand` skill for Claude Code, Codex, Grok and Pi. Every `hand init` rewrites these files, so put your own preferences in `memory/operator.md` instead.
 
