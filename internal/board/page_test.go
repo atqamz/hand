@@ -143,7 +143,7 @@ func TestWaitingCountsAreNotCapped(t *testing.T) {
 		}
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "fleet page", body, `data-waiting="501"`, "open decisions 501")
+	contains(t, "fleet page", body, `data-waiting="501"`, "451 more waiting")
 }
 
 func TestProofAnswersWithoutLogin(t *testing.T) {

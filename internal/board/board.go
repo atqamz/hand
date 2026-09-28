@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/markdown"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -36,6 +37,8 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"decision": state.DecisionRef,
 	"plan":     func(rev int) string { return state.PlanRef(rev) },
 	"asset":    assetURL,
+	"md":       markdown.Render,
+	"when":     when,
 }).ParseFS(files, "templates/*.html"))
 
 const (
@@ -236,33 +239,6 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 		c.Report = &reports[len(reports)-1]
 	}
 	return c, nil
-}
-
-func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
-	counts, err := b.st.CountTasks(ctx)
-	if err != nil {
-		return err
-	}
-	decisions, err := b.st.OpenDecisions(ctx, 0, maxCards)
-	if err != nil {
-		return err
-	}
-	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true}, maxCards)
-	if err != nil {
-		return err
-	}
-	open, err := b.st.OpenDecisionCount(ctx, 0)
-	if err != nil {
-		return err
-	}
-	unacked, err := b.st.UnackedReportCount(ctx)
-	if err != nil {
-		return err
-	}
-	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
-	data["OpenDecisions"], data["UnreadReports"] = decisions, unread
-	data["DecisionCount"], data["UnreadCount"], data["Waiting"] = open, unacked, open+unacked
-	return nil
 }
 
 func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values) error {

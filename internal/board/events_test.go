@@ -200,14 +200,14 @@ func TestEventsFollowTheAgent(t *testing.T) {
 	fx.status, fx.hint = "blocked", "Trust this folder?"
 	fx.mu.Unlock()
 	evs := collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"status"}) || !strings.Contains(evs[0].data, `name="revision" value="7"`) {
+	if got := eventNames(evs); !slices.Equal(got, []string{"status", "queue"}) || !strings.Contains(evs[1].data, `name="revision" value="7"`) {
 		t.Fatalf("after the agent blocked = %q", evs)
 	}
 	fx.mu.Lock()
 	fx.revision = 8
 	fx.mu.Unlock()
 	evs = collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"status"}) || !strings.Contains(evs[0].data, `name="revision" value="8"`) {
+	if got := eventNames(evs); !slices.Equal(got, []string{"queue"}) || !strings.Contains(evs[0].data, `name="revision" value="8"`) {
 		t.Fatalf("after the screen changed = %q", evs)
 	}
 }

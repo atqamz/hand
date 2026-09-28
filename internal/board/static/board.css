@@ -23,9 +23,11 @@ a{color:var(--accent)}
 .tag{display:inline-block;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-size:12px}
 .blocked,.stuck,.interrupted,.failed,.open{color:var(--warn)}
 .done,.running,.answered,.active{color:var(--ok)}
-pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0;font-size:13px}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0;font-size:13px}
 textarea{width:100%;min-height:6em;font:inherit}
 button{font:inherit;padding:4px 12px}
 form.inline{display:inline}
 #toast:empty{display:none}
 #toast{position:fixed;inset:auto 16px 16px auto;max-width:28em;background:var(--card);border:1px solid var(--warn);border-radius:8px;padding:8px 12px}
+.wait{overflow-wrap:anywhere;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:0 0 8px}
+.wait pre.screen{white-space:pre;overflow-wrap:normal}
