@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,11 +53,17 @@ func runtimeErr(err error) error {
 	return fmt.Errorf("%w: %w", state.ErrConflict, err)
 }
 
-func terminal(a state.Attempt) luvus.Terminal {
-	return luvus.Terminal{ServerGeneration: a.ServerGeneration, TerminalID: a.TerminalID, PaneID: a.PaneID, Root: luvus.Root{PID: a.PID, StartMarker: a.StartMarker}}
+func terminal(t state.Terminal) luvus.Terminal {
+	return luvus.Terminal{ServerGeneration: t.ServerGeneration, TerminalID: t.TerminalID, PaneID: t.PaneID, Root: luvus.Root{PID: t.PID, StartMarker: t.StartMarker}}
 }
 
 func (r *runner) withAttempts(fn func(context.Context, *state.Store, luvus.Client) error) error {
+	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
+		return fn(ctx, st, c)
+	})
+}
+
+func (r *runner) withSupervisor(fn func(context.Context, *state.Store, luvus.Client, luvus.Capabilities) error) error {
 	st, err := r.store()
 	if err != nil {
 		return err
@@ -70,7 +77,7 @@ func (r *runner) withAttempts(fn func(context.Context, *state.Store, luvus.Clien
 	if err := r.sync(ctx, st, c, caps); err != nil {
 		return err
 	}
-	return fn(ctx, st, c)
+	return fn(ctx, st, c, caps)
 }
 
 func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
@@ -92,7 +99,7 @@ func (r *runner) sync(ctx context.Context, st *state.Store, c luvus.Client, caps
 			return err
 		}
 	}
-	return nil
+	return r.settleSupervisor(ctx, st, c, caps)
 }
 
 func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, id int64) error {
@@ -100,14 +107,14 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 	if err != nil || !a.Live() {
 		return err
 	}
-	to, reason, err := r.observe(ctx, c, caps, a)
+	to, reason, err := r.observeTerminal(ctx, c, caps, a.Status, a.CreatedAt, a.Terminal)
 	if err != nil || to == "" {
 		return err
 	}
 	if err := stopRoot(a.PID, a.StartMarker); err != nil {
 		return err
 	}
-	if err := closeAttemptTerminals(ctx, c, a); err != nil {
+	if err := closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID); err != nil {
 		if a.Status == state.AttemptLaunching {
 			return nil
 		}
@@ -120,11 +127,15 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 }
 
 func (r *runner) attemptLock(id int64, wait bool) (func(), bool, error) {
+	return r.lock(state.AttemptRef(id), wait)
+}
+
+func (r *runner) lock(name string, wait bool) (func(), bool, error) {
 	dir := filepath.Join(r.home, "locks")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, false, err
 	}
-	f, err := os.OpenFile(filepath.Join(dir, state.AttemptRef(id)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, false, err
 	}
@@ -142,9 +153,9 @@ func (r *runner) attemptLock(id int64, wait bool) (func(), bool, error) {
 	return func() { _ = f.Close() }, true, nil
 }
 
-func (r *runner) observe(ctx context.Context, c luvus.Client, caps luvus.Capabilities, a state.Attempt) (string, string, error) {
-	if a.Status == state.AttemptLaunching {
-		created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
+func (r *runner) observeTerminal(ctx context.Context, c luvus.Client, caps luvus.Capabilities, status, createdAt string, t state.Terminal) (string, string, error) {
+	if status == state.AttemptLaunching {
+		created, err := time.Parse(time.RFC3339Nano, createdAt)
 		if err != nil {
 			return "", "", err
 		}
@@ -153,10 +164,10 @@ func (r *runner) observe(ctx context.Context, c luvus.Client, caps luvus.Capabil
 		}
 		return "", "", nil
 	}
-	if a.ServerGeneration != caps.ServerGeneration {
+	if t.ServerGeneration != caps.ServerGeneration {
 		return state.AttemptInterrupted, "luvus server restarted", nil
 	}
-	health, err := c.Validate(ctx, terminal(a))
+	health, err := c.Validate(ctx, terminal(t))
 	if err != nil {
 		switch luvus.Code(err) {
 		case "stale_server":
@@ -174,14 +185,19 @@ func (r *runner) observe(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	return "", "", nil
 }
 
-func closeAttemptTerminals(ctx context.Context, c luvus.Client, a state.Attempt) error {
+func closeLabelled(ctx context.Context, c luvus.Client, label, terminalID string) error {
+	return closeTerminals(ctx, c, func(t luvus.Terminal) bool {
+		return t.Label == label || (terminalID != "" && t.TerminalID == terminalID)
+	})
+}
+
+func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Terminal) bool) error {
 	terms, err := c.Inventory(ctx)
 	if err != nil {
 		return runtimeErr(err)
 	}
-	label := "hand-" + state.AttemptRef(a.ID)
 	for _, t := range terms {
-		if t.Label != label && (a.TerminalID == "" || t.TerminalID != a.TerminalID) {
+		if !match(t) {
 			continue
 		}
 		if err := stopWorker(ctx, c, t); err != nil {

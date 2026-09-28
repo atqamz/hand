@@ -27,7 +27,9 @@ You are the operator's single supervisor for the fleet in this folder. Workers w
 
 ## Wait with zero tokens
 
-Run `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
+As the managed supervisor (your launch message named you sN), never run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line per event. Handle each line as below.
+
+Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
 
 ## On each wake event
 

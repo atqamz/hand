@@ -104,6 +104,7 @@ func (w *watcher) session(ctx context.Context) error {
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
+	w.autoresume(sctx, c, caps)
 	events := make(chan luvus.Event)
 	failed := make(chan error, 1)
 	go func() {
@@ -178,7 +179,33 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 			w.alert(ctx, state.AttemptRef(a.ID)+" "+now.Status+": "+now.Reason)
 		}
 	}
+	w.deliver(ctx, c, caps)
 	return nil
+}
+
+func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
+	if _, err := w.r.deliver(ctx, w.st, c, caps, false); err != nil {
+		w.say("supervisor delivery: " + err.Error())
+	}
+}
+
+func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
+	p, err := harness.LoadPolicy(w.r.home)
+	if err != nil {
+		w.say("autoresume: " + err.Error())
+		return
+	}
+	if !p.Supervisor.Autoresume {
+		return
+	}
+	sup, err := w.r.resumeSupervisor(ctx, w.st, c, true)
+	switch {
+	case err != nil:
+		w.say("autoresume: " + err.Error())
+	case sup.ID != 0:
+		w.say("supervisor " + state.SupervisorRef(sup.ID) + " resumed")
+		w.deliver(ctx, c, caps)
+	}
 }
 
 func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Capabilities, data json.RawMessage) error {
@@ -188,6 +215,14 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 	}
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return err
+	}
+	sup, ok, err := w.st.LiveSupervisor(ctx)
+	if err != nil {
+		return err
+	}
+	if ok && sup.Status == state.AttemptRunning && sup.PaneID == ev.Pane && sup.ServerGeneration == caps.ServerGeneration {
+		w.deliver(ctx, c, caps)
+		return nil
 	}
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {

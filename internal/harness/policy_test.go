@@ -100,3 +100,16 @@ func TestStarterPolicyWriteFailureLeavesNoFile(t *testing.T) {
 		t.Fatalf("partial policy left behind: %v", err)
 	}
 }
+
+func TestPolicyAcceptsTheSupervisorBlock(t *testing.T) {
+	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
+	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"supervisor":{"autoresume":true}}`)); err != nil || !p.Supervisor.Autoresume {
+		t.Fatalf("policy = %+v, %v", p, err)
+	}
+	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`}`)); err != nil || p.Supervisor.Autoresume {
+		t.Fatalf("default policy = %+v, %v", p, err)
+	}
+	if _, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"supervisor":{"x":1}}`)); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("unknown supervisor field err = %v", err)
+	}
+}

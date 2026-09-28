@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -217,4 +219,47 @@ func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
 	eventually(t, func() bool {
 		return strings.Contains(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), `"a1: turn ended; reported r1 done"`)
 	})
+}
+
+func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		h, rt := newSupervisorFixture(t)
+		policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":` + strconv.FormatBool(on) + `}}`
+		if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		startClaudeSupervisor(h)
+		session := rt.lastCreate().Command[3]
+		rt.set(func(rt *fakeRuntime) { rt.status = "blocked" })
+		h.ok("supervisor", "send", "--text", "queued before the restart")
+		rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+		rt.srv.SetGeneration("gen-2")
+		stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+		if !on {
+			st := openStore(t, h)
+			eventually(t, func() bool {
+				sup, _, err := st.LatestSupervisor(context.Background())
+				return err == nil && sup.Status == "interrupted"
+			})
+			time.Sleep(200 * time.Millisecond)
+			stop()
+			if n := len(rt.srv.Calls("terminal.backend.create")); n != 1 {
+				t.Fatalf("autoresume off made %d create calls", n)
+			}
+			continue
+		}
+		st := openStore(t, h)
+		eventually(t, func() bool {
+			sup, _, err := st.LatestSupervisor(context.Background())
+			return err == nil && sup.ID == 2 && sup.Status == "running"
+		})
+		eventually(t, func() bool { return slices.Contains(rt.prompts(), "queued before the restart") })
+		out, _ := stop()
+		if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--dangerously-skip-permissions", "--resume", session, "--model", "sonnet", "--effort", "low"}) {
+			t.Fatalf("argv = %q", argv)
+		}
+		if !strings.Contains(out, "supervisor s2 resumed") {
+			t.Fatalf("watch out = %q", out)
+		}
+	}
 }
