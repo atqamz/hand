@@ -43,6 +43,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	}
 	want := "home: " + home + "\n" +
 		"fleet: test (" + f.ID + ")\n" +
+		"supervisor: none\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
 		"cursor: 1\n" +
 		"active[0]{id,project,title,plan,attempt,report,open_decisions}:\n" +
@@ -57,7 +58,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 		"help[3]:\n" +
 		"  - Capture every new request first: `hand task add --goal TEXT PROJECT TITLE`\n" +
 		"  - Ask the operator only through `hand decision ask TASK QUESTION`\n" +
-		"  - Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running)\n"
+		"  - Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running; the managed supervisor gets wakes as messages instead)\n"
 	if got := doc.String(); got != want {
 		t.Fatalf("orient =\n%s\nwant\n%s", got, want)
 	}
@@ -241,5 +242,37 @@ func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
 	b.Reports = 0
 	if _, err := Build(context.Background(), st, home, b); err != nil {
 		t.Fatalf("zero report budget: %v", err)
+	}
+}
+
+func TestOrientNamesTheSupervisor(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	orient := func() string {
+		t.Helper()
+		doc, err := Build(ctx, st, home, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	if out := orient(); !strings.Contains(out, "\nsupervisor: none\n") || strings.Contains(out, "supervisor resume") {
+		t.Fatalf("none = %q", out)
+	}
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude running\n") || strings.Contains(out, "supervisor resume") {
+		t.Fatalf("running = %q", out)
+	}
+	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptInterrupted, "luvus server restarted"); err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude interrupted\n") || !strings.Contains(out, "  - Resume the supervisor: `hand supervisor resume`\n") {
+		t.Fatalf("interrupted = %q", out)
 	}
 }

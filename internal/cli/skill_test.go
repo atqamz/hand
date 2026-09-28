@@ -14,14 +14,23 @@ func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	agents, err := os.ReadFile(filepath.Join(h.home, "AGENTS.md"))
-	if err != nil || !strings.Contains(string(agents), "Run `hand orient` at the start of every turn") {
-		t.Fatalf("AGENTS.md = %q, %v", agents, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Run `hand orient` at the start of every turn",
+		"If `hand orient` shows a running supervisor sN and your launch message did not name you sN, you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.",
+		"As the managed supervisor, do not run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`.",
+	} {
+		if !strings.Contains(string(agents), want) {
+			t.Fatalf("AGENTS.md = %q, missing %q", agents, want)
+		}
 	}
 	skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", "secondhand", "SKILL.md"))
 	if err != nil || !strings.HasPrefix(string(skill), "---\nname: secondhand\n") {
 		t.Fatalf("skill = %q, %v", skill, err)
 	}
-	for _, want := range []string{"hand orient", "hand wait --after", "hand report ack", "hand decision ask", "hand attempt start --profile"} {
+	for _, want := range []string{"hand orient", "hand wait --after", "hand report ack", "hand decision ask", "hand attempt start --profile", "[hand v1 wake]", "opened by hand"} {
 		if !strings.Contains(string(skill), want) {
 			t.Fatalf("skill missing %q", want)
 		}
