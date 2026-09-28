@@ -80,3 +80,16 @@ func TestAttachRefusals(t *testing.T) {
 		t.Fatalf("exec = %q", fx.h.exec)
 	}
 }
+
+func TestAttachRefusesATargetWithNoPane(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	withLuvus(t, h)
+	rt.set(func(rt *fakeRuntime) { rt.blankPane = true })
+	startClaudeSupervisor(h)
+	if _, errOut, code := h.run("attach", "supervisor"); code != 3 || !strings.Contains(errOut, "no pane") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if len(h.exec) != 0 {
+		t.Fatalf("exec = %q, want no whole-session fallback", h.exec)
+	}
+}

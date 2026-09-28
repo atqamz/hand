@@ -67,6 +67,9 @@ func cmdAttach(r *runner, args []string) error {
 			}
 			pane = a.PaneID
 		}
+		if target != "" && pane == "" {
+			return fmt.Errorf("%w: %s has no pane recorded, so there is nothing to attach to; check it with `hand supervisor show` or `hand attempt show`", state.ErrConflict, target)
+		}
 		argv = luvus.AttachArgv(bin, session, pane)
 		return nil
 	})

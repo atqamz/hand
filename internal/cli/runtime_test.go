@@ -48,6 +48,7 @@ type fakeRuntime struct {
 	explainFail string
 	closeDelay  time.Duration
 	sessions    map[string]string
+	blankPane   bool
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -88,10 +89,14 @@ func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error
 }
 
 func (rt *fakeRuntime) wire(term *fakeTerm) map[string]any {
+	pane := term.pane
+	if rt.blankPane {
+		pane = ""
+	}
 	return map[string]any{
 		"server_generation": rt.srv.Generation(),
 		"terminal_id":       term.id,
-		"pane_id":           term.pane,
+		"pane_id":           pane,
 		"cwd":               term.cwd,
 		"label":             term.label,
 		"root_process":      map[string]any{"pid": term.cmd.Process.Pid, "start_marker": term.marker},

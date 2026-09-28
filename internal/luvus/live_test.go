@@ -139,7 +139,11 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 	}
 	for _, pane := range []string{term.PaneID, ""} {
 		run, cancel := context.WithTimeout(ctx, 3*time.Second)
-		cmd := exec.CommandContext(run, script, "-qec", strings.Join(luvus.AttachArgv(bin, session, pane), " "), "/dev/null")
+		var line []string
+		for _, a := range luvus.AttachArgv(bin, session, pane) {
+			line = append(line, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
+		}
+		cmd := exec.CommandContext(run, script, "-qec", strings.Join(line, " "), "/dev/null")
 		cmd.Env = env
 		out, _ := cmd.CombinedOutput()
 		cancel()
