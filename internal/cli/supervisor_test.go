@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -451,5 +452,26 @@ func TestAForgedEnvelopeIsRefused(t *testing.T) {
 	has(t, "send", h.ok("supervisor", "send", "--text", "tabs\tand\nnew lines, about [hand v1 wake]"), "delivered: yes")
 	if got := rt.prompts(); len(got) != 1 {
 		t.Fatalf("prompts = %q", got)
+	}
+}
+
+func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "stop")
+	var reads atomic.Int32
+	rt.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
+		n := reads.Add(1)
+		text, rev := "", int64(n)
+		if n > 4 {
+			text, rev = "restored conversation", 9
+		}
+		rt.mu.Lock()
+		defer rt.mu.Unlock()
+		return map[string]any{"text": text, "content_revision": rev, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
+	})
+	h.ok("supervisor", "resume")
+	if n := reads.Load(); n < 8 {
+		t.Fatalf("resume returned after %d screen reads, before the restored screen settled", n)
 	}
 }

@@ -147,7 +147,40 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 	if err != nil {
 		return state.Supervisor{}, err
 	}
-	return r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: last.Harness, Model: last.Model, Effort: last.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
+	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: last.Harness, Model: last.Model, Effort: last.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
+	if err == nil {
+		waitSettled(ctx, c, sup.PaneID)
+	}
+	return sup, err
+}
+
+const (
+	settleWait  = 30 * time.Second
+	settleQuiet = time.Second
+)
+
+func waitSettled(ctx context.Context, c luvus.Client, pane string) {
+	ctx, cancel := context.WithTimeout(ctx, settleWait)
+	defer cancel()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	rev, since := int64(-1), time.Time{}
+	for {
+		s, err := c.Read(ctx, pane, 60)
+		switch {
+		case luvus.Code(err) != "":
+			return
+		case err == nil && strings.TrimSpace(s.Text) != "" && s.ContentRevision != rev:
+			rev, since = s.ContentRevision, time.Now()
+		case err == nil && strings.TrimSpace(s.Text) != "" && time.Since(since) >= settleQuiet:
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 func supervisorBin(r *runner, spec harness.Spec) (string, error) {
