@@ -26,7 +26,7 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 	}
 	contains(t, "task thread", body,
 		`<span class="ref">t1</span>`, `<span class="pill" data-state="running">active</span>`,
-		"Plan p1", "1. reproduce\n2. fix the cookie",
+		"Plan p1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
 		`<article class="comment report" id="r1"`, `<article class="comment report" id="r2"`, "<strong>tests</strong>",
 		`<li class="check" data-state="running" id="a1">`,
 		"Keep the old cookie name?", `href="/decision/d1"`)

@@ -187,3 +187,10 @@ func TestHiddenSectionsStayHidden(t *testing.T) {
 		t.Fatal("board.css lets a display rule override the hidden attribute, so the phone tabs cannot hide a section")
 	}
 }
+
+func TestTheAppShellNeedsHeight(t *testing.T) {
+	css := asset(t, "board.css")
+	if !strings.Contains(css, "@media (min-width:900px) and (min-height:600px){") || !strings.Contains(css, "@media (max-width:899px),(max-height:599px){") {
+		t.Fatal("a short landscape phone gets neither the desktop shell nor the phone layout, so the composer is cut off")
+	}
+}

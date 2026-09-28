@@ -41,6 +41,9 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"md":       markdown.Render,
 	"when":     when,
 	"tint":     tint,
+	"view": func(root map[string]any, w waiting, open bool) map[string]any {
+		return map[string]any{"R": root, "W": w, "Open": open}
+	},
 }).ParseFS(files, "templates/*.html"))
 
 const (

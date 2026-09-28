@@ -1,4 +1,4 @@
-{{define "region-status"}}<div class="status-line"><span class="pill" data-state="{{.Pill}}">{{.PillLabel}}</span>{{with .Sup}} <span class="ref">{{$.Ref}}</span> <span class="who">{{.Harness}} {{.Model}}</span>{{with $.Agent}} <span class="meta">agent {{.}}</span>{{end}}{{with .Reason}} <span class="meta">{{.}}</span>{{end}}{{end}} <span class="meta">pending {{.Pending}}</span></div>
+{{define "region-status"}}<div class="status-line"><span class="pill" data-state="{{.Pill}}">{{.PillLabel}}</span>{{with .Sup}} <span class="ref">{{$.Ref}}</span> <span class="who">{{.Harness}} {{.Model}}</span>{{with $.Agent}} <span class="meta">agent {{.}}</span>{{end}}{{with .Reason}} <span class="meta">{{.}}</span>{{end}}{{end}} <span class="meta">{{.Pending}} queued</span></div>
 {{with .Stale}}<div class="row warn">{{.}}</div>
 {{end}}{{if .Controls}}{{if and .Sup (eq .Sup.Status "running")}}<div class="row">{{if and .Agent (not .Blocked)}}<form class="inline" method="post" action="{{.Base}}/supervisor/interrupt" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Interrupt</button></form> {{end}}<form class="inline" method="post" action="{{.Base}}/supervisor/stop" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Stop</button></form></div>
 {{else if and .Sup .Sup.Live}}<div class="row muted">launching…</div>
@@ -19,19 +19,23 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 {{end}}{{end}}
 
 {{define "region-queue"}}<header class="queue-head"><h2>Needs you</h2> <span class="count" data-waiting="{{.Waiting}}">{{.Waiting}}</span></header>
-{{range $i, $w := .Waits}}<details class="wait" data-kind="{{.Kind}}" id="wait-{{.Ref}}"{{if eq $i 0}} open{{end}}>
-<summary>{{template "wait-icon" .Kind}}<span class="ref">{{.Ref}}</span> <span class="wait-title">{{.Title}}</span>{{with .Task.ID}} <a class="ref" href="{{$.Base}}/task/{{task .}}">{{task .}}</a>{{end}}{{with .Decision}} <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time>{{end}}{{with .Report}} <span class="meta">{{attempt .AttemptID}} · {{.Status}}</span> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time>{{end}}{{with .Attempt}} <span class="meta">{{.Harness}} {{.Model}} · {{.Status}}</span>{{end}}{{if eq .Kind "resume"}}{{with .Sup}} <span class="meta">{{.Harness}} {{.Model}} · {{.Status}}</span>{{end}}{{end}}</summary>
-<div class="wait-body">{{if eq .Kind "blocked"}}<pre class="screen">{{.Screen}}</pre>
-{{if $.Controls}}<div class="keys">{{range $.Keys}}<form class="inline" method="post" action="{{$.Base}}/supervisor/keys" data-fetch><input type="hidden" name="csrf" value="{{$.Token}}"><input type="hidden" name="revision" value="{{$w.Revision}}"><button name="key" value="{{.Name}}">{{.Label}}</button></form>{{end}}</div>{{end}}
-{{else if eq .Kind "decision"}}<form class="answer" method="post" action="{{$.Base}}/decision/{{decision .Decision.ID}}/answer" data-fetch><input type="hidden" name="csrf" value="{{$.Token}}"><textarea name="answer" required rows="3" placeholder="Answer {{.Ref}}"></textarea><div class="actions"><button class="primary">Answer</button> <a href="{{$.Base}}/decision/{{.Ref}}">Open {{.Ref}}</a></div></form>
-{{else if eq .Kind "failure"}}{{with .Attempt.Reason}}<p class="reason">{{.}}</p>{{end}}<div class="actions"><a href="{{$.Base}}/task/{{task .Task.ID}}#{{.Ref}}">View {{.Ref}}</a></div>
+{{if .Waits}}{{template "wait" (view $ (index .Waits 0) true)}}
+{{if gt (len .Waits) 1}}<div class="waits">{{range $i, $w := .Waits}}{{if $i}}{{template "wait" (view $ $w false)}}{{end}}{{end}}</div>
+{{end}}{{else}}<p class="quiet">Nothing needs you.</p>
+{{end}}{{if .More}}<p class="more">{{.More}} more waiting</p>
+{{end}}{{end}}
+
+{{define "wait"}}{{$r := .R}}{{with .W}}<details class="wait" data-kind="{{.Kind}}" id="wait-{{.Ref}}"{{if $.Open}} open{{end}}>
+<summary>{{template "wait-icon" .Kind}}<span class="ref">{{.Ref}}</span> <span class="wait-title">{{.Title}}</span>{{with .Task.ID}} <a class="ref" href="{{$r.Base}}/task/{{task .}}">{{task .}}</a>{{end}}{{with .Decision}} <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time>{{end}}{{with .Report}} <span class="meta">{{attempt .AttemptID}} · {{.Status}}</span> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time>{{end}}{{with .Attempt}} <span class="meta">{{.Harness}} {{.Model}} · {{.Status}}</span>{{end}}{{if eq .Kind "resume"}}{{with .Sup}} <span class="meta">{{.Harness}} {{.Model}} · {{.Status}}</span>{{end}}{{end}}</summary>
+<div class="wait-body">{{if eq .Kind "blocked"}}<pre class="screen"><code>{{.Screen}}</code></pre>
+{{if $r.Controls}}<div class="keys">{{$w := .}}{{range $r.Keys}}<form class="inline" method="post" action="{{$r.Base}}/supervisor/keys" data-fetch><input type="hidden" name="csrf" value="{{$r.Token}}"><input type="hidden" name="revision" value="{{$w.Revision}}"><button name="key" value="{{.Name}}">{{.Label}}</button></form>{{end}}</div>{{end}}
+{{else if eq .Kind "decision"}}{{if ne .Title .Decision.Question}}<p class="question">{{.Decision.Question}}</p>{{end}}<form class="answer" method="post" action="{{$r.Base}}/decision/{{decision .Decision.ID}}/answer" data-fetch><input type="hidden" name="csrf" value="{{$r.Token}}"><textarea name="answer" required rows="3" placeholder="Answer {{.Ref}}"></textarea><div class="actions"><button class="primary">Answer</button> <a href="{{$r.Base}}/decision/{{.Ref}}">Open {{.Ref}}</a></div></form>
+{{else if eq .Kind "failure"}}{{with .Attempt.Reason}}<p class="reason">{{.}}</p>{{end}}<div class="actions"><a href="{{$r.Base}}/task/{{task .Task.ID}}#{{.Ref}}">View {{.Ref}}</a></div>
 {{else if eq .Kind "report"}}<div class="md">{{md .Excerpt}}</div>
-<div class="actions"><form class="inline" method="post" action="{{$.Base}}/report/{{.Ref}}/ack" data-fetch><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form> <a href="{{$.Base}}/task/{{task .Task.ID}}#{{.Ref}}">{{if .Cut}}read more{{else}}Open {{.Ref}}{{end}}</a></div>
-{{else if eq .Kind "resume"}}{{if $.Controls}}<form class="inline" method="post" action="{{$.Base}}/supervisor/resume" data-fetch><input type="hidden" name="csrf" value="{{$.Token}}"><button>Resume</button></form>{{else}}<p class="reason">Resume it from a board on loopback.</p>{{end}}
+<div class="actions"><form class="inline" method="post" action="{{$r.Base}}/report/{{.Ref}}/ack" data-fetch><input type="hidden" name="csrf" value="{{$r.Token}}"><button>Mark read</button></form> <a href="{{$r.Base}}/task/{{task .Task.ID}}#{{.Ref}}">{{if .Cut}}read more{{else}}Open {{.Ref}}{{end}}</a></div>
+{{else if eq .Kind "resume"}}{{if $r.Controls}}<div class="actions"><form class="inline" method="post" action="{{$r.Base}}/supervisor/resume" data-fetch><input type="hidden" name="csrf" value="{{$r.Token}}"><button class="primary">Resume</button></form> <form class="inline" method="post" action="{{$r.Base}}/supervisor/start" data-fetch><input type="hidden" name="csrf" value="{{$r.Token}}"><button>New session</button></form></div>{{else}}<p class="reason">Resume it from a board on loopback.</p>{{end}}
 {{end}}</div>
 </details>
-{{else}}<p class="quiet">Nothing needs you.</p>
-{{end}}{{if .More}}<p class="more">{{.More}} more waiting</p>
 {{end}}{{end}}
 
 {{define "region-tasks"}}<header class="checks-head"><h2>Checks</h2></header>

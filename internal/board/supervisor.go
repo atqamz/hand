@@ -96,7 +96,7 @@ func pill(sup state.Supervisor, data map[string]any) (string, string) {
 	case sup.Status == state.AttemptRunning && stale:
 		return "failing", "unreachable"
 	case blocked:
-		return "waiting", "blocked"
+		return "failing", "blocked"
 	case sup.Live():
 		return "running", sup.Status
 	case sup.Status == state.AttemptStopped:

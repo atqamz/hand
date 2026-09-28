@@ -7,8 +7,10 @@
 	const regions = new Map();
 	for (const el of document.querySelectorAll("[data-region]")) regions.set(el.dataset.region, el);
 	const held = new Map();
+	const served = new Map();
 	const chosen = new Map();
-	const narrow = matchMedia("(max-width: 899px)");
+	const narrow = matchMedia("(max-width: 899px), (max-height: 599px)");
+	const typing = (el) => el.contains(document.activeElement) && document.activeElement.matches("textarea, select, input:not([type=hidden])");
 
 	const reversed = (el) => getComputedStyle(el).flexDirection === "column-reverse";
 	const fromBottom = (el) => (reversed(el) ? -el.scrollTop : el.scrollHeight - el.scrollTop - el.clientHeight);
@@ -40,14 +42,24 @@
 		new Notification(fleet, { body: `${n} waiting for you`, tag: base || fleet });
 	};
 
+	const count = (n) => {
+		if (n > waiting) notify(n);
+		waiting = n;
+		title();
+	};
+
 	const apply = (name, html) => {
 		const el = regions.get(name);
 		if (!el) return;
-		if (el.contains(document.activeElement)) {
+		served.set(name, html);
+		if (typing(el)) {
 			held.set(name, html);
+			const m = name === "queue" && /data-waiting="(\d+)"/.exec(html);
+			if (m) count(Number(m[1]));
 			return;
 		}
 		held.delete(name);
+		const focused = el.contains(document.activeElement) ? document.activeElement.closest("details[id] > summary")?.parentElement.id : null;
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const fields = "textarea, select, input:not([type=hidden])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
@@ -62,14 +74,10 @@
 				setTimeout(() => d.removeAttribute("data-new"), 1600);
 			}
 		}
+		if (focused) document.getElementById(focused)?.querySelector("summary")?.focus();
 		local(el);
 		if (pinned) toBottom(el);
-		if (name === "queue") {
-			const n = waitingNow();
-			if (n > waiting) notify(n);
-			waiting = n;
-			title();
-		}
+		if (name === "queue") count(waitingNow());
 	};
 
 	document.addEventListener("click", (e) => {
@@ -126,7 +134,8 @@
 	const select = () => {
 		for (const t of tabs) {
 			const on = t.dataset.tab === current;
-			t.setAttribute("aria-selected", String(on));
+			if (on && narrow.matches) t.setAttribute("aria-current", "true");
+			else t.removeAttribute("aria-current");
 			const panel = document.getElementById(t.dataset.tab);
 			if (panel) panel.hidden = narrow.matches && !on;
 		}
@@ -134,11 +143,7 @@
 		if (timeline && current === "chat") toBottom(timeline);
 	};
 	if (tabs.length > 0) {
-		tabs[0].parentElement.setAttribute("role", "tablist");
 		for (const t of tabs) {
-			t.setAttribute("role", "tab");
-			t.setAttribute("aria-controls", t.dataset.tab);
-			document.getElementById(t.dataset.tab)?.setAttribute("role", "tabpanel");
 			t.addEventListener("click", (e) => {
 				e.preventDefault();
 				current = t.dataset.tab;
@@ -149,6 +154,7 @@
 		select();
 	}
 
+	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
@@ -162,7 +168,7 @@
 		if (!res?.ok) return;
 		const doc = new DOMParser().parseFromString(await res.text(), "text/html");
 		for (const el of doc.querySelectorAll("[data-region]")) {
-			if (regions.get(el.dataset.region)?.innerHTML !== el.innerHTML) apply(el.dataset.region, el.innerHTML);
+			if (served.get(el.dataset.region) !== el.innerHTML) apply(el.dataset.region, el.innerHTML);
 		}
 	};
 	const follow = () => {

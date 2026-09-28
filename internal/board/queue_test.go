@@ -186,7 +186,7 @@ func TestReportsAckInPlace(t *testing.T) {
 	}
 	h := board.New(st, token, board.Options{})
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "report item", q, `data-kind="report"`, `action="/report/r1/ack" data-fetch`, "<strong>All</strong>")
+	contains(t, "report item", q, `data-kind="report"`, `action="/report/r1/ack" data-fetch`, "<strong>All</strong>", ">Mark read</button>")
 	if res := post(h, "/report/r1/ack", nil); res.StatusCode != 303 {
 		t.Fatalf("ack = %d", res.StatusCode)
 	}
@@ -203,7 +203,7 @@ func TestAnInterruptedSupervisorAsksToResume(t *testing.T) {
 	if !slices.Equal(kinds, []string{"resume"}) || !slices.Equal(refs, []string{"s1"}) {
 		t.Fatalf("queue = %q %q", kinds, refs)
 	}
-	contains(t, "resume item", region(body, "queue"), `action="/supervisor/resume" data-fetch`)
+	contains(t, "resume item", region(body, "queue"), `action="/supervisor/resume" data-fetch`, `action="/supervisor/start" data-fetch`)
 	lacks(t, "status region", region(body, "status"), `action="/supervisor/resume"`)
 	fx.options.Controls = false
 	lacks(t, "read-only resume item", region(get(t, fx.handler(), "/"), "queue"), `action="/supervisor/resume"`)
@@ -241,8 +241,27 @@ func TestLongWaitingContentIsBounded(t *testing.T) {
 	q = region(get(t, fx.handler(), "/"), "queue")
 	contains(t, "screen excerpt", q, "row 41", "row 60")
 	lacks(t, "screen excerpt", q, "row 40\n")
+	long := active(t, st, "One long line")
+	b := attempt(t, st, long.ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), b.ID, state.ReportDone, strings.Repeat("x", 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Ask(context.Background(), long.ID, strings.Repeat("why ", 490)+"really?"); err != nil {
+		t.Fatal(err)
+	}
+	q = region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	if len(q) > 24<<10 {
+		t.Fatalf("a 64 KB one-line report makes the queue %d bytes", len(q))
+	}
+	title := regexp.MustCompile(`<span class="wait-title">([^<]*)</span>`)
+	for _, m := range title.FindAllStringSubmatch(q, -1) {
+		if n := len([]rune(m[1])); n > 201 {
+			t.Fatalf("a waiting title holds %d runes", n)
+		}
+	}
+	contains(t, "long question", q, `<p class="question">why why`, "really?")
 	css := asset(t, "board.css")
-	for _, want := range []string{".wait{", "overflow-wrap:anywhere", "pre{", "overflow-x:auto"} {
+	for _, want := range []string{".wait{", "overflow-wrap:anywhere", "pre{", "overflow-x:auto", "grid-template-columns:minmax(0,1fr)"} {
 		if !strings.Contains(css, want) {
 			t.Fatalf("board.css lacks %q", want)
 		}
@@ -289,4 +308,16 @@ func TestReportTitlesDropMarkdownMarkers(t *testing.T) {
 	}
 	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
 	contains(t, "report title", q, `<span class="wait-title">Done. The renderer escapes first</span>`)
+}
+
+func TestResumeSurvivesAFullQueue(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	task := active(t, fx.st, "Many questions")
+	for i := range 50 {
+		if _, err := fx.st.Ask(context.Background(), task.ID, fmt.Sprintf("question %d?", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contains(t, "fleet page", get(t, fx.handler(), "/"), `action="/supervisor/resume"`, "1 more waiting")
 }

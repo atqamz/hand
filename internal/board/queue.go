@@ -12,6 +12,8 @@ import (
 
 const (
 	maxWaits      = 50
+	titleRunes    = 200
+	excerptBytes  = 2000
 	excerptLines  = 12
 	screenLines   = 20
 	blockedAsking = "The supervisor's screen needs a key"
@@ -40,11 +42,14 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	}
 	var waits []waiting
 	total := 0
-	add := func(w waiting) {
+	add := func(w waiting) bool {
 		total++
-		if len(waits) < maxWaits {
-			waits = append(waits, w)
+		if len(waits) >= maxWaits {
+			return false
 		}
+		w.Title = clip(w.Title, titleRunes)
+		waits = append(waits, w)
+		return true
 	}
 	sup, live := data["Sup"].(state.Supervisor)
 	if blocked, _ := data["Blocked"].(bool); blocked && live {
@@ -102,13 +107,14 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		excerpt := strings.Split(strings.TrimSpace(r.Body), "\n")
-		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: strings.Join(excerpt[:min(len(excerpt), excerptLines)], "\n"), Cut: len(excerpt) > excerptLines})
+		excerpt, cut := excerptOf(r.Body)
+		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: excerpt, Cut: cut})
 	}
 	total += unacked - len(unread)
 	if live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited) {
-		add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup})
-		data["Resumable"] = false
+		if add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup}) {
+			data["Resumable"] = false
+		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
@@ -154,6 +160,23 @@ func (b *Board) failing(ctx context.Context, a state.Attempt) (bool, error) {
 		return !slices.ContainsFunc(reports, func(r state.Report) bool { return r.Status == state.ReportDone }), nil
 	}
 	return false, nil
+}
+
+func excerptOf(body string) (string, bool) {
+	lines := strings.Split(strings.TrimSpace(body), "\n")
+	cut := len(lines) > excerptLines
+	out := strings.Join(lines[:min(len(lines), excerptLines)], "\n")
+	if len(out) > excerptBytes {
+		out, cut = strings.ToValidUTF8(out[:excerptBytes], "")+"…", true
+	}
+	return out, cut
+}
+
+func clip(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n]) + "…"
+	}
+	return s
 }
 
 func lastLines(s string, n int) string {

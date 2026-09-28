@@ -6,15 +6,15 @@
 </header>
 {{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">
 {{range .Card.Decisions}}<div class="need">{{template "icon-decision"}}<span class="ref">{{decision .ID}}</span> <span class="need-title">{{.Question}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
-{{end}}{{range .Unread}}<div class="need">{{template "icon-report"}}<a class="ref" href="#{{report .ID}}">{{report .ID}}</a> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form></div>
+{{end}}{{range .Unread}}<div class="need">{{template "icon-report"}}<a class="ref" href="#{{report .ID}}">{{report .ID}}</a> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form></div>
 {{end}}</section>{{end}}
 {{with .Card.Task.Goal}}<article class="comment" data-role="goal"><header><b>Goal</b></header><div class="body plain">{{.}}</div></article>{{end}}
-{{with .Card.Plan}}<article class="comment" data-role="plan"><header><b>Plan {{plan .Revision}}</b> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><pre class="body">{{.Body}}</pre></article>{{end}}
+{{with .Card.Plan}}<article class="comment" data-role="plan"><header><b>Plan {{plan .Revision}}</b> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><div class="body md">{{md .Body}}</div></article>{{end}}
 <h3>Attempts</h3>
 {{with .Attempts}}<ol class="checks">{{range .}}<li class="check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<span class="ref">{{attempt .Attempt.ID}}</span> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
 {{else}}<p class="quiet">No attempts yet.</p>
 {{end}}<h3>Reports</h3>
-{{range .Reports}}<article class="comment report" id="{{report .ID}}" data-status="{{.Status}}"><header><b>{{report .ID}}</b> <span class="meta">from {{attempt .AttemptID}}</span> <span class="state {{.Status}}">{{.Status}}</span> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time><span class="spacer"></span>{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>ack</button></form>{{end}}</header><div class="body md">{{md .Body}}</div></article>
+{{range .Reports}}<article class="comment report" id="{{report .ID}}" data-status="{{.Status}}"><header><b>{{report .ID}}</b> <span class="meta">from {{attempt .AttemptID}}</span> <span class="state {{.Status}}">{{.Status}}</span> <time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time><span class="spacer"></span>{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form>{{end}}</header><div class="body md">{{md .Body}}</div></article>
 {{else}}<p class="quiet">No reports yet.</p>
 {{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>
 {{end}}<h3>Events</h3>
