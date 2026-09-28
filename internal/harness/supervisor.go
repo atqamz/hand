@@ -233,7 +233,7 @@ func (m opencodeMessage) launches(marker string) bool {
 }
 
 func OpencodeSession(bin, dir string, since time.Time, marker string) (string, error) {
-	out, err := opencode(bin, dir, "session", "list", "--standalone", "--format", "json")
+	out, err := Opencode(bin, dir, "session", "list", "--standalone", "--format", "json")
 	if err != nil {
 		return "", err
 	}
@@ -248,7 +248,7 @@ func OpencodeSession(bin, dir string, since time.Time, marker string) (string, e
 		return int(a.Created - b.Created)
 	})
 	for _, s := range sessions {
-		out, err := opencode(bin, dir, "session", "export", "--standalone", s.ID)
+		out, err := Opencode(bin, dir, "session", "export", "--standalone", s.ID)
 		if err != nil {
 			return "", err
 		}
@@ -265,7 +265,7 @@ func OpencodeSession(bin, dir string, since time.Time, marker string) (string, e
 	return "", nil
 }
 
-func opencode(bin, dir string, args ...string) ([]byte, error) {
+func Opencode(bin, dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)

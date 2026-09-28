@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -28,22 +29,28 @@ var (
 )
 
 type Paths struct {
-	Claude   string
-	Codex    string
-	Opencode string
+	Claude       string
+	Codex        string
+	Opencode     string
+	OpencodeData string
 }
 
 type Reader struct {
-	Paths Paths
-	mu    sync.Mutex
-	logs  map[string]*session
+	Paths   Paths
+	mu      sync.Mutex
+	logs    map[string]*session
+	rollout map[string]string
 }
 
 type session struct {
-	offsets map[string]int64
-	entries []Entry
-	lines   int
-	known   int
+	offsets  map[string]int64
+	entries  []Entry
+	lines    int
+	known    int
+	turn     *Entry
+	shown    bool
+	exported time.Time
+	stamp    time.Time
 }
 
 const (
@@ -76,6 +83,10 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 	switch harness {
 	case "claude":
 		err = r.claude(s, id)
+	case "codex":
+		err = r.codex(s, id)
+	case "opencode":
+		err = r.opencode(ctx, s, id, dir)
 	default:
 		err = fmt.Errorf("transcript: harness %q has no reader", harness)
 	}

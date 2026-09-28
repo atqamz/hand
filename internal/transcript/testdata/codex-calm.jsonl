@@ -1,0 +1,18 @@
+{"timestamp":"2026-09-28T01:00:00.000Z","type":"session_meta","payload":{"id":"codex-1","cwd":"/fleets/demo","timestamp":"2026-09-28T01:00:00.000Z","instructions":"long"}}
+{"timestamp":"2026-09-28T01:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}
+{"timestamp":"2026-09-28T01:00:01.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>sandbox</permissions instructions>"}]}}
+{"timestamp":"2026-09-28T01:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /fleets/demo\n\n<INSTRUCTIONS>run hand orient</INSTRUCTIONS>"},{"type":"input_text","text":"<environment_context>\n  <cwd>/fleets/demo</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-09-28T01:00:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"You are supervisor s1 of the Hand fleet demo. Follow AGENTS.md: run `hand orient` now."}]}}
+{"timestamp":"2026-09-28T01:00:03.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}]}}
+{"timestamp":"2026-09-28T01:00:04.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Looking."}]}}
+{"timestamp":"2026-09-28T01:00:05.000Z","type":"response_item","payload":{"type":"custom_tool_call","name":"shell","input":"hand orient"}}
+{"timestamp":"2026-09-28T01:00:06.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","output":"home: /f"}}
+{"timestamp":"2026-09-28T01:00:07.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Two tasks:\n- t1"}]}}
+{"timestamp":"2026-09-28T01:00:08.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}"}}
+{"timestamp":"2026-09-28T01:00:09.000Z","type":"response_item","payload":{"type":"function_call_output","output":"ok"}}
+{"timestamp":"2026-09-28T01:00:10.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done."}]}}
+{"timestamp":"2026-09-28T01:00:11.000Z","type":"event_msg","payload":{"type":"task_complete"}}
+{"timestamp":"2026-09-28T01:00:12.000Z","type":"world_state","payload":{}}
+{"timestamp":"2026-09-28T01:00:13.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}}
+{"timestamp":"2026-09-28T01:00:14.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello."}]}}
+{"timestamp":"2026-09-28T01:00:15.000Z","type":"event_msg","payload":{"type":"task_complete"}}
