@@ -34,6 +34,7 @@ type fakeFleets struct {
 	openers map[string]chan struct{}
 	entered chan string
 	slow    chan struct{}
+	grace   time.Duration
 }
 
 func newFakeFleets() *fakeFleets {
@@ -52,7 +53,7 @@ func (f *fakeFleets) resolve(id string) (string, error) {
 
 func (f *fakeFleets) open(id, home string) (http.Handler, io.Closer, error) {
 	f.mu.Lock()
-	gate, entered := f.openers[id], f.entered
+	gate, entered := f.openers[home], f.entered
 	f.mu.Unlock()
 	if gate != nil {
 		entered <- id
@@ -63,8 +64,11 @@ func (f *fakeFleets) open(id, home string) (http.Handler, io.Closer, error) {
 	slow := f.slow
 	f.mu.Unlock()
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/slow" {
+		switch r.URL.Path {
+		case "/slow":
 			<-slow
+		case "/stream":
+			<-r.Context().Done()
 		}
 		_, _ = fmt.Fprintf(w, "%s %s %s", id, home, r.URL.Path)
 	})
@@ -83,7 +87,7 @@ func (f *fakeFleets) seen() (opened, closed []string) {
 }
 
 func (f *fakeFleets) host(loopback bool) *board.Host {
-	return board.NewHost(board.HostOptions{Loopback: loopback, Resolve: f.resolve, Open: f.open, List: func() ([]board.FleetLink, error) {
+	return board.NewHost(board.HostOptions{Loopback: loopback, Grace: f.grace, Resolve: f.resolve, Open: f.open, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: fleetA, Name: "work"}, {ID: fleetB, Name: "play"}}, nil
 	}})
 }
@@ -247,7 +251,7 @@ func eventually(t *testing.T, ok func() bool) {
 func TestHostOpensAFleetOutsideItsLock(t *testing.T) {
 	f := newFakeFleets()
 	gate := make(chan struct{})
-	f.openers, f.entered = map[string]chan struct{}{fleetA: gate}, make(chan string, 1)
+	f.openers, f.entered = map[string]chan struct{}{"/homes/a": gate}, make(chan string, 1)
 	h := f.host(true)
 	done := make(chan struct{})
 	go func() {
@@ -292,6 +296,52 @@ func TestAMoveWaitsForInFlightRequests(t *testing.T) {
 	close(f.slow)
 	if got := <-done; got != fleetA+" /homes/a /slow" {
 		t.Fatalf("the in-flight request = %q", got)
+	}
+	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
+}
+
+func TestAStaleOpenNeverReplacesANewerHome(t *testing.T) {
+	f := newFakeFleets()
+	gate := make(chan struct{})
+	f.openers, f.entered = map[string]chan struct{}{"/homes/a": gate}, make(chan string, 1)
+	h := f.host(true)
+	stale := make(chan string, 1)
+	go func() { stale <- fetch(h, "/"+fleetA+"/").Body.String() }()
+	<-f.entered
+	f.mu.Lock()
+	f.homes[fleetA] = "/homes/a2"
+	f.mu.Unlock()
+	if got := fetch(h, "/"+fleetA+"/").Body.String(); got != fleetA+" /homes/a2 /" {
+		t.Fatalf("the newer request = %q", got)
+	}
+	close(gate)
+	if got := <-stale; got != fleetA+" /homes/a2 /" {
+		t.Fatalf("the request that raced the move = %q", got)
+	}
+	if got := fetch(h, "/"+fleetA+"/").Body.String(); got != fleetA+" /homes/a2 /" {
+		t.Fatalf("after the race the host serves %q", got)
+	}
+	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
+}
+
+func TestAMoveEndsOpenStreams(t *testing.T) {
+	f := newFakeFleets()
+	f.grace = 50 * time.Millisecond
+	h := f.host(true)
+	done := make(chan struct{})
+	go func() {
+		fetch(h, "/"+fleetA+"/stream")
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	f.mu.Lock()
+	f.homes[fleetA] = "/homes/a2"
+	f.mu.Unlock()
+	fetch(h, "/"+fleetA+"/")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a stream on the old home outlived the grace period")
 	}
 	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
 }
