@@ -1,6 +1,5 @@
-{{define "region-status"}}{{with .Sup}}<div class="row"><b>{{$.Ref}}</b> {{.Harness}} {{.Model}} <span class="{{.Status}}">{{.Status}}</span>{{with .Reason}} <span class="muted">({{.}})</span>{{end}}{{with $.Agent}} · agent <span class="{{.}}">{{.}}</span>{{end}} · pending {{$.Pending}}</div>
-{{else}}<div class="row muted">No supervisor yet · pending {{.Pending}}</div>
-{{end}}{{with .Stale}}<div class="row warn">{{.}}</div>
+{{define "region-status"}}<div class="status-line"><span class="pill" data-state="{{.Pill}}">{{.PillLabel}}</span>{{with .Sup}} <span class="ref">{{$.Ref}}</span> <span class="who">{{.Harness}} {{.Model}}</span>{{with $.Agent}} <span class="meta">agent {{.}}</span>{{end}}{{with .Reason}} <span class="meta">{{.}}</span>{{end}}{{end}} <span class="meta">pending {{.Pending}}</span></div>
+{{with .Stale}}<div class="row warn">{{.}}</div>
 {{end}}{{if .Controls}}{{if and .Sup (eq .Sup.Status "running")}}<div class="row">{{if and .Agent (not .Blocked)}}<form class="inline" method="post" action="{{.Base}}/supervisor/interrupt" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Interrupt</button></form> {{end}}<form class="inline" method="post" action="{{.Base}}/supervisor/stop" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Stop</button></form></div>
 {{else if and .Sup .Sup.Live}}<div class="row muted">launching…</div>
 {{else}}<div class="row">{{if .Resumable}}<form class="inline" method="post" action="{{.Base}}/supervisor/resume" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Resume</button></form> {{end}}{{if .Sup}}<form class="inline" method="post" action="{{.Base}}/supervisor/start" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>New session</button></form>{{end}}{{if not .Pick}} <a href="{{.Base}}/?pick=1">other harness…</a>{{end}}</div>
@@ -13,9 +12,10 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 </form>
 {{end}}{{end}}{{end}}{{end}}
 
-{{define "region-timeline"}}{{range .Entries}}<div class="msg {{.Role}}{{if .Queued}} queued{{end}}"><div class="muted">{{.Role}} · {{.At}}</div><pre>{{.Text}}</pre></div>
-{{end}}{{with .Note}}<p class="muted">{{.}}</p>
-{{end}}{{if .Older}}<div class="row muted"><a href="{{.Base}}/supervisor/log?before={{.Older}}">older</a></div>
+{{define "region-timeline"}}{{range .Entries}}{{if eq .Role "hand"}}<div class="event">{{template "icon-event"}}<span class="event-text">{{.Text}}</span> <time datetime="{{.At}}">{{when .At}}</time></div>
+{{else}}<article class="comment" data-role="{{.Role}}"><header><b>{{.Role}}</b> <time datetime="{{.At}}">{{when .At}}</time>{{if .Queued}} <span class="label">Pending</span>{{end}}</header>{{if eq .Role "supervisor"}}<div class="body md">{{md .Text}}</div>{{else}}<div class="body plain">{{.Text}}</div>{{end}}</article>
+{{end}}{{end}}{{with .Note}}<p class="quiet">{{.}}</p>
+{{end}}{{if .Older}}<p class="older"><a href="{{.Base}}/supervisor/log?before={{.Older}}">Older messages</a></p>
 {{end}}{{end}}
 
 {{define "region-queue"}}<header class="queue-head"><h2>Needs you</h2> <span class="count" data-waiting="{{.Waiting}}">{{.Waiting}}</span></header>
@@ -34,5 +34,7 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 {{end}}{{if .More}}<p class="more">{{.More}} more waiting</p>
 {{end}}{{end}}
 
-{{define "region-tasks"}}{{range .Cards}}{{template "card" .}}{{else}}<p class="muted">No tasks yet. Capture one with <code>hand task add</code>.</p>{{end}}
-{{if gt .Hidden 0}}<p class="muted">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}{{end}}
+{{define "region-tasks"}}<header class="checks-head"><h2>Checks</h2></header>
+{{with .Checks}}<ol class="checks">{{range .}}<li class="check" data-state="{{.State}}">{{template "check-icon" .State}}<a class="ref" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> <span class="check-title">{{.Task.Title}}</span>{{with .Attempt}} <span class="meta">{{attempt .ID}} {{.Harness}} {{.Model}} {{.Status}}</span>{{end}}{{with .PR}} <a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</li>{{end}}</ol>
+{{else}}<p class="quiet">No tasks yet. Capture one with <code>hand task add</code>.</p>
+{{end}}{{if gt .Hidden 0}}<p class="more">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}{{end}}

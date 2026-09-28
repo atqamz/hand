@@ -258,13 +258,13 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		}
 		tasks = append(tasks, part...)
 	}
-	cards := make([]card, 0, len(tasks))
+	checks := make([]check, 0, len(tasks))
 	for _, t := range tasks {
-		c, err := b.card(ctx, t, 3)
+		c, err := b.check(ctx, t)
 		if err != nil {
 			return err
 		}
-		cards = append(cards, c)
+		checks = append(checks, c)
 	}
 	counts, err := b.st.CountTasks(ctx)
 	if err != nil {
@@ -274,7 +274,7 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 	if all {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
-	data["Cards"], data["All"], data["Hidden"] = cards, all, total-len(cards)
+	data["Checks"], data["All"], data["Hidden"] = checks, all, total-len(checks)
 	return nil
 }
 

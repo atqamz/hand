@@ -111,14 +111,14 @@ func TestBoardNeedsTheToken(t *testing.T) {
 	}
 }
 
-func TestIndexShowsOneCardPerOpenTask(t *testing.T) {
+func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 	st := open(t)
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
 	rec := request(h, "GET", "/", nil, true)
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Fix login", "users can log in again", "plan p1", "a1", "claude sonnet", "running",
+		"Fix login", "a1", "claude sonnet", "running",
 		"r1", "Cookie fixed", `href="https://github.com/atqamz/hand/pull/42"`,
 		"Keep the old cookie name?", `href="/decision/d1"`, "Write docs",
 		`action="/report/r1/ack"`, `name="csrf" value="` + token + `"`,

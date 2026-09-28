@@ -166,3 +166,56 @@ func when(stamp string) string {
 	}
 	return t.UTC().Format("Jan 2 15:04")
 }
+
+type check struct {
+	Task    state.Task
+	State   string
+	Attempt *state.Attempt
+	PR      string
+}
+
+func (b *Board) check(ctx context.Context, t state.Task) (check, error) {
+	c := check{Task: t, State: "idle"}
+	attempts, err := b.st.Attempts(ctx, t.ID, 1)
+	if err != nil {
+		return c, err
+	}
+	reports, err := b.st.Reports(ctx, state.ReportFilter{TaskID: t.ID}, 20)
+	if err != nil {
+		return c, err
+	}
+	for i := len(reports) - 1; i >= 0 && c.PR == ""; i-- {
+		if links := PRLinks(reports[i].Body); len(links) > 0 {
+			c.PR = links[len(links)-1]
+		}
+	}
+	asked, err := b.st.OpenDecisionCount(ctx, t.ID)
+	if err != nil {
+		return c, err
+	}
+	unread, err := b.st.Reports(ctx, state.ReportFilter{TaskID: t.ID, Unacked: true}, 1)
+	if err != nil {
+		return c, err
+	}
+	failed, done := false, t.Status == state.StatusDone
+	if len(attempts) > 0 {
+		c.Attempt = &attempts[0]
+		if t.Status == state.StatusActive {
+			if failed, err = b.failing(ctx, *c.Attempt); err != nil {
+				return c, err
+			}
+		}
+		done = done || slices.ContainsFunc(reports, func(r state.Report) bool { return r.AttemptID == c.Attempt.ID && r.Status == state.ReportDone })
+	}
+	switch {
+	case failed:
+		c.State = "failing"
+	case asked > 0 || len(unread) > 0:
+		c.State = "waiting"
+	case c.Attempt != nil && c.Attempt.Live():
+		c.State = "running"
+	case done:
+		c.State = "passing"
+	}
+	return c, nil
+}

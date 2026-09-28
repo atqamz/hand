@@ -76,14 +76,32 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	}
 	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
+	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)
 		}
+		data["Pill"], data["PillLabel"] = pill(sup, data)
 	}
 	return nil
+}
+
+func pill(sup state.Supervisor, data map[string]any) (string, string) {
+	_, stale := data["Stale"]
+	blocked, _ := data["Blocked"].(bool)
+	switch {
+	case sup.Status == state.AttemptRunning && stale:
+		return "failing", "unreachable"
+	case blocked:
+		return "waiting", "blocked"
+	case sup.Live():
+		return "running", sup.Status
+	case sup.Status == state.AttemptStopped:
+		return "neutral", sup.Status
+	}
+	return "failing", sup.Status
 }
 
 func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]any) {
@@ -131,7 +149,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		return err
 	}
 	for _, in := range pending {
-		entries = append(entries, transcript.Entry{Role: "operator", Text: "queued: " + in.Body, At: in.CreatedAt, Queued: true})
+		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
 	}
 	end := len(entries)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {

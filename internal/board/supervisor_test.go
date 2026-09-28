@@ -331,9 +331,9 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "queued: first queued", "queued: second queued", `class="timeline"`)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", "Pending", `class="timeline"`)
 	lacks(t, "log", body, "#end")
-	if !(strings.Index(body, "queued: second queued") < strings.Index(body, "queued: first queued") && strings.Index(body, "queued: first queued") < strings.Index(body, "Hi, operator.")) {
+	if !(strings.Index(body, "second queued") < strings.Index(body, "first queued") && strings.Index(body, "first queued") < strings.Index(body, "Hi, operator.")) {
 		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
 	}
 	fresh := newFixture(t)
