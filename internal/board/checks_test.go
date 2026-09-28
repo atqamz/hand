@@ -126,6 +126,6 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 		`<article class="comment" data-role="supervisor">`, "<strong>shipped</strong>",
 		`<article class="comment" data-role="operator">`, "please **look**",
 		`<div class="event">`, "wake: r3 from a2 done",
-		"Pending", "later please")
+		"Queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
 }

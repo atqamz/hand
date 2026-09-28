@@ -13,7 +13,7 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 {{end}}{{end}}{{end}}{{end}}
 
 {{define "region-timeline"}}{{range .Entries}}{{if eq .Role "hand"}}<div class="event">{{template "icon-event"}}<span class="event-text">{{.Text}}</span> <time datetime="{{.At}}">{{when .At}}</time></div>
-{{else}}<article class="comment" data-role="{{.Role}}"><header><b>{{.Role}}</b> <time datetime="{{.At}}">{{when .At}}</time>{{if .Queued}} <span class="label">Pending</span>{{end}}</header>{{if eq .Role "supervisor"}}<div class="body md">{{md .Text}}</div>{{else}}<div class="body plain">{{.Text}}</div>{{end}}</article>
+{{else}}<article class="comment" data-role="{{.Role}}"><header><b>{{.Role}}</b> <time datetime="{{.At}}">{{when .At}}</time>{{if .Queued}} <span class="label">Queued</span>{{end}}</header>{{if eq .Role "supervisor"}}<div class="body md">{{md .Text}}</div>{{else}}<div class="body plain">{{.Text}}</div>{{end}}</article>
 {{end}}{{end}}{{with .Note}}<p class="quiet">{{.}}</p>
 {{end}}{{if .Older}}<p class="older"><a href="{{.Base}}/supervisor/log?before={{.Older}}">Older messages</a></p>
 {{end}}{{end}}
