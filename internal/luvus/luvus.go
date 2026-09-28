@@ -228,6 +228,18 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 	_ = systemctl("reset-failed", unit+".service")
 	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
 		"-p", "Type=forking", "-p", "Restart=on-failure", "-p", "RestartSec=5"}
+	manager, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show-environment").CombinedOutput()
+	switch {
+	case err != nil && bytes.Contains(manager, []byte("Failed to connect to")):
+		return errNoManager
+	case err != nil:
+		return fmt.Errorf("systemctl --user show-environment: %w: %s", err, bytes.TrimSpace(manager))
+	}
+	for _, line := range strings.Split(string(manager), "\n") {
+		if name, _, ok := strings.Cut(line, "="); ok && scrubbed(name) {
+			args = append(args, "-p", "UnsetEnvironment="+name)
+		}
+	}
 	for _, kv := range env {
 		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(systemdOwned, name) {
 			args = append(args, "-E", name)
@@ -248,12 +260,15 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 func Scrub(environ []string) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
-		name, _, _ := strings.Cut(kv, "=")
-		agent := name == "CLAUDECODE" || name == "HAND_HOME" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
-		pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
-		if !agent && !pane {
+		if name, _, _ := strings.Cut(kv, "="); !scrubbed(name) {
 			out = append(out, kv)
 		}
 	}
 	return out
+}
+
+func scrubbed(name string) bool {
+	agent := name == "CLAUDECODE" || name == "HAND_HOME" || strings.HasPrefix(name, "CLAUDE_CODE_") || strings.HasPrefix(name, "CODEX_") && name != "CODEX_HOME"
+	pane := strings.HasPrefix(name, "LUVUS_") && name != "LUVUS_HOME"
+	return agent || pane
 }

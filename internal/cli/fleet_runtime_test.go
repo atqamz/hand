@@ -105,7 +105,7 @@ func TestLuvusStartsInTheFleetsOwnUserUnit(t *testing.T) {
 	calls := filepath.Join(t.TempDir(), "calls")
 	for name, script := range map[string]string{
 		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\necho 'Failed to start transient service unit' >&2\nexit 1\n",
-		"systemctl":   "#!/bin/sh\nexit 1\n",
+		"systemctl":   "#!/bin/sh\nexit 0\n",
 		"luvus":       "#!/bin/sh\necho \"LUVUS-SPAWNED-DIRECTLY $*\" >> " + calls + "\nexit 1\n",
 	} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
