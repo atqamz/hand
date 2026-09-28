@@ -39,28 +39,37 @@ func cmdUnit(r *runner, args []string) error {
 	case *addr != set.Lookup("addr").DefValue:
 		return usageError{"unit: --addr is only for the board"}
 	}
-	st, err := r.store()
-	if err != nil {
-		return err
-	}
-	if err := st.Close(); err != nil {
-		return err
+	vals := []string{"", "", command}
+	if pos[0] == "watch" {
+		st, err := r.store()
+		if err != nil {
+			return err
+		}
+		if err := st.Close(); err != nil {
+			return err
+		}
+		vals[0], vals[1] = r.fleet.Name, r.home
 	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	vals := []string{r.fleet.Name, r.home, exe, command}
+	vals = append(vals, exe)
 	for i, v := range vals {
 		if vals[i], err = unitValue(v); err != nil {
 			return err
 		}
 	}
-	name, home, exe, command := vals[0], vals[1], vals[2], vals[3]
+	name, home, command, exe := vals[0], vals[1], vals[2], vals[3]
+	service := ""
+	if home != "" {
+		description += " for " + name + " (" + home + ")"
+		service = `Environment="HAND_HOME=` + home + "\"\n"
+	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
-		"Description="+description+" for "+name+" ("+home+")\n\n"+
+		"Description="+description+"\n\n"+
 		"[Service]\n"+
-		`Environment="HAND_HOME=`+home+"\"\n"+
+		service+
 		`ExecStart="`+exe+`" `+command+"\n"+
 		"Restart=on-failure\n"+
 		"RestartSec=5\n\n"+

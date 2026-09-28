@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,12 +37,7 @@ func cmdBoard(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	st, err := r.store()
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	token, err := boardToken(r.home)
+	root, err := fleet.Root(r.env.Getenv)
 	if err != nil {
 		return err
 	}
@@ -50,53 +47,200 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	moved := make(chan error, 1)
-	gone := func(err error) {
-		select {
-		case moved <- err:
-		default:
-		}
-		stop()
-	}
 	loopback := false
-	if host, _, err := net.SplitHostPort(ln.Addr().String()); err == nil {
+	local := ln.Addr().String()
+	if host, port, err := net.SplitHostPort(local); err == nil {
 		ip := net.ParseIP(host)
 		loopback = ip != nil && ip.IsLoopback()
+		if ip != nil && ip.IsUnspecified() {
+			local = net.JoinHostPort("127.0.0.1", port)
+		}
 	}
-	opts := board.Options{
-		Controls:   loopback,
-		Control:    supervisorControl(r.env, r.home),
-		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(r.fleet.ID))},
-		Transcript: &transcript.Reader{Paths: r.transcriptPaths()},
-		Home:       r.home,
-	}
-	srv := &http.Server{Handler: r.whileHome(board.New(st, token, opts), gone), ReadHeaderTimeout: 10 * time.Second}
+	transcripts := &transcript.Reader{Paths: r.transcriptPaths()}
+	host := board.NewHost(board.HostOptions{
+		Loopback: loopback,
+		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
+		Open: func(id, home string) (http.Handler, io.Closer, error) {
+			return r.openBoard(id, home, loopback, transcripts)
+		},
+		List: func() ([]board.FleetLink, error) { return boardFleets(root) },
+	})
+	defer host.Close()
+	srv := &http.Server{Handler: host, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()
+	forget, err := recordAddr(root, local)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	defer forget()
 	var d toon.Doc
-	d.Field("board", "http://"+ln.Addr().String()+"/?token="+token)
-	control := "Chat with the supervisor and control it from this page; reach it from a phone through ssh -L or tailscale serve"
+	d.Field("board", "http://"+local+"/")
+	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"
 	if !loopback {
-		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take the token; prefer a loopback board behind ssh -L or tailscale serve")
+		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L or tailscale serve")
 		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
-	d.Help("Keep the link private: the token is the only thing guarding this board", control)
+	d.Help("Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control)
 	if err := r.print(&d); err != nil {
 		return err
 	}
 	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	select {
-	case err := <-moved:
-		return fmt.Errorf("%w; restart hand board from the fleet's new place", err)
-	default:
-		return nil
+	return nil
+}
+
+func boardHome(root, id string) (string, error) {
+	home, err := fleet.Home(root, id)
+	if errors.Is(err, state.ErrInvalid) {
+		return "", fmt.Errorf("%w: %v", state.ErrNotFound, err)
 	}
+	if err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: fleet %s has no hand.db at its registered home", state.ErrNotFound, id)
+	}
+	return home, nil
+}
+
+func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcript.Reader) (http.Handler, io.Closer, error) {
+	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := st.Fleet(r.ctx())
+	if err == nil && f.ID != id {
+		err = fmt.Errorf("%w: %s holds fleet %s, not %s", state.ErrNotFound, home, f.ID, id)
+	}
+	fb := &fleetBoard{home: home, st: st, opts: board.Options{
+		Controls:   loopback,
+		Control:    supervisorControl(r.env, home),
+		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(id))},
+		Transcript: transcripts,
+		Home:       home,
+		Base:       "/" + id,
+	}}
+	if err == nil {
+		_, err = fb.current()
+	}
+	if err != nil {
+		_ = st.Close()
+		return nil, nil, err
+	}
+	return fb, st, nil
+}
+
+type fleetBoard struct {
+	home  string
+	st    *state.Store
+	opts  board.Options
+	mu    sync.Mutex
+	token os.FileInfo
+	h     http.Handler
+}
+
+func (f *fleetBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h, err := f.current()
+	if err != nil {
+		http.Error(w, board.Scrub(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	h.ServeHTTP(w, r)
+}
+
+func (f *fleetBoard) current() (http.Handler, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	path := filepath.Join(f.home, "board.token")
+	if info, err := os.Stat(path); err == nil && f.h != nil && os.SameFile(info, f.token) && info.ModTime().Equal(f.token.ModTime()) {
+		return f.h, nil
+	}
+	for {
+		before, _ := os.Stat(path)
+		token, err := boardToken(f.home)
+		if err != nil {
+			return nil, err
+		}
+		after, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if before != nil && os.SameFile(before, after) && before.ModTime().Equal(after.ModTime()) {
+			f.h, f.token = board.New(f.st, token, f.opts), after
+			return f.h, nil
+		}
+	}
+}
+
+func boardFleets(root string) ([]board.FleetLink, error) {
+	entries, err := fleet.List(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []board.FleetLink
+	for _, e := range entries {
+		if e.State == "ok" {
+			out = append(out, board.FleetLink{ID: e.ID, Name: e.Name})
+		}
+	}
+	return out, nil
+}
+
+func recordAddr(root, addr string) (func(), error) {
+	path := filepath.Join(root, "board.addr")
+	unlock, err := lockPath(path + ".lock")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if err := writeFile(root, path, addr+"\n"); err != nil {
+		return nil, err
+	}
+	return func() {
+		unlock, err := lockPath(path + ".lock")
+		if err != nil {
+			return
+		}
+		defer unlock()
+		if b, err := os.ReadFile(path); err == nil && string(b) == addr+"\n" {
+			_ = os.Remove(path)
+		}
+	}, nil
+}
+
+func lockPath(path string) (func(), error) {
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return func() { _ = lock.Close() }, nil
+}
+
+func writeFile(dir, path, body string) error {
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, werr := tmp.WriteString(body)
+	if cerr := tmp.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return werr
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 func (r *runner) transcriptPaths() transcript.Paths {
@@ -113,27 +257,13 @@ func (r *runner) transcriptPaths() transcript.Paths {
 	return transcript.Paths{Claude: claude, Codex: harness.CodexHome(getenv), Opencode: opencode, OpencodeData: filepath.Join(data, "opencode")}
 }
 
-func (r *runner) whileHome(h http.Handler, gone func(error)) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if err := r.stillHome(); err != nil {
-			http.Error(w, "this fleet moved; restart hand board from its new place", http.StatusServiceUnavailable)
-			gone(err)
-			return
-		}
-		h.ServeHTTP(w, req)
-	})
-}
-
 func boardToken(home string) (string, error) {
 	path := filepath.Join(home, "board.token")
-	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	unlock, err := lockPath(path + ".lock")
 	if err != nil {
 		return "", err
 	}
-	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return "", err
-	}
+	defer unlock()
 	if token, err := readBoardToken(path); !errors.Is(err, fs.ErrNotExist) {
 		return token, err
 	}
@@ -142,19 +272,7 @@ func boardToken(home string) (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
-	tmp, err := os.CreateTemp(home, ".board.token-")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmp.Name())
-	_, werr := tmp.WriteString(token + "\n")
-	if cerr := tmp.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		return "", werr
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
+	if err := writeFile(home, path, token+"\n"); err != nil {
 		return "", err
 	}
 	return token, nil

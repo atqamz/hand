@@ -2,13 +2,16 @@ package cli_test
 
 import (
 	"context"
-	"net"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -28,23 +31,78 @@ func runBoard(t *testing.T, h *harness, addr ...string) string {
 	return out
 }
 
-func TestBoardCommandPrintsAStableLinkAndStops(t *testing.T) {
+func addrFile(h *harness) string { return filepath.Join(h.vars["SECONDHAND_HOME"], "board.addr") }
+
+func startBoard(t *testing.T, h *harness, host string) (string, func() string) {
+	t.Helper()
+	_ = os.Remove(addrFile(h))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan string, 1)
+	go func() {
+		out, errOut, _ := h.runCtx(ctx, "board", "--addr", host+":0")
+		done <- out + errOut
+	}()
+	var addr string
+	eventually(t, func() bool {
+		b, err := os.ReadFile(addrFile(h))
+		addr = strings.TrimSpace(string(b))
+		return err == nil && addr != ""
+	})
+	stop := sync.OnceValue(func() string { cancel(); return <-done })
+	t.Cleanup(func() { stop() })
+	return "http://" + addr, stop
+}
+
+func fleetPage(t *testing.T, base string, h *harness) (string, string) {
+	t.Helper()
+	id := field(h.ok("init"), "id")
+	res, err := http.Get(base + "/" + id + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	b, err := os.ReadFile(filepath.Join(h.home, "board.token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base + "/" + id, strings.TrimSpace(string(b))
+}
+
+func login(t *testing.T, fleetURL, token string) (int, string) {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := (&http.Client{Jar: jar}).Get(fleetURL + "/?token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.StatusCode, string(body)
+}
+
+func TestBoardPrintsTheHostAndKeepsAStableToken(t *testing.T) {
 	h := initWithProject(t)
-	first := runBoard(t, h)
-	if !strings.Contains(first, `board: "http://127.0.0.1:`) || !strings.Contains(first, "/?token=") {
-		t.Fatalf("board out = %q", first)
+	out := runBoard(t, h)
+	if !regexp.MustCompile(`board: "http://127\.0\.0\.1:[0-9]+/"`).MatchString(out) || strings.Contains(out, "token=") || !strings.Contains(out, "hand open") {
+		t.Fatalf("board out = %q", out)
 	}
+	base, stop := startBoard(t, h, "127.0.0.1")
+	fleetURL, token := fleetPage(t, base, h)
 	info, err := os.Stat(filepath.Join(h.home, "board.token"))
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("token file = %v, %v", info, err)
+	if err != nil || info.Mode().Perm() != 0o600 || len(token) != 48 {
+		t.Fatalf("token file = %v, %v, %d chars", info, err, len(token))
 	}
-	tok := func(out string) string {
-		_, after, _ := strings.Cut(out, "?token=")
-		v, _, _ := strings.Cut(after, `"`)
-		return v
-	}
-	if a, b := tok(first), tok(runBoard(t, h)); len(a) != 48 || a != b {
-		t.Fatalf("tokens %q and %q, want one stable 48-char token", a, b)
+	stop()
+	base, _ = startBoard(t, h, "127.0.0.1")
+	again, _ := fleetPage(t, base, h)
+	if code, _ := login(t, again, token); code != http.StatusOK {
+		t.Fatalf("the token changed across boards: %s login = %d", fleetURL, code)
 	}
 }
 
@@ -61,19 +119,31 @@ func TestBoardFixesTokenPermissionsAndRefusesAMalformedToken(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Repeat("a", 48)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if out := runBoard(t, h); !strings.Contains(out, "?token="+strings.Repeat("a", 48)) {
-		t.Fatalf("existing token not reused: %q", out)
+	base, stop := startBoard(t, h, "127.0.0.1")
+	fleetURL, _ := fleetPage(t, base, h)
+	if code, _ := login(t, fleetURL, strings.Repeat("a", 48)); code != http.StatusOK {
+		t.Fatalf("existing token not reused: login = %d", code)
 	}
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("token mode = %v, want 0600", info.Mode().Perm())
 	}
+	stop()
+	id := fleetURL[strings.LastIndex(fleetURL, "/"):]
 	for _, bad := range []string{"short", strings.Repeat("#", 48)} {
 		if err := os.WriteFile(path, []byte(bad+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, errOut, code := h.run("board", "--addr", "127.0.0.1:0"); code != 2 || !strings.Contains(errOut, "not a board token") {
-			t.Fatalf("malformed token %q: code=%d stderr=%q", bad, code, errOut)
+		base, stop := startBoard(t, h, "127.0.0.1")
+		res, err := http.Get(base + id + "/")
+		if err != nil {
+			t.Fatal(err)
 		}
+		b, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if res.StatusCode != http.StatusInternalServerError || !strings.Contains(string(b), "not a board token") || strings.Contains(string(b), h.home) {
+			t.Fatalf("malformed token %q: %d %s", bad, res.StatusCode, b)
+		}
+		stop()
 	}
 }
 
@@ -87,69 +157,107 @@ func TestBoardWarnsOnANetworkAddress(t *testing.T) {
 	}
 }
 
-func TestConcurrentBoardsShareOneToken(t *testing.T) {
-	h := initWithProject(t)
-	type result struct {
-		out  string
-		code int
+func TestOneBoardServesTwoFleets(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	urlB, tokenB := fleetPage(t, base, b)
+	if tokenA == tokenB {
+		t.Fatal("two fleets share one token")
 	}
-	outs := make(chan result, 4)
-	for range 4 {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
-			defer cancel()
-			out, _, code := h.runCtx(ctx, "board", "--addr", "127.0.0.1:0")
-			outs <- result{out, code}
-		}()
+	if code, body := login(t, urlA, tokenA); code != http.StatusOK || !strings.Contains(body, "<h1>alpha</h1>") {
+		t.Fatalf("alpha = %d\n%s", code, body)
 	}
-	first := ""
-	for range 4 {
-		r := <-outs
-		if r.code != 0 {
-			t.Fatalf("a concurrent board exited %d", r.code)
-		}
-		_, after, _ := strings.Cut(r.out, "?token=")
-		tok, _, _ := strings.Cut(after, `"`)
-		if first == "" {
-			first = tok
-		}
-		if tok != first || len(tok) != 48 {
-			t.Fatalf("concurrent boards printed %q and %q", first, tok)
-		}
+	if code, body := login(t, urlB, tokenB); code != http.StatusOK || !strings.Contains(body, "<h1>beta</h1>") {
+		t.Fatalf("beta = %d\n%s", code, body)
 	}
-}
-
-func serveBoard(t *testing.T, h *harness, host string) (string, string, func() string) {
-	t.Helper()
-	ln, err := net.Listen("tcp", host+":0")
+	if code, _ := login(t, urlB, tokenA); code != http.StatusForbidden {
+		t.Fatalf("beta with alpha's token = %d", code)
+	}
+	res, err := http.Get(base + "/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan string, 1)
-	go func() {
-		out, _, _ := h.runCtx(ctx, "board", "--addr", addr)
-		done <- out
-	}()
-	_, port, _ := net.SplitHostPort(addr)
-	base := "http://127.0.0.1:" + port
-	var token string
-	eventually(t, func() bool {
-		b, err := os.ReadFile(filepath.Join(h.home, "board.token"))
-		if err != nil {
-			return false
-		}
-		token = strings.TrimSpace(string(b))
-		res, err := http.Get(base + "/?token=" + token)
-		if err != nil {
-			return false
-		}
-		_ = res.Body.Close()
-		return true
-	})
-	return base, token, func() string { cancel(); return <-done }
+	list, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if !strings.Contains(string(list), "alpha") || !strings.Contains(string(list), "beta") {
+		t.Fatalf("fleet list:\n%s", list)
+	}
+}
+
+func TestAMovedFleetIsFollowed(t *testing.T) {
+	h := initWithProject(t)
+	base, _ := startBoard(t, h, "127.0.0.1")
+	fleetURL, token := fleetPage(t, base, h)
+	if code, _ := login(t, fleetURL, token); code != http.StatusOK {
+		t.Fatalf("before the move = %d", code)
+	}
+	moved := filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(h.home, moved); err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Get(fleetURL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("a fleet whose home is gone = %d, want 404", res.StatusCode)
+	}
+	h.home = moved
+	h.ok("init")
+	h.ok("task", "add", "hand", "Filed after the move")
+	fresh := strings.Repeat("c", 48)
+	if err := os.WriteFile(filepath.Join(moved, "board.token"), []byte(fresh+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := login(t, fleetURL, token); code != http.StatusForbidden {
+		t.Fatalf("the old home's token still works: %d", code)
+	}
+	if code, body := login(t, fleetURL, fresh); code != http.StatusOK || !strings.Contains(body, "Filed after the move") {
+		t.Fatalf("after the move = %d\n%s", code, body)
+	}
+}
+
+func TestBoardAddrIsWrittenAndRemoved(t *testing.T) {
+	h := initWithProject(t)
+	base, stop := startBoard(t, h, "127.0.0.1")
+	b, err := os.ReadFile(addrFile(h))
+	if err != nil || !regexp.MustCompile(`^127\.0\.0\.1:[0-9]+\n$`).Match(b) || "http://"+strings.TrimSpace(string(b)) != base {
+		t.Fatalf("board.addr = %q, %v", b, err)
+	}
+	res, err := http.Get(base + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("the recorded address answers %d", res.StatusCode)
+	}
+	stop()
+	if _, err := os.Stat(addrFile(h)); !os.IsNotExist(err) {
+		t.Fatalf("board.addr after stop: %v", err)
+	}
+	_, stop = startBoard(t, h, "127.0.0.1")
+	if err := os.WriteFile(addrFile(h), []byte("127.0.0.1:1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	if b, err := os.ReadFile(addrFile(h)); err != nil || string(b) != "127.0.0.1:1\n" {
+		t.Fatalf("another board's address was removed: %q, %v", b, err)
+	}
+}
+
+func TestANetworkBoardRecordsALoopbackAddress(t *testing.T) {
+	h := initWithProject(t)
+	base, _ := startBoard(t, h, "0.0.0.0")
+	if !strings.HasPrefix(base, "http://127.0.0.1:") {
+		t.Fatalf("board.addr for 0.0.0.0 = %q", base)
+	}
 }
 
 func postBoard(t *testing.T, base, token, path string, form url.Values) int {
@@ -172,8 +280,9 @@ func postBoard(t *testing.T, base, token, path string, form url.Values) int {
 func TestALoopbackBoardServesControls(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
-	base, token, stop := serveBoard(t, h, "127.0.0.1")
-	if code := postBoard(t, base, token, "/supervisor/send", url.Values{"text": {"hello from the board"}}); code != http.StatusSeeOther {
+	base, stop := startBoard(t, h, "127.0.0.1")
+	fleetURL, token := fleetPage(t, base, h)
+	if code := postBoard(t, fleetURL, token, "/supervisor/send", url.Values{"text": {"hello from the board"}}); code != http.StatusSeeOther {
 		t.Fatalf("send = %d", code)
 	}
 	if got := rt.prompts(); !slices.Equal(got, []string{"hello from the board"}) {
@@ -187,8 +296,9 @@ func TestALoopbackBoardServesControls(t *testing.T) {
 func TestANetworkBoardIsReadOnly(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
-	base, token, stop := serveBoard(t, h, "0.0.0.0")
-	if code := postBoard(t, base, token, "/supervisor/send", url.Values{"text": {"hello"}}); code != http.StatusForbidden {
+	base, stop := startBoard(t, h, "0.0.0.0")
+	fleetURL, token := fleetPage(t, base, h)
+	if code := postBoard(t, fleetURL, token, "/supervisor/send", url.Values{"text": {"hello"}}); code != http.StatusForbidden {
 		t.Fatalf("send on a network board = %d", code)
 	}
 	if got := rt.prompts(); len(got) != 0 {
@@ -196,5 +306,39 @@ func TestANetworkBoardIsReadOnly(t *testing.T) {
 	}
 	if out := stop(); !strings.Contains(out, "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work") {
 		t.Fatalf("board out = %q", out)
+	}
+}
+
+func TestARotatedTokenWorksWithoutARestart(t *testing.T) {
+	h := initWithProject(t)
+	base, _ := startBoard(t, h, "127.0.0.1")
+	fleetURL, old := fleetPage(t, base, h)
+	if code, _ := login(t, fleetURL, old); code != http.StatusOK {
+		t.Fatalf("first token = %d", code)
+	}
+	path := filepath.Join(h.home, "board.token")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	fresh := strings.Repeat("d", 48)
+	if err := os.WriteFile(path, []byte(fresh+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := login(t, fleetURL, fresh); code != http.StatusOK {
+		t.Fatalf("rotated token = %d", code)
+	}
+	if code, _ := login(t, fleetURL, old); code != http.StatusForbidden {
+		t.Fatalf("the old token still works: %d", code)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	remade, _ := fleetPage(t, base, h)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the board did not remake a deleted token: %v", err)
+	}
+	if code, _ := login(t, remade, strings.TrimSpace(string(b))); code != http.StatusOK {
+		t.Fatalf("remade token = %d", code)
 	}
 }

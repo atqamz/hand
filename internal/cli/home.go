@@ -87,6 +87,9 @@ func findUp(dir, marker string) (string, error) {
 }
 
 func (r *runner) needHome() error {
+	if r.homeErr != nil {
+		return r.homeErr
+	}
 	if r.home == "" {
 		if wd, err := r.getwd(); err == nil {
 			if old, err := findUp(wd, filepath.Join("state", "hand.db")); err == nil && old != "" {
@@ -275,7 +278,7 @@ func cmdInit(r *runner, args []string) error {
 	help := []string{"Write your durable preferences in " + filepath.Join(r.home, "memory", memory.OperatorFile),
 		"Register a repository: `hand project add NAME ABSOLUTE_REPO_PATH`"}
 	if movedFrom != "" {
-		help = append(help, "This home moved; regenerate its systemd units with `hand unit watch` and `hand unit board`")
+		help = append(help, "This home moved; regenerate its watcher unit with `hand unit watch`; the board follows the fleet by itself")
 	}
 	if wiring := legacyWiring(r.home); len(wiring) > 0 {
 		help = append(help, "Remove the Hand 0.7 wiring before opening a supervisor here, or it keeps waking the supervisor: "+strings.Join(wiring, ", "))

@@ -1,6 +1,7 @@
-{{define "log.html"}}{{template "head" .}}<main class="log">
-{{range .Entries}}<div class="msg {{.Role}}{{if .Queued}} queued{{end}}"><div class="muted">{{.Role}} · {{.At}}</div><pre>{{.Text}}</pre></div>
-{{end}}{{with .Note}}<p class="muted">{{.}}</p>
-{{end}}<div class="row muted">{{if .Live}}<a href="/supervisor/log?live=0">pause</a>{{else}}<a href="/supervisor/log">live</a>{{end}}{{if .Older}} · <a href="/supervisor/log?before={{.Older}}">older</a>{{end}}</div>
+{{define "log.html"}}{{template "head" .}}<header>
+<h1><a href="{{.Base}}/">{{.Fleet}}</a> / conversation</h1>
+</header>
+<main>
+<section class="timeline">{{template "region-timeline" .}}</section>
 </main>
 {{template "foot"}}{{end}}

@@ -1,0 +1,30 @@
+{{define "region-status"}}{{with .Sup}}<div class="row"><b>{{$.Ref}}</b> {{.Harness}} {{.Model}} <span class="{{.Status}}">{{.Status}}</span>{{with .Reason}} <span class="muted">({{.}})</span>{{end}}{{with $.Agent}} · agent <span class="{{.}}">{{.}}</span>{{end}} · pending {{$.Pending}}</div>
+{{else}}<div class="row muted">No supervisor yet · pending {{.Pending}}</div>
+{{end}}{{with .Stale}}<div class="row warn">{{.}}</div>
+{{end}}{{if .Blocked}}<div class="row warn">{{.Hint}}</div>
+<pre>{{.Screen}}</pre>
+{{if .Controls}}<div class="row">{{range .Keys}}<form class="inline" method="post" action="{{$.Base}}/supervisor/keys" data-fetch><input type="hidden" name="csrf" value="{{$.Token}}"><input type="hidden" name="revision" value="{{$.Revision}}"><button name="key" value="{{.Name}}">{{.Label}}</button></form> {{end}}</div>
+{{end}}{{end}}{{if .Controls}}{{if and .Sup (eq .Sup.Status "running")}}<div class="row">{{if and .Agent (not .Blocked)}}<form class="inline" method="post" action="{{.Base}}/supervisor/interrupt" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Interrupt</button></form> {{end}}<form class="inline" method="post" action="{{.Base}}/supervisor/stop" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Stop</button></form></div>
+{{else if and .Sup .Sup.Live}}<div class="row muted">launching…</div>
+{{else}}<div class="row">{{if .Resumable}}<form class="inline" method="post" action="{{.Base}}/supervisor/resume" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>Resume</button></form> {{end}}{{if .Sup}}<form class="inline" method="post" action="{{.Base}}/supervisor/start" data-fetch><input type="hidden" name="csrf" value="{{.Token}}"><button>New session</button></form>{{end}}{{if not .Pick}} <a href="{{.Base}}/?pick=1">other harness…</a>{{end}}</div>
+{{if .Pick}}<form method="post" action="{{.Base}}/supervisor/start">
+<input type="hidden" name="csrf" value="{{.Token}}">
+<div class="row"><select name="profile"><option value="">profile…</option>{{range .Profiles}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+or <select name="harness"><option value="">harness…</option>{{range .Harnesses}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+<input name="model" placeholder="model" size="10"> <input name="effort" placeholder="effort" size="6">
+<button>Start</button></div>
+</form>
+{{end}}{{end}}{{end}}{{end}}
+
+{{define "region-timeline"}}{{range .Entries}}<div class="msg {{.Role}}{{if .Queued}} queued{{end}}"><div class="muted">{{.Role}} · {{.At}}</div><pre>{{.Text}}</pre></div>
+{{end}}{{with .Note}}<p class="muted">{{.}}</p>
+{{end}}{{if .Older}}<div class="row muted"><a href="{{.Base}}/supervisor/log?before={{.Older}}">older</a></div>
+{{end}}{{end}}
+
+{{define "region-queue"}}<div class="row muted" data-waiting="{{.Waiting}}">active {{.Active}} · inbox {{.Inbox}} · open decisions {{.DecisionCount}} · unread reports {{.UnreadCount}}</div>
+{{range .OpenDecisions}}<div class="row"><span class="tag open">{{decision .ID}}</span> {{.Question}} <a href="{{$.Base}}/decision/{{decision .ID}}">answer</a></div>
+{{end}}{{range .UnreadReports}}<div class="row"><span class="tag">{{report .ID}}</span> {{attempt .AttemptID}} <span class="{{.Status}}">{{.Status}}</span>: {{.Summary}} <a href="{{$.Base}}/task/{{task .TaskID}}#{{report .ID}}">read</a></div>
+{{end}}{{end}}
+
+{{define "region-tasks"}}{{range .Cards}}{{template "card" .}}{{else}}<p class="muted">No tasks yet. Capture one with <code>hand task add</code>.</p>{{end}}
+{{if gt .Hidden 0}}<p class="muted">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}{{end}}

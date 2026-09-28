@@ -1,11 +1,11 @@
 {{define "decision.html"}}{{template "head" .}}<header>
-<h1><a href="/">{{.Fleet}}</a> / {{decision .Decision.ID}}</h1>
+<h1><a href="{{.Base}}/">{{.Fleet}}</a> / {{decision .Decision.ID}}</h1>
 </header>
 <main>
 <section class="card">
 <h2>{{.Decision.Question}}</h2>
-<div class="row muted">for <a href="/task/{{task .Task.ID}}">{{task .Task.ID}}</a> {{.Task.Title}} · <span class="{{.Decision.Status}}">{{.Decision.Status}}</span></div>
-{{if eq .Decision.Status "open"}}<form method="post" action="/decision/{{decision .Decision.ID}}/answer">
+<div class="row muted">for <a href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> {{.Task.Title}} · <span class="{{.Decision.Status}}">{{.Decision.Status}}</span></div>
+{{if eq .Decision.Status "open"}}<form method="post" action="{{.Base}}/decision/{{decision .Decision.ID}}/answer">
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea name="answer" required></textarea>
 <div class="row"><button>Answer</button></div>

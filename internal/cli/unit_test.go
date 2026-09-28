@@ -69,3 +69,21 @@ func TestUnitFilesEscapeSpecifiersAndRefuseUnquotablePaths(t *testing.T) {
 		}
 	}
 }
+
+func TestBoardUnitIsGlobal(t *testing.T) {
+	h := newHarness(t)
+	h.vars["HAND_HOME"] = ""
+	exe, _ := os.Executable()
+	board := h.ok("unit", "board")
+	for _, want := range []string{"Description=Hand board\n", `ExecStart="` + exe + `" board --addr 127.0.0.1:7777` + "\n", "Restart=on-failure", "WantedBy=default.target"} {
+		if !strings.Contains(board, want) {
+			t.Fatalf("board unit missing %q:\n%s", want, board)
+		}
+	}
+	if strings.Contains(board, "HAND_HOME") {
+		t.Fatalf("board unit names a fleet home:\n%s", board)
+	}
+	if _, errOut, code := h.run("unit", "watch"); code != 3 || !strings.Contains(errOut, "not inside a fleet home") {
+		t.Fatalf("watch unit outside a fleet: code=%d stderr=%q", code, errOut)
+	}
+}

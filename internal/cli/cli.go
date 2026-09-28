@@ -35,10 +35,11 @@ type Env struct {
 type handler func(*runner, []string) error
 
 type runner struct {
-	env   Env
-	home  string
-	root  string
-	fleet state.Fleet
+	env     Env
+	home    string
+	homeErr error
+	root    string
+	fleet   state.Fleet
 }
 
 type usageError struct{ msg string }
@@ -88,7 +89,7 @@ func exitCode(err error) int {
 	return 1
 }
 
-var homeless = map[string]bool{"version": true, "fleet": true}
+var homeless = map[string]bool{"version": true, "fleet": true, "board": true, "unit": true}
 
 func dispatch(args []string, env Env) error {
 	flagHome := ""
@@ -111,7 +112,7 @@ func dispatch(args []string, env Env) error {
 	if err != nil && !homeless[args[0]] {
 		return err
 	}
-	r.home = home
+	r.home, r.homeErr = home, err
 	return h(r, args[1:])
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,13 +15,10 @@ import (
 )
 
 const (
-	pageSize     = 50
-	staleServer  = "luvus restarted; hand watch settles this"
-	staleScreen  = "the screen changed, try again"
-	controlsOff  = "supervisor controls work only on a board that listens on loopback"
-	liveRefresh  = 3
-	cardsRefresh = 5
-	endedRefresh = 10
+	pageSize    = 50
+	staleServer = "luvus restarted; hand watch settles this"
+	staleScreen = "the screen changed, try again"
+	controlsOff = "supervisor controls work only on a board that listens on loopback"
 )
 
 type key struct{ Name, Label string }
@@ -39,43 +37,53 @@ func keyButtons() []key {
 	return out
 }
 
-func (b *Board) shell(w http.ResponseWriter, r *http.Request) {
-	b.render(w, http.StatusOK, "index.html", map[string]any{
-		"Title": "board", "All": r.URL.Query().Get("all") == "1", "Send": b.o.Controls, "Token": b.token,
-	})
-}
-
-func (b *Board) panel(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	sup, ok, err := b.st.LatestSupervisor(ctx)
+func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
+	data, err := b.fleetData(r.Context(), r.URL.Query())
 	if err != nil {
 		b.failErr(w, err)
 		return
+	}
+	b.render(w, http.StatusOK, "index.html", data)
+}
+
+func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
+	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token}
+	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
+		if err := part(ctx, data, q); err != nil {
+			return nil, err
+		}
+	}
+	return data, nil
+}
+
+func (b *Board) history(w http.ResponseWriter, r *http.Request) {
+	data := map[string]any{"Title": "conversation"}
+	if err := b.timelineData(r.Context(), data, r.URL.Query()); err != nil {
+		b.failErr(w, err)
+		return
+	}
+	b.render(w, http.StatusOK, "log.html", data)
+}
+
+func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Values) error {
+	sup, ok, err := b.st.LatestSupervisor(ctx)
+	if err != nil {
+		return err
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
 	if err != nil {
-		b.failErr(w, err)
-		return
+		return err
 	}
-	pick := r.URL.Query().Get("pick") == "1"
-	data := map[string]any{
-		"Title": "supervisor", "Controls": b.o.Controls, "Token": b.token, "Pending": len(pending),
-		"Harnesses": state.Harnesses, "Profiles": b.profiles(), "Keys": keyButtons(), "Pick": pick || !ok,
-	}
+	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
+	data["Pick"] = q.Get("pick") == "1" || !ok
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
-		switch {
-		case sup.Live():
-			data["Refresh"] = liveRefresh
-		case !pick:
-			data["Refresh"] = endedRefresh
-		}
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)
 		}
 	}
-	b.render(w, http.StatusOK, "panel.html", data)
+	return nil
 }
 
 func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]any) {
@@ -109,47 +117,45 @@ func (b *Board) profiles() []string {
 	return p.Names()
 }
 
-func (b *Board) log(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	live := r.URL.Query().Get("live") != "0" && !r.URL.Query().Has("before")
-	data := map[string]any{"Title": "conversation", "Live": live}
-	if live {
-		data["Refresh"], data["RefreshURL"] = liveRefresh, "/supervisor/log"
-	}
+func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {
 	sup, ok, err := b.st.LatestSupervisor(ctx)
 	if err != nil {
-		b.failErr(w, err)
-		return
+		return err
 	}
-	var entries []transcript.Entry
-	switch {
-	case !ok:
-		data["Note"] = "no supervisor yet"
-	case b.o.Transcript == nil:
-		data["Note"] = transcript.ErrUnreadable.Error()
-	default:
-		entries, err = b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
-		if err != nil {
-			data["Note"] = Scrub(err.Error())
-		}
+	entries, note := b.conversation(ctx, sup, ok)
+	if note != "" {
+		data["Note"] = note
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
 	if err != nil {
-		b.failErr(w, err)
-		return
+		return err
 	}
 	for _, in := range pending {
 		entries = append(entries, transcript.Entry{Role: "operator", Text: "queued: " + in.Body, At: in.CreatedAt, Queued: true})
 	}
 	end := len(entries)
-	if n, err := strconv.Atoi(r.URL.Query().Get("before")); err == nil && n >= 0 && n < end {
+	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
 		end = n
 	}
 	start := max(0, end-pageSize)
 	page := slices.Clone(entries[start:end])
 	slices.Reverse(page)
-	data["Entries"], data["Older"], data["Paged"] = page, start, end < len(entries)
-	b.render(w, http.StatusOK, "log.html", data)
+	data["Entries"], data["Older"] = page, start
+	return nil
+}
+
+func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
+	switch {
+	case !ok:
+		return nil, "no supervisor yet"
+	case b.o.Transcript == nil:
+		return nil, transcript.ErrUnreadable.Error()
+	}
+	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
+	if err != nil {
+		return nil, Scrub(err.Error())
+	}
+	return entries, ""
 }
 
 func (b *Board) allowed(w http.ResponseWriter) bool {
@@ -160,18 +166,18 @@ func (b *Board) allowed(w http.ResponseWriter) bool {
 	return false
 }
 
-func (b *Board) run(w http.ResponseWriter, r *http.Request, back string, args ...string) {
+func (b *Board) run(w http.ResponseWriter, r *http.Request, args ...string) {
 	if err := b.o.Control(r.Context(), args...); err != nil {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, back, http.StatusSeeOther)
+	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
 }
 
 func (b *Board) simple(verb string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if b.allowed(w) {
-			b.run(w, r, "/supervisor/panel", verb)
+			b.run(w, r, verb)
 		}
 	}
 }
@@ -191,7 +197,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	b.run(w, r, "/supervisor/panel", args...)
+	b.run(w, r, args...)
 }
 
 func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +217,7 @@ func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, "/supervisor/panel", http.StatusSeeOther)
+	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
 }
 
 func (b *Board) send(w http.ResponseWriter, r *http.Request) {
@@ -223,5 +229,5 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.run(w, r, "/", "send", "--text", text)
+	b.run(w, r, "send", "--text", text)
 }
