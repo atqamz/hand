@@ -51,22 +51,23 @@ func cmdAttach(r *runner, args []string) error {
 	var argv []string
 	err = r.withSupervisor(func(ctx context.Context, st *state.Store, _ luvus.Client, _ luvus.Capabilities) error {
 		session := fleet.Session(r.fleet.ID)
-		switch {
-		case target == "":
-			argv = []string{bin, "session", "attach", session}
-		case target == "supervisor":
+		pane := ""
+		switch target {
+		case "":
+		case "supervisor":
 			sup, err := runningSupervisor(ctx, st)
 			if err != nil {
 				return err
 			}
-			argv = []string{bin, "--session", session, "attach", sup.PaneID}
+			pane = sup.PaneID
 		default:
 			a, err := runningAttempt(ctx, st, attemptID)
 			if err != nil {
 				return fmt.Errorf("%w; see `hand attempt show %s`", err, state.AttemptRef(attemptID))
 			}
-			argv = []string{bin, "--session", session, "attach", a.PaneID}
+			pane = a.PaneID
 		}
+		argv = luvus.AttachArgv(bin, session, pane)
 		return nil
 	})
 	if err != nil {

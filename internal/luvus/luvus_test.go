@@ -268,3 +268,12 @@ func TestStartServerReportsAFailedUserUnit(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestAttachArgv(t *testing.T) {
+	if got := luvus.AttachArgv("/bin/luvus", "secondhand-f1", "7"); !slices.Equal(got, []string{"/bin/luvus", "--session", "secondhand-f1", "attach", "7"}) {
+		t.Fatalf("pane argv = %q", got)
+	}
+	if got := luvus.AttachArgv("/bin/luvus", "secondhand-f1", ""); !slices.Equal(got, []string{"/bin/luvus", "session", "attach", "secondhand-f1"}) {
+		t.Fatalf("session argv = %q", got)
+	}
+}
