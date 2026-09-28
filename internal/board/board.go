@@ -170,6 +170,8 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 	b.fail(w, status, Scrub(err.Error()))
 }
 
+func PRLinks(text string) []string { return prLink.FindAllString(text, -1) }
+
 var absPath = regexp.MustCompile(`(^|[\s"'(=])/[^\s"'():,]+`)
 
 func Scrub(msg string) string {
@@ -208,7 +210,7 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 		return c, err
 	}
 	for i := len(reports) - 1; i >= 0; i-- {
-		for _, link := range prLink.FindAllString(reports[i].Body, -1) {
+		for _, link := range PRLinks(reports[i].Body) {
 			if !slices.Contains(c.PRs, link) {
 				c.PRs = append(c.PRs, link)
 			}
