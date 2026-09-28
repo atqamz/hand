@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,17 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	}
 	if took := time.Since(began); took > 4*time.Second {
 		t.Fatalf("a child holding stdout kept the lookup waiting %s", took)
+	}
+	parts := filepath.Join(t.TempDir(), "opencode")
+	partsScript := strings.Replace(script, `{"messages":[{"type":"user","text":"\"`+marker+`demo.\""}]}`, `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"`+marker+`demo."}]}]}`, 1)
+	if partsScript == script {
+		t.Fatal("parts fixture not substituted")
+	}
+	if err := os.WriteFile(parts, []byte(partsScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := OpencodeSession(parts, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
+		t.Fatalf("parts-shaped export: session = %q, %v", id, err)
 	}
 	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
 		t.Fatalf("nothing newer = %q, %v", id, err)

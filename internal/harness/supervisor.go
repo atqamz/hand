@@ -209,6 +209,27 @@ type opencodeSession struct {
 type opencodeMessage struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	Info struct {
+		Role string `json:"role"`
+	} `json:"info"`
+	Parts []struct {
+		Text string `json:"text"`
+	} `json:"parts"`
+}
+
+func (m opencodeMessage) launches(marker string) bool {
+	if m.Type != "user" && m.Info.Role != "user" {
+		return false
+	}
+	if launches(m.Text, marker) {
+		return true
+	}
+	for _, p := range m.Parts {
+		if launches(p.Text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func OpencodeSession(bin, dir string, since time.Time, marker string) (string, error) {
@@ -237,9 +258,7 @@ func OpencodeSession(bin, dir string, since time.Time, marker string) (string, e
 		if err := json.Unmarshal(out, &export); err != nil {
 			return "", fmt.Errorf("opencode session export: %w", err)
 		}
-		if slices.ContainsFunc(export.Messages, func(m opencodeMessage) bool {
-			return m.Type == "user" && launches(m.Text, marker)
-		}) {
+		if slices.ContainsFunc(export.Messages, func(m opencodeMessage) bool { return m.launches(marker) }) {
 			return s.ID, nil
 		}
 	}
