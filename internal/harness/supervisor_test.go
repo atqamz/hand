@@ -97,7 +97,7 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\n[ \"$1 $2 $3 $4 $5\" = \"session list --standalone --format json\" ] || { echo \"bad args: $*\" >&2; exit 1; }\nsed \"s#/fleets/demo#$(pwd)#\" " + fixture + "\n"
+	script := "#!/bin/sh\n[ \"$*\" = \"session list --standalone --format json\" ] || { echo \"bad args: $*\" >&2; exit 1; }\nsed \"s#/fleets/demo#$(pwd)#\" " + fixture + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

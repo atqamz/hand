@@ -275,8 +275,15 @@ func cmdSupervisorShow(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		origin, err := st.SupervisorOrigin(ctx, sup)
+		if err != nil {
+			return err
+		}
 		var d toon.Doc
 		d.Field("supervisor", state.SupervisorRef(sup.ID))
+		if origin != sup.ID {
+			d.Field("resumes", state.SupervisorRef(origin))
+		}
 		d.Field("harness", strings.Join(slices.DeleteFunc([]string{sup.Harness, sup.Model, sup.Effort}, func(v string) bool { return v == "" }), " "))
 		d.Field("status", sup.Status)
 		if sup.Reason != "" {
@@ -354,35 +361,49 @@ func (r *runner) settleSupervisor(ctx context.Context, st *state.Store, c luvus.
 	if err != nil || !ok {
 		return err
 	}
-	running := sup.Status == state.AttemptRunning
-	switch {
-	case !sup.Live():
-		err = closeLabelled(ctx, c, supervisorLabel, "")
-	default:
-		to, reason, oerr := r.observeTerminal(ctx, c, caps, sup.Status, sup.CreatedAt, sup.Terminal)
+	if sup.Live() {
+		to, reason, err := r.observeTerminal(ctx, c, caps, sup.Status, sup.CreatedAt, sup.Terminal)
 		switch {
-		case oerr != nil:
-			return oerr
+		case err != nil:
+			return err
 		case to != "":
-			err = r.endSupervisor(ctx, st, c, sup, to, reason)
-		case running:
-			err = closeTerminals(ctx, c, func(t luvus.Terminal) bool { return t.Label == supervisorLabel && t.TerminalID != sup.TerminalID })
+			return r.endSupervisor(ctx, st, c, sup, to, reason)
+		case sup.Status != state.AttemptRunning:
+			return nil
 		}
 	}
+	_ = r.closeSupervisorTerminals(ctx, st, c, sup, sup.Live())
+	return nil
+}
+
+func (r *runner) closeSupervisorTerminals(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor, keep bool) error {
+	sessions, err := st.SupervisorSessions(ctx)
 	if err != nil {
 		return err
 	}
-	if running {
-		_ = r.findSession(ctx, st, &sup)
+	homes := []string{r.home}
+	if real, err := filepath.EvalSymlinks(r.home); err == nil && real != r.home {
+		homes = append(homes, real)
 	}
-	return nil
+	return closeTerminals(ctx, c, func(t luvus.Terminal) bool {
+		switch {
+		case keep && t.TerminalID == sup.TerminalID:
+			return false
+		case t.Label == supervisorLabel || (sup.TerminalID != "" && t.TerminalID == sup.TerminalID):
+			return true
+		case len(sessions) == 0 || !slices.Contains(homes, t.CWD):
+			return false
+		}
+		ag, err := c.Explain(ctx, t.PaneID)
+		return err == nil && ag.Session != "" && slices.Contains(sessions, ag.Session)
+	})
 }
 
 func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor, to, reason string) error {
 	if err := stopRoot(sup.PID, sup.StartMarker); err != nil {
 		return err
 	}
-	if err := closeLabelled(ctx, c, supervisorLabel, sup.TerminalID); err != nil {
+	if err := r.closeSupervisorTerminals(ctx, st, c, sup, false); err != nil {
 		if sup.Status == state.AttemptLaunching {
 			return nil
 		}
@@ -447,12 +468,12 @@ func cmdSupervisorSend(r *runner, args []string) error {
 	if err := checkMessage(*text); err != nil {
 		return err
 	}
-	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
+	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
 		in, err := st.AddSupervisorInput(ctx, *text)
 		if err != nil {
 			return err
 		}
-		why, err := r.deliver(ctx, st, c, true)
+		why, err := r.deliver(ctx, st, c, caps, true)
 		if err != nil {
 			return err
 		}
@@ -495,7 +516,7 @@ func checkMessage(text string) error {
 	return nil
 }
 
-func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, wait bool) (string, error) {
+func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool) (string, error) {
 	unlock, ok, err := r.supervisorLock(wait)
 	if err != nil {
 		return "", err
@@ -510,6 +531,21 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, w
 	}
 	if !ok || sup.Status != state.AttemptRunning {
 		return "no live supervisor", nil
+	}
+	ref := state.SupervisorRef(sup.ID)
+	if sup.ServerGeneration != caps.ServerGeneration {
+		return "supervisor " + ref + " belongs to an earlier luvus server", nil
+	}
+	if health, err := c.Validate(ctx, terminal(sup.Terminal)); err != nil || health == "gone" {
+		return "supervisor " + ref + " terminal is gone", nil
+	}
+	if sup.Session == "" && sup.Harness != "claude" {
+		if err := r.findSession(ctx, st, &sup); err != nil {
+			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
+		}
+		if sup.Session == "" {
+			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle, so check `hand supervisor show`", nil
+		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
 	if err != nil {
@@ -528,10 +564,13 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, w
 	}
 	for _, in := range pending {
 		if err := c.Prompt(ctx, sup.PaneID, in.Body); err != nil {
-			if luvus.Code(err) == "agent_not_ready" {
+			switch luvus.Code(err) {
+			case "":
+				return "", runtimeErr(err)
+			case "agent_not_ready":
 				return "supervisor is not at a prompt", nil
 			}
-			return "", runtimeErr(err)
+			return "luvus refused the message: " + err.Error(), nil
 		}
 		if err := st.DeliverSupervisorInput(ctx, in.ID); err != nil {
 			return "", err
@@ -546,10 +585,10 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, w
 	}
 	digest, last := wakeDigest(events)
 	if err := c.Prompt(ctx, sup.PaneID, digest); err != nil {
-		if luvus.Code(err) == "agent_not_ready" {
-			return "", nil
+		if luvus.Code(err) == "" {
+			return "", runtimeErr(err)
 		}
-		return "", runtimeErr(err)
+		return "", nil
 	}
 	return "", st.AdvanceWakeCursor(ctx, sup.ID, last)
 }

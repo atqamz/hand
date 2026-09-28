@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,9 +10,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -91,6 +94,10 @@ func TestSupervisorResumeContinuesTheSession(t *testing.T) {
 	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(h.ok("supervisor", "show"))
 	h.ok("supervisor", "stop")
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "status: running", "session: "+session)
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "resumes: s1")
+	if !strings.Contains(h.ok("orient"), "supervisor: s1 claude running") {
+		t.Fatal("orient must name the session by the ref its launch prompt used")
+	}
 	argv := rt.lastCreate().Command
 	if !slices.Equal(argv[1:], []string{"--dangerously-skip-permissions", "--resume", session, "--model", "sonnet", "--effort", "low"}) {
 		t.Fatalf("argv = %q", argv)
@@ -104,21 +111,125 @@ func TestSupervisorResumeContinuesTheSession(t *testing.T) {
 func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
 	pid := rt.lastPID()
 	rt.srv.SetGeneration("gen-2")
 	stray := rt.addShell(t, h.home, "hand-supervisor")
+	restored := rt.addShell(t, h.home, "")
+	rt.setSession(restored, session)
+	operator := rt.addShell(t, h.home, "")
+	rt.setSession(operator, "0d7a5c6e-6b1f-4f4e-9a57-2b8f0c1d2e3f")
 	has(t, "show", h.ok("supervisor", "show"), "status: interrupted", "reason: luvus server restarted")
-	if !rt.isClosed(stray) {
-		t.Fatal("the restored supervisor terminal was left open")
+	if !rt.isClosed(stray) || !rt.isClosed(restored) {
+		t.Fatalf("restored supervisor terminals left open: labelled %v, by session %v", !rt.isClosed(stray), !rt.isClosed(restored))
 	}
 	if !gone(pid) {
 		t.Fatalf("supervisor %d survived the restart", pid)
 	}
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "status: running")
 	late := rt.addShell(t, h.home, "hand-supervisor")
+	lateRestored := rt.addShell(t, h.home, "")
+	rt.setSession(lateRestored, session)
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "status: running")
-	if !rt.isClosed(late) {
+	if !rt.isClosed(late) || !rt.isClosed(lateRestored) {
 		t.Fatal("a stray supervisor terminal next to the live one was left open")
+	}
+	h.ok("supervisor", "stop")
+	startClaudeSupervisor(h)
+	older := rt.addShell(t, h.home, "")
+	rt.setSession(older, session)
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "status: running")
+	if !rt.isClosed(older) {
+		t.Fatal("a restored terminal of an earlier supervisor session was left open")
+	}
+	if rt.isClosed(operator) {
+		t.Fatal("closed the operator's own session in the fleet home")
+	}
+}
+
+func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexHome := filepath.Join(h.vars["HOME"], ".codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "start", h.ok("supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"), "supervisor: s1", `session: ""`)
+	has(t, "send", h.ok("supervisor", "send", "--text", "first"), "delivered: no", "why: ")
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("sent to a codex supervisor with no session yet (a trust screen reads as idle): %q", got)
+	}
+	now := time.Now()
+	dir := filepath.Join(codexHome, "sessions", now.Format("2006"), now.Format("01"), now.Format("02"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := filepath.EvalSymlinks(h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + cwd + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "send", h.ok("supervisor", "send", "--text", "second"), "delivered: yes")
+	if got := rt.prompts(); !slices.Equal(got, []string{"first", "second"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "session: codex-session-1")
+}
+
+func TestSendToAStaleSupervisorIsHeld(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	lock, err := os.OpenFile(filepath.Join(h.home, "locks", "supervisor.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	rt.srv.SetGeneration("gen-2")
+	done := make(chan string, 1)
+	go func() {
+		out, errOut, _ := h.run("supervisor", "send", "--text", "hello")
+		done <- out + errOut
+	}()
+	time.Sleep(300 * time.Millisecond)
+	_ = lock.Close()
+	has(t, "send", <-done, "delivered: no")
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("sent to a supervisor of an earlier server: %q", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "status: interrupted", "pending: 1")
+}
+
+func TestAttemptCommandsSurviveSupervisorHousekeepingFailures(t *testing.T) {
+	fx := newAttemptFixture(t)
+	startClaudeSupervisor(fx.h)
+	fx.h.ok("supervisor", "stop")
+	fx.start()
+	fx.rt.srv.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "unavailable", Message: "inventory is unavailable"}
+	})
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "status: running")
+}
+
+func TestARefusedPromptDoesNotStopTheWatcher(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "invalid_params", Message: "text is too long"}
+	})
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "text is too long")
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "20ms")
+	time.Sleep(400 * time.Millisecond)
+	stop()
+	if n := len(rt.srv.Calls("events.subscribe")); n != 1 {
+		t.Fatalf("watcher reconnected %d times over a refused prompt", n-1)
 	}
 }
 
@@ -261,7 +372,9 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.blocked a1: q00" || first[50] != "attempt.blocked a1: q49" {
 		t.Fatalf("first digest = %d lines: %q ... %q", len(first), first[0], first[len(first)-1])
 	}
-	has(t, "show", fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d", events[49].Seq))
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[49].Seq))
+	})
 	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
 	stop()

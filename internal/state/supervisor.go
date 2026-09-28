@@ -169,6 +169,32 @@ func (s *Store) LatestSupervisor(ctx context.Context) (Supervisor, bool, error) 
 	return s.oneSupervisor(ctx, supervisorSelect+` ORDER BY id DESC LIMIT 1`)
 }
 
+func (s *Store) SupervisorOrigin(ctx context.Context, sup Supervisor) (int64, error) {
+	if sup.Session == "" {
+		return sup.ID, nil
+	}
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT MIN(id) FROM supervisor WHERE session = ?`, sup.Session).Scan(&id)
+	return id, err
+}
+
+func (s *Store) SupervisorSessions(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT session FROM supervisor WHERE session != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var session string
+		if err := rows.Scan(&session); err != nil {
+			return nil, err
+		}
+		out = append(out, session)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) oneSupervisor(ctx context.Context, q string, args ...any) (Supervisor, bool, error) {
 	sup, err := scanSupervisor(s.db.QueryRowContext(ctx, q, args...))
 	if errors.Is(err, sql.ErrNoRows) {

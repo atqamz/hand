@@ -179,8 +179,14 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 			w.alert(ctx, state.AttemptRef(a.ID)+" "+now.Status+": "+now.Reason)
 		}
 	}
-	_, err = w.r.deliver(ctx, w.st, c, false)
-	return err
+	w.deliver(ctx, c, caps)
+	return nil
+}
+
+func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
+	if _, err := w.r.deliver(ctx, w.st, c, caps, false); err != nil {
+		w.say("supervisor delivery: " + err.Error())
+	}
 }
 
 func (w *watcher) autoresume(ctx context.Context, c luvus.Client) {
@@ -214,8 +220,8 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 		return err
 	}
 	if ok && sup.Status == state.AttemptRunning && sup.PaneID == ev.Pane && sup.ServerGeneration == caps.ServerGeneration {
-		_, err := w.r.deliver(ctx, w.st, c, false)
-		return err
+		w.deliver(ctx, c, caps)
+		return nil
 	}
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {

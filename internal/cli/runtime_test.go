@@ -47,6 +47,7 @@ type fakeRuntime struct {
 	afterKeys   string
 	explainFail string
 	closeDelay  time.Duration
+	sessions    map[string]string
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -183,13 +184,36 @@ func (rt *fakeRuntime) inventory(json.RawMessage) (any, error) {
 	return map[string]any{"server_generation": rt.srv.Generation(), "terminals": terms}, nil
 }
 
-func (rt *fakeRuntime) explain(json.RawMessage) (any, error) {
+func (rt *fakeRuntime) explain(params json.RawMessage) (any, error) {
+	var p struct {
+		Pane string `json:"pane"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, err
+	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.explainFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.explainFail, Message: "explain failed"}
 	}
-	return map[string]any{"pane": "2", "agent": "claude", "status": rt.status, "state_evidence": map[string]any{"blocked_hint": rt.hint}}, nil
+	out := map[string]any{"pane": p.Pane, "agent": "claude", "status": rt.status, "state_evidence": map[string]any{"blocked_hint": rt.hint}}
+	if id, ok := rt.sessions[p.Pane]; ok {
+		out["session"] = map[string]any{"agent": "claude", "id": id}
+	}
+	return out, nil
+}
+
+func (rt *fakeRuntime) setSession(terminalID, session string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.sessions == nil {
+		rt.sessions = map[string]string{}
+	}
+	for _, term := range rt.terms {
+		if term.id == terminalID {
+			rt.sessions[term.pane] = session
+		}
+	}
 }
 
 func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {

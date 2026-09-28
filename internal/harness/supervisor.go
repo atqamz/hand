@@ -152,7 +152,7 @@ func codexMeta(file string) (string, time.Time, string, error) {
 func OpencodeSession(bin, dir string, since time.Time) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "session", "list", "--standalone", "--format", "json", "-n", "5")
+	cmd := exec.CommandContext(ctx, bin, "session", "list", "--standalone", "--format", "json")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {

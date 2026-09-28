@@ -245,7 +245,11 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 			}
 			continue
 		}
-		eventually(t, func() bool { return rt.lastCreate().Command[2] == "--resume" })
+		st := openStore(t, h)
+		eventually(t, func() bool {
+			sup, _, err := st.LatestSupervisor(context.Background())
+			return err == nil && sup.ID == 2 && sup.Status == "running"
+		})
 		out, _ := stop()
 		if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--dangerously-skip-permissions", "--resume", session, "--model", "sonnet", "--effort", "low"}) {
 			t.Fatalf("argv = %q", argv)

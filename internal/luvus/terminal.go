@@ -72,10 +72,11 @@ func (c Client) Inventory(ctx context.Context) ([]Terminal, error) {
 }
 
 type Agent struct {
-	Pane   string
-	Agent  string
-	Status string
-	Hint   string
+	Pane    string
+	Agent   string
+	Status  string
+	Hint    string
+	Session string
 }
 
 func (c Client) Explain(ctx context.Context, pane string) (Agent, error) {
@@ -86,9 +87,12 @@ func (c Client) Explain(ctx context.Context, pane string) (Agent, error) {
 		StateEvidence struct {
 			BlockedHint string `json:"blocked_hint"`
 		} `json:"state_evidence"`
+		Session struct {
+			ID string `json:"id"`
+		} `json:"session"`
 	}
 	err := c.Call(ctx, "agent.explain", map[string]string{"pane": pane}, &r)
-	return Agent{Pane: r.Pane, Agent: r.Agent, Status: r.Status, Hint: r.StateEvidence.BlockedHint}, err
+	return Agent{Pane: r.Pane, Agent: r.Agent, Status: r.Status, Hint: r.StateEvidence.BlockedHint, Session: r.Session.ID}, err
 }
 
 func (c Client) Prompt(ctx context.Context, pane, text string) error {

@@ -275,4 +275,17 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude interrupted\n") || !strings.Contains(out, "  - Resume the supervisor: `hand supervisor resume`\n") {
 		t.Fatalf("interrupted = %q", out)
 	}
+	if err := st.SetSupervisorSession(ctx, sup.ID, "S"); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "--resume", "S"}, Session: "S"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, resumed.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t2", PaneID: "3", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude running\n") {
+		t.Fatalf("resumed = %q, want the ref the session's launch prompt named", out)
+	}
 }

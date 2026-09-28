@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,7 +132,7 @@ func (r *runner) attemptLock(id int64, wait bool) (func(), bool, error) {
 
 func (r *runner) lock(name string, wait bool) (func(), bool, error) {
 	dir := filepath.Join(r.home, "locks")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, false, err
 	}
 	f, err := os.OpenFile(filepath.Join(dir, name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
