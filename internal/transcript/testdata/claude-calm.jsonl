@@ -1,0 +1,17 @@
+{"type":"permission-mode","permissionMode":"bypassPermissions","sessionId":"s"}
+{"type":"user","timestamp":"2026-09-28T01:00:00.000Z","isSidechain":false,"message":{"role":"user","content":"You are supervisor s1 of the Hand fleet demo. Follow AGENTS.md: run `hand orient` now, then work from the operator's messages and from messages that start with [hand v1 wake]."}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:01.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"thinking","thinking":"I should orient first."}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:02.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"hand orient"}}]}}
+{"type":"user","timestamp":"2026-09-28T01:00:03.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"home: /f"}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:04.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"Checking the fleet."}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:05.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"Found two tasks:\n- t1\n- t2"}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:06.000Z","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"  Fleet oriented.  "}]}}
+{"type":"system","subtype":"turn_duration","timestamp":"2026-09-28T01:00:07.000Z"}
+{"type":"user","timestamp":"2026-09-28T01:00:08.000Z","message":{"role":"user","content":"<task-notification>\n<task-id>x</task-id>\n</task-notification>"}}
+{"type":"user","timestamp":"2026-09-28T01:00:09.000Z","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Caveat: local command output follows."}]}}
+{"type":"attachment","timestamp":"2026-09-28T01:00:10.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"Please look at t1."}}
+{"type":"attachment","timestamp":"2026-09-28T01:00:11.000Z","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>y</task-notification>"}}
+{"type":"user","timestamp":"2026-09-28T01:00:12.000Z","message":{"role":"user","content":"[hand v1 wake]\nattempt.reported a1: r1 done"}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:13.000Z","isSidechain":true,"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"sidechain reply"}]}}
+{"type":"mode","mode":"normal"}
+{"type":"user","timestamp":"2026-09-28T01:00:14.000Z","message":{"role":"user","content":[{"type":"text","text":"hello there"}]}}
