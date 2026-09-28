@@ -24,20 +24,21 @@ import (
 const claudeSession = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
 type fixture struct {
-	st      *state.Store
-	srv     *fakeuhp.Server
-	mu      sync.Mutex
-	calls   [][]string
-	fail    error
-	status  string
-	hint    string
-	claude  string
-	options board.Options
+	st       *state.Store
+	srv      *fakeuhp.Server
+	mu       sync.Mutex
+	calls    [][]string
+	fail     error
+	status   string
+	hint     string
+	revision int
+	claude   string
+	options  board.Options
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	fx := &fixture{st: open(t), status: "working", claude: t.TempDir()}
+	fx := &fixture{st: open(t), status: "working", revision: 7, claude: t.TempDir()}
 	fx.srv = fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
 	fx.srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
@@ -45,7 +46,9 @@ func newFixture(t *testing.T) *fixture {
 		return map[string]any{"pane": "2", "agent": "claude", "status": fx.status, "state_evidence": map[string]any{"blocked_hint": fx.hint}}, nil
 	})
 	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
-		return map[string]any{"text": "Trust this folder?\n❯ 1. Yes", "content_revision": 7, "terminal_id": "t1"}, nil
+		fx.mu.Lock()
+		defer fx.mu.Unlock()
+		return map[string]any{"text": "Trust this folder?\n❯ 1. Yes", "content_revision": fx.revision, "terminal_id": "t1"}, nil
 	})
 	fx.options = board.Options{
 		Controls:   true,

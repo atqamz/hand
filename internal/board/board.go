@@ -75,9 +75,13 @@ type card struct {
 }
 
 func New(st *state.Store, token string, o Options) http.Handler {
+	if o.Tick <= 0 {
+		o.Tick = time.Second
+	}
 	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux()}
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor/log", b.history)
+	b.mux.HandleFunc("GET /events", b.events)
 	b.mux.HandleFunc("POST /supervisor/start", b.start)
 	b.mux.HandleFunc("POST /supervisor/resume", b.simple("resume"))
 	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
@@ -149,6 +153,7 @@ func renderPage(w http.ResponseWriter, status int, name string, data map[string]
 }
 
 func (b *Board) fail(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("X-Hand-Error", strings.Join(strings.Fields(msg), " "))
 	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": msg})
 }
 

@@ -38,16 +38,22 @@ func keyButtons() []key {
 }
 
 func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	q := r.URL.Query()
+	data, err := b.fleetData(r.Context(), r.URL.Query())
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	b.render(w, http.StatusOK, "index.html", data)
+}
+
+func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
 	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token}
 	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
 		if err := part(ctx, data, q); err != nil {
-			b.failErr(w, err)
-			return
+			return nil, err
 		}
 	}
-	b.render(w, http.StatusOK, "index.html", data)
+	return data, nil
 }
 
 func (b *Board) history(w http.ResponseWriter, r *http.Request) {
@@ -116,17 +122,9 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	var entries []transcript.Entry
-	switch {
-	case !ok:
-		data["Note"] = "no supervisor yet"
-	case b.o.Transcript == nil:
-		data["Note"] = transcript.ErrUnreadable.Error()
-	default:
-		entries, err = b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
-		if err != nil {
-			data["Note"] = Scrub(err.Error())
-		}
+	entries, note := b.conversation(ctx, sup, ok)
+	if note != "" {
+		data["Note"] = note
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
 	if err != nil {
@@ -144,6 +142,20 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	slices.Reverse(page)
 	data["Entries"], data["Older"] = page, start
 	return nil
+}
+
+func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
+	switch {
+	case !ok:
+		return nil, "no supervisor yet"
+	case b.o.Transcript == nil:
+		return nil, transcript.ErrUnreadable.Error()
+	}
+	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
+	if err != nil {
+		return nil, Scrub(err.Error())
+	}
+	return entries, ""
 }
 
 func (b *Board) allowed(w http.ResponseWriter) bool {
