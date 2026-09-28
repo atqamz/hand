@@ -93,6 +93,29 @@
 	title();
 	const timeline = regions.get("timeline");
 	if (timeline) toBottom(timeline);
-	const source = new EventSource(`${base}/events${location.search}`);
-	for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
+	let source = null;
+	let poll = 0;
+	const refresh = async () => {
+		const res = await fetch(location.href, { credentials: "same-origin" }).catch(() => null);
+		if (!res?.ok) return;
+		const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+		for (const el of doc.querySelectorAll("[data-region]")) {
+			if (regions.get(el.dataset.region)?.innerHTML !== el.innerHTML) apply(el.dataset.region, el.innerHTML);
+		}
+	};
+	const follow = () => {
+		if (document.visibilityState === "hidden") {
+			source?.close();
+			source = null;
+			poll ||= setInterval(refresh, 20000);
+			return;
+		}
+		clearInterval(poll);
+		poll = 0;
+		if (source) return;
+		source = new EventSource(`${base}/events${location.search}`);
+		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
+	};
+	document.addEventListener("visibilitychange", follow);
+	follow();
 })();
