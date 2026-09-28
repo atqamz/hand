@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
@@ -17,6 +18,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
+
+const launchWait = 2 * time.Second
 
 const (
 	openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--pr]"
@@ -163,14 +166,24 @@ func (r *runner) launch(url, shown, yourself string) error {
 	if err != nil {
 		return fmt.Errorf("%w: no xdg-open on PATH; %s", state.ErrNotFound, yourself)
 	}
-	cmd := exec.CommandContext(r.ctx(), bin, url)
+	cmd := exec.Command(bin, url)
 	cmd.Env = r.env.Environ()
-	if err := cmd.Run(); err != nil {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("xdg-open could not start; %s", yourself)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			return fmt.Errorf("xdg-open could not open %s (exit %d); %s", shown, exit.ExitCode(), yourself)
 		}
-		return fmt.Errorf("xdg-open could not open %s; %s", shown, yourself)
+		if err != nil {
+			return fmt.Errorf("xdg-open could not open %s; %s", shown, yourself)
+		}
+	case <-time.After(launchWait):
 	}
 	var d toon.Doc
 	d.Field("opened", shown)
