@@ -145,3 +145,10 @@ func TestWaitingCountsAreNotCapped(t *testing.T) {
 	body := get(t, board.New(st, token, board.Options{}), "/")
 	contains(t, "fleet page", body, `data-waiting="501"`, "open decisions 501")
 }
+
+func TestProofAnswersWithoutLogin(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/proof?nonce=abc123", nil, false)
+	if rec.Code != http.StatusOK || rec.Body.String() != board.Proof(token, "abc123") || strings.Contains(rec.Body.String(), token) || board.Proof(token, "abc123") == board.Proof(token, "abc124") {
+		t.Fatalf("proof = %d %q", rec.Code, rec.Body.String())
+	}
+}

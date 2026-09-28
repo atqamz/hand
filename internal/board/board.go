@@ -3,11 +3,15 @@ package board
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -102,6 +106,12 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ServeStatic(w, r)
 		return
 	}
+	if r.URL.Path == "/proof" && r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, Proof(b.token, r.URL.Query().Get("nonce")))
+		return
+	}
 	if t := r.URL.Query().Get("token"); t != "" {
 		if !b.valid(t) {
 			b.fail(w, http.StatusForbidden, "this board link is not valid")
@@ -126,6 +136,12 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+func Proof(token, nonce string) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	_, _ = io.WriteString(mac, nonce)
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (b *Board) valid(t string) bool {

@@ -2,8 +2,11 @@ package cli
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -64,11 +67,11 @@ func cmdOpen(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	addr, err := boardAddr(ctx, r.root)
+	token, err := boardToken(r.home)
 	if err != nil {
 		return err
 	}
-	token, err := boardToken(r.home)
+	addr, err := boardAddr(ctx, r.root, r.fleet.ID, token)
 	if err != nil {
 		return err
 	}
@@ -137,7 +140,7 @@ func newestPR(ctx context.Context, st *state.Store, ref string) (string, error) 
 	return "", fmt.Errorf("%w: %s has no PR link in its reports", state.ErrNotFound, ref)
 }
 
-func boardAddr(ctx context.Context, root string) (string, error) {
+func boardAddr(ctx context.Context, root, id, token string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(root, "board.addr"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("%w: no board is running; %s", state.ErrNotFound, boardHint)
@@ -146,17 +149,21 @@ func boardAddr(ctx context.Context, root string) (string, error) {
 		return "", err
 	}
 	addr := strings.TrimSpace(string(b))
+	nonce := rand.Text()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, "http://"+addr+"/static/", nil)
+	proof := ""
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/"+id+"/proof?nonce="+nonce, nil)
 	if err == nil {
 		var res *http.Response
 		if res, err = http.DefaultClient.Do(req); err == nil {
+			body, _ := io.ReadAll(io.LimitReader(res.Body, 256))
 			_ = res.Body.Close()
+			proof = string(body)
 		}
 	}
-	if err != nil {
-		return "", fmt.Errorf("%w: no board answers at %s; %s", state.ErrNotFound, addr, boardHint)
+	if err != nil || !hmac.Equal([]byte(proof), []byte(board.Proof(token, nonce))) {
+		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrNotFound, addr, boardHint)
 	}
 	return addr, nil
 }

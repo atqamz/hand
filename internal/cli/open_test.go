@@ -3,9 +3,13 @@ package cli_test
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -226,5 +230,36 @@ func TestOpenReturnsWhileTheBrowserRuns(t *testing.T) {
 	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
 	if sid != pid {
 		t.Fatalf("xdg-open shares the terminal's session %d, so Ctrl-C there would stop the browser", sid)
+	}
+}
+
+func TestOpenRefusesAnImpostor(t *testing.T) {
+	fx := newOpenFixture(t)
+	fx.h.ok("open")
+	before := len(fx.opened(t))
+	var mu sync.Mutex
+	var seen []string
+	impostor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.String())
+		mu.Unlock()
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(impostor.Close)
+	if err := os.WriteFile(addrFile(fx.h), []byte(strings.TrimPrefix(impostor.URL, "http://")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := fx.h.run("open", "t1"); code != 3 || !strings.Contains(errOut, "hand board") {
+		t.Fatalf("open against an impostor: code=%d stderr=%q", code, errOut)
+	}
+	if got := len(fx.opened(t)); got != before {
+		t.Fatalf("xdg-open ran against an impostor")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, u := range seen {
+		if strings.Contains(u, fx.token(t)) {
+			t.Fatalf("the impostor saw the token in %q", u)
+		}
 	}
 }
