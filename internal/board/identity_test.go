@@ -194,3 +194,12 @@ func TestTheAppShellNeedsHeight(t *testing.T) {
 		t.Fatal("a short landscape phone gets neither the desktop shell nor the phone layout, so the composer is cut off")
 	}
 }
+
+func TestEveryPillStateHasItsColour(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, s := range []string{"running", "waiting", "failing", "passing"} {
+		if !strings.Contains(css, ".pill[data-state="+s+"]") {
+			t.Errorf("board.css has no colour for the %s pill", s)
+		}
+	}
+}

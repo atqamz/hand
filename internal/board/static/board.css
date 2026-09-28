@@ -93,7 +93,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .status-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .who{font-weight:600}
 .pill{display:inline-block;padding:0 10px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-size:12px;font-weight:600;line-height:22px}
-.pill[data-state=running]{background:var(--pass-bg);color:var(--pass)}
+.pill[data-state=running],.pill[data-state=passing]{background:var(--pass-bg);color:var(--pass)}
 .pill[data-state=waiting]{background:var(--wait-bg);color:var(--wait)}
 .pill[data-state=failing]{background:var(--fail-bg);color:var(--fail)}
 .warn{color:var(--wait)}
