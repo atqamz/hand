@@ -66,16 +66,14 @@
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		const data = new URLSearchParams(new FormData(form, e.submitter));
-		let res;
-		try {
-			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" });
-		} catch {
+		const res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
+		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
+		if (!res) {
 			show("The board did not answer; check that hand board is running.");
 			return;
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
-			if (form.contains(document.activeElement)) document.activeElement.blur();
 			toast.textContent = "";
 			return;
 		}
