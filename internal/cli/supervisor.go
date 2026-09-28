@@ -577,7 +577,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
 		}
 		if sup.Session == "" {
-			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle, so check `hand supervisor show`", nil
+			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
