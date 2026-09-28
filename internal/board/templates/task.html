@@ -1,7 +1,7 @@
 {{define "task.html"}}{{template "head" .}}<header>
 <h1><a href="{{.Base}}/">{{.Fleet}}</a> / {{task .Card.Task.ID}}</h1>
 </header>
-<main>
+<main data-region="task">
 {{template "card" .Card}}
 {{with .Card.Plan}}<section class="card"><h2>Plan {{plan .Revision}}</h2><pre>{{.Body}}</pre></section>{{end}}
 {{if .Unread}}<section class="card"><h2>Unread reports</h2>

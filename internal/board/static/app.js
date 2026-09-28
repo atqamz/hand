@@ -90,7 +90,8 @@
 	}
 
 	if (regions.size === 0) return;
-	title();
+	const live = regions.has("queue");
+	if (live) title();
 	const timeline = regions.get("timeline");
 	if (timeline) toBottom(timeline);
 	let source = null;
@@ -104,10 +105,10 @@
 		}
 	};
 	const follow = () => {
-		if (document.visibilityState === "hidden") {
+		if (!live || document.visibilityState === "hidden") {
 			source?.close();
 			source = null;
-			poll ||= setInterval(refresh, 20000);
+			poll ||= setInterval(refresh, live ? 20000 : 10000);
 			return;
 		}
 		clearInterval(poll);
