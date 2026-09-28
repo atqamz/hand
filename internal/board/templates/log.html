@@ -1,0 +1,7 @@
+{{define "log.html"}}{{template "head" .}}<main>
+<div class="row muted">{{if .Live}}<a href="/supervisor/log?live=0">pause</a>{{else}}<a href="/supervisor/log#end">live</a>{{end}}{{if .Older}} · <a href="/supervisor/log?before={{.Older}}">older</a>{{end}}</div>
+{{with .Note}}<p class="muted">{{.}}</p>
+{{end}}{{range .Entries}}<div class="msg {{.Role}}{{if .Queued}} queued{{end}}"><div class="muted">{{.Role}} · {{.At}}</div><pre>{{.Text}}</pre></div>
+{{end}}<div id="end"></div>
+</main>
+{{template "foot"}}{{end}}

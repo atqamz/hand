@@ -31,7 +31,7 @@ func open(t *testing.T) *state.Store {
 }
 
 func TestPagesNameTheFleet(t *testing.T) {
-	body := request(board.New(open(t), token), "GET", "/", nil, true).Body.String()
+	body := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, true).Body.String()
 	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, "<h1>test</h1>") {
 		t.Fatalf("index does not name the fleet:\n%s", body)
 	}
@@ -90,7 +90,7 @@ func request(h http.Handler, method, path string, form url.Values, cookie bool) 
 }
 
 func TestBoardNeedsTheToken(t *testing.T) {
-	h := board.New(open(t), token)
+	h := board.New(open(t), token, board.Options{})
 	if rec := request(h, "GET", "/", nil, false); rec.Code != http.StatusForbidden {
 		t.Fatalf("no token = %d", rec.Code)
 	}
@@ -114,8 +114,8 @@ func TestBoardNeedsTheToken(t *testing.T) {
 func TestIndexShowsOneCardPerOpenTask(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	h := board.New(st, token)
-	rec := request(h, "GET", "/", nil, true)
+	h := board.New(st, token, board.Options{})
+	rec := request(h, "GET", "/cards", nil, true)
 	body := rec.Body.String()
 	for _, want := range []string{
 		`<meta http-equiv="refresh" content="5">`,
@@ -131,7 +131,7 @@ func TestIndexShowsOneCardPerOpenTask(t *testing.T) {
 	if strings.Contains(body, "Old chore") {
 		t.Fatal("abandoned task shown without ?all=1")
 	}
-	if all := request(h, "GET", "/?all=1", nil, true).Body.String(); !strings.Contains(all, "Old chore") {
+	if all := request(h, "GET", "/cards?all=1", nil, true).Body.String(); !strings.Contains(all, "Old chore") {
 		t.Fatal("?all=1 hides the abandoned task")
 	}
 }
@@ -141,7 +141,7 @@ func TestBoardEscapesUserText(t *testing.T) {
 	ctx := context.Background()
 	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
 	_, _ = st.AddTask(ctx, "hand", "<script>alert(1)</script>", `"><img src=x onerror=alert(2)>`)
-	body := request(board.New(st, token), "GET", "/", nil, true).Body.String()
+	body := request(board.New(st, token, board.Options{}), "GET", "/cards", nil, true).Body.String()
 	if strings.Contains(body, "<script>alert") || strings.Contains(body, "<img src=x") || !strings.Contains(body, "&lt;script&gt;") {
 		t.Fatalf("user text not escaped:\n%s", body)
 	}
@@ -150,7 +150,7 @@ func TestBoardEscapesUserText(t *testing.T) {
 func TestTaskPageShowsPlanReportsAndEvents(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	h := board.New(st, token)
+	h := board.New(st, token, board.Options{})
 	body := request(h, "GET", "/task/t1", nil, true).Body.String()
 	for _, want := range []string{"1. reproduce\n2. fix the cookie", "PR: https://github.com/atqamz/hand/pull/42", "attempt.reported", "decision.asked"} {
 		if !strings.Contains(body, want) {
@@ -171,7 +171,7 @@ func TestTaskPageCanAckEveryUnreadReport(t *testing.T) {
 	if _, err := st.AddReport(context.Background(), 1, state.ReportProgress, "halfway"); err != nil {
 		t.Fatal(err)
 	}
-	body := request(board.New(st, token), "GET", "/task/t1", nil, true).Body.String()
+	body := request(board.New(st, token, board.Options{}), "GET", "/task/t1", nil, true).Body.String()
 	if !strings.Contains(body, `action="/report/r1/ack"`) || !strings.Contains(body, `action="/report/r2/ack"`) {
 		t.Fatalf("task page cannot ack every unread report:\n%s", body)
 	}
@@ -186,7 +186,7 @@ func TestTaskPageSaysWhenHistoryIsCut(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	body := request(board.New(st, token), "GET", "/task/t1", nil, true).Body.String()
+	body := request(board.New(st, token, board.Options{}), "GET", "/task/t1", nil, true).Body.String()
 	for _, want := range []string{"Older reports are not shown", "Only the latest 50 events are shown"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("task page missing %q", want)
@@ -203,11 +203,11 @@ func TestIndexSaysWhenTasksAreHidden(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h := board.New(st, token)
-	if body := request(h, "GET", "/", nil, true).Body.String(); !strings.Contains(body, "1 more task is not shown") {
+	h := board.New(st, token, board.Options{})
+	if body := request(h, "GET", "/cards", nil, true).Body.String(); !strings.Contains(body, "1 more task is not shown") {
 		t.Fatal("index does not say that tasks are hidden")
 	}
-	if all := request(h, "GET", "/?all=1", nil, true).Body.String(); !strings.Contains(all, "--status inbox,active,done,abandoned") {
+	if all := request(h, "GET", "/cards?all=1", nil, true).Body.String(); !strings.Contains(all, "--status inbox,active,done,abandoned") {
 		t.Fatal("?all=1 hint does not include every status")
 	}
 }
@@ -223,7 +223,7 @@ func TestIndexShowsActiveTasksBeforeOldInboxTasks(t *testing.T) {
 	}
 	late, _ := st.AddTask(ctx, "hand", "Urgent active work", "")
 	_, _ = st.Transition(ctx, late.ID, state.StatusActive)
-	if body := request(board.New(st, token), "GET", "/", nil, true).Body.String(); !strings.Contains(body, "Urgent active work") {
+	if body := request(board.New(st, token, board.Options{}), "GET", "/cards", nil, true).Body.String(); !strings.Contains(body, "Urgent active work") {
 		t.Fatal("a newer active task was pushed out by older inbox tasks")
 	}
 }
@@ -237,7 +237,7 @@ func TestTaskPageCanAckOlderUnreadReports(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if body := request(board.New(st, token), "GET", "/task/t1", nil, true).Body.String(); !strings.Contains(body, `action="/report/r1/ack"`) {
+	if body := request(board.New(st, token, board.Options{}), "GET", "/task/t1", nil, true).Body.String(); !strings.Contains(body, `action="/report/r1/ack"`) {
 		t.Fatal("an unread report older than the history window cannot be acknowledged")
 	}
 }

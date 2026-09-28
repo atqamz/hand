@@ -54,7 +54,7 @@ func cmdBoard(r *runner, args []string) error {
 		}
 		stop()
 	}
-	srv := &http.Server{Handler: r.whileHome(board.New(st, token), gone), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Handler: r.whileHome(board.New(st, token, board.Options{}), gone), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

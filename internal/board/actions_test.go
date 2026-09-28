@@ -14,7 +14,7 @@ import (
 func TestAnswerADecisionFromTheBoard(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	h := board.New(st, token)
+	h := board.New(st, token, board.Options{})
 	page := request(h, "GET", "/decision/d1", nil, true)
 	body := page.Body.String()
 	if page.Code != http.StatusOK || !strings.Contains(body, "Keep the old cookie name?") || !strings.Contains(body, `action="/decision/d1/answer"`) || strings.Contains(body, `http-equiv="refresh"`) {
@@ -48,7 +48,7 @@ func TestAnswerADecisionFromTheBoard(t *testing.T) {
 func TestAckAReportFromTheBoard(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	h := board.New(st, token)
+	h := board.New(st, token, board.Options{})
 	if rec := request(h, "POST", "/report/r1/ack", url.Values{}, true); rec.Code != http.StatusForbidden {
 		t.Fatalf("missing csrf = %d", rec.Code)
 	}
@@ -66,7 +66,7 @@ func TestAckAReportFromTheBoard(t *testing.T) {
 	if missing := request(h, "POST", "/report/r9/ack", url.Values{"csrf": {token}}, true); missing.Code != http.StatusNotFound {
 		t.Fatalf("missing report = %d", missing.Code)
 	}
-	if index := request(h, "GET", "/", nil, true).Body.String(); !strings.Contains(index, "read by operator (board)") {
+	if index := request(h, "GET", "/cards", nil, true).Body.String(); !strings.Contains(index, "read by operator (board)") {
 		t.Fatalf("index after ack:\n%s", index)
 	}
 }
@@ -74,7 +74,7 @@ func TestAckAReportFromTheBoard(t *testing.T) {
 func TestGetNeverMutates(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	h := board.New(st, token)
+	h := board.New(st, token, board.Options{})
 	if rec := request(h, "GET", "/report/r1/ack", nil, true); rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
 		t.Fatalf("GET on an action = %d", rec.Code)
 	}

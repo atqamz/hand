@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
 )
-
-var absPath = regexp.MustCompile(`(^|[\s"'(=])/[^\s"'():,]+`)
 
 type controlError struct {
 	msg  string
@@ -31,10 +28,7 @@ func supervisorControl(env Env, home string) func(context.Context, ...string) er
 		if code == 0 {
 			return nil
 		}
-		msg := absPath.ReplaceAllStringFunc(strings.TrimPrefix(strings.TrimSpace(stderr.String()), "error: "), func(m string) string {
-			i := strings.IndexByte(m, '/')
-			return m[:i] + filepath.Base(m[i:])
-		})
+		msg := board.Scrub(strings.TrimPrefix(strings.TrimSpace(stderr.String()), "error: "))
 		switch code {
 		case 2:
 			return controlError{msg, state.ErrInvalid}
