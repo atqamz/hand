@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"math"
 	"net/url"
 	"slices"
 	"strings"
@@ -87,7 +88,8 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Question, Task: t, Decision: &d})
 	}
 	total += asked - len(decisions)
-	failures, err := b.failures(ctx)
+	f, _ := data["facts"].(facts)
+	failures, err := b.failures(ctx, f)
 	if err != nil {
 		return err
 	}
@@ -121,45 +123,65 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	return nil
 }
 
-func (b *Board) failures(ctx context.Context) ([]waiting, error) {
-	tasks, err := b.st.Tasks(ctx, []string{state.StatusActive}, maxCards)
+type facts struct {
+	latest map[int64]state.Attempt
+	done   map[int64]bool
+	unread map[int64]bool
+	asked  map[int64]int
+	prs    map[int64]string
+}
+
+func (b *Board) facts(ctx context.Context) (facts, error) {
+	var f facts
+	var err error
+	if f.latest, err = b.st.LatestAttempts(ctx); err != nil {
+		return f, err
+	}
+	if f.done, err = b.st.DoneReportAttempts(ctx); err != nil {
+		return f, err
+	}
+	if f.unread, err = b.st.UnackedReportTasks(ctx); err != nil {
+		return f, err
+	}
+	if f.asked, err = b.st.OpenDecisionCounts(ctx); err != nil {
+		return f, err
+	}
+	reports, err := b.st.ReportsMentioning(ctx, "/pull/")
+	if err != nil {
+		return f, err
+	}
+	f.prs = map[int64]string{}
+	for _, r := range reports {
+		if links := PRLinks(r.Body); len(links) > 0 {
+			f.prs[r.TaskID] = links[len(links)-1]
+		}
+	}
+	return f, nil
+}
+
+func (f facts) failing(a state.Attempt) bool {
+	switch a.Status {
+	case state.AttemptFailed, state.AttemptInterrupted:
+		return true
+	case state.AttemptExited:
+		return !f.done[a.ID]
+	}
+	return false
+}
+
+func (b *Board) failures(ctx context.Context, f facts) ([]waiting, error) {
+	tasks, err := b.st.Tasks(ctx, []string{state.StatusActive}, math.MaxInt32)
 	if err != nil {
 		return nil, err
 	}
 	var out []waiting
 	for _, t := range tasks {
-		attempts, err := b.st.Attempts(ctx, t.ID, 1)
-		if err != nil {
-			return nil, err
-		}
-		if len(attempts) == 0 {
-			continue
-		}
-		a := attempts[0]
-		failed, err := b.failing(ctx, a)
-		if err != nil {
-			return nil, err
-		}
-		if failed {
+		if a, ok := f.latest[t.ID]; ok && f.failing(a) {
 			out = append(out, waiting{Kind: "failure", Ref: state.AttemptRef(a.ID), Title: t.Title, Task: t, Attempt: &a})
 		}
 	}
 	slices.SortFunc(out, func(x, y waiting) int { return int(x.Attempt.ID - y.Attempt.ID) })
 	return out, nil
-}
-
-func (b *Board) failing(ctx context.Context, a state.Attempt) (bool, error) {
-	switch a.Status {
-	case state.AttemptFailed, state.AttemptInterrupted:
-		return true, nil
-	case state.AttemptExited:
-		reports, err := b.st.Reports(ctx, state.ReportFilter{AttemptID: a.ID}, maxCards)
-		if err != nil {
-			return false, err
-		}
-		return !slices.ContainsFunc(reports, func(r state.Report) bool { return r.Status == state.ReportDone }), nil
-	}
-	return false, nil
 }
 
 func excerptOf(body string) (string, bool) {
@@ -199,48 +221,23 @@ type check struct {
 	PR      string
 }
 
-func (b *Board) check(ctx context.Context, t state.Task) (check, error) {
-	c := check{Task: t, State: "idle"}
-	attempts, err := b.st.Attempts(ctx, t.ID, 1)
-	if err != nil {
-		return c, err
-	}
-	reports, err := b.st.Reports(ctx, state.ReportFilter{TaskID: t.ID}, 20)
-	if err != nil {
-		return c, err
-	}
-	for i := len(reports) - 1; i >= 0 && c.PR == ""; i-- {
-		if links := PRLinks(reports[i].Body); len(links) > 0 {
-			c.PR = links[len(links)-1]
-		}
-	}
-	asked, err := b.st.OpenDecisionCount(ctx, t.ID)
-	if err != nil {
-		return c, err
-	}
-	unread, err := b.st.Reports(ctx, state.ReportFilter{TaskID: t.ID, Unacked: true}, 1)
-	if err != nil {
-		return c, err
-	}
+func (f facts) check(t state.Task) check {
+	c := check{Task: t, State: "idle", PR: f.prs[t.ID]}
 	failed, done := false, t.Status == state.StatusDone
-	if len(attempts) > 0 {
-		c.Attempt = &attempts[0]
-		if t.Status == state.StatusActive {
-			if failed, err = b.failing(ctx, *c.Attempt); err != nil {
-				return c, err
-			}
-		}
-		done = done || slices.ContainsFunc(reports, func(r state.Report) bool { return r.AttemptID == c.Attempt.ID && r.Status == state.ReportDone })
+	if a, ok := f.latest[t.ID]; ok {
+		c.Attempt = &a
+		failed = t.Status == state.StatusActive && f.failing(a)
+		done = done || f.done[a.ID]
 	}
 	switch {
 	case failed:
 		c.State = "failing"
-	case asked > 0 || len(unread) > 0:
+	case f.asked[t.ID] > 0 || f.unread[t.ID]:
 		c.State = "waiting"
 	case c.Attempt != nil && c.Attempt.Live():
 		c.State = "running"
 	case done:
 		c.State = "passing"
 	}
-	return c, nil
+	return c
 }

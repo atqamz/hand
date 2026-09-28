@@ -276,13 +276,10 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		}
 		tasks = append(tasks, part...)
 	}
+	f, _ := data["facts"].(facts)
 	checks := make([]check, 0, len(tasks))
 	for _, t := range tasks {
-		c, err := b.check(ctx, t)
-		if err != nil {
-			return err
-		}
-		checks = append(checks, c)
+		checks = append(checks, f.check(t))
 	}
 	counts, err := b.st.CountTasks(ctx)
 	if err != nil {
@@ -338,18 +335,18 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		events = events[1:]
 	}
 	slices.Reverse(events)
+	done, err := b.st.DoneReportAttempts(ctx)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
 	rows := make([]check, 0, len(c.Attempts))
 	for _, a := range c.Attempts {
 		row := check{Task: t, Attempt: &a, State: "idle"}
-		failed, err := b.failing(ctx, a)
-		if err != nil {
-			b.failErr(w, err)
-			return
-		}
 		switch {
 		case a.Live():
 			row.State = "running"
-		case failed:
+		case facts{done: done}.failing(a):
 			row.State = "failing"
 		case a.Status == state.AttemptExited:
 			row.State = "passing"

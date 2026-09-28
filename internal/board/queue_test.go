@@ -321,3 +321,51 @@ func TestResumeSurvivesAFullQueue(t *testing.T) {
 	}
 	contains(t, "fleet page", get(t, fx.handler(), "/"), `action="/supervisor/resume"`, "1 more waiting")
 }
+
+func TestAFailureBeyondFiveHundredTasksStillWaits(t *testing.T) {
+	st := open(t)
+	for i := range 500 {
+		active(t, st, fmt.Sprintf("quiet %d", i))
+	}
+	late := active(t, st, "Newest task")
+	attempt(t, st, late.ID, state.AttemptFailed, "launch did not finish")
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	kinds, refs, _ := waits(body)
+	if !slices.Equal(kinds, []string{"failure"}) || !slices.Equal(refs, []string{"a1"}) {
+		t.Fatalf("queue = %q %q", kinds, refs)
+	}
+}
+
+func TestADoneReportBuriedUnderProgressStillCounts(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	task := active(t, st, "Chatty worker")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	done, err := st.AddReport(ctx, a.ID, state.ReportDone, "Done. PR: https://github.com/atqamz/hand/pull/9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AckReport(ctx, done.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 25 {
+		r, err := st.AddReport(ctx, a.ID, state.ReportProgress, fmt.Sprintf("note %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AckReport(ctx, r.ID, "operator"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptExited, "terminal exited"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, board.New(st, token, board.Options{}), "/")
+	if kinds, _, _ := waits(body); len(kinds) != 0 {
+		t.Fatalf("an exited attempt with a buried done report waits: %q", kinds)
+	}
+	row := checks(body)["t1"]
+	if s, _, _ := strings.Cut(row, "|"); s != "passing" || !strings.Contains(row, "pull/9") {
+		t.Fatalf("check row = %q", row)
+	}
+}

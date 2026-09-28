@@ -49,6 +49,11 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 
 func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
 	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token}
+	f, err := b.facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data["facts"] = f
 	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
 		if err := part(ctx, data, q); err != nil {
 			return nil, err
