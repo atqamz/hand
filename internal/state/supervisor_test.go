@@ -136,3 +136,26 @@ func TestSupervisorEventsAreRecorded(t *testing.T) {
 		t.Fatalf("latest = %+v", got)
 	}
 }
+
+func TestAddSupervisorInputRefusesWhatSendRefuses(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	long := make([]byte, MaxMessageBytes+1)
+	for i := range long {
+		long[i] = 'a'
+	}
+	for _, bad := range []string{"[hand v1 wake]\nx", "\n [hand v1 wake]", "a\x00b", "a\x1b[31mb", "a\rb", "   \n", "\xff", string(long)} {
+		if _, err := s.AddSupervisorInput(ctx, bad); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("AddSupervisorInput(%q) err = %v", bad, err)
+		}
+	}
+	if pending, err := s.PendingSupervisorInputs(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending = %v, %v", pending, err)
+	}
+	if _, err := s.AddSupervisorInput(ctx, "tabs\tand\nlines"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(SupervisorKeys, "esc") || len(SupervisorKeys) != 7 {
+		t.Fatalf("keys = %q", SupervisorKeys)
+	}
+}

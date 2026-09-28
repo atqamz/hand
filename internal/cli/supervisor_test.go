@@ -1,8 +1,10 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -474,5 +477,67 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 	h.ok("supervisor", "resume")
 	if n := reads.Load(); n < 8 {
 		t.Fatalf("resume returned after %d screen reads, before the restored screen settled", n)
+	}
+}
+
+func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	var calls atomic.Int32
+	var always atomic.Bool
+	rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+		var p struct {
+			Keys     []string `json:"keys"`
+			Revision int64    `json:"if_content_revision"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		n := calls.Add(1)
+		rt.mu.Lock()
+		defer rt.mu.Unlock()
+		if always.Load() || n == 1 {
+			rt.revision++
+			return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "moved"}
+		}
+		if p.Revision != rt.revision {
+			return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "stale"}
+		}
+		rt.keyed = append(rt.keyed, p.Keys...)
+		return map[string]any{"type": "ok"}, nil
+	})
+	has(t, "interrupt", h.ok("supervisor", "interrupt"), "supervisor: s1", "keys: esc")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"esc"}) || calls.Load() != 2 {
+		t.Fatalf("keys = %q after %d calls", got, calls.Load())
+	}
+	always.Store(true)
+	if _, errOut, code := h.run("supervisor", "interrupt"); code != 3 || !strings.Contains(errOut, "nothing was sent") {
+		t.Fatalf("always stale: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	var out, errOut bytes.Buffer
+	control := cli.SupervisorControl(h.env(&out, &errOut), h.home)
+	ctx := context.Background()
+	if err := control(ctx, "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
+		t.Fatalf("resume with none = %v", err)
+	}
+	if err := control(ctx, "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
+		t.Fatalf("path in error = %v", err)
+	}
+	startClaudeSupervisor(h)
+	if err := control(ctx, "send", "--text", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.prompts(); !slices.Equal(got, []string{"hi"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+	if err := control(ctx, "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("bad key = %v", err)
+	}
+	if out.Len() != 0 || errOut.Len() != 0 {
+		t.Fatalf("control wrote to the caller's streams: %q %q", out.String(), errOut.String())
 	}
 }
