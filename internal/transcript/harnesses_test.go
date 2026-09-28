@@ -87,6 +87,23 @@ func TestCodexFindsARolloutWhoseFirstLineCameLate(t *testing.T) {
 	}
 }
 
+func TestCodexReplaysEveryFileWhenOneShrinks(t *testing.T) {
+	home := t.TempDir()
+	rollout(t, home, "rollout-2026-09-28T01-00-00-aaa.jsonl", meta("codex-1")+userLine("one"))
+	second := rollout(t, home, "rollout-2026-09-28T02-00-00-bbb.jsonl", meta("codex-1")+userLine("two")+userLine("three"))
+	r := &Reader{Paths: Paths{Codex: home}}
+	ctx := context.Background()
+	if got, err := r.Read(ctx, "codex", "codex-1", "/f"); err != nil || len(got) != 3 {
+		t.Fatalf("first read = %q, %v", texts(got), err)
+	}
+	if err := os.WriteFile(second, []byte(meta("codex-1")+userLine("new")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.Read(ctx, "codex", "codex-1", "/f"); err != nil || !slices.Equal(texts(got), []string{"operator: one", "operator: new"}) {
+		t.Fatalf("after a shrink = %q, %v", texts(got), err)
+	}
+}
+
 func TestCodexTurnSurvivesIncrementalReads(t *testing.T) {
 	home := t.TempDir()
 	path := rollout(t, home, "rollout-2026-09-28T01-00-00-codex-1.jsonl", meta("codex-1")+`{"timestamp":"2026-09-28T01:00:02Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Short."}]}}`+"\n")
@@ -141,6 +158,22 @@ func TestOpencodeTranscriptIsCalm(t *testing.T) {
 	}
 	if got[2].At != "2026-09-28T04:33:22.000Z" {
 		t.Fatalf("at = %q", got[2].At)
+	}
+}
+
+func TestOpencodeReadsTheInfoAndPartsShape(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	bin := filepath.Join(t.TempDir(), "opencode")
+	parts := `{"messages":[` +
+		`{"info":{"role":"user","time":{"created":1790570000000}},"parts":[{"type":"text","text":"hello"}]},` +
+		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570001000}},"parts":[{"type":"reasoning","text":"hmm"},{"type":"text","text":"Hi there."}]}]}`
+	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + parts + "\nJSON\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := (&Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}).Read(context.Background(), "opencode", "ses_1", t.TempDir())
+	if err != nil || !slices.Equal(texts(got), []string{"operator: hello", "supervisor: Hi there."}) || got[1].At != "2026-09-28T04:33:21.000Z" {
+		t.Fatalf("entries = %q, %v", texts(got), err)
 	}
 }
 

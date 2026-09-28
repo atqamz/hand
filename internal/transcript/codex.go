@@ -19,6 +19,12 @@ func (r *Reader) codex(s *session, id string) error {
 		return ErrNoSession
 	}
 	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil && fi.Size() < s.offsets[f] {
+			*s = session{offsets: map[string]int64{}}
+			break
+		}
+	}
+	for _, f := range files {
 		if err := s.follow(f, s.codexLine); err != nil {
 			return err
 		}

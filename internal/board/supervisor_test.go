@@ -128,6 +128,14 @@ func TestTheShellNeverRefreshes(t *testing.T) {
 	contains(t, "live panel", get(t, h, "/supervisor/panel"), `http-equiv="refresh" content="3"`)
 	fresh := newFixture(t)
 	lacks(t, "start panel", get(t, fresh.handler(), "/supervisor/panel"), `http-equiv="refresh"`)
+	ended := newFixture(t)
+	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
+	panel := get(t, ended.handler(), "/supervisor/panel")
+	contains(t, "ended panel", panel, `http-equiv="refresh" content="10"`, `action="/supervisor/resume"`, `href="/supervisor/panel?pick=1"`)
+	lacks(t, "ended panel", panel, `name="harness"`)
+	pick := get(t, ended.handler(), "/supervisor/panel?pick=1")
+	contains(t, "picking a harness", pick, `name="harness"`, `name="profile"`)
+	lacks(t, "picking a harness", pick, `http-equiv="refresh"`)
 	contains(t, "shell before the first start", get(t, fresh.handler(), "/"), `action="/supervisor/send"`)
 }
 

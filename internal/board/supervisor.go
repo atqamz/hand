@@ -20,6 +20,7 @@ const (
 	controlsOff  = "supervisor controls work only on a board that listens on loopback"
 	liveRefresh  = 3
 	cardsRefresh = 5
+	endedRefresh = 10
 )
 
 type key struct{ Name, Label string }
@@ -56,15 +57,19 @@ func (b *Board) panel(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	pick := r.URL.Query().Get("pick") == "1"
 	data := map[string]any{
 		"Title": "supervisor", "Controls": b.o.Controls, "Token": b.token, "Pending": len(pending),
-		"Harnesses": state.Harnesses, "Profiles": b.profiles(), "Keys": keyButtons(),
+		"Harnesses": state.Harnesses, "Profiles": b.profiles(), "Keys": keyButtons(), "Pick": pick || !ok,
 	}
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
-		if sup.Live() {
+		switch {
+		case sup.Live():
 			data["Refresh"] = liveRefresh
+		case !pick:
+			data["Refresh"] = endedRefresh
 		}
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)

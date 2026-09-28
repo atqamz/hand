@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -30,18 +31,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 		return err
 	}
 	var export struct {
-		Messages []struct {
-			Type   string `json:"type"`
-			Text   string `json:"text"`
-			Finish string `json:"finish"`
-			Time   struct {
-				Created int64 `json:"created"`
-			} `json:"time"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"messages"`
+		Messages []exportMessage `json:"messages"`
 	}
 	if json.Unmarshal(out, &export) != nil || export.Messages == nil {
 		return ErrUnreadable
@@ -49,28 +39,62 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 	fresh := session{offsets: map[string]int64{}, exported: time.Now(), stamp: stamp}
 	for _, m := range export.Messages {
 		fresh.lines++
-		if m.Type == "" {
+		role, created, finish, texts := m.flat()
+		if role == "" {
 			continue
 		}
 		fresh.known++
-		at := time.UnixMilli(m.Time.Created).UTC().Format("2006-01-02T15:04:05.000Z")
-		switch m.Type {
+		at := time.UnixMilli(created).UTC().Format("2006-01-02T15:04:05.000Z")
+		switch role {
 		case "user":
-			fresh.user(m.Text, at)
-		case "assistant":
-			var texts []string
-			for _, c := range m.Content {
-				if c.Type == "text" {
-					texts = append(texts, c.Text)
-				}
+			if m.Text != "" {
+				texts = []string{m.Text}
 			}
+			fresh.user(strings.Join(texts, "\n"), at)
+		case "assistant":
 			for i, t := range texts {
-				fresh.reply(t, at, m.Finish == "stop" && i == len(texts)-1)
+				fresh.reply(t, at, finish == "stop" && i == len(texts)-1)
 			}
 		}
 	}
 	*s = fresh
 	return nil
+}
+
+type exportPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type exportStamp struct {
+	Created int64 `json:"created"`
+}
+
+type exportMessage struct {
+	Type    string       `json:"type"`
+	Text    string       `json:"text"`
+	Finish  string       `json:"finish"`
+	Time    exportStamp  `json:"time"`
+	Content []exportPart `json:"content"`
+	Info    struct {
+		Role   string      `json:"role"`
+		Finish string      `json:"finish"`
+		Time   exportStamp `json:"time"`
+	} `json:"info"`
+	Parts []exportPart `json:"parts"`
+}
+
+func (m exportMessage) flat() (role string, created int64, finish string, texts []string) {
+	role, created, finish = m.Type, m.Time.Created, m.Finish
+	if role == "" {
+		role, created, finish = m.Info.Role, m.Info.Time.Created, m.Info.Finish
+	}
+	for _, p := range append(m.Content, m.Parts...) {
+		if p.Type == "text" {
+			texts = append(texts, p.Text)
+		}
+	}
+	return role, created, finish, texts
 }
 
 func dbStamp(dir string) time.Time {
