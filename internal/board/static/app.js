@@ -59,7 +59,8 @@
 			return;
 		}
 		held.delete(name);
-		const focused = el.contains(document.activeElement) ? document.activeElement.closest("details[id] > summary")?.parentElement.id : null;
+		const spot = (e) => (e && e !== el && el.contains(e) ? [e.closest("details[id]")?.id, e.tagName, e.closest("form")?.getAttribute("action"), e.getAttribute("href"), e.value].join("|") : "");
+		const focused = spot(document.activeElement);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const fields = "textarea, select, input:not([type=hidden])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
@@ -74,7 +75,7 @@
 				setTimeout(() => d.removeAttribute("data-new"), 1600);
 			}
 		}
-		if (focused) document.getElementById(focused)?.querySelector("summary")?.focus();
+		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
 		local(el);
 		if (pinned) toBottom(el);
 		if (name === "queue") count(waitingNow());
