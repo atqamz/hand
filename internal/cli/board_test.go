@@ -308,3 +308,37 @@ func TestANetworkBoardIsReadOnly(t *testing.T) {
 		t.Fatalf("board out = %q", out)
 	}
 }
+
+func TestARotatedTokenWorksWithoutARestart(t *testing.T) {
+	h := initWithProject(t)
+	base, _ := startBoard(t, h, "127.0.0.1")
+	fleetURL, old := fleetPage(t, base, h)
+	if code, _ := login(t, fleetURL, old); code != http.StatusOK {
+		t.Fatalf("first token = %d", code)
+	}
+	path := filepath.Join(h.home, "board.token")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	fresh := strings.Repeat("d", 48)
+	if err := os.WriteFile(path, []byte(fresh+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := login(t, fleetURL, fresh); code != http.StatusOK {
+		t.Fatalf("rotated token = %d", code)
+	}
+	if code, _ := login(t, fleetURL, old); code != http.StatusForbidden {
+		t.Fatalf("the old token still works: %d", code)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	remade, _ := fleetPage(t, base, h)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("the board did not remake a deleted token: %v", err)
+	}
+	if code, _ := login(t, remade, strings.TrimSpace(string(b))); code != http.StatusOK {
+		t.Fatalf("remade token = %d", code)
+	}
+}

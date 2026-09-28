@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -118,22 +119,59 @@ func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcri
 	if err == nil && f.ID != id {
 		err = fmt.Errorf("%w: %s holds fleet %s, not %s", state.ErrNotFound, home, f.ID, id)
 	}
-	token := ""
-	if err == nil {
-		token, err = boardToken(home)
-	}
-	if err != nil {
-		_ = st.Close()
-		return nil, nil, err
-	}
-	return board.New(st, token, board.Options{
+	fb := &fleetBoard{home: home, st: st, opts: board.Options{
 		Controls:   loopback,
 		Control:    supervisorControl(r.env, home),
 		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(id))},
 		Transcript: transcripts,
 		Home:       home,
 		Base:       "/" + id,
-	}), st, nil
+	}}
+	if err == nil {
+		_, err = fb.current()
+	}
+	if err != nil {
+		_ = st.Close()
+		return nil, nil, err
+	}
+	return fb, st, nil
+}
+
+type fleetBoard struct {
+	home  string
+	st    *state.Store
+	opts  board.Options
+	mu    sync.Mutex
+	token os.FileInfo
+	h     http.Handler
+}
+
+func (f *fleetBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h, err := f.current()
+	if err != nil {
+		http.Error(w, board.Scrub(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	h.ServeHTTP(w, r)
+}
+
+func (f *fleetBoard) current() (http.Handler, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	path := filepath.Join(f.home, "board.token")
+	if info, err := os.Stat(path); err == nil && f.h != nil && os.SameFile(info, f.token) && info.ModTime().Equal(f.token.ModTime()) {
+		return f.h, nil
+	}
+	token, err := boardToken(f.home)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	f.h, f.token = board.New(f.st, token, f.opts), info
+	return f.h, nil
 }
 
 func boardFleets(root string) ([]board.FleetLink, error) {
