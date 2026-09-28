@@ -23,7 +23,7 @@ type Budget struct {
 	Bytes       int
 }
 
-var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, MemoryBytes: 1200, TitleBytes: 50, Bytes: 6000}
+var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, MemoryBytes: 4000, TitleBytes: 50, Bytes: 6000}
 
 type section struct {
 	name   string
@@ -166,13 +166,13 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
-		if len(memLines) > 0 {
-			memLines, truncated = memLines[:len(memLines)-1], true
+		if dropLast(sections) {
 			continue
 		}
-		if !dropLast(sections) {
+		if len(memLines) == 0 {
 			return d, nil
 		}
+		memLines, truncated = memLines[:len(memLines)-1], true
 	}
 }
 
