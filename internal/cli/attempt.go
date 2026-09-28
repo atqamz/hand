@@ -53,21 +53,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	spec := harness.Spec{Harness: *name, Model: *model, Effort: *effort}
-	if *profile != "" {
-		if spec != (harness.Spec{}) {
-			return usageError{"attempt start: give either --profile or --harness/--model/--effort"}
-		}
-		if err := r.needHome(); err != nil {
-			return err
-		}
-		p, err := harness.LoadPolicy(r.home)
-		if err != nil {
-			return err
-		}
-		if spec, err = p.Profile(*profile); err != nil {
-			return err
-		}
+	spec, err := r.routed("attempt start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
+	if err != nil {
+		return err
 	}
 	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
 		return err
@@ -117,7 +105,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `luvus session attach " + fleet.Session(r.fleet.ID) + "`"}
 		if harness.Prefills(running.Harness) {
-			sent, confirmed := submitPrefilled(r.ctx(), c, running)
+			sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, reportMarker)
 			if sent {
 				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
 					return err
@@ -145,25 +133,42 @@ func cmdAttemptStart(r *runner, args []string) error {
 	})
 }
 
+func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.Spec, error) {
+	if profile == "" {
+		return spec, nil
+	}
+	if spec != (harness.Spec{}) {
+		return spec, usageError{cmd + ": give either --profile or --harness/--model/--effort"}
+	}
+	if err := r.needHome(); err != nil {
+		return spec, err
+	}
+	p, err := harness.LoadPolicy(r.home)
+	if err != nil {
+		return spec, err
+	}
+	return p.Profile(profile)
+}
+
 const (
 	prefillWait   = 30 * time.Second
 	submitConfirm = 5 * time.Second
 )
 
-func submitPrefilled(ctx context.Context, c luvus.Client, a state.Attempt) (sent, confirmed bool) {
+func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		s, err := c.Read(ctx, a.PaneID, 60)
+		s, err := c.Read(ctx, pane, 60)
 		switch {
 		case luvus.Code(err) != "":
 			return false, false
-		case err == nil && strings.Contains(s.Text, reportMarker) && idle(ctx, c, a.PaneID):
-			err := c.Keys(ctx, a.PaneID, []string{"enter"}, s.ContentRevision, a.TerminalID)
+		case err == nil && strings.Contains(s.Text, marker) && idle(ctx, c, pane):
+			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
 			if err == nil {
-				return true, leftIdle(ctx, c, a.PaneID, tick.C)
+				return true, leftIdle(ctx, c, pane, tick.C)
 			}
 			if luvus.Code(err) != "content_revision_conflict" {
 				return false, false
@@ -215,7 +220,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	}
 	if luvus.Code(err) == "" {
 		err = fmt.Errorf("%w: %w; attempt %s stays launching, and sync fails it %s after it started", errLaunchUnknown, err, state.AttemptRef(a.ID), launchGrace)
-		return a, errors.Join(err, closeAttemptTerminals(ctx, c, a))
+		return a, errors.Join(err, closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID))
 	}
 	err = runtimeErr(err)
 	if _, rmErr := git(ctx, repo, "worktree", "remove", "--force", a.Worktree); rmErr != nil {

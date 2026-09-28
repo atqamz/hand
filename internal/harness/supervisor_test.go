@@ -75,12 +75,13 @@ func rollout(t *testing.T, home string, at time.Time, id, cwd string) {
 	}
 }
 
-func TestCodexSessionFindsTheNewestRolloutForTheFolder(t *testing.T) {
+func TestCodexSessionFindsTheFirstRolloutForTheFolderSinceLaunch(t *testing.T) {
 	home := t.TempDir()
 	since := time.Now().Add(-time.Minute)
 	rollout(t, home, time.Now(), "elsewhere", "/other")
 	rollout(t, home, since.Add(-time.Hour), "too-old", "/fleet")
-	rollout(t, home, time.Now(), "mine", "/fleet")
+	rollout(t, home, since.Add(time.Second), "mine", "/fleet")
+	rollout(t, home, since.Add(2*time.Second), "later", "/fleet")
 	if id, err := CodexSession(home, "/fleet", since); err != nil || id != "mine" {
 		t.Fatalf("session = %q, %v", id, err)
 	}
@@ -100,8 +101,10 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	since := time.UnixMilli(1790570550000)
-	if id, err := OpencodeSession(bin, dir, since); err != nil || id != "ses_newer000000000000000000001" {
+	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570400000)); err != nil || id != "ses_older000000000000000000003" {
+		t.Fatalf("first session = %q, %v", id, err)
+	}
+	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570550000)); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("session = %q, %v", id, err)
 	}
 	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000)); err != nil || id != "" {

@@ -92,8 +92,8 @@ func NewSessionID() string {
 }
 
 func CodexSession(codexHome, cwd string, since time.Time) (string, error) {
-	var newest string
-	var newestAt time.Time
+	var first string
+	var firstAt time.Time
 	today := time.Now()
 	for day := since.Local(); ; day = day.AddDate(0, 0, 1) {
 		dir := filepath.Join(codexHome, "sessions", day.Format("2006"), day.Format("01"), day.Format("02"))
@@ -106,12 +106,12 @@ func CodexSession(codexHome, cwd string, since time.Time) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if from == cwd && !at.Before(since) && (newest == "" || at.After(newestAt)) {
-				newest, newestAt = id, at
+			if from == cwd && !at.Before(since) && (first == "" || at.Before(firstAt)) {
+				first, firstAt = id, at
 			}
 		}
 		if sameDay(day, today) || day.After(today) {
-			return newest, nil
+			return first, nil
 		}
 	}
 }
@@ -170,12 +170,12 @@ func OpencodeSession(bin, dir string, since time.Time) (string, error) {
 	if err := json.Unmarshal(out, &sessions); err != nil {
 		return "", fmt.Errorf("opencode session list: %w", err)
 	}
-	var newest string
-	var newestAt int64
+	var first string
+	var firstAt int64
 	for _, s := range sessions {
-		if filepath.Clean(s.Directory) == filepath.Clean(dir) && s.Created >= since.UnixMilli() && (newest == "" || s.Created > newestAt) {
-			newest, newestAt = s.ID, s.Created
+		if filepath.Clean(s.Directory) == filepath.Clean(dir) && s.Created >= since.UnixMilli() && (first == "" || s.Created < firstAt) {
+			first, firstAt = s.ID, s.Created
 		}
 	}
-	return newest, nil
+	return first, nil
 }

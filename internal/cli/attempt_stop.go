@@ -100,7 +100,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 		}
 		to, reason := state.AttemptExited, "root process already gone"
 		if rootAlive(a.PID, a.StartMarker) {
-			if err := stopWorker(ctx, c, terminal(a)); err != nil {
+			if err := stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
 				return err
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
