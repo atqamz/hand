@@ -240,6 +240,18 @@ func (s *Store) Attempts(ctx context.Context, taskID int64, limit int) ([]Attemp
 	return s.queryAttempts(ctx, `SELECT * FROM (`+q+` ORDER BY id DESC LIMIT ?) ORDER BY id`, args...)
 }
 
+func (s *Store) LatestAttempts(ctx context.Context) (map[int64]Attempt, error) {
+	attempts, err := s.queryAttempts(ctx, attemptSelect+` WHERE id IN (SELECT MAX(id) FROM attempt GROUP BY task_id)`)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]Attempt, len(attempts))
+	for _, a := range attempts {
+		out[a.TaskID] = a
+	}
+	return out, nil
+}
+
 func (s *Store) UncleanedAttempts(ctx context.Context) ([]Attempt, error) {
 	return s.queryAttempts(ctx, attemptSelect+` WHERE cleaned_at = '' ORDER BY id`)
 }

@@ -166,6 +166,48 @@ func (s *Store) LatestReport(ctx context.Context, f ReportFilter) (Report, bool,
 	return r, err == nil, err
 }
 
+func (s *Store) UnackedReportTasks(ctx context.Context) (map[int64]bool, error) {
+	return s.idSet(ctx, `SELECT DISTINCT task_id FROM report WHERE acked_at = ''`)
+}
+
+func (s *Store) DoneReportAttempts(ctx context.Context) (map[int64]bool, error) {
+	return s.idSet(ctx, `SELECT DISTINCT attempt_id FROM report WHERE status = ?`, ReportDone)
+}
+
+func (s *Store) ReportsMentioning(ctx context.Context, needle string) ([]Report, error) {
+	rows, err := s.db.QueryContext(ctx, reportSelect+` WHERE instr(body, ?) > 0 ORDER BY id`, needle)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Report
+	for rows.Next() {
+		r, err := scanReport(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) idSet(ctx context.Context, q string, args ...any) (map[int64]bool, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UnackedReportCount(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM report WHERE acked_at = ''`).Scan(&n)
