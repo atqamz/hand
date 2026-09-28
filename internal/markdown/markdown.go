@@ -65,10 +65,17 @@ func item(line string, ordered bool) string {
 	return ""
 }
 
+type scan struct {
+	s     string
+	links bool
+	dead  map[string]bool
+}
+
 func inline(s string, links bool) string {
+	sc := scan{s: s, links: links, dead: map[string]bool{}}
 	var b strings.Builder
 	for i := 0; i < len(s); {
-		if out, n := marker(s, i, links); n > 0 {
+		if out, n := sc.marker(i); n > 0 {
 			b.WriteString(out)
 			i += n
 			continue
@@ -79,25 +86,36 @@ func inline(s string, links bool) string {
 	return b.String()
 }
 
-func marker(s string, i int, links bool) (string, int) {
+func (sc scan) marker(i int) (string, int) {
+	s, links := sc.s, sc.links
 	rest := s[i:]
 	switch {
-	case rest[0] == '`':
+	case rest[0] == '`' && !sc.dead["`"]:
 		if j := strings.IndexByte(rest[1:], '`'); j > 0 {
 			return "<code>" + html.EscapeString(rest[1:1+j]) + "</code>", j + 2
+		} else if j < 0 {
+			sc.dead["`"] = true
 		}
 	case strings.HasPrefix(rest, "**"):
-		if j := strings.Index(rest[2:], "**"); j > 0 {
-			return "<strong>" + inline(rest[2:2+j], links) + "</strong>", j + 4
+		if !sc.dead["**"] {
+			if j := strings.Index(rest[2:], "**"); j > 0 {
+				return "<strong>" + inline(rest[2:2+j], links) + "</strong>", j + 4
+			} else if j < 0 {
+				sc.dead["**"] = true
+			}
 		}
 		return html.EscapeString("**"), 2
-	case rest[0] == '*' || rest[0] == '_':
+	case (rest[0] == '*' || rest[0] == '_') && !sc.dead[rest[:1]]:
 		if j := closing(s, i); j > 0 {
 			return "<em>" + inline(s[i+1:j], links) + "</em>", j - i + 1
+		} else if j < 0 {
+			sc.dead[rest[:1]] = true
 		}
-	case rest[0] == '[' && links:
+	case rest[0] == '[' && links && !sc.dead["["]:
 		if out, n := link(rest); n > 0 {
 			return out, n
+		} else if n < 0 {
+			sc.dead["["] = true
 		}
 	case links && (strings.HasPrefix(rest, "http://") || strings.HasPrefix(rest, "https://")) && (i == 0 || !word(s[i-1]) && s[i-1] != '/'):
 		if u, n := bare(rest); n > 0 {
@@ -117,17 +135,20 @@ func closing(s string, i int) int {
 			return j
 		}
 	}
-	return 0
+	return -1
 }
 
 func link(rest string) (string, int) {
 	mid := strings.Index(rest, "](")
+	if mid < 0 {
+		return "", -1
+	}
 	if mid < 1 {
 		return "", 0
 	}
 	end := strings.IndexByte(rest[mid+2:], ')')
 	if end < 0 {
-		return "", 0
+		return "", -1
 	}
 	u := rest[mid+2 : mid+2+end]
 	if !safe(u) {

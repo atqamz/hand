@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/markdown"
@@ -136,4 +137,15 @@ func active(out string) string {
 		}
 	}
 	return ""
+}
+
+func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
+	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a "} {
+		in := strings.Repeat(unit, 200<<10/len(unit))
+		start := time.Now()
+		markdown.Render(in)
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("Render of %d bytes of %q took %v", len(in), unit, d)
+		}
+	}
 }
