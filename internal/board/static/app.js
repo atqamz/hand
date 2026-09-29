@@ -136,6 +136,21 @@
 		setTimeout(() => chosen.set(d.id, d.open));
 	});
 
+	const closeMenus = (keep) => {
+		for (const m of document.querySelectorAll("details.menu[open]")) {
+			if (keep && m.contains(keep)) continue;
+			m.open = false;
+			chosen.set(m.id, false);
+		}
+	};
+	document.addEventListener("click", (e) => closeMenus(e.target instanceof Node ? e.target : null));
+	document.addEventListener("keydown", (e) => {
+		if (e.key !== "Escape") return;
+		const open = document.querySelector("details.menu[open]");
+		closeMenus(null);
+		open?.querySelector("summary")?.focus();
+	});
+
 	document.addEventListener("focusout", () => {
 		setTimeout(() => {
 			for (const [name, html] of held) apply(name, html);
@@ -170,6 +185,7 @@
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
+			if (form.closest("details.menu")) closeMenus(null);
 			toast.textContent = "";
 			return;
 		}

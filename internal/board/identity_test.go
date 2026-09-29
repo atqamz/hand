@@ -354,3 +354,18 @@ func TestTheWireDeskTokens(t *testing.T) {
 		rest = rest[i+len("box-shadow:"):]
 	}
 }
+
+func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/")
+	box := body[strings.Index(body, `<div class="console-box">`):]
+	box = box[:strings.Index(box, "</section></div>")]
+	contains(t, "console box", box, `<form id="composer"`, `data-region="console"`)
+	css := asset(t, "board.css")
+	for _, rule := range []string{`grid-template-areas:"text text text" "console hint send"`, "#composer{display:contents}", ".menu-body{position:absolute;bottom:calc(100% + 6px)"} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("board.css lacks %q", rule)
+		}
+	}
+}
