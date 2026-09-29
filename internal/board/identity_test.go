@@ -92,7 +92,7 @@ func TestColoursMeetContrast(t *testing.T) {
 		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
 			tokens[m[1]] = m[2]
 		}
-		for _, fg := range []string{"fail", "wait", "pass", "neutral", "fg", "muted"} {
+		for _, fg := range []string{"fail", "wait", "pass", "neutral", "fg", "muted", "pencil", "flash"} {
 			for _, bg := range []string{"bg", "card"} {
 				if tokens[fg] == "" || tokens[bg] == "" {
 					t.Fatalf("%s theme lacks --%s or --%s", name, fg, bg)
@@ -261,22 +261,22 @@ func TestRepliesStyleTheirBlocks(t *testing.T) {
 func TestMotionHonoursReducedMotion(t *testing.T) {
 	css := asset(t, "board.css")
 	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
-	if i < 0 || !strings.Contains(css[i:], ".pill[data-state=working]::before{animation:none}") {
-		t.Fatal("the working dot keeps pulsing under prefers-reduced-motion")
+	if i < 0 || !strings.Contains(css[i:], ".pill[data-state=working]::before{animation:none}") || !strings.Contains(css[i:], ".printhead{animation:none}") || !strings.Contains(css[i:], ".lamp{animation:none}") {
+		t.Fatal("the working dot, the print head or the lamp keeps moving under prefers-reduced-motion")
 	}
 }
 
 func TestTheFinishFixesHold(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
-		"body:not([data-shell]) #composer{position:sticky;bottom:0;z-index:2;",
-		"@media (max-height:599px){#composer{position:sticky;bottom:0;z-index:2;",
+		"body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2;",
+		"@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2;",
 		"body[data-shell] .timeline{max-height:none;overflow:visible}",
 		"::placeholder{color:var(--muted)}",
 		".md .table{width:fit-content;max-width:100%;",
 		"scrollbar-gutter:stable both-edges",
 		".tabs .dot{",
-		".switch[open]>summary .icon{transform:rotate(180deg)}",
+		".menu[open]>summary .icon{transform:rotate(180deg)}",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
@@ -293,4 +293,64 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 	body := get(t, fx.handler(), "/")
 	contains(t, "fleet page", body, `href="/?all=1#needs"`, `href="/?pick=1#chat"`)
 	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
+}
+
+func TestTheWireDeskTokens(t *testing.T) {
+	light, dark := themes(t)
+	token := func(block, name string) string {
+		root := block[strings.Index(block, ":root{"):]
+		root = root[:strings.IndexByte(root, '}')]
+		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
+			if m[1] == name {
+				return m[2]
+			}
+		}
+		t.Fatalf("no --%s", name)
+		return ""
+	}
+	bg := token(light, "bg")
+	r, _ := strconv.ParseUint(bg[1:3], 16, 8)
+	g, _ := strconv.ParseUint(bg[3:5], 16, 8)
+	b, _ := strconv.ParseUint(bg[5:7], 16, 8)
+	if r < 0xe0 || g < 0xe0 || b > 0xb0 {
+		t.Errorf("the day desk ground %s is not canary copy", bg)
+	}
+	if l := luminance(token(dark, "bg")); l >= 0.02 {
+		t.Errorf("the night desk ground is not carbon: luminance %.3f", l)
+	}
+	css := asset(t, "board.css")
+	for _, sel := range []string{".slug{", ".strip{"} {
+		i := strings.Index(css, sel)
+		if i < 0 {
+			t.Fatalf("board.css has no %s rule", sel)
+		}
+		rule := css[i : i+strings.IndexByte(css[i:], '}')]
+		if !strings.Contains(rule, "font-family:var(--mono)") || !strings.Contains(rule, "text-transform:uppercase") {
+			t.Errorf("%s is not mono caps: %s", sel, rule)
+		}
+	}
+	if !strings.Contains(css, "--mono:ui-monospace") {
+		t.Error("board.css has no --mono stack")
+	}
+	allowed := []string{".console-box", ".menu", "#toast", ".keys button", ".key", "kbd"}
+	for rest := css; ; {
+		i := strings.Index(rest, "box-shadow:")
+		if i < 0 {
+			break
+		}
+		start := strings.LastIndexAny(rest[:i], "}\n") + 1
+		segment := rest[start:i]
+		sel := segment[:max(0, strings.LastIndexByte(segment, '{'))]
+		sel = strings.TrimSpace(sel[strings.LastIndexByte(sel, '{')+1:])
+		ok := false
+		for _, a := range allowed {
+			if strings.Contains(sel, a) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("%s carries a shadow", sel)
+		}
+		rest = rest[i+len("box-shadow:"):]
+	}
 }
