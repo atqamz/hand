@@ -27,9 +27,35 @@ func TestRenderSubset(t *testing.T) {
 		{"see https://x.io/a?b=1&c=2.", `<p>see <a href="https://x.io/a?b=1&amp;c=2" rel="noopener noreferrer">https://x.io/a?b=1&amp;c=2</a>.</p>`},
 		{"snake_case_name and a_b", `<p>snake_case_name and a_b</p>`},
 		{"`**not bold**`", `<p><code>**not bold**</code></p>`},
-		{"# not a heading", `<p># not a heading</p>`},
+		{"#not a heading", `<p>#not a heading</p>`},
 		{"", ``},
 	} {
+		if got := string(markdown.Render(c.in)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+var blocks = []struct{ in, want string }{
+	{"## Sources\ntext", `<h3>Sources</h3><p>text</p>`},
+	{"# A", `<h3>A</h3>`},
+	{"### B", `<h4>B</h4>`},
+	{"###### C", `<h4>C</h4>`},
+	{"#tag", `<p>#tag</p>`},
+	{"## **Bold** head", `<h3><strong>Bold</strong> head</h3>`},
+	{"a\n---\nb", `<p>a</p><hr><p>b</p>`},
+	{"***", `<hr>`},
+	{"_ _ _", `<hr>`},
+	{"--", `<p>--</p>`},
+	{"> quoted\n> more\n\nafter", `<blockquote><p>quoted<br>more</p></blockquote><p>after</p>`},
+	{"> - a\n> - b", `<blockquote><ul><li>a</li><li>b</li></ul></blockquote>`},
+	{"> > deep", `<blockquote><p>&gt; deep</p></blockquote>`},
+	{"~~gone~~ kept", `<p><del>gone</del> kept</p>`},
+	{"~~open", `<p>~~open</p>`},
+}
+
+func TestRenderBlocks(t *testing.T) {
+	for _, c := range blocks {
 		if got := string(markdown.Render(c.in)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
@@ -85,15 +111,23 @@ var corpus = []string{
 }
 
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
-	for _, in := range corpus {
+	for _, in := range seeds() {
 		if msg := active(string(markdown.Render(in))); msg != "" {
 			t.Errorf("Render(%q): %s", in, msg)
 		}
 	}
 }
 
+func seeds() []string {
+	out := append([]string(nil), corpus...)
+	for _, b := range blocks {
+		out = append(out, b.in)
+	}
+	return out
+}
+
 func FuzzRender(f *testing.F) {
-	for _, in := range corpus {
+	for _, in := range seeds() {
 		f.Add(in)
 	}
 	f.Fuzz(func(t *testing.T, in string) {
@@ -107,9 +141,9 @@ func FuzzRender(f *testing.F) {
 }
 
 var (
-	tagPattern  = regexp.MustCompile(`^<(/?)([a-z]+)((?: [a-z]+="[^"<>]*")*)>`)
+	tagPattern  = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z]+="[^"<>]*")*)>`)
 	attrPattern = regexp.MustCompile(` ([a-z]+)="([^"]*)"`)
-	allowed     = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true}
+	allowed     = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true}
 )
 
 func active(out string) string {
@@ -140,7 +174,7 @@ func active(out string) string {
 }
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
-	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a "} {
+	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n"} {
 		in := strings.Repeat(unit, 200<<10/len(unit))
 		start := time.Now()
 		markdown.Render(in)

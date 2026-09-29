@@ -10,6 +10,11 @@ import (
 func Render(text string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
+	blocks(&b, lines, true)
+	return template.HTML(b.String())
+}
+
+func blocks(b *strings.Builder, lines []string, quotes bool) {
 	for i := 0; i < len(lines); {
 		line := lines[i]
 		switch {
@@ -22,19 +27,56 @@ func Render(text string) template.HTML {
 			}
 			b.WriteString("<pre><code>" + html.EscapeString(strings.Join(lines[i+1:j], "\n")) + "</code></pre>")
 			i = j + 1
+		case rule(line):
+			b.WriteString("<hr>")
+			i++
+		case heading(line) > 0:
+			tag := "h3"
+			if heading(line) > 2 {
+				tag = "h4"
+			}
+			b.WriteString("<" + tag + ">" + inline(strings.TrimSpace(line[heading(line):]), true) + "</" + tag + ">")
+			i++
+		case quotes && strings.HasPrefix(line, ">"):
+			var inner []string
+			for ; i < len(lines) && strings.HasPrefix(lines[i], ">"); i++ {
+				inner = append(inner, strings.TrimPrefix(lines[i][1:], " "))
+			}
+			b.WriteString("<blockquote>")
+			blocks(b, inner, false)
+			b.WriteString("</blockquote>")
 		case item(line, false) != "":
-			i = list(&b, lines, i, "ul", false)
+			i = list(b, lines, i, "ul", false)
 		case item(line, true) != "":
-			i = list(&b, lines, i, "ol", true)
+			i = list(b, lines, i, "ol", true)
 		default:
 			var parts []string
-			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && !fence(lines[i]) && item(lines[i], false) == "" && item(lines[i], true) == ""; i++ {
+			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && (len(parts) == 0 || !starts(lines[i], quotes)); i++ {
 				parts = append(parts, inline(lines[i], true))
 			}
 			b.WriteString("<p>" + strings.Join(parts, "<br>") + "</p>")
 		}
 	}
-	return template.HTML(b.String())
+}
+
+func starts(line string, quotes bool) bool {
+	return fence(line) || rule(line) || heading(line) > 0 || quotes && strings.HasPrefix(line, ">") || item(line, false) != "" || item(line, true) != ""
+}
+
+func rule(line string) bool {
+	t := strings.ReplaceAll(strings.TrimSpace(line), " ", "")
+	return len(t) >= 3 && strings.Trim(t, t[:1]) == "" && strings.ContainsAny(t[:1], "-*_")
+}
+
+func heading(line string) int {
+	n := 0
+	for n < len(line) && n < 7 && line[n] == '#' {
+		n++
+	}
+	if n == 0 || n > 6 || n == len(line) || line[n] != ' ' {
+		return 0
+	}
+	return n
 }
 
 func fence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "```") }
@@ -96,6 +138,15 @@ func (sc scan) marker(i int) (string, int) {
 		} else if j < 0 {
 			sc.dead["`"] = true
 		}
+	case strings.HasPrefix(rest, "~~"):
+		if !sc.dead["~~"] {
+			if j := strings.Index(rest[2:], "~~"); j > 0 {
+				return "<del>" + inline(rest[2:2+j], links) + "</del>", j + 4
+			} else if j < 0 {
+				sc.dead["~~"] = true
+			}
+		}
+		return html.EscapeString("~~"), 2
 	case strings.HasPrefix(rest, "**"):
 		if !sc.dead["**"] {
 			if j := strings.Index(rest[2:], "**"); j > 0 {
