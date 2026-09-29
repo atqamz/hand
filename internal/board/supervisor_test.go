@@ -141,7 +141,7 @@ func TestEveryPanelState(t *testing.T) {
 		{"interrupted", state.AttemptInterrupted, "", []string{`action="/supervisor/start"`, `action="/supervisor/resume"`}},
 		{"blocked", state.AttemptRunning, "blocked", []string{`action="/supervisor/keys"`, `action="/supervisor/stop"`}},
 		{"working", state.AttemptRunning, "working", []string{`action="/supervisor/interrupt"`, `action="/supervisor/stop"`}},
-		{"done", state.AttemptRunning, "done", []string{`action="/supervisor/interrupt"`, `action="/supervisor/stop"`}},
+		{"done", state.AttemptRunning, "done", []string{`action="/supervisor/stop"`}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -368,22 +368,22 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 	}
 	working := fixture(t, "working")
 	working.supervisor(t, state.AttemptRunning, "gen-1")
-	status := region(get(t, working.handler(), "/"), "status")
-	contains(t, "working", status, `id="switch"`, `value="claude-deep"`, "Switch after this turn", `action="/supervisor/switch"`)
+	status := region(get(t, working.handler(), "/"), "console")
+	contains(t, "working", status, `id="model-menu"`, `value="claude-deep"`, "Switch after this turn", `action="/supervisor/switch"`)
 	lacks(t, "working", status, `value="luna"`, "Switch now")
 	idle := fixture(t, "idle")
 	idle.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "idle", region(get(t, idle.handler(), "/"), "status"), "Switch now")
+	contains(t, "idle", region(get(t, idle.handler(), "/"), "console"), "Switch now")
 	blocked := fixture(t, "blocked")
 	blocked.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "blocked", region(get(t, blocked.handler(), "/"), "status"), "Switch after this turn")
+	contains(t, "blocked", region(get(t, blocked.handler(), "/"), "console"), "Switch after this turn")
 	stopped := fixture(t, "idle")
 	stopped.supervisor(t, state.AttemptStopped, "gen-1")
-	lacks(t, "stopped", get(t, stopped.handler(), "/"), `id="switch"`)
+	lacks(t, "stopped", get(t, stopped.handler(), "/"), `id="model-menu"`)
 	lan := fixture(t, "idle")
 	lan.options.Controls = false
 	lan.supervisor(t, state.AttemptRunning, "gen-1")
-	lacks(t, "lan", get(t, lan.handler(), "/"), `id="switch"`)
+	lacks(t, "lan", get(t, lan.handler(), "/"), `id="model-menu"`)
 	oc := fixture(t, "idle")
 	ctx := context.Background()
 	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
@@ -393,13 +393,13 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	lacks(t, "opencode", get(t, oc.handler(), "/"), `id="switch"`)
+	lacks(t, "opencode", get(t, oc.handler(), "/"), `id="model-menu"`)
 	pending := fixture(t, "working")
 	pending.supervisor(t, state.AttemptRunning, "gen-1")
 	if _, err := pending.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
 		t.Fatal(err)
 	}
-	status = region(get(t, pending.handler(), "/"), "status")
-	contains(t, "pending", status, "data-switch", "switching to opus high", `name="cancel" value="1"`)
-	lacks(t, "pending", status, `id="switch"`)
+	status = region(get(t, pending.handler(), "/"), "console")
+	contains(t, "pending", status, "→ OPUS · HIGH", `name="cancel" value="1"`)
+	lacks(t, "pending", status, `id="model-menu"`)
 }

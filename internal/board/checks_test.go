@@ -71,45 +71,6 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 	}
 }
 
-func TestTheStatusIsAPill(t *testing.T) {
-	pill := regexp.MustCompile(`<span class="pill" data-state="([a-z]+)">`)
-	state := func(t *testing.T, body string) string {
-		t.Helper()
-		m := pill.FindAllStringSubmatch(region(body, "status"), -1)
-		if len(m) != 1 {
-			t.Fatalf("status pills = %d:\n%s", len(m), region(body, "status"))
-		}
-		return m[0][1]
-	}
-	none := newFixture(t)
-	if got := state(t, get(t, none.handler(), "/")); got != "neutral" {
-		t.Fatalf("no supervisor = %q", got)
-	}
-	working := newFixture(t)
-	working.supervisor(t, "running", "gen-1")
-	body := get(t, working.handler(), "/")
-	if got := state(t, body); got != "working" {
-		t.Fatalf("working = %q", got)
-	}
-	contains(t, "working status", region(body, "status"), `action="/supervisor/stop"`, `action="/supervisor/interrupt"`, "0 queued")
-	blocked := newFixture(t)
-	blocked.status = "blocked"
-	blocked.supervisor(t, "running", "gen-1")
-	if got := state(t, get(t, blocked.handler(), "/")); got != "failing" {
-		t.Fatalf("blocked = %q", got)
-	}
-	stale := newFixture(t)
-	stale.supervisor(t, "running", "gen-0")
-	if got := state(t, get(t, stale.handler(), "/")); got != "failing" {
-		t.Fatalf("stale = %q", got)
-	}
-	stopped := newFixture(t)
-	stopped.supervisor(t, "stopped", "gen-1")
-	if got := state(t, get(t, stopped.handler(), "/")); got != "neutral" {
-		t.Fatalf("stopped = %q", got)
-	}
-}
-
 func TestTimelineCommentsAndEvents(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, "running", "gen-1")

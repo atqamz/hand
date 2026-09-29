@@ -40,6 +40,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"asset":    assetURL,
 	"md":       markdown.Render,
 	"mdrefs":   markdown.RenderRefs,
+	"upper":    strings.ToUpper,
 	"when":     when,
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {

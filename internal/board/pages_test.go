@@ -73,7 +73,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 
 func TestTheFirstRunState(t *testing.T) {
 	body := get(t, board.New(open(t), token, board.Options{Controls: true, Control: func(context.Context, ...string) error { return nil }}), "/")
-	contains(t, "first run", body, "Nothing needs you", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", "No supervisor yet")
+	contains(t, "first run", body, "Nothing needs you", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", "NO SUPERVISOR")
 }
 
 func TestTheReadOnlyBoard(t *testing.T) {

@@ -7,30 +7,6 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-func TestThePillSaysWhatTheSupervisorIsDoing(t *testing.T) {
-	for _, c := range []struct{ agent, state, label string }{
-		{"working", "working", "working"},
-		{"idle", "ready", "ready"},
-		{"done", "ready", "ready"},
-		{"blocked", "failing", "blocked"},
-	} {
-		fx := newFixture(t)
-		fx.status = c.agent
-		fx.supervisor(t, state.AttemptRunning, "gen-1")
-		status := region(get(t, fx.handler(), "/"), "status")
-		contains(t, c.agent, status, `data-state="`+c.state+`">`+c.label+`</span>`)
-		lacks(t, c.agent, status, "agent "+c.agent)
-	}
-	stale := newFixture(t)
-	stale.supervisor(t, state.AttemptRunning, "gen-0")
-	contains(t, "stale", region(get(t, stale.handler(), "/"), "status"), `data-state="failing">unreachable</span>`)
-	launching := newFixture(t)
-	if _, err := launching.st.AddSupervisor(context.Background(), state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude"}}); err != nil {
-		t.Fatal(err)
-	}
-	contains(t, "launching", region(get(t, launching.handler(), "/"), "status"), `data-state="neutral">launching</span>`)
-}
-
 func TestTheWorkingRowNamesWhatItWorksOn(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
@@ -94,7 +70,7 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 			contains(t, c.name, body, `<span class="hint">`+c.want+`</span>`)
 			contains(t, c.name, region(body, "status"), `data-agent="`+c.data+`"`, `data-hint="`+c.want+`"`)
 			if c.switching {
-				contains(t, c.name, region(body, "status"), "data-switch", "switching to opus high")
+				contains(t, c.name, region(body, "console"), "→ OPUS · HIGH")
 			}
 		})
 	}

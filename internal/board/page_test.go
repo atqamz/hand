@@ -15,14 +15,14 @@ import (
 
 const strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 
-var regionOpen = regexp.MustCompile(`<section[^>]*data-region="(status|timeline|queue|tasks)"`)
+var regionOpen = regexp.MustCompile(`<section[^>]*data-region="(status|console|timeline|queue|tasks)"`)
 
 func TestTheFleetPageRendersEveryRegionInline(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	page := get(t, fx.handler(), "/")
 	lacks(t, "fleet page", page, "<iframe")
-	for _, region := range []string{"status", "timeline", "queue", "tasks"} {
+	for _, region := range []string{"status", "console", "timeline", "queue", "tasks"} {
 		if n := strings.Count(page, `data-region="`+region+`"`); n != 1 {
 			t.Fatalf("region %s appears %d times:\n%s", region, n, page)
 		}

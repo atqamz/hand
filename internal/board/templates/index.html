@@ -6,13 +6,12 @@
 <p class="finished">{{if .All}}<a href="{{.Base}}/#needs">Hide finished tasks</a>{{else}}<a href="{{.Base}}/?all=1#needs">Show finished tasks</a>{{end}}</p>
 </div>
 <div class="column" id="chat">
-<section class="panel" data-region="status">{{template "region-status" .}}</section>
 <section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
-{{if .Controls}}<form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
+{{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<div class="actions"><span class="hint">{{.ComposerHint}}</span><span class="send"><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
-</form>{{end}}
+<span class="hint">{{.ComposerHint}}</span><span class="send"><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span>
+</form><section class="console" data-region="console">{{template "region-console" .}}</section></div>{{end}}
 </div>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>

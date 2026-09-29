@@ -204,7 +204,7 @@ func TestAnInterruptedSupervisorAsksToResume(t *testing.T) {
 		t.Fatalf("queue = %q %q", kinds, refs)
 	}
 	contains(t, "resume item", region(body, "queue"), `action="/supervisor/resume" data-fetch`, `action="/supervisor/start" data-fetch`)
-	lacks(t, "status region", region(body, "status"), `action="/supervisor/resume"`)
+	lacks(t, "console region", region(body, "console"), `action="/supervisor/resume"`)
 	fx.options.Controls = false
 	lacks(t, "read-only resume item", region(get(t, fx.handler(), "/"), "queue"), `action="/supervisor/resume"`)
 	stopped := newFixture(t)
@@ -213,7 +213,7 @@ func TestAnInterruptedSupervisorAsksToResume(t *testing.T) {
 	if kinds, _, _ := waits(body); len(kinds) != 0 {
 		t.Fatalf("a supervisor stopped on purpose waits: %q", kinds)
 	}
-	contains(t, "stopped status", region(body, "status"), `action="/supervisor/resume"`)
+	contains(t, "stopped console", region(body, "console"), `action="/supervisor/resume"`)
 }
 
 func TestLongWaitingContentIsBounded(t *testing.T) {

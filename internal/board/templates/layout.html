@@ -11,7 +11,7 @@
 <body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}">
 {{end}}
 
-{{define "top"}}<header class="top"><div class="top-inner"><a class="brand" href="{{.Base}}/">{{template "icon-mark"}}<h1>{{.Fleet}}</h1></a>{{with .FleetID}}<span class="ref fleet-id">{{.}}</span>{{end}}<span class="spacer"></span>{{if .FleetID}}<button type="button" id="notify" class="quiet-button" hidden>{{template "icon-bell"}} Notify me</button>{{end}}</div></header>
+{{define "top"}}<header class="masthead"><div class="masthead-inner"><a class="brand" href="{{.Base}}/">{{template "icon-mark"}}<h1 class="wire-name">{{.Fleet}} <span class="wire-word">Wire</span></h1></a>{{with .FleetID}}<span class="ref fleet-id">{{.}}</span>{{end}}<span class="spacer"></span>{{if .Live}}<section class="strip" data-region="status">{{template "region-status" .}}</section>{{end}}<time class="clock" data-clock-now></time>{{if .FleetID}}<button type="button" id="notify" class="quiet-button" hidden>{{template "icon-bell"}} Notify me</button>{{end}}</div></header>
 {{end}}
 
 {{define "foot"}}</body>

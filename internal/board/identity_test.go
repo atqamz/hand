@@ -153,7 +153,7 @@ func TestFirstViewportOrder(t *testing.T) {
 		}
 		return i
 	}
-	order := []string{`id="needs"`, `data-region="queue"`, `data-region="tasks"`, `id="chat"`, `data-region="status"`, `data-region="timeline"`, `id="composer"`}
+	order := []string{`data-region="status"`, `id="needs"`, `data-region="queue"`, `data-region="tasks"`, `id="chat"`, `data-region="timeline"`, `id="composer"`, `data-region="console"`}
 	for i := 1; i < len(order); i++ {
 		if at(order[i-1]) > at(order[i]) {
 			t.Fatalf("%s comes after %s", order[i-1], order[i])
