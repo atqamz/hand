@@ -37,7 +37,7 @@ Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (i
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.
 - `attempt.blocked`: `hand attempt read aN`. Answer a trust or permission screen the task needs with `hand attempt keys --revision N aN KEY...`; anything else is a question for the operator.
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.
-- `decision.answered`: continue the task with the answer (`hand task show tN`).
+- `decision.answered`: `hand decision show dN` prints the answer; continue the task with it.
 
 ## Ask the operator
 

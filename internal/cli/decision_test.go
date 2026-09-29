@@ -26,3 +26,19 @@ func TestDecisionFlowThroughCLI(t *testing.T) {
 		t.Fatalf("repeat answer code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestDecisionShowReadsTheAnswer(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
+	h.ok("decision", "answer", "--by", "atqa", "d1", "yes, until v2")
+	out := h.ok("decision", "show", "d1")
+	for _, want := range []string{"decision: d1", "task: t1", "status: answered", "question: Keep the old cookie name?", `answer: "yes, until v2"`, "answered_by: atqa"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("show missing %q in %q", want, out)
+		}
+	}
+	if _, errOut, code := h.run("decision", "show", "d9"); code != 3 || !strings.Contains(errOut, "decision d9") {
+		t.Fatalf("missing decision code=%d stderr=%q", code, errOut)
+	}
+}

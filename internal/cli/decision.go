@@ -12,6 +12,7 @@ var decisionCommands = map[string]handler{
 	"answer":   cmdDecisionAnswer,
 	"withdraw": cmdDecisionWithdraw,
 	"list":     cmdDecisionList,
+	"show":     cmdDecisionShow,
 }
 
 func init() {
@@ -89,6 +90,36 @@ func cmdDecisionWithdraw(r *runner, args []string) error {
 		return err
 	}
 	return r.print(decisionDoc(d))
+}
+
+func cmdDecisionShow(r *runner, args []string) error {
+	pos, err := parse(flags("decision show"), args, 1)
+	if err != nil {
+		return err
+	}
+	id, err := parseID("d", pos[0])
+	if err != nil {
+		return err
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	d, err := st.Decision(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	doc := decisionDoc(d)
+	doc.Field("question", d.Question)
+	if d.Status == state.DecisionAnswered {
+		doc.Field("answer", d.Answer)
+		doc.Field("answered_by", d.AnsweredBy)
+	}
+	if d.ClosedAt != "" {
+		doc.Field("closed_at", d.ClosedAt)
+	}
+	return r.print(doc)
 }
 
 func cmdDecisionList(r *runner, args []string) error {
