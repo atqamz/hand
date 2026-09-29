@@ -155,6 +155,31 @@ func (s *Store) OpenDecisions(ctx context.Context, taskID int64, limit int) ([]D
 	return out, rows.Err()
 }
 
+func (s *Store) Decisions(ctx context.Context, taskID int64, limit int) ([]Decision, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	q, args := decisionSelect, []any{}
+	if taskID != 0 {
+		q += ` WHERE task_id = ?`
+		args = append(args, taskID)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT * FROM (`+q+` ORDER BY id DESC LIMIT ?) ORDER BY id`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Decision
+	for rows.Next() {
+		d, err := scanDecision(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) OpenDecisionCounts(ctx context.Context) (map[int64]int, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT task_id, count(*) FROM decision WHERE status = ? GROUP BY task_id`, DecisionOpen)
 	if err != nil {
