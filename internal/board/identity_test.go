@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func tintOf(id string) int {
@@ -284,4 +285,12 @@ func TestTheFinishFixesHold(t *testing.T) {
 	if strings.Contains(css, ".tabs .dot{content:\"\";flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);animation") || strings.Contains(css, ".md table{min-width:100%") {
 		t.Error("the tab dot still pulses, or reply tables still stretch to the column")
 	}
+}
+
+func TestFleetLinksKeepTheirTab(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptStopped, "gen-1")
+	body := get(t, fx.handler(), "/")
+	contains(t, "fleet page", body, `href="/?all=1#needs"`, `href="/?pick=1#chat"`)
+	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
 }
