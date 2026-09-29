@@ -84,9 +84,9 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 	}
 	tl := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", tl,
-		`<article class="dispatch" data-role="supervisor">`, "<strong>shipped</strong>",
-		`<article class="dispatch note" data-role="operator">`, "please **look**",
-		`<p class="service">`, "wake: r3 from a2 done",
+		`<article class="dispatch" data-role="supervisor" data-no=`, "<strong>shipped</strong>",
+		`<article class="dispatch note" data-role="operator" data-no=`, "please **look**",
+		`<p class="service" data-no=`, "wake: r3 from a2 done",
 		"Queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
 }

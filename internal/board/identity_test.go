@@ -269,8 +269,8 @@ func TestMotionHonoursReducedMotion(t *testing.T) {
 func TestTheFinishFixesHold(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
-		"body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2;",
-		"@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2;",
+		"body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2",
+		"@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2",
 		"body[data-shell] .timeline{max-height:none;overflow:visible}",
 		"::placeholder{color:var(--muted)}",
 		".md .table{width:fit-content;max-width:100%;",
@@ -366,6 +366,29 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 	for _, rule := range []string{`grid-template-areas:"text text text" "console hint send"`, "#composer{display:contents}", ".menu-body{position:absolute;bottom:calc(100% + 6px)"} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
+		}
+	}
+}
+
+func TestTheWireDeskFinishFixes(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, rule := range []string{
+		".masthead .quiet-button{color:var(--on-header-muted)}",
+		".working-line{display:flex;",
+		".printhead{flex:1;",
+		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
+		"max-width:72ch",
+		".slug>*:not(:last-child)::after{",
+		".masthead{position:sticky;top:0;",
+		"@keyframes feed{",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("board.css lacks %q", rule)
+		}
+	}
+	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("board.css still has %q", gone)
 		}
 	}
 }

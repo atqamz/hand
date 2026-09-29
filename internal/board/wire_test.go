@@ -39,7 +39,7 @@ func TestHandLinesAreServiceLines(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ndecision.answered d1`)})
-	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service"><span class="slug"><span class="who">HAND</span>`, "wake: decision.answered d1")
+	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service" data-no="1"><span class="slug"><span class="who">HAND</span>`, "wake: decision.answered d1")
 }
 
 func TestTheWorkingLineCarriesThePrintHead(t *testing.T) {

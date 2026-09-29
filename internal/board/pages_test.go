@@ -25,7 +25,7 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 		t.Fatalf("task page regions = %d:\n%s", n, body)
 	}
 	contains(t, "task thread", body,
-		`<span class="ref">t1</span>`, `<span class="pill" data-state="running">active</span>`,
+		`<span class="ref">t1</span>`, `<span class="status" data-state="running">ACTIVE</span>`,
 		"PLAN P1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
 		`<article class="dispatch report" id="r1"`, `<article class="dispatch report" id="r2"`, "<strong>tests</strong>",
 		`<li class="check" data-state="running" id="a1">`,
@@ -131,11 +131,25 @@ func TestThreadPagesUseTheDispatchModule(t *testing.T) {
 		`<article class="dispatch report" id="r1" data-status="done"><header class="slug"><span class="who">R1</span>`,
 		`<li class="service"><span class="slug"><span class="who">`,
 		`<li class="check" data-state="running" id="a1">`,
-		`<span class="code" data-code="BULLETIN">BULLETIN</span>`)
+		`<span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span>`,
+		`<div class="strip">`)
+	lacks(t, "task page", task, `data-region="status"`)
 	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
 	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
 	}})
 	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="wire-name" href="/f6b63e98d4af2/">hand <span class="wire-word">Wire</span></a>`)
 	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-code="FLASH">404</span>`)
+}
+
+func TestThreadPagesCarryAStaticStrip(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	h := board.New(st, token, board.Options{})
+	for _, path := range []string{"/task/t1", "/decision/d1", "/supervisor/log"} {
+		body := get(t, h, path)
+		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="line">NO SUPERVISOR</span>`)
+		lacks(t, path, body, `data-region="status"`)
+	}
+	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status" data-state="waiting">OPEN</span>`)
 }

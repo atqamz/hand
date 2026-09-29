@@ -221,3 +221,25 @@ func TestASupervisorStartsWithoutASwitch(t *testing.T) {
 		t.Fatalf("new row = %+v", sup)
 	}
 }
+
+func TestSessionSupervisorsListsOneSessionInOrder(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	first := runningSupervisor(t, s)
+	if _, err := s.EndSupervisor(ctx, first.ID, AttemptStopped, "switch"); err != nil {
+		t.Fatal(err)
+	}
+	second := runningSupervisor(t, s)
+	if _, err := s.EndSupervisor(ctx, second.ID, AttemptStopped, "done"); err != nil {
+		t.Fatal(err)
+	}
+	other := supervisorSpec
+	other.Session = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+	if _, err := s.AddSupervisor(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.SessionSupervisors(ctx, supervisorSpec.Session)
+	if err != nil || len(got) != 2 || got[0].ID != first.ID || got[1].ID != second.ID {
+		t.Fatalf("session supervisors = %+v, %v", got, err)
+	}
+}

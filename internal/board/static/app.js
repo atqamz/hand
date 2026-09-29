@@ -30,7 +30,7 @@
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since]):not([data-clock-now])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
-			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
 		}
@@ -39,7 +39,7 @@
 	const clock = () => {
 		const now = new Date();
 		for (const c of document.querySelectorAll("[data-clock-now]")) {
-			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" });
 			c.dateTime = now.toISOString();
 		}
 	};
@@ -108,6 +108,7 @@
 		const spot = (e) => (e && e !== el && el.contains(e) ? [e.closest("details[id]")?.id, e.tagName, e.closest("form")?.getAttribute("action"), e.getAttribute("href"), e.value].join("|") : "");
 		const focused = spot(document.activeElement);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
+		const fed = new Set([...el.querySelectorAll("[data-no]")].map((d) => d.dataset.no));
 		const fields = "textarea, select, input:not([type=hidden])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
@@ -119,6 +120,13 @@
 			if (!before.has(d.id) && d.classList.contains("wait")) {
 				d.dataset.new = "";
 				setTimeout(() => d.removeAttribute("data-new"), 1600);
+			}
+		}
+		if (fed.size > 0) {
+			for (const d of el.querySelectorAll("[data-no]")) {
+				if (fed.has(d.dataset.no)) continue;
+				d.dataset.new = "";
+				setTimeout(() => d.removeAttribute("data-new"), 600);
 			}
 		}
 		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
@@ -223,6 +231,7 @@
 		}
 		const timeline = regions.get("timeline");
 		if (timeline && current === "chat") pin(timeline);
+		if (current === "needs" && !tall.matches) scrollTo(0, 0);
 	};
 	if (tabs.length > 0) {
 		for (const t of tabs) {

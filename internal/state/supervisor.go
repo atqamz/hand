@@ -224,6 +224,23 @@ func (s *Store) SupervisorOrigin(ctx context.Context, sup Supervisor) (int64, er
 	return id, err
 }
 
+func (s *Store) SessionSupervisors(ctx context.Context, session string) ([]Supervisor, error) {
+	rows, err := s.db.QueryContext(ctx, supervisorSelect+` WHERE session = ? ORDER BY id`, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Supervisor
+	for rows.Next() {
+		sup, err := scanSupervisor(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sup)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SupervisorSessions(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT session FROM supervisor WHERE session != ''`)
 	if err != nil {

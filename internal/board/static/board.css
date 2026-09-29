@@ -36,10 +36,12 @@ textarea{display:block;width:100%;min-height:4.5em;resize:vertical;line-height:1
 ::placeholder{color:var(--muted)}
 textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
 .brand:hover{text-decoration:none}
-.masthead{background:var(--header);color:var(--on-header);border-bottom:3px solid var(--tint)}
+.masthead{background:var(--header);color:var(--on-header)}
+.masthead .quiet-button{color:var(--on-header-muted)}
+.masthead .quiet-button:hover{color:var(--on-header)}
 .masthead-inner{padding:10px 16px;display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;min-width:0}
 .brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--on-header)}
-.wire-name{color:var(--tint);font-size:16px;font-weight:800;line-height:24px;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wire-name{color:var(--tint);font-size:22px;font-weight:800;line-height:28px;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wire-word{color:var(--on-header-muted);font-weight:600}
 .mark{width:22px;height:22px;color:var(--tint)}
 .masthead .fleet-id{border-color:transparent;background:none;color:var(--on-header-muted)}
@@ -60,8 +62,10 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-family:var(--mono);font-size:11.5px;font-weight:600;line-height:18px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
 .dispatch{padding:12px 0;border-top:1px solid var(--line)}
 .dispatch>.copy{margin-top:4px}
-.printhead{display:block;height:2px;margin-top:6px;background:linear-gradient(var(--fg),var(--fg)) no-repeat 0 0/10px 100%;animation:carriage 3s steps(40) infinite}
-@keyframes carriage{to{background-position:100% 0}}
+.printhead{flex:1;min-width:3em;height:1.15em;background:linear-gradient(var(--fg),var(--fg)) no-repeat 0 50%/.62em 1.05em;animation:carriage 2.4s steps(30) infinite}
+@keyframes carriage{to{background-position:100% 50%}}
+@keyframes feed{from{transform:translateY(1.4em);opacity:0}}
+.timeline>[data-new]{animation:feed .28s cubic-bezier(.16,1,.3,1)}
 .crumb{color:var(--muted);white-space:nowrap}
 .spacer{flex:1}
 .board{max-width:1440px;margin:0 auto;padding:16px;display:grid;gap:24px;align-items:start}
@@ -78,7 +82,7 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .wait>summary:hover{background:var(--hover)}
 .wait-title{min-width:0;font-size:16px;font-weight:600;line-height:22px}
 .wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.slug>*+*::before{content:"·";display:inline-block;margin-right:10px;color:var(--line)}
+.slug>*:not(:last-child)::after{content:"·";display:inline-block;margin-left:10px;color:var(--line)}
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{font-weight:800;color:var(--fg)}
@@ -123,6 +127,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .timeline>.dispatch,.timeline>.service,.timeline>.working{border-top:1px solid var(--line)}
 .timeline>:last-child{border-top:0}
 .dispatch .copy{font-size:14.5px;line-height:1.6}
+.dispatch .copy>:not(.table):not(pre){max-width:72ch}
 .dispatch .slug .no{font-variant-numeric:tabular-nums}
 .note{align-self:flex-end;width:fit-content;max-width:80%;margin-left:auto;padding-left:12px;border-left:1px solid var(--pencil)}
 .note .slug,.note .slug .who{color:var(--pencil)}
@@ -130,7 +135,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .service{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding:6px 0;color:var(--muted);font-size:12px}
 .service-text{font-family:var(--mono);overflow-wrap:anywhere}
 .working{padding:10px 0}
-.working-line{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.working-line{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .body.plain{white-space:pre-wrap}
 .label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}
 .older{text-align:center;font-size:12px}
@@ -157,16 +162,20 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .md th:first-child,.md td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg);white-space:nowrap}
 .md thead th:first-child{background:var(--card)}
 .console-box{flex:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"text text text" "console hint send";align-items:center;gap:8px 10px;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
-.console-box:focus-within{border-color:var(--pencil)}
+.console-box:focus-within{border-color:var(--pencil);box-shadow:0 0 0 1px var(--pencil)}
 #composer{display:contents}
-#composer textarea{grid-area:text;background:var(--bg)}
+#composer textarea{grid-area:text;border:0;background:transparent;padding:4px 2px}
+#composer textarea:focus{outline:0}
 #composer .hint{grid-area:hint;min-width:0}
 .send{grid-area:send;display:flex;align-items:center;gap:8px;margin-left:auto}
 .console{grid-area:console;display:flex;align-items:center;gap:4px;min-width:0}
 .console .model,.console .pending{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:0 6px}
 .console .pending{color:var(--wait)}
 .console form.inline{display:inline-flex}
-.menu-body{position:absolute;bottom:calc(100% + 6px);left:0;z-index:4;display:grid;gap:8px;min-width:230px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);box-shadow:0 10px 28px var(--shadow)}
+.menu-body{position:absolute;bottom:calc(100% + 6px);left:0;z-index:4;display:grid;gap:8px;min-width:230px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+#more-menu .menu-body{min-width:0;gap:0;padding:4px}
+#more-menu .menu-body button,#more-menu .menu-body a{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap}
+#more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
 .menu-body label{display:grid;gap:2px;font-family:var(--mono);font-size:11px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
 .menu-body a{font-size:13px}
 .key{display:inline-flex;align-items:center;justify-content:center;width:32px;height:28px;padding:0;background:var(--bg);box-shadow:inset 0 2px 0 var(--shadow);color:var(--flash)}
@@ -197,9 +206,14 @@ body[data-page=fleet][data-shell] .board{flex:1;min-height:0;width:100%;grid-tem
 body[data-page=fleet][data-shell] #needs{min-height:0;overflow-y:auto}
 body[data-page=fleet][data-shell] #chat{min-height:0;gap:12px}
 body[data-page=fleet][data-shell] .timeline{flex:1;min-height:0;max-height:none}}
-body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2;box-shadow:0 -8px 16px var(--shadow)}
+body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
-@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2;box-shadow:0 -8px 16px var(--shadow)}
+@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
+.masthead{position:sticky;top:0;z-index:4}
+.masthead-inner{height:36px;padding:4px 12px;flex-wrap:nowrap;overflow:hidden}
+.masthead .wire-word,.masthead .fleet-id,.masthead .clock,#notify{display:none}
+.wire-name{font-size:14px;line-height:20px}
+.tabs{top:36px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.board{padding:12px}.check .attempt{display:none}.fleet-id{display:none}.notify-text{display:none}
@@ -208,12 +222,12 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .masthead .strip{order:2;flex:1 1 auto}
 .masthead .clock{order:3}
 .console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
-@media (pointer:coarse){[data-send-key]{display:none}}
-@media (prefers-reduced-motion:reduce){.wait[data-new]{animation:none}.pill[data-state=working]::before{animation:none}.printhead{animation:none}.lamp{animation:none}}
+@media (pointer:coarse){textarea,input,select{font-size:16px}
+[data-send-key]{display:none}}
+@media (prefers-reduced-motion:reduce){.wait[data-new]{animation:none}.pill[data-state=working]::before{animation:none}.printhead{animation:none}.lamp{animation:none}.timeline>[data-new]{animation:none}}
 .thread,.list{max-width:980px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
 .crumbs{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
-.thread-title{font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-.015em;overflow-wrap:anywhere}
 h3{margin:10px 0 0;font-size:14px;font-weight:600}
 .need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
 pre.body{padding:8px 12px}
@@ -221,13 +235,11 @@ pre.body{padding:8px 12px}
 .state.done{color:var(--pass)}
 .state.stuck{color:var(--fail)}
 .state.progress{color:var(--wait)}
-.fleets{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px}
 .row{margin:0}
 .muted{color:var(--muted)}
 form.inline{display:inline}
 .needs-here{display:grid;border-top:1px solid var(--line)}
 .need{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:9px 4px;border-bottom:1px solid var(--line)}
-.need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
 .dispatch>header.slug .spacer{flex:1}
 .dispatch>header.slug .meta,.dispatch>header.slug .state{font-size:inherit}
 .dispatch.report[data-status=blocked] .state,.dispatch.report[data-status=failed] .state{color:var(--flash)}
@@ -241,3 +253,6 @@ form.inline{display:inline}
 .thread-title{font-size:22px;line-height:30px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
 .fleet .mark{align-self:center;color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
+.slug .status[data-state=running],.slug .status[data-state=passing]{color:var(--pass)}
+.slug .status[data-state=waiting]{color:var(--wait)}
+.slug .status[data-state=failing]{color:var(--flash)}
