@@ -3,7 +3,7 @@
 <div class="column" id="needs">
 <section class="queue" data-region="queue">{{template "region-queue" .}}</section>
 <section class="tasks" data-region="tasks">{{template "region-tasks" .}}</section>
-<p class="finished">{{if .All}}<a href="{{.Base}}/">Hide finished tasks</a>{{else}}<a href="{{.Base}}/?all=1">Show finished tasks</a>{{end}}</p>
+<p class="finished">{{if .All}}<a href="{{.Base}}/#needs">Hide finished tasks</a>{{else}}<a href="{{.Base}}/?all=1#needs">Show finished tasks</a>{{end}}</p>
 </div>
 <div class="column" id="chat">
 <section class="panel" data-region="status">{{template "region-status" .}}</section>

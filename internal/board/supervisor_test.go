@@ -126,7 +126,7 @@ func TestTheStartFormAndThePickPage(t *testing.T) {
 	ended := newFixture(t)
 	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
 	page := get(t, ended.handler(), "/")
-	contains(t, "ended", page, `action="/supervisor/resume"`, `href="/?pick=1"`)
+	contains(t, "ended", page, `action="/supervisor/resume"`, `href="/?pick=1#chat"`)
 	lacks(t, "ended", page, `name="harness"`)
 	contains(t, "picking a harness", get(t, ended.handler(), "/?pick=1"), `name="harness"`, `name="profile"`)
 }
