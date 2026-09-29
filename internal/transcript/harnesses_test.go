@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -207,5 +208,82 @@ func TestOpencodeReexportsOnlyWhenItsDatabaseChanges(t *testing.T) {
 	}
 	if n := runs(t, count); n != 2 {
 		t.Fatalf("exports = %d, want 2 after the database changed", n)
+	}
+}
+
+func TestClaudeStatusTracksUsageAndCompactions(t *testing.T) {
+	body := `{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30},"content":[{"type":"text","text":"one"}]}}
+{"type":"user","timestamp":"2026-09-28T01:00:02Z","isCompactSummary":true,"message":{"content":"summary"}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:03Z","isSidechain":true,"message":{"model":"claude-opus-5-5","usage":{"input_tokens":900000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"side"}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:04Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":170,"cache_read_input_tokens":508139},"content":[{"type":"text","text":"two"}]}}
+`
+	home, _ := claudeHome(t, body)
+	r := &Reader{Paths: Paths{Claude: home}}
+	if _, err := r.Read(context.Background(), "claude", sessionUUID, "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Status("claude", sessionUUID); got != (Status{Context: 508311, Compactions: 1}) {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestCodexStatusReadsTokenCount(t *testing.T) {
+	home := t.TempDir()
+	count := func(input int) string {
+		return `{"timestamp":"2026-09-28T01:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":` + strconv.Itoa(input) + `,"cached_input_tokens":1},"model_context_window":258400}}}` + "\n"
+	}
+	rollout(t, home, "rollout-2026-09-28T01-00-00-aaa.jsonl", meta("codex-1")+count(1000)+`{"timestamp":"2026-09-28T01:00:03Z","type":"compacted","payload":{"message":"x"}}`+"\n"+count(72479))
+	r := &Reader{Paths: Paths{Codex: home}}
+	if _, err := r.Read(context.Background(), "codex", "codex-1", "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Status("codex", "codex-1"); got != (Status{Context: 72479, Window: 258400, Compactions: 1}) {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestOpencodeStatusReadsMessageTokens(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	bin := filepath.Join(t.TempDir(), "opencode")
+	export := `{"messages":[` +
+		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570001000},"tokens":{"input":10,"output":5,"cache":{"read":1,"write":1}}},"parts":[{"type":"text","text":"first"}]},` +
+		`{"info":{"role":"user","time":{"created":1790570002000}},"parts":[{"type":"compaction"}]},` +
+		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570003000},"tokens":{"input":1000,"output":9,"cache":{"read":5000,"write":200}}},"parts":[{"type":"text","text":"second"}]}]}`
+	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + export + "\nJSON\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}
+	if _, err := r.Read(context.Background(), "opencode", "ses_1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Status("opencode", "ses_1"); got != (Status{Context: 6200, Compactions: 1}) {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestStatusOfAnUnknownSessionIsZero(t *testing.T) {
+	if got := (&Reader{}).Status("claude", "nope"); got != (Status{}) {
+		t.Fatalf("status = %+v", got)
+	}
+}
+
+func TestOpencodeStatusReadsTheFlatShape(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	bin := filepath.Join(t.TempDir(), "opencode")
+	export := `{"info":{},"messages":[` +
+		`{"type":"assistant","time":{"created":1790570001000},"tokens":{"input":175,"output":5,"reasoning":24,"cache":{"read":17024,"write":0}},"content":[{"type":"text","text":"hi"}]},` +
+		`{"type":"compaction","time":{"created":1790570002000}},` +
+		`{"type":"idle","time":{"created":1790570003000}}]}`
+	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + export + "\nJSON\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}
+	if _, err := r.Read(context.Background(), "opencode", "ses_1", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Status("opencode", "ses_1"); got != (Status{Context: 17199, Compactions: 1}) {
+		t.Fatalf("status = %+v", got)
 	}
 }

@@ -33,6 +33,11 @@ func (s *session) claudeLine(line []byte) {
 			Model      string          `json:"model"`
 			StopReason string          `json:"stop_reason"`
 			Content    json.RawMessage `json:"content"`
+			Usage      *struct {
+				Input         int64 `json:"input_tokens"`
+				CacheCreation int64 `json:"cache_creation_input_tokens"`
+				CacheRead     int64 `json:"cache_read_input_tokens"`
+			} `json:"usage"`
 		} `json:"message"`
 		Attachment struct {
 			Type        string `json:"type"`
@@ -46,6 +51,7 @@ func (s *session) claudeLine(line []byte) {
 	s.known++
 	switch {
 	case rec.IsCompact:
+		s.status.Compactions++
 		s.add(Entry{Role: "hand", Text: "context compacted", At: rec.Timestamp})
 		return
 	case rec.IsMeta, rec.IsSidechain, rec.OnlyInRecord:
@@ -63,6 +69,9 @@ func (s *session) claudeLine(line []byte) {
 			s.user(rec.Attachment.Prompt, rec.Timestamp)
 		}
 	case "assistant":
+		if u := rec.Message.Usage; u != nil {
+			s.status.Context = u.Input + u.CacheCreation + u.CacheRead
+		}
 		var blocks []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`

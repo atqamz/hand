@@ -16,6 +16,11 @@ import (
 	"unicode/utf8"
 )
 
+type Status struct {
+	Context, Window int64
+	Compactions     int
+}
+
 type Entry struct {
 	Role   string
 	Text   string
@@ -51,6 +56,7 @@ type session struct {
 	shown    bool
 	exported time.Time
 	stamp    time.Time
+	status   Status
 }
 
 const (
@@ -98,6 +104,15 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 		return nil, ErrUnreadable
 	}
 	return slices.Clone(s.entries), nil
+}
+
+func (r *Reader) Status(harness, id string) Status {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if s := r.logs[harness+":"+id]; s != nil {
+		return s.status
+	}
+	return Status{}
 }
 
 func (s *session) follow(path string, line func([]byte)) error {
