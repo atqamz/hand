@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 var (
-	regionNames = []string{"status", "timeline", "queue", "tasks"}
+	regionNames = []string{"status", "console", "timeline", "queue", "tasks"}
 	lineBreaks  = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 )
 
@@ -29,6 +30,7 @@ type version struct {
 	revision    int64
 	entries     uint64
 	note        string
+	context     transcript.Status
 }
 
 func (b *Board) version(ctx context.Context) (version, error) {
@@ -63,6 +65,9 @@ func (b *Board) version(ctx context.Context) (version, error) {
 		_, _ = fmt.Fprintf(sum, "%s\x00%s\x00%t\x00%s\x00", e.Role, e.At, e.Queued, e.Text)
 	}
 	v.entries, v.note = sum.Sum64(), note
+	if ok && b.o.Transcript != nil {
+		v.context = b.o.Transcript.Status(sup.Harness, sup.Session)
+	}
 	return v, nil
 }
 

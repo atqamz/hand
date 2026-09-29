@@ -11,11 +11,18 @@ import (
 func Render(text string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
-	blocks(&b, lines, true)
+	blocks(&b, lines, true, "")
 	return template.HTML(b.String())
 }
 
-func blocks(b *strings.Builder, lines []string, quotes bool) {
+func RenderRefs(text, base string) template.HTML {
+	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
+	var b strings.Builder
+	blocks(&b, lines, true, base+"/ref/")
+	return template.HTML(b.String())
+}
+
+func blocks(b *strings.Builder, lines []string, quotes bool, refs string) {
 	for i := 0; i < len(lines); {
 		line := lines[i]
 		switch {
@@ -36,7 +43,7 @@ func blocks(b *strings.Builder, lines []string, quotes bool) {
 			if heading(line) > 2 {
 				tag = "h4"
 			}
-			b.WriteString("<" + tag + ">" + inline(strings.TrimSpace(line[heading(line):]), true) + "</" + tag + ">")
+			b.WriteString("<" + tag + ">" + inline(strings.TrimSpace(line[heading(line):]), true, refs) + "</" + tag + ">")
 			i++
 		case quotes && strings.HasPrefix(line, ">"):
 			var inner []string
@@ -44,18 +51,18 @@ func blocks(b *strings.Builder, lines []string, quotes bool) {
 				inner = append(inner, strings.TrimPrefix(lines[i][1:], " "))
 			}
 			b.WriteString("<blockquote>")
-			blocks(b, inner, false)
+			blocks(b, inner, false, refs)
 			b.WriteString("</blockquote>")
 		case tableAt(lines, i):
-			i = table(b, lines, i)
+			i = table(b, lines, i, refs)
 		case item(line, false) != "":
-			i = list(b, lines, i, "ul", false)
+			i = list(b, lines, i, "ul", false, refs)
 		case item(line, true) != "":
-			i = list(b, lines, i, "ol", true)
+			i = list(b, lines, i, "ol", true, refs)
 		default:
 			var parts []string
 			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && (len(parts) == 0 || !starts(lines, i, quotes)); i++ {
-				parts = append(parts, inline(lines[i], true))
+				parts = append(parts, inline(lines[i], true, refs))
 			}
 			b.WriteString("<p>" + strings.Join(parts, "<br>") + "</p>")
 		}
@@ -103,7 +110,7 @@ func cells(line string) []string {
 	return out
 }
 
-func table(b *strings.Builder, lines []string, i int) int {
+func table(b *strings.Builder, lines []string, i int, refs string) int {
 	head := cells(lines[i])
 	classes := make([]string, len(head))
 	for k, d := range cells(lines[i+1]) {
@@ -131,13 +138,13 @@ func table(b *strings.Builder, lines []string, i int) int {
 	}
 	b.WriteString(`<div class="table" role="region" aria-label="Table" tabindex="0"><table><thead><tr>`)
 	for k, c := range head {
-		b.WriteString(cell("th", classes[k], c))
+		b.WriteString(cell("th", classes[k], c, refs))
 	}
 	b.WriteString("</tr></thead><tbody>")
 	for _, row := range rows {
 		b.WriteString("<tr>")
 		for k, c := range row {
-			b.WriteString(cell("td", classes[k], c))
+			b.WriteString(cell("td", classes[k], c, refs))
 		}
 		b.WriteString("</tr>")
 	}
@@ -145,12 +152,12 @@ func table(b *strings.Builder, lines []string, i int) int {
 	return i
 }
 
-func cell(tag, class, text string) string {
+func cell(tag, class, text, refs string) string {
 	open := "<" + tag + ">"
 	if class != "" {
 		open = "<" + tag + ` class="` + class + `">`
 	}
-	return open + inline(text, true) + "</" + tag + ">"
+	return open + inline(text, true, refs) + "</" + tag + ">"
 }
 
 func numericColumn(rows [][]string, k int) bool {
@@ -199,10 +206,10 @@ func heading(line string) int {
 
 func fence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "```") }
 
-func list(b *strings.Builder, lines []string, i int, tag string, ordered bool) int {
+func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs string) int {
 	b.WriteString("<" + tag + ">")
 	for ; i < len(lines) && item(lines[i], ordered) != ""; i++ {
-		b.WriteString("<li>" + inline(item(lines[i], ordered), true) + "</li>")
+		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs) + "</li>")
 	}
 	b.WriteString("</" + tag + ">")
 	return i
@@ -228,11 +235,12 @@ func item(line string, ordered bool) string {
 type scan struct {
 	s     string
 	links bool
+	refs  string
 	dead  map[string]bool
 }
 
-func inline(s string, links bool) string {
-	sc := scan{s: s, links: links, dead: map[string]bool{}}
+func inline(s string, links bool, refs string) string {
+	sc := scan{s: s, links: links, refs: refs, dead: map[string]bool{}}
 	var b strings.Builder
 	for i := 0; i < len(s); {
 		if out, n := sc.marker(i); n > 0 {
@@ -259,7 +267,7 @@ func (sc scan) marker(i int) (string, int) {
 	case strings.HasPrefix(rest, "~~"):
 		if !sc.dead["~~"] {
 			if j := strings.Index(rest[2:], "~~"); j > 0 {
-				return "<del>" + inline(rest[2:2+j], links) + "</del>", j + 4
+				return "<del>" + inline(rest[2:2+j], links, sc.refs) + "</del>", j + 4
 			} else if j < 0 {
 				sc.dead["~~"] = true
 			}
@@ -268,7 +276,7 @@ func (sc scan) marker(i int) (string, int) {
 	case strings.HasPrefix(rest, "**"):
 		if !sc.dead["**"] {
 			if j := strings.Index(rest[2:], "**"); j > 0 {
-				return "<strong>" + inline(rest[2:2+j], links) + "</strong>", j + 4
+				return "<strong>" + inline(rest[2:2+j], links, sc.refs) + "</strong>", j + 4
 			} else if j < 0 {
 				sc.dead["**"] = true
 			}
@@ -276,7 +284,7 @@ func (sc scan) marker(i int) (string, int) {
 		return html.EscapeString("**"), 2
 	case (rest[0] == '*' || rest[0] == '_') && !sc.dead[rest[:1]]:
 		if j := closing(s, i); j > 0 {
-			return "<em>" + inline(s[i+1:j], links) + "</em>", j - i + 1
+			return "<em>" + inline(s[i+1:j], links, sc.refs) + "</em>", j - i + 1
 		} else if j < 0 {
 			sc.dead[rest[:1]] = true
 		}
@@ -289,6 +297,10 @@ func (sc scan) marker(i int) (string, int) {
 	case links && (strings.HasPrefix(rest, "http://") || strings.HasPrefix(rest, "https://")) && (i == 0 || !word(s[i-1]) && s[i-1] != '/'):
 		if u, n := bare(rest); n > 0 {
 			return anchor(u, html.EscapeString(u)), n
+		}
+	case sc.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/' && s[i-1] != '_'):
+		if n := refLen(rest); n > 0 {
+			return `<a class="ref" href="` + html.EscapeString(sc.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
 		}
 	}
 	return "", 0
@@ -323,7 +335,7 @@ func link(rest string) (string, int) {
 	if !safe(u) {
 		return "", 0
 	}
-	return anchor(u, inline(rest[1:mid], false)), mid + 3 + end
+	return anchor(u, inline(rest[1:mid], false, "")), mid + 3 + end
 }
 
 func bare(rest string) (string, int) {
@@ -349,6 +361,17 @@ func safe(raw string) bool {
 func anchor(raw, text string) string {
 	u, _ := url.Parse(raw)
 	return `<a href="` + html.EscapeString(u.String()) + `" rel="noopener noreferrer">` + text + `</a>`
+}
+
+func refLen(rest string) int {
+	n := 1
+	for n < len(rest) && rest[n] >= '0' && rest[n] <= '9' {
+		n++
+	}
+	if n == 1 || rest[1] == '0' || n < len(rest) && (word(rest[n]) || rest[n] == '_') || n+1 < len(rest) && rest[n] == '.' && word(rest[n+1]) {
+		return 0
+	}
+	return n
 }
 
 func word(c byte) bool {

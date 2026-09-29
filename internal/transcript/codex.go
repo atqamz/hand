@@ -84,6 +84,12 @@ func (s *session) codexLine(line []byte) {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
+			Info *struct {
+				Last struct {
+					Input int64 `json:"input_tokens"`
+				} `json:"last_token_usage"`
+				Window int64 `json:"model_context_window"`
+			} `json:"info"`
 		} `json:"payload"`
 	}
 	if json.Unmarshal(line, &rec) != nil || rec.Type == "" {
@@ -106,6 +112,13 @@ func (s *session) codexLine(line []byte) {
 					s.add(*s.turn)
 				}
 			}
+		}
+	case rec.Type == "compacted":
+		s.status.Compactions++
+	case rec.Type == "event_msg" && p.Type == "token_count" && p.Info != nil:
+		s.status.Context = p.Info.Last.Input
+		if p.Info.Window > 0 {
+			s.status.Window = p.Info.Window
 		}
 	case rec.Type == "event_msg" && p.Type == "task_complete":
 		if s.turn != nil && !s.shown && calm(s.turn.Text, true) {

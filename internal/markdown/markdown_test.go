@@ -80,6 +80,33 @@ func TestRenderTables(t *testing.T) {
 	}
 }
 
+func TestRenderRefs(t *testing.T) {
+	link := func(ref string) string { return `<a class="ref" href="/f1/ref/` + ref + `">` + ref + `</a>` }
+	for _, c := range []struct{ in, want string }{
+		{"see t12 and d3", `<p>see ` + link("t12") + ` and ` + link("d3") + `</p>`},
+		{"`t12`", `<p><code>t12</code></p>`},
+		{"[x](https://a.io/t12)", `<p><a href="https://a.io/t12" rel="noopener noreferrer">x</a></p>`},
+		{"at12 t12x", `<p>at12 t12x</p>`},
+		{"r7.", `<p>` + link("r7") + `.</p>`},
+		{"**a5** done", `<p><strong>` + link("a5") + `</strong> done</p>`},
+		{"- t1\n- t0", `<ul><li>` + link("t1") + `</li><li>t0</li></ul>`},
+		{"see test_d3.go and t1_done and t3.micro", `<p>see test_d3.go and t1_done and t3.micro</p>`},
+		{"t3. next", `<p>` + link("t3") + `. next</p>`},
+	} {
+		if got := string(markdown.RenderRefs(c.in, "/f1")); got != c.want {
+			t.Errorf("RenderRefs(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := string(markdown.Render("see t12")); got != `<p>see t12</p>` {
+		t.Errorf("Render links refs: %s", got)
+	}
+	for _, in := range seeds() {
+		if msg := active(string(markdown.RenderRefs(in+" t1 d2", "/f1"))); msg != "" {
+			t.Errorf("RenderRefs(%q): %s", in, msg)
+		}
+	}
+}
+
 func TestRenderBlocks(t *testing.T) {
 	for _, c := range blocks {
 		if got := string(markdown.Render(c.in)); got != c.want {
@@ -191,6 +218,12 @@ func active(out string) string {
 				if a[2] != want {
 					return "value " + a[2] + " for " + a[1] + " on " + m[2]
 				}
+				continue
+			}
+			if m[2] == "a" && a[1] == "class" && a[2] == "ref" {
+				continue
+			}
+			if m[2] == "a" && a[1] == "href" && strings.HasPrefix(a[2], "/f1/ref/") {
 				continue
 			}
 			if (m[2] == "th" || m[2] == "td") && a[1] == "class" {

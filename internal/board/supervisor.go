@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -48,8 +49,16 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 	b.render(w, http.StatusOK, "index.html", data)
 }
 
+func (b *Board) stripData(ctx context.Context) map[string]any {
+	data := map[string]any{}
+	if b.statusData(ctx, data, url.Values{}) != nil {
+		return nil
+	}
+	return data
+}
+
 func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
-	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token}
+	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token, "Live": true}
 	f, err := b.facts(ctx)
 	if err != nil {
 		return nil, err
@@ -64,7 +73,7 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 }
 
 func (b *Board) history(w http.ResponseWriter, r *http.Request) {
-	data := map[string]any{"Title": "conversation"}
+	data := map[string]any{"Title": "conversation", "StripData": b.stripData(r.Context())}
 	if err := b.timelineData(r.Context(), data, r.URL.Query()); err != nil {
 		b.failErr(w, err)
 		return
@@ -93,11 +102,71 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 		data["Pill"], data["PillLabel"] = pill(sup, data)
 		data["AgentState"], data["ComposerHint"] = hint(sup, data)
+		if b.o.Transcript != nil {
+			b.conversation(ctx, sup, ok)
+			st := b.o.Transcript.Status(sup.Harness, sup.Session)
+			text, level := gauge(st)
+			data["Gauge"], data["Compactions"] = map[string]string{"Text": text, "Level": level}, st.Compactions
+		}
 		if sup.Status == state.AttemptRunning && (sup.Harness == "claude" || sup.Harness == "codex") {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 		}
 	}
+	label, _ := data["PillLabel"].(string)
+	data["Line"] = lineWord(label)
 	return nil
+}
+
+func lineWord(label string) string {
+	switch label {
+	case "No supervisor yet":
+		return "NO SUPERVISOR"
+	case "launching":
+		return "STARTING"
+	}
+	return strings.ToUpper(label)
+}
+
+func gauge(s transcript.Status) (string, string) {
+	if s.Context <= 0 {
+		return "", ""
+	}
+	text := "CTX " + short(s.Context)
+	if s.Window <= 0 {
+		return text, ""
+	}
+	pct := int(math.Round(float64(s.Context) * 100 / float64(s.Window)))
+	text += " / " + short(s.Window) + " · " + strconv.Itoa(pct) + "%"
+	switch {
+	case pct >= 90:
+		return text + " COMPACT SOON", "flash"
+	case pct >= 80:
+		return text, "warn"
+	}
+	return text, ""
+}
+
+func short(n int64) string {
+	unit, f := "", float64(n)
+	switch {
+	case n >= 999_500:
+		unit, f = "M", f/1e6
+	case n >= 1000:
+		unit, f = "K", f/1e3
+	default:
+		return strconv.FormatInt(n, 10)
+	}
+	d := 2
+	if f >= 99.95 {
+		d = 0
+	} else if f >= 9.995 {
+		d = 1
+	}
+	out := strconv.FormatFloat(f, 'f', d, 64)
+	if strings.Contains(out, ".") {
+		out = strings.TrimRight(strings.TrimRight(out, "0"), ".")
+	}
+	return out + unit
 }
 
 func pill(sup state.Supervisor, data map[string]any) (string, string) {
@@ -250,6 +319,13 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
+	var sups []state.Supervisor
+	if ok && sup.Session != "" {
+		if sups, err = b.st.SessionSupervisors(ctx, sup.Session); err != nil {
+			return err
+		}
+	}
+	numbered := len(entries)
 	for _, in := range pending {
 		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
 	}
@@ -258,10 +334,36 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		end = n
 	}
 	start := max(0, end-pageSize)
-	page := slices.Clone(entries[start:end])
+	page := make([]dispatch, 0, end-start)
+	for i := start; i < end; i++ {
+		d := dispatch{Entry: entries[i], Ref: refAt(sups, entries[i].At)}
+		if i < numbered {
+			d.No = i + 1
+		}
+		page = append(page, d)
+	}
 	slices.Reverse(page)
 	data["Entries"], data["Older"] = page, start
 	return nil
+}
+
+type dispatch struct {
+	transcript.Entry
+	No  int
+	Ref string
+}
+
+func refAt(sups []state.Supervisor, at string) string {
+	if len(sups) == 0 {
+		return ""
+	}
+	ref, when := sups[0].ID, parse(at)
+	for _, s := range sups[1:] {
+		if !when.IsZero() && !parse(s.CreatedAt).After(when) {
+			ref = s.ID
+		}
+	}
+	return state.SupervisorRef(ref)
 }
 
 func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {

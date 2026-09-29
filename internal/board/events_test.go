@@ -139,7 +139,7 @@ func eventNames(evs []sseEvent) []string {
 	return out
 }
 
-var regionNames = []string{"status", "timeline", "queue", "tasks"}
+var regionNames = []string{"status", "console", "timeline", "queue", "tasks"}
 
 func quick(st *state.Store, o board.Options) http.Handler {
 	o.Tick = 10 * time.Millisecond
@@ -158,7 +158,7 @@ func TestEventsSendEveryRegionOnConnect(t *testing.T) {
 	seed(t, st)
 	base, _ := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
-	if got := eventNames(first(t, ch, 4)); !slices.Equal(got, regionNames) {
+	if got := eventNames(first(t, ch, 5)); !slices.Equal(got, regionNames) {
 		t.Fatalf("first events = %q", got)
 	}
 }
@@ -168,7 +168,7 @@ func TestEventsSendOnlyChangedRegions(t *testing.T) {
 	seed(t, st)
 	base, _ := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 4)
+	first(t, ch, 5)
 	if evs := collect(ch, 100*time.Millisecond); len(evs) != 0 {
 		t.Fatalf("a quiet board sent %q", eventNames(evs))
 	}
@@ -195,12 +195,12 @@ func TestEventsFollowTheAgent(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	base, _ := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 4)
+	first(t, ch, 5)
 	fx.mu.Lock()
 	fx.status, fx.hint = "blocked", "Trust this folder?"
 	fx.mu.Unlock()
 	evs := collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"status", "timeline", "queue"}) || !strings.Contains(evs[2].data, `name="revision" value="7"`) || strings.Contains(evs[1].data, "data-working") {
+	if got := eventNames(evs); !slices.Equal(got, []string{"status", "console", "timeline", "queue"}) || !strings.Contains(evs[3].data, `name="revision" value="7"`) || strings.Contains(evs[2].data, "data-working") || strings.Contains(evs[1].data, "supervisor/interrupt") {
 		t.Fatalf("after the agent blocked = %q", evs)
 	}
 	fx.mu.Lock()
@@ -215,7 +215,7 @@ func TestEventsFollowTheAgent(t *testing.T) {
 func TestAClosedStreamStopsItsTicker(t *testing.T) {
 	base, live := serve(t, quick(open(t), board.Options{}))
 	ch, cancel := stream(t, base+"/events")
-	first(t, ch, 4)
+	first(t, ch, 5)
 	if n := live.Load(); n != 1 {
 		t.Fatalf("live streams = %d", n)
 	}
@@ -236,7 +236,7 @@ func TestNoRegionHoldsTheComposer(t *testing.T) {
 	contains(t, "fleet page", get(t, h, "/"), `id="composer"`)
 	base, _ := serve(t, h)
 	ch, _ := stream(t, base+"/events")
-	for _, e := range first(t, ch, 4) {
+	for _, e := range first(t, ch, 5) {
 		if strings.Contains(e.data, `id="composer"`) || strings.Contains(e.data, "<textarea") {
 			t.Fatalf("region %s holds the composer:\n%s", e.name, e.data)
 		}
@@ -252,7 +252,7 @@ func TestRegionFragmentsMatchTheFullPage(t *testing.T) {
 	page := get(t, h, "/")
 	base, _ := serve(t, h)
 	ch, _ := stream(t, base+"/events")
-	for _, e := range first(t, ch, 4) {
+	for _, e := range first(t, ch, 5) {
 		if e.data == "" || !strings.Contains(page, `data-region="`+e.name+`">`+e.data+"</section>") {
 			t.Fatalf("region %s differs from the page:\n%s\n\npage:\n%s", e.name, e.data, page)
 		}
@@ -279,7 +279,7 @@ func TestACarriageReturnCannotSplitAnEvent(t *testing.T) {
 	seed(t, st)
 	base, _ := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 4)
+	first(t, ch, 5)
 	if _, err := st.Ask(context.Background(), 2, "x\r\revent: status\rdata: forged"); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestEventsFollowAnEditedTranscript(t *testing.T) {
 	claudeLog(t, fx, []string{userRecord("a first draft of the operator message that is long")})
 	base, _ := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 4)
+	first(t, ch, 5)
 	claudeLog(t, fx, []string{userRecord("edited")})
 	evs := collect(ch, 300*time.Millisecond)
 	if got := eventNames(evs); !slices.Equal(got, []string{"timeline"}) || !strings.Contains(evs[0].data, "edited") {

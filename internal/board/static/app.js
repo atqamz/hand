@@ -27,12 +27,21 @@
 	};
 
 	const local = (root) => {
-		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
+		for (const t of root.querySelectorAll("time[datetime]:not([data-since]):not([data-clock-now])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
-			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
+		}
+	};
+
+	const clock = () => {
+		const now = new Date();
+		for (const c of document.querySelectorAll("[data-clock-now]")) {
+			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+			c.title = now.toLocaleTimeString([], { timeZoneName: "long" });
+			c.dateTime = now.toISOString();
 		}
 	};
 
@@ -100,6 +109,7 @@
 		const spot = (e) => (e && e !== el && el.contains(e) ? [e.closest("details[id]")?.id, e.tagName, e.closest("form")?.getAttribute("action"), e.getAttribute("href"), e.value].join("|") : "");
 		const focused = spot(document.activeElement);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
+		const fed = new Set([...el.querySelectorAll("[data-no]")].map((d) => d.dataset.no));
 		const fields = "textarea, select, input:not([type=hidden])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
@@ -111,6 +121,13 @@
 			if (!before.has(d.id) && d.classList.contains("wait")) {
 				d.dataset.new = "";
 				setTimeout(() => d.removeAttribute("data-new"), 1600);
+			}
+		}
+		if (fed.size > 0) {
+			for (const d of el.querySelectorAll("[data-no]")) {
+				if (fed.has(d.dataset.no)) continue;
+				d.dataset.new = "";
+				setTimeout(() => d.removeAttribute("data-new"), 600);
 			}
 		}
 		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
@@ -126,6 +143,21 @@
 		if (!summary) return;
 		const d = summary.parentElement;
 		setTimeout(() => chosen.set(d.id, d.open));
+	});
+
+	const closeMenus = (keep) => {
+		for (const m of document.querySelectorAll("details.menu[open]")) {
+			if (keep && m.contains(keep)) continue;
+			m.open = false;
+			chosen.set(m.id, false);
+		}
+	};
+	document.addEventListener("click", (e) => closeMenus(e.target instanceof Node ? e.target : null));
+	document.addEventListener("keydown", (e) => {
+		if (e.key !== "Escape") return;
+		const open = document.querySelector("details.menu[open]");
+		closeMenus(null);
+		open?.querySelector("summary")?.focus();
 	});
 
 	document.addEventListener("focusout", () => {
@@ -162,6 +194,7 @@
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
+			if (form.closest("details.menu")) closeMenus(null);
 			toast.textContent = "";
 			return;
 		}
@@ -199,6 +232,10 @@
 		}
 		const timeline = regions.get("timeline");
 		if (timeline && current === "chat") pin(timeline);
+		if (current === "needs" && !tall.matches) {
+			scrollTo(0, 0);
+			requestAnimationFrame(() => scrollTo(0, 0));
+		}
 	};
 	if (tabs.length > 0) {
 		for (const t of tabs) {
@@ -210,18 +247,25 @@
 			});
 		}
 		select();
+		addEventListener("load", () => {
+			if (current === "needs" && !tall.matches) scrollTo(0, 0);
+		}, { once: true });
 	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	since();
-	setInterval(since, 30000);
+	clock();
+	setInterval(() => {
+		since();
+		clock();
+	}, 30000);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) reflect();
 	const timeline = regions.get("timeline");
-	if (timeline) pin(timeline);
-	const composer = document.getElementById("composer");
+	if (timeline && current === "chat") pin(timeline);
+	const composer = document.querySelector(".console-box");
 	if (timeline && composer && "ResizeObserver" in window) {
 		let near = true;
 		const track = () => {

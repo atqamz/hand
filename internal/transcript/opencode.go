@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -44,6 +45,17 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 			continue
 		}
 		fresh.known++
+		if role == "compaction" {
+			fresh.status.Compactions++
+		}
+		for _, p := range append(m.Content, m.Parts...) {
+			if p.Type == "compaction" {
+				fresh.status.Compactions++
+			}
+		}
+		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {
+			fresh.status.Context = t.Input + t.Cache.Read + t.Cache.Write
+		}
 		at := time.UnixMilli(created).UTC().Format("2006-01-02T15:04:05.000Z")
 		switch role {
 		case "user":
@@ -71,17 +83,27 @@ type exportStamp struct {
 }
 
 type exportMessage struct {
-	Type    string       `json:"type"`
-	Text    string       `json:"text"`
-	Finish  string       `json:"finish"`
-	Time    exportStamp  `json:"time"`
-	Content []exportPart `json:"content"`
+	Type    string        `json:"type"`
+	Text    string        `json:"text"`
+	Finish  string        `json:"finish"`
+	Time    exportStamp   `json:"time"`
+	Tokens  *exportTokens `json:"tokens"`
+	Content []exportPart  `json:"content"`
 	Info    struct {
-		Role   string      `json:"role"`
-		Finish string      `json:"finish"`
-		Time   exportStamp `json:"time"`
+		Role   string        `json:"role"`
+		Finish string        `json:"finish"`
+		Time   exportStamp   `json:"time"`
+		Tokens *exportTokens `json:"tokens"`
 	} `json:"info"`
 	Parts []exportPart `json:"parts"`
+}
+
+type exportTokens struct {
+	Input int64 `json:"input"`
+	Cache struct {
+		Read  int64 `json:"read"`
+		Write int64 `json:"write"`
+	} `json:"cache"`
 }
 
 func (m exportMessage) flat() (role string, created int64, finish string, texts []string) {
