@@ -70,22 +70,21 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .queue-head h2,.checks-head h2{font-size:16px;line-height:24px}
 .count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg);color:var(--fg);font-size:12px;font-weight:600;line-height:20px;text-align:center}
 .count:not([data-waiting="0"]){background:var(--wait-bg);color:var(--wait)}
-.wait{overflow-wrap:anywhere;margin:0 0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
-.waits{border:1px solid var(--line);border-radius:6px;background:var(--bg);overflow:hidden}
-.waits>.wait{margin:0;border:0;border-top:1px solid var(--line);border-radius:0}
-.waits>.wait:first-child{border-top:0}
-.waits>.wait>summary{border-radius:0}
-.waits>.wait:not([open]) .wait-title{font-weight:400}
-.wait>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:8px 12px;cursor:pointer;list-style:none;border-radius:6px}
+.wait{overflow-wrap:anywhere;margin:0;border-top:1px solid var(--line)}
+.waits{border-bottom:1px solid var(--line)}
+.queue>.wait:last-child{border-bottom:1px solid var(--line)}
+.wait>summary{display:grid;gap:2px;padding:10px 4px;cursor:pointer;list-style:none}
 .wait>summary::-webkit-details-marker{display:none}
 .wait>summary:hover{background:var(--hover)}
-.wait>summary .icon{align-self:center}
-.wait[open]>summary{background:var(--card);border-bottom:1px solid var(--line);border-radius:6px 6px 0 0}
-.wait-title{flex:1 1 14rem;min-width:0;font-weight:600}
-.wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.wait[data-kind=blocked]>summary .icon,.wait[data-kind=failure]>summary .icon,.wait[data-kind=resume]>summary .icon{color:var(--fail)}
-.wait[data-kind=decision]>summary .icon,.wait[data-kind=report]>summary .icon{color:var(--wait)}
-.wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:12px}
+.wait-title{min-width:0;font-size:15px;font-weight:600;line-height:22px}
+.wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.slug>*+*::before{content:"·";margin-right:10px;color:var(--line)}
+.slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
+.slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
+.code{font-weight:800;color:var(--fg)}
+.code[data-code=FLASH],.code[data-code=URGENT]{color:var(--flash)}
+.code[data-code=BULLETIN]{color:var(--wait)}
+.wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 4px 14px}
 .question{white-space:pre-wrap;max-height:40vh;overflow-y:auto}
 .reason{color:var(--muted)}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
@@ -98,11 +97,11 @@ pre.screen::-webkit-scrollbar{height:6px}
 pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 @keyframes arrive{from{background-color:var(--wait-bg)}}
 .wait[data-new]{animation:arrive 1.6s cubic-bezier(.16,1,.3,1)}
-.checks{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
-.check{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 12px;border-top:1px solid var(--line);white-space:nowrap}
-.check:first-child{border-top:0}
+.checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.check{display:flex;align-items:baseline;gap:10px;min-width:0;padding:7px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+.check>.icon{align-self:center}
+.check .slug{flex:none;flex-wrap:nowrap}
 .check-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.check .meta{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .check[data-state=failing] .icon{color:var(--fail)}
 .check[data-state=waiting] .icon{color:var(--wait)}
 .check[data-state=running] .icon,.check[data-state=passing] .icon{color:var(--pass)}
@@ -194,7 +193,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2;box-shadow:0 -8px 16px var(--shadow)}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.board{padding:12px}.check .meta{display:none}.fleet-id{display:none}}
+@media (max-width:599px){.board{padding:12px}.check .attempt{display:none}.fleet-id{display:none}}
 @media (pointer:coarse){[data-send-key]{display:none}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]{animation:none}.pill[data-state=working]::before{animation:none}.printhead{animation:none}.lamp{animation:none}}
 .thread,.list{max-width:980px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}

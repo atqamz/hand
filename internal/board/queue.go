@@ -36,6 +36,18 @@ type waiting struct {
 	Cut              bool
 }
 
+var wireCodes = map[string][2]string{
+	"blocked":  {"FLASH", "BLOCKED"},
+	"decision": {"BULLETIN", "DECISION"},
+	"failure":  {"URGENT", "FAILED"},
+	"report":   {"ROUTINE", "REPORT"},
+	"resume":   {"SERVICE", "RESUME"},
+}
+
+func (w waiting) Code() string { return wireCodes[w.Kind][0] }
+
+func (w waiting) Word() string { return wireCodes[w.Kind][1] }
+
 func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
 	counts, err := b.st.CountTasks(ctx)
 	if err != nil {

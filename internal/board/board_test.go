@@ -118,7 +118,7 @@ func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 	rec := request(h, "GET", "/", nil, true)
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Fix login", "a1", "claude sonnet", "running",
+		"Fix login", "A1 CLAUDE SONNET RUNNING",
 		"r1", "Cookie fixed", `href="https://github.com/atqamz/hand/pull/42"`,
 		"Keep the old cookie name?", `href="/decision/d1"`, "Write docs",
 		`action="/report/r1/ack"`, `name="csrf" value="` + token + `"`,
