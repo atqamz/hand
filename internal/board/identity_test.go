@@ -264,3 +264,24 @@ func TestMotionHonoursReducedMotion(t *testing.T) {
 		t.Fatal("the working dot keeps pulsing under prefers-reduced-motion")
 	}
 }
+
+func TestTheFinishFixesHold(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, rule := range []string{
+		"body:not([data-shell]) #composer{position:sticky;bottom:0;z-index:2;",
+		"@media (max-height:599px){#composer{position:sticky;bottom:0;z-index:2;",
+		"body[data-shell] .timeline{max-height:none;overflow:visible}",
+		"::placeholder{color:var(--muted)}",
+		".md .table{width:fit-content;max-width:100%;",
+		"scrollbar-gutter:stable both-edges",
+		".tabs .dot{",
+		".switch[open]>summary .icon{transform:rotate(180deg)}",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("board.css lacks %q", rule)
+		}
+	}
+	if strings.Contains(css, ".tabs .dot{content:\"\";flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);animation") || strings.Contains(css, ".md table{min-width:100%") {
+		t.Error("the tab dot still pulses, or reply tables still stretch to the column")
+	}
+}

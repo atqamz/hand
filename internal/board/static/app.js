@@ -18,6 +18,13 @@
 	const toBottom = (el) => {
 		el.scrollTop = reversed(el) ? 0 : el.scrollHeight;
 	};
+	const tall = matchMedia("(min-height: 600px)");
+	const page = () => document.scrollingElement || document.documentElement;
+	const gap = (el) => (tall.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
+	const pin = (el) => {
+		if (tall.matches) toBottom(el);
+		else page().scrollTop = page().scrollHeight;
+	};
 
 	const local = (root) => {
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
@@ -96,7 +103,7 @@
 		const fields = "textarea, select, input:not([type=hidden])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${f.name}`;
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
-		const pinned = name === "timeline" && fromBottom(el) <= 48;
+		const pinned = name === "timeline" && gap(el) <= 48;
 		el.innerHTML = html;
 		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
 		for (const d of el.querySelectorAll("details[id]")) {
@@ -109,7 +116,7 @@
 		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
 		local(el);
 		since();
-		if (pinned) toBottom(el);
+		if (pinned) pin(el);
 		if (name === "queue") count(waitingNow());
 		if (name === "status") reflect();
 	};
@@ -139,8 +146,11 @@
 		const form = e.target;
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
+		if (form.dataset.busy) return;
+		form.dataset.busy = "";
 		const data = new URLSearchParams(new FormData(form, e.submitter));
 		const res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
+		delete form.dataset.busy;
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
 			show("The board did not answer; check that hand board is running.");
@@ -165,7 +175,7 @@
 
 	for (const k of document.querySelectorAll("[data-send-key]")) k.textContent = apple ? "⌘ Enter" : "Ctrl Enter";
 	document.addEventListener("keydown", (e) => {
-		if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || !(e.target instanceof HTMLTextAreaElement)) return;
+		if (e.key !== "Enter" || e.repeat || !(e.ctrlKey || e.metaKey) || !(e.target instanceof HTMLTextAreaElement)) return;
 		const form = e.target.form;
 		if (!form?.hasAttribute("data-fetch")) return;
 		e.preventDefault();
@@ -184,7 +194,7 @@
 			if (panel) panel.hidden = !on;
 		}
 		const timeline = regions.get("timeline");
-		if (timeline && current === "chat") toBottom(timeline);
+		if (timeline && current === "chat") pin(timeline);
 	};
 	if (tabs.length > 0) {
 		for (const t of tabs) {
@@ -206,19 +216,21 @@
 	const live = regions.has("queue");
 	if (live) reflect();
 	const timeline = regions.get("timeline");
-	if (timeline) toBottom(timeline);
+	if (timeline) pin(timeline);
 	const composer = document.getElementById("composer");
 	if (timeline && composer && "ResizeObserver" in window) {
-		const page = () => document.scrollingElement || document.documentElement;
-		let nearTimeline = true;
-		let nearPage = true;
-		timeline.addEventListener("scroll", () => { nearTimeline = fromBottom(timeline) <= 48; }, { passive: true });
-		addEventListener("scroll", () => { const p = page(); nearPage = p.scrollHeight - p.scrollTop - p.clientHeight <= 48; }, { passive: true });
+		let near = true;
+		const track = () => {
+			near = gap(timeline) <= 48;
+		};
+		timeline.addEventListener("scroll", track, { passive: true });
+		addEventListener("scroll", track, { passive: true });
 		new ResizeObserver(() => {
-			if (nearTimeline) toBottom(timeline);
-			const p = page();
-			if (nearPage && p.scrollHeight > p.clientHeight) p.scrollTop = p.scrollHeight;
+			if (near && composer.offsetHeight > 0) pin(timeline);
 		}).observe(composer);
+		tall.addEventListener("change", () => {
+			if (near && composer.offsetHeight > 0) requestAnimationFrame(() => pin(timeline));
+		});
 	}
 	let source = null;
 	let poll = 0;
