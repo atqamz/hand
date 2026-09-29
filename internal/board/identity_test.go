@@ -403,6 +403,8 @@ func TestTheWireDeskFinishFixes(t *testing.T) {
 		".slug>*:not(:last-child)::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
+		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+		"@media (max-height:599px) and (max-width:599px){.masthead .wire-name,",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)

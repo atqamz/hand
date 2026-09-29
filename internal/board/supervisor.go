@@ -112,7 +112,8 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 		}
 	}
-	data["Line"] = lineWord(data["PillLabel"].(string))
+	label, _ := data["PillLabel"].(string)
+	data["Line"] = lineWord(label)
 	return nil
 }
 

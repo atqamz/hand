@@ -205,6 +205,9 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .masthead-inner{height:36px;padding:4px 12px;flex-wrap:nowrap;overflow:hidden}
 .masthead .fleet-id,.masthead .clock,#notify{display:none}
 .wire-name{font-size:19px;line-height:24px}
+.masthead .strip{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
+.masthead .strip .status-line{flex-wrap:nowrap;white-space:nowrap}
+.masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tabs{top:36px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
@@ -246,3 +249,4 @@ form.inline{display:inline}
 .slug .status[data-state=waiting]{color:var(--wait)}
 .slug .status[data-state=failing]{color:var(--flash)}
 .fleet .wire-word{color:var(--muted)}
+@media (max-height:599px) and (max-width:599px){.masthead .wire-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
