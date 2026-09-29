@@ -36,7 +36,7 @@ textarea{display:block;width:100%;min-height:4.5em;resize:vertical;line-height:1
 ::placeholder{color:var(--muted)}
 textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
 .brand:hover{text-decoration:none}
-.masthead{background:var(--header);color:var(--on-header)}
+.masthead{background:var(--header);color:var(--on-header);border-bottom:1px solid var(--line)}
 .masthead .quiet-button{color:var(--on-header-muted)}
 .masthead .quiet-button:hover{color:var(--on-header)}
 .masthead-inner{padding:10px 16px;display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;min-width:0}
@@ -132,7 +132,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .dispatch .slug .no{font-variant-numeric:tabular-nums}
 .note{align-self:flex-end;width:fit-content;max-width:80%;margin-left:auto;padding-left:12px;border-left:1px solid var(--pencil)}
 .note .slug,.note .slug .who{color:var(--pencil)}
-.note .copy{white-space:pre-wrap;overflow-wrap:anywhere}
+.note .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
 .service{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding:6px 0;color:var(--muted);font-size:12px}
 .service-text{font-family:var(--mono);overflow-wrap:anywhere}
 .working{padding:10px 0}
@@ -211,8 +211,8 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
 .masthead{position:sticky;top:0;z-index:4}
 .masthead-inner{height:36px;padding:4px 12px;flex-wrap:nowrap;overflow:hidden}
-.masthead .wire-word,.masthead .fleet-id,.masthead .clock,#notify{display:none}
-.wire-name{font-size:14px;line-height:20px}
+.masthead .fleet-id,.masthead .clock,#notify{display:none}
+.wire-name{font-size:19px;line-height:24px}
 .tabs{top:36px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}

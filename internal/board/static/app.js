@@ -39,7 +39,8 @@
 	const clock = () => {
 		const now = new Date();
 		for (const c of document.querySelectorAll("[data-clock-now]")) {
-			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" });
+			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+			c.title = now.toLocaleTimeString([], { timeZoneName: "long" });
 			c.dateTime = now.toISOString();
 		}
 	};
