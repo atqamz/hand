@@ -1,0 +1,2 @@
+ALTER TABLE supervisor ADD COLUMN switch_model TEXT NOT NULL DEFAULT '';
+ALTER TABLE supervisor ADD COLUMN switch_effort TEXT NOT NULL DEFAULT '';

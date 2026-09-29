@@ -31,13 +31,17 @@ type Supervisor struct {
 	Session string
 	Status  string
 	Terminal
-	WakeCursor int64
-	Reason     string
-	CreatedAt  string
-	EndedAt    string
+	WakeCursor   int64
+	Reason       string
+	CreatedAt    string
+	EndedAt      string
+	SwitchModel  string
+	SwitchEffort string
 }
 
 func (s Supervisor) Live() bool { return s.Status == AttemptLaunching || s.Status == AttemptRunning }
+
+func (s Supervisor) Switching() bool { return s.SwitchModel != "" }
 
 type SupervisorInput struct {
 	ID          int64
@@ -50,12 +54,12 @@ func SupervisorRef(id int64) string { return "s" + strconv.FormatInt(id, 10) }
 
 func inputRef(id int64) string { return "i" + strconv.FormatInt(id, 10) }
 
-const supervisorSelect = `SELECT id, harness, model, effort, argv, session, status, server_generation, terminal_id, pane_id, pid, start_marker, wake_cursor, reason, created_at, ended_at FROM supervisor`
+const supervisorSelect = `SELECT id, harness, model, effort, argv, session, status, server_generation, terminal_id, pane_id, pid, start_marker, wake_cursor, reason, created_at, ended_at, switch_model, switch_effort FROM supervisor`
 
 func scanSupervisor(row scanner) (Supervisor, error) {
 	var s Supervisor
 	var argv string
-	err := row.Scan(&s.ID, &s.Harness, &s.Model, &s.Effort, &argv, &s.Session, &s.Status, &s.ServerGeneration, &s.TerminalID, &s.PaneID, &s.PID, &s.StartMarker, &s.WakeCursor, &s.Reason, &s.CreatedAt, &s.EndedAt)
+	err := row.Scan(&s.ID, &s.Harness, &s.Model, &s.Effort, &argv, &s.Session, &s.Status, &s.ServerGeneration, &s.TerminalID, &s.PaneID, &s.PID, &s.StartMarker, &s.WakeCursor, &s.Reason, &s.CreatedAt, &s.EndedAt, &s.SwitchModel, &s.SwitchEffort)
 	if err != nil {
 		return s, err
 	}
@@ -147,6 +151,46 @@ func (s *Store) EndSupervisor(ctx context.Context, id int64, to, reason string) 
 		sup.Status, sup.Reason, sup.EndedAt = to, reason, now
 		out = sup
 		return emit(tx, now, "supervisor."+to, 0, SupervisorRef(id)+": "+reason)
+	})
+	return out, err
+}
+
+func (s *Store) SetSupervisorSwitch(ctx context.Context, id int64, model, effort string) (Supervisor, error) {
+	if strings.TrimSpace(model) == "" || strings.TrimSpace(effort) == "" {
+		return Supervisor{}, fmt.Errorf("%w: a switch needs a model and an effort", ErrInvalid)
+	}
+	return s.setSwitch(ctx, id, model, effort)
+}
+
+func (s *Store) CancelSupervisorSwitch(ctx context.Context, id int64) (Supervisor, error) {
+	return s.setSwitch(ctx, id, "", "")
+}
+
+func (s *Store) setSwitch(ctx context.Context, id int64, model, effort string) (Supervisor, error) {
+	var out Supervisor
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		sup, err := getSupervisor(tx, id)
+		if err != nil {
+			return err
+		}
+		ref := SupervisorRef(id)
+		detail := ref + ": to " + model + " " + effort
+		switch {
+		case model == "" && !sup.Switching():
+			return fmt.Errorf("%w: supervisor %s has no pending switch", ErrConflict, ref)
+		case model == "":
+			detail = ref + ": canceled"
+		case sup.Status != AttemptRunning:
+			return fmt.Errorf("%w: supervisor %s is %s; only a running one can switch", ErrConflict, ref, sup.Status)
+		case sup.Switching():
+			return fmt.Errorf("%w: a switch to %s %s is already pending; cancel it with `hand supervisor switch --cancel`", ErrConflict, sup.SwitchModel, sup.SwitchEffort)
+		}
+		if _, err := tx.Exec(`UPDATE supervisor SET switch_model = ?, switch_effort = ? WHERE id = ?`, model, effort, id); err != nil {
+			return err
+		}
+		sup.SwitchModel, sup.SwitchEffort = model, effort
+		out = sup
+		return emit(tx, s.stamp(), "supervisor.switch", 0, detail)
 	})
 	return out, err
 }

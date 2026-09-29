@@ -73,6 +73,43 @@ func TestAVersion4HomeLearnsNewHarnesses(t *testing.T) {
 	}
 }
 
+func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:6] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 6`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO supervisor(harness, model, effort, argv, status, created_at) VALUES ('claude', 'sonnet', 'low', '["/bin/claude"]', 'stopped', 'x')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 7 {
+		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
+	}
+	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
+		t.Fatalf("migrated supervisor = %+v, %v, %v", sup, ok, err)
+	}
+}
+
 func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hand.db")

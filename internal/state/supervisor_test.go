@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -157,5 +158,66 @@ func TestAddSupervisorInputRefusesWhatSendRefuses(t *testing.T) {
 	}
 	if !slices.Contains(SupervisorKeys, "esc") || len(SupervisorKeys) != 7 {
 		t.Fatalf("keys = %q", SupervisorKeys)
+	}
+}
+
+func runningSupervisor(t *testing.T, s *Store) Supervisor {
+	t.Helper()
+	ctx := context.Background()
+	sup, err := s.AddSupervisor(ctx, supervisorSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sup, err = s.SupervisorRunning(ctx, sup.ID, supervisorTerm); err != nil {
+		t.Fatal(err)
+	}
+	return sup
+}
+
+func TestASupervisorSwitchIsOneAtATime(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup := runningSupervisor(t, s)
+	got, err := s.SetSupervisorSwitch(ctx, sup.ID, "opus", "high")
+	if err != nil || !got.Switching() || got.SwitchModel != "opus" || got.SwitchEffort != "high" {
+		t.Fatalf("set = %+v, %v", got, err)
+	}
+	if latest, _, _ := s.LatestSupervisor(ctx); latest.SwitchModel != "opus" || latest.SwitchEffort != "high" {
+		t.Fatalf("stored = %+v", latest)
+	}
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "haiku", "low"); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "--cancel") {
+		t.Fatalf("second set = %v", err)
+	}
+	if got, err = s.CancelSupervisorSwitch(ctx, sup.ID); err != nil || got.Switching() || got.SwitchEffort != "" {
+		t.Fatalf("cancel = %+v, %v", got, err)
+	}
+	if _, err := s.CancelSupervisorSwitch(ctx, sup.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second cancel = %v", err)
+	}
+	events, err := s.EventsAfter(ctx, 0, []string{"supervisor.switch"}, 10)
+	if err != nil || len(events) != 2 || events[0].Detail != "s1: to opus high" || events[1].Detail != "s1: canceled" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
+func TestASwitchNeedsARunningSupervisor(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup := runningSupervisor(t, s)
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "opus", ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty effort = %v", err)
+	}
+	if _, err := s.EndSupervisor(ctx, sup.ID, AttemptStopped, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "opus", "high"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stopped = %v", err)
+	}
+}
+
+func TestASupervisorStartsWithoutASwitch(t *testing.T) {
+	s, _ := openTest(t)
+	if sup := runningSupervisor(t, s); sup.Switching() {
+		t.Fatalf("new row = %+v", sup)
 	}
 }
