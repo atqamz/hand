@@ -54,6 +54,32 @@ var blocks = []struct{ in, want string }{
 	{"~~open", `<p>~~open</p>`},
 }
 
+const wrap = `<div class="table" role="region" aria-label="Table" tabindex="0"><table>`
+
+var tables = []struct{ in, want string }{
+	{"| a | b |\n|---|---:|\n| x | 1 |", wrap + `<thead><tr><th>a</th><th class="r">b</th></tr></thead><tbody><tr><td>x</td><td class="r">1</td></tr></tbody></table></div>`},
+	{"| day | online |\n|---|---|\n| Mon | 314 |\n| Tue | 1.2k–3k |\n| Wed | 12% → 46% |", wrap + `<thead><tr><th>day</th><th class="r">online</th></tr></thead><tbody><tr><td>Mon</td><td class="r">314</td></tr><tr><td>Tue</td><td class="r">1.2k–3k</td></tr><tr><td>Wed</td><td class="r">12% → 46%</td></tr></tbody></table></div>`},
+	{"| n |\n|---|\n| 12 |\n| n/a |", wrap + `<thead><tr><th>n</th></tr></thead><tbody><tr><td>12</td></tr><tr><td>n/a</td></tr></tbody></table></div>`},
+	{"| a | b |\n|:---|:-:|\n| 1 | 2 |", wrap + `<thead><tr><th class="l">a</th><th class="c">b</th></tr></thead><tbody><tr><td class="l">1</td><td class="c">2</td></tr></tbody></table></div>`},
+	{"a | b\n--- | ---\nx | y", wrap + `<thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>x</td><td>y</td></tr></tbody></table></div>`},
+	{"| a \\| b |\n|---|\n| c |", wrap + `<thead><tr><th>a | b</th></tr></thead><tbody><tr><td>c</td></tr></tbody></table></div>`},
+	{"| a | b |\n|---|---|\n| x |\n| p | q | r |", wrap + `<thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>x</td><td></td></tr><tr><td>p</td><td>q</td></tr></tbody></table></div>`},
+	{"| | **28 Sep** |\n|---|---|\n| online | **291** |", wrap + `<thead><tr><th></th><th class="r"><strong>28 Sep</strong></th></tr></thead><tbody><tr><td>online</td><td class="r"><strong>291</strong></td></tr></tbody></table></div>`},
+	{"intro\n| a |\n|---|\n| b |", `<p>intro</p>` + wrap + `<thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table></div>`},
+	{"| a |\n|---|\n| b |\nafter", wrap + `<thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table></div><p>after</p>`},
+	{"a | b\nc | d", `<p>a | b<br>c | d</p>`},
+	{"| a | b |\n|---|---|---|\n| x | y |", `<p>| a | b |<br>|---|---|---|<br>| x | y |</p>`},
+	{"```\n| a |\n|---|\n```", "<pre><code>| a |\n|---|</code></pre>"},
+}
+
+func TestRenderTables(t *testing.T) {
+	for _, c := range tables {
+		if got := string(markdown.Render(c.in)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
 func TestRenderBlocks(t *testing.T) {
 	for _, c := range blocks {
 		if got := string(markdown.Render(c.in)); got != c.want {
@@ -120,7 +146,7 @@ func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
 
 func seeds() []string {
 	out := append([]string(nil), corpus...)
-	for _, b := range blocks {
+	for _, b := range append(blocks, tables...) {
 		out = append(out, b.in)
 	}
 	return out
@@ -141,9 +167,11 @@ func FuzzRender(f *testing.F) {
 }
 
 var (
-	tagPattern  = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z]+="[^"<>]*")*)>`)
-	attrPattern = regexp.MustCompile(` ([a-z]+)="([^"]*)"`)
-	allowed     = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true}
+	tagPattern  = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z-]+="[^"<>]*")*)>`)
+	attrPattern = regexp.MustCompile(` ([a-z-]+)="([^"]*)"`)
+	allowed     = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
+	fixed       = map[string]string{"div class": "table", "div role": "region", "div aria-label": "Table", "div tabindex": "0"}
+	aligns      = map[string]bool{"l": true, "r": true, "c": true}
 )
 
 func active(out string) string {
@@ -159,6 +187,18 @@ func active(out string) string {
 			return "element " + m[2]
 		}
 		for _, a := range attrPattern.FindAllStringSubmatch(m[3], -1) {
+			if want, ok := fixed[m[2]+" "+a[1]]; ok {
+				if a[2] != want {
+					return "value " + a[2] + " for " + a[1] + " on " + m[2]
+				}
+				continue
+			}
+			if (m[2] == "th" || m[2] == "td") && a[1] == "class" {
+				if !aligns[a[2]] {
+					return "class " + a[2] + " on " + m[2]
+				}
+				continue
+			}
 			switch {
 			case m[2] != "a" || (a[1] != "href" && a[1] != "rel"):
 				return "attribute " + a[1] + " on " + m[2]
@@ -174,7 +214,7 @@ func active(out string) string {
 }
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
-	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n"} {
+	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|"} {
 		in := strings.Repeat(unit, 200<<10/len(unit))
 		start := time.Now()
 		markdown.Render(in)

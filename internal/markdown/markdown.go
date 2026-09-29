@@ -4,6 +4,7 @@ import (
 	"html"
 	"html/template"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -45,13 +46,15 @@ func blocks(b *strings.Builder, lines []string, quotes bool) {
 			b.WriteString("<blockquote>")
 			blocks(b, inner, false)
 			b.WriteString("</blockquote>")
+		case tableAt(lines, i):
+			i = table(b, lines, i)
 		case item(line, false) != "":
 			i = list(b, lines, i, "ul", false)
 		case item(line, true) != "":
 			i = list(b, lines, i, "ol", true)
 		default:
 			var parts []string
-			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && (len(parts) == 0 || !starts(lines[i], quotes)); i++ {
+			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && (len(parts) == 0 || !starts(lines, i, quotes)); i++ {
 				parts = append(parts, inline(lines[i], true))
 			}
 			b.WriteString("<p>" + strings.Join(parts, "<br>") + "</p>")
@@ -59,8 +62,123 @@ func blocks(b *strings.Builder, lines []string, quotes bool) {
 	}
 }
 
-func starts(line string, quotes bool) bool {
-	return fence(line) || rule(line) || heading(line) > 0 || quotes && strings.HasPrefix(line, ">") || item(line, false) != "" || item(line, true) != ""
+func starts(lines []string, i int, quotes bool) bool {
+	line := lines[i]
+	return fence(line) || rule(line) || heading(line) > 0 || quotes && strings.HasPrefix(line, ">") || tableAt(lines, i) || item(line, false) != "" || item(line, true) != ""
+}
+
+func tableAt(lines []string, i int) bool {
+	if i+1 >= len(lines) || !strings.Contains(lines[i], "|") {
+		return false
+	}
+	delim := cells(lines[i+1])
+	for _, d := range delim {
+		if !align.MatchString(d) {
+			return false
+		}
+	}
+	return len(delim) == len(cells(lines[i]))
+}
+
+var align = regexp.MustCompile(`^:?-+:?$`)
+
+func cells(line string) []string {
+	t := strings.TrimSpace(line)
+	t = strings.TrimPrefix(t, "|")
+	if strings.HasSuffix(t, "|") && !strings.HasSuffix(t, "\\|") {
+		t = t[:len(t)-1]
+	}
+	var out []string
+	start := 0
+	for j := 0; j < len(t); j++ {
+		if t[j] == '|' && (j == 0 || t[j-1] != '\\') {
+			out = append(out, t[start:j])
+			start = j + 1
+		}
+	}
+	out = append(out, t[start:])
+	for k, c := range out {
+		out[k] = strings.ReplaceAll(strings.TrimSpace(c), "\\|", "|")
+	}
+	return out
+}
+
+func table(b *strings.Builder, lines []string, i int) int {
+	head := cells(lines[i])
+	classes := make([]string, len(head))
+	for k, d := range cells(lines[i+1]) {
+		switch {
+		case strings.HasPrefix(d, ":") && strings.HasSuffix(d, ":"):
+			classes[k] = "c"
+		case strings.HasSuffix(d, ":"):
+			classes[k] = "r"
+		case strings.HasPrefix(d, ":"):
+			classes[k] = "l"
+		}
+	}
+	var rows [][]string
+	for i += 2; i < len(lines) && strings.TrimSpace(lines[i]) != "" && strings.Contains(lines[i], "|") && !fence(lines[i]); i++ {
+		row := cells(lines[i])
+		for len(row) < len(head) {
+			row = append(row, "")
+		}
+		rows = append(rows, row[:len(head)])
+	}
+	for k := range head {
+		if classes[k] == "" && numericColumn(rows, k) {
+			classes[k] = "r"
+		}
+	}
+	b.WriteString(`<div class="table" role="region" aria-label="Table" tabindex="0"><table><thead><tr>`)
+	for k, c := range head {
+		b.WriteString(cell("th", classes[k], c))
+	}
+	b.WriteString("</tr></thead><tbody>")
+	for _, row := range rows {
+		b.WriteString("<tr>")
+		for k, c := range row {
+			b.WriteString(cell("td", classes[k], c))
+		}
+		b.WriteString("</tr>")
+	}
+	b.WriteString("</tbody></table></div>")
+	return i
+}
+
+func cell(tag, class, text string) string {
+	open := "<" + tag + ">"
+	if class != "" {
+		open = "<" + tag + ` class="` + class + `">`
+	}
+	return open + inline(text, true) + "</" + tag + ">"
+}
+
+func numericColumn(rows [][]string, k int) bool {
+	seen := false
+	for _, row := range rows {
+		if row[k] == "" {
+			continue
+		}
+		if !numeric(row[k]) {
+			return false
+		}
+		seen = true
+	}
+	return seen
+}
+
+func numeric(text string) bool {
+	digit := false
+	for _, r := range text {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case strings.ContainsRune("*_ .,%kKMx×~≈<>+-–—→", r):
+		default:
+			return false
+		}
+	}
+	return digit
 }
 
 func rule(line string) bool {
