@@ -126,16 +126,21 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .tabs a[aria-current=true]{border-bottom-color:var(--accent);color:var(--fg)}
 #toast{position:fixed;right:16px;bottom:16px;z-index:5;max-width:min(28em,calc(100vw - 32px));padding:10px 14px;border:1px solid var(--fail);border-radius:6px;background:var(--bg);color:var(--fg);box-shadow:0 8px 24px var(--shadow)}
 #toast:empty{display:none}
-@media (min-width:900px) and (min-height:600px){.tabs{display:none}
-body[data-page=fleet]{height:100vh;display:flex;flex-direction:column;overflow:hidden}
-body[data-page=fleet] .board{flex:1;min-height:0;width:100%;grid-template-columns:minmax(0,7fr) minmax(0,6fr);grid-template-rows:minmax(0,1fr);align-items:stretch}
-body[data-page=fleet] #needs{min-height:0;overflow-y:auto;padding-right:4px}
-body[data-page=fleet] #chat{min-height:0;gap:12px}
-body[data-page=fleet] .timeline{flex:1;max-height:none}}
-@media (max-width:899px),(max-height:599px){.board{padding:12px}
+#needs,#chat{width:100%;max-width:880px;margin:0 auto}
 .queue-head{display:none}
-#composer{position:sticky;bottom:0;box-shadow:0 -8px 16px var(--shadow)}}
-@media (max-width:599px){.check .meta{display:none}.fleet-id{display:none}}
+.tabs{padding:0 max(16px,calc((100% - 880px)/2))}
+#composer textarea{max-height:40dvh}
+@supports (field-sizing:content){#composer textarea{field-sizing:content;resize:none}}
+@media (min-height:600px){body[data-page=fleet][data-shell]{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+body[data-page=fleet][data-shell] .board{flex:1;min-height:0;width:100%;grid-template-rows:minmax(0,1fr);align-items:stretch}
+body[data-page=fleet][data-shell] #needs{min-height:0;overflow-y:auto}
+body[data-page=fleet][data-shell] #chat{min-height:0;gap:12px}
+body[data-page=fleet][data-shell] .timeline{flex:1;min-height:0;max-height:none}}
+body:not([data-shell]) #composer{position:sticky;bottom:0;box-shadow:0 -8px 16px var(--shadow)}
+body:not([data-shell]) #composer textarea{max-height:30dvh}
+@media (max-height:599px){#composer{position:sticky;bottom:0;box-shadow:0 -8px 16px var(--shadow)}
+#composer textarea{max-height:30dvh}}
+@media (max-width:599px){.board{padding:12px}.check .meta{display:none}.fleet-id{display:none}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]{animation:none}}
 .thread,.list{max-width:980px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}

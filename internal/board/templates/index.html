@@ -1,4 +1,4 @@
-{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board"><a href="#needs" data-tab="needs">Needs you (<span class="n">{{.Waiting}}</span>)</a><a href="#chat" data-tab="chat">Chat</a></nav>
+{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}"><a href="#needs" data-tab="needs">Needs you <span class="count n" data-waiting="{{.Waiting}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>
 <main class="board">
 <div class="column" id="needs">
 <section class="queue" data-region="queue">{{template "region-queue" .}}</section>
@@ -11,7 +11,7 @@
 {{if .Controls}}<form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<div class="actions"><span class="hint">{{.ComposerHint}}</span><button class="primary">Send</button></div>
+<div class="actions"><span class="hint">{{.ComposerHint}}</span><span class="send"><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
 </form>{{end}}
 </div>
 </main>
