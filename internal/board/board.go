@@ -39,6 +39,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"plan":     func(rev int) string { return state.PlanRef(rev) },
 	"asset":    assetURL,
 	"md":       markdown.Render,
+	"mdrefs":   markdown.RenderRefs,
 	"when":     when,
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
@@ -105,6 +106,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
+	b.mux.HandleFunc("GET /ref/{ref}", b.ref)
 	b.mux.HandleFunc("GET /decision/{id}", b.decision)
 	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
 	b.mux.HandleFunc("POST /report/{id}/ack", b.ack)
@@ -217,6 +219,40 @@ func Scrub(msg string) string {
 		i := strings.IndexByte(m, '/')
 		return m[:i] + filepath.Base(m[i:])
 	})
+}
+
+func (b *Board) ref(w http.ResponseWriter, r *http.Request) {
+	ctx, ref := r.Context(), r.PathValue("ref")
+	missing := fmt.Errorf("%w: %q is not a known ref", state.ErrNotFound, ref)
+	id, err := strconv.ParseInt(ref[min(1, len(ref)):], 10, 64)
+	if err != nil || id <= 0 {
+		b.failErr(w, missing)
+		return
+	}
+	var to string
+	switch ref[0] {
+	case 't':
+		_, err = b.st.Task(ctx, id)
+		to = "/task/" + ref
+	case 'd':
+		_, err = b.st.Decision(ctx, id)
+		to = "/decision/" + ref
+	case 'a':
+		var a state.Attempt
+		a, err = b.st.Attempt(ctx, id)
+		to = "/task/" + state.TaskRef(a.TaskID) + "#" + ref
+	case 'r':
+		var rep state.Report
+		rep, err = b.st.Report(ctx, id)
+		to = "/task/" + state.TaskRef(rep.TaskID) + "#" + ref
+	default:
+		err = missing
+	}
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	http.Redirect(w, r, b.o.Base+to, http.StatusSeeOther)
 }
 
 func pathID(r *http.Request, prefix string) (int64, error) {

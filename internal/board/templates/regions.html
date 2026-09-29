@@ -14,7 +14,7 @@ or <select name="harness"><option value="">harness…</option>{{range .Harnesses
 
 {{define "region-timeline"}}{{with .Working}}<div class="event working" data-working>{{template "icon-event"}}<span class="event-text">{{.Ref}} is working · <time datetime="{{.Since}}" data-since>{{.Label}}</time>, {{.On}}{{with .From}} <time datetime="{{.}}" data-clock>{{$.Working.FromLabel}}</time>{{end}}</span></div>
 {{end}}{{range .Entries}}{{if eq .Role "hand"}}<div class="event">{{template "icon-event"}}<span class="event-text">{{.Text}}</span> <time datetime="{{.At}}">{{when .At}}</time></div>
-{{else}}<article class="comment" data-role="{{.Role}}"><header><b>{{.Role}}</b> <time datetime="{{.At}}">{{when .At}}</time>{{if .Queued}} <span class="label">Queued</span>{{end}}</header>{{if eq .Role "supervisor"}}<div class="body md">{{md .Text}}</div>{{else}}<div class="body plain">{{.Text}}</div>{{end}}</article>
+{{else}}<article class="comment" data-role="{{.Role}}"><header><b>{{.Role}}</b> <time datetime="{{.At}}">{{when .At}}</time>{{if .Queued}} <span class="label">Queued</span>{{end}}</header>{{if eq .Role "supervisor"}}<div class="body md">{{mdrefs .Text $.Base}}</div>{{else}}<div class="body plain">{{.Text}}</div>{{end}}</article>
 {{end}}{{end}}{{with .Note}}<p class="quiet">{{.}}</p>
 {{end}}{{if .Older}}<p class="older"><a href="{{.Base}}/supervisor/log?before={{.Older}}">Older messages</a></p>
 {{end}}{{end}}

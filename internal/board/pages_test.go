@@ -102,3 +102,20 @@ func TestErrorPagesKeepNoPaths(t *testing.T) {
 		t.Fatalf("missing task = %d:\n%s", missing.Code, missing.Body.String())
 	}
 }
+
+func TestRefRouteRedirects(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	h := board.New(st, token, board.Options{})
+	for ref, want := range map[string]string{"t1": "/task/t1", "d1": "/decision/d1", "a1": "/task/t1#a1", "r1": "/task/t1#r1"} {
+		rec := request(h, "GET", "/ref/"+ref, nil, true)
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
+			t.Errorf("/ref/%s = %d %q, want %q", ref, rec.Code, rec.Header().Get("Location"), want)
+		}
+	}
+	for _, ref := range []string{"t99", "x1", "d0"} {
+		if rec := request(h, "GET", "/ref/"+ref, nil, true); rec.Code != http.StatusNotFound {
+			t.Errorf("/ref/%s = %d", ref, rec.Code)
+		}
+	}
+}
