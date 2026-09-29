@@ -26,7 +26,7 @@ related_targets: []
   - live updates over Server-Sent Events;
   - controls only on loopback, CSRF on every form, and no paths on error pages;
   - light and dark themes follow the system;
-  - supervisor replies and reports render as a small in-house safe markdown subset: bold, italics, lists, inline and block code, links.
+  - supervisor replies and reports render as a small in-house safe markdown subset: bold, italics, strikethrough, lists, inline and block code, links, headings, rules, one level of quotes, and GFM tables with numeric columns right-aligned.
 - **Alerts:** a tab-title count, plus opt-in browser notifications for new waiting items.
 
 ## Chosen direction and memorable moment
@@ -46,7 +46,7 @@ OWN-WORLD: GitHub-grade restraint: neutral light and dark grounds, hairline bord
 
 STORY: The operator opens the board, sees at once what needs them, clears it without leaving the page, glances at the running checks, then talks to the supervisor in a quiet timeline.
 
-FIRST VIEWPORT: On desktop, the left column shows the waiting queue with the top item's action open, and below it the running checks list, one line per task. The right column shows the supervisor status pill and controls, the timeline, and the composer fixed at the bottom. On phone, two tabs: "Needs you (N)" leading, and "Chat".
+FIRST VIEWPORT: At every width, two tabs under the header: "Needs you" with its count, and "Chat" with a dot while the supervisor works. The board opens on Needs you when something waits and on Chat otherwise. Needs you shows the waiting queue with the top item's action open, and below it the checks list, one line per task. Chat shows the supervisor status pill and controls, the timeline, and the composer at the bottom. Both panels are centred, up to 880px wide.
 
 FORM: Review Thread, candidate 1 of the safer-register hand (4th on the original grounded list), seed key b7f9ac93.
 
