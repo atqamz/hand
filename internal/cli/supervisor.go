@@ -162,6 +162,10 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 }
 
 func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor) (state.Supervisor, error) {
+	spec := harness.Spec{Harness: sup.Harness, Model: sup.SwitchModel, Effort: sup.SwitchEffort}
+	if _, err := supervisorBin(r, spec); err != nil {
+		return sup, err
+	}
 	to := state.AttemptExited
 	if rootAlive(sup.PID, sup.StartMarker) {
 		if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
@@ -173,7 +177,7 @@ func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Clien
 	if err != nil {
 		return sup, err
 	}
-	return r.relaunch(ctx, st, c, ended, harness.Spec{Harness: ended.Harness, Model: ended.SwitchModel, Effort: ended.SwitchEffort})
+	return r.relaunch(ctx, st, c, ended, spec)
 }
 
 func cmdSupervisorSwitch(r *runner, args []string) error {
@@ -200,10 +204,18 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		ref := state.SupervisorRef(sup.ID)
 		var d toon.Doc
 		if *cancel {
+			unlock, _, err := r.supervisorLock(true)
+			if err != nil {
+				return err
+			}
+			defer unlock()
+			if sup, err = runningSupervisor(ctx, st); err != nil {
+				return err
+			}
 			if _, err := st.CancelSupervisorSwitch(ctx, sup.ID); err != nil {
 				return err
 			}
-			d.Field("supervisor", ref)
+			d.Field("supervisor", state.SupervisorRef(sup.ID))
 			d.Field("switch", "canceled")
 			return r.print(&d)
 		}

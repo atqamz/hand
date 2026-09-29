@@ -706,3 +706,23 @@ func TestSwitchWithOnlyEffortKeepsTheModel(t *testing.T) {
 	has(t, "switch", h.ok("supervisor", "switch", "--effort", "high"), "switch: applied", "model: sonnet", "effort: high")
 	resumedArgv(t, rt, session, "sonnet", "high")
 }
+
+func TestCancelDuringAnApplyWaitsForIt(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.closeDelay = "idle", 1500*time.Millisecond })
+	done := make(chan int, 1)
+	go func() {
+		_, _, code := h.run("supervisor", "send", "--text", "hello")
+		done <- code
+	}()
+	time.Sleep(700 * time.Millisecond)
+	if _, errOut, code := h.run("supervisor", "switch", "--cancel"); code != 3 || !strings.Contains(errOut, "no pending switch") {
+		t.Fatalf("cancel during the apply code=%d stderr=%q", code, errOut)
+	}
+	if code := <-done; code != 0 {
+		t.Fatalf("send during the apply code = %d", code)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "harness: claude opus high", "status: running", "pending: 0")
+}

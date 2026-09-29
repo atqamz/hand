@@ -176,12 +176,12 @@ func (s *Store) setSwitch(ctx context.Context, id int64, model, effort string) (
 		ref := SupervisorRef(id)
 		detail := ref + ": to " + model + " " + effort
 		switch {
+		case sup.Status != AttemptRunning:
+			return fmt.Errorf("%w: supervisor %s is %s; only a running one can switch", ErrConflict, ref, sup.Status)
 		case model == "" && !sup.Switching():
 			return fmt.Errorf("%w: supervisor %s has no pending switch", ErrConflict, ref)
 		case model == "":
 			detail = ref + ": canceled"
-		case sup.Status != AttemptRunning:
-			return fmt.Errorf("%w: supervisor %s is %s; only a running one can switch", ErrConflict, ref, sup.Status)
 		case sup.Switching():
 			return fmt.Errorf("%w: a switch to %s %s is already pending; cancel it with `hand supervisor switch --cancel`", ErrConflict, sup.SwitchModel, sup.SwitchEffort)
 		}
