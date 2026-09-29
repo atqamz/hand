@@ -311,6 +311,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
+	numbered := len(entries)
 	for _, in := range pending {
 		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
 	}
@@ -319,10 +320,22 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		end = n
 	}
 	start := max(0, end-pageSize)
-	page := slices.Clone(entries[start:end])
+	page := make([]dispatch, 0, end-start)
+	for i := start; i < end; i++ {
+		d := dispatch{Entry: entries[i]}
+		if i < numbered {
+			d.No = i + 1
+		}
+		page = append(page, d)
+	}
 	slices.Reverse(page)
 	data["Entries"], data["Older"] = page, start
 	return nil
+}
+
+type dispatch struct {
+	transcript.Entry
+	No int
 }
 
 func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {

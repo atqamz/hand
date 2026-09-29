@@ -27,12 +27,20 @@
 	};
 
 	const local = (root) => {
-		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
+		for (const t of root.querySelectorAll("time[datetime]:not([data-since]):not([data-clock-now])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
 			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
+		}
+	};
+
+	const clock = () => {
+		const now = new Date();
+		for (const c of document.querySelectorAll("[data-clock-now]")) {
+			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+			c.dateTime = now.toISOString();
 		}
 	};
 
@@ -215,7 +223,11 @@
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	since();
-	setInterval(since, 30000);
+	clock();
+	setInterval(() => {
+		since();
+		clock();
+	}, 30000);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) reflect();
