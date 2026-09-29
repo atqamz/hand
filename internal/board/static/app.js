@@ -148,9 +148,13 @@
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		form.dataset.busy = "";
-		const data = new URLSearchParams(new FormData(form, e.submitter));
-		const res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
-		delete form.dataset.busy;
+		let res = null;
+		try {
+			const data = new URLSearchParams(new FormData(form, e.submitter));
+			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
+		} finally {
+			delete form.dataset.busy;
+		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
 			show("The board did not answer; check that hand board is running.");

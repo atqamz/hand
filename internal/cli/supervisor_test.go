@@ -726,3 +726,16 @@ func TestCancelDuringAnApplyWaitsForIt(t *testing.T) {
 	}
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "harness: claude opus high", "status: running", "pending: 0")
 }
+
+func TestAFailedRelaunchSaysHowToRecover(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	_, errOut, code := h.run("supervisor", "switch", "--model", "opus", "--effort", "high")
+	if code == 0 || !strings.Contains(errOut, "hand supervisor resume") {
+		t.Fatalf("failed relaunch code=%d stderr=%q", code, errOut)
+	}
+}

@@ -167,7 +167,7 @@ func calm(text string, final bool) bool {
 }
 
 func unwrap(text string) string {
-	lines := strings.Split(text, "\n")
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	out := make([]string, 0, len(lines))
 	start, closing := -1, ""
 	for _, l := range lines {

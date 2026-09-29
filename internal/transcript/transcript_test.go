@@ -74,6 +74,7 @@ func TestPastedContentIsUnwrapped(t *testing.T) {
 		{"<pasted_content id=\"d1\">\nkept\n</pasted_content id=\"d9\">", Entry{Role: "operator", Text: "<pasted_content id=\"d1\">\nkept\n</pasted_content id=\"d9\">"}},
 		{"<pasted_content id=\"e1\">\nnever closed", Entry{Role: "operator", Text: "<pasted_content id=\"e1\">\nnever closed"}},
 		{"<pasted_content id=\"x y\">\nodd\n</pasted_content id=\"x y\">", Entry{Role: "operator", Text: "<pasted_content id=\"x y\">\nodd\n</pasted_content id=\"x y\">"}},
+		{"<pasted_content id=\"f1\">\r\n[hand v1 wake]\r\ndecision.answered d1\r\n</pasted_content id=\"f1\">\r\n", Entry{Role: "hand", Text: "wake: decision.answered d1"}},
 	}
 	for _, c := range cases {
 		if got, ok := classify(c.in); !ok || got != c.want {
