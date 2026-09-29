@@ -61,6 +61,7 @@ const (
 
 var (
 	sessionID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	pasteOpen = regexp.MustCompile(`^<pasted_content id="([A-Za-z0-9]{1,32})">$`)
 	launch    = regexp.MustCompile(`^You are supervisor (s[0-9]+) of the Hand fleet `)
 )
 
@@ -165,8 +166,28 @@ func calm(text string, final bool) bool {
 	return strings.Contains(t, "\n") || utf8.RuneCountInString(t) >= substance
 }
 
+func unwrap(text string) string {
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	out := make([]string, 0, len(lines))
+	start, closing := -1, ""
+	for _, l := range lines {
+		switch {
+		case start < 0:
+			if m := pasteOpen.FindStringSubmatch(l); m != nil {
+				start, closing = len(out), `</pasted_content id="`+m[1]+`">`
+			}
+		case l == closing:
+			out = append(out[:start], out[start+1:]...)
+			start = -1
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
 func classify(text string) (Entry, bool) {
-	t := strings.TrimSpace(text)
+	t := strings.TrimSpace(unwrap(text))
 	if t == "" {
 		return Entry{}, false
 	}

@@ -88,7 +88,7 @@ func TestTheStatusIsAPill(t *testing.T) {
 	working := newFixture(t)
 	working.supervisor(t, "running", "gen-1")
 	body := get(t, working.handler(), "/")
-	if got := state(t, body); got != "running" {
+	if got := state(t, body); got != "working" {
 		t.Fatalf("working = %q", got)
 	}
 	contains(t, "working status", region(body, "status"), `action="/supervisor/stop"`, `action="/supervisor/interrupt"`, "0 queued")

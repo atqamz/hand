@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>{{.Title}} · {{.Fleet}}</title>
 <link rel="stylesheet" href="{{asset "board.css"}}">
+<link rel="icon" href="{{asset "favicon.svg"}}">
 <script src="{{asset "app.js"}}" defer></script>
 </head>
 <body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}">

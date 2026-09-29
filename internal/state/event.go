@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -41,6 +42,15 @@ func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) LatestEvent(ctx context.Context, kind string) (Event, bool, error) {
+	var e Event
+	err := s.db.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind = ? ORDER BY seq DESC LIMIT 1`, kind).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	return e, err == nil, err
 }
 
 func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {

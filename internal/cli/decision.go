@@ -125,6 +125,7 @@ func cmdDecisionShow(r *runner, args []string) error {
 func cmdDecisionList(r *runner, args []string) error {
 	fs := flags("decision list")
 	limit := fs.Int("limit", 50, "maximum rows")
+	all := fs.Bool("all", false, "include answered and withdrawn decisions")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -133,12 +134,26 @@ func cmdDecisionList(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
+	var doc toon.Doc
+	if *all {
+		ds, err := st.Decisions(context.Background(), 0, *limit)
+		if err != nil {
+			return err
+		}
+		rows := make([][]string, 0, len(ds))
+		for _, d := range ds {
+			rows = append(rows, []string{state.DecisionRef(d.ID), state.TaskRef(d.TaskID), d.Status, d.Question})
+		}
+		doc.Rows("decisions", []string{"id", "task", "status", "question"}, rows)
+		doc.Help("Read an answer: `hand decision show dN`")
+		return r.print(&doc)
+	}
 	ds, err := st.OpenDecisions(context.Background(), 0, *limit)
 	if err != nil {
 		return err
 	}
-	var doc toon.Doc
 	doc.Rows("decisions", []string{"id", "task", "question"}, decisionRows(ds))
+	doc.Help("Answered and withdrawn ones: `hand decision list --all`")
 	return r.print(&doc)
 }
 

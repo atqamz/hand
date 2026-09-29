@@ -84,7 +84,7 @@ Open the fleet's page with `hand open` and press **Start**. Pick a routing profi
 - `codex --dangerously-bypass-approvals-and-sandbox`;
 - `opencode --auto`.
 
-The page updates itself as things change, and keeps what you are typing. It shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to. The same controls exist as `hand supervisor start|send|keys|interrupt|stop|resume|show`.
+The page updates itself as things change, and keeps what you are typing. It shows the conversation without tool calls or thinking. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to. The panel's **Switch model** changes the supervisor's model or effort, keeping its harness and its conversation. The switch waits for the current turn to end. The same controls exist as `hand supervisor start|send|keys|interrupt|switch|stop|resume|show`.
 
 `hand init` writes the folder's `AGENTS.md` and `CLAUDE.md`, which make the agent run `hand orient` every turn. It also installs the `secondhand` skill for Claude Code, Codex, Grok and Pi. Every `hand init` rewrites these files, so put your own preferences in `memory/operator.md` instead.
 

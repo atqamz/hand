@@ -15,7 +15,7 @@ func TestDecisionFlowThroughCLI(t *testing.T) {
 	if !strings.Contains(list, "decisions[1]{id,task,question}:") || !strings.Contains(list, "d1,t1,Keep the old cookie name?") {
 		t.Fatalf("list = %q", list)
 	}
-	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "open_decisions[1]") {
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "decisions[1]{id,status,question}:") {
 		t.Fatalf("task show = %q", show)
 	}
 	if out := h.ok("decision", "answer", "d1", "yes"); !strings.Contains(out, "status: answered") {
@@ -40,5 +40,37 @@ func TestDecisionShowReadsTheAnswer(t *testing.T) {
 	}
 	if _, errOut, code := h.run("decision", "show", "d9"); code != 3 || !strings.Contains(errOut, "decision d9") {
 		t.Fatalf("missing decision code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestTaskShowListsEveryDecision(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
+	h.ok("decision", "ask", "t1", "Ship behind a flag?")
+	h.ok("decision", "answer", "d1", "yes")
+	show := h.ok("task", "show", "t1")
+	for _, want := range []string{"decisions[2]{id,status,question}:", "d1,answered,Keep the old cookie name?", "d2,open,Ship behind a flag?", "hand decision show dN"} {
+		if !strings.Contains(show, want) {
+			t.Fatalf("task show missing %q in %q", want, show)
+		}
+	}
+}
+
+func TestDecisionListAllShowsAnsweredOnes(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("decision", "ask", "t1", "Keep the old cookie name?")
+	h.ok("decision", "ask", "t1", "Ship behind a flag?")
+	h.ok("decision", "answer", "d1", "yes")
+	open := h.ok("decision", "list")
+	if !strings.Contains(open, "decisions[1]{id,task,question}:") || strings.Contains(open, "d1,") || !strings.Contains(open, "hand decision list --all") {
+		t.Fatalf("list = %q", open)
+	}
+	all := h.ok("decision", "list", "--all")
+	for _, want := range []string{"decisions[2]{id,task,status,question}:", "d1,t1,answered,Keep the old cookie name?", "d2,t1,open,Ship behind a flag?", "hand decision show dN"} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("list --all missing %q in %q", want, all)
+		}
 	}
 }

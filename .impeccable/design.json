@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-28T17:46:10+00:00",
+  "generatedAt": "2026-09-29T03:48:17+00:00",
   "title": "Design System: Hand board",
   "extensions": {
     "source": "internal/board/static/board.css",
@@ -654,19 +654,19 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Fleet name in the header and the Needs you and Checks section heads."
+        "purpose": "Fleet name in the header, the Checks section head and a reply's top-level heading."
       },
       "heading-small": {
         "displayName": "Heading Small",
-        "purpose": "Page headings on the fleet list and error page."
+        "purpose": "Page headings on the fleet list and error page, and a reply's lower headings."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Default text, waiting-item titles, comment bodies."
+        "purpose": "Default text, waiting-item titles, comment bodies and reply table cells."
       },
       "control": {
         "displayName": "Control",
-        "purpose": "Buttons."
+        "purpose": "Buttons and the Switch model disclosure."
       },
       "meta": {
         "displayName": "Meta",
@@ -674,11 +674,11 @@
       },
       "badge": {
         "displayName": "Badge",
-        "purpose": "PR chips, waiting count, status pills."
+        "purpose": "PR chips, waiting count, status pills and reply table heads."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "The Queued label on an unread operator message."
+        "purpose": "The Queued label and the switching-to label; the keyboard hint uses the mono family at this size."
       },
       "mono": {
         "displayName": "Mono",
@@ -698,7 +698,7 @@
       {
         "name": "sticky-composer",
         "value": "0 -8px 16px var(--shadow)",
-        "purpose": "The composer when it sticks to the bottom of a phone screen."
+        "purpose": "The composer when it sticks to the bottom of the flowing page (without JavaScript, or below 600px tall)."
       },
       {
         "name": "keycap-edge",
@@ -711,30 +711,55 @@
         "name": "arrive",
         "value": "1.6s cubic-bezier(.16,1,.3,1)",
         "purpose": "A new waiting item fades from --wait-bg to its ground; disabled under prefers-reduced-motion."
+      },
+      {
+        "name": "pulse",
+        "value": "2s ease-in-out infinite, opacity .3 at 50%",
+        "purpose": "The working pill's 6px dot; static under prefers-reduced-motion. The Chat tab dot never pulses."
       }
     ],
     "breakpoints": [
       {
         "name": "app-shell",
-        "value": "(min-width:900px) and (min-height:600px)",
-        "purpose": "Two-column desktop shell at 7fr/6fr, no page scroll."
+        "value": "(min-height:600px)",
+        "purpose": "With body[data-page=fleet][data-shell]: the body fills 100dvh and never scrolls; #needs and the timeline scroll on their own; the message box stops at 40dvh."
       },
       {
-        "name": "phone",
-        "value": "(max-width:899px),(max-height:599px)",
-        "purpose": "Needs you and Chat tabs, sticky composer."
+        "name": "flowing",
+        "value": "(max-height:599px)",
+        "purpose": "The page scrolls as one: the timeline stops scrolling on its own and the composer sticks to the bottom, its message box stopping at 30dvh. body:not([data-shell]) flows the same way at any height, with the timeline keeping its own 65vh scroll."
+      },
+      {
+        "name": "tabs-wide",
+        "value": "(min-width:600px)",
+        "purpose": "Tabs take their content width, 10px by 14px, starting at the panels' left edge."
       },
       {
         "name": "narrow",
         "value": "(max-width:599px)",
-        "purpose": "Hide check meta and the header fleet-id chip."
+        "purpose": "Board padding 12px; hide check meta and the header fleet-id chip. Tabs split the bar into equal halves below this width."
+      },
+      {
+        "name": "coarse-pointer",
+        "value": "(pointer:coarse)",
+        "purpose": "Hide the keyboard hint beside Send."
       }
     ],
     "containers": [
       {
-        "name": "board",
+        "name": "header",
         "value": "1440px",
-        "purpose": "Header row and fleet board."
+        "purpose": "The header's inner row."
+      },
+      {
+        "name": "board",
+        "value": "none",
+        "purpose": "The fleet page's board spans the window, so #needs and the timeline scroll from the gutter."
+      },
+      {
+        "name": "panel",
+        "value": "880px",
+        "purpose": "Every block in #needs and #chat, centred. The tab bar pads its sides by max(16px, (100% - 880px) / 2) and the timeline by max(2px, (100% - 880px) / 2) to line up with it."
       },
       {
         "name": "thread",
@@ -751,7 +776,8 @@
       "maxPaths": 4,
       "renderSize": "16px",
       "markSize": "22px",
-      "forbidden": "Octicons and any icon package or font"
+      "forbidden": "Octicons and any icon package or font",
+      "chevron": "One downward stroke beside Switch model; turns 180deg when the disclosure opens."
     },
     "fleetTint": {
       "function": "tint in internal/board/board.go",
@@ -776,6 +802,81 @@
         "#toast"
       ],
       "liveUpdates": "Server-Sent Events; app.js swaps a region's HTML whole"
+    },
+    "layers": [
+      {
+        "name": "table-sticky-column",
+        "value": 1,
+        "purpose": "A reply table's first column."
+      },
+      {
+        "name": "composer",
+        "value": 2,
+        "purpose": "The sticky composer on the flowing page, above sticky table cells."
+      },
+      {
+        "name": "tabs",
+        "value": 3,
+        "purpose": "The sticky tab bar."
+      },
+      {
+        "name": "toast",
+        "value": 5,
+        "purpose": "The error toast."
+      }
+    ],
+    "tabs": {
+      "labels": [
+        "Needs you, with the waiting-count pill",
+        "Chat, with a static 6px accent dot while the supervisor works"
+      ],
+      "initial": "The URL hash (#needs or #chat), else needs when something waits, else chat.",
+      "click": "history.replaceState writes the tab's hash.",
+      "auto": "The board never switches tabs by itself.",
+      "withoutJs": "Both panels show; the tabs are in-page anchors."
+    },
+    "supervisor": {
+      "pill": {
+        "working": "working: accent-bg fill, accent text, pulsing 6px dot",
+        "ready": "ready: pass green",
+        "blocked": "blocked: failing",
+        "launching": "launching: neutral",
+        "unreachable": "unreachable: failing",
+        "stopped": "stopped: neutral",
+        "other ended": "its status: failing"
+      },
+      "switchLabel": "switching to M E, an 11px amber outline label, with a Cancel switch button",
+      "switchControl": "details#switch on a running claude or codex supervisor on a loopback board: a profile select limited to the running harness, model and effort inputs, and Switch now when ready or Switch after this turn otherwise",
+      "workingLine": [
+        "sN is working · 4m, on your message from HH:MM",
+        "sN is working · 4m, on a wake",
+        "sN is working · 4m, since it started"
+      ],
+      "composerHints": {
+        "ready": "sN is ready; it reads your message now.",
+        "working": "sN is working; your message goes to it right away.",
+        "blocked": "sN is waiting on a screen in Needs you; your message waits too.",
+        "switch pending": "sN switches to M E after this turn; your message waits for the new session.",
+        "launching": "sN is starting; your message waits.",
+        "none": "No supervisor is running; your message waits until one starts.",
+        "unreachable": "Luvus restarted; your message waits until hand watch settles it."
+      }
+    },
+    "favicons": {
+      "files": [
+        "favicon.svg",
+        "favicon-working.svg",
+        "favicon-attention.svg"
+      ],
+      "served": "hashed static assets, image/svg+xml",
+      "colours": {
+        "mark": "#6e7681",
+        "working-dot": "#3d7fe0",
+        "attention-dot": "#a87400"
+      },
+      "whyLiteral": "Presentation attributes in fixed mid-tones: a static SVG under the strict CSP cannot read the page's custom properties or follow its theme.",
+      "choice": "attention when something waits or data-agent is blocked; working when data-agent is working; plain otherwise",
+      "title": "(N) fleet when something waits, ● fleet while the supervisor works, fleet otherwise"
     }
   },
   "components": [
@@ -796,28 +897,28 @@
       "css": ".ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
     },
     {
-      "name": "Quiet Button",
+      "name": "Quiet Button and Switch Disclosure",
       "kind": "button",
       "refersTo": "button-quiet",
-      "description": "Borderless header control with an icon, used for Notify me.",
-      "html": "<button class=\"ds-btn-quiet\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 10.75V7a4 4 0 1 1 8 0v3.75l1.25 1.5H2.75z\"/><path d=\"M6.5 13.75a1.5 1.5 0 0 0 3 0\"/></svg> Notify me</button>",
-      "css": ".ds-btn-quiet{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:none;border-color:transparent;color:var(--muted)}.ds-btn-quiet:hover{color:var(--fg)}.ds-btn-quiet:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-icon{flex:none;width:16px;height:16px}"
+      "description": "Borderless muted controls: Notify me in the header, and the Switch model disclosure in the supervisor panel, shown open.",
+      "html": "<div class=\"ds-quiet-row\"><button class=\"ds-btn-quiet\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 10.75V7a4 4 0 1 1 8 0v3.75l1.25 1.5H2.75z\"/><path d=\"M6.5 13.75a1.5 1.5 0 0 0 3 0\"/></svg> Notify me</button><details class=\"ds-switch\" open><summary>Switch model<svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></summary><div class=\"ds-switch-row\"><select class=\"ds-field\" aria-label=\"Profile\"><option value=\"\">profile…</option><option>fast</option></select> or <input class=\"ds-field\" placeholder=\"sonnet\" aria-label=\"Model\" size=\"10\"> <input class=\"ds-field\" placeholder=\"high\" aria-label=\"Effort\" size=\"6\"> <button class=\"ds-btn\">Switch now</button></div></details></div>",
+      "css": ".ds-quiet-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg)}.ds-btn-quiet{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:none;border-color:transparent;color:var(--muted)}.ds-btn-quiet:hover{color:var(--fg)}.ds-btn-quiet:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-icon{flex:none;width:16px;height:16px}.ds-switch>summary{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:13px;font-weight:500;line-height:20px;padding:5px 4px;cursor:pointer;list-style:none}.ds-switch>summary::-webkit-details-marker{display:none}.ds-switch>summary:hover{color:var(--fg)}.ds-switch>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-switch[open]{flex-basis:100%}.ds-switch[open]>summary{margin-bottom:8px}.ds-switch[open]>summary .ds-icon{transform:rotate(180deg)}.ds-switch-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.ds-field{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}.ds-field::placeholder{color:var(--muted)}.ds-field:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-btn{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}.ds-btn:hover{background:var(--hover)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
     },
     {
-      "name": "Text Field",
+      "name": "Composer",
       "kind": "input",
-      "refersTo": "input",
-      "description": "Answer box and message box; focus swaps the border for an accent outline.",
-      "html": "<textarea class=\"ds-input\" rows=\"3\" placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea>",
-      "css": ".ds-input{display:block;width:100%;min-height:4.5em;resize:vertical;font:14px/1.45 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;caret-color:var(--accent)}.ds-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}"
+      "refersTo": "composer",
+      "description": "The message box that grows with its text, the supervisor-state hint, the keyboard hint and Send.",
+      "html": "<div class=\"ds-composer\"><textarea class=\"ds-input\" rows=\"3\" placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><div class=\"ds-composer-actions\"><span class=\"ds-hint\">s4 is ready; it reads your message now.</span><span class=\"ds-send\"><kbd class=\"ds-kbd\">Ctrl Enter</kbd> <button class=\"ds-btn-primary\">Send</button></span></div></div>",
+      "css": ".ds-composer{display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-input{display:block;width:100%;min-height:4.5em;max-height:40dvh;resize:vertical;font:inherit;line-height:1.45;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;caret-color:var(--accent)}@supports (field-sizing:content){.ds-input{field-sizing:content;resize:none}}.ds-input::placeholder{color:var(--muted)}.ds-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-composer-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px}.ds-hint{color:var(--muted);font-size:12px}.ds-send{display:flex;align-items:center;gap:8px;margin-left:auto}.ds-kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font:11px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;white-space:nowrap}@media (pointer:coarse){.ds-kbd{display:none}}.ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
     },
     {
       "name": "Refs, Chips and Pills",
       "kind": "chip",
       "refersTo": "ref",
-      "description": "Monospace ref chip, PR chip, waiting count and the four status pills.",
-      "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t3</a> <a class=\"ds-chip\" href=\"#\">PR</a> <span class=\"ds-count\">6</span> <span class=\"ds-pill\">idle</span> <span class=\"ds-pill\" data-state=\"running\">running</span> <span class=\"ds-pill\" data-state=\"waiting\">open</span> <span class=\"ds-pill\" data-state=\"failing\">interrupted</span></span>",
-      "css": ".ds-row{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;text-decoration:none}.ds-ref:hover{border-color:var(--accent);color:var(--accent)}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-chip{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--accent);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-decoration:none}.ds-chip:hover{text-decoration:underline}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums}.ds-pill{display:inline-block;padding:0 10px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font:600 12px/22px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill[data-state=running]{background:var(--pass-bg);color:var(--pass)}.ds-pill[data-state=waiting]{background:var(--wait-bg);color:var(--wait)}.ds-pill[data-state=failing]{background:var(--fail-bg);color:var(--fail)}"
+      "description": "Monospace ref chip, PR chip, waiting count, the status pills including working and ready, and the outlined label.",
+      "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t3</a> <a class=\"ds-chip\" href=\"#\">PR</a> <span class=\"ds-count\">6</span> <span class=\"ds-pill\">launching</span> <span class=\"ds-pill\" data-state=\"working\">working</span> <span class=\"ds-pill\" data-state=\"ready\">ready</span> <span class=\"ds-pill\" data-state=\"waiting\">open</span> <span class=\"ds-pill\" data-state=\"failing\">blocked</span> <span class=\"ds-label\">switching to sonnet low</span></span>",
+      "css": ".ds-row{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;text-decoration:none}.ds-ref:hover{border-color:var(--accent);color:var(--accent)}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-chip{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--accent);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-decoration:none}.ds-chip:hover{text-decoration:underline}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums}.ds-pill{display:inline-block;padding:0 10px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font:600 12px/22px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill[data-state=running],.ds-pill[data-state=ready]{background:var(--pass-bg);color:var(--pass)}.ds-pill[data-state=working]{display:inline-flex;align-items:center;gap:6px;background:var(--accent-bg);color:var(--accent)}.ds-pill[data-state=working]::before{content:\"\";flex:none;width:6px;height:6px;border-radius:50%;background:currentColor;animation:ds-pulse 2s ease-in-out infinite}@keyframes ds-pulse{50%{opacity:.3}}@media (prefers-reduced-motion:reduce){.ds-pill[data-state=working]::before{animation:none}}.ds-pill[data-state=waiting]{background:var(--wait-bg);color:var(--wait)}.ds-pill[data-state=failing]{background:var(--fail-bg);color:var(--fail)}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}"
     },
     {
       "name": "Waiting Item",
@@ -825,7 +926,7 @@
       "refersTo": "wait-summary",
       "description": "Signature component: the top waiting item, open, with its answer box in place.",
       "html": "<details class=\"ds-wait\" open><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.25 2.75h11.5v8H8.5L5 13.5v-2.75H2.25z\"/><path d=\"M6.5 5.4a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.9\"/><path d=\"M8 9.1v.01\"/></svg><span class=\"ds-ref\">d2</span> <span class=\"ds-wait-title\">Ship the markdown subset before the redesign, or together?</span> <span class=\"ds-ref\">t6</span> <time>Sep 29, 12:04 AM</time></summary><div class=\"ds-wait-body\"><textarea class=\"ds-wait-input\" rows=\"3\" placeholder=\"Answer d2\" aria-label=\"Answer d2\"></textarea><div class=\"ds-actions\"><button class=\"ds-wait-primary\">Answer</button> <a href=\"#\">Open d2</a></div></div></details>",
-      "css": ".ds-wait{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-wait>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:8px 12px;cursor:pointer;list-style:none;border-radius:6px}.ds-wait>summary::-webkit-details-marker{display:none}.ds-wait>summary:hover{background:var(--hover)}.ds-wait>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-wait[open]>summary{background:var(--card);border-bottom:1px solid var(--line);border-radius:6px 6px 0 0}.ds-wait .ds-icon{flex:none;width:16px;height:16px;align-self:center;color:var(--wait)}.ds-wait .ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-wait-title{flex:1 1 14rem;min-width:0;font-weight:600}.ds-wait time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-wait-body{display:grid;gap:10px;padding:12px}.ds-wait-input{display:block;width:100%;min-height:4.5em;resize:vertical;font:inherit;line-height:1.45;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}.ds-wait-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ds-actions a{color:var(--accent);text-decoration:none}.ds-actions a:hover{text-decoration:underline}.ds-wait-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-wait-primary:hover{filter:brightness(1.08)}.ds-wait-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
+      "css": ".ds-wait{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-wait>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:8px 12px;cursor:pointer;list-style:none;border-radius:6px}.ds-wait>summary::-webkit-details-marker{display:none}.ds-wait>summary:hover{background:var(--hover)}.ds-wait>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-wait[open]>summary{background:var(--card);border-bottom:1px solid var(--line);border-radius:6px 6px 0 0}.ds-wait .ds-icon{flex:none;width:16px;height:16px;align-self:center;color:var(--wait)}.ds-wait .ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-wait-title{flex:1 1 14rem;min-width:0;font-weight:600}.ds-wait time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-wait-body{display:grid;gap:10px;padding:12px}.ds-wait-input{display:block;width:100%;min-height:4.5em;resize:vertical;font:inherit;line-height:1.45;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}.ds-wait-input::placeholder{color:var(--muted)}.ds-wait-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ds-actions a{color:var(--accent);text-decoration:none}.ds-actions a:hover{text-decoration:underline}.ds-wait-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-wait-primary:hover{filter:brightness(1.08)}.ds-wait-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
     },
     {
       "name": "Checks List",
@@ -847,22 +948,30 @@
       "name": "Timeline Comment",
       "kind": "card",
       "refersTo": "comment-header",
-      "description": "Supervisor and operator comments with a header strip; the operator's header is pale accent.",
-      "html": "<div class=\"ds-thread\"><article class=\"ds-comment\"><header><b>supervisor</b> <time>Sep 28, 11:06 PM</time></header><div class=\"ds-comment-body\">Understood. I dispatched <code>a1</code> for the host.</div></article><article class=\"ds-comment\" data-role=\"operator\"><header><b>operator</b> <time>Sep 29, 12:04 AM</time> <span class=\"ds-label\">Queued</span></header><div class=\"ds-comment-body\">When you are back, start with t3.</div></article></div>",
-      "css": ".ds-thread{display:flex;flex-direction:column;gap:12px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg)}.ds-comment{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.ds-comment+.ds-comment::before{content:\"\";position:absolute;left:19px;bottom:100%;width:2px;height:13px;background:var(--line)}.ds-comment>header{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;background:var(--card);color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-comment>header b{color:var(--fg);font-size:13px}.ds-comment[data-role=operator]>header{background:var(--accent-bg)}.ds-comment-body{padding:8px 12px;overflow-wrap:anywhere}.ds-comment-body code{padding:.1em .4em;border-radius:4px;background:var(--card);font:85% ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}"
+      "description": "Supervisor and operator comments with a header strip, the operator's in pale accent, and the working line at the foot.",
+      "html": "<div class=\"ds-thread\"><article class=\"ds-comment\"><header><b>supervisor</b> <time>Sep 28, 11:06 PM</time></header><div class=\"ds-comment-body\">Understood. I dispatched <code>a1</code> for the host.</div></article><article class=\"ds-comment\" data-role=\"operator\"><header><b>operator</b> <time>Sep 29, 12:04 AM</time> <span class=\"ds-label\">Queued</span></header><div class=\"ds-comment-body\">When you are back, start with t3.</div></article><div class=\"ds-event ds-working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z\"/></svg><span>s3 is working · <time>4m</time>, on your message from <time>12:04 AM</time></span></div></div>",
+      "css": ".ds-thread{display:flex;flex-direction:column;gap:12px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg)}.ds-comment{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.ds-thread>*+*::before{content:\"\";position:absolute;left:19px;bottom:100%;width:2px;height:13px;background:var(--line)}.ds-comment>header{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;background:var(--card);color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-comment>header b{color:var(--fg);font-size:13px}.ds-comment[data-role=operator]>header{background:var(--accent-bg)}.ds-comment-body{padding:8px 12px;overflow-wrap:anywhere}.ds-comment-body code{padding:.1em .4em;border-radius:4px;background:var(--card);font:85% ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}.ds-event{position:relative;display:flex;align-items:center;gap:8px;padding:0 12px 0 9px;color:var(--muted);font-size:12px}.ds-event .ds-icon{box-sizing:content-box;flex:none;width:16px;height:16px;padding:3px;border:1px solid var(--line);border-radius:50%;background:var(--card);color:var(--muted)}.ds-working .ds-icon{border-color:var(--accent);color:var(--accent)}.ds-event time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}"
     },
     {
-      "name": "Phone Tabs",
+      "name": "Reply Markdown",
+      "kind": "custom",
+      "refersTo": "md-table",
+      "description": "A supervisor reply with headings, a GFM table with a sticky first column and right-aligned numbers, a quote, a rule and struck text.",
+      "html": "<div class=\"ds-md\"><h3>CI times, last three days</h3><div class=\"ds-table\" role=\"region\" aria-label=\"Table\" tabindex=\"0\"><table><thead><tr><th>Step</th><th class=\"r\">Mon</th><th class=\"r\">Tue</th><th class=\"r\">Wed</th></tr></thead><tbody><tr><td>go test</td><td class=\"r\">41s</td><td class=\"r\">38s</td><td class=\"r\">44s</td></tr><tr><td>go vet</td><td class=\"r\">6s</td><td class=\"r\">6s</td><td class=\"r\">7s</td></tr><tr><td>coverage</td><td class=\"r\">71%</td><td class=\"r\">72%</td><td class=\"r\">72%</td></tr></tbody></table></div><h4>What changed</h4><blockquote><p>Wednesday ran the race detector twice.</p></blockquote><hr><ol><li><strong>Cache:</strong> <del>split the module cache</del> not needed yet.</li><li><strong>Watch:</strong> the Wednesday rise, with <code>-race</code> on.</li></ol></div>",
+      "css": ".ds-md{color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-md>:first-child{margin-top:0}.ds-md>:last-child{margin-bottom:0}.ds-md p,.ds-md ul,.ds-md ol{margin:0 0 8px}.ds-md ul,.ds-md ol{padding-left:1.5em}.ds-md h3,.ds-md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}.ds-md h3{font-size:16px;line-height:24px}.ds-md h4{font-size:14px;line-height:22px}.ds-md hr{height:0;margin:12px 0;border:0;border-top:1px solid var(--line)}.ds-md blockquote{margin:0 0 8px;padding:0 0 0 12px;border-left:1px solid var(--line);color:var(--muted)}.ds-md del{color:var(--muted)}.ds-md code{padding:.1em .4em;border-radius:4px;background:var(--card);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-size:85%}.ds-table{width:fit-content;max-width:100%;margin:0 0 8px;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--line);border-radius:6px}.ds-table:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-table table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}.ds-table th,.ds-table td{min-width:10ch;padding:6px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal}.ds-table thead th{border-top:0;background:var(--card);color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}.ds-table .r{text-align:right;white-space:nowrap}.ds-table .c{text-align:center}.ds-table .l{text-align:left}.ds-table th:first-child,.ds-table td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg);white-space:nowrap}.ds-table thead th:first-child{background:var(--card)}"
+    },
+    {
+      "name": "Tabs",
       "kind": "nav",
       "refersTo": "tab",
-      "description": "Two equal tabs on phone; the current one takes ink and a 2px accent underline.",
-      "html": "<nav class=\"ds-tabs\" aria-label=\"Board\"><a href=\"#\" aria-current=\"true\">Needs you (<span class=\"ds-n\">3</span>)</a><a href=\"#\">Chat</a></nav>",
-      "css": ".ds-tabs{display:flex;background:var(--header);border-bottom:1px solid var(--line);font:600 14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:1;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted);text-align:center;text-decoration:none}.ds-tabs a:hover{color:var(--fg)}.ds-tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--accent);color:var(--fg)}.ds-n{font-variant-numeric:tabular-nums}"
+      "description": "Needs you and Chat at every width: content-width from 600px, equal halves below; the current tab takes ink and a 2px accent underline.",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Board\"><a href=\"#\" aria-current=\"true\">Needs you <span class=\"ds-count\">2</span></a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
+      "css": ".ds-tabs{display:flex;padding:0 16px;background:var(--header);border-bottom:1px solid var(--line);font:600 14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none}.ds-tabs a:hover{color:var(--fg)}.ds-tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--accent);color:var(--fg)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums}.ds-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent)}@media (max-width:599px){.ds-tabs a{flex:1;padding:10px 12px}}"
     }
   ],
   "narrative": {
     "northStar": "The Review Thread",
-    "overview": "The board borrows the conventions of a code review page and makes them Hand's own. Things that wait on the operator read like review requests and failing checks. The top waiting item opens with its action in place, so the operator can answer a decision, press a blocked screen's keys or mark a report read without leaving the page. Running tasks read as a list of checks, one line each. The supervisor conversation reads as a quiet comment thread with Hand's own events as single muted lines between the comments.\n\nThe mood is restrained and dense. Grounds are neutral in both themes. Structure comes from 1px hairline borders and one tonal step between the page ground and the card fill, not from shadows or colour. Colour carries meaning: four status colours, one blue accent for links and focus, one green for the committing button, and one per-fleet tint that only identifies the fleet. Type is the system UI stack at a 14px base, with monospace kept for refs, keys and terminal output.\n\nThe direction refuses the generic dashboard (a sidebar, KPI tiles, a grid of cards) and the messenger layout that buries state under chat. Every page shows one fleet.",
+    "overview": "The board borrows the conventions of a code review page and makes them Hand's own. Things that wait on the operator read like review requests and failing checks. The top waiting item opens with its action in place, so the operator can answer a decision, press a blocked screen's keys or mark a report read without leaving the page. Running tasks read as a list of checks, one line each. The supervisor conversation reads as a quiet comment thread with Hand's own events as single muted lines between the comments, and while the supervisor works, one more line at the foot of the thread says for how long and on what.\n\nThe mood is restrained and dense. Grounds are neutral in both themes. Structure comes from 1px hairline borders and one tonal step between the page ground and the card fill, not from shadows or colour. Colour carries meaning: four status colours, one blue accent for links, focus and the supervisor at work, one green for the committing button, and one per-fleet tint that only identifies the fleet. Type is the system UI stack at a 14px base, with monospace kept for refs, keys and terminal output.\n\nThe direction refuses the generic dashboard (a sidebar, KPI tiles, a grid of cards) and the messenger layout that buries state under chat. Every page shows one fleet. The fleet page splits into two tabs at every width, \"Needs you\" and \"Chat\", so the queue and the conversation each get one centred column instead of sharing a squeezed one.",
     "keyCharacteristics": [
       "Waiting items first, each with its action inline; the top item is open by default.",
       "Hairline borders at 1px, a 6px corner on every box, and pills only for small labels.",
@@ -870,13 +979,14 @@
       "A per-fleet tint on the header mark and the top rule, and nowhere that carries status.",
       "Hand's own inline SVG icons on a 16px grid.",
       "Light and dark themes from `prefers-color-scheme`, with no toggle.",
-      "A no-scroll app shell on desktop, two tabs on phone.",
+      "Two tabs at every width over panels centred at up to 880px, and a no-scroll app shell when JavaScript runs in a window at least 600px tall.",
+      "The supervisor's working state in the blue accent: the pill, a dot on the Chat tab, a working line in the timeline and the favicon.",
       "A strict CSP: one stylesheet, one script, no inline code, no web fonts."
     ],
     "rules": [
       {
         "name": "The Four Signals Rule",
-        "body": "Status uses only `fail`, `wait`, `pass` and `neutral`, and each keeps one meaning: red is failing or blocked, amber is waiting on the operator, green is running or passing, gray is idle. Blue and the fleet tint never carry status, and there is no fifth status colour.",
+        "body": "Status uses only `fail`, `wait`, `pass` and `neutral`, and each keeps one meaning: red is failing or blocked, amber is waiting on the operator, green is running, passing or ready, gray is idle. Besides links and focus, the blue accent marks one state: the supervisor at work, on its pill, the Chat tab dot, the working line and the favicon. It never marks a check, a waiting item or an outcome. The fleet tint never carries state, and there is no fifth status colour.",
         "section": "colors"
       },
       {
@@ -896,17 +1006,22 @@
       },
       {
         "name": "The Tabular Rule",
-        "body": "Times, counts, meta lines, refs and the tab count use tabular figures so columns of numbers do not jitter as they update.",
+        "body": "Times, counts, meta lines, refs, the tab count and reply tables use tabular figures so columns of numbers do not jitter as they update.",
         "section": "typography"
       },
       {
         "name": "The Region Rule",
-        "body": "Live content lives in exactly four regions, `status`, `timeline`, `queue` and `tasks`, each a `section` with `data-region`. The server sends each region's HTML over Server-Sent Events and `app.js` swaps the region whole, keeping typed drafts, open or closed waiting items, focus and a timeline pinned to its newest entry. `#composer` and `#toast` stay outside every region. `internal/board/page_test.go` enforces the names and the composer's place, and `TestFirstViewportOrder` enforces the order queue, tasks, status, timeline, composer.",
+        "body": "Live content lives in exactly four regions, `status`, `timeline`, `queue` and `tasks`, each a `section` with `data-region`. The server sends each region's HTML over Server-Sent Events and `app.js` swaps the region whole, keeping typed drafts, open or closed waiting items, focus and a timeline pinned to its newest entry. `#composer` and `#toast` stay outside every region. `internal/board/page_test.go` enforces the names and the composer's place, and `TestFirstViewportOrder` enforces the order needs, queue, tasks, chat, status, timeline, composer.",
         "section": "layout"
       },
       {
         "name": "The Clear-In-Place Rule",
         "body": "The first waiting item stands alone and open, with its action in its body. The rest share one bordered list, collapsed to one line each, and open in place.",
+        "section": "layout"
+      },
+      {
+        "name": "The Hands-Off Tabs Rule",
+        "body": "The board opens on the tab the URL hash names, else on Needs you when something waits, else on Chat. A click on a tab writes its hash with `history.replaceState`. Nothing else changes the tab: a new waiting item raises the count, the title and the favicon, and never pulls the operator out of Chat.",
         "section": "layout"
       },
       {
@@ -916,24 +1031,27 @@
       }
     ],
     "dos": [
-      "Do take every colour from a custom property on `:root` in `board.css`, and give each new property a value in the `prefers-color-scheme:dark` block too.",
+      "Do take every colour from a custom property on `:root` in `board.css`, and give each new property a value in the `prefers-color-scheme:dark` block too. The favicons are the one exception: a static SVG takes fixed mid-tone presentation attributes.",
       "Do keep status colours at 4.5:1 on `bg` and `card`, and tints at 3:1 on `header`, in both themes; `TestColoursMeetContrast` checks both.",
       "Do draw new icons as Hand's own inline SVG in `icons.html`: a 16px viewBox, `currentColor` stroke at 1.5, round caps and joins, `aria-hidden=\"true\"`, one to four paths.",
       "Do put live content in one of the four regions, `status`, `timeline`, `queue` or `tasks`, and keep `#composer` and `#toast` outside every region.",
       "Do use the 1px `line` hairline and the `bg`-to-`card` step for structure, the 6px corner on every box, and the 999px pill only for small inline labels.",
       "Do show a standalone ref as a monospace ref chip, linked when a page exists for it.",
-      "Do lay out for both scenes with the paired queries: the app shell at `(min-width:900px) and (min-height:600px)`, the phone tabs at `(max-width:899px),(max-height:599px)`.",
-      "Do keep the primary green button for the single committing action of a form."
+      "Do lay out for both scenes with the paired height queries: the app shell at `(min-height:600px)` under `body[data-shell]`, and the flowing page at `(max-height:599px)` or without `data-shell`. The tabs show at every width.",
+      "Do keep the primary green button for the single committing action of a form.",
+      "Do stop every animation under `prefers-reduced-motion`: the arrival flash and the working dot's pulse."
     ],
     "donts": [
       "Don't add inline script, a `<style>` element, a `style=` attribute, `@font-face` or `url(` in the stylesheet; the CSP is `default-src 'none'` with `script-src 'self'` and `style-src 'self'`, and the board tests reject each of these.",
       "Don't use Octicons, an icon package or an icon font.",
       "Don't use the fleet tint anywhere but the top rule, the header mark and the fleet-list swatch.",
-      "Don't let the blue accent or the fleet tint carry status, and don't add a fifth status colour.",
-      "Don't put a shadow on a resting surface; shadows belong to the toast, the sticky phone composer and the keycap edge.",
+      "Don't let the blue accent mark a check, a waiting item or an outcome; it marks links, focus and the supervisor at work. Don't let the fleet tint carry any state, and don't add a fifth status colour.",
+      "Don't put a shadow on a resting surface; shadows belong to the toast, the sticky composer on the flowing page and the keycap edge.",
       "Don't add a theme toggle or a second font; themes follow `prefers-color-scheme` and type is the system stack.",
       "Don't build the generic dashboard: no sidebar, no KPI tiles, no grid of cards.",
-      "Don't remove `[hidden]{display:none!important}`; the phone tabs rely on it to hide a section."
+      "Don't bring back the two-column grid or a `min-width:900px` split; `TestTheAppShellNeedsHeight` rejects it.",
+      "Don't switch tabs for the operator; only the URL hash, the opening rule and a click choose the panel.",
+      "Don't remove `[hidden]{display:none!important}`; the tabs rely on it to hide the other panel."
     ]
   }
 }

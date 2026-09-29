@@ -186,3 +186,26 @@ func TestTaskEventsAreScopedAndOrdered(t *testing.T) {
 		t.Fatalf("limit 0 err = %v", err)
 	}
 }
+
+func TestLatestEventAndInput(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if _, ok, err := s.LatestEvent(ctx, "supervisor.delivered"); ok || err != nil {
+		t.Fatalf("empty latest = %v, %v", ok, err)
+	}
+	a, _ := s.AddSupervisorInput(ctx, "first")
+	b, _ := s.AddSupervisorInput(ctx, "second")
+	_ = s.DeliverSupervisorInput(ctx, a.ID)
+	_ = s.DeliverSupervisorInput(ctx, b.ID)
+	e, ok, err := s.LatestEvent(ctx, "supervisor.delivered")
+	if err != nil || !ok || e.Detail != "i2" {
+		t.Fatalf("latest = %+v, %v, %v", e, ok, err)
+	}
+	in, err := s.SupervisorInput(ctx, b.ID)
+	if err != nil || in.Body != "second" || in.CreatedAt == "" {
+		t.Fatalf("input = %+v, %v", in, err)
+	}
+	if _, err := s.SupervisorInput(ctx, 9); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing input = %v", err)
+	}
+}

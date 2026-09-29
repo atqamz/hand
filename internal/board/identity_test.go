@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"net/http/httptest"
 	"os"
 	"regexp"
 	"strconv"
@@ -166,7 +167,7 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs you (<span class="n">1</span>)`, `data-waiting="1"`)
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs you <span class="count n" data-waiting="1">1</span>`, `data-waiting="1"`)
 	for _, id := range []string{"needs", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
@@ -190,16 +191,97 @@ func TestHiddenSectionsStayHidden(t *testing.T) {
 
 func TestTheAppShellNeedsHeight(t *testing.T) {
 	css := asset(t, "board.css")
-	if !strings.Contains(css, "@media (min-width:900px) and (min-height:600px){") || !strings.Contains(css, "@media (max-width:899px),(max-height:599px){") {
-		t.Fatal("a short landscape phone gets neither the desktop shell nor the phone layout, so the composer is cut off")
+	if !strings.Contains(css, "@media (min-height:600px){") || !strings.Contains(css, "@media (max-height:599px){") || !strings.Contains(css, "[data-shell]") {
+		t.Fatal("a short landscape phone gets neither the shell nor the flowing page, so the composer is cut off")
+	}
+	if strings.Contains(css, "min-width:900px") {
+		t.Fatal("the two-column desktop grid is back; the tabs show at every width")
+	}
+}
+
+func TestTabsShowAtEveryWidth(t *testing.T) {
+	css := asset(t, "board.css")
+	if strings.Contains(css, ".tabs{display:none}") || !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:880px") {
+		t.Fatal("the tabs must show at every width, over panels up to 880px wide")
+	}
+}
+
+func TestTheComposerGrowsButStopsAt40dvh(t *testing.T) {
+	css := asset(t, "board.css")
+	if !strings.Contains(css, "@supports (field-sizing:content){") || !strings.Contains(css, "field-sizing:content") || !strings.Contains(css, "max-height:40dvh") || !strings.Contains(css, "max-height:30dvh") {
+		t.Fatal("the composer must grow with its text and stop at 40dvh in the shell and 30dvh on the flowing page")
+	}
+}
+
+func TestTheViewportLetsTheKeyboardResizeTheShell(t *testing.T) {
+	body := get(t, newFixture(t).handler(), "/")
+	contains(t, "viewport", body, `content="width=device-width, initial-scale=1, interactive-widget=resizes-content"`, `<kbd data-send-key>Ctrl Enter</kbd>`)
+}
+
+func TestTheFaviconsAreHashedSVG(t *testing.T) {
+	body := get(t, newFixture(t).handler(), "/")
+	link := regexp.MustCompile(`<link rel="icon" href="(/static/favicon\.[0-9a-f]{12}\.svg)">`).FindStringSubmatch(body)
+	alt := regexp.MustCompile(`data-icon-working="(/static/favicon-working\.[0-9a-f]{12}\.svg)" data-icon-attention="(/static/favicon-attention\.[0-9a-f]{12}\.svg)"`).FindStringSubmatch(body)
+	if link == nil || alt == nil {
+		t.Fatalf("no favicon links:\n%s", body)
+	}
+	for _, u := range append(link[1:], alt[1:]...) {
+		rec := httptest.NewRecorder()
+		board.ServeStatic(rec, httptest.NewRequest("GET", u, nil))
+		if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/svg+xml" || !strings.Contains(rec.Body.String(), "<svg") {
+			t.Fatalf("%s = %d %q", u, rec.Code, rec.Header().Get("Content-Type"))
+		}
 	}
 }
 
 func TestEveryPillStateHasItsColour(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, s := range []string{"running", "waiting", "failing", "passing"} {
+	for _, s := range []string{"running", "waiting", "failing", "passing", "ready", "working"} {
 		if !strings.Contains(css, ".pill[data-state="+s+"]") {
 			t.Errorf("board.css has no colour for the %s pill", s)
 		}
+	}
+}
+
+func TestRepliesStyleTheirBlocks(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, sel := range []string{".md h3", ".md h4", ".md hr", ".md blockquote", ".md del", ".md .table{", ".md th.r", ".md td.r", ".md th:first-child", ".md table{"} {
+		if !strings.Contains(css, sel) {
+			t.Errorf("board.css has no rule for %s", sel)
+		}
+	}
+	for _, rule := range []string{"overflow-x:auto", "position:sticky;left:0", "font-variant-numeric:tabular-nums"} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("board.css lacks %s for reply tables", rule)
+		}
+	}
+}
+
+func TestMotionHonoursReducedMotion(t *testing.T) {
+	css := asset(t, "board.css")
+	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
+	if i < 0 || !strings.Contains(css[i:], ".pill[data-state=working]::before{animation:none}") {
+		t.Fatal("the working dot keeps pulsing under prefers-reduced-motion")
+	}
+}
+
+func TestTheFinishFixesHold(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, rule := range []string{
+		"body:not([data-shell]) #composer{position:sticky;bottom:0;z-index:2;",
+		"@media (max-height:599px){#composer{position:sticky;bottom:0;z-index:2;",
+		"body[data-shell] .timeline{max-height:none;overflow:visible}",
+		"::placeholder{color:var(--muted)}",
+		".md .table{width:fit-content;max-width:100%;",
+		"scrollbar-gutter:stable both-edges",
+		".tabs .dot{",
+		".switch[open]>summary .icon{transform:rotate(180deg)}",
+	} {
+		if !strings.Contains(css, rule) {
+			t.Errorf("board.css lacks %q", rule)
+		}
+	}
+	if strings.Contains(css, ".tabs .dot{content:\"\";flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);animation") || strings.Contains(css, ".md table{min-width:100%") {
+		t.Error("the tab dot still pulses, or reply tables still stretch to the column")
 	}
 }

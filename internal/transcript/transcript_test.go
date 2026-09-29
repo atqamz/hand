@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCalmKeepsFinalRepliesAndSubstantiveMidTurnText(t *testing.T) {
@@ -58,6 +59,36 @@ func TestClassifyShowsHandsOwnInputsAsOneLine(t *testing.T) {
 	}
 	if _, ok := classify("  \n "); ok {
 		t.Fatal("blank text classified")
+	}
+}
+
+func TestPastedContentIsUnwrapped(t *testing.T) {
+	cases := []struct {
+		in   string
+		want Entry
+	}{
+		{"\n\n<pasted_content id=\"edd9\">\nUse English\nKeep it to five slides\n</pasted_content id=\"edd9\">\n", Entry{Role: "operator", Text: "Use English\nKeep it to five slides"}},
+		{"<pasted_content id=\"a1\">\n[hand v1 wake]\ndecision.answered d1\nattempt.quiet a2: turn ended\n</pasted_content id=\"a1\">", Entry{Role: "hand", Text: "wake: decision.answered d1; attempt.quiet a2: turn ended"}},
+		{"Look at this:\n\n<pasted_content id=\"b2\">\nline one\nline two\n</pasted_content id=\"b2\">", Entry{Role: "operator", Text: "Look at this:\n\nline one\nline two"}},
+		{"<pasted_content id=\"c1\">\nfirst\n</pasted_content id=\"c1\">\nbetween\n<pasted_content id=\"c2\">\nsecond\n</pasted_content id=\"c2\">", Entry{Role: "operator", Text: "first\nbetween\nsecond"}},
+		{"<pasted_content id=\"d1\">\nkept\n</pasted_content id=\"d9\">", Entry{Role: "operator", Text: "<pasted_content id=\"d1\">\nkept\n</pasted_content id=\"d9\">"}},
+		{"<pasted_content id=\"e1\">\nnever closed", Entry{Role: "operator", Text: "<pasted_content id=\"e1\">\nnever closed"}},
+		{"<pasted_content id=\"x y\">\nodd\n</pasted_content id=\"x y\">", Entry{Role: "operator", Text: "<pasted_content id=\"x y\">\nodd\n</pasted_content id=\"x y\">"}},
+		{"<pasted_content id=\"f1\">\r\n[hand v1 wake]\r\ndecision.answered d1\r\n</pasted_content id=\"f1\">\r\n", Entry{Role: "hand", Text: "wake: decision.answered d1"}},
+	}
+	for _, c := range cases {
+		if got, ok := classify(c.in); !ok || got != c.want {
+			t.Errorf("classify(%q) = %+v, %v; want %+v", c.in, got, ok, c.want)
+		}
+	}
+}
+
+func TestUnwrapIsLinear(t *testing.T) {
+	in := strings.Repeat("<pasted_content id=\"a\">\nx\n", 200<<10/26)
+	start := time.Now()
+	classify(in)
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("classify of %d bytes took %v", len(in), d)
 	}
 }
 

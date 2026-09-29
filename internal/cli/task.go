@@ -97,11 +97,20 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("report", state.ReportRef(rep.ID)+" "+rep.Status)
 	}
-	ds, err := st.OpenDecisions(context.Background(), id, 20)
+	ds, err := st.Decisions(context.Background(), id, 20)
 	if err != nil {
 		return err
 	}
-	d.Rows("open_decisions", []string{"id", "task", "question"}, decisionRows(ds))
+	rows := make([][]string, 0, len(ds))
+	answered := false
+	for _, dec := range ds {
+		rows = append(rows, []string{state.DecisionRef(dec.ID), dec.Status, dec.Question})
+		answered = answered || dec.Status == state.DecisionAnswered
+	}
+	d.Rows("decisions", []string{"id", "status", "question"}, rows)
+	if answered {
+		d.Help("Read an answer: `hand decision show dN`")
+	}
 	return r.print(&d)
 }
 
