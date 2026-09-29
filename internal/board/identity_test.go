@@ -252,11 +252,16 @@ func TestTheFaviconsAreHashedSVG(t *testing.T) {
 	}
 }
 
-func TestEveryPillStateHasItsColour(t *testing.T) {
+func TestEverySlugStateHasItsColour(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, s := range []string{"running", "waiting", "failing", "passing", "ready", "working"} {
-		if !strings.Contains(css, ".pill[data-state="+s+"]") {
-			t.Errorf("board.css has no colour for the %s pill", s)
+	for _, s := range []string{"running", "waiting", "failing", "passing"} {
+		if !strings.Contains(css, ".slug .status[data-state="+s+"]") {
+			t.Errorf("board.css has no colour for the %s status", s)
+		}
+	}
+	for _, s := range []string{"ready", "working", "failing"} {
+		if !strings.Contains(css, ".lamp[data-state="+s+"]") {
+			t.Errorf("board.css has no colour for the %s lamp", s)
 		}
 	}
 }
@@ -278,8 +283,8 @@ func TestRepliesStyleTheirBlocks(t *testing.T) {
 func TestMotionHonoursReducedMotion(t *testing.T) {
 	css := asset(t, "board.css")
 	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
-	if i < 0 || !strings.Contains(css[i:], ".pill[data-state=working]::before{animation:none}") || !strings.Contains(css[i:], ".printhead{animation:none}") || !strings.Contains(css[i:], ".lamp{animation:none}") {
-		t.Fatal("the working dot, the print head or the lamp keeps moving under prefers-reduced-motion")
+	if i < 0 || !strings.Contains(css[i:], ".printhead{animation:none}") || !strings.Contains(css[i:], ".lamp{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
+		t.Fatal("the print head, the lamp or the feed keeps moving under prefers-reduced-motion")
 	}
 }
 

@@ -229,7 +229,7 @@ func when(stamp string) string {
 	if err != nil {
 		return stamp
 	}
-	return t.UTC().Format("Jan 2 15:04")
+	return t.UTC().Format("Jan 2 15:04 UTC")
 }
 
 type check struct {
