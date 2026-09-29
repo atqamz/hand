@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
@@ -83,6 +84,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
 	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
+	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits until one starts."
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
@@ -90,6 +92,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			b.live(ctx, sup, data)
 		}
 		data["Pill"], data["PillLabel"] = pill(sup, data)
+		data["AgentState"], data["ComposerHint"] = hint(sup, data)
 	}
 	return nil
 }
@@ -102,12 +105,81 @@ func pill(sup state.Supervisor, data map[string]any) (string, string) {
 		return "failing", "unreachable"
 	case blocked:
 		return "failing", "blocked"
-	case sup.Live():
-		return "running", sup.Status
+	case sup.Status == state.AttemptLaunching:
+		return "neutral", "launching"
+	case sup.Status == state.AttemptRunning && data["Agent"] == "working":
+		return "working", "working"
+	case sup.Status == state.AttemptRunning:
+		return "ready", "ready"
 	case sup.Status == state.AttemptStopped:
 		return "neutral", sup.Status
 	}
 	return "failing", sup.Status
+}
+
+func hint(sup state.Supervisor, data map[string]any) (string, string) {
+	ref := state.SupervisorRef(sup.ID)
+	_, stale := data["Stale"]
+	blocked, _ := data["Blocked"].(bool)
+	agent := "ready"
+	if data["Agent"] == "working" {
+		agent = "working"
+	}
+	switch {
+	case sup.Status == state.AttemptLaunching:
+		return "none", ref + " is starting; your message waits."
+	case sup.Status != state.AttemptRunning:
+		return "none", "No supervisor is running; your message waits until one starts."
+	case stale:
+		return "none", "Luvus restarted; your message waits until hand watch settles it."
+	case blocked:
+		return "blocked", ref + " is waiting on a screen in Needs you; your message waits too."
+	case sup.Switching():
+		return agent, ref + " switches to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn; your message waits for the new session."
+	case agent == "working":
+		return agent, ref + " is working; your message goes to it right away."
+	}
+	return agent, ref + " is ready; it reads your message now."
+}
+
+type working struct {
+	Ref, Since, Label, On, From, FromLabel string
+}
+
+func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, error) {
+	w := working{Ref: state.SupervisorRef(sup.ID), Since: sup.CreatedAt, On: "since it started"}
+	e, ok, err := b.st.LatestEvent(ctx, "supervisor.delivered")
+	if err != nil {
+		return w, err
+	}
+	if ok && !parse(e.At).Before(parse(sup.CreatedAt)) {
+		w.Since, w.On = e.At, "on a wake"
+		if id, err := strconv.ParseInt(strings.TrimPrefix(e.Detail, "i"), 10, 64); err == nil && strings.HasPrefix(e.Detail, "i") {
+			in, err := b.st.SupervisorInput(ctx, id)
+			if err != nil {
+				return w, err
+			}
+			w.On, w.From, w.FromLabel = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04")
+		}
+	}
+	w.Label = elapsed(time.Since(parse(w.Since)))
+	return w, nil
+}
+
+func parse(stamp string) time.Time {
+	t, _ := time.Parse(time.RFC3339Nano, stamp)
+	return t
+}
+
+func elapsed(d time.Duration) string {
+	m := int(d / time.Minute)
+	switch {
+	case m < 1:
+		return "<1m"
+	case m < 60:
+		return strconv.Itoa(m) + "m"
+	}
+	return strconv.Itoa(m/60) + "h " + strconv.Itoa(m%60) + "m"
 }
 
 func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]any) {
@@ -149,6 +221,13 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	entries, note := b.conversation(ctx, sup, ok)
 	if note != "" {
 		data["Note"] = note
+	}
+	if _, stale := data["Stale"]; ok && sup.Status == state.AttemptRunning && data["Agent"] == "working" && !stale {
+		w, err := b.working(ctx, sup)
+		if err != nil {
+			return err
+		}
+		data["Working"] = w
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
 	if err != nil {

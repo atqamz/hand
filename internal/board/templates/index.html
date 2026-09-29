@@ -11,7 +11,7 @@
 {{if .Controls}}<form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<div class="actions"><span class="hint">Plain text; the supervisor reads it on its next turn.</span><button class="primary">Send</button></div>
+<div class="actions"><span class="hint">{{.ComposerHint}}</span><button class="primary">Send</button></div>
 </form>{{end}}
 </div>
 </main>

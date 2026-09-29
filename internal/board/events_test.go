@@ -200,7 +200,7 @@ func TestEventsFollowTheAgent(t *testing.T) {
 	fx.status, fx.hint = "blocked", "Trust this folder?"
 	fx.mu.Unlock()
 	evs := collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"status", "queue"}) || !strings.Contains(evs[1].data, `name="revision" value="7"`) {
+	if got := eventNames(evs); !slices.Equal(got, []string{"status", "timeline", "queue"}) || !strings.Contains(evs[2].data, `name="revision" value="7"`) || strings.Contains(evs[1].data, "data-working") {
 		t.Fatalf("after the agent blocked = %q", evs)
 	}
 	fx.mu.Lock()

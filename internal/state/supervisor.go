@@ -310,6 +310,15 @@ func (s *Store) PendingSupervisorInputs(ctx context.Context) ([]SupervisorInput,
 	return out, rows.Err()
 }
 
+func (s *Store) SupervisorInput(ctx context.Context, id int64) (SupervisorInput, error) {
+	var in SupervisorInput
+	err := s.db.QueryRowContext(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE id = ?`, id).Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SupervisorInput{}, fmt.Errorf("%w: input %s", ErrNotFound, inputRef(id))
+	}
+	return in, err
+}
+
 func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		now := s.stamp()
