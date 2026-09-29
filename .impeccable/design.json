@@ -1,320 +1,977 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-29T03:48:17+00:00",
+  "generatedAt": "2026-09-29T16:10:48+00:00",
   "title": "Design System: Hand board",
   "extensions": {
     "source": "internal/board/static/board.css",
     "themes": {
       "light": ":root",
       "dark": "@media (prefers-color-scheme:dark) :root",
-      "darkKeySuffix": "-dark"
+      "darkKeySuffix": "-dark",
+      "bandInvariant": [
+        "h-pass",
+        "h-wait",
+        "h-flash",
+        "h-lamp"
+      ],
+      "unlisted": {}
     },
     "colorMeta": {
       "bg": {
         "role": "neutral",
-        "displayName": "Page Ground",
+        "displayName": "Canary Copy",
         "cssVar": "--bg",
         "theme": "light",
-        "canonical": "#fcfcfd",
-        "oklch": "oklch(99.1% 0.001 286.4)",
+        "canonical": "#f2e6a6",
+        "oklch": "oklch(92.0% 0.083 98.8)",
         "tonalRamp": [
-          "oklch(15% 0.001 286.4)",
-          "oklch(26% 0.001 286.4)",
-          "oklch(38% 0.001 286.4)",
-          "oklch(50% 0.001 286.4)",
-          "oklch(62% 0.001 286.4)",
-          "oklch(74% 0.001 286.4)",
-          "oklch(85% 0.001 286.4)",
-          "oklch(95% 0.001 286.4)"
-        ]
+          "oklch(15% 0.083 98.8)",
+          "oklch(26% 0.083 98.8)",
+          "oklch(38% 0.083 98.8)",
+          "oklch(50% 0.083 98.8)",
+          "oklch(62% 0.083 98.8)",
+          "oklch(74% 0.083 98.8)",
+          "oklch(85% 0.083 98.8)",
+          "oklch(95% 0.083 98.8)"
+        ],
+        "purpose": "The day desk: page, tabs, inputs, open menus, the Interrupt key, the toast and a reply table's sticky column."
       },
       "card": {
         "role": "neutral",
-        "displayName": "Card Fill",
+        "displayName": "Second Sheet",
         "cssVar": "--card",
         "theme": "light",
-        "canonical": "#f4f6f8",
-        "oklch": "oklch(97.2% 0.003 247.9)",
+        "canonical": "#e9db92",
+        "oklch": "oklch(88.6% 0.094 98.7)",
         "tonalRamp": [
-          "oklch(15% 0.003 247.9)",
-          "oklch(26% 0.003 247.9)",
-          "oklch(38% 0.003 247.9)",
-          "oklch(50% 0.003 247.9)",
-          "oklch(62% 0.003 247.9)",
-          "oklch(74% 0.003 247.9)",
-          "oklch(85% 0.003 247.9)",
-          "oklch(95% 0.003 247.9)"
-        ]
-      },
-      "header": {
-        "role": "neutral",
-        "displayName": "Header Ground",
-        "cssVar": "--header",
-        "theme": "light"
-      },
-      "fg": {
-        "role": "neutral",
-        "displayName": "Ink",
-        "cssVar": "--fg",
-        "theme": "light",
-        "canonical": "#1b1f24",
-        "oklch": "oklch(23.7% 0.011 254.1)",
-        "tonalRamp": [
-          "oklch(15% 0.011 254.1)",
-          "oklch(26% 0.011 254.1)",
-          "oklch(38% 0.011 254.1)",
-          "oklch(50% 0.011 254.1)",
-          "oklch(62% 0.011 254.1)",
-          "oklch(74% 0.011 254.1)",
-          "oklch(85% 0.011 254.1)",
-          "oklch(95% 0.011 254.1)"
-        ]
-      },
-      "muted": {
-        "role": "neutral",
-        "displayName": "Muted Ink",
-        "cssVar": "--muted",
-        "theme": "light",
-        "canonical": "#59616c",
-        "oklch": "oklch(49.0% 0.020 256.3)",
-        "tonalRamp": [
-          "oklch(15% 0.020 256.3)",
-          "oklch(26% 0.020 256.3)",
-          "oklch(38% 0.020 256.3)",
-          "oklch(50% 0.020 256.3)",
-          "oklch(62% 0.020 256.3)",
-          "oklch(74% 0.020 256.3)",
-          "oklch(85% 0.020 256.3)",
-          "oklch(95% 0.020 256.3)"
-        ]
-      },
-      "line": {
-        "role": "neutral",
-        "displayName": "Hairline",
-        "cssVar": "--line",
-        "theme": "light",
-        "canonical": "#d5dbe2",
-        "oklch": "oklch(88.9% 0.012 252.1)",
-        "tonalRamp": [
-          "oklch(15% 0.012 252.1)",
-          "oklch(26% 0.012 252.1)",
-          "oklch(38% 0.012 252.1)",
-          "oklch(50% 0.012 252.1)",
-          "oklch(62% 0.012 252.1)",
-          "oklch(74% 0.012 252.1)",
-          "oklch(85% 0.012 252.1)",
-          "oklch(95% 0.012 252.1)"
-        ]
+          "oklch(15% 0.094 98.7)",
+          "oklch(26% 0.094 98.7)",
+          "oklch(38% 0.094 98.7)",
+          "oklch(50% 0.094 98.7)",
+          "oklch(62% 0.094 98.7)",
+          "oklch(74% 0.094 98.7)",
+          "oklch(85% 0.094 98.7)",
+          "oklch(95% 0.094 98.7)"
+        ],
+        "purpose": "One step off the ground: buttons, ref chips, code, reply table heads and the console box."
       },
       "hover": {
         "role": "neutral",
         "displayName": "Hover Wash",
         "cssVar": "--hover",
         "theme": "light",
-        "canonical": "#eaeef2",
-        "oklch": "oklch(94.7% 0.007 247.9)",
+        "canonical": "#e8da8f",
+        "oklch": "oklch(88.3% 0.096 98.9)",
         "tonalRamp": [
-          "oklch(15% 0.007 247.9)",
-          "oklch(26% 0.007 247.9)",
-          "oklch(38% 0.007 247.9)",
-          "oklch(50% 0.007 247.9)",
-          "oklch(62% 0.007 247.9)",
-          "oklch(74% 0.007 247.9)",
-          "oklch(85% 0.007 247.9)",
-          "oklch(95% 0.007 247.9)"
-        ]
+          "oklch(15% 0.096 98.9)",
+          "oklch(26% 0.096 98.9)",
+          "oklch(38% 0.096 98.9)",
+          "oklch(50% 0.096 98.9)",
+          "oklch(62% 0.096 98.9)",
+          "oklch(74% 0.096 98.9)",
+          "oklch(85% 0.096 98.9)",
+          "oklch(95% 0.096 98.9)"
+        ],
+        "purpose": "Hover fill of buttons, tray items, menu summaries and menu rows."
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "cssVar": "--line",
+        "theme": "light",
+        "canonical": "#cdbd78",
+        "oklch": "oklch(79.6% 0.091 96.7)",
+        "tonalRamp": [
+          "oklch(15% 0.091 96.7)",
+          "oklch(26% 0.091 96.7)",
+          "oklch(38% 0.091 96.7)",
+          "oklch(50% 0.091 96.7)",
+          "oklch(62% 0.091 96.7)",
+          "oklch(74% 0.091 96.7)",
+          "oklch(85% 0.091 96.7)",
+          "oklch(95% 0.091 96.7)"
+        ],
+        "purpose": "Every border and rule: between dispatches and rows, the masthead edge, the tab rule, slug separators, quote edges and scrollbars."
+      },
+      "fg": {
+        "role": "primary",
+        "displayName": "Teleprinter Ink",
+        "cssVar": "--fg",
+        "theme": "light",
+        "canonical": "#1d1a14",
+        "oklch": "oklch(21.9% 0.012 84.5)",
+        "tonalRamp": [
+          "oklch(15% 0.012 84.5)",
+          "oklch(26% 0.012 84.5)",
+          "oklch(38% 0.012 84.5)",
+          "oklch(50% 0.012 84.5)",
+          "oklch(62% 0.012 84.5)",
+          "oklch(74% 0.012 84.5)",
+          "oklch(85% 0.012 84.5)",
+          "oklch(95% 0.012 84.5)"
+        ],
+        "purpose": "Body copy, titles, routine wire codes, the print head and the current tab."
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Faded Ink",
+        "cssVar": "--muted",
+        "theme": "light",
+        "canonical": "#5a5236",
+        "oklch": "oklch(43.9% 0.044 94.1)",
+        "tonalRamp": [
+          "oklch(15% 0.044 94.1)",
+          "oklch(26% 0.044 94.1)",
+          "oklch(38% 0.044 94.1)",
+          "oklch(50% 0.044 94.1)",
+          "oklch(62% 0.044 94.1)",
+          "oklch(74% 0.044 94.1)",
+          "oklch(85% 0.044 94.1)",
+          "oklch(95% 0.044 94.1)"
+        ],
+        "purpose": "Slugs, meta, hints, service lines, the working line, inactive tabs, placeholders, field labels, crumbs and quotes."
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Ink Fill",
+        "cssVar": "--primary",
+        "theme": "light",
+        "canonical": "#1d1a14",
+        "oklch": "oklch(21.9% 0.012 84.5)",
+        "tonalRamp": [
+          "oklch(15% 0.012 84.5)",
+          "oklch(26% 0.012 84.5)",
+          "oklch(38% 0.012 84.5)",
+          "oklch(50% 0.012 84.5)",
+          "oklch(62% 0.012 84.5)",
+          "oklch(74% 0.012 84.5)",
+          "oklch(85% 0.012 84.5)",
+          "oklch(95% 0.012 84.5)"
+        ],
+        "purpose": "Fill of the one committing button in a form: Answer, Send, Resume."
+      },
+      "on-primary": {
+        "role": "primary",
+        "displayName": "Canary on Ink",
+        "cssVar": "--on-primary",
+        "theme": "light",
+        "canonical": "#f2e6a6",
+        "oklch": "oklch(92.0% 0.083 98.8)",
+        "tonalRamp": [
+          "oklch(15% 0.083 98.8)",
+          "oklch(26% 0.083 98.8)",
+          "oklch(38% 0.083 98.8)",
+          "oklch(50% 0.083 98.8)",
+          "oklch(62% 0.083 98.8)",
+          "oklch(74% 0.083 98.8)",
+          "oklch(85% 0.083 98.8)",
+          "oklch(95% 0.083 98.8)"
+        ],
+        "purpose": "Text on the committing button."
+      },
+      "flash": {
+        "role": "signal",
+        "displayName": "FLASH Red",
+        "cssVar": "--flash",
+        "theme": "light",
+        "canonical": "#a8231b",
+        "oklch": "oklch(47.8% 0.170 28.8)",
+        "tonalRamp": [
+          "oklch(15% 0.170 28.8)",
+          "oklch(26% 0.170 28.8)",
+          "oklch(38% 0.170 28.8)",
+          "oklch(50% 0.170 28.8)",
+          "oklch(62% 0.170 28.8)",
+          "oklch(74% 0.170 28.8)",
+          "oklch(85% 0.170 28.8)",
+          "oklch(95% 0.170 28.8)"
+        ],
+        "purpose": "The one saturated signal: FLASH and URGENT codes, failing and blocked states, the Interrupt key, the toast border."
       },
       "fail": {
-        "role": "status",
-        "displayName": "Fail Red",
+        "role": "signal",
+        "displayName": "FLASH Red (status alias)",
         "cssVar": "--fail",
         "theme": "light",
-        "canonical": "#c4262e",
-        "oklch": "oklch(53.4% 0.193 24.6)",
+        "canonical": "#a8231b",
+        "oklch": "oklch(47.8% 0.170 28.8)",
         "tonalRamp": [
-          "oklch(15% 0.193 24.6)",
-          "oklch(26% 0.193 24.6)",
-          "oklch(38% 0.193 24.6)",
-          "oklch(50% 0.193 24.6)",
-          "oklch(62% 0.193 24.6)",
-          "oklch(74% 0.193 24.6)",
-          "oklch(85% 0.193 24.6)",
-          "oklch(95% 0.193 24.6)"
-        ]
+          "oklch(15% 0.170 28.8)",
+          "oklch(26% 0.170 28.8)",
+          "oklch(38% 0.170 28.8)",
+          "oklch(50% 0.170 28.8)",
+          "oklch(62% 0.170 28.8)",
+          "oklch(74% 0.170 28.8)",
+          "oklch(85% 0.170 28.8)",
+          "oklch(95% 0.170 28.8)"
+        ],
+        "purpose": "The failing-check icon, stuck reports and the toast border; same value as flash."
       },
       "wait": {
-        "role": "status",
-        "displayName": "Wait Amber",
+        "role": "signal",
+        "displayName": "Bulletin Amber",
         "cssVar": "--wait",
         "theme": "light",
-        "canonical": "#8f5e00",
-        "oklch": "oklch(52.2% 0.111 73.8)",
+        "canonical": "#7a4f00",
+        "oklch": "oklch(46.4% 0.099 73.2)",
         "tonalRamp": [
-          "oklch(15% 0.111 73.8)",
-          "oklch(26% 0.111 73.8)",
-          "oklch(38% 0.111 73.8)",
-          "oklch(50% 0.111 73.8)",
-          "oklch(62% 0.111 73.8)",
-          "oklch(74% 0.111 73.8)",
-          "oklch(85% 0.111 73.8)",
-          "oklch(95% 0.111 73.8)"
-        ]
+          "oklch(15% 0.099 73.2)",
+          "oklch(26% 0.099 73.2)",
+          "oklch(38% 0.099 73.2)",
+          "oklch(50% 0.099 73.2)",
+          "oklch(62% 0.099 73.2)",
+          "oklch(74% 0.099 73.2)",
+          "oklch(85% 0.099 73.2)",
+          "oklch(95% 0.099 73.2)"
+        ],
+        "purpose": "BULLETIN, waiting tasks, progress reports, the waiting count, Queued and a pending switch."
       },
       "pass": {
-        "role": "status",
-        "displayName": "Pass Green",
+        "role": "signal",
+        "displayName": "Line Green",
         "cssVar": "--pass",
         "theme": "light",
-        "canonical": "#19793b",
-        "oklch": "oklch(50.8% 0.129 150.1)",
+        "canonical": "#2b6424",
+        "oklch": "oklch(44.9% 0.113 141.5)",
         "tonalRamp": [
-          "oklch(15% 0.129 150.1)",
-          "oklch(26% 0.129 150.1)",
-          "oklch(38% 0.129 150.1)",
-          "oklch(50% 0.129 150.1)",
-          "oklch(62% 0.129 150.1)",
-          "oklch(74% 0.129 150.1)",
-          "oklch(85% 0.129 150.1)",
-          "oklch(95% 0.129 150.1)"
-        ]
+          "oklch(15% 0.113 141.5)",
+          "oklch(26% 0.113 141.5)",
+          "oklch(38% 0.113 141.5)",
+          "oklch(50% 0.113 141.5)",
+          "oklch(62% 0.113 141.5)",
+          "oklch(74% 0.113 141.5)",
+          "oklch(85% 0.113 141.5)",
+          "oklch(95% 0.113 141.5)"
+        ],
+        "purpose": "Running and passing tasks, and done reports."
       },
       "neutral": {
-        "role": "status",
-        "displayName": "Neutral Gray",
+        "role": "neutral",
+        "displayName": "Faded Ink (idle)",
         "cssVar": "--neutral",
-        "theme": "light"
+        "theme": "light",
+        "canonical": "#5a5236",
+        "oklch": "oklch(43.9% 0.044 94.1)",
+        "tonalRamp": [
+          "oklch(15% 0.044 94.1)",
+          "oklch(26% 0.044 94.1)",
+          "oklch(38% 0.044 94.1)",
+          "oklch(50% 0.044 94.1)",
+          "oklch(62% 0.044 94.1)",
+          "oklch(74% 0.044 94.1)",
+          "oklch(85% 0.044 94.1)",
+          "oklch(95% 0.044 94.1)"
+        ],
+        "purpose": "The idle-check icon; same value as muted."
+      },
+      "pencil": {
+        "role": "secondary",
+        "displayName": "Editor's Pencil",
+        "cssVar": "--pencil",
+        "theme": "light",
+        "canonical": "#1d4ea8",
+        "oklch": "oklch(44.6% 0.154 261.3)",
+        "tonalRamp": [
+          "oklch(15% 0.154 261.3)",
+          "oklch(26% 0.154 261.3)",
+          "oklch(38% 0.154 261.3)",
+          "oklch(50% 0.154 261.3)",
+          "oklch(62% 0.154 261.3)",
+          "oklch(74% 0.154 261.3)",
+          "oklch(85% 0.154 261.3)",
+          "oklch(95% 0.154 261.3)"
+        ],
+        "purpose": "The operator's marks: your notes' slug and 1px rule, and the console frame on focus."
       },
       "accent": {
-        "role": "primary",
+        "role": "secondary",
         "displayName": "Link Blue",
         "cssVar": "--accent",
         "theme": "light",
-        "canonical": "#1d5fc2",
-        "oklch": "oklch(50.3% 0.169 259.1)",
+        "canonical": "#1d4ea8",
+        "oklch": "oklch(44.6% 0.154 261.3)",
         "tonalRamp": [
-          "oklch(15% 0.169 259.1)",
-          "oklch(26% 0.169 259.1)",
-          "oklch(38% 0.169 259.1)",
-          "oklch(50% 0.169 259.1)",
-          "oklch(62% 0.169 259.1)",
-          "oklch(74% 0.169 259.1)",
-          "oklch(85% 0.169 259.1)",
-          "oklch(95% 0.169 259.1)"
-        ]
-      },
-      "fail-bg": {
-        "role": "status",
-        "displayName": "Fail Red, pale",
-        "cssVar": "--fail-bg",
-        "theme": "light",
-        "canonical": "#fdecec",
-        "oklch": "oklch(95.7% 0.018 17.5)",
-        "tonalRamp": [
-          "oklch(15% 0.018 17.5)",
-          "oklch(26% 0.018 17.5)",
-          "oklch(38% 0.018 17.5)",
-          "oklch(50% 0.018 17.5)",
-          "oklch(62% 0.018 17.5)",
-          "oklch(74% 0.018 17.5)",
-          "oklch(85% 0.018 17.5)",
-          "oklch(95% 0.018 17.5)"
-        ]
-      },
-      "wait-bg": {
-        "role": "status",
-        "displayName": "Wait Amber, pale",
-        "cssVar": "--wait-bg",
-        "theme": "light",
-        "canonical": "#fcf3d9",
-        "oklch": "oklch(96.4% 0.035 91.1)",
-        "tonalRamp": [
-          "oklch(15% 0.035 91.1)",
-          "oklch(26% 0.035 91.1)",
-          "oklch(38% 0.035 91.1)",
-          "oklch(50% 0.035 91.1)",
-          "oklch(62% 0.035 91.1)",
-          "oklch(74% 0.035 91.1)",
-          "oklch(85% 0.035 91.1)",
-          "oklch(95% 0.035 91.1)"
-        ]
-      },
-      "pass-bg": {
-        "role": "status",
-        "displayName": "Pass Green, pale",
-        "cssVar": "--pass-bg",
-        "theme": "light",
-        "canonical": "#e3f5e8",
-        "oklch": "oklch(95.3% 0.026 154.5)",
-        "tonalRamp": [
-          "oklch(15% 0.026 154.5)",
-          "oklch(26% 0.026 154.5)",
-          "oklch(38% 0.026 154.5)",
-          "oklch(50% 0.026 154.5)",
-          "oklch(62% 0.026 154.5)",
-          "oklch(74% 0.026 154.5)",
-          "oklch(85% 0.026 154.5)",
-          "oklch(95% 0.026 154.5)"
-        ]
-      },
-      "neutral-bg": {
-        "role": "status",
-        "displayName": "Neutral Gray, pale",
-        "cssVar": "--neutral-bg",
-        "theme": "light",
-        "canonical": "#eceff3",
-        "oklch": "oklch(95.1% 0.006 255.5)",
-        "tonalRamp": [
-          "oklch(15% 0.006 255.5)",
-          "oklch(26% 0.006 255.5)",
-          "oklch(38% 0.006 255.5)",
-          "oklch(50% 0.006 255.5)",
-          "oklch(62% 0.006 255.5)",
-          "oklch(74% 0.006 255.5)",
-          "oklch(85% 0.006 255.5)",
-          "oklch(95% 0.006 255.5)"
-        ]
+          "oklch(15% 0.154 261.3)",
+          "oklch(26% 0.154 261.3)",
+          "oklch(38% 0.154 261.3)",
+          "oklch(50% 0.154 261.3)",
+          "oklch(62% 0.154 261.3)",
+          "oklch(74% 0.154 261.3)",
+          "oklch(85% 0.154 261.3)",
+          "oklch(95% 0.154 261.3)"
+        ],
+        "purpose": "Links, the focus ring, the caret, a linked ref on hover, the PR chip and the Chat tab's working dot."
       },
       "accent-bg": {
-        "role": "primary",
-        "displayName": "Link Blue, pale",
+        "role": "secondary",
+        "displayName": "Pencil Wash",
         "cssVar": "--accent-bg",
         "theme": "light",
-        "canonical": "#e8f0fc",
-        "oklch": "oklch(95.3% 0.018 258.4)",
+        "canonical": "#e2dca8",
+        "oklch": "oklch(88.7% 0.068 102.2)",
         "tonalRamp": [
-          "oklch(15% 0.018 258.4)",
-          "oklch(26% 0.018 258.4)",
-          "oklch(38% 0.018 258.4)",
-          "oklch(50% 0.018 258.4)",
-          "oklch(62% 0.018 258.4)",
-          "oklch(74% 0.018 258.4)",
-          "oklch(85% 0.018 258.4)",
-          "oklch(95% 0.018 258.4)"
-        ]
+          "oklch(15% 0.068 102.2)",
+          "oklch(26% 0.068 102.2)",
+          "oklch(38% 0.068 102.2)",
+          "oklch(50% 0.068 102.2)",
+          "oklch(62% 0.068 102.2)",
+          "oklch(74% 0.068 102.2)",
+          "oklch(85% 0.068 102.2)",
+          "oklch(95% 0.068 102.2)"
+        ],
+        "purpose": "Text selection."
+      },
+      "wait-bg": {
+        "role": "signal",
+        "displayName": "Bulletin Wash",
+        "cssVar": "--wait-bg",
+        "theme": "light",
+        "canonical": "#ecd58a",
+        "oklch": "oklch(87.5% 0.098 93.0)",
+        "tonalRamp": [
+          "oklch(15% 0.098 93.0)",
+          "oklch(26% 0.098 93.0)",
+          "oklch(38% 0.098 93.0)",
+          "oklch(50% 0.098 93.0)",
+          "oklch(62% 0.098 93.0)",
+          "oklch(74% 0.098 93.0)",
+          "oklch(85% 0.098 93.0)",
+          "oklch(95% 0.098 93.0)"
+        ],
+        "purpose": "The non-zero waiting count and the arrival wash of a new tray item."
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "Idle Wash",
+        "cssVar": "--neutral-bg",
+        "theme": "light",
+        "canonical": "#e6d897",
+        "oklch": "oklch(87.9% 0.085 97.5)",
+        "tonalRamp": [
+          "oklch(15% 0.085 97.5)",
+          "oklch(26% 0.085 97.5)",
+          "oklch(38% 0.085 97.5)",
+          "oklch(50% 0.085 97.5)",
+          "oklch(62% 0.085 97.5)",
+          "oklch(74% 0.085 97.5)",
+          "oklch(85% 0.085 97.5)",
+          "oklch(95% 0.085 97.5)"
+        ],
+        "purpose": "The waiting count at zero."
+      },
+      "header": {
+        "role": "neutral",
+        "displayName": "Ink Band",
+        "cssVar": "--header",
+        "theme": "light",
+        "canonical": "#1d1a14",
+        "oklch": "oklch(21.9% 0.012 84.5)",
+        "tonalRamp": [
+          "oklch(15% 0.012 84.5)",
+          "oklch(26% 0.012 84.5)",
+          "oklch(38% 0.012 84.5)",
+          "oklch(50% 0.012 84.5)",
+          "oklch(62% 0.012 84.5)",
+          "oklch(74% 0.012 84.5)",
+          "oklch(85% 0.012 84.5)",
+          "oklch(95% 0.012 84.5)"
+        ],
+        "purpose": "The masthead in both themes."
+      },
+      "on-header": {
+        "role": "neutral",
+        "displayName": "Canary on Band",
+        "cssVar": "--on-header",
+        "theme": "light",
+        "canonical": "#f2e6a6",
+        "oklch": "oklch(92.0% 0.083 98.8)",
+        "tonalRamp": [
+          "oklch(15% 0.083 98.8)",
+          "oklch(26% 0.083 98.8)",
+          "oklch(38% 0.083 98.8)",
+          "oklch(50% 0.083 98.8)",
+          "oklch(62% 0.083 98.8)",
+          "oklch(74% 0.083 98.8)",
+          "oklch(85% 0.083 98.8)",
+          "oklch(95% 0.083 98.8)"
+        ],
+        "purpose": "Masthead text: the strip, the line word and the gauge."
+      },
+      "on-header-muted": {
+        "role": "neutral",
+        "displayName": "Faded Band Ink",
+        "cssVar": "--on-header-muted",
+        "theme": "light",
+        "canonical": "#b9ad83",
+        "oklch": "oklch(74.7% 0.059 94.0)",
+        "tonalRamp": [
+          "oklch(15% 0.059 94.0)",
+          "oklch(26% 0.059 94.0)",
+          "oklch(38% 0.059 94.0)",
+          "oklch(50% 0.059 94.0)",
+          "oklch(62% 0.059 94.0)",
+          "oklch(74% 0.059 94.0)",
+          "oklch(85% 0.059 94.0)",
+          "oklch(95% 0.059 94.0)"
+        ],
+        "purpose": "The word Wire, the fleet id, strip details, the clock and Notify."
+      },
+      "h-pass": {
+        "role": "signal",
+        "displayName": "Band Green",
+        "cssVar": "--h-pass",
+        "theme": "light",
+        "canonical": "#86c96f",
+        "oklch": "oklch(77.0% 0.140 138.1)",
+        "tonalRamp": [
+          "oklch(15% 0.140 138.1)",
+          "oklch(26% 0.140 138.1)",
+          "oklch(38% 0.140 138.1)",
+          "oklch(50% 0.140 138.1)",
+          "oklch(62% 0.140 138.1)",
+          "oklch(74% 0.140 138.1)",
+          "oklch(85% 0.140 138.1)",
+          "oklch(95% 0.140 138.1)"
+        ],
+        "purpose": "The ready lamp; theme-invariant."
+      },
+      "h-wait": {
+        "role": "signal",
+        "displayName": "Band Amber",
+        "cssVar": "--h-wait",
+        "theme": "light",
+        "canonical": "#e8b04a",
+        "oklch": "oklch(79.1% 0.134 79.5)",
+        "tonalRamp": [
+          "oklch(15% 0.134 79.5)",
+          "oklch(26% 0.134 79.5)",
+          "oklch(38% 0.134 79.5)",
+          "oklch(50% 0.134 79.5)",
+          "oklch(62% 0.134 79.5)",
+          "oklch(74% 0.134 79.5)",
+          "oklch(85% 0.134 79.5)",
+          "oklch(95% 0.134 79.5)"
+        ],
+        "purpose": "The gauge at 80% and the stale-server note; theme-invariant."
+      },
+      "h-flash": {
+        "role": "signal",
+        "displayName": "Band FLASH",
+        "cssVar": "--h-flash",
+        "theme": "light",
+        "canonical": "#ff7a6b",
+        "oklch": "oklch(73.2% 0.165 28.3)",
+        "tonalRamp": [
+          "oklch(15% 0.165 28.3)",
+          "oklch(26% 0.165 28.3)",
+          "oklch(38% 0.165 28.3)",
+          "oklch(50% 0.165 28.3)",
+          "oklch(62% 0.165 28.3)",
+          "oklch(74% 0.165 28.3)",
+          "oklch(85% 0.165 28.3)",
+          "oklch(95% 0.165 28.3)"
+        ],
+        "purpose": "A failing lamp and the gauge at 90%; theme-invariant."
+      },
+      "h-lamp": {
+        "role": "signal",
+        "displayName": "Lamp Glow",
+        "cssVar": "--h-lamp",
+        "theme": "light",
+        "canonical": "#e9d98a",
+        "oklch": "oklch(88.1% 0.101 98.2)",
+        "tonalRamp": [
+          "oklch(15% 0.101 98.2)",
+          "oklch(26% 0.101 98.2)",
+          "oklch(38% 0.101 98.2)",
+          "oklch(50% 0.101 98.2)",
+          "oklch(62% 0.101 98.2)",
+          "oklch(74% 0.101 98.2)",
+          "oklch(85% 0.101 98.2)",
+          "oklch(95% 0.101 98.2)"
+        ],
+        "purpose": "The working lamp; theme-invariant."
       },
       "screen": {
         "role": "neutral",
         "displayName": "Terminal",
         "cssVar": "--screen",
         "theme": "light",
-        "canonical": "#11151a",
-        "oklch": "oklch(19.4% 0.012 254.1)",
+        "canonical": "#1b1a16",
+        "oklch": "oklch(21.7% 0.008 95.4)",
         "tonalRamp": [
-          "oklch(15% 0.012 254.1)",
-          "oklch(26% 0.012 254.1)",
-          "oklch(38% 0.012 254.1)",
-          "oklch(50% 0.012 254.1)",
-          "oklch(62% 0.012 254.1)",
-          "oklch(74% 0.012 254.1)",
-          "oklch(85% 0.012 254.1)",
-          "oklch(95% 0.012 254.1)"
-        ]
+          "oklch(15% 0.008 95.4)",
+          "oklch(26% 0.008 95.4)",
+          "oklch(38% 0.008 95.4)",
+          "oklch(50% 0.008 95.4)",
+          "oklch(62% 0.008 95.4)",
+          "oklch(74% 0.008 95.4)",
+          "oklch(85% 0.008 95.4)",
+          "oklch(95% 0.008 95.4)"
+        ],
+        "purpose": "Ground of a blocked supervisor screen; dark in both themes."
       },
       "screen-fg": {
         "role": "neutral",
         "displayName": "Terminal Text",
         "cssVar": "--screen-fg",
         "theme": "light",
+        "canonical": "#e8e2c8",
+        "oklch": "oklch(91.1% 0.035 96.3)",
+        "tonalRamp": [
+          "oklch(15% 0.035 96.3)",
+          "oklch(26% 0.035 96.3)",
+          "oklch(38% 0.035 96.3)",
+          "oklch(50% 0.035 96.3)",
+          "oklch(62% 0.035 96.3)",
+          "oklch(74% 0.035 96.3)",
+          "oklch(85% 0.035 96.3)",
+          "oklch(95% 0.035 96.3)"
+        ],
+        "purpose": "Text of a blocked supervisor screen."
+      },
+      "shadow": {
+        "role": "neutral",
+        "displayName": "Shadow",
+        "cssVar": "--shadow",
+        "theme": "light",
+        "canonical": "rgba(29,26,20,.22)",
+        "oklch": "oklch(21.9% 0.012 84.5)",
+        "tonalRamp": [
+          "oklch(15% 0.012 84.5)",
+          "oklch(26% 0.012 84.5)",
+          "oklch(38% 0.012 84.5)",
+          "oklch(50% 0.012 84.5)",
+          "oklch(62% 0.012 84.5)",
+          "oklch(74% 0.012 84.5)",
+          "oklch(85% 0.012 84.5)",
+          "oklch(95% 0.012 84.5)"
+        ],
+        "purpose": "The toast lift and the Interrupt key's depressed inset."
+      },
+      "bg-dark": {
+        "role": "neutral",
+        "displayName": "Carbon",
+        "cssVar": "--bg",
+        "theme": "dark",
+        "canonical": "#15130e",
+        "oklch": "oklch(18.7% 0.010 88.8)",
+        "tonalRamp": [
+          "oklch(15% 0.010 88.8)",
+          "oklch(26% 0.010 88.8)",
+          "oklch(38% 0.010 88.8)",
+          "oklch(50% 0.010 88.8)",
+          "oklch(62% 0.010 88.8)",
+          "oklch(74% 0.010 88.8)",
+          "oklch(85% 0.010 88.8)",
+          "oklch(95% 0.010 88.8)"
+        ],
+        "purpose": "The day desk: page, tabs, inputs, open menus, the Interrupt key, the toast and a reply table's sticky column."
+      },
+      "card-dark": {
+        "role": "neutral",
+        "displayName": "Second Sheet",
+        "cssVar": "--card",
+        "theme": "dark",
+        "canonical": "#1f1c15",
+        "oklch": "oklch(22.7% 0.014 87.6)",
+        "tonalRamp": [
+          "oklch(15% 0.014 87.6)",
+          "oklch(26% 0.014 87.6)",
+          "oklch(38% 0.014 87.6)",
+          "oklch(50% 0.014 87.6)",
+          "oklch(62% 0.014 87.6)",
+          "oklch(74% 0.014 87.6)",
+          "oklch(85% 0.014 87.6)",
+          "oklch(95% 0.014 87.6)"
+        ],
+        "purpose": "One step off the ground: buttons, ref chips, code, reply table heads and the console box."
+      },
+      "hover-dark": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "cssVar": "--hover",
+        "theme": "dark",
+        "canonical": "#26221a",
+        "oklch": "oklch(25.4% 0.016 84.5)",
+        "tonalRamp": [
+          "oklch(15% 0.016 84.5)",
+          "oklch(26% 0.016 84.5)",
+          "oklch(38% 0.016 84.5)",
+          "oklch(50% 0.016 84.5)",
+          "oklch(62% 0.016 84.5)",
+          "oklch(74% 0.016 84.5)",
+          "oklch(85% 0.016 84.5)",
+          "oklch(95% 0.016 84.5)"
+        ],
+        "purpose": "Hover fill of buttons, tray items, menu summaries and menu rows."
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "cssVar": "--line",
+        "theme": "dark",
+        "canonical": "#3a3526",
+        "oklch": "oklch(33.0% 0.026 91.8)",
+        "tonalRamp": [
+          "oklch(15% 0.026 91.8)",
+          "oklch(26% 0.026 91.8)",
+          "oklch(38% 0.026 91.8)",
+          "oklch(50% 0.026 91.8)",
+          "oklch(62% 0.026 91.8)",
+          "oklch(74% 0.026 91.8)",
+          "oklch(85% 0.026 91.8)",
+          "oklch(95% 0.026 91.8)"
+        ],
+        "purpose": "Every border and rule: between dispatches and rows, the masthead edge, the tab rule, slug separators, quote edges and scrollbars."
+      },
+      "fg-dark": {
+        "role": "primary",
+        "displayName": "Warm Off-White Ink",
+        "cssVar": "--fg",
+        "theme": "dark",
+        "canonical": "#ece5cc",
+        "oklch": "oklch(92.1% 0.034 94.1)",
+        "tonalRamp": [
+          "oklch(15% 0.034 94.1)",
+          "oklch(26% 0.034 94.1)",
+          "oklch(38% 0.034 94.1)",
+          "oklch(50% 0.034 94.1)",
+          "oklch(62% 0.034 94.1)",
+          "oklch(74% 0.034 94.1)",
+          "oklch(85% 0.034 94.1)",
+          "oklch(95% 0.034 94.1)"
+        ],
+        "purpose": "Body copy, titles, routine wire codes, the print head and the current tab."
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Faded Ink",
+        "cssVar": "--muted",
+        "theme": "dark",
+        "canonical": "#a79f82",
+        "oklch": "oklch(70.2% 0.042 94.4)",
+        "tonalRamp": [
+          "oklch(15% 0.042 94.4)",
+          "oklch(26% 0.042 94.4)",
+          "oklch(38% 0.042 94.4)",
+          "oklch(50% 0.042 94.4)",
+          "oklch(62% 0.042 94.4)",
+          "oklch(74% 0.042 94.4)",
+          "oklch(85% 0.042 94.4)",
+          "oklch(95% 0.042 94.4)"
+        ],
+        "purpose": "Slugs, meta, hints, service lines, the working line, inactive tabs, placeholders, field labels, crumbs and quotes."
+      },
+      "primary-dark": {
+        "role": "primary",
+        "displayName": "Off-White Fill",
+        "cssVar": "--primary",
+        "theme": "dark",
+        "canonical": "#ece5cc",
+        "oklch": "oklch(92.1% 0.034 94.1)",
+        "tonalRamp": [
+          "oklch(15% 0.034 94.1)",
+          "oklch(26% 0.034 94.1)",
+          "oklch(38% 0.034 94.1)",
+          "oklch(50% 0.034 94.1)",
+          "oklch(62% 0.034 94.1)",
+          "oklch(74% 0.034 94.1)",
+          "oklch(85% 0.034 94.1)",
+          "oklch(95% 0.034 94.1)"
+        ],
+        "purpose": "Fill of the one committing button in a form: Answer, Send, Resume."
+      },
+      "on-primary-dark": {
+        "role": "primary",
+        "displayName": "Carbon on Off-White",
+        "cssVar": "--on-primary",
+        "theme": "dark",
+        "canonical": "#15130e",
+        "oklch": "oklch(18.7% 0.010 88.8)",
+        "tonalRamp": [
+          "oklch(15% 0.010 88.8)",
+          "oklch(26% 0.010 88.8)",
+          "oklch(38% 0.010 88.8)",
+          "oklch(50% 0.010 88.8)",
+          "oklch(62% 0.010 88.8)",
+          "oklch(74% 0.010 88.8)",
+          "oklch(85% 0.010 88.8)",
+          "oklch(95% 0.010 88.8)"
+        ],
+        "purpose": "Text on the committing button."
+      },
+      "flash-dark": {
+        "role": "signal",
+        "displayName": "FLASH Red",
+        "cssVar": "--flash",
+        "theme": "dark",
+        "canonical": "#ff7a6b",
+        "oklch": "oklch(73.2% 0.165 28.3)",
+        "tonalRamp": [
+          "oklch(15% 0.165 28.3)",
+          "oklch(26% 0.165 28.3)",
+          "oklch(38% 0.165 28.3)",
+          "oklch(50% 0.165 28.3)",
+          "oklch(62% 0.165 28.3)",
+          "oklch(74% 0.165 28.3)",
+          "oklch(85% 0.165 28.3)",
+          "oklch(95% 0.165 28.3)"
+        ],
+        "purpose": "The one saturated signal: FLASH and URGENT codes, failing and blocked states, the Interrupt key, the toast border."
+      },
+      "fail-dark": {
+        "role": "signal",
+        "displayName": "FLASH Red (status alias)",
+        "cssVar": "--fail",
+        "theme": "dark",
+        "canonical": "#ff7a6b",
+        "oklch": "oklch(73.2% 0.165 28.3)",
+        "tonalRamp": [
+          "oklch(15% 0.165 28.3)",
+          "oklch(26% 0.165 28.3)",
+          "oklch(38% 0.165 28.3)",
+          "oklch(50% 0.165 28.3)",
+          "oklch(62% 0.165 28.3)",
+          "oklch(74% 0.165 28.3)",
+          "oklch(85% 0.165 28.3)",
+          "oklch(95% 0.165 28.3)"
+        ],
+        "purpose": "The failing-check icon, stuck reports and the toast border; same value as flash."
+      },
+      "wait-dark": {
+        "role": "signal",
+        "displayName": "Bulletin Amber",
+        "cssVar": "--wait",
+        "theme": "dark",
+        "canonical": "#e8b04a",
+        "oklch": "oklch(79.1% 0.134 79.5)",
+        "tonalRamp": [
+          "oklch(15% 0.134 79.5)",
+          "oklch(26% 0.134 79.5)",
+          "oklch(38% 0.134 79.5)",
+          "oklch(50% 0.134 79.5)",
+          "oklch(62% 0.134 79.5)",
+          "oklch(74% 0.134 79.5)",
+          "oklch(85% 0.134 79.5)",
+          "oklch(95% 0.134 79.5)"
+        ],
+        "purpose": "BULLETIN, waiting tasks, progress reports, the waiting count, Queued and a pending switch."
+      },
+      "pass-dark": {
+        "role": "signal",
+        "displayName": "Line Green",
+        "cssVar": "--pass",
+        "theme": "dark",
+        "canonical": "#86c96f",
+        "oklch": "oklch(77.0% 0.140 138.1)",
+        "tonalRamp": [
+          "oklch(15% 0.140 138.1)",
+          "oklch(26% 0.140 138.1)",
+          "oklch(38% 0.140 138.1)",
+          "oklch(50% 0.140 138.1)",
+          "oklch(62% 0.140 138.1)",
+          "oklch(74% 0.140 138.1)",
+          "oklch(85% 0.140 138.1)",
+          "oklch(95% 0.140 138.1)"
+        ],
+        "purpose": "Running and passing tasks, and done reports."
+      },
+      "neutral-dark": {
+        "role": "neutral",
+        "displayName": "Faded Ink (idle)",
+        "cssVar": "--neutral",
+        "theme": "dark",
+        "canonical": "#a79f82",
+        "oklch": "oklch(70.2% 0.042 94.4)",
+        "tonalRamp": [
+          "oklch(15% 0.042 94.4)",
+          "oklch(26% 0.042 94.4)",
+          "oklch(38% 0.042 94.4)",
+          "oklch(50% 0.042 94.4)",
+          "oklch(62% 0.042 94.4)",
+          "oklch(74% 0.042 94.4)",
+          "oklch(85% 0.042 94.4)",
+          "oklch(95% 0.042 94.4)"
+        ],
+        "purpose": "The idle-check icon; same value as muted."
+      },
+      "pencil-dark": {
+        "role": "secondary",
+        "displayName": "Editor's Pencil",
+        "cssVar": "--pencil",
+        "theme": "dark",
+        "canonical": "#93b6ff",
+        "oklch": "oklch(77.9% 0.112 264.3)",
+        "tonalRamp": [
+          "oklch(15% 0.112 264.3)",
+          "oklch(26% 0.112 264.3)",
+          "oklch(38% 0.112 264.3)",
+          "oklch(50% 0.112 264.3)",
+          "oklch(62% 0.112 264.3)",
+          "oklch(74% 0.112 264.3)",
+          "oklch(85% 0.112 264.3)",
+          "oklch(95% 0.112 264.3)"
+        ],
+        "purpose": "The operator's marks: your notes' slug and 1px rule, and the console frame on focus."
+      },
+      "accent-dark": {
+        "role": "secondary",
+        "displayName": "Link Blue",
+        "cssVar": "--accent",
+        "theme": "dark",
+        "canonical": "#93b6ff",
+        "oklch": "oklch(77.9% 0.112 264.3)",
+        "tonalRamp": [
+          "oklch(15% 0.112 264.3)",
+          "oklch(26% 0.112 264.3)",
+          "oklch(38% 0.112 264.3)",
+          "oklch(50% 0.112 264.3)",
+          "oklch(62% 0.112 264.3)",
+          "oklch(74% 0.112 264.3)",
+          "oklch(85% 0.112 264.3)",
+          "oklch(95% 0.112 264.3)"
+        ],
+        "purpose": "Links, the focus ring, the caret, a linked ref on hover, the PR chip and the Chat tab's working dot."
+      },
+      "accent-bg-dark": {
+        "role": "secondary",
+        "displayName": "Pencil Wash",
+        "cssVar": "--accent-bg",
+        "theme": "dark",
+        "canonical": "#1b2233",
+        "oklch": "oklch(25.4% 0.034 266.8)",
+        "tonalRamp": [
+          "oklch(15% 0.034 266.8)",
+          "oklch(26% 0.034 266.8)",
+          "oklch(38% 0.034 266.8)",
+          "oklch(50% 0.034 266.8)",
+          "oklch(62% 0.034 266.8)",
+          "oklch(74% 0.034 266.8)",
+          "oklch(85% 0.034 266.8)",
+          "oklch(95% 0.034 266.8)"
+        ],
+        "purpose": "Text selection."
+      },
+      "wait-bg-dark": {
+        "role": "signal",
+        "displayName": "Bulletin Wash",
+        "cssVar": "--wait-bg",
+        "theme": "dark",
+        "canonical": "#33270f",
+        "oklch": "oklch(28.1% 0.042 82.9)",
+        "tonalRamp": [
+          "oklch(15% 0.042 82.9)",
+          "oklch(26% 0.042 82.9)",
+          "oklch(38% 0.042 82.9)",
+          "oklch(50% 0.042 82.9)",
+          "oklch(62% 0.042 82.9)",
+          "oklch(74% 0.042 82.9)",
+          "oklch(85% 0.042 82.9)",
+          "oklch(95% 0.042 82.9)"
+        ],
+        "purpose": "The non-zero waiting count and the arrival wash of a new tray item."
+      },
+      "neutral-bg-dark": {
+        "role": "neutral",
+        "displayName": "Idle Wash",
+        "cssVar": "--neutral-bg",
+        "theme": "dark",
+        "canonical": "#24211a",
+        "oklch": "oklch(24.9% 0.014 87.6)",
+        "tonalRamp": [
+          "oklch(15% 0.014 87.6)",
+          "oklch(26% 0.014 87.6)",
+          "oklch(38% 0.014 87.6)",
+          "oklch(50% 0.014 87.6)",
+          "oklch(62% 0.014 87.6)",
+          "oklch(74% 0.014 87.6)",
+          "oklch(85% 0.014 87.6)",
+          "oklch(95% 0.014 87.6)"
+        ],
+        "purpose": "The waiting count at zero."
+      },
+      "header-dark": {
+        "role": "neutral",
+        "displayName": "Night Band",
+        "cssVar": "--header",
+        "theme": "dark",
+        "canonical": "#0b0a07",
+        "oklch": "oklch(14.5% 0.007 93.2)",
+        "tonalRamp": [
+          "oklch(15% 0.007 93.2)",
+          "oklch(26% 0.007 93.2)",
+          "oklch(38% 0.007 93.2)",
+          "oklch(50% 0.007 93.2)",
+          "oklch(62% 0.007 93.2)",
+          "oklch(74% 0.007 93.2)",
+          "oklch(85% 0.007 93.2)",
+          "oklch(95% 0.007 93.2)"
+        ],
+        "purpose": "The masthead in both themes."
+      },
+      "on-header-dark": {
+        "role": "neutral",
+        "displayName": "Canary on Band",
+        "cssVar": "--on-header",
+        "theme": "dark",
+        "canonical": "#ece5cc",
+        "oklch": "oklch(92.1% 0.034 94.1)",
+        "tonalRamp": [
+          "oklch(15% 0.034 94.1)",
+          "oklch(26% 0.034 94.1)",
+          "oklch(38% 0.034 94.1)",
+          "oklch(50% 0.034 94.1)",
+          "oklch(62% 0.034 94.1)",
+          "oklch(74% 0.034 94.1)",
+          "oklch(85% 0.034 94.1)",
+          "oklch(95% 0.034 94.1)"
+        ],
+        "purpose": "Masthead text: the strip, the line word and the gauge."
+      },
+      "on-header-muted-dark": {
+        "role": "neutral",
+        "displayName": "Faded Band Ink",
+        "cssVar": "--on-header-muted",
+        "theme": "dark",
+        "canonical": "#8f8870",
+        "oklch": "oklch(62.6% 0.036 93.7)",
+        "tonalRamp": [
+          "oklch(15% 0.036 93.7)",
+          "oklch(26% 0.036 93.7)",
+          "oklch(38% 0.036 93.7)",
+          "oklch(50% 0.036 93.7)",
+          "oklch(62% 0.036 93.7)",
+          "oklch(74% 0.036 93.7)",
+          "oklch(85% 0.036 93.7)",
+          "oklch(95% 0.036 93.7)"
+        ],
+        "purpose": "The word Wire, the fleet id, strip details, the clock and Notify."
+      },
+      "screen-dark": {
+        "role": "neutral",
+        "displayName": "Terminal",
+        "cssVar": "--screen",
+        "theme": "dark",
+        "canonical": "#07090c",
+        "oklch": "oklch(13.9% 0.008 255.5)",
+        "tonalRamp": [
+          "oklch(15% 0.008 255.5)",
+          "oklch(26% 0.008 255.5)",
+          "oklch(38% 0.008 255.5)",
+          "oklch(50% 0.008 255.5)",
+          "oklch(62% 0.008 255.5)",
+          "oklch(74% 0.008 255.5)",
+          "oklch(85% 0.008 255.5)",
+          "oklch(95% 0.008 255.5)"
+        ],
+        "purpose": "Ground of a blocked supervisor screen; dark in both themes."
+      },
+      "screen-fg-dark": {
+        "role": "neutral",
+        "displayName": "Terminal Text",
+        "cssVar": "--screen-fg",
+        "theme": "dark",
         "canonical": "#d7dde4",
         "oklch": "oklch(89.5% 0.012 252.1)",
         "tonalRamp": [
@@ -326,483 +983,723 @@
           "oklch(74% 0.012 252.1)",
           "oklch(85% 0.012 252.1)",
           "oklch(95% 0.012 252.1)"
-        ]
-      },
-      "primary": {
-        "role": "primary",
-        "displayName": "Review Green",
-        "cssVar": "--primary",
-        "theme": "light"
-      },
-      "on-primary": {
-        "role": "primary",
-        "displayName": "On Review Green",
-        "cssVar": "--on-primary",
-        "theme": "light"
-      },
-      "shadow": {
-        "role": "neutral",
-        "displayName": "Shadow",
-        "cssVar": "--shadow",
-        "theme": "light"
-      },
-      "bg-dark": {
-        "role": "neutral",
-        "displayName": "Page Ground (dark theme)",
-        "cssVar": "--bg",
-        "theme": "dark"
-      },
-      "card-dark": {
-        "role": "neutral",
-        "displayName": "Card Fill (dark theme)",
-        "cssVar": "--card",
-        "theme": "dark"
-      },
-      "header-dark": {
-        "role": "neutral",
-        "displayName": "Header Ground (dark theme)",
-        "cssVar": "--header",
-        "theme": "dark"
-      },
-      "fg-dark": {
-        "role": "neutral",
-        "displayName": "Ink (dark theme)",
-        "cssVar": "--fg",
-        "theme": "dark"
-      },
-      "muted-dark": {
-        "role": "neutral",
-        "displayName": "Muted Ink (dark theme)",
-        "cssVar": "--muted",
-        "theme": "dark"
-      },
-      "line-dark": {
-        "role": "neutral",
-        "displayName": "Hairline (dark theme)",
-        "cssVar": "--line",
-        "theme": "dark"
-      },
-      "hover-dark": {
-        "role": "neutral",
-        "displayName": "Hover Wash (dark theme)",
-        "cssVar": "--hover",
-        "theme": "dark"
-      },
-      "fail-dark": {
-        "role": "status",
-        "displayName": "Fail Red (dark theme)",
-        "cssVar": "--fail",
-        "theme": "dark"
-      },
-      "wait-dark": {
-        "role": "status",
-        "displayName": "Wait Amber (dark theme)",
-        "cssVar": "--wait",
-        "theme": "dark"
-      },
-      "pass-dark": {
-        "role": "status",
-        "displayName": "Pass Green (dark theme)",
-        "cssVar": "--pass",
-        "theme": "dark"
-      },
-      "neutral-dark": {
-        "role": "status",
-        "displayName": "Neutral Gray (dark theme)",
-        "cssVar": "--neutral",
-        "theme": "dark"
-      },
-      "accent-dark": {
-        "role": "primary",
-        "displayName": "Link Blue (dark theme)",
-        "cssVar": "--accent",
-        "theme": "dark"
-      },
-      "fail-bg-dark": {
-        "role": "status",
-        "displayName": "Fail Red, pale (dark theme)",
-        "cssVar": "--fail-bg",
-        "theme": "dark"
-      },
-      "wait-bg-dark": {
-        "role": "status",
-        "displayName": "Wait Amber, pale (dark theme)",
-        "cssVar": "--wait-bg",
-        "theme": "dark"
-      },
-      "pass-bg-dark": {
-        "role": "status",
-        "displayName": "Pass Green, pale (dark theme)",
-        "cssVar": "--pass-bg",
-        "theme": "dark"
-      },
-      "neutral-bg-dark": {
-        "role": "status",
-        "displayName": "Neutral Gray, pale (dark theme)",
-        "cssVar": "--neutral-bg",
-        "theme": "dark"
-      },
-      "accent-bg-dark": {
-        "role": "primary",
-        "displayName": "Link Blue, pale (dark theme)",
-        "cssVar": "--accent-bg",
-        "theme": "dark"
-      },
-      "screen-dark": {
-        "role": "neutral",
-        "displayName": "Terminal (dark theme)",
-        "cssVar": "--screen",
-        "theme": "dark"
-      },
-      "screen-fg-dark": {
-        "role": "neutral",
-        "displayName": "Terminal Text (dark theme)",
-        "cssVar": "--screen-fg",
-        "theme": "dark"
-      },
-      "primary-dark": {
-        "role": "primary",
-        "displayName": "Review Green (dark theme)",
-        "cssVar": "--primary",
-        "theme": "dark"
-      },
-      "on-primary-dark": {
-        "role": "primary",
-        "displayName": "On Review Green (dark theme)",
-        "cssVar": "--on-primary",
-        "theme": "dark"
+        ],
+        "purpose": "Text of a blocked supervisor screen."
       },
       "shadow-dark": {
         "role": "neutral",
-        "displayName": "Shadow (dark theme)",
+        "displayName": "Shadow",
         "cssVar": "--shadow",
-        "theme": "dark"
+        "theme": "dark",
+        "canonical": "rgba(0,0,0,.55)",
+        "oklch": "oklch(0.0% 0.000 0.0)",
+        "tonalRamp": [
+          "oklch(15% 0.000 0.0)",
+          "oklch(26% 0.000 0.0)",
+          "oklch(38% 0.000 0.0)",
+          "oklch(50% 0.000 0.0)",
+          "oklch(62% 0.000 0.0)",
+          "oklch(74% 0.000 0.0)",
+          "oklch(85% 0.000 0.0)",
+          "oklch(95% 0.000 0.0)"
+        ],
+        "purpose": "The toast lift and the Interrupt key's depressed inset."
       },
       "tint-0": {
         "role": "tertiary",
         "displayName": "Fleet Tint 0",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-0"
+        "canonical": "#407acc",
+        "oklch": "oklch(58.1% 0.140 257.4)",
+        "tonalRamp": [
+          "oklch(15% 0.140 257.4)",
+          "oklch(26% 0.140 257.4)",
+          "oklch(38% 0.140 257.4)",
+          "oklch(50% 0.140 257.4)",
+          "oklch(62% 0.140 257.4)",
+          "oklch(74% 0.140 257.4)",
+          "oklch(85% 0.140 257.4)",
+          "oklch(95% 0.140 257.4)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-0"
       },
       "tint-1": {
         "role": "tertiary",
         "displayName": "Fleet Tint 1",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-1"
+        "canonical": "#736ad7",
+        "oklch": "oklch(58.6% 0.162 284.0)",
+        "tonalRamp": [
+          "oklch(15% 0.162 284.0)",
+          "oklch(26% 0.162 284.0)",
+          "oklch(38% 0.162 284.0)",
+          "oklch(50% 0.162 284.0)",
+          "oklch(62% 0.162 284.0)",
+          "oklch(74% 0.162 284.0)",
+          "oklch(85% 0.162 284.0)",
+          "oklch(95% 0.162 284.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-1"
       },
       "tint-2": {
         "role": "tertiary",
         "displayName": "Fleet Tint 2",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-2"
+        "canonical": "#9f58d3",
+        "oklch": "oklch(59.7% 0.188 308.4)",
+        "tonalRamp": [
+          "oklch(15% 0.188 308.4)",
+          "oklch(26% 0.188 308.4)",
+          "oklch(38% 0.188 308.4)",
+          "oklch(50% 0.188 308.4)",
+          "oklch(62% 0.188 308.4)",
+          "oklch(74% 0.188 308.4)",
+          "oklch(85% 0.188 308.4)",
+          "oklch(95% 0.188 308.4)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-2"
       },
       "tint-3": {
         "role": "tertiary",
         "displayName": "Fleet Tint 3",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-3"
+        "canonical": "#ca38be",
+        "oklch": "oklch(60.6% 0.230 331.6)",
+        "tonalRamp": [
+          "oklch(15% 0.230 331.6)",
+          "oklch(26% 0.230 331.6)",
+          "oklch(38% 0.230 331.6)",
+          "oklch(50% 0.230 331.6)",
+          "oklch(62% 0.230 331.6)",
+          "oklch(74% 0.230 331.6)",
+          "oklch(85% 0.230 331.6)",
+          "oklch(95% 0.230 331.6)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-3"
       },
       "tint-4": {
         "role": "tertiary",
         "displayName": "Fleet Tint 4",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-4"
+        "canonical": "#ce4880",
+        "oklch": "oklch(60.1% 0.176 358.0)",
+        "tonalRamp": [
+          "oklch(15% 0.176 358.0)",
+          "oklch(26% 0.176 358.0)",
+          "oklch(38% 0.176 358.0)",
+          "oklch(50% 0.176 358.0)",
+          "oklch(62% 0.176 358.0)",
+          "oklch(74% 0.176 358.0)",
+          "oklch(85% 0.176 358.0)",
+          "oklch(95% 0.176 358.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-4"
       },
       "tint-5": {
         "role": "tertiary",
         "displayName": "Fleet Tint 5",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-5"
+        "canonical": "#cd4f44",
+        "oklch": "oklch(59.4% 0.162 28.0)",
+        "tonalRamp": [
+          "oklch(15% 0.162 28.0)",
+          "oklch(26% 0.162 28.0)",
+          "oklch(38% 0.162 28.0)",
+          "oklch(50% 0.162 28.0)",
+          "oklch(62% 0.162 28.0)",
+          "oklch(74% 0.162 28.0)",
+          "oklch(85% 0.162 28.0)",
+          "oklch(95% 0.162 28.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-5"
       },
       "tint-6": {
         "role": "tertiary",
         "displayName": "Fleet Tint 6",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-6"
+        "canonical": "#a1702b",
+        "oklch": "oklch(58.3% 0.104 72.1)",
+        "tonalRamp": [
+          "oklch(15% 0.104 72.1)",
+          "oklch(26% 0.104 72.1)",
+          "oklch(38% 0.104 72.1)",
+          "oklch(50% 0.104 72.1)",
+          "oklch(62% 0.104 72.1)",
+          "oklch(74% 0.104 72.1)",
+          "oklch(85% 0.104 72.1)",
+          "oklch(95% 0.104 72.1)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-6"
       },
       "tint-7": {
         "role": "tertiary",
         "displayName": "Fleet Tint 7",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-7"
+        "canonical": "#777f22",
+        "oklch": "oklch(57.2% 0.114 114.3)",
+        "tonalRamp": [
+          "oklch(15% 0.114 114.3)",
+          "oklch(26% 0.114 114.3)",
+          "oklch(38% 0.114 114.3)",
+          "oklch(50% 0.114 114.3)",
+          "oklch(62% 0.114 114.3)",
+          "oklch(74% 0.114 114.3)",
+          "oklch(85% 0.114 114.3)",
+          "oklch(95% 0.114 114.3)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-7"
       },
       "tint-8": {
         "role": "tertiary",
         "displayName": "Fleet Tint 8",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-8"
+        "canonical": "#4d8724",
+        "oklch": "oklch(56.3% 0.144 135.1)",
+        "tonalRamp": [
+          "oklch(15% 0.144 135.1)",
+          "oklch(26% 0.144 135.1)",
+          "oklch(38% 0.144 135.1)",
+          "oklch(50% 0.144 135.1)",
+          "oklch(62% 0.144 135.1)",
+          "oklch(74% 0.144 135.1)",
+          "oklch(85% 0.144 135.1)",
+          "oklch(95% 0.144 135.1)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-8"
       },
       "tint-9": {
         "role": "tertiary",
         "displayName": "Fleet Tint 9",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-9"
+        "canonical": "#258b2d",
+        "oklch": "oklch(55.9% 0.160 144.1)",
+        "tonalRamp": [
+          "oklch(15% 0.160 144.1)",
+          "oklch(26% 0.160 144.1)",
+          "oklch(38% 0.160 144.1)",
+          "oklch(50% 0.160 144.1)",
+          "oklch(62% 0.160 144.1)",
+          "oklch(74% 0.160 144.1)",
+          "oklch(85% 0.160 144.1)",
+          "oklch(95% 0.160 144.1)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-9"
       },
       "tint-10": {
         "role": "tertiary",
         "displayName": "Fleet Tint 10",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-10"
+        "canonical": "#24895f",
+        "oklch": "oklch(56.2% 0.112 160.9)",
+        "tonalRamp": [
+          "oklch(15% 0.112 160.9)",
+          "oklch(26% 0.112 160.9)",
+          "oklch(38% 0.112 160.9)",
+          "oklch(50% 0.112 160.9)",
+          "oklch(62% 0.112 160.9)",
+          "oklch(74% 0.112 160.9)",
+          "oklch(85% 0.112 160.9)",
+          "oklch(95% 0.112 160.9)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-10"
       },
       "tint-11": {
         "role": "tertiary",
         "displayName": "Fleet Tint 11",
         "cssVar": "--tint",
         "theme": "light",
-        "appliesTo": ".tint-11"
+        "canonical": "#25848d",
+        "oklch": "oklch(56.4% 0.086 204.4)",
+        "tonalRamp": [
+          "oklch(15% 0.086 204.4)",
+          "oklch(26% 0.086 204.4)",
+          "oklch(38% 0.086 204.4)",
+          "oklch(50% 0.086 204.4)",
+          "oklch(62% 0.086 204.4)",
+          "oklch(74% 0.086 204.4)",
+          "oklch(85% 0.086 204.4)",
+          "oklch(95% 0.086 204.4)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-11"
       },
       "tint-0-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 0 (dark theme)",
+        "displayName": "Fleet Tint 0",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-0"
+        "canonical": "#417ed2",
+        "oklch": "oklch(59.4% 0.144 257.0)",
+        "tonalRamp": [
+          "oklch(15% 0.144 257.0)",
+          "oklch(26% 0.144 257.0)",
+          "oklch(38% 0.144 257.0)",
+          "oklch(50% 0.144 257.0)",
+          "oklch(62% 0.144 257.0)",
+          "oklch(74% 0.144 257.0)",
+          "oklch(85% 0.144 257.0)",
+          "oklch(95% 0.144 257.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-0"
       },
       "tint-1-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 1 (dark theme)",
+        "displayName": "Fleet Tint 1",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-1"
+        "canonical": "#7a70de",
+        "oklch": "oklch(60.7% 0.162 284.6)",
+        "tonalRamp": [
+          "oklch(15% 0.162 284.6)",
+          "oklch(26% 0.162 284.6)",
+          "oklch(38% 0.162 284.6)",
+          "oklch(50% 0.162 284.6)",
+          "oklch(62% 0.162 284.6)",
+          "oklch(74% 0.162 284.6)",
+          "oklch(85% 0.162 284.6)",
+          "oklch(95% 0.162 284.6)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-1"
       },
       "tint-2-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 2 (dark theme)",
+        "displayName": "Fleet Tint 2",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-2"
+        "canonical": "#a55cd9",
+        "oklch": "oklch(61.3% 0.190 308.8)",
+        "tonalRamp": [
+          "oklch(15% 0.190 308.8)",
+          "oklch(26% 0.190 308.8)",
+          "oklch(38% 0.190 308.8)",
+          "oklch(50% 0.190 308.8)",
+          "oklch(62% 0.190 308.8)",
+          "oklch(74% 0.190 308.8)",
+          "oklch(85% 0.190 308.8)",
+          "oklch(95% 0.190 308.8)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-2"
       },
       "tint-3-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 3 (dark theme)",
+        "displayName": "Fleet Tint 3",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-3"
+        "canonical": "#d13bc4",
+        "oklch": "oklch(62.2% 0.234 331.8)",
+        "tonalRamp": [
+          "oklch(15% 0.234 331.8)",
+          "oklch(26% 0.234 331.8)",
+          "oklch(38% 0.234 331.8)",
+          "oklch(50% 0.234 331.8)",
+          "oklch(62% 0.234 331.8)",
+          "oklch(74% 0.234 331.8)",
+          "oklch(85% 0.234 331.8)",
+          "oklch(95% 0.234 331.8)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-3"
       },
       "tint-4-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 4 (dark theme)",
+        "displayName": "Fleet Tint 4",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-4"
+        "canonical": "#d54b85",
+        "oklch": "oklch(61.7% 0.181 357.9)",
+        "tonalRamp": [
+          "oklch(15% 0.181 357.9)",
+          "oklch(26% 0.181 357.9)",
+          "oklch(38% 0.181 357.9)",
+          "oklch(50% 0.181 357.9)",
+          "oklch(62% 0.181 357.9)",
+          "oklch(74% 0.181 357.9)",
+          "oklch(85% 0.181 357.9)",
+          "oklch(95% 0.181 357.9)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-4"
       },
       "tint-5-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 5 (dark theme)",
+        "displayName": "Fleet Tint 5",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-5"
+        "canonical": "#d45347",
+        "oklch": "oklch(61.0% 0.165 28.2)",
+        "tonalRamp": [
+          "oklch(15% 0.165 28.2)",
+          "oklch(26% 0.165 28.2)",
+          "oklch(38% 0.165 28.2)",
+          "oklch(50% 0.165 28.2)",
+          "oklch(62% 0.165 28.2)",
+          "oklch(74% 0.165 28.2)",
+          "oklch(85% 0.165 28.2)",
+          "oklch(95% 0.165 28.2)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-5"
       },
       "tint-6-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 6 (dark theme)",
+        "displayName": "Fleet Tint 6",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-6"
+        "canonical": "#a97328",
+        "oklch": "oklch(59.8% 0.111 71.0)",
+        "tonalRamp": [
+          "oklch(15% 0.111 71.0)",
+          "oklch(26% 0.111 71.0)",
+          "oklch(38% 0.111 71.0)",
+          "oklch(50% 0.111 71.0)",
+          "oklch(62% 0.111 71.0)",
+          "oklch(74% 0.111 71.0)",
+          "oklch(85% 0.111 71.0)",
+          "oklch(95% 0.111 71.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-6"
       },
       "tint-7-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 7 (dark theme)",
+        "displayName": "Fleet Tint 7",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-7"
+        "canonical": "#7c841f",
+        "oklch": "oklch(58.8% 0.120 114.1)",
+        "tonalRamp": [
+          "oklch(15% 0.120 114.1)",
+          "oklch(26% 0.120 114.1)",
+          "oklch(38% 0.120 114.1)",
+          "oklch(50% 0.120 114.1)",
+          "oklch(62% 0.120 114.1)",
+          "oklch(74% 0.120 114.1)",
+          "oklch(85% 0.120 114.1)",
+          "oklch(95% 0.120 114.1)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-7"
       },
       "tint-8-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 8 (dark theme)",
+        "displayName": "Fleet Tint 8",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-8"
+        "canonical": "#4f8f21",
+        "oklch": "oklch(58.5% 0.155 135.3)",
+        "tonalRamp": [
+          "oklch(15% 0.155 135.3)",
+          "oklch(26% 0.155 135.3)",
+          "oklch(38% 0.155 135.3)",
+          "oklch(50% 0.155 135.3)",
+          "oklch(62% 0.155 135.3)",
+          "oklch(74% 0.155 135.3)",
+          "oklch(85% 0.155 135.3)",
+          "oklch(95% 0.155 135.3)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-8"
       },
       "tint-9-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 9 (dark theme)",
+        "displayName": "Fleet Tint 9",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-9"
+        "canonical": "#22912b",
+        "oklch": "oklch(57.5% 0.170 144.0)",
+        "tonalRamp": [
+          "oklch(15% 0.170 144.0)",
+          "oklch(26% 0.170 144.0)",
+          "oklch(38% 0.170 144.0)",
+          "oklch(50% 0.170 144.0)",
+          "oklch(62% 0.170 144.0)",
+          "oklch(74% 0.170 144.0)",
+          "oklch(85% 0.170 144.0)",
+          "oklch(95% 0.170 144.0)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-9"
       },
       "tint-10-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 10 (dark theme)",
+        "displayName": "Fleet Tint 10",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-10"
+        "canonical": "#218f61",
+        "oklch": "oklch(57.8% 0.120 160.2)",
+        "tonalRamp": [
+          "oklch(15% 0.120 160.2)",
+          "oklch(26% 0.120 160.2)",
+          "oklch(38% 0.120 160.2)",
+          "oklch(50% 0.120 160.2)",
+          "oklch(62% 0.120 160.2)",
+          "oklch(74% 0.120 160.2)",
+          "oklch(85% 0.120 160.2)",
+          "oklch(95% 0.120 160.2)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-10"
       },
       "tint-11-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 11 (dark theme)",
+        "displayName": "Fleet Tint 11",
         "cssVar": "--tint",
         "theme": "dark",
-        "appliesTo": ".tint-11"
+        "canonical": "#238b95",
+        "oklch": "oklch(58.5% 0.091 204.7)",
+        "tonalRamp": [
+          "oklch(15% 0.091 204.7)",
+          "oklch(26% 0.091 204.7)",
+          "oklch(38% 0.091 204.7)",
+          "oklch(50% 0.091 204.7)",
+          "oklch(62% 0.091 204.7)",
+          "oklch(74% 0.091 204.7)",
+          "oklch(85% 0.091 204.7)",
+          "oklch(95% 0.091 204.7)"
+        ],
+        "purpose": "Fleet identity only: the masthead wire name and the mark.",
+        "selector": ".tint-11"
       }
     },
     "typographyMeta": {
+      "nameplate": {
+        "displayName": "Nameplate",
+        "purpose": "The masthead's FLEET WIRE and each fleet-list row; the fleet name in its tint, Wire at 600 in on-header-muted.",
+        "textTransform": "uppercase"
+      },
+      "nameplate-compact": {
+        "displayName": "Nameplate Compact",
+        "purpose": "The nameplate in the 36px compact masthead on viewports under 600px tall; still large text, so every tint clears 3:1.",
+        "textTransform": "uppercase"
+      },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Task and decision page titles; the largest text on the board."
+        "purpose": "Task and decision titles on thread pages, balanced."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Fleet name in the header, the Checks section head and a reply's top-level heading."
+        "purpose": "The tray headline; 500 and truncated when the item is collapsed."
+      },
+      "section": {
+        "displayName": "Section",
+        "purpose": "The Checks head and a reply's top-level heading."
       },
       "heading-small": {
         "displayName": "Heading Small",
-        "purpose": "Page headings on the fleet list and error page, and a reply's lower headings."
+        "purpose": "A reply's lower headings and the fleet list's heading."
+      },
+      "copy": {
+        "displayName": "Copy",
+        "purpose": "Dispatch copy on the wire, reports, plans and goals; prose capped at 72ch."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Default text, waiting-item titles, comment bodies and reply table cells."
+        "purpose": "Everything else: budget rows, tray bodies, inputs."
       },
       "control": {
         "displayName": "Control",
-        "purpose": "Buttons and the Switch model disclosure."
+        "purpose": "Buttons and menu rows; crumbs share the size at 400."
       },
       "meta": {
         "displayName": "Meta",
-        "purpose": "Times, meta lines, hints, event lines, comment headers."
+        "purpose": "Hints, meta text, the service line's frame and the finished-tasks link."
       },
       "badge": {
         "displayName": "Badge",
-        "purpose": "PR chips, waiting count, status pills and reply table heads."
+        "purpose": "The PR chip and reply table heads; the waiting count on a 20px line."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "The Queued label and the switching-to label; the keyboard hint uses the mono family at this size."
+        "purpose": "The outlined Queued label in a note's slug.",
+        "textTransform": "uppercase"
+      },
+      "slug": {
+        "displayName": "Slug",
+        "purpose": "Every slug line: items separated by a trailing middle dot in hairline colour.",
+        "textTransform": "uppercase"
+      },
+      "wire-code": {
+        "displayName": "Wire Code",
+        "purpose": "FLASH, BULLETIN, URGENT, ROUTINE and SERVICE at the head of a slug.",
+        "textTransform": "uppercase"
+      },
+      "strip": {
+        "displayName": "Strip",
+        "purpose": "The masthead live strip and the clock; the line word at 700, details at 500.",
+        "textTransform": "uppercase"
+      },
+      "key-label": {
+        "displayName": "Key Label",
+        "purpose": "The tabs, the model menu summary, the plain model label and the pending switch.",
+        "textTransform": "uppercase"
+      },
+      "field-label": {
+        "displayName": "Field Label",
+        "purpose": "Profile, Model and Effort labels in the model menu.",
+        "textTransform": "uppercase"
       },
       "mono": {
         "displayName": "Mono",
-        "purpose": "Ref chips and the fleet id."
+        "purpose": "Ref chips, service text, the working line and the fleet id; own case."
+      },
+      "keycap": {
+        "displayName": "Keycap",
+        "purpose": "The Ctrl or Command Enter keycap beside Send."
       },
       "code-block": {
         "displayName": "Code Block",
-        "purpose": "Blocked-screen excerpt and preformatted text."
+        "purpose": "The blocked-screen excerpt and preformatted text."
       }
     },
     "shadows": [
       {
         "name": "toast-lift",
         "value": "0 8px 24px var(--shadow)",
-        "purpose": "The error toast fixed at the bottom right."
-      },
-      {
-        "name": "sticky-composer",
-        "value": "0 -8px 16px var(--shadow)",
-        "purpose": "The composer when it sticks to the bottom of the flowing page (without JavaScript, or below 600px tall)."
+        "purpose": "The error toast, the one element that floats over the page."
       },
       {
         "name": "keycap-edge",
         "value": "inset 0 -1px 0 var(--line)",
-        "purpose": "Bottom edge of a key button in the key fence."
-      }
-    ],
-    "motion": [
-      {
-        "name": "arrive",
-        "value": "1.6s cubic-bezier(.16,1,.3,1)",
-        "purpose": "A new waiting item fades from --wait-bg to its ground; disabled under prefers-reduced-motion."
+        "purpose": "Bottom edge of each key in a blocked screen's key fence."
       },
       {
-        "name": "pulse",
-        "value": "2s ease-in-out infinite, opacity .3 at 50%",
-        "purpose": "The working pill's 6px dot; static under prefers-reduced-motion. The Chat tab dot never pulses."
+        "name": "depressed-key",
+        "value": "inset 0 2px 0 var(--shadow)",
+        "purpose": "The Interrupt key, shown only while the turn runs, so always pressed in."
+      },
+      {
+        "name": "focus-frame",
+        "value": "0 0 0 1px var(--pencil)",
+        "purpose": "With a pencil border, the console box's 2px frame while the message box has focus; a focus state, not depth."
+      }
+    ],
+    "shadowAllowlist": {
+      "test": "TestTheWireDeskTokens",
+      "selectors": [
+        ".console-box",
+        ".menu",
+        "#toast",
+        ".keys button",
+        ".key",
+        "kbd"
+      ]
+    },
+    "motion": [
+      {
+        "name": "print-head",
+        "value": "carriage 2.4s steps(30) infinite",
+        "purpose": "The one authored motion: a .62em by 1.05em ink block steps along the working line and returns like a teleprinter carriage; static at the line's start under prefers-reduced-motion."
+      },
+      {
+        "name": "feed",
+        "value": ".28s cubic-bezier(.16,1,.3,1), from translateY(1.4em) and opacity 0",
+        "purpose": "A dispatch with a new number rises one line into the wire; none under prefers-reduced-motion."
+      },
+      {
+        "name": "lamp",
+        "value": "2s ease-in-out infinite, opacity .35 at 50%",
+        "purpose": "The masthead lamp while the supervisor works; steady under prefers-reduced-motion."
+      },
+      {
+        "name": "arrive",
+        "value": "1.6s cubic-bezier(.16,1,.3,1), from background-color var(--wait-bg)",
+        "purpose": "A new tray item washes from amber to its ground; none under prefers-reduced-motion."
       }
     ],
     "breakpoints": [
       {
         "name": "app-shell",
         "value": "(min-height:600px)",
-        "purpose": "With body[data-page=fleet][data-shell]: the body fills 100dvh and never scrolls; #needs and the timeline scroll on their own; the message box stops at 40dvh."
+        "purpose": "With body[data-page=fleet][data-shell]: the body fills 100dvh and never scrolls; #needs and the wire scroll on their own; the message box stops at 40dvh."
       },
       {
-        "name": "flowing",
+        "name": "short",
         "value": "(max-height:599px)",
-        "purpose": "The page scrolls as one: the timeline stops scrolling on its own and the composer sticks to the bottom, its message box stopping at 30dvh. body:not([data-shell]) flows the same way at any height, with the timeline keeping its own 65vh scroll."
+        "purpose": "A 36px sticky compact masthead (nameplate 19px; fleet id, clock and Notify hidden), tabs sticky at 36px, the console box sticky at the bottom, the page scrolling as one, the message box stopping at 30dvh."
       },
       {
         "name": "tabs-wide",
         "value": "(min-width:600px)",
-        "purpose": "Tabs take their content width, 10px by 14px, starting at the panels' left edge."
+        "purpose": "Tabs take their content width at 10px by 14px, starting at the column's left edge."
       },
       {
-        "name": "narrow",
+        "name": "phone",
         "value": "(max-width:599px)",
-        "purpose": "Board padding 12px; hide check meta and the header fleet-id chip. Tabs split the bar into equal halves below this width."
+        "purpose": "Board padding 12px; a two-row masthead (nameplate and bell, then strip and clock); the fleet id and the budget rows' attempt hidden; the console hint on its own row; tabs split into halves."
       },
       {
         "name": "coarse-pointer",
         "value": "(pointer:coarse)",
-        "purpose": "Hide the keyboard hint beside Send."
+        "purpose": "16px inputs, selects and text areas; the Send keycap hidden."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "(prefers-reduced-motion:reduce)",
+        "purpose": "The print head, the feed, the lamp pulse and the arrival wash stop."
       }
     ],
     "containers": [
       {
-        "name": "header",
-        "value": "1440px",
-        "purpose": "The header's inner row."
+        "name": "column",
+        "value": "880px",
+        "purpose": "Every block in #needs and #chat, centred; the tab bar pads by max(16px, (100% - 880px) / 2) and the wire by max(2px, (100% - 880px) / 2)."
       },
       {
         "name": "board",
         "value": "none",
-        "purpose": "The fleet page's board spans the window, so #needs and the timeline scroll from the gutter."
-      },
-      {
-        "name": "panel",
-        "value": "880px",
-        "purpose": "Every block in #needs and #chat, centred. The tab bar pads its sides by max(16px, (100% - 880px) / 2) and the timeline by max(2px, (100% - 880px) / 2) to line up with it."
+        "purpose": "The fleet page's board spans the window, so panels scroll from the gutter."
       },
       {
         "name": "thread",
         "value": "980px",
-        "purpose": "Task, decision, conversation, fleet list and error pages."
+        "purpose": "Task, decision, conversation, fleet list and error pages; padded 20px 16px 48px with a 14px gap."
+      },
+      {
+        "name": "prose",
+        "value": "72ch",
+        "purpose": "Dispatch and note prose; tables and code blocks may run to the column."
+      },
+      {
+        "name": "note",
+        "value": "80%",
+        "purpose": "The widest a note runs, flush right on the wire."
+      },
+      {
+        "name": "menu",
+        "value": "230px",
+        "purpose": "Minimum width of the model menu's form."
+      },
+      {
+        "name": "toast",
+        "value": "min(28em, 100vw - 32px)",
+        "purpose": "The toast's maximum width."
       }
     ],
-    "icons": {
-      "source": "internal/board/templates/icons.html",
-      "viewBox": "0 0 16 16",
-      "strokeWidth": 1.5,
-      "lineCap": "round",
-      "lineJoin": "round",
-      "maxPaths": 4,
-      "renderSize": "16px",
-      "markSize": "22px",
-      "forbidden": "Octicons and any icon package or font",
-      "chevron": "One downward stroke beside Switch model; turns 180deg when the disclosure opens."
-    },
-    "fleetTint": {
-      "function": "tint in internal/board/board.go",
-      "algorithm": "FNV-1a 32 of the fleet id, mod 12; empty id gives 0",
-      "class": "body.tint-N sets --tint",
-      "uses": [
-        "3px top rule (.top::before)",
-        "header mark",
-        "fleet-list swatch"
-      ]
-    },
-    "constraints": {
-      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'",
-      "regions": [
-        "status",
-        "timeline",
-        "queue",
-        "tasks"
-      ],
-      "outsideRegions": [
-        "#composer",
-        "#toast"
-      ],
-      "liveUpdates": "Server-Sent Events; app.js swaps a region's HTML whole"
-    },
     "layers": [
       {
         "name": "table-sticky-column",
@@ -810,9 +1707,9 @@
         "purpose": "A reply table's first column."
       },
       {
-        "name": "composer",
+        "name": "console-box",
         "value": 2,
-        "purpose": "The sticky composer on the flowing page, above sticky table cells."
+        "purpose": "The sticky console box on the flowing page, above sticky table cells."
       },
       {
         "name": "tabs",
@@ -820,38 +1717,189 @@
         "purpose": "The sticky tab bar."
       },
       {
+        "name": "compact-masthead",
+        "value": 4,
+        "purpose": "The sticky masthead on short viewports."
+      },
+      {
+        "name": "menu-body",
+        "value": 4,
+        "purpose": "An open console menu."
+      },
+      {
         "name": "toast",
         "value": 5,
         "purpose": "The error toast."
       }
     ],
-    "tabs": {
-      "labels": [
-        "Needs you, with the waiting-count pill",
-        "Chat, with a static 6px accent dot while the supervisor works"
+    "icons": {
+      "source": "internal/board/templates/icons.html",
+      "names": [
+        "mark",
+        "failure",
+        "running",
+        "passing",
+        "idle",
+        "waiting",
+        "bell",
+        "chevron",
+        "interrupt",
+        "more"
       ],
-      "initial": "The URL hash (#needs or #chat), else needs when something waits, else chat.",
-      "click": "history.replaceState writes the tab's hash.",
-      "auto": "The board never switches tabs by itself.",
-      "withoutJs": "Both panels show; the tabs are in-page anchors."
+      "viewBox": "0 0 16 16",
+      "strokeWidth": 1.5,
+      "lineCap": "round",
+      "lineJoin": "round",
+      "solid": [
+        "interrupt",
+        "more"
+      ],
+      "maxPaths": 4,
+      "renderSize": "16px",
+      "markSize": "22px",
+      "test": "TestIconsAreOwnInlineSVG",
+      "forbidden": "Octicons, any icon package or font, and Unicode glyphs standing in for icons",
+      "chevron": "One downward stroke beside the model menu; turns 180deg when the menu opens."
     },
-    "supervisor": {
-      "pill": {
-        "working": "working: accent-bg fill, accent text, pulsing 6px dot",
-        "ready": "ready: pass green",
-        "blocked": "blocked: failing",
-        "launching": "launching: neutral",
-        "unreachable": "unreachable: failing",
-        "stopped": "stopped: neutral",
-        "other ended": "its status: failing"
+    "fleetTint": {
+      "function": "tint in internal/board/board.go",
+      "algorithm": "FNV-1a 32 of the fleet id, mod 12; empty id gives 0",
+      "class": "body.tint-N (and li.fleet.tint-N on the fleet list) sets --tint",
+      "uses": [
+        "the fleet name in the masthead nameplate",
+        "the masthead mark",
+        "the fleet-list mark"
+      ],
+      "fleetListName": "ink at rest, the tint on hover; tints reach about 3.4:1 on canary"
+    },
+    "constraints": {
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'",
+      "fonts": "No font-src; TestNoWebFonts rejects @font-face and url( in board.css",
+      "regions": [
+        "status",
+        "console",
+        "timeline",
+        "queue",
+        "tasks"
+      ],
+      "taskPageRegion": "task",
+      "outsideRegions": [
+        "#composer",
+        "#toast"
+      ],
+      "order": [
+        "status",
+        "needs",
+        "queue",
+        "tasks",
+        "chat",
+        "timeline",
+        "composer",
+        "console"
+      ],
+      "liveUpdates": "Server-Sent Events; app.js swaps a region's HTML whole, keeping drafts, open details, focus and a pinned wire",
+      "withoutJs": "Every control is a POST and redirect; menus are details elements; both panels show; datelines stay UTC"
+    },
+    "wireCodes": [
+      {
+        "kind": "blocked",
+        "code": "FLASH",
+        "word": "BLOCKED",
+        "colour": "flash"
       },
-      "switchLabel": "switching to M E, an 11px amber outline label, with a Cancel switch button",
-      "switchControl": "details#switch on a running claude or codex supervisor on a loopback board: a profile select limited to the running harness, model and effort inputs, and Switch now when ready or Switch after this turn otherwise",
+      {
+        "kind": "decision",
+        "code": "BULLETIN",
+        "word": "DECISION",
+        "colour": "wait"
+      },
+      {
+        "kind": "failure",
+        "code": "URGENT",
+        "word": "FAILED",
+        "colour": "flash"
+      },
+      {
+        "kind": "report",
+        "code": "ROUTINE",
+        "word": "REPORT",
+        "colour": "fg"
+      },
+      {
+        "kind": "resume",
+        "code": "SERVICE",
+        "word": "RESUME",
+        "colour": "fg"
+      }
+    ],
+    "strip": {
+      "items": [
+        "lamp",
+        "line word",
+        "ref model · effort",
+        "n QUEUED",
+        "CTX gauge",
+        "COMPACTED n×"
+      ],
+      "lineWords": [
+        "WORKING",
+        "READY",
+        "BLOCKED",
+        "STARTING",
+        "UNREACHABLE",
+        "NO SUPERVISOR",
+        "STOPPED",
+        "EXITED",
+        "INTERRUPTED",
+        "FAILED"
+      ],
+      "lamp": {
+        "ready": "h-pass, steady",
+        "working": "h-lamp, pulsing",
+        "failing": "h-flash (blocked, unreachable, exited, interrupted, failed)",
+        "neutral": "on-header-muted (starting, stopped, none)"
+      },
+      "gauge": {
+        "format": "CTX 508K, or CTX 1.2M from 1,000,000; three significant figures",
+        "withWindow": "CTX 72.5K / 258K · 28%",
+        "warn": ">= 80%: h-wait",
+        "flash": ">= 90%: h-flash at 700, with COMPACT SOON",
+        "hidden": "while context is 0"
+      },
+      "threadPages": "a static copy with no data-region"
+    },
+    "datelines": {
+      "dispatch": "local month, day, 24-hour time and short zone, e.g. SEP 29, 22:22 GMT+7",
+      "clock": "local 24-hour HH:MM without zone; the zone in its tooltip; updated every 30 s",
+      "workingFrom": "local 24-hour HH:MM without zone",
+      "withoutJs": "server UTC, Jan 2 15:04, and an empty clock"
+    },
+    "wire": {
+      "dispatchSlug": "ref of the supervisor live when the entry was written · NO. n (1-based transcript position) · dateline",
+      "note": "YOU · dateline, in pencil; flush right at up to 80%; 12px in from a 1px pencil rule",
+      "serviceLine": "HAND · dateline, then the event in mono in its own case",
       "workingLine": [
         "sN is working · 4m, on your message from HH:MM",
         "sN is working · 4m, on a wake",
         "sN is working · 4m, since it started"
       ],
+      "refs": "tN, dN, aN and rN in supervisor copy link through <base>/ref/<ref>; refs inside code and links stay plain",
+      "pinned": "within 48px of the newest dispatch"
+    },
+    "console": {
+      "areas": [
+        "\"text text text\"",
+        "\"console hint send\""
+      ],
+      "phoneAreas": [
+        "\"text text\"",
+        "\"hint hint\"",
+        "\"console send\""
+      ],
+      "modelMenu": "details#model-menu: profile (running harness only), model, effort; Switch now when ready, Switch after this turn otherwise",
+      "pendingSwitch": "target model and effort in amber Key Label caps, with Cancel",
+      "interrupt": "a 32 by 28px depressed key with a FLASH-red solid square, while working and not blocked",
+      "moreMenu": "details#more-menu: Stop; New session and Other harness once ended",
       "composerHints": {
         "ready": "sN is ready; it reads your message now.",
         "working": "sN is working; your message goes to it right away.",
@@ -860,7 +1908,19 @@
         "launching": "sN is starting; your message waits.",
         "none": "No supervisor is running; your message waits until one starts.",
         "unreachable": "Luvus restarted; your message waits until hand watch settles it."
-      }
+      },
+      "network": "no console box on a network listener"
+    },
+    "tabs": {
+      "labels": [
+        "Needs you, with the waiting count",
+        "Chat, with a static 6px accent dot while the supervisor works"
+      ],
+      "current": "ink text and a 2px ink underline",
+      "initial": "The URL hash (#needs or #chat), else needs when something waits, else chat.",
+      "click": "history.replaceState writes the tab's hash.",
+      "auto": "The board never switches tabs by itself.",
+      "withoutJs": "Both panels show; the tabs are in-page anchors."
     },
     "favicons": {
       "files": [
@@ -875,180 +1935,235 @@
         "attention-dot": "#a87400"
       },
       "whyLiteral": "Presentation attributes in fixed mid-tones: a static SVG under the strict CSP cannot read the page's custom properties or follow its theme.",
-      "choice": "attention when something waits or data-agent is blocked; working when data-agent is working; plain otherwise",
+      "choice": "attention when something waits or the agent is blocked; working when the agent is working; plain otherwise",
       "title": "(N) fleet when something waits, ● fleet while the supervisor works, fleet otherwise"
-    }
+    },
+    "departures": [
+      {
+        "what": "Quote edge",
+        "spec": "2px (Plan 14)",
+        "build": "1px hairline",
+        "why": "Reads as one more hairline, not a coloured stripe."
+      },
+      {
+        "what": "Reply top-level heading",
+        "spec": "15/22 (Plan 14)",
+        "build": "16/24 on the Section step",
+        "why": "15px is not a step on the ramp."
+      },
+      {
+        "what": "Fleet list name",
+        "spec": "each fleet's wire name in its tint",
+        "build": "the name in ink, the mark tinted",
+        "why": "Tints reach about 3.4:1 on canary."
+      },
+      {
+        "what": "Console glyphs",
+        "spec": "■ ⋯ ▾",
+        "build": "drawn icons: interrupt, more, chevron",
+        "why": "One drawn icon family."
+      },
+      {
+        "what": "Sticky composer lift",
+        "spec": "the one allowed drop shadow",
+        "build": "no shadow on the sticky console box",
+        "why": "Only the floating toast and honest keys carry shadows."
+      },
+      {
+        "what": "Chat tab dot",
+        "spec": "a lamp dot",
+        "build": "a static 6px link-blue dot",
+        "why": "The lamp's colours belong to the ink band."
+      }
+    ]
   },
   "components": [
     {
       "name": "Button",
       "kind": "button",
       "refersTo": "button",
-      "description": "Default control: Stop, Interrupt, New session, Mark read.",
+      "description": "Default control: Mark read, New session, Cancel, Switch now, Start.",
       "html": "<button class=\"ds-btn\">Mark read</button>",
-      "css": ".ds-btn{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}.ds-btn:hover{background:var(--hover)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
+      "css": ".ds-btn{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);cursor:pointer}.ds-btn:hover{background:var(--hover,#e8da8f)}.ds-btn:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
     },
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one committing action of a form: Answer, Send, Resume.",
+      "description": "The one committing action of a form, in ink: Answer, Send, Resume.",
       "html": "<button class=\"ds-btn-primary\">Answer</button>",
-      "css": ".ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
+      "css": ".ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#1d1a14);color:var(--on-primary,#f2e6a6);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}"
     },
     {
-      "name": "Quiet Button and Switch Disclosure",
-      "kind": "button",
-      "refersTo": "button-quiet",
-      "description": "Borderless muted controls: Notify me in the header, and the Switch model disclosure in the supervisor panel, shown open.",
-      "html": "<div class=\"ds-quiet-row\"><button class=\"ds-btn-quiet\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 10.75V7a4 4 0 1 1 8 0v3.75l1.25 1.5H2.75z\"/><path d=\"M6.5 13.75a1.5 1.5 0 0 0 3 0\"/></svg> Notify me</button><details class=\"ds-switch\" open><summary>Switch model<svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></summary><div class=\"ds-switch-row\"><select class=\"ds-field\" aria-label=\"Profile\"><option value=\"\">profile…</option><option>fast</option></select> or <input class=\"ds-field\" placeholder=\"sonnet\" aria-label=\"Model\" size=\"10\"> <input class=\"ds-field\" placeholder=\"high\" aria-label=\"Effort\" size=\"6\"> <button class=\"ds-btn\">Switch now</button></div></details></div>",
-      "css": ".ds-quiet-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg)}.ds-btn-quiet{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;display:inline-flex;align-items:center;gap:6px;background:none;border-color:transparent;color:var(--muted)}.ds-btn-quiet:hover{color:var(--fg)}.ds-btn-quiet:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-icon{flex:none;width:16px;height:16px}.ds-switch>summary{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:13px;font-weight:500;line-height:20px;padding:5px 4px;cursor:pointer;list-style:none}.ds-switch>summary::-webkit-details-marker{display:none}.ds-switch>summary:hover{color:var(--fg)}.ds-switch>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-switch[open]{flex-basis:100%}.ds-switch[open]>summary{margin-bottom:8px}.ds-switch[open]>summary .ds-icon{transform:rotate(180deg)}.ds-switch-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.ds-field{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}.ds-field::placeholder{color:var(--muted)}.ds-field:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-btn{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}.ds-btn:hover{background:var(--hover)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
-    },
-    {
-      "name": "Composer",
-      "kind": "input",
-      "refersTo": "composer",
-      "description": "The message box that grows with its text, the supervisor-state hint, the keyboard hint and Send.",
-      "html": "<div class=\"ds-composer\"><textarea class=\"ds-input\" rows=\"3\" placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><div class=\"ds-composer-actions\"><span class=\"ds-hint\">s4 is ready; it reads your message now.</span><span class=\"ds-send\"><kbd class=\"ds-kbd\">Ctrl Enter</kbd> <button class=\"ds-btn-primary\">Send</button></span></div></div>",
-      "css": ".ds-composer{display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-input{display:block;width:100%;min-height:4.5em;max-height:40dvh;resize:vertical;font:inherit;line-height:1.45;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;caret-color:var(--accent)}@supports (field-sizing:content){.ds-input{field-sizing:content;resize:none}}.ds-input::placeholder{color:var(--muted)}.ds-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-composer-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px}.ds-hint{color:var(--muted);font-size:12px}.ds-send{display:flex;align-items:center;gap:8px;margin-left:auto}.ds-kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font:11px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;white-space:nowrap}@media (pointer:coarse){.ds-kbd{display:none}}.ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
-    },
-    {
-      "name": "Refs, Chips and Pills",
-      "kind": "chip",
-      "refersTo": "ref",
-      "description": "Monospace ref chip, PR chip, waiting count, the status pills including working and ready, and the outlined label.",
-      "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t3</a> <a class=\"ds-chip\" href=\"#\">PR</a> <span class=\"ds-count\">6</span> <span class=\"ds-pill\">launching</span> <span class=\"ds-pill\" data-state=\"working\">working</span> <span class=\"ds-pill\" data-state=\"ready\">ready</span> <span class=\"ds-pill\" data-state=\"waiting\">open</span> <span class=\"ds-pill\" data-state=\"failing\">blocked</span> <span class=\"ds-label\">switching to sonnet low</span></span>",
-      "css": ".ds-row{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap;text-decoration:none}.ds-ref:hover{border-color:var(--accent);color:var(--accent)}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-chip{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;color:var(--accent);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-decoration:none}.ds-chip:hover{text-decoration:underline}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums}.ds-pill{display:inline-block;padding:0 10px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font:600 12px/22px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill[data-state=running],.ds-pill[data-state=ready]{background:var(--pass-bg);color:var(--pass)}.ds-pill[data-state=working]{display:inline-flex;align-items:center;gap:6px;background:var(--accent-bg);color:var(--accent)}.ds-pill[data-state=working]::before{content:\"\";flex:none;width:6px;height:6px;border-radius:50%;background:currentColor;animation:ds-pulse 2s ease-in-out infinite}@keyframes ds-pulse{50%{opacity:.3}}@media (prefers-reduced-motion:reduce){.ds-pill[data-state=working]::before{animation:none}}.ds-pill[data-state=waiting]{background:var(--wait-bg);color:var(--wait)}.ds-pill[data-state=failing]{background:var(--fail-bg);color:var(--fail)}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}"
-    },
-    {
-      "name": "Waiting Item",
-      "kind": "custom",
-      "refersTo": "wait-summary",
-      "description": "Signature component: the top waiting item, open, with its answer box in place.",
-      "html": "<details class=\"ds-wait\" open><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.25 2.75h11.5v8H8.5L5 13.5v-2.75H2.25z\"/><path d=\"M6.5 5.4a1.5 1.5 0 1 1 2.1 1.4c-.4.2-.6.5-.6.9\"/><path d=\"M8 9.1v.01\"/></svg><span class=\"ds-ref\">d2</span> <span class=\"ds-wait-title\">Ship the markdown subset before the redesign, or together?</span> <span class=\"ds-ref\">t6</span> <time>Sep 29, 12:04 AM</time></summary><div class=\"ds-wait-body\"><textarea class=\"ds-wait-input\" rows=\"3\" placeholder=\"Answer d2\" aria-label=\"Answer d2\"></textarea><div class=\"ds-actions\"><button class=\"ds-wait-primary\">Answer</button> <a href=\"#\">Open d2</a></div></div></details>",
-      "css": ".ds-wait{border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-wait>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:8px 12px;cursor:pointer;list-style:none;border-radius:6px}.ds-wait>summary::-webkit-details-marker{display:none}.ds-wait>summary:hover{background:var(--hover)}.ds-wait>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-wait[open]>summary{background:var(--card);border-bottom:1px solid var(--line);border-radius:6px 6px 0 0}.ds-wait .ds-icon{flex:none;width:16px;height:16px;align-self:center;color:var(--wait)}.ds-wait .ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-wait-title{flex:1 1 14rem;min-width:0;font-weight:600}.ds-wait time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-wait-body{display:grid;gap:10px;padding:12px}.ds-wait-input{display:block;width:100%;min-height:4.5em;resize:vertical;font:inherit;line-height:1.45;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}.ds-wait-input::placeholder{color:var(--muted)}.ds-wait-input:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}.ds-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ds-actions a{color:var(--accent);text-decoration:none}.ds-actions a:hover{text-decoration:underline}.ds-wait-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;background:var(--primary);border-color:transparent;color:var(--on-primary)}.ds-wait-primary:hover{filter:brightness(1.08)}.ds-wait-primary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
-    },
-    {
-      "name": "Checks List",
-      "kind": "custom",
-      "refersTo": "check-row",
-      "description": "One line per task with a status icon, ref, title, meta and PR chip.",
-      "html": "<ol class=\"ds-checks\"><li class=\"ds-check\" data-state=\"running\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span class=\"ds-ref\">t1</span> <span class=\"ds-check-title\">Board host: one process for every fleet</span> <span class=\"ds-meta\">a1 claude sonnet running</span></li><li class=\"ds-check\" data-state=\"failing\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span class=\"ds-ref\">t3</span> <span class=\"ds-check-title\">Flaky watcher test on CI</span> <span class=\"ds-meta\">a2 codex failed</span></li><li class=\"ds-check\" data-state=\"passing\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.25 8.25l1.9 1.9 3.6-4\"/></svg><span class=\"ds-ref\">t4</span> <span class=\"ds-check-title\">Markdown subset for replies</span></li><li class=\"ds-check\" data-state=\"idle\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\" stroke-dasharray=\"2.2 2.2\"/></svg><span class=\"ds-ref\">t5</span> <span class=\"ds-check-title\">Write the release notes</span></li></ol>",
-      "css": ".ds-checks{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-check{display:flex;align-items:center;gap:8px;min-width:0;padding:7px 12px;border-top:1px solid var(--line);white-space:nowrap}.ds-check:first-child{border-top:0}.ds-check .ds-icon{flex:none;width:16px;height:16px}.ds-check .ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-check-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-meta{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis}.ds-check[data-state=failing] .ds-icon{color:var(--fail)}.ds-check[data-state=waiting] .ds-icon{color:var(--wait)}.ds-check[data-state=running] .ds-icon,.ds-check[data-state=passing] .ds-icon{color:var(--pass)}.ds-check[data-state=idle] .ds-icon{color:var(--neutral)}"
-    },
-    {
-      "name": "Blocked Screen and Key Fence",
-      "kind": "custom",
-      "refersTo": "key-button",
-      "description": "Terminal excerpt of a blocked supervisor screen with its fenced key buttons.",
-      "html": "<div class=\"ds-blocked\"><pre class=\"ds-screen\"><code>Do you trust the files in this folder?\n\n❯ 1. Yes, proceed\n  2. No, exit</code></pre><div class=\"ds-keys\"><button class=\"ds-key\">Enter</button><button class=\"ds-key\">Esc</button><button class=\"ds-key\">↑</button><button class=\"ds-key\">↓</button><button class=\"ds-key\">1</button><button class=\"ds-key\">2</button></div></div>",
-      "css": ".ds-blocked{display:grid;gap:10px}.ds-screen{margin:0;padding:10px 12px;border-radius:6px;background:var(--screen);color:var(--screen-fg);font:12px/1.45 ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;white-space:pre;overflow-x:auto}.ds-keys{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px dashed var(--line);border-radius:6px}.ds-key{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer;min-width:2.6em;font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;box-shadow:inset 0 -1px 0 var(--line)}.ds-key:hover{background:var(--hover)}.ds-key:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}"
-    },
-    {
-      "name": "Timeline Comment",
-      "kind": "card",
-      "refersTo": "comment-header",
-      "description": "Supervisor and operator comments with a header strip, the operator's in pale accent, and the working line at the foot.",
-      "html": "<div class=\"ds-thread\"><article class=\"ds-comment\"><header><b>supervisor</b> <time>Sep 28, 11:06 PM</time></header><div class=\"ds-comment-body\">Understood. I dispatched <code>a1</code> for the host.</div></article><article class=\"ds-comment\" data-role=\"operator\"><header><b>operator</b> <time>Sep 29, 12:04 AM</time> <span class=\"ds-label\">Queued</span></header><div class=\"ds-comment-body\">When you are back, start with t3.</div></article><div class=\"ds-event ds-working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5z\"/></svg><span>s3 is working · <time>4m</time>, on your message from <time>12:04 AM</time></span></div></div>",
-      "css": ".ds-thread{display:flex;flex-direction:column;gap:12px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg)}.ds-comment{position:relative;border:1px solid var(--line);border-radius:6px;background:var(--bg)}.ds-thread>*+*::before{content:\"\";position:absolute;left:19px;bottom:100%;width:2px;height:13px;background:var(--line)}.ds-comment>header{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;background:var(--card);color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}.ds-comment>header b{color:var(--fg);font-size:13px}.ds-comment[data-role=operator]>header{background:var(--accent-bg)}.ds-comment-body{padding:8px 12px;overflow-wrap:anywhere}.ds-comment-body code{padding:.1em .4em;border-radius:4px;background:var(--card);font:85% ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}.ds-event{position:relative;display:flex;align-items:center;gap:8px;padding:0 12px 0 9px;color:var(--muted);font-size:12px}.ds-event .ds-icon{box-sizing:content-box;flex:none;width:16px;height:16px;padding:3px;border:1px solid var(--line);border-radius:50%;background:var(--card);color:var(--muted)}.ds-working .ds-icon{border-color:var(--accent);color:var(--accent)}.ds-event time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}"
-    },
-    {
-      "name": "Reply Markdown",
-      "kind": "custom",
-      "refersTo": "md-table",
-      "description": "A supervisor reply with headings, a GFM table with a sticky first column and right-aligned numbers, a quote, a rule and struck text.",
-      "html": "<div class=\"ds-md\"><h3>CI times, last three days</h3><div class=\"ds-table\" role=\"region\" aria-label=\"Table\" tabindex=\"0\"><table><thead><tr><th>Step</th><th class=\"r\">Mon</th><th class=\"r\">Tue</th><th class=\"r\">Wed</th></tr></thead><tbody><tr><td>go test</td><td class=\"r\">41s</td><td class=\"r\">38s</td><td class=\"r\">44s</td></tr><tr><td>go vet</td><td class=\"r\">6s</td><td class=\"r\">6s</td><td class=\"r\">7s</td></tr><tr><td>coverage</td><td class=\"r\">71%</td><td class=\"r\">72%</td><td class=\"r\">72%</td></tr></tbody></table></div><h4>What changed</h4><blockquote><p>Wednesday ran the race detector twice.</p></blockquote><hr><ol><li><strong>Cache:</strong> <del>split the module cache</del> not needed yet.</li><li><strong>Watch:</strong> the Wednesday rise, with <code>-race</code> on.</li></ol></div>",
-      "css": ".ds-md{color:var(--fg);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-md>:first-child{margin-top:0}.ds-md>:last-child{margin-bottom:0}.ds-md p,.ds-md ul,.ds-md ol{margin:0 0 8px}.ds-md ul,.ds-md ol{padding-left:1.5em}.ds-md h3,.ds-md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}.ds-md h3{font-size:16px;line-height:24px}.ds-md h4{font-size:14px;line-height:22px}.ds-md hr{height:0;margin:12px 0;border:0;border-top:1px solid var(--line)}.ds-md blockquote{margin:0 0 8px;padding:0 0 0 12px;border-left:1px solid var(--line);color:var(--muted)}.ds-md del{color:var(--muted)}.ds-md code{padding:.1em .4em;border-radius:4px;background:var(--card);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-size:85%}.ds-table{width:fit-content;max-width:100%;margin:0 0 8px;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--line);border-radius:6px}.ds-table:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-table table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}.ds-table th,.ds-table td{min-width:10ch;padding:6px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal}.ds-table thead th{border-top:0;background:var(--card);color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}.ds-table .r{text-align:right;white-space:nowrap}.ds-table .c{text-align:center}.ds-table .l{text-align:left}.ds-table th:first-child,.ds-table td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg);white-space:nowrap}.ds-table thead th:first-child{background:var(--card)}"
+      "name": "Masthead and Live Strip",
+      "kind": "nav",
+      "refersTo": "masthead",
+      "description": "The ink band on every page: tinted nameplate, fleet id, and the live strip with lamp, line, supervisor, queue, gauge, compactions and clock.",
+      "html": "<header class=\"ds-masthead\"><a class=\"ds-brand\" href=\"#\"><svg class=\"ds-mark\" viewBox=\"0 0 16 16\" width=\"22\" height=\"22\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z\"/><path d=\"M8 3.3v1\"/><path d=\"M8 8l2.9-3.9\"/><path d=\"M8 7.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z\" fill=\"currentColor\"/></svg><span class=\"ds-wire-name\">Fleet <span class=\"ds-wire-word\">Wire</span></span></a><span class=\"ds-fleet-id\">f3c1a9e07b2d4</span><span class=\"ds-spacer\"></span><div class=\"ds-strip\"><span class=\"ds-lamp\" data-state=\"working\"></span><span class=\"ds-line\">WORKING</span><span class=\"ds-quiet\">S1 SONNET · LOW</span><span class=\"ds-quiet\">2 QUEUED</span><span class=\"ds-gauge\" data-level=\"warn\">CTX 212K / 258K · 82%</span><span class=\"ds-quiet\">COMPACTED 1×</span></div><time class=\"ds-clock\">22:54</time></header>",
+      "css": ".ds-masthead{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:10px 16px;background:var(--header,#1d1a14);color:var(--on-header,#f2e6a6);border-bottom:1px solid var(--line,#cdbd78);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--on-header,#f2e6a6);text-decoration:none}.ds-brand:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-mark{flex:none;width:22px;height:22px;color:var(--tint,#407acc)}.ds-wire-name{color:var(--tint,#407acc);font-size:22px;font-weight:800;line-height:28px;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-wire-word{color:var(--on-header-muted,#b9ad83);font-weight:600}.ds-fleet-id{font:12px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);color:var(--on-header-muted,#b9ad83)}.ds-spacer{flex:1}.ds-strip{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px;min-width:0;font:12px/20px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;font-variant-numeric:tabular-nums}.ds-lamp{flex:none;width:8px;height:8px;border-radius:50%;background:var(--on-header-muted,#b9ad83)}.ds-lamp[data-state=ready]{background:var(--h-pass,#86c96f)}.ds-lamp[data-state=working]{background:var(--h-lamp,#e9d98a);animation:ds-lamp 2s ease-in-out infinite}.ds-lamp[data-state=failing]{background:var(--h-flash,#ff7a6b)}@keyframes ds-lamp{50%{opacity:.35}}.ds-line{font-weight:700}.ds-quiet{color:var(--on-header-muted,#b9ad83);font-weight:500}.ds-gauge[data-level=warn]{color:var(--h-wait,#e8b04a)}.ds-gauge[data-level=flash]{color:var(--h-flash,#ff7a6b);font-weight:700}.ds-clock{font:12px/20px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;color:var(--on-header-muted,#b9ad83);font-variant-numeric:tabular-nums}@media (prefers-reduced-motion:reduce){.ds-lamp{animation:none}}"
     },
     {
       "name": "Tabs",
       "kind": "nav",
       "refersTo": "tab",
-      "description": "Needs you and Chat at every width: content-width from 600px, equal halves below; the current tab takes ink and a 2px accent underline.",
-      "html": "<nav class=\"ds-tabs\" aria-label=\"Board\"><a href=\"#\" aria-current=\"true\">Needs you <span class=\"ds-count\">2</span></a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
-      "css": ".ds-tabs{display:flex;padding:0 16px;background:var(--header);border-bottom:1px solid var(--line);font:600 14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none}.ds-tabs a:hover{color:var(--fg)}.ds-tabs a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--accent);color:var(--fg)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-align:center;font-variant-numeric:tabular-nums}.ds-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent)}@media (max-width:599px){.ds-tabs a{flex:1;padding:10px 12px}}"
+      "description": "Needs you with its waiting count, and Chat with a static dot while the supervisor works; the current tab takes an ink underline.",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"Board\"><a href=\"#\" aria-current=\"true\">Needs you <span class=\"ds-count\" data-waiting=\"2\">2</span></a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
+      "css": ".ds-tabs{display:flex;padding:0 16px;background:var(--bg,#f2e6a6);border-bottom:1px solid var(--line,#cdbd78)}.ds-tabs a{display:flex;align-items:center;gap:6px;margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted,#5a5236);font:600 12px/1.5 var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;text-decoration:none}.ds-tabs a:hover{color:var(--fg,#1d1a14)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#1d1a14);color:var(--fg,#1d1a14)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#e6d897);color:var(--fg,#1d1a14);font:600 12px/20px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-align:center;font-variant-numeric:tabular-nums}.ds-count:not([data-waiting=\"0\"]){background:var(--wait-bg,#ecd58a);color:var(--wait,#7a4f00)}.ds-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent,#1d4ea8)}"
+    },
+    {
+      "name": "Tray Item",
+      "kind": "custom",
+      "refersTo": "tray-item",
+      "description": "Signature component: the top waiting item, open, with its wire-code slug, 16px headline and answer box in place.",
+      "html": "<details class=\"ds-wait\" open><summary><span class=\"ds-slug\"><span class=\"ds-code\" data-code=\"BULLETIN\">BULLETIN</span><span>DECISION</span><span>D1</span><a class=\"ds-slug-ref\" href=\"#\">T1</a><time>SEP 29, 22:19 GMT+7</time></span><span class=\"ds-wait-title\">Keep the old cookie name?</span></summary><div class=\"ds-wait-body\"><textarea class=\"ds-input\" rows=\"3\" placeholder=\"Answer d1\" aria-label=\"Answer d1\"></textarea><div class=\"ds-actions\"><button class=\"ds-btn-primary\">Answer</button> <a href=\"#\">Open d1</a></div></div></details>",
+      "css": ".ds-wait{border-top:1px solid var(--line,#cdbd78);border-bottom:1px solid var(--line,#cdbd78);background:var(--bg,#f2e6a6);color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-wait>summary{display:grid;gap:2px;padding:10px 4px;cursor:pointer;list-style:none}.ds-wait>summary::-webkit-details-marker{display:none}.ds-wait>summary:hover{background:var(--hover,#e8da8f)}.ds-wait>summary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-wait-title{min-width:0;font-size:16px;font-weight:600;line-height:22px}.ds-wait:not([open]) .ds-wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.ds-wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 4px 14px}@keyframes ds-arrive{from{background-color:var(--wait-bg,#ecd58a)}}.ds-wait[data-new]{animation:ds-arrive 1.6s cubic-bezier(.16,1,.3,1)}@media (prefers-reduced-motion:reduce){.ds-wait[data-new]{animation:none}}.ds-slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font:600 11.5px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#5a5236);font-variant-numeric:tabular-nums}.ds-slug>*:not(:last-child)::after{content:\"\\00b7\";display:inline-block;margin-left:10px;color:var(--line,#cdbd78)}.ds-slug-ref{color:inherit;text-decoration:underline;text-decoration-color:var(--line,#cdbd78);text-underline-offset:.2em}.ds-slug-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-code{font-weight:800;color:var(--fg,#1d1a14)}.ds-code[data-code=FLASH],.ds-code[data-code=URGENT]{color:var(--flash,#a8231b)}.ds-code[data-code=BULLETIN]{color:var(--wait,#7a4f00)}.ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#1d1a14);color:var(--on-primary,#f2e6a6);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-input{box-sizing:border-box;display:block;width:100%;min-height:4.5em;resize:vertical;font:inherit;line-height:1.45;color:var(--fg,#1d1a14);background:var(--bg,#f2e6a6);border:1px solid var(--line,#cdbd78);border-radius:6px;padding:5px 8px}.ds-input::placeholder{color:var(--muted,#5a5236)}.ds-input:focus{outline:2px solid var(--accent,#1d4ea8);outline-offset:-1px;border-color:transparent}.ds-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}.ds-actions a{color:var(--accent,#1d4ea8);text-decoration:none;text-underline-offset:.2em}.ds-actions a:hover{text-decoration:underline}.ds-actions a:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}"
+    },
+    {
+      "name": "Blocked Screen and Key Fence",
+      "kind": "custom",
+      "refersTo": "key-fence",
+      "description": "A FLASH tray item: the blocked screen's last lines on the terminal colours, and its keys fenced in a dashed box with keycap edges.",
+      "html": "<details class=\"ds-wait\" open><summary><span class=\"ds-slug\"><span class=\"ds-code\" data-code=\"FLASH\">FLASH</span><span>BLOCKED</span><span>S1</span></span><span class=\"ds-wait-title\">Allow an edit outside the worktree?</span></summary><div class=\"ds-wait-body\"><pre class=\"ds-screen\"><code> Do you want to make this edit to settings.json?\n &gt; 1. Yes\n   2. Yes, and don't ask again this session\n   3. No, and tell the agent what to do differently (esc)</code></pre><div class=\"ds-keys\"><button class=\"ds-keybtn\">Enter</button><button class=\"ds-keybtn\">Esc</button><button class=\"ds-keybtn\">↑</button><button class=\"ds-keybtn\">↓</button><button class=\"ds-keybtn\">1</button><button class=\"ds-keybtn\">2</button><button class=\"ds-keybtn\">3</button></div></div></details>",
+      "css": ".ds-wait{border-top:1px solid var(--line,#cdbd78);border-bottom:1px solid var(--line,#cdbd78);background:var(--bg,#f2e6a6);color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;overflow-wrap:anywhere}.ds-wait>summary{display:grid;gap:2px;padding:10px 4px;cursor:pointer;list-style:none}.ds-wait>summary::-webkit-details-marker{display:none}.ds-wait>summary:hover{background:var(--hover,#e8da8f)}.ds-wait>summary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-wait-title{min-width:0;font-size:16px;font-weight:600;line-height:22px}.ds-wait:not([open]) .ds-wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}.ds-wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 4px 14px}@keyframes ds-arrive{from{background-color:var(--wait-bg,#ecd58a)}}.ds-wait[data-new]{animation:ds-arrive 1.6s cubic-bezier(.16,1,.3,1)}@media (prefers-reduced-motion:reduce){.ds-wait[data-new]{animation:none}}.ds-slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font:600 11.5px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#5a5236);font-variant-numeric:tabular-nums}.ds-slug>*:not(:last-child)::after{content:\"\\00b7\";display:inline-block;margin-left:10px;color:var(--line,#cdbd78)}.ds-slug-ref{color:inherit;text-decoration:underline;text-decoration-color:var(--line,#cdbd78);text-underline-offset:.2em}.ds-slug-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-code{font-weight:800;color:var(--fg,#1d1a14)}.ds-code[data-code=FLASH],.ds-code[data-code=URGENT]{color:var(--flash,#a8231b)}.ds-code[data-code=BULLETIN]{color:var(--wait,#7a4f00)}.ds-screen{margin:0;padding:10px 0 10px 12px;border-radius:6px;background:linear-gradient(to left,var(--screen,#1b1a16) 45%,rgba(7,9,12,0)) right/40px 100% no-repeat local,linear-gradient(to left,rgba(215,221,228,.32),rgba(215,221,228,0)) right/18px 100% no-repeat scroll,var(--screen,#1b1a16);color:var(--screen-fg,#e8e2c8);font:12px/1.45 var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);white-space:pre;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#6b7480 transparent}.ds-screen code{display:inline-block;min-width:100%;padding-right:12px;font:inherit}.ds-keys{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1px dashed var(--line,#cdbd78);border-radius:6px}.ds-keybtn{min-width:2.6em;font:500 13px/20px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);padding:4px 12px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);cursor:pointer;box-shadow:inset 0 -1px 0 var(--line,#cdbd78)}.ds-keybtn:hover{background:var(--hover,#e8da8f)}.ds-keybtn:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}"
+    },
+    {
+      "name": "News Budget Row",
+      "kind": "custom",
+      "refersTo": "budget-row",
+      "description": "One ruled line per task: state icon, a slug of task ref, status and attempt, the title truncated, and a PR chip.",
+      "html": "<ol class=\"ds-checks\"><li class=\"ds-check\" data-state=\"running\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span class=\"ds-slug\"><a class=\"ds-slug-ref\" href=\"#\">T3</a><span>ACTIVE</span><span>A4 CLAUDE SONNET RUNNING</span></span><span class=\"ds-check-title\">Trim the lobby matchmaking timeout</span> <a class=\"ds-chip\" href=\"#\">PR</a></li><li class=\"ds-check\" data-state=\"waiting\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><span class=\"ds-slug\"><a class=\"ds-slug-ref\" href=\"#\">T1</a><span>INBOX</span></span><span class=\"ds-check-title\">Tune the login cache</span></li><li class=\"ds-check\" data-state=\"failing\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span class=\"ds-slug\"><a class=\"ds-slug-ref\" href=\"#\">T5</a><span>ACTIVE</span><span>A7 CODEX GPT-5 FAILED</span></span><span class=\"ds-check-title\">Retry flaky upload in the asset pipeline</span></li><li class=\"ds-check\" data-state=\"idle\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-dasharray=\"2.2 2.2\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/></svg><span class=\"ds-slug\"><a class=\"ds-slug-ref\" href=\"#\">T8</a><span>INBOX</span></span><span class=\"ds-check-title\">Clean stale preview branches</span></li></ol>",
+      "css": ".ds-checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line,#cdbd78);background:var(--bg,#f2e6a6);color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-check{display:flex;align-items:baseline;gap:10px;min-width:0;padding:7px 4px;border-bottom:1px solid var(--line,#cdbd78);white-space:nowrap}.ds-check>.ds-icon{flex:none;width:16px;height:16px;align-self:center}.ds-check[data-state=failing] .ds-icon{color:var(--fail,#a8231b)}.ds-check[data-state=waiting] .ds-icon{color:var(--wait,#7a4f00)}.ds-check[data-state=running] .ds-icon,.ds-check[data-state=passing] .ds-icon{color:var(--pass,#2b6424)}.ds-check[data-state=idle] .ds-icon{color:var(--neutral,#5a5236)}.ds-check .ds-slug{flex:none;flex-wrap:nowrap}.ds-check-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font:600 11.5px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#5a5236);font-variant-numeric:tabular-nums}.ds-slug>*:not(:last-child)::after{content:\"\\00b7\";display:inline-block;margin-left:10px;color:var(--line,#cdbd78)}.ds-slug-ref{color:inherit;text-decoration:underline;text-decoration-color:var(--line,#cdbd78);text-underline-offset:.2em}.ds-slug-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-code{font-weight:800;color:var(--fg,#1d1a14)}.ds-code[data-code=FLASH],.ds-code[data-code=URGENT]{color:var(--flash,#a8231b)}.ds-code[data-code=BULLETIN]{color:var(--wait,#7a4f00)}.ds-chip{display:inline-block;padding:0 7px;border:1px solid var(--line,#cdbd78);border-radius:999px;color:var(--accent,#1d4ea8);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-decoration:none}.ds-chip:hover{text-decoration:underline;text-underline-offset:.2em}.ds-chip:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}"
+    },
+    {
+      "name": "Wire Dispatches",
+      "kind": "custom",
+      "refersTo": "dispatch",
+      "description": "The wire: a HAND service line, a numbered supervisor dispatch with linked refs, your note in pencil flush right, and the working line with the print head.",
+      "html": "<section class=\"ds-wire\"><p class=\"ds-service\"><span class=\"ds-slug\"><span>HAND</span><time>SEP 29, 22:22 GMT+7</time></span><span class=\"ds-service-text\">wake: decision.answered d1</span></p><article class=\"ds-dispatch\"><header class=\"ds-slug\"><span>S1</span><span>NO. 4</span><time>SEP 29, 22:22 GMT+7</time></header><div class=\"ds-copy\"><p>The lobby held at 20s for a day with no timeouts; see <a class=\"ds-ref\" href=\"#\">t3</a> and <a class=\"ds-ref\" href=\"#\">d2</a>.</p></div></article><article class=\"ds-dispatch ds-note\"><header class=\"ds-slug\"><span>YOU</span><time>SEP 29, 22:24 GMT+7</time><span class=\"ds-label\">Queued</span></header><div class=\"ds-copy ds-plain\">Ship it to every region tonight.</div></article><div class=\"ds-working\"><p class=\"ds-working-line\"><span>s1 is working · 4m, on your message from 22:24</span><span class=\"ds-printhead\" aria-hidden=\"true\"></span></p></div></section>",
+      "css": ".ds-wire{display:flex;flex-direction:column;background:var(--bg,#f2e6a6);color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-wire>*+*{border-top:1px solid var(--line,#cdbd78)}.ds-dispatch{padding:12px 0}.ds-copy{margin-top:4px;font-size:14.5px;line-height:1.6;max-width:72ch}.ds-copy p{margin:0}.ds-note{align-self:flex-end;width:fit-content;max-width:80%;margin-left:auto;padding-left:12px;border-left:1px solid var(--pencil,#1d4ea8)}.ds-note .ds-slug{color:var(--pencil,#1d4ea8)}.ds-plain{white-space:pre-wrap;overflow-wrap:anywhere}.ds-service{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;margin:0;padding:6px 0;color:var(--muted,#5a5236);font-size:12px}.ds-service-text{font-family:var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);overflow-wrap:anywhere}.ds-working{padding:10px 0}.ds-working-line{display:flex;align-items:center;gap:10px;margin:0;font:12px/1.5 var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);color:var(--muted,#5a5236)}.ds-printhead{flex:1;min-width:3em;height:1.15em;background:linear-gradient(var(--fg,#1d1a14),var(--fg,#1d1a14)) no-repeat 0 50%/.62em 1.05em;animation:ds-carriage 2.4s steps(30) infinite}@keyframes ds-carriage{to{background-position:100% 50%}}@keyframes ds-feed{from{transform:translateY(1.4em);opacity:0}}.ds-wire>[data-new]{animation:ds-feed .28s cubic-bezier(.16,1,.3,1)}@media (prefers-reduced-motion:reduce){.ds-printhead{animation:none}.ds-wire>[data-new]{animation:none}}.ds-slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font:600 11.5px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#5a5236);font-variant-numeric:tabular-nums}.ds-slug>*:not(:last-child)::after{content:\"\\00b7\";display:inline-block;margin-left:10px;color:var(--line,#cdbd78)}.ds-slug-ref{color:inherit;text-decoration:underline;text-decoration-color:var(--line,#cdbd78);text-underline-offset:.2em}.ds-slug-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-code{font-weight:800;color:var(--fg,#1d1a14)}.ds-code[data-code=FLASH],.ds-code[data-code=URGENT]{color:var(--flash,#a8231b)}.ds-code[data-code=BULLETIN]{color:var(--wait,#7a4f00)}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);font:12px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);font-variant-numeric:tabular-nums;white-space:nowrap;text-decoration:none}a.ds-ref:hover{border-color:var(--accent,#1d4ea8);color:var(--accent,#1d4ea8)}a.ds-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait,#7a4f00);font-size:11px;font-weight:600;line-height:18px}"
+    },
+    {
+      "name": "Send Console",
+      "kind": "input",
+      "refersTo": "console-box",
+      "description": "One box under the wire: a borderless message box over a foot row with the model menu, the Interrupt key, the overflow menu, the hint, the keycap and Send. Menus open upward without shadows.",
+      "html": "<div class=\"ds-console-box\"><textarea class=\"ds-console-input\" rows=\"3\" placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><span class=\"ds-console\"><details class=\"ds-menu\"><summary>SONNET · LOW<svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></summary><div class=\"ds-menu-body\"><label>Model <input class=\"ds-field\" placeholder=\"sonnet\" size=\"10\"></label><label>Effort <input class=\"ds-field\" placeholder=\"low\" size=\"6\"></label><button type=\"button\" class=\"ds-btn\">Switch after this turn</button></div></details><button type=\"button\" class=\"ds-key\" aria-label=\"Interrupt\" title=\"Interrupt\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"currentColor\"><path d=\"M5 4h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z\"/></svg></button><details class=\"ds-menu ds-more\"><summary aria-label=\"More\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"currentColor\"><path d=\"M3.5 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5zM8 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5zM12.5 6.75a1.25 1.25 0 1 0 0 2.5a1.25 1.25 0 1 0 0-2.5z\"/></svg></summary><div class=\"ds-menu-body\"><button type=\"button\">Stop</button></div></details></span><span class=\"ds-hint\">s1 is working; your message goes to it right away.</span><span class=\"ds-send\"><kbd class=\"ds-kbd\">Ctrl Enter</kbd> <button type=\"button\" class=\"ds-btn-primary\">Send</button></span></div>",
+      "css": ".ds-console-box{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:\"text text text\" \"console hint send\";align-items:center;gap:8px 10px;padding:10px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-console-box:focus-within{border-color:var(--pencil,#1d4ea8);box-shadow:0 0 0 1px var(--pencil,#1d4ea8)}.ds-console-input{box-sizing:border-box;grid-area:text;display:block;width:100%;min-height:4.5em;max-height:40dvh;resize:none;border:0;background:transparent;padding:4px 2px;font:inherit;line-height:1.45;color:var(--fg,#1d1a14);caret-color:var(--accent,#1d4ea8)}.ds-console-input::placeholder{color:var(--muted,#5a5236)}.ds-console-input:focus{outline:0}.ds-console{grid-area:console;display:flex;align-items:center;gap:4px;min-width:0}.ds-hint{grid-area:hint;min-width:0;color:var(--muted,#5a5236);font-size:12px}.ds-send{grid-area:send;display:flex;align-items:center;gap:8px;margin-left:auto}.ds-menu{position:relative}.ds-menu>summary{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer;list-style:none;font:600 12px/1.5 var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--fg,#1d1a14)}.ds-menu>summary::-webkit-details-marker{display:none}.ds-menu>summary:hover{background:var(--hover,#e8da8f)}.ds-menu>summary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-icon{flex:none;width:16px;height:16px;vertical-align:-3px}.ds-menu[open]>summary .ds-icon{transform:rotate(180deg)}.ds-menu-body{position:absolute;bottom:calc(100% + 6px);left:0;z-index:4;display:grid;gap:8px;min-width:230px;padding:12px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--bg,#f2e6a6)}.ds-menu-body label{display:grid;gap:2px;font:11px/1.5 var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase;color:var(--muted,#5a5236)}.ds-field{font:inherit;text-transform:none;letter-spacing:normal;color:var(--fg,#1d1a14);background:var(--bg,#f2e6a6);border:1px solid var(--line,#cdbd78);border-radius:6px;padding:5px 8px}.ds-field::placeholder{color:var(--muted,#5a5236)}.ds-field:focus{outline:2px solid var(--accent,#1d4ea8);outline-offset:-1px;border-color:transparent}.ds-more .ds-menu-body{min-width:0;gap:0;padding:4px}.ds-more .ds-menu-body button{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap;font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#1d1a14);cursor:pointer}.ds-more .ds-menu-body button:hover{background:var(--hover,#e8da8f)}.ds-more .ds-menu-body button:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-key{display:inline-flex;align-items:center;justify-content:center;width:32px;height:28px;padding:0;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--bg,#f2e6a6);box-shadow:inset 0 2px 0 var(--shadow,rgba(29,26,20,.22));color:var(--flash,#a8231b);cursor:pointer}.ds-key:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-kbd{padding:0 5px;border:1px solid var(--line,#cdbd78);border-bottom-width:2px;border-radius:4px;color:var(--muted,#5a5236);font:11px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);white-space:nowrap}@media (pointer:coarse){.ds-console-input,.ds-field{font-size:16px}.ds-kbd{display:none}}.ds-btn{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);cursor:pointer}.ds-btn:hover{background:var(--hover,#e8da8f)}.ds-btn:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}.ds-btn-primary{font:500 13px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#1d1a14);color:var(--on-primary,#f2e6a6);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}"
+    },
+    {
+      "name": "Refs, Chips and Counts",
+      "kind": "chip",
+      "refersTo": "ref",
+      "description": "Monospace ref chips (linked through /ref/ in dispatch copy), the PR pill, the waiting count at zero and above, and the Queued label.",
+      "html": "<p class=\"ds-refs\"><a class=\"ds-ref\" href=\"#\">t3</a> <span class=\"ds-ref\">d2</span> <a class=\"ds-chip\" href=\"#\">PR</a> <span class=\"ds-count\" data-waiting=\"0\">0</span> <span class=\"ds-count\" data-waiting=\"3\">3</span> <span class=\"ds-label\">Queued</span></p>",
+      "css": ".ds-refs{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0;color:var(--fg,#1d1a14);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line,#cdbd78);border-radius:6px;background:var(--card,#e9db92);color:var(--fg,#1d1a14);font:12px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);font-variant-numeric:tabular-nums;white-space:nowrap;text-decoration:none}a.ds-ref:hover{border-color:var(--accent,#1d4ea8);color:var(--accent,#1d4ea8)}a.ds-ref:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-chip{display:inline-block;padding:0 7px;border:1px solid var(--line,#cdbd78);border-radius:999px;color:var(--accent,#1d4ea8);font:600 12px/18px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;text-decoration:none}.ds-chip:hover{text-decoration:underline;text-underline-offset:.2em}.ds-chip:focus-visible{outline:2px solid var(--accent,#1d4ea8);outline-offset:2px;border-radius:4px}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#e6d897);color:var(--fg,#1d1a14);font:600 12px/20px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-align:center;font-variant-numeric:tabular-nums}.ds-count:not([data-waiting=\"0\"]){background:var(--wait-bg,#ecd58a);color:var(--wait,#7a4f00)}.ds-label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait,#7a4f00);font:600 11px/18px var(--mono,ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace);letter-spacing:.03em;text-transform:uppercase}"
     }
   ],
   "narrative": {
-    "northStar": "The Review Thread",
-    "overview": "The board borrows the conventions of a code review page and makes them Hand's own. Things that wait on the operator read like review requests and failing checks. The top waiting item opens with its action in place, so the operator can answer a decision, press a blocked screen's keys or mark a report read without leaving the page. Running tasks read as a list of checks, one line each. The supervisor conversation reads as a quiet comment thread with Hand's own events as single muted lines between the comments, and while the supervisor works, one more line at the foot of the thread says for how long and on what.\n\nThe mood is restrained and dense. Grounds are neutral in both themes. Structure comes from 1px hairline borders and one tonal step between the page ground and the card fill, not from shadows or colour. Colour carries meaning: four status colours, one blue accent for links, focus and the supervisor at work, one green for the committing button, and one per-fleet tint that only identifies the fleet. Type is the system UI stack at a 14px base, with monospace kept for refs, keys and terminal output.\n\nThe direction refuses the generic dashboard (a sidebar, KPI tiles, a grid of cards) and the messenger layout that buries state under chat. Every page shows one fleet. The fleet page splits into two tabs at every width, \"Needs you\" and \"Chat\", so the queue and the conversation each get one centred column instead of sharing a squeezed one.",
+    "northStar": "The Wire Desk",
+    "overview": "The fleet runs like a news agency wire desk, and the operator edits the desk. Every event is a dispatch ranked by wire priority. What waits on the operator sits in the tray, FLASH first, each item with its action in place. The tasks are the news budget, one line each. The supervisor's replies come over the wire as numbered dispatches. Hand's own events are one-line service messages, and the operator's notes sit flush right in blue editor's pencil. While the supervisor works, a print head steps along the wire's last line, and the masthead counts its context.\n\nThe material is teleprinter copy: canary on the day desk, carbon on the night desk, near-black ink, and an ink masthead band in both themes. Rank comes from scale, weight and caps on one slug grid, never from boxes. Dispatches are separated by 1px hairlines, with no cards, no glass and no zebra. FLASH red is the one saturated signal. Fixed-pitch caps carry what the wire prints: slugs, refs, codes, datelines, counts, the live strip and the tabs. Copy stays in the system sans.\n\nThe desk refuses chat bubbles in a SaaS shell, and it refuses the green-on-black terminal as well. Every page shows one fleet. The fleet page keeps two tabs at every width, Needs you and Chat, each over one centred 880px column, and the send console sits under the wire as a single box.",
     "keyCharacteristics": [
-      "Waiting items first, each with its action inline; the top item is open by default.",
-      "Hairline borders at 1px, a 6px corner on every box, and pills only for small labels.",
-      "Four status colours with fixed meanings, tested for contrast in both themes.",
-      "A per-fleet tint on the header mark and the top rule, and nowhere that carries status.",
-      "Hand's own inline SVG icons on a 16px grid.",
-      "Light and dark themes from `prefers-color-scheme`, with no toggle.",
-      "Two tabs at every width over panels centred at up to 880px, and a no-scroll app shell when JavaScript runs in a window at least 600px tall.",
-      "The supervisor's working state in the blue accent: the pill, a dot on the Chat tab, a working line in the timeline and the favicon.",
-      "A strict CSP: one stylesheet, one script, no inline code, no web fonts."
+      "Canary copy (day) and carbon (night) grounds under near-black ink, with the masthead an ink band in both themes.",
+      "One dispatch module everywhere: a mono-caps slug line, then the copy, then its actions, with hairlines between dispatches.",
+      "Wire codes rank the tray: FLASH, BULLETIN, URGENT, ROUTINE, SERVICE.",
+      "FLASH red is the one saturated signal; pencil blue marks the operator's words and focus; the fleet tint colours only the wire name and the mark.",
+      "A live strip in the masthead: lamp, line state, supervisor and model, queue, context gauge, compactions and clock.",
+      "One authored motion, the print head, plus a one-line feed for new dispatches.",
+      "A send console that holds the message box, the model menu, the Interrupt key, the overflow menu, the hint and Send.",
+      "Shadows only on the floating toast and on honest keys.",
+      "A strict CSP: one stylesheet, one script, no inline code and no web fonts."
     ],
     "rules": [
       {
-        "name": "The Four Signals Rule",
-        "body": "Status uses only `fail`, `wait`, `pass` and `neutral`, and each keeps one meaning: red is failing or blocked, amber is waiting on the operator, green is running, passing or ready, gray is idle. Besides links and focus, the blue accent marks one state: the supervisor at work, on its pill, the Chat tab dot, the working line and the favicon. It never marks a check, a waiting item or an outcome. The fleet tint never carries state, and there is no fifth status colour.",
+        "name": "The One Flash Rule",
+        "body": "FLASH red is the one saturated signal: blocked screens, failures, the Interrupt key and a context gauge at 90% or more. Amber means the operator is being asked or something waits, and green means running, passing or ready. There is no fourth signal colour. Pencil blue marks the operator and focus, and the fleet tint never carries state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Band Rule",
+        "body": "The masthead is an ink band in both themes and has its own tokens: `on-header` and `on-header-muted` for text, and the `h-` set for signals. Band tokens stay on the band, and ground tokens stay on the ground.",
         "section": "colors"
       },
       {
         "name": "The Contrast Floor Rule",
-        "body": "In both themes, `fail`, `wait`, `pass`, `neutral`, `fg` and `muted` reach 4.5:1 on `bg` and on `card`, and every tint reaches 3:1 on `header`. `TestColoursMeetContrast` in `internal/board/identity_test.go` enforces this, so a new status or tint value must pass it.",
+        "body": "In both themes, `fail`, `flash`, `wait`, `pass`, `neutral`, `fg`, `muted` and `pencil` reach 4.5:1 on `bg` and on `card`. `on-header`, `on-header-muted` and every `h-` signal reach 4.5:1 on `header`, and every tint reaches 3:1 on `header`. `TestColoursMeetContrast` in `internal/board/identity_test.go` enforces all three, and `TestTheWireDeskTokens` checks that the day ground is canary and the night ground is carbon.",
         "section": "colors"
       },
       {
-        "name": "The Fleet Signature Rule",
-        "body": "The tint only identifies a fleet: the 3px rule across the top of every page, the 22px mark in the header, and the round swatch beside each fleet on the fleet list. It never fills a button, a status or body text.",
+        "name": "The Tint Is a Name Rule",
+        "body": "The fleet tint colours only the wire name in the masthead and the mark. On the fleet list the rows sit on canary, where the tints reach only about 3.4:1, so the name stays in ink and only the mark takes the tint. A departure from the spec, which tinted the name there too.",
         "section": "colors"
       },
       {
-        "name": "The Ref Chip Rule",
-        "body": "A Hand ref that stands on its own (`tN`, `aN`, `rN`, `dN`, `sN`, or a fleet id) renders as a monospace chip with a hairline border and a 6px corner, and it is a link when a page exists for it. Inside a sentence or an action label (\"Open d2\", \"View a2\") the ref stays plain text.",
+        "name": "The Slug Rule",
+        "body": "A slug line is mono caps (11.5px/18px at .03em) on one baseline row. Its items are separated by a trailing \"·\" in hairline colour, so the separator stays at the end of a line when the slug wraps. Every item is data: a wire code, a kind, a ref, a source, a dispatch number, a state or a dateline. A slug that only names a topic is a kicker, and the desk has none.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Carries Data Rule",
+        "body": "Mono is for what the wire prints or the operator could type. That covers slugs, refs, codes, datelines, counts, the live strip, the clock and the tabs. It also covers the model menu with its field labels, the Queued label, keys and terminal text. Titles, copy, command buttons, hints and links stay in the sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Dateline Rule",
+        "body": "Datelines are 24-hour and carry the zone: `app.js` rewrites each one as local month, day, hour and minute with the short zone name, and the slug sets it in caps (\"SEP 29, 22:22 GMT+7\"). The masthead clock and the working line's \"from\" time are 24-hour without the zone. The clock names the zone in its tooltip. Without JavaScript, datelines stay in the server's UTC form (\"SEP 29 15:19\") and the clock is empty.",
         "section": "typography"
       },
       {
         "name": "The Tabular Rule",
-        "body": "Times, counts, meta lines, refs, the tab count and reply tables use tabular figures so columns of numbers do not jitter as they update.",
+        "body": "Times, counts, meta, refs, the gauge, the clock, dispatch numbers and reply tables all use tabular figures, so that live numbers do not jitter.",
         "section": "typography"
       },
       {
         "name": "The Region Rule",
-        "body": "Live content lives in exactly four regions, `status`, `timeline`, `queue` and `tasks`, each a `section` with `data-region`. The server sends each region's HTML over Server-Sent Events and `app.js` swaps the region whole, keeping typed drafts, open or closed waiting items, focus and a timeline pinned to its newest entry. `#composer` and `#toast` stay outside every region. `internal/board/page_test.go` enforces the names and the composer's place, and `TestFirstViewportOrder` enforces the order needs, queue, tasks, chat, status, timeline, composer.",
+        "body": "Live content lives in exactly five fleet-page regions: `status` (the masthead live strip), `console` (the console's controls), `timeline`, `queue` and `tasks`. Each has a `data-region` attribute. The server sends each region's HTML over Server-Sent Events, and `app.js` swaps the region whole. The swap keeps typed drafts, open or closed details, focus, and a wire pinned to its newest dispatch. `#composer` and `#toast` stay outside every region: the composer form and the console region sit side by side inside `.console-box`, and neither form nests in the other. `TestFirstViewportOrder` enforces the order status, needs, queue, tasks, chat, timeline, composer, console. The task page is one `task` region. Other thread pages carry a static copy of the strip, which belongs to no region.",
         "section": "layout"
       },
       {
         "name": "The Clear-In-Place Rule",
-        "body": "The first waiting item stands alone and open, with its action in its body. The rest share one bordered list, collapsed to one line each, and open in place.",
+        "body": "The first tray item stands alone and open, with its action in its body. The rest share one ruled list, collapsed to one line each, and open in place.",
         "section": "layout"
       },
       {
         "name": "The Hands-Off Tabs Rule",
-        "body": "The board opens on the tab the URL hash names, else on Needs you when something waits, else on Chat. A click on a tab writes its hash with `history.replaceState`. Nothing else changes the tab: a new waiting item raises the count, the title and the favicon, and never pulls the operator out of Chat.",
+        "body": "The board opens on the tab that the URL hash names. With no hash, it opens on Needs you when something waits, and on Chat otherwise. A click on a tab writes its hash with `history.replaceState`. Nothing else changes the tab. A new waiting item raises the count, the title and the favicon, but never pulls the operator out of Chat.",
         "section": "layout"
       },
       {
-        "name": "The Hairline Rule",
-        "body": "Resting surfaces carry a 1px `line` border and no shadow. A shadow means the element floats over the page.",
+        "name": "The Measure Rule",
+        "body": "Prose in a dispatch and in a note stops at 72ch. Tables and code blocks may run wider, up to the column, and scroll sideways past it.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Desk Rule",
+        "body": "Resting surfaces carry a 1px hairline and no shadow. The sticky console box and the open menus have none either. `TestTheWireDeskTokens` fails on any `box-shadow` outside the console box's focus frame, the menus, the toast, the key fence, the Interrupt key and the keycap. The spec allowed a lift under the sticky composer; the build dropped it.",
         "section": "elevation"
       }
     ],
     "dos": [
-      "Do take every colour from a custom property on `:root` in `board.css`, and give each new property a value in the `prefers-color-scheme:dark` block too. The favicons are the one exception: a static SVG takes fixed mid-tone presentation attributes.",
-      "Do keep status colours at 4.5:1 on `bg` and `card`, and tints at 3:1 on `header`, in both themes; `TestColoursMeetContrast` checks both.",
-      "Do draw new icons as Hand's own inline SVG in `icons.html`: a 16px viewBox, `currentColor` stroke at 1.5, round caps and joins, `aria-hidden=\"true\"`, one to four paths.",
-      "Do put live content in one of the four regions, `status`, `timeline`, `queue` or `tasks`, and keep `#composer` and `#toast` outside every region.",
-      "Do use the 1px `line` hairline and the `bg`-to-`card` step for structure, the 6px corner on every box, and the 999px pill only for small inline labels.",
-      "Do show a standalone ref as a monospace ref chip, linked when a page exists for it.",
-      "Do lay out for both scenes with the paired height queries: the app shell at `(min-height:600px)` under `body[data-shell]`, and the flowing page at `(max-height:599px)` or without `data-shell`. The tabs show at every width.",
-      "Do keep the primary green button for the single committing action of a form.",
-      "Do stop every animation under `prefers-reduced-motion`: the arrival flash and the working dot's pulse."
+      "Do take every colour from a custom property on `:root` in `board.css`, and give each new property a value in the `prefers-color-scheme:dark` block too, unless it lives on the ink band.",
+      "Do keep signals at 4.5:1 on `bg` and `card`, band text and `h-` signals at 4.5:1 on `header`, and tints at 3:1 on `header`, in both themes; `TestColoursMeetContrast` checks all three.",
+      "Do build every new item as a dispatch: a slug line of data in mono caps, the copy, then its actions, with a 1px hairline to the next.",
+      "Do rank with scale, weight and caps: 22px for nameplates and thread titles, 16px for tray headlines and section heads, 14.5px for wire copy, and the slug line at 11.5px.",
+      "Do keep FLASH red for blocked screens, failures, the Interrupt key and a gauge at 90% or more, amber for what asks or waits, and green for running, passing or ready.",
+      "Do mark the operator's own words and the console's focus in pencil blue.",
+      "Do cap prose at 72ch, and let tables and code blocks run to the column.",
+      "Do put live content in one of the five regions, `status`, `console`, `timeline`, `queue` or `tasks`, and keep `#composer` and `#toast` outside every region.",
+      "Do draw new icons as Hand's own inline SVG in `icons.html`, on a 16px viewBox, with `aria-hidden=\"true\"` and one to four paths.",
+      "Do open menus upward from the console as `details` elements with no shadow, so that every control still works as a POST without JavaScript.",
+      "Do stop every motion under `prefers-reduced-motion`: the print head, the feed, the lamp's pulse and the tray's arrival wash.",
+      "Do lay out for both scenes with the paired height queries: the app shell at `(min-height:600px)` under `body[data-shell]`, and the flowing page at `(max-height:599px)` or without `data-shell`."
     ],
     "donts": [
-      "Don't add inline script, a `<style>` element, a `style=` attribute, `@font-face` or `url(` in the stylesheet; the CSP is `default-src 'none'` with `script-src 'self'` and `style-src 'self'`, and the board tests reject each of these.",
-      "Don't use Octicons, an icon package or an icon font.",
-      "Don't use the fleet tint anywhere but the top rule, the header mark and the fleet-list swatch.",
-      "Don't let the blue accent mark a check, a waiting item or an outcome; it marks links, focus and the supervisor at work. Don't let the fleet tint carry any state, and don't add a fifth status colour.",
-      "Don't put a shadow on a resting surface; shadows belong to the toast, the sticky composer on the flowing page and the keycap edge.",
-      "Don't add a theme toggle or a second font; themes follow `prefers-color-scheme` and type is the system stack.",
-      "Don't build the generic dashboard: no sidebar, no KPI tiles, no grid of cards.",
+      "Don't add inline script, a `<style>` element, a `style=` attribute, `@font-face` or `url(` in the stylesheet. The CSP is `default-src 'none'` with `script-src 'self'` and `style-src 'self'`, and the board tests reject each of these.",
+      "Don't put an item in a card, a glass panel or a zebra row; hairlines and type carry rank.",
+      "Don't add a shadow outside the toast and the keys; `TestTheWireDeskTokens` fails on any other `box-shadow`.",
+      "Don't put a topic label above a heading; a slug line carries only data.",
+      "Don't set copy, titles, command buttons, hints or links in mono; only a key's own legend is set in mono.",
+      "Don't use the fleet tint anywhere but the masthead's wire name and the mark, and don't let it carry state.",
+      "Don't put band tokens (`on-header`, `on-header-muted`, `h-`) on the canary or carbon ground, or ground tokens on the band.",
+      "Don't add a fourth signal colour, or let pencil blue mark a task, a waiting item or an outcome.",
+      "Don't use Octicons, an icon package, an icon font, or a Unicode glyph standing in for an icon on the page.",
       "Don't bring back the two-column grid or a `min-width:900px` split; `TestTheAppShellNeedsHeight` rejects it.",
       "Don't switch tabs for the operator; only the URL hash, the opening rule and a click choose the panel.",
       "Don't remove `[hidden]{display:none!important}`; the tabs rely on it to hide the other panel."
