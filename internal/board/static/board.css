@@ -121,11 +121,11 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .md pre{padding:10px 12px;border-radius:6px;background:var(--card);white-space:pre}
 .md pre code{padding:0;background:none;font-size:inherit}
 .md h3,.md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
-.md h3{font-size:15px;line-height:22px}
+.md h3{font-size:16px;line-height:24px}
 .md h4{font-size:14px;line-height:22px}
 .md>:first-child{margin-top:0}
 .md hr{height:0;margin:12px 0;border:0;border-top:1px solid var(--line)}
-.md blockquote{margin:0 0 8px;padding:0 0 0 10px;border-left:2px solid var(--line);color:var(--muted)}
+.md blockquote{margin:0 0 8px;padding:0 0 0 12px;border-left:1px solid var(--line);color:var(--muted)}
 .md del{color:var(--muted)}
 .md .table{margin:0 0 8px;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--line);border-radius:6px}
 .md table{min-width:100%;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
@@ -138,7 +138,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .md thead th:first-child{background:var(--card)}
 #composer{flex:none;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:6px;background:var(--card)}
 #composer .actions{justify-content:space-between}
-.send{display:flex;align-items:center;gap:8px}
+.send{display:flex;align-items:center;gap:8px;margin-left:auto}
 kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font-size:11px;line-height:18px;white-space:nowrap}
 .switch>summary{width:max-content;color:var(--accent);font-size:13px;cursor:pointer;list-style:none}
 .switch>summary::-webkit-details-marker{display:none}
