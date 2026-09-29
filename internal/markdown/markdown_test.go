@@ -90,6 +90,8 @@ func TestRenderRefs(t *testing.T) {
 		{"r7.", `<p>` + link("r7") + `.</p>`},
 		{"**a5** done", `<p><strong>` + link("a5") + `</strong> done</p>`},
 		{"- t1\n- t0", `<ul><li>` + link("t1") + `</li><li>t0</li></ul>`},
+		{"see test_d3.go and t1_done and t3.micro", `<p>see test_d3.go and t1_done and t3.micro</p>`},
+		{"t3. next", `<p>` + link("t3") + `. next</p>`},
 	} {
 		if got := string(markdown.RenderRefs(c.in, "/f1")); got != c.want {
 			t.Errorf("RenderRefs(%q)\n got %s\nwant %s", c.in, got, c.want)

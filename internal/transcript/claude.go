@@ -69,7 +69,7 @@ func (s *session) claudeLine(line []byte) {
 			s.user(rec.Attachment.Prompt, rec.Timestamp)
 		}
 	case "assistant":
-		if u := rec.Message.Usage; u != nil {
+		if u := rec.Message.Usage; u != nil && u.Input+u.CacheCreation+u.CacheRead > 0 {
 			s.status.Context = u.Input + u.CacheCreation + u.CacheRead
 		}
 		var blocks []struct {

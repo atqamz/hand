@@ -287,3 +287,17 @@ func TestOpencodeStatusReadsTheFlatShape(t *testing.T) {
 		t.Fatalf("status = %+v", got)
 	}
 }
+
+func TestAnAPIErrorKeepsTheLastContext(t *testing.T) {
+	body := `{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":170,"cache_read_input_tokens":508139},"content":[{"type":"text","text":"one"}]}}
+{"type":"assistant","timestamp":"2026-09-28T01:00:02Z","isApiErrorMessage":true,"message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"text","text":"You've hit your session limit"}]}}
+`
+	home, _ := claudeHome(t, body)
+	r := &Reader{Paths: Paths{Claude: home}}
+	if _, err := r.Read(context.Background(), "claude", sessionUUID, "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Status("claude", sessionUUID); got.Context != 508311 {
+		t.Fatalf("status after an API error = %+v", got)
+	}
+}

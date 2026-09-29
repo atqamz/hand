@@ -138,3 +138,19 @@ func TestEventsFollowTheContext(t *testing.T) {
 	}
 	t.Fatal("a context change sent no status event")
 }
+
+func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<p class="strip-note">test</p>`)
+	oc := newFixture(t)
+	ctx := context.Background()
+	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "opencode", get(t, oc.handler(), "/"), `<span class="who">S1 OPENCODE</span>`, `<span class="model">OPENCODE</span>`)
+}

@@ -85,7 +85,9 @@ func themes(t *testing.T) (light, dark string) {
 
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	for name, block := range map[string]string{"light": light, "dark": dark} {
+	lightTokens := map[string]string{}
+	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
+		name, block := c.name, c.block
 		root := block[strings.Index(block, ":root{"):]
 		root = root[:strings.IndexByte(root, '}')]
 		tokens := map[string]string{}
@@ -102,6 +104,21 @@ func TestColoursMeetContrast(t *testing.T) {
 				}
 			}
 		}
+		for _, fg := range []string{"on-header", "on-header-muted", "h-pass", "h-wait", "h-flash", "h-lamp"} {
+			hex := tokens[fg]
+			if hex == "" {
+				hex = lightTokens[fg]
+			}
+			if hex == "" || tokens["header"] == "" {
+				t.Fatalf("%s theme lacks --%s or --header", name, fg)
+			}
+			if c := contrast(hex, tokens["header"]); c < 4.5 {
+				t.Errorf("%s: --%s on --header = %.2f", name, fg, c)
+			}
+		}
+		if name == "light" {
+			lightTokens = tokens
+		}
 		tints := tintToken.FindAllStringSubmatch(block, -1)
 		if len(tints) != 12 {
 			t.Fatalf("%s theme defines %d tints", name, len(tints))
@@ -114,7 +131,7 @@ func TestColoursMeetContrast(t *testing.T) {
 	}
 }
 
-var iconNames = []string{"mark", "decision", "blocked", "failure", "report", "resume", "running", "passing", "idle", "chat", "bell"}
+var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "bell", "chevron", "interrupt", "more"}
 
 func TestIconsAreOwnInlineSVG(t *testing.T) {
 	src, err := os.ReadFile("templates/icons.html")

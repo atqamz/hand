@@ -49,7 +49,8 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .strip .status-line{display:flex;flex-wrap:wrap;align-items:center;gap:2px 12px}
 .strip .who,.strip .queued,.strip .compactions{color:var(--on-header-muted);font-weight:500}
 .strip .line{font-weight:700}
-.strip-note{color:var(--wait);font-size:12px}
+.strip-note{color:var(--on-header-muted);font-size:12px}
+.strip-note.warn{color:var(--h-wait)}
 .lamp{flex:none;width:8px;height:8px;border-radius:50%;background:var(--on-header-muted)}
 .lamp[data-state=ready]{background:var(--h-pass)}
 .lamp[data-state=working]{background:var(--h-lamp);animation:lamp 2s ease-in-out infinite}
@@ -136,7 +137,6 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .service-text{font-family:var(--mono);overflow-wrap:anywhere}
 .working{padding:10px 0}
 .working-line{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
-.body.plain{white-space:pre-wrap}
 .label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}
 .older{text-align:center;font-size:12px}
 .md>:last-child{margin-bottom:0}
@@ -230,13 +230,10 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .crumbs{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 h3{margin:10px 0 0;font-size:14px;font-weight:600}
 .need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
-pre.body{padding:8px 12px}
 .state{font-size:12px;font-weight:600}
 .state.done{color:var(--pass)}
 .state.stuck{color:var(--fail)}
 .state.progress{color:var(--wait)}
-.row{margin:0}
-.muted{color:var(--muted)}
 form.inline{display:inline}
 .needs-here{display:grid;border-top:1px solid var(--line)}
 .need{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:9px 4px;border-bottom:1px solid var(--line)}

@@ -298,7 +298,7 @@ func (sc scan) marker(i int) (string, int) {
 		if u, n := bare(rest); n > 0 {
 			return anchor(u, html.EscapeString(u)), n
 		}
-	case sc.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/'):
+	case sc.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/' && s[i-1] != '_'):
 		if n := refLen(rest); n > 0 {
 			return `<a class="ref" href="` + html.EscapeString(sc.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
 		}
@@ -368,7 +368,7 @@ func refLen(rest string) int {
 	for n < len(rest) && rest[n] >= '0' && rest[n] <= '9' {
 		n++
 	}
-	if n == 1 || rest[1] == '0' || n < len(rest) && word(rest[n]) {
+	if n == 1 || rest[1] == '0' || n < len(rest) && (word(rest[n]) || rest[n] == '_') || n+1 < len(rest) && rest[n] == '.' && word(rest[n+1]) {
 		return 0
 	}
 	return n

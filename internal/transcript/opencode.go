@@ -53,7 +53,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 				fresh.status.Compactions++
 			}
 		}
-		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil {
+		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {
 			fresh.status.Context = t.Input + t.Cache.Read + t.Cache.Write
 		}
 		at := time.UnixMilli(created).UTC().Format("2006-01-02T15:04:05.000Z")
