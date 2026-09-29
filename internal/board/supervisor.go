@@ -93,6 +93,9 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 		data["Pill"], data["PillLabel"] = pill(sup, data)
 		data["AgentState"], data["ComposerHint"] = hint(sup, data)
+		if sup.Status == state.AttemptRunning && (sup.Harness == "claude" || sup.Harness == "codex") {
+			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
+		}
 	}
 	return nil
 }
@@ -211,6 +214,20 @@ func (b *Board) profiles() []string {
 		return nil
 	}
 	return p.Names()
+}
+
+func (b *Board) profilesFor(name string) []string {
+	p, err := harness.LoadPolicy(b.o.Home)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, n := range p.Names() {
+		if p.Profiles[n].Harness == name {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {
@@ -333,4 +350,28 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.run(w, r, "send", "--text", text)
+}
+
+func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
+	if !b.allowed(w) {
+		return
+	}
+	args := []string{"switch"}
+	switch {
+	case r.PostFormValue("cancel") == "1":
+		args = append(args, "--cancel")
+	case r.PostFormValue("profile") != "":
+		args = append(args, "--profile", r.PostFormValue("profile"))
+	default:
+		for _, f := range []string{"model", "effort"} {
+			if v := strings.TrimSpace(r.PostFormValue(f)); v != "" {
+				args = append(args, "--"+f, v)
+			}
+		}
+	}
+	if len(args) == 1 {
+		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
+		return
+	}
+	b.run(w, r, args...)
 }

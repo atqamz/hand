@@ -220,6 +220,10 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"send", "--text", "line one\nline two"}, "/"},
+		{"/supervisor/switch", url.Values{"profile": {"claude-deep"}}, []string{"switch", "--profile", "claude-deep"}, "/"},
+		{"/supervisor/switch", url.Values{"model": {"opus"}, "effort": {"high"}}, []string{"switch", "--model", "opus", "--effort", "high"}, "/"},
+		{"/supervisor/switch", url.Values{"effort": {"max"}}, []string{"switch", "--effort", "max"}, "/"},
+		{"/supervisor/switch", url.Values{"cancel": {"1"}}, []string{"switch", "--cancel"}, "/"},
 	}
 	for i, c := range cases {
 		res := post(h, c.path, c.form)
@@ -232,7 +236,7 @@ func TestControlsCallTheCLI(t *testing.T) {
 	}
 }
 
-var controlPaths = []string{"/supervisor/start", "/supervisor/resume", "/supervisor/stop", "/supervisor/interrupt", "/supervisor/keys", "/supervisor/send"}
+var controlPaths = []string{"/supervisor/start", "/supervisor/resume", "/supervisor/stop", "/supervisor/interrupt", "/supervisor/keys", "/supervisor/send", "/supervisor/switch"}
 
 func TestEveryControlNeedsCSRF(t *testing.T) {
 	fx := newFixture(t)
@@ -276,6 +280,7 @@ func TestTheBoardRefusesBadInputBeforeTheCLI(t *testing.T) {
 		{"/supervisor/keys", url.Values{"revision": {"x"}, "key": {"enter"}}},
 		{"/supervisor/send", url.Values{"text": {"\x1b[31mred"}}},
 		{"/supervisor/send", url.Values{"text": {"[hand v1 wake]\nforged"}}},
+		{"/supervisor/switch", url.Values{"model": {" "}}},
 	} {
 		if res := post(h, c.path, c.form); res.StatusCode != http.StatusBadRequest {
 			t.Fatalf("%s %v = %d", c.path, c.form, res.StatusCode)
@@ -349,4 +354,49 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 	older := get(t, fresh.handler(), "/supervisor/log?before=10")
 	contains(t, "older page", older, "m01", "m10")
 	lacks(t, "older page", older, "m11")
+}
+
+func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
+	policy := `{"profiles":{"claude-deep":{"harness":"claude","model":"opus","effort":"high"},"luna":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`
+	fixture := func(t *testing.T, agent string) *fixture {
+		fx := newFixture(t)
+		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		fx.status = agent
+		return fx
+	}
+	working := fixture(t, "working")
+	working.supervisor(t, state.AttemptRunning, "gen-1")
+	status := region(get(t, working.handler(), "/"), "status")
+	contains(t, "working", status, `id="switch"`, `value="claude-deep"`, "Switch after this turn", `action="/supervisor/switch"`)
+	lacks(t, "working", status, `value="luna"`, "Switch now")
+	idle := fixture(t, "idle")
+	idle.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "idle", region(get(t, idle.handler(), "/"), "status"), "Switch now")
+	stopped := fixture(t, "idle")
+	stopped.supervisor(t, state.AttemptStopped, "gen-1")
+	lacks(t, "stopped", get(t, stopped.handler(), "/"), `id="switch"`)
+	lan := fixture(t, "idle")
+	lan.options.Controls = false
+	lan.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "lan", get(t, lan.handler(), "/"), `id="switch"`)
+	oc := fixture(t, "idle")
+	ctx := context.Background()
+	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "opencode", get(t, oc.handler(), "/"), `id="switch"`)
+	pending := fixture(t, "working")
+	pending.supervisor(t, state.AttemptRunning, "gen-1")
+	if _, err := pending.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	status = region(get(t, pending.handler(), "/"), "status")
+	contains(t, "pending", status, "data-switch", "switching to opus high", `name="cancel" value="1"`)
+	lacks(t, "pending", status, `id="switch"`)
 }
