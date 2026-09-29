@@ -178,10 +178,10 @@ func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Clien
 		return sup, err
 	}
 	sup, err = r.relaunch(ctx, st, c, ended, spec)
-	if err != nil {
-		return sup, fmt.Errorf("%w; supervisor %s stopped for the switch to %s %s, continue it with `hand supervisor resume`", err, state.SupervisorRef(ended.ID), spec.Model, spec.Effort)
+	if err != nil && !errors.Is(err, errLaunchUnknown) {
+		err = fmt.Errorf("%w; supervisor %s stopped for the switch to %s %s, continue it with `hand supervisor resume`", err, state.SupervisorRef(ended.ID), spec.Model, spec.Effort)
 	}
-	return sup, nil
+	return sup, err
 }
 
 func cmdSupervisorSwitch(r *runner, args []string) error {

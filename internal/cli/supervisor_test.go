@@ -739,3 +739,14 @@ func TestAFailedRelaunchSaysHowToRecover(t *testing.T) {
 		t.Fatalf("failed relaunch code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestAnUnknownRelaunchDoesNotPromiseResume(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop })
+	_, errOut, code := h.run("supervisor", "switch", "--model", "opus", "--effort", "high")
+	if code == 0 || !strings.Contains(errOut, "stays launching") || strings.Contains(errOut, "hand supervisor resume") {
+		t.Fatalf("unknown relaunch code=%d stderr=%q", code, errOut)
+	}
+}
