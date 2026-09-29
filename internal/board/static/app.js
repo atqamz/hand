@@ -249,7 +249,7 @@
 	if (live) reflect();
 	const timeline = regions.get("timeline");
 	if (timeline) pin(timeline);
-	const composer = document.getElementById("composer");
+	const composer = document.querySelector(".console-box");
 	if (timeline && composer && "ResizeObserver" in window) {
 		let near = true;
 		const track = () => {
