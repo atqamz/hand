@@ -231,7 +231,10 @@
 		}
 		const timeline = regions.get("timeline");
 		if (timeline && current === "chat") pin(timeline);
-		if (current === "needs" && !tall.matches) scrollTo(0, 0);
+		if (current === "needs" && !tall.matches) {
+			scrollTo(0, 0);
+			requestAnimationFrame(() => scrollTo(0, 0));
+		}
 	};
 	if (tabs.length > 0) {
 		for (const t of tabs) {
@@ -243,6 +246,9 @@
 			});
 		}
 		select();
+		addEventListener("load", () => {
+			if (current === "needs" && !tall.matches) scrollTo(0, 0);
+		}, { once: true });
 	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
@@ -257,7 +263,7 @@
 	const live = regions.has("queue");
 	if (live) reflect();
 	const timeline = regions.get("timeline");
-	if (timeline) pin(timeline);
+	if (timeline && current === "chat") pin(timeline);
 	const composer = document.querySelector(".console-box");
 	if (timeline && composer && "ResizeObserver" in window) {
 		let near = true;
