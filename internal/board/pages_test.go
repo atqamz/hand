@@ -26,8 +26,8 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 	}
 	contains(t, "task thread", body,
 		`<span class="ref">t1</span>`, `<span class="pill" data-state="running">active</span>`,
-		"Plan p1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
-		`<article class="comment report" id="r1"`, `<article class="comment report" id="r2"`, "<strong>tests</strong>",
+		"PLAN P1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
+		`<article class="dispatch report" id="r1"`, `<article class="dispatch report" id="r2"`, "<strong>tests</strong>",
 		`<li class="check" data-state="running" id="a1">`,
 		"Keep the old cookie name?", `href="/decision/d1"`)
 }
@@ -53,12 +53,12 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 	}
 	loop := host(true, links)
 	for _, l := range links {
-		row := regexp.MustCompile(`<li class="fleet">[\s\S]*?</li>`).FindAllString(loop, -1)
+		row := regexp.MustCompile(`<li class="fleet tint-[0-9]+">[\s\S]*?</li>`).FindAllString(loop, -1)
 		found := false
 		for _, r := range row {
 			if strings.Contains(r, `href="/`+l.ID+`/"`) {
 				found = true
-				contains(t, "fleet row", r, l.Name, `<span class="ref">`+l.ID+`</span>`, `class="swatch tint-`)
+				contains(t, "fleet row", r, l.Name, `<span class="ref">`+l.ID+`</span>`, `class="wire-name"`)
 			}
 		}
 		if !found {
@@ -96,7 +96,7 @@ func TestErrorPagesKeepNoPaths(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError || strings.Contains(body, "/home/me") || !strings.Contains(body, "hand.db") {
 		t.Fatalf("error page = %d:\n%s", rec.Code, body)
 	}
-	contains(t, "error page", body, `<section class="card error">`, `href="/"`)
+	contains(t, "error page", body, `<article class="dispatch error">`, `href="/"`)
 	missing := request(fx.handler(), "GET", "/task/t99", nil, true)
 	if missing.Code != http.StatusNotFound || strings.Contains(missing.Body.String(), "/home/") {
 		t.Fatalf("missing task = %d:\n%s", missing.Code, missing.Body.String())
@@ -118,4 +118,24 @@ func TestRefRouteRedirects(t *testing.T) {
 			t.Errorf("/ref/%s = %d", ref, rec.Code)
 		}
 	}
+}
+
+func TestThreadPagesUseTheDispatchModule(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	h := board.New(st, token, board.Options{})
+	task := get(t, h, "/task/t1")
+	contains(t, "task page", task,
+		`<article class="dispatch" data-role="goal"><header class="slug"><span class="who">GOAL</span>`,
+		`<article class="dispatch" data-role="plan"><header class="slug"><span class="who">PLAN P1</span>`,
+		`<article class="dispatch report" id="r1" data-status="done"><header class="slug"><span class="who">R1</span>`,
+		`<li class="service"><span class="slug"><span class="who">`,
+		`<li class="check" data-state="running" id="a1">`,
+		`<span class="code" data-code="BULLETIN">BULLETIN</span>`)
+	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
+	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
+		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
+	}})
+	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="wire-name" href="/f6b63e98d4af2/">hand <span class="wire-word">Wire</span></a>`)
+	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-code="FLASH">404</span>`)
 }

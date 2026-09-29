@@ -107,9 +107,6 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .check[data-state=running] .icon,.check[data-state=passing] .icon{color:var(--pass)}
 .check[data-state=idle] .icon{color:var(--neutral)}
 .finished{font-size:12px}
-.panel{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
-.panel .row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
-.panel select,.panel input{font-size:13px}
 .status-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .who{font-weight:600}
 .pill{display:inline-block;padding:0 10px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-size:12px;font-weight:600;line-height:22px}
@@ -134,16 +131,8 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .service-text{font-family:var(--mono);overflow-wrap:anywhere}
 .working{padding:10px 0}
 .working-line{font-family:var(--mono);font-size:12px;color:var(--muted)}
-.comment{position:relative;flex:none;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
-.comment>header{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);border-radius:6px 6px 0 0;background:var(--card);color:var(--muted);font-size:12px}
-.comment>header b{color:var(--fg);font-size:13px}
-.comment[data-role=operator]>header{background:var(--accent-bg)}
-.comment .body{padding:8px 12px;overflow-wrap:anywhere}
 .body.plain{white-space:pre-wrap}
 .label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:11px;font-weight:600;line-height:18px}
-.event{position:relative;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 9px;color:var(--muted);font-size:12px}
-.timeline>.event>.icon{box-sizing:content-box;padding:3px;border:1px solid var(--line);border-radius:50%;background:var(--card);color:var(--muted)}
-.event-text{flex:1;min-width:0;overflow-wrap:anywhere}
 .older{text-align:center;font-size:12px}
 .md>:last-child{margin-bottom:0}
 .md p,.md ul,.md ol,.md pre{margin:0 0 8px}
@@ -182,7 +171,6 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .menu-body a{font-size:13px}
 .key{display:inline-flex;align-items:center;justify-content:center;width:32px;height:28px;padding:0;background:var(--bg);box-shadow:inset 0 2px 0 var(--shadow);color:var(--flash)}
 kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font-size:11px;line-height:18px;white-space:nowrap}
-.timeline>.event.working>.icon{border-color:var(--accent);color:var(--accent)}
 .hint{color:var(--muted);font-size:12px}
 .menu{position:relative}
 .menu>summary{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer;list-style:none;font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--fg)}
@@ -222,27 +210,28 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .crumbs{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
 .thread-title{font-size:22px;line-height:1.3;font-weight:600;letter-spacing:-.015em;overflow-wrap:anywhere}
 h3{margin:10px 0 0;font-size:14px;font-weight:600}
-.needs-here{display:grid;border:1px solid var(--line);border-radius:6px;background:var(--wait-bg)}
-.need{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;padding:8px 12px;border-top:1px solid var(--line)}
-.need:first-child{border-top:0}
-.need .icon{color:var(--wait)}
 .need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
-.comment>header .spacer{flex:1}
 pre.body{padding:8px 12px}
 .state{font-size:12px;font-weight:600}
 .state.done{color:var(--pass)}
 .state.stuck{color:var(--fail)}
 .state.progress{color:var(--wait)}
-.events{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-.events .event{padding:0 4px}
 .fleets{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:6px}
-.fleet{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line)}
-.fleet:first-child{border-top:0}
-.fleet a{flex:1;font-weight:600}
-.swatch{flex:none;width:12px;height:12px;border-radius:50%;background:var(--tint)}
-.card{padding:16px;border:1px solid var(--line);border-radius:6px;background:var(--bg);overflow-wrap:anywhere}
-.card.error{display:grid;gap:8px;border-color:var(--fail)}
-.card.error h2{color:var(--fail)}
 .row{margin:0}
 .muted{color:var(--muted)}
 form.inline{display:inline}
+.needs-here{display:grid;border-top:1px solid var(--line)}
+.need{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.dispatch>header.slug .spacer{flex:1}
+.dispatch>header.slug .meta,.dispatch>header.slug .state{font-size:inherit}
+.dispatch.report[data-status=blocked] .state,.dispatch.report[data-status=failed] .state{color:var(--flash)}
+.events{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.events .service{border-bottom:1px solid var(--line)}
+.fleets{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.fleet{display:flex;align-items:baseline;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.fleet .wire-name{flex:1;min-width:0;color:var(--fg)}
+.fleet .wire-name:hover{color:var(--tint);text-decoration:none}
+.dispatch.error .copy{margin:6px 0 10px}
+.thread-title{font-size:20px;line-height:28px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+.fleet .mark{align-self:center;color:var(--tint)}

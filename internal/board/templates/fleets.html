@@ -1,6 +1,6 @@
 {{define "fleets.html"}}{{template "head" .}}{{template "top" .}}<main class="list">
 <h2>Fleets</h2>
-{{if .Loopback}}{{with .Fleets}}<ul class="fleets">{{range .}}<li class="fleet"><span class="swatch tint-{{tint .ID}}"></span><a href="/{{.ID}}/">{{.Name}}</a> <span class="ref">{{.ID}}</span></li>{{end}}</ul>
+{{if .Loopback}}{{with .Fleets}}<ul class="fleets">{{range .}}<li class="fleet tint-{{tint .ID}}">{{template "icon-mark"}}<a class="wire-name" href="/{{.ID}}/">{{.Name}} <span class="wire-word">Wire</span></a> <span class="ref">{{.ID}}</span></li>{{end}}</ul>
 {{else}}<p class="quiet">No fleets yet. Run <code>hand init</code> in a folder.</p>
 {{end}}{{else}}<p class="quiet">Open a fleet's link from <code>hand open</code>.</p>
 {{end}}</main>
