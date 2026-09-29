@@ -589,3 +589,120 @@ func TestOpencodeInterruptPressesEscTwice(t *testing.T) {
 		t.Fatalf("keys = %q, want two separate fenced esc presses: opencode reads esc+esc in one write as one sequence", got)
 	}
 }
+
+func resumedArgv(t *testing.T, rt *fakeRuntime, session, model, effort string) {
+	t.Helper()
+	argv := rt.lastCreate().Command
+	if !slices.Equal(argv[1:], []string{"--dangerously-skip-permissions", "--resume", session, "--model", model, "--effort", effort}) {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestSwitchWhileIdleRelaunchesTheSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(h.ok("supervisor", "show"))
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s2", "switch: applied", "model: opus", "effort: high")
+	resumedArgv(t, rt, session, "opus", "high")
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "resumes: s1", "harness: claude opus high", "status: running", cursor)
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.stopped"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: switched to opus high" {
+		t.Fatalf("stop events = %+v, %v", events, err)
+	}
+}
+
+func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fx := &attemptFixture{h: h, rt: rt}
+	pane := supervisorPane(t, startClaudeSupervisor(h))
+	session := rt.lastCreate().Command[3]
+	why := "why: switching to opus high after this turn"
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s1", "switch: pending", why, "hand supervisor switch --cancel")
+	has(t, "send one", h.ok("supervisor", "send", "--text", "one"), "delivered: no", why)
+	has(t, "send two", h.ok("supervisor", "send", "--text", "two"), "delivered: no", why)
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("delivered while a switch waits: %q", got)
+	}
+	stop := startWatch(t, fx, "--every", "1h")
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return slices.Equal(rt.prompts(), []string{"one", "two"}) })
+	stop()
+	resumedArgv(t, rt, session, "opus", "high")
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "pending: 0")
+}
+
+func TestSwitchCanBeCanceled(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "switch", "--model", "opus", "--effort", "high")
+	has(t, "show", h.ok("supervisor", "show"), "switch: opus high")
+	has(t, "cancel", h.ok("supervisor", "switch", "--cancel"), "supervisor: s1", "switch: canceled")
+	if out := h.ok("supervisor", "show"); strings.Contains(out, "switch:") {
+		t.Fatalf("show after cancel = %q", out)
+	}
+	if _, _, code := h.run("supervisor", "switch", "--cancel"); code != 3 {
+		t.Fatalf("second cancel code = %d", code)
+	}
+}
+
+func TestSwitchRefusals(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	if _, _, code := h.run("supervisor", "switch", "--model", "opus"); code != 3 {
+		t.Fatalf("no supervisor code = %d", code)
+	}
+	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"high"},"luna":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	startClaudeSupervisor(h)
+	for _, c := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{nil, 2, "switch"},
+		{[]string{"--profile", "deep", "--model", "opus"}, 2, "--profile"},
+		{[]string{"--profile", "luna"}, 2, "switch keeps harness claude"},
+		{[]string{"--model", "sonnet", "--effort", "low"}, 3, "already"},
+		{[]string{"--effort", "huge"}, 2, "effort"},
+	} {
+		_, errOut, code := h.run(append([]string{"supervisor", "switch"}, c.args...)...)
+		if code != c.code || !strings.Contains(errOut, c.want) {
+			t.Fatalf("switch %q: code=%d stderr=%q", c.args, code, errOut)
+		}
+	}
+	has(t, "profile", h.ok("supervisor", "switch", "--profile", "deep"), "switch: pending", "model: opus")
+	if _, errOut, code := h.run("supervisor", "switch", "--effort", "max"); code != 3 || !strings.Contains(errOut, "--cancel") {
+		t.Fatalf("second switch code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestSwitchRefusesOpencode(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	if _, errOut, code := h.run("supervisor", "switch", "--model", "x"); code != 2 || !strings.Contains(errOut, "opencode keeps its model") {
+		t.Fatalf("opencode switch code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestResumeHonoursAPendingSwitch(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
+	h.ok("supervisor", "stop")
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2")
+	resumedArgv(t, rt, session, "opus", "high")
+}
+
+func TestSwitchWithOnlyEffortKeepsTheModel(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "switch", h.ok("supervisor", "switch", "--effort", "high"), "switch: applied", "model: sonnet", "effort: high")
+	resumedArgv(t, rt, session, "sonnet", "high")
+}
