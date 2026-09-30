@@ -31,7 +31,7 @@
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
-			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
+			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
 		}
@@ -63,6 +63,7 @@
 		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
+			n.dataset.worst = w.worst || "";
 		}
 		if (!icon || !icons) return;
 		const href = blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;

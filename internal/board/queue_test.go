@@ -444,7 +444,7 @@ func TestNoSupervisorItemShowsWhileWorkIsLive(t *testing.T) {
 	}
 	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	q := region(get(t, fx.handler(), "/"), "queue")
-	contains(t, "no-supervisor item", q, `data-kind="nosup"`, "No supervisor is running", `href="/#chat"`)
+	contains(t, "no-supervisor item", q, `data-kind="nosup"`, "Work is waiting for a supervisor", `href="/#chat"`)
 }
 
 func TestTasksRowsNameTheAgentState(t *testing.T) {

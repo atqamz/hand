@@ -44,7 +44,7 @@ func TestTheLiveStripNamesTheLine(t *testing.T) {
 				}
 			}
 			strip := region(get(t, fx.handler(), "/"), "status")
-			contains(t, c.name, strip, `<span class="pill" data-state="`+c.lamp+`">`, `<span class="word">`+strings.ToLower(c.line)+`</span>`)
+			contains(t, c.name, strip, `<span class="pill" data-state="`+c.lamp+`"`, `<span class="word">`+strings.ToLower(c.line)+`</span>`)
 			if c.status == state.AttemptRunning {
 				contains(t, c.name, strip, `<span class="who">s1 · sonnet low</span>`)
 			}
@@ -143,7 +143,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
-	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<p class="strip-note">test</p>`)
+	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<span class="pill" data-state="failing" title="test">`)
 	oc := newFixture(t)
 	ctx := context.Background()
 	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})

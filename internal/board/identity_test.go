@@ -185,7 +185,7 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs you <span class="count n" data-waiting="1">1</span>`, `data-waiting="1"`)
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs <span class="count n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
 	for _, id := range []string{"needs", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
@@ -395,7 +395,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"max-width:72ch",
-		".slug>*:not(:last-child)::after{",
+		".slug>*:not(:last-child):not(.code)::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
 		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
@@ -442,7 +442,7 @@ func TestNoSidewaysScrollOnPhone(t *testing.T) {
 	if i < 0 || !strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "text-overflow:ellipsis") {
 		t.Fatal("the fleet name does not truncate first")
 	}
-	if regexp.MustCompile(`(?:^|\n)(?:html|body)\{[^}]*\bwidth:`).MatchString(css) {
+	if regexp.MustCompile(`(?:^|\n)(?:html|body)\{[^}]*[{;]width:`).MatchString(css) {
 		t.Fatal("html or body carries a fixed width")
 	}
 }

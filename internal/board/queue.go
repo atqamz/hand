@@ -249,7 +249,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 			waitsOnOne = len(answered) > 0
 		}
 		if waitsOnOne {
-			add(waiting{Kind: "nosup", Title: "No supervisor is running"})
+			add(waiting{Kind: "nosup", Title: "Work is waiting for a supervisor"})
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
