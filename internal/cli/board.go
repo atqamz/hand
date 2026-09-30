@@ -121,7 +121,7 @@ func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcri
 	}
 	fb := &fleetBoard{home: home, st: st, opts: board.Options{
 		Controls:   loopback,
-		Control:    supervisorControl(r.env, home),
+		Control:    control(r.env, home),
 		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(id))},
 		Transcript: transcripts,
 		Home:       home,

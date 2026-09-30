@@ -403,7 +403,7 @@ func (b *Board) run(w http.ResponseWriter, r *http.Request, args ...string) {
 func (b *Board) simple(verb string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if b.allowed(w) {
-			b.run(w, r, verb)
+			b.run(w, r, "supervisor", verb)
 		}
 	}
 }
@@ -412,7 +412,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
 	}
-	args := []string{"start"}
+	args := []string{"supervisor", "start"}
 	if p := r.PostFormValue("profile"); p != "" {
 		args = append(args, "--profile", p)
 	} else if h := r.PostFormValue("harness"); h != "" {
@@ -427,6 +427,19 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
+	b.press(w, r, "supervisor", "")
+}
+
+func (b *Board) attemptKeys(w http.ResponseWriter, r *http.Request) {
+	ref := r.PathValue("ref")
+	if n, err := strconv.ParseInt(strings.TrimPrefix(ref, "a"), 10, 64); err != nil || n < 1 || !strings.HasPrefix(ref, "a") {
+		b.fail(w, http.StatusBadRequest, "press keys on an attempt shown by this page")
+		return
+	}
+	b.press(w, r, "attempt", ref)
+}
+
+func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target string) {
 	if !b.allowed(w) {
 		return
 	}
@@ -435,9 +448,12 @@ func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "press one of the listed keys on a screen shown by this page")
 		return
 	}
-	args := []string{"keys", "--revision", rev}
+	args := []string{group, "keys", "--revision", rev}
 	if d := r.PostFormValue("screen"); digest.MatchString(d) {
 		args = append(args, "--screen", d)
+	}
+	if target != "" {
+		args = append(args, target)
 	}
 	if err := b.o.Control(r.Context(), append(args, k)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
@@ -459,14 +475,14 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.run(w, r, "send", "--text", text)
+	b.run(w, r, "supervisor", "send", "--text", text)
 }
 
 func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
 	}
-	args := []string{"switch"}
+	args := []string{"supervisor", "switch"}
 	switch {
 	case r.PostFormValue("cancel") == "1":
 		args = append(args, "--cancel")
@@ -479,7 +495,7 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(args) == 1 {
+	if len(args) == 2 {
 		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
 		return
 	}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/luvus"
@@ -372,4 +373,77 @@ func TestADoneReportBuriedUnderProgressStillCounts(t *testing.T) {
 	if s, _, _ := strings.Cut(row, "|"); s != "passing" || !strings.Contains(row, "pull/9") {
 		t.Fatalf("check row = %q", row)
 	}
+}
+
+func workerAttempt(t *testing.T, st *state.Store, taskID int64) state.Attempt {
+	t.Helper()
+	ctx := context.Background()
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, err = st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "3", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func TestAWorkerBlockedWithoutASupervisorJoinsNeeds(t *testing.T) {
+	fx := newFixture(t)
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Esc to cancel · Tab to amend"); err != nil {
+		t.Fatal(err)
+	}
+	fx.screen = "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "worker item", q, `data-kind="worker"`, "Esc to cancel · Tab to amend", "Fix login", "Do you want to proceed?", `action="/attempt/a1/keys" data-fetch`, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`, `data-kind="nosup"`)
+}
+
+func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if _, err := fx.st.RecordQuiet(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	fx.options.Now = func() time.Time { return at.Add(9 * time.Minute) }
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Contains(kinds, "quiet") {
+		t.Fatalf("a quiet worker joined Needs inside the grace: %q", kinds)
+	}
+	fx.options.Now = func() time.Time { return at.Add(11 * time.Minute) }
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); !slices.Contains(kinds, "quiet") {
+		t.Fatalf("a quiet worker stayed out of Needs after the grace: %q", kinds)
+	}
+	b := workerAttempt(t, fx.st, active(t, fx.st, "Ship it").ID)
+	if _, err := fx.st.AddReport(ctx, b.ID, state.ReportDone, "Shipped"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.RecordQuiet(ctx, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, refs, _ := waits(get(t, fx.handler(), "/"))
+	if slices.Contains(refs, "a2") {
+		t.Fatalf("a quiet turn that reported joined Needs: %q", refs)
+	}
+}
+
+func TestNoSupervisorItemShowsWhileWorkIsLive(t *testing.T) {
+	fx := newFixture(t)
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Contains(kinds, "nosup") {
+		t.Fatalf("an idle fleet shows the no-supervisor item: %q", kinds)
+	}
+	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "no-supervisor item", q, `data-kind="nosup"`, "No supervisor is running", `href="/#chat"`)
+}
+
+func TestTasksRowsNameTheAgentState(t *testing.T) {
+	fx := newFixture(t)
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), "A1 CLAUDE SONNET BLOCKED")
 }

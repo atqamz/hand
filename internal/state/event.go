@@ -54,13 +54,36 @@ func (s *Store) LatestEvent(ctx context.Context, kind string) (Event, bool, erro
 }
 
 func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, error) {
-	ref := AttemptRef(attemptID)
-	var kind string
-	err := s.db.QueryRowContext(ctx, `SELECT kind FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?) ORDER BY seq DESC LIMIT 1`, ref, ref+": %").Scan(&kind)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+	e, _, err := s.lastAttemptEvent(ctx, attemptID)
+	return e.Kind, err
+}
+
+func (s *Store) AttemptSignals(ctx context.Context) (map[int64]Event, error) {
+	live, err := s.LiveAttempts(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return kind, err
+	out := make(map[int64]Event, len(live))
+	for _, a := range live {
+		e, ok, err := s.lastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[a.ID] = e
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) lastAttemptEvent(ctx context.Context, attemptID int64) (Event, bool, error) {
+	ref := AttemptRef(attemptID)
+	var e Event
+	err := s.db.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?) ORDER BY seq DESC LIMIT 1`, ref, ref+": %").Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Event{}, false, nil
+	}
+	return e, err == nil, err
 }
 
 func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {

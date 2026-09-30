@@ -73,6 +73,7 @@ type Options struct {
 	Home       string
 	Base       string
 	Tick       time.Duration
+	Now        func() time.Time
 }
 
 type Board struct {
@@ -104,6 +105,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
 	b.mux.HandleFunc("POST /supervisor/interrupt", b.simple("interrupt"))
 	b.mux.HandleFunc("POST /supervisor/force", b.simple("force"))
+	b.mux.HandleFunc("POST /attempt/{ref}/keys", b.attemptKeys)
 	b.mux.HandleFunc("POST /supervisor/keys", b.keys)
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
@@ -152,6 +154,13 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+func (b *Board) now() time.Time {
+	if b.o.Now != nil {
+		return b.o.Now()
+	}
+	return time.Now()
 }
 
 func Proof(token, nonce string) string {

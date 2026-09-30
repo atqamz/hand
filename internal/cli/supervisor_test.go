@@ -523,22 +523,22 @@ func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
 func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
-	control := cli.SupervisorControl(h.env(&out, &errOut), h.home)
+	control := cli.Control(h.env(&out, &errOut), h.home)
 	ctx := context.Background()
-	if err := control(ctx, "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
+	if err := control(ctx, "supervisor", "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
 		t.Fatalf("resume with none = %v", err)
 	}
-	if err := control(ctx, "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
+	if err := control(ctx, "supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
 		t.Fatalf("path in error = %v", err)
 	}
 	startClaudeSupervisor(h)
-	if err := control(ctx, "send", "--text", "hi"); err != nil {
+	if err := control(ctx, "supervisor", "send", "--text", "hi"); err != nil {
 		t.Fatal(err)
 	}
 	if got := rt.prompts(); !slices.Equal(got, []string{"hi"}) {
 		t.Fatalf("prompts = %q", got)
 	}
-	if err := control(ctx, "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
+	if err := control(ctx, "supervisor", "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("bad key = %v", err)
 	}
 	if out.Len() != 0 || errOut.Len() != 0 {

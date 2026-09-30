@@ -19,12 +19,12 @@ func (e controlError) Error() string { return e.msg }
 
 func (e controlError) Unwrap() error { return e.kind }
 
-func supervisorControl(env Env, home string) func(context.Context, ...string) error {
+func control(env Env, home string) func(context.Context, ...string) error {
 	return func(ctx context.Context, args ...string) error {
 		var stderr bytes.Buffer
 		run := env
 		run.Stdout, run.Stderr, run.Context = io.Discard, &stderr, ctx
-		code := Run(append([]string{"--home", home, "supervisor"}, args...), run)
+		code := Run(append([]string{"--home", home}, args...), run)
 		if code == 0 {
 			return nil
 		}

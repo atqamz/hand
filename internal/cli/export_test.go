@@ -1,3 +1,3 @@
 package cli
 
-var SupervisorControl = supervisorControl
+var Control = control
