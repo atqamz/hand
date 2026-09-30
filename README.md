@@ -269,7 +269,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor interrupt` | Press Escape in the supervisor's terminal. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. |
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
-| `hand open [REF] [--pr]` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. |
+| `hand open [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. |
 | `hand version` | Print the version. |
