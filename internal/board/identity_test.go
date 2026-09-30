@@ -429,3 +429,20 @@ func TestTheSubmitterIsReadBeforeButtonsAreDisabled(t *testing.T) {
 		t.Fatal("app.js disables the buttons before it reads the pressed key, so the key never reaches the server")
 	}
 }
+
+func TestNotificationsReadTheFreshWorstItem(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "const heldWorst = (html) =>", "count(Number(m[1]), heldWorst(html))", "const notify = (n, text) =>")
+}
+
+func TestNoSidewaysScrollOnPhone(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "wrapping", css, ".copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}", "text-overflow:ellipsis}")
+	i := strings.Index(css, ".fleet-name{")
+	if i < 0 || !strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "text-overflow:ellipsis") {
+		t.Fatal("the fleet name does not truncate first")
+	}
+	if regexp.MustCompile(`(?:^|\n)(?:html|body)\{[^}]*\bwidth:`).MatchString(css) {
+		t.Fatal("html or body carries a fixed width")
+	}
+}

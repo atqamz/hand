@@ -91,6 +91,7 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .wait>summary .code{background:var(--bg)}
 .wait>summary::-webkit-details-marker{display:none}
 .wait>summary:hover .wait-title{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
+.copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}
 .wait-title{order:2;flex:1 0 100%;min-width:0;color:var(--fg);font-size:16px;font-weight:600;line-height:22px}
 .wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .slug>*:not(:last-child)::after{content:"·";display:inline-block;margin-left:10px;color:var(--line)}

@@ -86,13 +86,14 @@
 		title();
 	};
 
-	const notify = (n) => {
+	const notify = (n, text) => {
 		if (!("Notification" in window) || Notification.permission !== "granted" || document.visibilityState === "visible") return;
-		new Notification(fleet, { body: worst().worstText || `${n} waiting for you`, tag: base || fleet });
+		new Notification(fleet, { body: text || `${n} waiting for you`, tag: base || fleet });
 	};
 
-	const count = (n) => {
-		if (n > waiting) notify(n);
+	const heldWorst = (html) => new DOMParser().parseFromString(html, "text/html").querySelector("[data-worst]")?.dataset.worstText || "";
+	const count = (n, text = worst().worstText) => {
+		if (n > waiting) notify(n, text);
 		waiting = n;
 		title();
 	};
@@ -104,7 +105,7 @@
 		if (typing(el)) {
 			held.set(name, html);
 			const m = name === "queue" && /data-waiting="(\d+)"/.exec(html);
-			if (m) count(Number(m[1]));
+			if (m) count(Number(m[1]), heldWorst(html));
 			return;
 		}
 		held.delete(name);
