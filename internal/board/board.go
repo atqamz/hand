@@ -103,6 +103,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /supervisor/resume", b.simple("resume"))
 	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
 	b.mux.HandleFunc("POST /supervisor/interrupt", b.simple("interrupt"))
+	b.mux.HandleFunc("POST /supervisor/force", b.simple("force"))
 	b.mux.HandleFunc("POST /supervisor/keys", b.keys)
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)

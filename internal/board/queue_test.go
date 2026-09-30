@@ -137,7 +137,7 @@ func TestTheBlockedScreenJoinsTheQueue(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	body := get(t, fx.handler(), "/")
 	q := region(body, "queue")
-	contains(t, "blocked item", q, `data-kind="blocked"`, "Trust this folder?", "❯ 1. Yes", `action="/supervisor/keys" data-fetch`)
+	contains(t, "blocked item", q, `data-kind="blocked"`, "Trust this folder?", "❯ 1. Yes", `action="/supervisor/keys" data-fetch`, `action="/supervisor/force" data-fetch`)
 	if n := strings.Count(q, `name="revision" value="7"`); n != len(state.SupervisorKeys) {
 		t.Fatalf("key forms with the revision = %d, want %d", n, len(state.SupervisorKeys))
 	}
@@ -145,7 +145,7 @@ func TestTheBlockedScreenJoinsTheQueue(t *testing.T) {
 	fx.options.Controls = false
 	q = region(get(t, fx.handler(), "/"), "queue")
 	contains(t, "read-only blocked item", q, "❯ 1. Yes")
-	lacks(t, "read-only blocked item", q, `action="/supervisor/keys"`)
+	lacks(t, "read-only blocked item", q, `action="/supervisor/keys"`, `action="/supervisor/force"`)
 }
 
 func TestFailingChecksComeAndGo(t *testing.T) {

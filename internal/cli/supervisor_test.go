@@ -753,3 +753,54 @@ func TestAnUnknownRelaunchDoesNotPromiseResume(t *testing.T) {
 		t.Fatalf("unknown relaunch code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) {
+		rt.status, rt.hint, rt.revision, rt.ready = "blocked", "⏵⏵ bypass permissions on · ⧉ players", 9, false
+		rt.screen = "✻ Worked for 11s\n────\n❯\u00a0\n────\n  ⏵⏵ bypass permissions on · ⧉ players"
+	})
+	has(t, "send", h.ok("supervisor", "send", "--text", "1. MIT\n2. yes"), "delivered: no")
+	has(t, "force", h.ok("supervisor", "force"), "typed: 1")
+	want := []string{"1", ".", " ", "M", "I", "T", "\\", "enter", "2", ".", " ", "y", "e", "s", "enter"}
+	if got := rt.keysSent(); !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "pending: 0")
+	if len(rt.prompts()) != 0 {
+		t.Fatalf("force pasted %q instead of typing", rt.prompts())
+	}
+}
+
+func TestSupervisorForceTypesTheWakesWhenNoMessageWaits(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("project", "add", "hand", "/home/me/hand")
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("decision", "ask", "t1", "Keep it?")
+	h.ok("decision", "answer", "d1", "yes")
+	rt.set(func(rt *fakeRuntime) {
+		rt.status, rt.revision, rt.ready, rt.screen = "blocked", 4, false, "────\n❯ \n────"
+	})
+	has(t, "force", h.ok("supervisor", "force"), "typed: 1")
+	typed := strings.ReplaceAll(strings.Join(rt.keysSent(), ""), "\\enter", "\n")
+	if !strings.HasPrefix(typed, "[hand v1 wake]\ndecision.answered d1") || !strings.HasSuffix(typed, "enter") {
+		t.Fatalf("typed = %q", typed)
+	}
+	has(t, "force again", h.ok("supervisor", "force"), "typed: 0")
+}
+
+func TestSupervisorForceNeverTypesIntoARealQuestion(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.ready = "blocked", "Do you want to proceed?", false })
+	h.ok("supervisor", "send", "--text", "1")
+	if _, errOut, code := h.run("supervisor", "force"); code != 3 || !strings.Contains(errOut, "no empty prompt") {
+		t.Fatalf("force on a real question: code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); len(got) != 0 {
+		t.Fatalf("force typed %q into a real question", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
+}
