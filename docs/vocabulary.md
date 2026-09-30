@@ -232,7 +232,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Board
 
-`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/` lists the fleets, and `/<fleet id>/` is one fleet's page. The default address is `127.0.0.1:7777` (`--addr`).
+`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`).
 
 A fleet's page has two tabs:
 

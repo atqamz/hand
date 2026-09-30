@@ -35,8 +35,8 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 ## Requirements
 
 - Linux.
-- Go 1.26.5 and git, to build Hand and to make worktrees.
-- Luvus 0.14.x, with `luvus` on `PATH`. Hand speaks its UHP 1.x protocol.
+- Go 1.26.5 or newer and git, to build Hand and to make worktrees.
+- Luvus, with `luvus` on `PATH`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
 
@@ -164,13 +164,14 @@ Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's reposi
 
 ## Keep the watcher and the board running
 
-Each fleet has its own watcher. From inside the fleet folder:
+Each fleet has its own watcher, so give each fleet's unit its own name. From inside the fleet folder:
 
 ```sh
+name=demo
 mkdir -p ~/.config/systemd/user
-hand unit watch > ~/.config/systemd/user/secondhand-watch-demo.service
+hand unit watch > ~/.config/systemd/user/secondhand-watch-$name.service
 systemctl --user daemon-reload
-systemctl --user enable --now secondhand-watch-demo
+systemctl --user enable --now secondhand-watch-$name
 ```
 
 One board serves every fleet. Install it once, from any folder:
