@@ -79,7 +79,7 @@ A fleet home holds:
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, and `board.addr` records where the running board listens.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, and `board.addr` records where the running board listens.
 
 ### Operator memory
 

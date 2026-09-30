@@ -34,14 +34,16 @@ func (r *runner) luvusBin() (string, error) {
 		return "", err
 	}
 	pin, ok, err := luvus.LoadPin(root)
-	if err != nil {
-		return "", err
+	if err == nil && ok {
+		err = pin.Verify()
 	}
-	if !ok {
-		return harness.LookPath("luvus", r.env.Getenv("PATH"))
-	}
-	if err := pin.Verify(); err != nil {
+	switch {
+	case errors.Is(err, luvus.ErrPinChanged):
 		return "", fmt.Errorf("%w: %w", state.ErrConflict, err)
+	case err != nil:
+		return "", err
+	case !ok:
+		return harness.LookPath("luvus", r.env.Getenv("PATH"))
 	}
 	return pin.Path, nil
 }
@@ -76,6 +78,14 @@ func cmdLuvusPin(r *runner, args []string) error {
 		return err
 	}
 	prev, had, err := luvus.LoadPin(root)
+	previous := pinLabel(prev, had)
+	switch {
+	case errors.Is(err, luvus.ErrPinChanged):
+		previous = "unreadable"
+	case err != nil:
+		return err
+	}
+	unit, err := r.fleetUnit()
 	if err != nil {
 		return err
 	}
@@ -91,13 +101,9 @@ func cmdLuvusPin(r *runner, args []string) error {
 	d.Field("path", pin.Path)
 	d.Field("sha256", pin.SHA256)
 	d.Field("source", pin.Source)
-	d.Field("previous", pinLabel(prev, had))
-	help := []string{"The running server keeps its binary until it restarts; check it with `hand luvus show`"}
-	restart, err := r.serverFields(&d, pin, true)
-	if err != nil {
-		return err
-	}
-	d.Help(append(help, restart...)...)
+	d.Field("previous", previous)
+	help := []string{"The running server keeps its binary until it restarts, and `hand attach` refuses a server of another version until the server restarts; check it with `hand luvus show`"}
+	d.Help(append(help, r.serverFields(&d, unit, pin, true)...)...)
 	return r.print(&d)
 }
 
@@ -113,38 +119,44 @@ func cmdLuvusShow(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	var d toon.Doc
-	d.Field("pin", pinLabel(pin, had))
-	help, err := r.serverFields(&d, pin, had)
+	unit, err := r.fleetUnit()
 	if err != nil {
 		return err
 	}
-	d.Help(help...)
+	var d toon.Doc
+	d.Field("pin", pinLabel(pin, had))
+	d.Help(r.serverFields(&d, unit, pin, had)...)
 	return r.print(&d)
 }
 
-func (r *runner) serverFields(d *toon.Doc, pin luvus.Pin, pinned bool) ([]string, error) {
-	if r.needHome() != nil {
-		return nil, nil
+func (r *runner) fleetUnit() (string, error) {
+	if r.home == "" && r.homeErr == nil {
+		return "", nil
 	}
 	st, err := r.store()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	_ = st.Close()
-	unit := fleet.LuvusUnit(r.fleet.ID)
-	exe, known := luvus.ServerExe(r.ctx(), r.env.Environ(), unit)
-	server := exe
+	return fleet.LuvusUnit(r.fleet.ID), nil
+}
+
+func (r *runner) serverFields(d *toon.Doc, unit string, pin luvus.Pin, pinned bool) []string {
+	if unit == "" {
+		return nil
+	}
+	srv, known := luvus.RunningServer(r.ctx(), r.env.Environ(), unit)
+	server := srv.Exe
 	if !known {
 		server = "unknown"
 	}
-	match := serverMatch(pin, pinned, exe, known)
+	match := serverMatch(pin, pinned, srv, known)
 	d.Field("server", server)
 	d.Field("match", match)
 	if match != "no" {
-		return nil, nil
+		return nil
 	}
-	return []string{"At a quiet time, stop the server with `systemctl --user stop " + unit + ".service` (this ends every live pane); the next hand command starts the pinned copy; then resume the supervisor"}, nil
+	return []string{"At a quiet time, pin the Luvus you want, then stop the server with `systemctl --user stop " + unit + ".service` (this ends every live pane); the next hand command starts the pinned copy; then resume the supervisor"}
 }
 
 func pinLabel(p luvus.Pin, ok bool) string {
@@ -154,11 +166,11 @@ func pinLabel(p luvus.Pin, ok bool) string {
 	return p.Version + " " + p.Path
 }
 
-func serverMatch(pin luvus.Pin, pinned bool, exe string, known bool) string {
+func serverMatch(pin luvus.Pin, pinned bool, srv luvus.Server, known bool) string {
 	switch {
-	case !pinned || !known:
+	case !pinned || !known || srv.SHA256 == "":
 		return "unknown"
-	case exe == pin.Path:
+	case srv.SHA256 == pin.SHA256:
 		return "yes"
 	}
 	return "no"

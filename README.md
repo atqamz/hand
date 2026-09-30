@@ -158,6 +158,7 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleet
 ~/.secondhand/
 ├── fleets/<fleet id>                  link to the fleet folder
 ├── worktrees/<fleet id>/tN-aN/        one worktree per attempt
+├── luvus/                             pinned Luvus copies and pin.json
 └── board.addr                         where the running board listens
 ```
 

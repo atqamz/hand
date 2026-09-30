@@ -17,7 +17,7 @@ import (
 
 var (
 	ErrNotLuvus   = errors.New("not a luvus binary")
-	ErrPinChanged = errors.New("pinned luvus changed on disk")
+	ErrPinChanged = errors.New("luvus pin")
 )
 
 type Pin struct {
@@ -42,7 +42,7 @@ func LoadPin(root string) (Pin, bool, error) {
 	}
 	var p Pin
 	if err := json.Unmarshal(b, &p); err != nil {
-		return Pin{}, false, fmt.Errorf("read %s: %w", pinFile(root), err)
+		return Pin{}, false, fmt.Errorf("%w: cannot read %s (%v); re-pin with `hand luvus pin`", ErrPinChanged, pinFile(root), err)
 	}
 	return p, true, nil
 }
@@ -63,9 +63,8 @@ func BinaryVersion(ctx context.Context, bin string, env []string) (string, error
 }
 
 func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (Pin, error) {
-	version, err := BinaryVersion(ctx, bin, env)
-	if err != nil {
-		return Pin{}, err
+	if fi, err := os.Stat(bin); err != nil || !fi.Mode().IsRegular() || fi.Mode()&0o111 == 0 {
+		return Pin{}, fmt.Errorf("%w: %s is not an executable file", ErrNotLuvus, bin)
 	}
 	store := filepath.Join(root, "luvus")
 	if err := os.MkdirAll(store, 0o755); err != nil {
@@ -76,6 +75,10 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 		return Pin{}, err
 	}
 	defer os.Remove(tmp)
+	version, err := BinaryVersion(ctx, tmp, env)
+	if err != nil {
+		return Pin{}, fmt.Errorf("%w (copied from %s)", err, bin)
+	}
 	dest := filepath.Join(store, version+"-"+hash[:8], "luvus")
 	if have, err := fileSum(dest); err != nil || have != hash {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -91,7 +94,7 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 
 func (p Pin) Verify() error {
 	if have, err := fileSum(p.Path); err != nil || have != p.SHA256 {
-		return fmt.Errorf("%w: pinned luvus %s changed on disk; re-pin with `hand luvus pin`", ErrPinChanged, p.Path)
+		return fmt.Errorf("%w: %s changed on disk; re-pin with `hand luvus pin`", ErrPinChanged, p.Path)
 	}
 	return nil
 }

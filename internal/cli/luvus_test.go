@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -41,6 +43,7 @@ func pinnedPath(t *testing.T, out string) string {
 
 func TestLuvusPinCopiesTheBinaryOnPath(t *testing.T) {
 	h := newHarness(t)
+	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
 	script := pinnable(t, h, "0.14.3")
 	out := h.ok("luvus", "pin")
 	has(t, "first pin", out, "version: 0.14.3", "source: "+script, "previous: none", "path: "+filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-"))
@@ -51,6 +54,7 @@ func TestLuvusPinCopiesTheBinaryOnPath(t *testing.T) {
 
 func TestLuvusPinRefusals(t *testing.T) {
 	h := newHarness(t)
+	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
 	pinnable(t, h, "0.14.3")
 	current := pinnedPath(t, h.ok("luvus", "pin"))
 	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
@@ -136,6 +140,33 @@ func TestTheServerStartsFromThePin(t *testing.T) {
 	}
 }
 
+func TestTheServerRefusesAChangedPin(t *testing.T) {
+	h := initWithProject(t)
+	bin := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "calls")
+	for name, script := range map[string]string{
+		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\nexit 1\n",
+		"systemctl":   "#!/bin/sh\nexit 0\n",
+		"luvus":       "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus 0.14.3'; exit 0; fi\necho LUVUS-SPAWNED-DIRECTLY >> " + calls + "\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.vars["PATH"] = bin
+	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "absent.sock")
+	pinned := pinnedPath(t, h.ok("luvus", "pin"))
+	if err := os.Remove(pinned); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("attempt", "list"); code != 3 || !strings.Contains(errOut, "changed on disk; re-pin with") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got, _ := os.ReadFile(calls); len(got) != 0 {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
 func TestInitPinsTheLuvusOnPath(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
@@ -193,21 +224,94 @@ func fakeUserManager(t *testing.T, h *harness, pid int) {
 }
 
 func TestServerMatch(t *testing.T) {
-	pin := luvus.Pin{Path: "/s/luvus/0.14.3-abcdef12/luvus"}
+	pin := luvus.Pin{Path: "/s/luvus/0.14.2-abcdef12/luvus", SHA256: "abcdef12aa"}
 	for _, c := range []struct {
 		pinned, known bool
-		exe, want     string
+		srv           luvus.Server
+		want          string
 	}{
-		{false, true, pin.Path, "unknown"},
-		{true, false, "", "unknown"},
-		{true, true, pin.Path, "yes"},
-		{true, true, "/usr/bin/luvus", "no"},
-		{true, true, pin.Path + " (deleted)", "no"},
+		{false, true, luvus.Server{Exe: pin.Path, SHA256: pin.SHA256}, "unknown"},
+		{true, false, luvus.Server{}, "unknown"},
+		{true, true, luvus.Server{Exe: "/usr/bin/luvus"}, "unknown"},
+		{true, true, luvus.Server{Exe: "/usr/bin/luvus", SHA256: pin.SHA256}, "yes"},
+		{true, true, luvus.Server{Exe: "/usr/bin/luvus (deleted)", SHA256: pin.SHA256}, "yes"},
+		{true, true, luvus.Server{Exe: "/usr/bin/luvus (deleted)", SHA256: "0123"}, "no"},
+		{true, true, luvus.Server{Exe: pin.Path, SHA256: "0123"}, "no"},
 	} {
-		if got := cli.ServerMatch(pin, c.pinned, c.exe, c.known); got != c.want {
+		if got := cli.ServerMatch(pin, c.pinned, c.srv, c.known); got != c.want {
 			t.Fatalf("%+v: got %q", c, got)
 		}
 	}
+}
+
+func TestLuvusShowMatchesTheServerByContent(t *testing.T) {
+	h := newHarness(t)
+	h.vars["PATH"] = t.TempDir()
+	fakeUserManager(t, h, os.Getpid())
+	h.ok("init")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	pin := `{"path":"/elsewhere/luvus","sha256":"` + hex.EncodeToString(sum[:]) + `","version":"0.14.2","source":"/usr/bin/luvus","pinned_at":"2026-10-01T00:00:00Z"}`
+	if err := os.MkdirAll(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json"), []byte(pin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "show", h.ok("luvus", "show"), "server: "+self, "match: yes")
+}
+
+func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
+	h := newHarness(t)
+	pinnable(t, h, "0.14.3")
+	h.ok("init")
+	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
+	before, err := os.ReadFile(pinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := h.home
+	h.home = filepath.Join(t.TempDir(), "moved")
+	if err := os.Rename(old, h.home); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")); code != 3 || !strings.Contains(errOut, "moved here from") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if after, err := os.ReadFile(pinFile); err != nil || string(after) != string(before) {
+		t.Fatalf("pin.json changed: %v", err)
+	}
+}
+
+func TestLuvusShowReportsABadHome(t *testing.T) {
+	h := newHarness(t)
+	if _, _, code := h.run("--home", filepath.Join(t.TempDir(), "typo"), "luvus", "show"); code != 3 {
+		t.Fatalf("code = %d", code)
+	}
+}
+
+func TestAnUnreadablePinCanBeReplaced(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	if err := os.MkdirAll(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.tty = true
+	if _, errOut, code := h.run("attach", "supervisor"); code != 3 || !strings.Contains(errOut, "re-pin with") {
+		t.Fatalf("attach code=%d stderr=%q", code, errOut)
+	}
+	pinnable(t, h, "0.14.3")
+	has(t, "re-pin", h.ok("luvus", "pin"), "version: 0.14.3", "previous: unreadable")
 }
 
 func TestLuvusShowReadsTheRunningServer(t *testing.T) {
@@ -224,7 +328,7 @@ func TestLuvusShowReadsTheRunningServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 "+pin.Path, "server: "+self, "match: no", "systemctl --user stop secondhand-luvus-")
-	has(t, "pin", h.ok("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")), "server: "+self, "match: no")
+	has(t, "pin", h.ok("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")), "server: "+self, "match: no", "`hand attach` refuses a server of another version", "until the server restarts")
 }
 
 func TestLuvusShowOutsideAFleet(t *testing.T) {

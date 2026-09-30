@@ -162,6 +162,31 @@ func TestVerifyNoticesAChangedCopy(t *testing.T) {
 	}
 }
 
+func TestKeepReadsTheVersionOfTheCopy(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "luvus")
+	script := "#!/bin/sh\ncase \"$0\" in */.luvus-*) echo 'luvus 0.14.3';; *) echo 'luvus 0.14.2';; esac\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := luvus.Keep(context.Background(), t.TempDir(), bin, nil, pinnedAt)
+	if err != nil || pin.Version != "0.14.3" {
+		t.Fatalf("pin = %+v, %v", pin, err)
+	}
+}
+
+func TestAnUnreadablePinSaysHowToRecover(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "luvus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadPin(root); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "re-pin with `hand luvus pin`") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestLoadPinWithoutAPin(t *testing.T) {
 	if pin, ok, err := luvus.LoadPin(t.TempDir()); pin != (luvus.Pin{}) || ok || err != nil {
 		t.Fatalf("LoadPin = %+v %v %v", pin, ok, err)

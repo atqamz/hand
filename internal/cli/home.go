@@ -280,7 +280,7 @@ func cmdInit(r *runner, args []string) error {
 		"Register a repository: `hand project add NAME ABSOLUTE_REPO_PATH`"}
 	switch pin, had, err := luvus.LoadPin(root); {
 	case err != nil:
-		help = append(help, "Luvus was not pinned ("+err.Error()+"); pin it with `hand luvus pin`")
+		help = append(help, "The Luvus pin is unusable: "+err.Error())
 	case had:
 		d.Field("luvus", pin.Version+" (pinned)")
 	default:
