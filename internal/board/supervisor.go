@@ -110,8 +110,8 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		if b.o.Transcript != nil {
 			b.conversation(ctx, sup, ok)
 			st := b.o.Transcript.Status(sup.Harness, sup.Session)
-			text, level := gauge(st)
-			data["Gauge"], data["Compactions"] = map[string]string{"Text": text, "Level": level}, st.Compactions
+			text, level, pct := gauge(st)
+			data["Gauge"], data["Compactions"] = map[string]any{"Text": text, "Level": level, "Pct": pct}, st.Compactions
 		}
 		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
@@ -127,7 +127,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 	}
 	label, _ := data["PillLabel"].(string)
-	data["Line"] = lineWord(label)
+	data["Line"] = strings.ToLower(lineWord(label))
 	return nil
 }
 
@@ -141,23 +141,23 @@ func lineWord(label string) string {
 	return strings.ToUpper(label)
 }
 
-func gauge(s transcript.Status) (string, string) {
+func gauge(s transcript.Status) (string, string, int) {
 	if s.Context <= 0 {
-		return "", ""
+		return "", "", 0
 	}
-	text := "CTX " + short(s.Context)
+	text := short(s.Context)
 	if s.Window <= 0 {
-		return text, ""
+		return text, "", 0
 	}
 	pct := int(math.Round(float64(s.Context) * 100 / float64(s.Window)))
-	text += " / " + short(s.Window) + " · " + strconv.Itoa(pct) + "%"
+	text += " / " + short(s.Window)
 	switch {
 	case pct >= 90:
-		return text + " COMPACT SOON", "fail"
+		return text + " · compact soon", "fail", pct
 	case pct >= 80:
-		return text, "warn"
+		return text, "warn", pct
 	}
-	return text, ""
+	return text, "", pct
 }
 
 func short(n int64) string {

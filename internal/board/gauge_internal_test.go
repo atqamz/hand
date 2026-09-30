@@ -11,22 +11,24 @@ func TestGaugeFormat(t *testing.T) {
 	for _, c := range []struct {
 		in          transcript.Status
 		text, level string
+		pct         int
 	}{
-		{transcript.Status{}, "", ""},
-		{transcript.Status{Context: 508311}, "CTX 508K", ""},
-		{transcript.Status{Context: 1234567}, "CTX 1.23M", ""},
-		{transcript.Status{Context: 72479, Window: 258400}, "CTX 72.5K / 258K · 28%", ""},
-		{transcript.Status{Context: 210000, Window: 258400}, "CTX 210K / 258K · 81%", "warn"},
-		{transcript.Status{Context: 240000, Window: 258400}, "CTX 240K / 258K · 93% COMPACT SOON", "fail"},
-		{transcript.Status{Context: 950}, "CTX 950", ""},
+		{transcript.Status{}, "", "", 0},
+		{transcript.Status{Context: 508311}, "508K", "", 0},
+		{transcript.Status{Context: 1234567}, "1.23M", "", 0},
+		{transcript.Status{Context: 72479, Window: 258400}, "72.5K / 258K", "", 28},
+		{transcript.Status{Context: 210000, Window: 258400}, "210K / 258K", "warn", 81},
+		{transcript.Status{Context: 240000, Window: 258400}, "240K / 258K · compact soon", "fail", 93},
+		{transcript.Status{Context: 508139, Window: 1_000_000}, "508K / 1M", "", 51},
+		{transcript.Status{Context: 950}, "950", "", 0},
 	} {
-		if text, level := gauge(c.in); text != c.text || level != c.level {
-			t.Errorf("gauge(%+v) = %q %q, want %q %q", c.in, text, level, c.text, c.level)
+		if text, level, pct := gauge(c.in); text != c.text || level != c.level || pct != c.pct {
+			t.Errorf("gauge(%+v) = %q %q %d, want %q %q %d", c.in, text, level, pct, c.text, c.level, c.pct)
 		}
 	}
 }
 
-func TestDispatchesNameTheSupervisorOfTheirTime(t *testing.T) {
+func TestChatItemsNameTheSupervisorOfTheirTime(t *testing.T) {
 	sups := []state.Supervisor{{ID: 1, CreatedAt: "2026-09-29T10:00:00Z"}, {ID: 2, CreatedAt: "2026-09-29T11:00:00.5Z"}}
 	for at, want := range map[string]string{
 		"2026-09-29T09:59:00Z":     "s1",

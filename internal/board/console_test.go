@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -43,16 +44,16 @@ func TestTheLiveStripNamesTheLine(t *testing.T) {
 				}
 			}
 			strip := region(get(t, fx.handler(), "/"), "status")
-			contains(t, c.name, strip, `<span class="lamp" data-state="`+c.lamp+`"></span><span class="line">`+c.line+`</span>`)
+			contains(t, c.name, strip, `<span class="pill" data-state="`+c.lamp+`">`, `<span class="word">`+strings.ToLower(c.line)+`</span>`)
 			if c.status == state.AttemptRunning {
-				contains(t, c.name, strip, "S1 SONNET · LOW")
+				contains(t, c.name, strip, `<span class="who">s1 · sonnet low</span>`)
 			}
 		})
 	}
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("hi"), usageRecord(508139)})
-	contains(t, "gauge", region(get(t, fx.handler(), "/"), "status"), `<span class="gauge" data-level="">CTX 508K</span>`)
+	contains(t, "gauge", region(get(t, fx.handler(), "/"), "status"), `<span class="ctx live" data-level=""`, `<span class="n">508K / 1M</span>`)
 }
 
 func TestTheConsoleCarriesTheControls(t *testing.T) {
@@ -104,7 +105,7 @@ func TestConsoleMenusKeepIdsAndFields(t *testing.T) {
 func TestTheConsoleWorksWithoutJS(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	console := region(get(t, fx.handler(), "/"), "console")
+	console := regexp.MustCompile(`<button type="button" id="notify" hidden>[^<]*</button>`).ReplaceAllString(region(get(t, fx.handler(), "/"), "console"), "")
 	lacks(t, "console", console, `type="button"`)
 	if forms, buttons := strings.Count(console, `<form `), strings.Count(console, "<button"); forms == 0 || buttons != forms {
 		t.Fatalf("console has %d forms and %d buttons:\n%s", forms, buttons, console)
@@ -132,7 +133,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 	}
 	_ = f.Close()
 	for _, e := range collect(ch, 2*time.Second) {
-		if e.name == "status" && strings.Contains(e.data, "CTX 508K") {
+		if e.name == "status" && strings.Contains(e.data, "508K / 1M") {
 			return
 		}
 	}
@@ -152,5 +153,37 @@ func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
 	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "opencode", get(t, oc.handler(), "/"), `<span class="who">S1 OPENCODE</span>`, `<span class="model">OPENCODE</span>`)
+	contains(t, "opencode", get(t, oc.handler(), "/"), `<span class="who">s1 · opencode</span>`, `<span class="model">OPENCODE</span>`)
+}
+
+func TestTheMastheadNamesStateAndContext(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{userRecord("hi"), usageRecord(508139)})
+	body := get(t, fx.handler(), "/")
+	strip := region(body, "status")
+	contains(t, "masthead", strip, `class="pill" data-state="working"`, `<span class="word">working</span>`, `<svg class="icon"`, `<span class="who">s1 · sonnet low</span>`, `class="ctx live"`, `<meter`, `508K / 1M`)
+	lacks(t, "masthead", body, "data-clock-now", "CTX ")
+}
+
+func TestNotifyLivesInTheMenu(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/")
+	menu := body[strings.Index(body, `id="more-menu"`):]
+	menu = menu[:strings.Index(menu, "</details>")]
+	contains(t, "more menu", menu, `id="notify"`)
+	if strings.Count(body, `id="notify"`) != 1 {
+		t.Fatal("the page holds more than one notify button")
+	}
+}
+
+func TestThePhoneRowNamesTheWorstItem(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Trust this folder?"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `class="needs-count" href="#needs" data-worst="blocked"`, `<span class="n">1</span> blocked`)
+	calm := newFixture(t)
+	calm.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "calm", region(get(t, calm.handler(), "/"), "status"), `class="needs-count"`)
 }

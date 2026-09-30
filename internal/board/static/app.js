@@ -27,21 +27,13 @@
 	};
 
 	const local = (root) => {
-		for (const t of root.querySelectorAll("time[datetime]:not([data-since]):not([data-clock-now])")) {
+		for (const b of root.querySelectorAll("#notify")) b.hidden = !("Notification" in window) || Notification.permission !== "default";
+		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
 			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
-		}
-	};
-
-	const clock = () => {
-		const now = new Date();
-		for (const c of document.querySelectorAll("[data-clock-now]")) {
-			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-			c.title = now.toLocaleTimeString([], { timeZoneName: "long" });
-			c.dateTime = now.toISOString();
 		}
 	};
 
@@ -239,14 +231,11 @@
 		box.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 
-	const button = document.getElementById("notify");
-	if (button && "Notification" in window && Notification.permission === "default") {
-		button.hidden = false;
-		button.addEventListener("click", async () => {
-			await Notification.requestPermission();
-			button.hidden = Notification.permission !== "default";
-		});
-	}
+	document.addEventListener("click", async (e) => {
+		if (!(e.target instanceof Element) || !e.target.closest("#notify")) return;
+		await Notification.requestPermission();
+		local(document);
+	});
 
 	for (const k of document.querySelectorAll("[data-send-key]")) k.textContent = apple ? "⌘ Enter" : "Ctrl Enter";
 	document.addEventListener("keydown", (e) => {
@@ -299,11 +288,7 @@
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	since();
-	clock();
-	setInterval(() => {
-		since();
-		clock();
-	}, 30000);
+	setInterval(since, 30000);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) reflect();

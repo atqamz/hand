@@ -73,7 +73,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 
 func TestTheFirstRunState(t *testing.T) {
 	body := get(t, board.New(open(t), token, board.Options{Controls: true, Control: func(context.Context, ...string) error { return nil }}), "/")
-	contains(t, "first run", body, "Nothing needs you", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", "NO SUPERVISOR")
+	contains(t, "first run", body, "Nothing needs you", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", `<span class="word">no supervisor</span>`)
 }
 
 func TestTheReadOnlyBoard(t *testing.T) {
@@ -148,7 +148,7 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 	h := board.New(st, token, board.Options{})
 	for _, path := range []string{"/task/t1", "/decision/d1", "/supervisor/log"} {
 		body := get(t, h, path)
-		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="line">NO SUPERVISOR</span>`)
+		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="word">no supervisor</span>`)
 		lacks(t, path, body, `data-region="status"`)
 	}
 	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status" data-state="waiting">OPEN</span>`)

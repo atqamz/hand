@@ -260,8 +260,8 @@ func TestEverySlugStateHasItsColour(t *testing.T) {
 		}
 	}
 	for _, s := range []string{"ready", "working", "failing"} {
-		if !strings.Contains(css, ".lamp[data-state="+s+"]") {
-			t.Errorf("board.css has no colour for the %s lamp", s)
+		if !strings.Contains(css, ".pill[data-state="+s+"]") {
+			t.Errorf("board.css has no colour for the %s pill", s)
 		}
 	}
 }
@@ -283,7 +283,7 @@ func TestRepliesStyleTheirBlocks(t *testing.T) {
 func TestMotionHonoursReducedMotion(t *testing.T) {
 	css := asset(t, "board.css")
 	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
-	if i < 0 || !strings.Contains(css[i:], ".lamp{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
+	if i < 0 || !strings.Contains(css[i:], ".pill .icon{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
 		t.Fatal("the working pulse or the feed keeps moving under prefers-reduced-motion")
 	}
 	lacks(t, "motion", css, "printhead", "@keyframes carriage")

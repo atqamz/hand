@@ -187,3 +187,11 @@ func TestUnknownAndUnreadableRecords(t *testing.T) {
 		t.Fatalf("pattern sessionUUID err = %v", err)
 	}
 }
+
+func TestClaudeWindows(t *testing.T) {
+	for model, want := range map[string]int64{"claude-opus-5-5": 1_000_000, "claude-sonnet-5-5": 1_000_000, "claude-fable-5-1": 1_000_000, "claude-haiku-4-5-20251001": 200_000, "gpt-6": 0, "": 0} {
+		if got := claudeWindow(model); got != want {
+			t.Errorf("claudeWindow(%q) = %d, want %d", model, got, want)
+		}
+	}
+}

@@ -222,7 +222,7 @@ func TestClaudeStatusTracksUsageAndCompactions(t *testing.T) {
 	if _, err := r.Read(context.Background(), "claude", sessionUUID, "/f"); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.Status("claude", sessionUUID); got != (Status{Context: 508311, Compactions: 1}) {
+	if got := r.Status("claude", sessionUUID); got != (Status{Context: 508311, Window: 1_000_000, Compactions: 1}) {
 		t.Fatalf("status = %+v", got)
 	}
 }
