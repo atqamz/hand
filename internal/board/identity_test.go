@@ -239,7 +239,7 @@ func TestTheViewportLetsTheKeyboardResizeTheShell(t *testing.T) {
 func TestTheFaviconsAreHashedSVG(t *testing.T) {
 	body := get(t, newFixture(t).handler(), "/")
 	link := regexp.MustCompile(`<link rel="icon" href="(/static/favicon\.[0-9a-f]{12}\.svg)">`).FindStringSubmatch(body)
-	alt := regexp.MustCompile(`data-icon-working="(/static/favicon-working\.[0-9a-f]{12}\.svg)" data-icon-attention="(/static/favicon-attention\.[0-9a-f]{12}\.svg)"`).FindStringSubmatch(body)
+	alt := regexp.MustCompile(`data-icon-working="(/static/favicon-working\.[0-9a-f]{12}\.svg)" data-icon-attention="(/static/favicon-attention\.[0-9a-f]{12}\.svg)" data-icon-blocked="(/static/favicon-blocked\.[0-9a-f]{12}\.svg)"`).FindStringSubmatch(body)
 	if link == nil || alt == nil {
 		t.Fatalf("no favicon links:\n%s", body)
 	}

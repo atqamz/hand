@@ -18,7 +18,7 @@
 {{end}}{{if .Older}}<p class="older"><a href="{{.Base}}/supervisor/log?before={{.Older}}">Older messages</a></p>
 {{end}}{{end}}
 
-{{define "region-queue"}}<header class="queue-head"><h2>Needs you</h2> <span class="count" data-waiting="{{.Waiting}}">{{.Waiting}}</span></header>
+{{define "region-queue"}}<header class="queue-head" data-worst="{{.Worst}}" data-worst-text="{{.WorstText}}"><h2>Needs you</h2> <span class="count" data-waiting="{{.Waiting}}">{{.Waiting}}</span></header>
 {{if .Waits}}{{template "wait" (view $ (index .Waits 0) true)}}
 {{if gt (len .Waits) 1}}<div class="waits">{{range $i, $w := .Waits}}{{if $i}}{{template "wait" (view $ $w false)}}{{end}}{{end}}</div>
 {{end}}{{else}}<p class="quiet">Nothing needs you.</p>

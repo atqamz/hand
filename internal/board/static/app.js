@@ -63,14 +63,17 @@
 	const icon = document.querySelector("link[rel=icon]");
 	const plain = icon?.getAttribute("href");
 	const icons = document.querySelector("[data-icon-working]")?.dataset;
+	const worst = () => regions.get("queue")?.querySelector("[data-worst]")?.dataset ?? {};
+	const urgent = () => ["blocked", "worker"].includes(worst().worst);
 	const title = () => {
-		document.title = waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
+		const w = worst();
+		document.title = urgent() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
 		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
 		}
 		if (!icon || !icons) return;
-		const href = waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
+		const href = urgent() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
 		if (href && icon.getAttribute("href") !== href) icon.setAttribute("href", href);
 	};
 
@@ -80,13 +83,20 @@
 		agent = line.dataset.agent || "none";
 		for (const d of document.querySelectorAll("[data-agent-dot]")) d.hidden = agent !== "working";
 		const hint = document.querySelector("#composer .hint");
-		if (hint && line.dataset.hint) hint.textContent = line.dataset.hint;
+		if (hint && line.dataset.hint) {
+			if (agent === "blocked") {
+				const a = document.createElement("a");
+				a.href = "#needs";
+				a.textContent = line.dataset.hint;
+				hint.replaceChildren(a);
+			} else hint.textContent = line.dataset.hint;
+		}
 		title();
 	};
 
 	const notify = (n) => {
 		if (!("Notification" in window) || Notification.permission !== "granted" || document.visibilityState === "visible") return;
-		new Notification(fleet, { body: `${n} waiting for you`, tag: base || fleet });
+		new Notification(fleet, { body: worst().worstText || `${n} waiting for you`, tag: base || fleet });
 	};
 
 	const count = (n) => {

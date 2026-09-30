@@ -144,7 +144,8 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		excerpt, cut := excerptOf(r.Body)
+		_, rest, _ := strings.Cut(strings.TrimSpace(r.Body), "\n")
+		excerpt, cut := excerptOf(rest)
 		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: excerpt, Cut: cut})
 	}
 	total += unacked - len(unread)
@@ -174,6 +175,10 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
+	data["Worst"], data["WorstText"] = "", ""
+	if len(waits) > 0 {
+		data["Worst"], data["WorstText"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title)
+	}
 	return nil
 }
 

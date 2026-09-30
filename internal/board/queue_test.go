@@ -233,8 +233,8 @@ func TestLongWaitingContentIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
-	contains(t, "report excerpt", q, "line 12", `href="/task/t1#r1"`, "read more")
-	lacks(t, "report excerpt", q, "line 13")
+	contains(t, "report excerpt", q, "line 13", `href="/task/t1#r1"`, "read more")
+	lacks(t, "report excerpt", q, "line 14")
 	fx := newFixture(t)
 	fx.status = "blocked"
 	screen := make([]string, 60)
@@ -446,4 +446,28 @@ func TestTasksRowsNameTheAgentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), "A1 CLAUDE SONNET BLOCKED")
+}
+
+func TestTheQueueNamesItsWorstItem(t *testing.T) {
+	fx := newFixture(t)
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Do you want to proceed?"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "queue head", region(get(t, fx.handler(), "/"), "queue"), `data-worst="worker"`, `data-worst-text="a1 Do you want to proceed?"`)
+	calm := newFixture(t)
+	contains(t, "calm queue head", region(get(t, calm.handler(), "/"), "queue"), `data-worst=""`)
+}
+
+func TestAReportItemSplitsItsSummaryFromItsBody(t *testing.T) {
+	st := open(t)
+	a := attempt(t, st, active(t, st, "Fix login").ID, state.AttemptRunning, "")
+	if _, err := st.AddReport(context.Background(), a.ID, state.ReportDone, "Cookie fixed\nThe redirect now keeps the session."); err != nil {
+		t.Fatal(err)
+	}
+	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	contains(t, "report item", q, `<span class="wait-title">Cookie fixed</span>`, "The redirect now keeps the session.")
+	if strings.Count(q, ">Cookie fixed<") != 1 {
+		t.Fatalf("the summary repeats in the body:\n%s", q)
+	}
 }
