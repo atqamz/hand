@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
@@ -378,7 +379,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
 	first := strings.Split(fx.rt.prompts()[0], "\n")
-	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.blocked a1: q00" || first[50] != "attempt.blocked a1: q49" {
+	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.blocked a1: q00 (t1 \"Fix login\")" || first[50] != "attempt.blocked a1: q49 (t1 \"Fix login\")" {
 		t.Fatalf("first digest = %d lines: %q ... %q", len(first), first[0], first[len(first)-1])
 	}
 	eventually(t, func() bool {
@@ -388,7 +389,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
 	stop()
 	second := strings.Split(fx.rt.prompts()[1], "\n")
-	if len(second) != 11 || second[1] != "attempt.blocked a1: q50" || second[10] != "attempt.blocked a1: q59" {
+	if len(second) != 11 || second[1] != "attempt.blocked a1: q50 (t1 \"Fix login\")" || second[10] != "attempt.blocked a1: q59 (t1 \"Fix login\")" {
 		t.Fatalf("second digest = %q", second)
 	}
 	has(t, "show", fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d", events[59].Seq))
@@ -859,5 +860,22 @@ func TestSupervisorKeysAreRecorded(t *testing.T) {
 	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys"}, 10)
 	if err != nil || len(events) != 1 || events[0].Detail != "s1: enter" {
 		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
+func TestWakesNameTheTaskOnOneLine(t *testing.T) {
+	title := func(int64) string { return "Fix \"login\"\nnow" }
+	digest, last := cli.WakeDigest([]state.Event{{Seq: 3, Kind: "attempt.reported", TaskID: 1, Detail: "a1: r1 done"}, {Seq: 4, Kind: "decision.answered", Detail: "d1"}}, title)
+	want := "[hand v1 wake]\nattempt.reported a1: r1 done (t1 \"Fix 'login' now\")\ndecision.answered d1"
+	if digest != want || last != 4 {
+		t.Fatalf("digest = %q (last %d), want %q", digest, last, want)
+	}
+	var many []state.Event
+	for i := range 50 {
+		many = append(many, state.Event{Seq: int64(i + 1), Kind: "attempt.blocked", TaskID: 1, Detail: "a1: " + strings.Repeat("q", 400)})
+	}
+	long := func(int64) string { return strings.Repeat("t", 200) }
+	if digest, _ := cli.WakeDigest(many, long); len(digest) > hh.MaxPromptBytes || strings.Count(digest, "\n") < 1 || !strings.Contains(digest, strings.Repeat("t", 60)+"…") || strings.Contains(digest, strings.Repeat("t", 61)) {
+		t.Fatalf("a long digest is %d bytes", len(digest))
 	}
 }

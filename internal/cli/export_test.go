@@ -1,3 +1,6 @@
 package cli
 
-var Control = control
+var (
+	Control    = control
+	WakeDigest = wakeDigest
+)

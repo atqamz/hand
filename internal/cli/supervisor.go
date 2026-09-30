@@ -747,7 +747,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if err != nil || len(events) == 0 {
 		return "", err
 	}
-	digest, last := wakeDigest(events)
+	digest, last := wakeDigest(events, taskTitles(ctx, st))
 	if err := c.Prompt(ctx, sup.PaneID, digest); err != nil {
 		if luvus.Code(err) == "" {
 			return "", runtimeErr(err)
@@ -757,17 +757,18 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	return "", st.AdvanceWakeCursor(ctx, sup.ID, last)
 }
 
-func wakeDigest(events []state.Event) (string, int64) {
+func wakeDigest(events []state.Event, title func(taskID int64) string) (string, int64) {
 	var b strings.Builder
 	b.WriteString(wakeHeader)
 	var last int64
 	for _, e := range events {
-		line := "\n" + e.Kind + " " + strings.Map(func(ch rune) rune {
-			if unicode.IsControl(ch) {
-				return ' '
+		line := "\n" + e.Kind + " " + oneLine(e.Detail)
+		if t := strings.ReplaceAll(oneLine(title(e.TaskID)), `"`, "'"); e.TaskID != 0 && t != "" {
+			if r := []rune(t); len(r) > wakeTitleRunes {
+				t = string(r[:wakeTitleRunes]) + "…"
 			}
-			return ch
-		}, e.Detail)
+			line += " (" + state.TaskRef(e.TaskID) + ` "` + t + `")`
+		}
 		if b.Len()+len(line) > harness.MaxPromptBytes {
 			if last != 0 {
 				break
@@ -781,6 +782,35 @@ func wakeDigest(events []state.Event) (string, int64) {
 }
 
 const escGap = 300 * time.Millisecond
+
+const wakeTitleRunes = 60
+
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(strings.Map(func(ch rune) rune {
+		if unicode.IsControl(ch) {
+			return ' '
+		}
+		return ch
+	}, s)), " ")
+}
+
+func taskTitles(ctx context.Context, st *state.Store) func(int64) string {
+	seen := map[int64]string{}
+	return func(id int64) string {
+		if id == 0 {
+			return ""
+		}
+		if t, ok := seen[id]; ok {
+			return t
+		}
+		t, err := st.Task(ctx, id)
+		if err != nil {
+			return ""
+		}
+		seen[id] = t.Title
+		return t.Title
+	}
+}
 
 func cmdSupervisorForce(r *runner, args []string) error {
 	if _, err := parse(flags("supervisor force"), args, 0); err != nil {
@@ -859,7 +889,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	if len(events) == 0 {
 		return 0, "nothing waits for the supervisor", nil
 	}
-	digest, last := wakeDigest(events)
+	digest, last := wakeDigest(events, taskTitles(ctx, st))
 	if err := typeIn(ctx, c, sup, digest); err != nil {
 		return 0, "", err
 	}

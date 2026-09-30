@@ -59,5 +59,6 @@ Never end a chat reply with a question for the operator; ask every question with
 
 - After any gap, run `hand orient` again instead of recalling.
 - Keep chat short. The board shows everything, so point the operator to it.
+- Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.
 - Read a worker's terminal only when it is blocked, or quiet without a report.
 - Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.

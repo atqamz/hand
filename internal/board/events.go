@@ -88,6 +88,7 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 		return nil, err
 	}
 	data["Base"] = b.o.Base
+	data["Titles"] = b.refTitle(ctx)
 	out := make(map[string]string, len(regionNames))
 	for _, name := range regionNames {
 		var buf bytes.Buffer

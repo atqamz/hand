@@ -40,6 +40,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"asset":    assetURL,
 	"md":       markdown.Render,
 	"mdrefs":   markdown.RenderRefs,
+	"refs":     markdown.Refs,
 	"upper":    strings.ToUpper,
 	"when":     when,
 	"chips":    chips,
@@ -169,6 +170,49 @@ func chips(body string) []string {
 	return out
 }
 
+func (b *Board) refTitle(ctx context.Context) func(string) string {
+	seen := map[string]string{}
+	return func(ref string) string {
+		if t, ok := seen[ref]; ok {
+			return t
+		}
+		t := b.describe(ctx, ref)
+		seen[ref] = t
+		return t
+	}
+}
+
+func (b *Board) describe(ctx context.Context, ref string) string {
+	if len(ref) < 2 {
+		return ""
+	}
+	id, err := strconv.ParseInt(ref[1:], 10, 64)
+	if err != nil {
+		return ""
+	}
+	switch ref[0] {
+	case 't':
+		if t, err := b.st.Task(ctx, id); err == nil {
+			return t.Title
+		}
+	case 'a':
+		if a, err := b.st.Attempt(ctx, id); err == nil {
+			if t, err := b.st.Task(ctx, a.TaskID); err == nil {
+				return strings.Join(strings.Fields("on "+state.TaskRef(t.ID)+` "`+t.Title+`" · `+a.Harness+" "+a.Model), " ")
+			}
+		}
+	case 'd':
+		if d, err := b.st.Decision(ctx, id); err == nil {
+			return d.Headline()
+		}
+	case 'r':
+		if r, err := b.st.Report(ctx, id); err == nil {
+			return r.Summary()
+		}
+	}
+	return ""
+}
+
 func (b *Board) now() time.Time {
 	if b.o.Now != nil {
 		return b.o.Now()
@@ -188,6 +232,9 @@ func (b *Board) valid(t string) bool {
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
 	data["Base"] = b.o.Base
+	if _, ok := data["Titles"]; !ok {
+		data["Titles"] = b.refTitle(context.Background())
+	}
 	data["Fleet"] = "hand"
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"], data["FleetID"] = f.Name, f.ID

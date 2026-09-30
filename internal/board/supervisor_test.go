@@ -523,3 +523,12 @@ func TestChatKeepsAnEarlierSession(t *testing.T) {
 	contains(t, "older page", older, "old question", "old answer")
 	lacks(t, "older page", older, "new question")
 }
+
+func TestRefChipsCarryTheirTitle(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\nattempt.quiet a1: turn ended`), reply("t1 is done")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "timeline", tl, `href="/ref/t1" title="Fix login"`, `href="/ref/a1" title="on t1 &#34;Fix login&#34; · claude sonnet"`)
+}

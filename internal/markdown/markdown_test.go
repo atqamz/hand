@@ -93,7 +93,7 @@ func TestRenderRefs(t *testing.T) {
 		{"see test_d3.go and t1_done and t3.micro", `<p>see test_d3.go and t1_done and t3.micro</p>`},
 		{"t3. next", `<p>` + link("t3") + `. next</p>`},
 	} {
-		if got := string(markdown.RenderRefs(c.in, "/f1")); got != c.want {
+		if got := string(markdown.RenderRefs(c.in, "/f1", nil)); got != c.want {
 			t.Errorf("RenderRefs(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -101,7 +101,7 @@ func TestRenderRefs(t *testing.T) {
 		t.Errorf("Render links refs: %s", got)
 	}
 	for _, in := range seeds() {
-		if msg := active(string(markdown.RenderRefs(in+" t1 d2", "/f1"))); msg != "" {
+		if msg := active(string(markdown.RenderRefs(in+" t1 d2", "/f1", nil))); msg != "" {
 			t.Errorf("RenderRefs(%q): %s", in, msg)
 		}
 	}
@@ -254,5 +254,22 @@ func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
 		if d := time.Since(start); d > time.Second {
 			t.Errorf("Render of %d bytes of %q took %v", len(in), unit, d)
 		}
+	}
+}
+
+func TestRenderRefsAddsTitles(t *testing.T) {
+	title := func(ref string) string { return map[string]string{"t1": `Fix "login"`}[ref] }
+	got := string(markdown.RenderRefs("see t1 and a2", "/f1", title))
+	for _, want := range []string{`<a class="ref" href="/f1/ref/t1" title="Fix &#34;login&#34;">t1</a>`, `<a class="ref" href="/f1/ref/a2">a2</a>`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderRefs = %s, want %s", got, want)
+		}
+	}
+}
+
+func TestRefsLinksOneLineWithoutBlocks(t *testing.T) {
+	got := string(markdown.Refs("wake: attempt.quiet a7: <turn> ended", "", nil))
+	if got != `wake: attempt.quiet <a class="ref" href="/ref/a7">a7</a>: &lt;turn&gt; ended` {
+		t.Fatalf("Refs = %s", got)
 	}
 }
