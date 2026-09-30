@@ -83,52 +83,52 @@ func themes(t *testing.T) (light, dark string) {
 	return css[:start] + css[end:], css[start+len(marker) : end-1]
 }
 
+func rootTokens(t *testing.T, block string) map[string]string {
+	t.Helper()
+	root := block[strings.Index(block, ":root{"):]
+	root = root[:strings.IndexByte(root, '}')]
+	tokens := map[string]string{}
+	for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
+		tokens[m[1]] = m[2]
+	}
+	return tokens
+}
+
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	lightTokens := map[string]string{}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"muted", "bg"}, {"muted", "card"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
-		name, block := c.name, c.block
-		root := block[strings.Index(block, ":root{"):]
-		root = root[:strings.IndexByte(root, '}')]
-		tokens := map[string]string{}
-		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
-			tokens[m[1]] = m[2]
-		}
-		for _, fg := range []string{"fail", "wait", "pass", "neutral", "fg", "muted", "pencil", "flash"} {
-			for _, bg := range []string{"bg", "card"} {
-				if tokens[fg] == "" || tokens[bg] == "" {
-					t.Fatalf("%s theme lacks --%s or --%s", name, fg, bg)
-				}
-				if c := contrast(tokens[fg], tokens[bg]); c < 4.5 {
-					t.Errorf("%s: --%s on --%s = %.2f", name, fg, bg, c)
-				}
+		tokens := rootTokens(t, c.block)
+		for _, p := range pairs {
+			if tokens[p[0]] == "" || tokens[p[1]] == "" {
+				t.Fatalf("%s theme lacks --%s or --%s", c.name, p[0], p[1])
+			}
+			if r := contrast(tokens[p[0]], tokens[p[1]]); r < 4.5 {
+				t.Errorf("%s: --%s on --%s = %.2f", c.name, p[0], p[1], r)
 			}
 		}
-		for _, fg := range []string{"on-header", "on-header-muted", "h-pass", "h-wait", "h-flash", "h-lamp"} {
-			hex := tokens[fg]
-			if hex == "" {
-				hex = lightTokens[fg]
-			}
-			if hex == "" || tokens["header"] == "" {
-				t.Fatalf("%s theme lacks --%s or --header", name, fg)
-			}
-			if c := contrast(hex, tokens["header"]); c < 4.5 {
-				t.Errorf("%s: --%s on --header = %.2f", name, fg, c)
-			}
-		}
-		if name == "light" {
-			lightTokens = tokens
-		}
-		tints := tintToken.FindAllStringSubmatch(block, -1)
+		tints := tintToken.FindAllStringSubmatch(c.block, -1)
 		if len(tints) != 12 {
-			t.Fatalf("%s theme defines %d tints", name, len(tints))
+			t.Fatalf("%s theme defines %d tints", c.name, len(tints))
 		}
 		for _, m := range tints {
-			if c := contrast(m[2], tokens["header"]); c < 3 {
-				t.Errorf("%s: tint-%s on --header = %.2f", name, m[1], c)
+			if r := contrast(m[2], tokens["bg"]); r < 3 {
+				t.Errorf("%s: tint-%s on --bg = %.2f", c.name, m[1], r)
 			}
 		}
 	}
+}
+
+func TestTypeHasFiveSteps(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, m := range regexp.MustCompile(`font-size:([0-9.]+px)`).FindAllStringSubmatch(css, -1) {
+		switch m[1] {
+		case "22px", "16px", "15px", "14px", "12px":
+		default:
+			t.Errorf("board.css uses font-size %s", m[1])
+		}
+	}
+	contains(t, "live figures", css, ".live{font-variant-numeric:tabular-nums")
 }
 
 var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "bell", "chevron", "interrupt", "more"}
@@ -283,9 +283,10 @@ func TestRepliesStyleTheirBlocks(t *testing.T) {
 func TestMotionHonoursReducedMotion(t *testing.T) {
 	css := asset(t, "board.css")
 	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
-	if i < 0 || !strings.Contains(css[i:], ".printhead{animation:none}") || !strings.Contains(css[i:], ".lamp{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
-		t.Fatal("the print head, the lamp or the feed keeps moving under prefers-reduced-motion")
+	if i < 0 || !strings.Contains(css[i:], ".lamp{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
+		t.Fatal("the working pulse or the feed keeps moving under prefers-reduced-motion")
 	}
+	lacks(t, "motion", css, "printhead", "@keyframes carriage")
 }
 
 func TestTheFinishFixesHold(t *testing.T) {
@@ -317,40 +318,23 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
 }
 
-func TestTheWireDeskTokens(t *testing.T) {
+func TestTheOnCallPalette(t *testing.T) {
 	light, dark := themes(t)
-	token := func(block, name string) string {
-		root := block[strings.Index(block, ":root{"):]
-		root = root[:strings.IndexByte(root, '}')]
-		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
-			if m[1] == name {
-				return m[2]
-			}
+	want := map[string][2]string{
+		"bg": {"#fcfcfd", "#0d1117"}, "card": {"#f4f6f8", "#161b22"}, "fg": {"#1b1f24", "#e6ebf1"}, "muted": {"#59616c", "#9aa3ae"},
+		"line": {"#d5dbe2", "#2e353e"}, "hover": {"#eaeef2", "#1c232c"}, "fail": {"#c4262e", "#ff6a63"}, "wait": {"#8f5e00", "#e3a73b"},
+		"pass": {"#19793b", "#4fc46c"}, "neutral": {"#59616c", "#9aa3ae"}, "accent": {"#1d5fc2", "#6ea6ff"}, "fail-bg": {"#fdecec", "#3a1a1c"},
+		"wait-bg": {"#fcf3d9", "#352912"}, "pass-bg": {"#e3f5e8", "#15301d"}, "neutral-bg": {"#eceff3", "#20262e"}, "accent-bg": {"#e8f0fc", "#17263d"},
+		"screen": {"#11151a", "#07090c"}, "screen-fg": {"#d7dde4", "#d7dde4"}, "primary": {"#19793b", "#1f7f3e"}, "on-primary": {"#ffffff", "#ffffff"},
+	}
+	lt, dt := rootTokens(t, light), rootTokens(t, dark)
+	for name, v := range want {
+		if lt[name] != v[0] || dt[name] != v[1] {
+			t.Errorf("--%s = %q / %q, want %s / %s", name, lt[name], dt[name], v[0], v[1])
 		}
-		t.Fatalf("no --%s", name)
-		return ""
-	}
-	bg := token(light, "bg")
-	r, _ := strconv.ParseUint(bg[1:3], 16, 8)
-	g, _ := strconv.ParseUint(bg[3:5], 16, 8)
-	b, _ := strconv.ParseUint(bg[5:7], 16, 8)
-	if r < 0xe0 || g < 0xe0 || b > 0xb0 {
-		t.Errorf("the day desk ground %s is not canary copy", bg)
-	}
-	if l := luminance(token(dark, "bg")); l >= 0.02 {
-		t.Errorf("the night desk ground is not carbon: luminance %.3f", l)
 	}
 	css := asset(t, "board.css")
-	for _, sel := range []string{".slug{", ".strip{"} {
-		i := strings.Index(css, sel)
-		if i < 0 {
-			t.Fatalf("board.css has no %s rule", sel)
-		}
-		rule := css[i : i+strings.IndexByte(css[i:], '}')]
-		if !strings.Contains(rule, "font-family:var(--mono)") || !strings.Contains(rule, "text-transform:uppercase") {
-			t.Errorf("%s is not mono caps: %s", sel, rule)
-		}
-	}
+	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")
 	}
@@ -395,9 +379,8 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 func TestTheWireDeskFinishFixes(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
-		".masthead .quiet-button{color:var(--on-header-muted)}",
+		".masthead .quiet-button{color:var(--muted)}",
 		".working-line{display:flex;",
-		".printhead{flex:1;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"max-width:72ch",
 		".slug>*:not(:last-child)::after{",

@@ -45,11 +45,12 @@ func TestHandLinesAreServiceLines(t *testing.T) {
 	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service" data-no="1"><span class="slug"><span class="who">HAND</span>`, `wake: decision.answered <a class="ref" href="/ref/d1">d1</a>`)
 }
 
-func TestTheWorkingLineCarriesThePrintHead(t *testing.T) {
+func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "working", tl, "data-working", "s1 is working", `<span class="printhead" aria-hidden="true"></span>`)
+	contains(t, "working", tl, "data-working", "s1 is working")
+	lacks(t, "working", tl, "printhead")
 }
 
 func TestRefsLinkInDispatches(t *testing.T) {
