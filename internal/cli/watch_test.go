@@ -203,6 +203,31 @@ func TestWatchCatchesUpOnAScreenThatBlockedWhileItWasDown(t *testing.T) {
 	}
 }
 
+func TestWatchCatchesUpOnATurnASentMessageStarted(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "sent", "12 bytes"); err != nil {
+		t.Fatal(err)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop := startWatch(t, fx)
+	defer stop()
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
+func TestWatchCatchesUpOnAScreenThatBlockedAfterAQuietTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
+	stop = startWatch(t, fx)
+	defer stop()
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+}
+
 func TestWatchLeavesAFreshIdleWorkerAloneAfterARestart(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()

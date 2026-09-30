@@ -258,11 +258,11 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case last == "attempt.quiet":
+		case last == "attempt.quiet" && ag.Status != "blocked":
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
-		case last != "attempt.keys" && ag.Status == "idle":
+		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
 		w.seen[a.ID] = prev
