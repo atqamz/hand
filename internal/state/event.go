@@ -44,6 +44,32 @@ func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {
 	return events, rows.Err()
 }
 
+func (s *Store) RecentEventsOf(ctx context.Context, kinds []string, limit int) ([]Event, error) {
+	if len(kinds) == 0 || limit < 1 {
+		return nil, fmt.Errorf("%w: give kinds and a limit of at least 1", ErrInvalid)
+	}
+	args := make([]any, 0, len(kinds)+1)
+	for _, k := range kinds {
+		args = append(args, k)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, task_id, detail FROM (
+		SELECT seq, at, kind, COALESCE(task_id, 0) AS task_id, detail FROM event WHERE kind IN (`+strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")+`) ORDER BY seq DESC LIMIT ?
+	) ORDER BY seq`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
 func (s *Store) LatestEvent(ctx context.Context, kind string) (Event, bool, error) {
 	var e Event
 	err := s.db.QueryRowContext(ctx, `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE kind = ? ORDER BY seq DESC LIMIT 1`, kind).Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail)

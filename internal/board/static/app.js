@@ -166,12 +166,12 @@
 		});
 	});
 
-	const show = (msg) => {
+	const show = (msg, ms = 8000) => {
 		toast.textContent = msg;
 		clearTimeout(show.timer);
 		show.timer = setTimeout(() => {
 			toast.textContent = "";
-		}, 8000);
+		}, ms);
 	};
 
 	document.addEventListener("submit", async (e) => {
@@ -180,12 +180,17 @@
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		form.dataset.busy = "";
+		form.setAttribute("aria-busy", "true");
+		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
+		for (const b of buttons) b.disabled = true;
 		let res = null;
 		try {
 			const data = new URLSearchParams(new FormData(form, e.submitter));
-			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
+			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
 		} finally {
 			delete form.dataset.busy;
+			form.removeAttribute("aria-busy");
+			for (const b of buttons) b.disabled = false;
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
@@ -195,7 +200,9 @@
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
 			if (form.closest("details.menu")) closeMenus(null);
-			toast.textContent = "";
+			const receipt = res.headers?.get("X-Hand-Receipt");
+			if (receipt) show(receipt, 4000);
+			else toast.textContent = "";
 			return;
 		}
 		show(res.headers.get("X-Hand-Error") || `${res.status} ${res.statusText}`);

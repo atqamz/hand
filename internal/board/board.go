@@ -442,7 +442,11 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/decision/"+state.DecisionRef(id), http.StatusSeeOther)
+	receipt := state.DecisionRef(id) + " answered · no supervisor is running; it waits"
+	if ref, running := b.supRef(r.Context()); running {
+		receipt = state.DecisionRef(id) + " answered · " + ref + " reads it now"
+	}
+	b.done(w, r, b.o.Base+"/decision/"+state.DecisionRef(id), receipt)
 }
 
 func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
@@ -456,5 +460,5 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), state.ReportRef(id)+" marked read")
 }

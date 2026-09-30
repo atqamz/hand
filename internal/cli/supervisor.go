@@ -509,6 +509,9 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 			}
 			return runtimeErr(err)
 		}
+		if err := st.NoteSupervisor(ctx, sup.ID, "keys", strings.Join(keys, " ")); err != nil {
+			return err
+		}
 		var d toon.Doc
 		d.Field("supervisor", state.SupervisorRef(sup.ID))
 		d.Field("keys", strings.Join(keys, " "))

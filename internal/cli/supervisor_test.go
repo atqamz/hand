@@ -851,3 +851,13 @@ func TestSupervisorKeysRefuseWhenTheQuestionChanged(t *testing.T) {
 		t.Fatalf("keys = %q", got)
 	}
 }
+
+func TestSupervisorKeysAreRecorded(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "keys", "--revision", "0", "enter")
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: enter" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}

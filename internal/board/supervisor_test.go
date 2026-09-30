@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -353,9 +354,9 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 	}
 	claudeLog(t, fresh, lines)
 	page := get(t, fresh.handler(), "/supervisor/log")
-	contains(t, "last page", page, "m11", "m60", `href="/supervisor/log?before=10`)
+	contains(t, "last page", page, "m11", "m60", `href="/supervisor/log?before=11`)
 	lacks(t, "last page", page, "m10<")
-	older := get(t, fresh.handler(), "/supervisor/log?before=10")
+	older := get(t, fresh.handler(), "/supervisor/log?before=11")
 	contains(t, "older page", older, "m01", "m10")
 	lacks(t, "older page", older, "m11")
 }
@@ -406,4 +407,86 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 	status = region(get(t, pending.handler(), "/"), "console")
 	contains(t, "pending", status, "→ OPUS · HIGH", `name="cancel" value="1"`)
 	lacks(t, "pending", status, `id="model-menu"`)
+}
+
+func fetchPost(h http.Handler, path string, form url.Values) *httptest.ResponseRecorder {
+	if form == nil {
+		form = url.Values{}
+	}
+	form.Set("csrf", token)
+	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Hand-Fetch", "1")
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func receipt(t *testing.T, rec *httptest.ResponseRecorder, want string) {
+	t.Helper()
+	if rec.Code != http.StatusNoContent || rec.Header().Get("X-Hand-Receipt") != want {
+		t.Fatalf("status %d, receipt %q, want 204 and %q:\n%s", rec.Code, rec.Header().Get("X-Hand-Receipt"), want, rec.Body.String())
+	}
+}
+
+func TestActionsReturnReceipts(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	receipt(t, fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"answer": {"yes"}}), "d1 answered · no supervisor is running; it waits")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	if _, err := fx.st.Ask(ctx, task.ID, "Ship it?"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	receipt(t, fetchPost(h, "/decision/d2/answer", url.Values{"answer": {"no"}}), "d2 answered · s1 reads it now")
+	a := workerAttempt(t, fx.st, task.ID)
+	r, err := fx.st.AddReport(ctx, a.ID, state.ReportDone, "Fixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt(t, fetchPost(h, "/report/"+state.ReportRef(r.ID)+"/ack", nil), "r1 marked read")
+	receipt(t, fetchPost(h, "/supervisor/keys", url.Values{"revision": {"7"}, "key": {"2"}}), "Sent 2 to s1")
+	receipt(t, fetchPost(h, "/attempt/a1/keys", url.Values{"revision": {"7"}, "key": {"esc"}}), "Sent esc to a1")
+	receipt(t, fetchPost(h, "/supervisor/stop", nil), "s1 stopping")
+	receipt(t, fetchPost(h, "/supervisor/interrupt", nil), "Interrupt sent to s1")
+	if res := post(h, "/supervisor/stop", nil); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("a form post without JavaScript = %d, want a redirect", res.StatusCode)
+	}
+}
+
+func TestKeysAndLifecycleShowInChat(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	if err := fx.st.NoteSupervisor(ctx, 1, "keys", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptStopped, "stopped by operator"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/supervisor/log")
+	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped: stopped by operator")
+	if !(strings.Index(body, "s1 stopped") < strings.Index(body, "You pressed 2") && strings.Index(body, "You pressed 2") < strings.Index(body, "s1 started")) {
+		t.Fatalf("lifecycle lines out of order (newest first):\n%s", body)
+	}
+}
+
+func TestDeliveredMessagesShowTheirTime(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	in, err := fx.st.AddSupervisorInput(ctx, "ship it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+		t.Fatal(err)
+	}
+	claudeLog(t, fx, []string{userRecord("ship it")})
+	contains(t, "log", get(t, fx.handler(), "/supervisor/log"), "delivered <time")
 }

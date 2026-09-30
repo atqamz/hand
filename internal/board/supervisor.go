@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -329,32 +330,97 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 			return err
 		}
 	}
-	numbered := len(entries)
-	for _, in := range pending {
-		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
+	delivered, err := b.st.DeliveredSupervisorInputs(ctx, deliveredLookback)
+	if err != nil {
+		return err
 	}
-	end := len(entries)
+	sent := map[string]string{}
+	for _, in := range delivered {
+		if _, ok := sent[strings.TrimSpace(in.Body)]; !ok {
+			sent[strings.TrimSpace(in.Body)] = in.DeliveredAt
+		}
+	}
+	all := make([]dispatch, 0, len(entries)+len(pending))
+	no := 0
+	for _, e := range entries {
+		if e.Role == "hand" && launched.MatchString(e.Text) {
+			continue
+		}
+		no++
+		d := dispatch{Entry: e, Ref: refAt(sups, e.At), No: no}
+		if e.Role == "operator" {
+			d.Delivered = sent[strings.TrimSpace(e.Text)]
+		}
+		all = append(all, d)
+	}
+	lines, err := b.lifecycle(ctx)
+	if err != nil {
+		return err
+	}
+	all = append(all, lines...)
+	slices.SortStableFunc(all, func(x, y dispatch) int { return parse(x.At).Compare(parse(y.At)) })
+	for _, in := range pending {
+		all = append(all, dispatch{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
+	}
+	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
 		end = n
 	}
 	start := max(0, end-pageSize)
-	page := make([]dispatch, 0, end-start)
-	for i := start; i < end; i++ {
-		d := dispatch{Entry: entries[i], Ref: refAt(sups, entries[i].At)}
-		if i < numbered {
-			d.No = i + 1
-		}
-		page = append(page, d)
-	}
+	page := slices.Clone(all[start:end])
 	slices.Reverse(page)
 	data["Entries"], data["Older"] = page, start
 	return nil
 }
 
+var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
+
+const deliveredLookback = 50
+
+var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch"}
+
+func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
+	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
+	if err != nil {
+		return nil, err
+	}
+	sups, err := b.st.Supervisors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byRef := make(map[string]state.Supervisor, len(sups))
+	for _, s := range sups {
+		byRef[state.SupervisorRef(s.ID)] = s
+	}
+	out := make([]dispatch, 0, len(events))
+	for _, e := range events {
+		ref, detail, _ := strings.Cut(e.Detail, ": ")
+		text := ""
+		switch kind := strings.TrimPrefix(e.Kind, "supervisor."); kind {
+		case "keys":
+			text = "You pressed " + detail + " on " + ref + "'s screen"
+		case "started":
+			sup := byRef[ref]
+			text = strings.Join(strings.Fields(ref+" started · "+sup.Harness+" "+sup.Model+" "+sup.Effort), " ")
+		case "switch":
+			if detail == "canceled" {
+				text = ref + "'s switch was canceled"
+			} else {
+				text = ref + " will switch " + detail + " after this turn"
+			}
+		default:
+			text = ref + " " + kind + ": " + detail
+		}
+		out = append(out, dispatch{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
+	}
+	return out, nil
+}
+
 type dispatch struct {
 	transcript.Entry
-	No  int
-	Ref string
+	No        int
+	Ref       string
+	Delivered string
 }
 
 func refAt(sups []state.Supervisor, at string) string {
@@ -392,18 +458,44 @@ func (b *Board) allowed(w http.ResponseWriter) bool {
 	return false
 }
 
-func (b *Board) run(w http.ResponseWriter, r *http.Request, args ...string) {
+func (b *Board) run(w http.ResponseWriter, r *http.Request, receipt string, args ...string) {
 	if err := b.o.Control(r.Context(), args...); err != nil {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/", receipt)
 }
+
+func (b *Board) done(w http.ResponseWriter, r *http.Request, next, receipt string) {
+	if r.Header.Get("X-Hand-Fetch") != "1" {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+	if receipt != "" {
+		w.Header().Set("X-Hand-Receipt", receipt)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (b *Board) supRef(ctx context.Context) (string, bool) {
+	sup, ok, err := b.st.LatestSupervisor(ctx)
+	if err != nil || !ok {
+		return "the supervisor", false
+	}
+	return state.SupervisorRef(sup.ID), sup.Status == state.AttemptRunning
+}
+
+var simpleReceipts = map[string]string{"resume": "Starting the supervisor…", "stop": "%s stopping", "interrupt": "Interrupt sent to %s", "force": "Typed into %s"}
 
 func (b *Board) simple(verb string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if b.allowed(w) {
-			b.run(w, r, "supervisor", verb)
+			ref, _ := b.supRef(r.Context())
+			receipt := simpleReceipts[verb]
+			if strings.Contains(receipt, "%s") {
+				receipt = fmt.Sprintf(receipt, ref)
+			}
+			b.run(w, r, receipt, "supervisor", verb)
 		}
 	}
 }
@@ -423,7 +515,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	b.run(w, r, args...)
+	b.run(w, r, "Starting the supervisor…", args...)
 }
 
 func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
@@ -452,8 +544,11 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 	if d := r.PostFormValue("screen"); digest.MatchString(d) {
 		args = append(args, "--screen", d)
 	}
+	to := target
 	if target != "" {
 		args = append(args, target)
+	} else {
+		to, _ = b.supRef(r.Context())
 	}
 	if err := b.o.Control(r.Context(), append(args, k)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
@@ -463,7 +558,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/", "Sent "+k+" to "+to)
 }
 
 func (b *Board) send(w http.ResponseWriter, r *http.Request) {
@@ -475,7 +570,7 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.run(w, r, "supervisor", "send", "--text", text)
+	b.run(w, r, "", "supervisor", "send", "--text", text)
 }
 
 func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
@@ -499,5 +594,5 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
 		return
 	}
-	b.run(w, r, args...)
+	b.run(w, r, "Switch set for after this turn", args...)
 }

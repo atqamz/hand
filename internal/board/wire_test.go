@@ -22,7 +22,7 @@ func TestTheWireNumbersDispatches(t *testing.T) {
 		t.Fatalf("dispatch numbers out of order (%d %d %d):\n%s", three, two, one, tl)
 	}
 	contains(t, "slug", tl, `<header class="slug"><span class="who">S1</span><span class="no">NO. 4</span>`)
-	older := get(t, fx.handler(), "/supervisor/log?before=3")
+	older := get(t, fx.handler(), "/supervisor/log?before=4")
 	contains(t, "paging", older, `<span class="no">NO. 3</span>`, `<span class="no">NO. 2</span>`)
 	lacks(t, "paging", older, `<span class="no">NO. 4</span>`)
 }
