@@ -36,6 +36,7 @@ func init() {
 func cmdOpen(r *runner, args []string) error {
 	set := flags("open")
 	pr := set.Bool("pr", false, "open the task's newest PR link instead of its board page")
+	printed := set.Bool("print", false, "print the link instead of opening it; a board link holds the fleet's token")
 	if err := set.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
 	}
@@ -61,6 +62,9 @@ func cmdOpen(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		if *printed {
+			return r.printLink(link, "")
+		}
 		return r.launch(link, link, "open "+link+" yourself")
 	}
 	path, frag, err := boardPage(ctx, st, ref)
@@ -76,6 +80,9 @@ func cmdOpen(r *runner, args []string) error {
 		return err
 	}
 	page := "http://" + addr + "/" + r.fleet.ID + path
+	if *printed {
+		return r.printLink(page+"?token="+token+frag, "The link holds the fleet's token; paste it only into your own browser")
+	}
 	return r.launch(page+"?token="+token+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
 }
 
@@ -194,5 +201,14 @@ func (r *runner) launch(url, shown, yourself string) error {
 	}
 	var d toon.Doc
 	d.Field("opened", shown)
+	return r.print(&d)
+}
+
+func (r *runner) printLink(link, help string) error {
+	var d toon.Doc
+	d.Field("url", link)
+	if help != "" {
+		d.Help(help)
+	}
 	return r.print(&d)
 }

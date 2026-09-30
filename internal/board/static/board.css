@@ -254,3 +254,6 @@ form.inline{display:inline}
 form[data-busy] button{opacity:.6;cursor:progress}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 button.chip{font:inherit;cursor:pointer}
+.skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:6px}
+.skip:focus{left:16px}
+.link-state{margin:0;font-size:12px;color:var(--on-header-muted)}

@@ -263,6 +263,12 @@
 			});
 		}
 		select();
+		addEventListener("hashchange", () => {
+			const next = location.hash.slice(1);
+			if (next === current || !tabs.some((t) => t.dataset.tab === next)) return;
+			current = next;
+			select();
+		});
 		addEventListener("load", () => {
 			if (current === "needs" && !tall.matches) scrollTo(0, 0);
 		}, { once: true });
@@ -298,8 +304,23 @@
 	}
 	let source = null;
 	let poll = 0;
+	const link = document.getElementById("link");
+	let lost = 0;
+	const linkState = (ok, status) => {
+		if (!link) return;
+		if (ok) {
+			lost = 0;
+			link.hidden = true;
+			return;
+		}
+		lost ||= Date.now();
+		link.hidden = false;
+		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Board offline since ${at}` : "Reconnecting…";
+	};
 	const refresh = async () => {
 		const res = await fetch(location.href, { credentials: "same-origin" }).catch(() => null);
+		linkState(res?.ok, res?.status);
 		if (!res?.ok) return;
 		const doc = new DOMParser().parseFromString(await res.text(), "text/html");
 		for (const el of doc.querySelectorAll("[data-region]")) {
@@ -317,6 +338,14 @@
 		poll = 0;
 		if (source) return;
 		source = new EventSource(`${base}/events${location.search}`);
+		source.addEventListener("open", () => linkState(true));
+		source.addEventListener("error", () => {
+			linkState(false);
+			if (source?.readyState === EventSource.CLOSED) {
+				source = null;
+				poll ||= setInterval(refresh, 10000);
+			}
+		});
 		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
 	};
 	document.addEventListener("visibilitychange", follow);

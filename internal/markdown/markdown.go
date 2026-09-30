@@ -22,6 +22,10 @@ func RenderRefs(text, base string, title func(ref string) string) template.HTML 
 	return template.HTML(titled(b.String(), title))
 }
 
+func Inline(text string) template.HTML {
+	return template.HTML(inline(strings.Join(strings.Fields(text), " "), false, ""))
+}
+
 func Refs(text, base string, title func(ref string) string) template.HTML {
 	line := strings.Join(strings.Fields(text), " ")
 	return template.HTML(titled(inline(line, false, base+"/ref/"), title))

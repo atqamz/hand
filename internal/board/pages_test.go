@@ -200,3 +200,34 @@ func TestDecisionSlugFollowsItsStatus(t *testing.T) {
 	}
 	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-code="BULLETIN"`)
 }
+
+func TestUnknownPathsUseTheErrorPage(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/nope", nil, true)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<header class="masthead">`) || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("unknown path = %d %q:\n%s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestWrongMethodUsesTheErrorPage(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/supervisor/stop", nil, true)
+	if rec.Code != http.StatusMethodNotAllowed || !strings.Contains(rec.Body.String(), `<header class="masthead">`) {
+		t.Fatalf("wrong method = %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestThe403PageNamesOpenPrint(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, false)
+	body := rec.Body.String()
+	if rec.Code != http.StatusForbidden || !strings.Contains(body, "<code>hand open --print</code>") || strings.Contains(body, "`") {
+		t.Fatalf("403 = %d:\n%s", rec.Code, body)
+	}
+}
+
+func TestTheFleetPageHasASkipLinkAndALinkState(t *testing.T) {
+	fx := newFixture(t)
+	page := get(t, fx.handler(), "/")
+	contains(t, "fleet page", page, `<a class="skip" href="#composer-text">Skip to the message box</a>`, `id="composer-text"`, `<p id="link" class="link-state" role="status" hidden></p>`)
+	if n := strings.Index(page, `class="skip"`); n < 0 || n > strings.Index(page, `<header class="masthead">`) {
+		t.Fatal("the skip link must come before the masthead")
+	}
+}

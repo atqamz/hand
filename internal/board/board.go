@@ -41,6 +41,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"md":       markdown.Render,
 	"mdrefs":   markdown.RenderRefs,
 	"refs":     markdown.Refs,
+	"inline":   markdown.Inline,
 	"upper":    strings.ToUpper,
 	"when":     when,
 	"chips":    chips,
@@ -149,15 +150,48 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c, err := r.Cookie(cookieName); err != nil || !b.valid(c.Value) {
-		b.fail(w, http.StatusForbidden, "open this fleet with `hand open` from inside it")
+		b.fail(w, http.StatusForbidden, "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints.")
 		return
 	}
 	if r.Method == http.MethodPost && !b.valid(r.PostFormValue("csrf")) {
 		b.fail(w, http.StatusForbidden, "this form is stale; reload the page and try again")
 		return
 	}
-	b.mux.ServeHTTP(w, r)
+	b.mux.ServeHTTP(&pageErrors{ResponseWriter: w, b: b}, r)
 }
+
+type pageErrors struct {
+	http.ResponseWriter
+	b    *Board
+	skip bool
+}
+
+var pageErrorText = map[int]string{http.StatusNotFound: "there is no page here", http.StatusMethodNotAllowed: "this page does not take that kind of request"}
+
+func (p *pageErrors) WriteHeader(code int) {
+	if msg, ok := pageErrorText[code]; ok && strings.HasPrefix(p.Header().Get("Content-Type"), "text/plain") {
+		p.skip = true
+		p.Header().Del("X-Content-Type-Options")
+		p.b.fail(p.ResponseWriter, code, msg)
+		return
+	}
+	p.ResponseWriter.WriteHeader(code)
+}
+
+func (p *pageErrors) Write(b []byte) (int, error) {
+	if p.skip {
+		return len(b), nil
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+func (p *pageErrors) Flush() {
+	if f, ok := p.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (p *pageErrors) Unwrap() http.ResponseWriter { return p.ResponseWriter }
 
 var option = regexp.MustCompile(`^\s*(?:\d+|[A-Z])[.)]\s+(.+)$`)
 
