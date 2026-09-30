@@ -332,8 +332,10 @@ func (s *Store) NoteSupervisor(ctx context.Context, id int64, kind, detail strin
 	})
 }
 
+const deliveredInputs = `SELECT id, body, created_at, delivered_at, ('i' || id || ': typed') IN (SELECT detail FROM event WHERE kind = 'supervisor.delivered') FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`
+
 func (s *Store) DeliveredSupervisorInputs(ctx context.Context, limit int) ([]SupervisorInput, error) {
-	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at, EXISTS(SELECT 1 FROM event WHERE kind = 'supervisor.delivered' AND detail = 'i' || supervisor_input.id || ': typed') FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`, limit)
+	return s.inputs(ctx, deliveredInputs, limit)
 }
 
 func (s *Store) PendingSupervisorInputs(ctx context.Context) ([]SupervisorInput, error) {

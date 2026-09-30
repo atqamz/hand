@@ -96,7 +96,7 @@ func rootTokens(t *testing.T, block string) map[string]string {
 
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"muted", "bg"}, {"muted", "card"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"muted", "bg"}, {"muted", "card"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
 		tokens := rootTokens(t, c.block)
 		for _, p := range pairs {
@@ -423,6 +423,7 @@ func TestReceiptsDoNotLookLikeErrors(t *testing.T) {
 
 func TestTheSubmitterIsReadBeforeButtonsAreDisabled(t *testing.T) {
 	js := asset(t, "app.js")
+	js = js[strings.Index(js, `document.addEventListener("submit"`):]
 	read, disable := strings.Index(js, "new FormData(form, e.submitter)"), strings.Index(js, "b.disabled = true")
 	if read < 0 || disable < 0 || read > disable {
 		t.Fatal("app.js disables the buttons before it reads the pressed key, so the key never reaches the server")

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -276,5 +277,26 @@ func TestTypedDeliveriesAreMarked(t *testing.T) {
 	e, ok, err := s.LatestEvent(ctx, "supervisor.delivered")
 	if err != nil || !ok || e.Detail != "i2: typed" {
 		t.Fatalf("latest delivery = %+v %v %v", e, ok, err)
+	}
+}
+
+func TestTypedDeliveriesAreReadInOneScan(t *testing.T) {
+	s, _ := openTest(t)
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+deliveredInputs, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if p := strings.Join(plan, "\n"); strings.Contains(p, "CORRELATED") {
+		t.Fatalf("the typed mark scans events once per input:\n%s", p)
 	}
 }

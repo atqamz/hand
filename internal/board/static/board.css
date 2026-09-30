@@ -50,7 +50,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .mark{width:22px;height:22px;color:var(--tint)}
 .masthead .fleet-id{align-self:center;border-color:transparent;background:none;color:var(--muted);line-height:24px}
 .strip{font-size:12px;line-height:20px;color:var(--fg);min-width:0}
-.strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap}
+.strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;flex-wrap:nowrap}
 .strip .who,.strip .queued,.strip .compactions{color:var(--muted)}
 .pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-weight:600;line-height:20px}
 .pill .icon{width:12px;height:12px;vertical-align:0}
@@ -285,7 +285,7 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
 .masthead .spacer{display:none}
-.masthead .strip{flex:1 1 auto;display:flex;justify-content:flex-end;overflow:hidden}
+.masthead .strip{flex:none;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
@@ -300,7 +300,7 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .thread>.card>header .who{color:var(--fg);font-weight:600}
 .thread>.card>.copy{margin:0;padding:10px 12px}
 .thread>.card.report>header.slug{background:var(--neutral-bg)}
-.thread>.card.report[data-status=blocked]>header.slug,.thread>.card.report[data-status=failed]>header.slug{background:var(--fail-bg)}
+.thread>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}
 .thread>.card.report[data-status=done]>header.slug{background:var(--pass-bg)}
 .thread>.card.from-you{align-self:flex-end;max-width:75%;border-color:var(--accent-bg);background:var(--accent-bg)}
 .thread>.card.from-you>header.slug{background:transparent}
@@ -321,7 +321,7 @@ form.inline{display:inline}
 .need{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:9px 4px;border-bottom:1px solid var(--line)}
 .card>header.slug .spacer{flex:1}
 .card>header.slug .meta,.card>header.slug .state{font-size:inherit}
-.card.report[data-status=blocked] .state,.card.report[data-status=failed] .state{color:var(--fail)}
+.card.report[data-status=stuck] .state{color:var(--fail)}
 .events,.decisions{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .event{display:grid;grid-template-columns:7.5em 11em minmax(0,1fr);gap:4px 12px;align-items:baseline;padding:6px 4px;border-bottom:1px solid var(--line);font-size:12px}
 .event .kind{color:var(--fg)}

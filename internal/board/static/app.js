@@ -99,6 +99,20 @@
 		title();
 	};
 
+	const sent = new Map();
+	const collapse = (item) => {
+		const s = item && sent.get(item.id);
+		if (!s) return;
+		if ((item.querySelector('input[name="screen"]')?.value || "") !== s.screen) {
+			sent.delete(item.id);
+			return;
+		}
+		item.dataset.sent = s.label;
+		const summary = item.querySelector("summary");
+		if (summary) summary.dataset.sent = s.label;
+		for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
+		item.open = false;
+	};
 	const apply = (name, html) => {
 		const el = regions.get(name);
 		if (!el) return;
@@ -138,7 +152,14 @@
 		local(el);
 		since();
 		if (pinned) pin(el);
-		if (name === "queue") count(waitingNow());
+		if (name === "queue") {
+			for (const id of [...sent.keys()]) {
+				const item = document.getElementById(id);
+				if (item) collapse(item);
+				else sent.delete(id);
+			}
+			count(waitingNow());
+		}
 		if (name === "status") reflect();
 	};
 
@@ -214,8 +235,8 @@
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
-		const label = form.classList.contains("start") ? primary.textContent : null;
-		if (label) primary.textContent = "starting…";
+		const label = form.dataset.starting ? primary.textContent : null;
+		if (label) primary.textContent = form.dataset.starting;
 		let res = null;
 		try {
 			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
@@ -223,7 +244,7 @@
 			delete form.dataset.busy;
 			form.removeAttribute("aria-busy");
 			for (const b of buttons) b.disabled = false;
-			if (label && !(res?.ok || res?.type === "opaqueredirect")) primary.textContent = label;
+			if (label) primary.textContent = label;
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
@@ -232,14 +253,11 @@
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
-			const item = form.action.endsWith("/keys") && form.closest("details.wait");
-			if (item) {
-				item.dataset.sent = e.submitter?.textContent || data.get("key") || "";
-				const summary = item.querySelector("summary");
-				if (summary) summary.dataset.sent = item.dataset.sent;
-				for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
-				item.open = false;
-				chosen.set(item.id, false);
+			const id = form.action.endsWith("/keys") && form.closest("details.wait")?.id;
+			if (id) {
+				const label = (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
+				sent.set(id, { label, screen: data.get("screen") || "" });
+				collapse(document.getElementById(id));
 			}
 			if (form.closest("details.menu")) closeMenus(null);
 			if (regions.size === 0) location.reload();

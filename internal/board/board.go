@@ -42,7 +42,6 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"mdrefs":   markdown.RenderRefs,
 	"refs":     markdown.Refs,
 	"inline":   markdown.Inline,
-	"upper":    strings.ToUpper,
 	"when":     when,
 	"chips":    chips,
 	"tabonce":  tabOnce,

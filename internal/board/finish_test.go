@@ -102,3 +102,37 @@ func TestBrowserSurfacesAreThemed(t *testing.T) {
 func TestHandLinesStayOnOneLine(t *testing.T) {
 	contains(t, "hand lines", asset(t, "board.css"), "-webkit-line-clamp:1;overflow:hidden}", ".hand-line .ref{padding:0;border:0;background:none;")
 }
+
+func TestASentItemStaysClosedOnlyForItsScreen(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "const sent = new Map()", `sent.set(id, { label, screen: data.get("screen") || "" })`, "sent.delete(id)", "collapse(document.getElementById(id))")
+	lacks(t, "app.js", js, "chosen.set(item.id, false)")
+}
+
+func TestThePhoneMastheadStaysOneRow(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:none;")
+	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;flex-wrap:nowrap}")
+}
+
+func TestStuckReportsWearTheFailTone(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "stuck", css, ".thread>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}")
+	lacks(t, "stuck", css, "data-status=blocked]", "data-status=failed]")
+}
+
+func TestStartingLabelsFollowEveryStartForm(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"), "form.dataset.starting")
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptStopped, "gen-1")
+	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "nosup forms", q, `action="/supervisor/resume" data-fetch data-starting="resuming…"`, `action="/supervisor/start" data-fetch data-starting="starting…"`)
+}
+
+func TestErrorPagesSpeakLowerCase(t *testing.T) {
+	fx := newFixture(t)
+	body := request(fx.handler(), "GET", "/task/t99", nil, true).Body.String()
+	lacks(t, "error", body, ">ERROR<")
+	contains(t, "error", body, `<span class="kind">error</span>`)
+}

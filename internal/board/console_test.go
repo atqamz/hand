@@ -222,6 +222,6 @@ func TestProfilesShowWhatTheyResolveTo(t *testing.T) {
 
 func TestStartIsPrimaryAndFetches(t *testing.T) {
 	fx := newFixture(t)
-	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch>`, `<button class="primary">Start</button>`)
-	contains(t, "app.js", asset(t, "app.js"), `"starting…"`)
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch data-starting="starting…">`, `<button class="primary">Start</button>`)
+	contains(t, "app.js", asset(t, "app.js"), "form.dataset.starting")
 }

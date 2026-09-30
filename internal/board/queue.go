@@ -51,10 +51,13 @@ type prompt struct {
 }
 
 var (
-	numbered = regexp.MustCompile(`^\s*(?:❯\s*)?([1-9])\.\s+(.+?)\s*$`)
+	numbered = regexp.MustCompile(`^(?:[❯›]\s*)?([1-9])\.\s+(.+?)$`)
 	autoDeny = regexp.MustCompile(`deny this request in (\d+:\d{2})`)
-	boxRule  = regexp.MustCompile(`^\s*[─━]{10,}\s*$`)
+	boxRule  = regexp.MustCompile(`^\s*(?:[─━]{10,}\s*|╭.*)$`)
+	boxEdge  = regexp.MustCompile(`^[\s│┃]+|[\s│┃]+$`)
 	hintLine = regexp.MustCompile(`(?i)\besc to\b|\benter to\b|\btab to\b`)
+	kindWord = regexp.MustCompile(`^\p{L}+`)
+	refusal  = regexp.MustCompile(`^No\b`)
 )
 
 func blockedPrompt(screen string) prompt {
@@ -66,47 +69,83 @@ func blockedPrompt(screen string) prompt {
 		}
 	}
 	var p prompt
-	var body []string
-	var no, rest []key
+	var clean []string
 	for _, l := range lines {
-		t := strings.TrimSpace(l)
+		t := boxEdge.ReplaceAllString(l, "")
 		if m := autoDeny.FindStringSubmatch(t); m != nil {
 			p.Deadline = m[1]
 			continue
 		}
-		m := numbered.FindStringSubmatch(l)
-		switch {
-		case m != nil && slices.Contains(state.SupervisorKeys, m[1]):
-			k := key{m[1], m[1] + " " + clip(m[2], 24)}
-			if strings.HasPrefix(m[2], "No") {
-				no = append(no, k)
-			} else {
-				rest = append(rest, k)
-			}
-		case t != "" && len(no)+len(rest) == 0 && !hintLine.MatchString(t):
-			body = append(body, t)
+		if t != "" && !hintLine.MatchString(t) {
+			clean = append(clean, t)
 		}
 	}
-	if len(no)+len(rest) == 0 {
-		return prompt{Deadline: p.Deadline}
+	end := -1
+	for i := len(clean) - 1; i >= 0 && end < 0; i-- {
+		if numbered.MatchString(clean[i]) {
+			end = i
+		}
 	}
-	p.Options = append(append(no, key{"esc", "Esc"}), rest...)
+	if end < 0 {
+		return p
+	}
+	start := end
+	for start > 0 && numbered.MatchString(clean[start-1]) {
+		start--
+	}
+	for i := end; i >= start; i-- {
+		if numbered.FindStringSubmatch(clean[i])[1] == "1" {
+			start = i
+			break
+		}
+	}
+	var no, rest []key
+	fits := true
+	for i, l := range clean[start : end+1] {
+		m := numbered.FindStringSubmatch(l)
+		if m[1] != strconv.Itoa(i+1) || !slices.Contains(state.SupervisorKeys, m[1]) {
+			fits = false
+			break
+		}
+		k := key{m[1], m[1] + " " + clip(m[2], 24)}
+		if refusal.MatchString(m[2]) {
+			no = append(no, k)
+		} else {
+			rest = append(rest, k)
+		}
+	}
+	if fits {
+		p.Options = append(append(no, key{"esc", "Esc"}), rest...)
+	}
+	body := clean[:start]
 	q := -1
 	for i, l := range body {
 		if strings.HasSuffix(l, "?") {
 			q = i
 		}
 	}
+	if q < 0 {
+		return p
+	}
+	cmd, kind := "", ""
 	switch {
-	case q == 0:
-		p.Headline = body[0]
-	case q > 0:
-		kind, _, _ := strings.Cut(body[0], " ")
-		p.Headline = kind
-		if q > 1 {
-			p.Headline += ": " + body[1]
-		}
-		p.Headline += " · " + body[q]
+	case q+1 < len(body):
+		cmd = body[q+1]
+	case q >= 2:
+		cmd = body[1]
+	}
+	if q >= 1 {
+		kind = kindWord.FindString(body[0])
+	}
+	switch {
+	case kind != "" && cmd != "":
+		p.Headline = kind + ": " + cmd + " · " + body[q]
+	case cmd != "":
+		p.Headline = cmd + " · " + body[q]
+	case kind != "":
+		p.Headline = kind + " · " + body[q]
+	default:
+		p.Headline = body[q]
 	}
 	return p
 }
