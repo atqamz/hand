@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
-	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -28,7 +27,7 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 	session := fleet.Session(r.fleet.ID)
 	c := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
 	caps, err := luvus.Ensure(ctx, c, func() error {
-		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
+		bin, err := r.luvusBin()
 		if err != nil {
 			return err
 		}

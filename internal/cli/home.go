@@ -12,6 +12,7 @@ import (
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -277,6 +278,23 @@ func cmdInit(r *runner, args []string) error {
 	d.Field("routing", filepath.Join(r.home, harness.PolicyFile))
 	help := []string{"Write your durable preferences in " + filepath.Join(r.home, "memory", memory.OperatorFile),
 		"Register a repository: `hand project add NAME ABSOLUTE_REPO_PATH`"}
+	switch pin, had, err := luvus.LoadPin(root); {
+	case err != nil:
+		help = append(help, "Luvus was not pinned ("+err.Error()+"); pin it with `hand luvus pin`")
+	case had:
+		d.Field("luvus", pin.Version+" (pinned)")
+	default:
+		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
+		if err != nil {
+			help = append(help, "Install Luvus, then pin it: `hand luvus pin`")
+			break
+		}
+		if pin, err = r.pinLuvus(root, bin); err != nil {
+			help = append(help, "Luvus was not pinned ("+err.Error()+"); pin it with `hand luvus pin`")
+			break
+		}
+		d.Field("luvus", "pinned "+pin.Version+" ("+pin.Path+")")
+	}
 	if movedFrom != "" {
 		help = append(help, "This home moved; regenerate its watcher unit with `hand unit watch`; the board follows the fleet by itself")
 	}

@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/atqamz/hand/internal/fleet"
-	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -44,7 +43,7 @@ func cmdAttach(r *runner, args []string) error {
 	if !r.terminal() {
 		return usageError{"attach needs a terminal; run it from an interactive shell"}
 	}
-	bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
+	bin, err := r.luvusBin()
 	if err != nil {
 		return err
 	}
