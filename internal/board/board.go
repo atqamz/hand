@@ -197,8 +197,13 @@ var option = regexp.MustCompile(`^\s*(?:\d+|[A-Z])[.)]\s+(.+)$`)
 
 func chips(body string) []string {
 	var out []string
+	fenced := false
 	for _, line := range strings.Split(body, "\n") {
-		if m := option.FindStringSubmatch(line); m != nil {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+			continue
+		}
+		if m := option.FindStringSubmatch(line); m != nil && !fenced {
 			out = append(out, strings.TrimSpace(m[1]))
 		}
 	}

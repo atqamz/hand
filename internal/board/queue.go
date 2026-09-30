@@ -232,15 +232,24 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			if w.Title == "" {
 				w.Title = "Its screen needs a key"
 			}
-			if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); screens && err == nil && s.TerminalID == a.TerminalID {
-				w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
-				if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
-					return nil, err
+			if screens {
+				if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
+					w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
+					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
 		out = append(out, w)
 	}
+	quiet := func(w waiting) int {
+		if w.Kind == "quiet" {
+			return 1
+		}
+		return 0
+	}
+	slices.SortStableFunc(out, func(x, y waiting) int { return quiet(x) - quiet(y) })
 	return out, nil
 }
 

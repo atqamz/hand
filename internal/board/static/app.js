@@ -348,6 +348,7 @@
 		for (const el of doc.querySelectorAll("[data-region]")) {
 			if (served.get(el.dataset.region) !== el.innerHTML) apply(el.dataset.region, el.innerHTML);
 		}
+		follow();
 	};
 	const follow = () => {
 		if (!live || document.visibilityState === "hidden") {

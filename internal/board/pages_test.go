@@ -247,3 +247,22 @@ func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
 		t.Fatal("app.js does not guard the toast or refresh a page without live regions after an action")
 	}
 }
+
+func TestChipsSkipCodeFences(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Pick one\n\n```\n1. make build\n```\n\n1. Ship it\n2. Wait"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/decision/d1")
+	contains(t, "chips", body, `data-fill="Ship it"`, `data-fill="Wait"`)
+	lacks(t, "chips", body, `data-fill="make build"`)
+}
+
+func TestAPollThatWorksReopensTheStream(t *testing.T) {
+	js := asset(t, "app.js")
+	_, rest, _ := strings.Cut(js, "const refresh = async () => {")
+	body, _, _ := strings.Cut(rest, "const follow = () => {")
+	if !strings.Contains(body, "follow();") {
+		t.Fatal("a successful refresh does not reopen the event stream")
+	}
+}

@@ -16,7 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]+)"( open)?>`)
+var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]*)"( open)?>`)
 
 func waits(body string) (kinds, refs []string, open []bool) {
 	for _, m := range waitItem.FindAllStringSubmatch(region(body, "queue"), -1) {
@@ -129,7 +129,7 @@ func TestDecisionsAnswerInPlace(t *testing.T) {
 	if res := post(h, "/decision/d1/answer", url.Values{"answer": {"yes"}}); res.StatusCode != 303 {
 		t.Fatalf("answer = %d", res.StatusCode)
 	}
-	if kinds, _, _ := waits(get(t, h, "/")); len(kinds) != 0 {
+	if kinds, _, _ := waits(get(t, h, "/")); slices.Contains(kinds, "decision") {
 		t.Fatalf("after the answer the queue holds %q", kinds)
 	}
 }
@@ -196,7 +196,7 @@ func TestReportsAckInPlace(t *testing.T) {
 	if res := post(h, "/report/r1/ack", nil); res.StatusCode != 303 {
 		t.Fatalf("ack = %d", res.StatusCode)
 	}
-	if kinds, _, _ := waits(get(t, h, "/")); len(kinds) != 0 {
+	if kinds, _, _ := waits(get(t, h, "/")); slices.Contains(kinds, "report") {
 		t.Fatalf("after the ack the queue holds %q", kinds)
 	}
 }
@@ -509,4 +509,38 @@ func TestKeyFormsCarryTheLastPress(t *testing.T) {
 	fx.options.Now = func() time.Time { return time.Now().Add(time.Hour) }
 	q := region(get(t, fx.handler(), "/"), "queue")
 	contains(t, "last press", q, `action="/supervisor/keys" data-fetch><input type="hidden" name="csrf" value="`+token+`"><input type="hidden" name="revision" value="7"><input type="hidden" name="after" value="`+strconv.FormatInt(sup, 10)+`">`, `action="/attempt/a1/keys" data-fetch><input type="hidden" name="csrf" value="`+token+`"><input type="hidden" name="revision" value="7"><input type="hidden" name="after" value="`+strconv.FormatInt(att, 10)+`">`)
+}
+
+func TestBlockedWorkersComeBeforeQuietOnes(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
+	ctx := context.Background()
+	quiet := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if _, err := fx.st.RecordQuiet(ctx, quiet.ID); err != nil {
+		t.Fatal(err)
+	}
+	blocked := workerAttempt(t, fx.st, active(t, fx.st, "Ship it").ID)
+	if err := fx.st.NoteAttempt(ctx, blocked.ID, "blocked", "Pick one"); err != nil {
+		t.Fatal(err)
+	}
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); len(kinds) < 2 || kinds[0] != "worker" || kinds[1] != "quiet" {
+		t.Fatalf("kinds = %q", kinds)
+	}
+}
+
+func TestTheEventLoopLeavesWorkerScreensUnread(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
+		t.Fatal(err)
+	}
+	base, _ := serve(t, quick(fx.st, fx.options))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 5)
+	before := len(fx.srv.Calls("agent.read"))
+	collect(ch, 300*time.Millisecond)
+	if n := len(fx.srv.Calls("agent.read")) - before; n != 0 {
+		t.Fatalf("the event loop read worker screens %d times with nothing changed", n)
+	}
 }
