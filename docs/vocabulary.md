@@ -195,7 +195,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
 
-- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. Hand sends a wake only while the supervisor is idle, and only after every queued operator message has gone out.
+- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
 
 The wake kinds are:
