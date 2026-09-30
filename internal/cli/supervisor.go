@@ -374,6 +374,9 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 }
 
 func supervisorBin(r *runner, spec harness.Spec) (string, error) {
+	if err := state.CheckSupervisorHarness(spec.Harness); err != nil {
+		return "", err
+	}
 	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return "", err
 	}

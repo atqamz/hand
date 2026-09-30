@@ -365,6 +365,10 @@ func fakeBin(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
+	agy := "#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; exit 0; fi\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(agy), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return dir
 }
 

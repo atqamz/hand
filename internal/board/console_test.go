@@ -225,3 +225,12 @@ func TestStartIsPrimaryAndFetches(t *testing.T) {
 	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch data-starting="starting…">`, `<button class="primary">Start</button>`)
 	contains(t, "app.js", asset(t, "app.js"), "form.dataset.starting")
 }
+
+func TestTheSupervisorMenusLeaveOutAgy(t *testing.T) {
+	none := newFixture(t)
+	lacks(t, "start", region(get(t, none.handler(), "/"), "console"), `value="agy"`)
+	running := newFixture(t)
+	running.status = "idle"
+	running.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "other harness", region(get(t, running.handler(), "/"), "console"), `value="agy"`)
+}

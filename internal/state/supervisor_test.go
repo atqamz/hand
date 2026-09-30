@@ -243,3 +243,15 @@ func TestSessionSupervisorsListsOneSessionInOrder(t *testing.T) {
 		t.Fatalf("session supervisors = %+v, %v", got, err)
 	}
 }
+
+func TestSupervisorsRunOnlyOnSupervisorHarnesses(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if _, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy"}}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `harness "agy" runs workers only; the supervisor runs on claude, codex or opencode (atqamz/hand#736)`) {
+		t.Fatalf("an agy supervisor = %v", err)
+	}
+	task := activeTask(t, s)
+	if _, err := s.AddAttempt(ctx, AttemptSpec{TaskID: task.ID, Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy", "-i", "x"}}, t.TempDir()); err != nil {
+		t.Fatalf("an agy worker = %v", err)
+	}
+}

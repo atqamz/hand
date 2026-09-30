@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -44,7 +45,11 @@ func cmdRouteList(r *runner, args []string) error {
 			continue
 		}
 		for _, m := range list {
-			models = append(models, []string{name, m.Name, strings.Join(m.Efforts, " ")})
+			efforts := strings.Join(m.Efforts, " ")
+			if !slices.Contains(state.SupervisorHarnesses, name) {
+				efforts = "worker only"
+			}
+			models = append(models, []string{name, m.Name, efforts})
 		}
 	}
 	var d toon.Doc
