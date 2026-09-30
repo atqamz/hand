@@ -36,7 +36,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 - Linux.
 - Go 1.26.5 or newer and git, to build Hand and to make worktrees.
-- Luvus, with `luvus` on `PATH`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14.
+- Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional, for workers only: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models. The supervisor does not run on it.
 - Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
@@ -260,6 +260,8 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand decision answer [--by NAME] dN ANSWER`, `hand decision withdraw dN` | Answer or withdraw a decision. |
 | `hand decision list [--all]`, `hand decision show dN` | List open decisions (or all), and read one with its answer. |
 | `hand route list` | Show the routing profiles and the harnesses. |
+| `hand luvus pin [BIN]` | Pin a copy of a Luvus binary (default: `luvus` on `PATH`) for every fleet under this `SECONDHAND_HOME`. |
+| `hand luvus show` | Show the pinned Luvus and whether the fleet's running server is that copy. |
 | `hand orient` | Print the bounded fleet summary the supervisor starts every turn with. |
 | `hand wait [--after CURSOR] [--timeout DURATION]` | Block until a wake event arrives, for a supervisor opened by hand. |
 | `hand watch [--every DURATION] [--notify=false]` | Run the fleet's watcher. |

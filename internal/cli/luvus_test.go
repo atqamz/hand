@@ -5,8 +5,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/luvus"
 )
 
 func fakeLuvusAt(t *testing.T, dir, version string) string {
@@ -165,4 +169,77 @@ func TestInitWithoutLuvusStillSucceeds(t *testing.T) {
 	if names, _ := os.ReadDir(filepath.Join(broken.vars["SECONDHAND_HOME"], "luvus")); slices.ContainsFunc(names, func(e os.DirEntry) bool { return e.Name() == "pin.json" }) {
 		t.Fatal("a broken luvus was pinned")
 	}
+}
+
+func fakeUserManager(t *testing.T, h *harness, pid int) {
+	t.Helper()
+	dir := filepath.SplitList(h.vars["PATH"])[0]
+	for name, script := range map[string]string{
+		"systemd-run": "#!/bin/sh\nexit 1\n",
+		"systemctl":   "#!/bin/sh\necho " + strconv.Itoa(pid) + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(run, "systemd"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(run, "systemd", "private"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.vars["XDG_RUNTIME_DIR"] = run
+}
+
+func TestServerMatch(t *testing.T) {
+	pin := luvus.Pin{Path: "/s/luvus/0.14.3-abcdef12/luvus"}
+	for _, c := range []struct {
+		pinned, known bool
+		exe, want     string
+	}{
+		{false, true, pin.Path, "unknown"},
+		{true, false, "", "unknown"},
+		{true, true, pin.Path, "yes"},
+		{true, true, "/usr/bin/luvus", "no"},
+		{true, true, pin.Path + " (deleted)", "no"},
+	} {
+		if got := cli.ServerMatch(pin, c.pinned, c.exe, c.known); got != c.want {
+			t.Fatalf("%+v: got %q", c, got)
+		}
+	}
+}
+
+func TestLuvusShowReadsTheRunningServer(t *testing.T) {
+	h := newHarness(t)
+	pinnable(t, h, "0.14.3")
+	fakeUserManager(t, h, os.Getpid())
+	h.ok("init")
+	pin, _, err := luvus.LoadPin(h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 "+pin.Path, "server: "+self, "match: no", "systemctl --user stop secondhand-luvus-")
+	has(t, "pin", h.ok("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")), "server: "+self, "match: no")
+}
+
+func TestLuvusShowOutsideAFleet(t *testing.T) {
+	h := newHarness(t)
+	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
+	out := h.ok("luvus", "show")
+	has(t, "outside", out, "pin: none")
+	if strings.Contains(out, "server:") {
+		t.Fatalf("show = %q", out)
+	}
+}
+
+func TestLuvusShowWithoutAUserManager(t *testing.T) {
+	h := newHarness(t)
+	pinnable(t, h, "0.14.3")
+	h.ok("init")
+	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 ", "server: unknown", "match: unknown")
 }

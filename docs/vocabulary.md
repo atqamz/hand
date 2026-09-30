@@ -168,6 +168,14 @@ The terminal runtime Hand runs every agent in ([RizRiyz/luvus](https://github.co
 
 Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user session, that session's server runs in the user unit `secondhand-luvus-<fleet id>`, so restarting the watcher or the board never stops an agent. Without a user session, Hand starts the server directly.
 
+### Luvus pin
+
+The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<version>-<sha8>/luvus` and chosen by `$SECONDHAND_HOME/luvus/pin.json`. Every fleet under one `SECONDHAND_HOME` uses it, so a system upgrade never changes the Luvus a fleet runs.
+
+- `hand init` pins the `luvus` on `PATH` when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
+- The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
+- A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
+
 ### Pane
 
 The Luvus view of one terminal. The running supervisor and every running attempt each have a pane. Hand reads the screen and sends keys through it, and `hand attach supervisor` or `hand attach aN` opens it in your terminal.
