@@ -6,12 +6,14 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -26,6 +28,8 @@ const (
 type key struct{ Name, Label string }
 
 var keyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
+
+var digest = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func keyButtons() []key {
 	out := make([]key, 0, len(state.SupervisorKeys))
@@ -269,12 +273,12 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 	if ag.Status != "blocked" {
 		return
 	}
-	s, err := b.o.Luvus.Read(ctx, sup.PaneID, 20)
+	s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines)
 	if err != nil || s.TerminalID != sup.TerminalID {
 		data["Stale"] = staleServer
 		return
 	}
-	data["Blocked"], data["Screen"], data["Revision"] = true, s.Text, s.ContentRevision
+	data["Blocked"], data["Screen"], data["Revision"], data["Digest"] = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
 }
 
 func (b *Board) profiles() []string {
@@ -431,7 +435,11 @@ func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "press one of the listed keys on a screen shown by this page")
 		return
 	}
-	if err := b.o.Control(r.Context(), "keys", "--revision", rev, k); err != nil {
+	args := []string{"keys", "--revision", rev}
+	if d := r.PostFormValue("screen"); digest.MatchString(d) {
+		args = append(args, "--screen", d)
+	}
+	if err := b.o.Control(r.Context(), append(args, k)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			b.fail(w, http.StatusConflict, staleScreen)
 			return

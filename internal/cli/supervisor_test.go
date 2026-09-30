@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -820,4 +821,33 @@ func TestSupervisorForceRefusesAPaneThatNoLongerHoldsTheSupervisor(t *testing.T)
 		t.Fatalf("force typed %q into another terminal", got)
 	}
 	has(t, "show", fx.h.ok("supervisor", "show"), "pending: 1")
+}
+
+const (
+	promptEarly = "Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:59\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	promptLate  = "Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:12\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	promptOther = "Edit file\n Claude Code will automatically deny this request in 1:12\n Do you want to make this edit?\n❯ 1. Yes\n  2. No"
+)
+
+func TestSupervisorKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptLate })
+	has(t, "keys", h.ok("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "2"), "keys: 2")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"2"}) {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestSupervisorKeysRefuseWhenTheQuestionChanged(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptOther })
+	_, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "2")
+	if code != 3 || !strings.Contains(errOut, "the screen changed") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys = %q", got)
+	}
 }

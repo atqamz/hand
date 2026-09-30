@@ -219,6 +219,8 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/interrupt", nil, []string{"interrupt"}, "/"},
 		{"/supervisor/force", nil, []string{"force"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "enter"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"not-a-digest"}, "key": {"enter"}}, []string{"keys", "--revision", "7", "enter"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"send", "--text", "line one\nline two"}, "/"},
 		{"/supervisor/switch", url.Values{"profile": {"claude-deep"}}, []string{"switch", "--profile", "claude-deep"}, "/"},

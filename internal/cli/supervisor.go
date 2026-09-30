@@ -485,6 +485,7 @@ func cmdSupervisorShow(r *runner, args []string) error {
 func cmdSupervisorKeys(r *runner, args []string) error {
 	fs := flags("supervisor keys")
 	revision := fs.Int64("revision", -1, "content revision printed by `hand supervisor show`")
+	screen := fs.String("screen", "", "digest of the screen the keys answer; lets a press survive a countdown tick")
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("supervisor keys: %v", err)}
 	}
@@ -502,7 +503,7 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := c.Keys(ctx, sup.PaneID, keys, *revision, sup.TerminalID); err != nil {
+		if err := pressKeys(ctx, c, sup.PaneID, sup.TerminalID, keys, *revision, *screen); err != nil {
 			if luvus.Code(err) == "content_revision_conflict" {
 				return fmt.Errorf("%w: the screen changed since revision %d; nothing was sent; check it again", state.ErrConflict, *revision)
 			}
@@ -860,6 +861,18 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 		return 0, "", err
 	}
 	return 1, "", st.AdvanceWakeCursor(ctx, sup.ID, last)
+}
+
+func pressKeys(ctx context.Context, c luvus.Client, pane, terminal string, keys []string, revision int64, digest string) error {
+	err := c.Keys(ctx, pane, keys, revision, terminal)
+	if digest == "" || luvus.Code(err) != "content_revision_conflict" {
+		return err
+	}
+	s, rerr := c.Read(ctx, pane, luvus.ScreenLines)
+	if rerr != nil || s.TerminalID != terminal || luvus.ScreenDigest(s.Text) != digest {
+		return err
+	}
+	return c.Keys(ctx, pane, keys, s.ContentRevision, terminal)
 }
 
 func emptyPrompt(screen string) bool {

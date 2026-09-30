@@ -30,6 +30,7 @@ type waiting struct {
 	Attempt          *state.Attempt
 	Screen           string
 	Revision         int64
+	Digest           string
 	Hint             string
 	Sup              *state.Supervisor
 	Excerpt          string
@@ -69,11 +70,12 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		hint, _ := data["Hint"].(string)
 		screen, _ := data["Screen"].(string)
 		rev, _ := data["Revision"].(int64)
+		dig, _ := data["Digest"].(string)
 		title := hint
 		if title == "" {
 			title = blockedAsking
 		}
-		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Sup: &sup})
+		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Sup: &sup})
 	}
 	decisions, err := b.st.OpenDecisions(ctx, 0, maxWaits)
 	if err != nil {

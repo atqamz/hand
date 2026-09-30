@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/luvus"
 )
 
 func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
@@ -75,5 +77,17 @@ func TestInputIsRefusedAfterARestart(t *testing.T) {
 	}
 	if got := fx.rt.prompts(); len(got) != 0 {
 		t.Fatalf("delivered after restart: %q", got)
+	}
+}
+
+func TestAttemptKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, promptLate })
+	if out := fx.h.ok("attempt", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "a1", "2"); !strings.Contains(out, "keys: 2") {
+		t.Fatalf("keys = %q", out)
+	}
+	if got := fx.rt.keysSent(); !slices.Equal(got, []string{"2"}) {
+		t.Fatalf("keys sent = %q", got)
 	}
 }

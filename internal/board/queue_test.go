@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -140,6 +141,9 @@ func TestTheBlockedScreenJoinsTheQueue(t *testing.T) {
 	contains(t, "blocked item", q, `data-kind="blocked"`, "Trust this folder?", "❯ 1. Yes", `action="/supervisor/keys" data-fetch`, `action="/supervisor/force" data-fetch`)
 	if n := strings.Count(q, `name="revision" value="7"`); n != len(state.SupervisorKeys) {
 		t.Fatalf("key forms with the revision = %d, want %d", n, len(state.SupervisorKeys))
+	}
+	if n := strings.Count(q, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`); n != len(state.SupervisorKeys) {
+		t.Fatalf("key forms with the screen digest = %d, want %d", n, len(state.SupervisorKeys))
 	}
 	lacks(t, "status region", region(body, "status"), "<pre", `action="/supervisor/keys"`)
 	fx.options.Controls = false
