@@ -1,6 +1,6 @@
 # Hand
 
-Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex or opencode workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
+Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
 Hand is built for one operator on Linux, not as a product for other users. The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
@@ -38,6 +38,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 - Go 1.26.5 or newer and git, to build Hand and to make worktrees.
 - Luvus, with `luvus` on `PATH`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
+- Optional, for workers only: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models. The supervisor does not run on it.
 - Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install
@@ -219,7 +220,7 @@ Hand runs the supervisor in the background in the fleet's Luvus session, in full
 - `codex --dangerously-bypass-approvals-and-sandbox`;
 - `opencode --standalone --auto`.
 
-Workers run with the same flags, each in its own worktree.
+Workers run with the same flags, each in its own worktree. Antigravity runs workers only, as `agy --model ID --dangerously-skip-permissions -i BRIEF`. agy asks once per folder whether to trust it, and every attempt is a new folder: Hand presses Enter on that screen only when it names the attempt's own worktree, and notes the attempt blocked otherwise. The board has no Chat or context bar for agy, because the supervisor never runs on it (atqamz/hand#736).
 
 The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
 
