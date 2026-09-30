@@ -804,3 +804,20 @@ func TestSupervisorForceNeverTypesIntoARealQuestion(t *testing.T) {
 	}
 	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
 }
+
+func TestSupervisorForceRefusesAPaneThatNoLongerHoldsTheSupervisor(t *testing.T) {
+	fx := newAttemptFixture(t)
+	startClaudeSupervisor(fx.h)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.status, rt.revision, rt.ready, rt.screen = "blocked", 3, false, "────\n❯ \n────"
+	})
+	fx.h.ok("supervisor", "send", "--text", "hello")
+	if _, errOut, code := fx.h.run("supervisor", "force"); code != 3 || !strings.Contains(errOut, "no longer holds") {
+		t.Fatalf("force into another terminal: code=%d stderr=%q", code, errOut)
+	}
+	if got := fx.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("force typed %q into another terminal", got)
+	}
+	has(t, "show", fx.h.ok("supervisor", "show"), "pending: 1")
+}

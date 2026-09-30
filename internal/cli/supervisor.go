@@ -828,7 +828,10 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 		return 0, "", err
 	}
 	for i, in := range pending {
-		if err := typeIn(ctx, c, sup.PaneID, in.Body); err != nil {
+		if err := typeIn(ctx, c, sup, in.Body); err != nil {
+			if i > 0 {
+				err = fmt.Errorf("%w (typed %d of %d queued messages first)", err, i, len(pending))
+			}
 			return i, "", err
 		}
 		if err := st.DeliverSupervisorInput(ctx, in.ID); err != nil {
@@ -846,7 +849,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 		return 0, "nothing waits for the supervisor", nil
 	}
 	digest, last := wakeDigest(events)
-	if err := typeIn(ctx, c, sup.PaneID, digest); err != nil {
+	if err := typeIn(ctx, c, sup, digest); err != nil {
 		return 0, "", err
 	}
 	return 1, "", st.AdvanceWakeCursor(ctx, sup.ID, last)
@@ -861,7 +864,7 @@ func emptyPrompt(screen string) bool {
 	return false
 }
 
-func typeIn(ctx context.Context, c luvus.Client, pane, text string) error {
+func typeIn(ctx context.Context, c luvus.Client, sup state.Supervisor, text string) error {
 	keys := make([]string, 0, len(text)+1)
 	for _, ch := range text {
 		switch ch {
@@ -875,14 +878,17 @@ func typeIn(ctx context.Context, c luvus.Client, pane, text string) error {
 	}
 	keys = append(keys, "enter")
 	for range 3 {
-		s, err := c.Read(ctx, pane, 40)
+		s, err := c.Read(ctx, sup.PaneID, 40)
 		if err != nil {
 			return runtimeErr(err)
+		}
+		if s.TerminalID != sup.TerminalID {
+			return fmt.Errorf("%w: pane %s no longer holds supervisor %s; nothing was typed", state.ErrConflict, sup.PaneID, state.SupervisorRef(sup.ID))
 		}
 		if !emptyPrompt(s.Text) {
 			return fmt.Errorf("%w: the supervisor's screen shows no empty prompt, so it may really be asking something; answer it with its keys", state.ErrConflict)
 		}
-		err = c.Keys(ctx, pane, keys, s.ContentRevision, s.TerminalID)
+		err = c.Keys(ctx, sup.PaneID, keys, s.ContentRevision, sup.TerminalID)
 		if luvus.Code(err) != "content_revision_conflict" {
 			if err != nil {
 				return runtimeErr(err)
