@@ -456,8 +456,26 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 	if all {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
-	data["Checks"], data["All"], data["Hidden"] = checks, all, total-len(checks)
+	var sections []taskGroup
+	for _, status := range groups {
+		g := taskGroup{Name: strings.ToUpper(status[:1]) + status[1:], Count: counts[status]}
+		for _, c := range checks {
+			if c.Task.Status == status {
+				g.Checks = append(g.Checks, c)
+			}
+		}
+		if len(g.Checks) > 0 {
+			sections = append(sections, g)
+		}
+	}
+	data["Checks"], data["Groups"], data["All"], data["Hidden"] = checks, sections, all, total-len(checks)
 	return nil
+}
+
+type taskGroup struct {
+	Name   string
+	Count  int
+	Checks []check
 }
 
 func (b *Board) task(w http.ResponseWriter, r *http.Request) {

@@ -61,7 +61,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 			t.Fatalf("%s state = %q, want %q (%v)", ref, got, state, rows)
 		}
 	}
-	contains(t, "running row", rows["t1"], "Running work", "A1 CODEX GPT-6-LUNA", `href="https://github.com/atqamz/hand/pull/7"`)
+	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}

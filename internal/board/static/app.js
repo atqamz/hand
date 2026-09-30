@@ -230,6 +230,13 @@
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
+			const item = form.action.endsWith("/keys") && form.closest("details.wait");
+			if (item) {
+				item.dataset.sent = e.submitter?.textContent || data.get("key") || "";
+				const title = item.querySelector(".wait-title");
+				if (title) title.dataset.sent = item.dataset.sent;
+				for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
+			}
 			if (form.closest("details.menu")) closeMenus(null);
 			if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
@@ -307,8 +314,20 @@
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
+	const tick = () => {
+		for (const c of document.querySelectorAll("[data-countdown]")) {
+			if (!c.dataset.endsAt) {
+				const [m, sec] = c.dataset.countdown.split(":").map(Number);
+				c.dataset.endsAt = String(Date.now() + (m * 60 + sec) * 1000);
+			}
+			const left = Math.max(0, Math.round((Number(c.dataset.endsAt) - Date.now()) / 1000));
+			c.textContent = left === 0 ? "denying…" : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+		}
+	};
 	since();
+	tick();
 	setInterval(since, 30000);
+	setInterval(tick, 1000);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) reflect();

@@ -165,7 +165,7 @@ func TestEveryPanelState(t *testing.T) {
 				}
 			}
 			if c.agent == "blocked" {
-				contains(t, "blocked", body, "Trust this folder?", `name="revision" value="7"`, `value="enter"`, `value="esc"`, `value="up"`, `value="down"`, `value="1"`, `value="2"`, `value="3"`)
+				contains(t, "blocked", body, "Trust this folder?", `name="revision" value="7"`, `value="esc"`, `value="1"`)
 			}
 			if c.status == "" {
 				contains(t, "start", body, `value="claude"`, `value="codex"`, `value="opencode"`)

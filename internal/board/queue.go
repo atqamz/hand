@@ -5,7 +5,9 @@ import (
 	"maps"
 	"math"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +41,74 @@ type waiting struct {
 	Sup              *state.Supervisor
 	Excerpt          string
 	Cut              bool
+	Prompt           prompt
+}
+
+type prompt struct {
+	Headline string
+	Options  []key
+	Deadline string
+}
+
+var (
+	numbered = regexp.MustCompile(`^\s*(?:❯\s*)?([1-9])\.\s+(.+?)\s*$`)
+	autoDeny = regexp.MustCompile(`deny this request in (\d+:\d{2})`)
+	boxRule  = regexp.MustCompile(`^\s*[─━]{10,}\s*$`)
+	hintLine = regexp.MustCompile(`(?i)\besc to\b|\benter to\b|\btab to\b`)
+)
+
+func blockedPrompt(screen string) prompt {
+	lines := strings.Split(screen, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if boxRule.MatchString(lines[i]) {
+			lines = lines[i+1:]
+			break
+		}
+	}
+	var p prompt
+	var body []string
+	var no, rest []key
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if m := autoDeny.FindStringSubmatch(t); m != nil {
+			p.Deadline = m[1]
+			continue
+		}
+		m := numbered.FindStringSubmatch(l)
+		switch {
+		case m != nil && slices.Contains(state.SupervisorKeys, m[1]):
+			k := key{m[1], m[1] + " " + clip(m[2], 24)}
+			if strings.HasPrefix(m[2], "No") {
+				no = append(no, k)
+			} else {
+				rest = append(rest, k)
+			}
+		case t != "" && len(no)+len(rest) == 0 && !hintLine.MatchString(t):
+			body = append(body, t)
+		}
+	}
+	if len(no)+len(rest) == 0 {
+		return prompt{Deadline: p.Deadline}
+	}
+	p.Options = append(append(no, key{"esc", "Esc"}), rest...)
+	q := -1
+	for i, l := range body {
+		if strings.HasSuffix(l, "?") {
+			q = i
+		}
+	}
+	switch {
+	case q == 0:
+		p.Headline = body[0]
+	case q > 0:
+		kind, _, _ := strings.Cut(body[0], " ")
+		p.Headline = kind
+		if q > 1 {
+			p.Headline += ": " + body[1]
+		}
+		p.Headline += " · " + body[q]
+	}
+	return p
 }
 
 var severity = map[string]struct {
@@ -87,7 +157,11 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup})
+		w := waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup, Prompt: blockedPrompt(screen)}
+		if w.Prompt.Headline != "" {
+			w.Title = w.Prompt.Headline
+		}
+		add(w)
 	}
 	supervised := live && sup.Status == state.AttemptRunning
 	liveAttempts, err := b.st.LiveAttempts(ctx)
@@ -179,6 +253,23 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
+	if len(waits) == 0 {
+		cleared, err := b.st.RecentEventsOf(ctx, []string{"decision.answered", "report.acked", "supervisor.keys", "attempt.keys"}, 1)
+		if err != nil {
+			return err
+		}
+		if len(cleared) > 0 {
+			data["Cleared"] = cleared[0].At
+		}
+		var parts []string
+		if n := len(liveAttempts); n > 0 {
+			parts = append(parts, strconv.Itoa(n)+" running")
+		}
+		if n := counts[state.StatusInbox]; n > 0 {
+			parts = append(parts, strconv.Itoa(n)+" inbox")
+		}
+		data["Summary"] = strings.Join(parts, " · ")
+	}
 	slices.SortStableFunc(waits, func(x, y waiting) int { return x.Rank() - y.Rank() })
 	waits = waits[:min(len(waits), maxWaits)]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
@@ -240,7 +331,10 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			}
 			if screens {
 				if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
-					w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
+					w.Screen, w.Revision, w.Digest, w.Prompt = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text), blockedPrompt(s.Text)
+					if w.Prompt.Headline != "" {
+						w.Title = w.Prompt.Headline
+					}
 					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
 						return nil, err
 					}
