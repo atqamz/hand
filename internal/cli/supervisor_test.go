@@ -359,6 +359,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	fx := newAttemptFixture(t)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
 	st := openStore(t, fx.h)
 	ctx := context.Background()
 	for i := range 60 {
