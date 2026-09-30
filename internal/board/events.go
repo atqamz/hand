@@ -31,6 +31,7 @@ type version struct {
 	entries     uint64
 	note        string
 	context     transcript.Status
+	workers     int
 }
 
 func (b *Board) version(ctx context.Context) (version, error) {
@@ -68,7 +69,17 @@ func (b *Board) version(ctx context.Context) (version, error) {
 	if ok && b.o.Transcript != nil {
 		v.context = b.o.Transcript.Status(sup.Harness, sup.Session)
 	}
-	return v, nil
+	live, err := b.st.LiveAttempts(ctx)
+	if err != nil {
+		return v, err
+	}
+	signals, err := b.signals(ctx, live)
+	if err != nil {
+		return v, err
+	}
+	workers, err := b.workers(ctx, live, signals, ok && sup.Status == state.AttemptRunning, false)
+	v.workers = len(workers)
+	return v, err
 }
 
 func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, error) {
@@ -77,6 +88,7 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 		return nil, err
 	}
 	data["Base"] = b.o.Base
+	data["Titles"] = b.refTitle(ctx)
 	out := make(map[string]string, len(regionNames))
 	for _, name := range regionNames {
 		var buf bytes.Buffer

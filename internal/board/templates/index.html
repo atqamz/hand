@@ -1,4 +1,4 @@
-{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}"><a href="#needs" data-tab="needs">Needs you <span class="count n" data-waiting="{{.Waiting}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>
+{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"><a href="#needs" data-tab="needs">Needs you <span class="count n" data-waiting="{{.Waiting}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>
 <main class="board">
 <div class="column" id="needs">
 <section class="queue" data-region="queue">{{template "region-queue" .}}</section>
@@ -9,10 +9,9 @@
 <section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
-<textarea name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
+<textarea id="composer-text" name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
 <span class="hint">{{.ComposerHint}}</span><span class="send"><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span>
 </form><section class="console" data-region="console">{{template "region-console" .}}</section></div>{{end}}
 </div>
 </main>
-<div id="toast" role="status" aria-live="polite"></div>
 {{template "foot"}}{{end}}

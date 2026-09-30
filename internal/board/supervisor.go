@@ -3,15 +3,18 @@ package board
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -26,6 +29,8 @@ const (
 type key struct{ Name, Label string }
 
 var keyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
+
+var digest = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 func keyButtons() []key {
 	out := make([]key, 0, len(state.SupervisorKeys))
@@ -108,8 +113,17 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			text, level := gauge(st)
 			data["Gauge"], data["Compactions"] = map[string]string{"Text": text, "Level": level}, st.Compactions
 		}
-		if sup.Status == state.AttemptRunning && (sup.Harness == "claude" || sup.Harness == "codex") {
+		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
+			data["CurrentModels"], data["CurrentEfforts"] = b.models(sup.Harness)
+			var others []harnessChoice
+			for _, h := range state.Harnesses {
+				if h != sup.Harness {
+					models, efforts := b.models(h)
+					others = append(others, harnessChoice{Name: h, Models: models, Efforts: efforts})
+				}
+			}
+			data["OtherHarnesses"] = others
 		}
 	}
 	label, _ := data["PillLabel"].(string)
@@ -200,6 +214,8 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	switch {
 	case sup.Status == state.AttemptLaunching:
 		return "none", ref + " is starting; your message waits."
+	case !sup.Live() && sup.Session != "":
+		return "none", ref + " stopped: " + sup.Reason + ". Resume continues its session and then delivers your message."
 	case sup.Status != state.AttemptRunning:
 		return "none", "No supervisor is running; your message waits until one starts."
 	case stale:
@@ -269,12 +285,34 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 	if ag.Status != "blocked" {
 		return
 	}
-	s, err := b.o.Luvus.Read(ctx, sup.PaneID, 20)
+	s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines)
 	if err != nil || s.TerminalID != sup.TerminalID {
 		data["Stale"] = staleServer
 		return
 	}
-	data["Blocked"], data["Screen"], data["Revision"] = true, s.Text, s.ContentRevision
+	data["Blocked"], data["Screen"], data["Revision"], data["Digest"] = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
+}
+
+type harnessChoice struct {
+	Name    string
+	Models  []harness.Model
+	Efforts []string
+}
+
+func (b *Board) models(name string) ([]harness.Model, []string) {
+	models, err := harness.Models(name, b.o.CodexHome)
+	if err != nil {
+		return nil, nil
+	}
+	var efforts []string
+	for _, m := range models {
+		for _, e := range m.Efforts {
+			if !slices.Contains(efforts, e) {
+				efforts = append(efforts, e)
+			}
+		}
+	}
+	return models, efforts
 }
 
 func (b *Board) profiles() []string {
@@ -304,7 +342,10 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	entries, note := b.conversation(ctx, sup, ok)
+	entries, note, sups, err := b.sessions(ctx)
+	if err != nil {
+		return err
+	}
 	if note != "" {
 		data["Note"] = note
 	}
@@ -319,38 +360,97 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	var sups []state.Supervisor
-	if ok && sup.Session != "" {
-		if sups, err = b.st.SessionSupervisors(ctx, sup.Session); err != nil {
-			return err
+	delivered, err := b.st.DeliveredSupervisorInputs(ctx, deliveredLookback)
+	if err != nil {
+		return err
+	}
+	sent := map[string]string{}
+	for _, in := range delivered {
+		if _, ok := sent[strings.TrimSpace(in.Body)]; !ok {
+			sent[strings.TrimSpace(in.Body)] = in.DeliveredAt
 		}
 	}
-	numbered := len(entries)
-	for _, in := range pending {
-		entries = append(entries, transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true})
+	all := make([]dispatch, 0, len(entries)+len(pending))
+	no := 0
+	for _, e := range entries {
+		if e.Role == "hand" && launched.MatchString(e.Text) {
+			continue
+		}
+		no++
+		d := dispatch{Entry: e, Ref: refAt(sups, e.At), No: no}
+		if e.Role == "operator" {
+			d.Delivered = sent[strings.TrimSpace(e.Text)]
+		}
+		all = append(all, d)
 	}
-	end := len(entries)
+	lines, err := b.lifecycle(ctx)
+	if err != nil {
+		return err
+	}
+	all = append(all, lines...)
+	slices.SortStableFunc(all, func(x, y dispatch) int { return parse(x.At).Compare(parse(y.At)) })
+	for _, in := range pending {
+		all = append(all, dispatch{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
+	}
+	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
 		end = n
 	}
 	start := max(0, end-pageSize)
-	page := make([]dispatch, 0, end-start)
-	for i := start; i < end; i++ {
-		d := dispatch{Entry: entries[i], Ref: refAt(sups, entries[i].At)}
-		if i < numbered {
-			d.No = i + 1
-		}
-		page = append(page, d)
-	}
+	page := slices.Clone(all[start:end])
 	slices.Reverse(page)
 	data["Entries"], data["Older"] = page, start
 	return nil
 }
 
+var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
+
+const deliveredLookback = 50
+
+var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch"}
+
+func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
+	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
+	if err != nil {
+		return nil, err
+	}
+	sups, err := b.st.Supervisors(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byRef := make(map[string]state.Supervisor, len(sups))
+	for _, s := range sups {
+		byRef[state.SupervisorRef(s.ID)] = s
+	}
+	out := make([]dispatch, 0, len(events))
+	for _, e := range events {
+		ref, detail, _ := strings.Cut(e.Detail, ": ")
+		text := ""
+		switch kind := strings.TrimPrefix(e.Kind, "supervisor."); kind {
+		case "keys":
+			text = "You pressed " + detail + " on " + ref + "'s screen"
+		case "started":
+			sup := byRef[ref]
+			text = strings.Join(strings.Fields(ref+" started · "+sup.Harness+" "+sup.Model+" "+sup.Effort), " ")
+		case "switch":
+			if detail == "canceled" {
+				text = ref + "'s switch was canceled"
+			} else {
+				text = ref + " will switch " + detail + " after this turn"
+			}
+		default:
+			text = ref + " " + kind + ": " + detail
+		}
+		out = append(out, dispatch{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
+	}
+	return out, nil
+}
+
 type dispatch struct {
 	transcript.Entry
-	No  int
-	Ref string
+	No        int
+	Ref       string
+	Delivered string
 }
 
 func refAt(sups []state.Supervisor, at string) string {
@@ -364,6 +464,33 @@ func refAt(sups []state.Supervisor, at string) string {
 		}
 	}
 	return state.SupervisorRef(ref)
+}
+
+func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []state.Supervisor, error) {
+	sups, err := b.st.Supervisors(ctx)
+	if err != nil || len(sups) == 0 {
+		return nil, "no supervisor yet", nil, err
+	}
+	latest := sups[len(sups)-1]
+	var all []transcript.Entry
+	note := ""
+	seen := map[string]bool{}
+	for _, s := range sups {
+		key := s.Harness + ":" + s.Session
+		if s.Session == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		entries, n := b.conversation(ctx, s, true)
+		if s.Session == latest.Session && s.Harness == latest.Harness {
+			note = n
+		}
+		all = append(all, entries...)
+	}
+	if latest.Session == "" {
+		_, note = b.conversation(ctx, latest, true)
+	}
+	return all, note, sups, nil
 }
 
 func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
@@ -388,18 +515,44 @@ func (b *Board) allowed(w http.ResponseWriter) bool {
 	return false
 }
 
-func (b *Board) run(w http.ResponseWriter, r *http.Request, args ...string) {
+func (b *Board) run(w http.ResponseWriter, r *http.Request, receipt string, args ...string) {
 	if err := b.o.Control(r.Context(), args...); err != nil {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/", receipt)
 }
+
+func (b *Board) done(w http.ResponseWriter, r *http.Request, next, receipt string) {
+	if r.Header.Get("X-Hand-Fetch") != "1" {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+	if receipt != "" {
+		w.Header().Set("X-Hand-Receipt", url.PathEscape(receipt))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (b *Board) supRef(ctx context.Context) (string, bool) {
+	sup, ok, err := b.st.LatestSupervisor(ctx)
+	if err != nil || !ok {
+		return "the supervisor", false
+	}
+	return state.SupervisorRef(sup.ID), sup.Status == state.AttemptRunning
+}
+
+var simpleReceipts = map[string]string{"resume": "Starting the supervisor…", "stop": "%s stopping", "interrupt": "Interrupt sent to %s", "force": "Typed into %s"}
 
 func (b *Board) simple(verb string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if b.allowed(w) {
-			b.run(w, r, verb)
+			ref, _ := b.supRef(r.Context())
+			receipt := simpleReceipts[verb]
+			if strings.Contains(receipt, "%s") {
+				receipt = fmt.Sprintf(receipt, ref)
+			}
+			b.run(w, r, receipt, "supervisor", verb)
 		}
 	}
 }
@@ -408,7 +561,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
 	}
-	args := []string{"start"}
+	args := []string{"supervisor", "start"}
 	if p := r.PostFormValue("profile"); p != "" {
 		args = append(args, "--profile", p)
 	} else if h := r.PostFormValue("harness"); h != "" {
@@ -419,10 +572,23 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	b.run(w, r, args...)
+	b.run(w, r, "Starting the supervisor…", args...)
 }
 
 func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
+	b.press(w, r, "supervisor", "")
+}
+
+func (b *Board) attemptKeys(w http.ResponseWriter, r *http.Request) {
+	ref := r.PathValue("ref")
+	if n, err := strconv.ParseInt(strings.TrimPrefix(ref, "a"), 10, 64); err != nil || n < 1 || !strings.HasPrefix(ref, "a") {
+		b.fail(w, http.StatusBadRequest, "press keys on an attempt shown by this page")
+		return
+	}
+	b.press(w, r, "attempt", ref)
+}
+
+func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target string) {
 	if !b.allowed(w) {
 		return
 	}
@@ -431,7 +597,20 @@ func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "press one of the listed keys on a screen shown by this page")
 		return
 	}
-	if err := b.o.Control(r.Context(), "keys", "--revision", rev, k); err != nil {
+	args := []string{group, "keys", "--revision", rev}
+	if d := r.PostFormValue("screen"); digest.MatchString(d) {
+		args = append(args, "--screen", d)
+	}
+	if a, err := strconv.ParseInt(r.PostFormValue("after"), 10, 64); err == nil && a >= 0 {
+		args = append(args, "--after", strconv.FormatInt(a, 10))
+	}
+	to := target
+	if target != "" {
+		args = append(args, target)
+	} else {
+		to, _ = b.supRef(r.Context())
+	}
+	if err := b.o.Control(r.Context(), append(args, k)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			b.fail(w, http.StatusConflict, staleScreen)
 			return
@@ -439,7 +618,7 @@ func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/", "Sent "+k+" to "+to)
 }
 
 func (b *Board) send(w http.ResponseWriter, r *http.Request) {
@@ -451,29 +630,33 @@ func (b *Board) send(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.run(w, r, "send", "--text", text)
+	b.run(w, r, "", "supervisor", "send", "--text", text)
 }
 
 func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
 	}
-	args := []string{"switch"}
+	args := []string{"supervisor", "switch"}
 	switch {
 	case r.PostFormValue("cancel") == "1":
 		args = append(args, "--cancel")
 	case r.PostFormValue("profile") != "":
 		args = append(args, "--profile", r.PostFormValue("profile"))
 	default:
-		for _, f := range []string{"model", "effort"} {
+		for _, f := range []string{"harness", "model", "effort"} {
 			if v := strings.TrimSpace(r.PostFormValue(f)); v != "" {
 				args = append(args, "--"+f, v)
 			}
 		}
 	}
-	if len(args) == 1 {
+	if len(args) == 2 {
 		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
 		return
 	}
-	b.run(w, r, args...)
+	receipt := "Switch set for after this turn"
+	if h := strings.TrimSpace(r.PostFormValue("harness")); h != "" {
+		receipt = "Switching to " + h + "…"
+	}
+	b.run(w, r, receipt, args...)
 }

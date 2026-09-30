@@ -153,3 +153,116 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 	}
 	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status" data-state="waiting">OPEN</span>`)
 }
+
+func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Pick how to publish the docs\n\n1. From CI, see t1\n2. From a wiki"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Ask(ctx, task.ID, "Ship it?"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	q := region(get(t, h, "/"), "queue")
+	contains(t, "tray", q, `<span class="wait-title">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
+	page := get(t, h, "/decision/d1")
+	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, "<ol>", `data-fill="From a wiki"`, `data-fetch`)
+	lacks(t, "one-line page", get(t, h, "/decision/d2"), `data-fill=`, `<div class="question md">`)
+}
+
+func TestAnsweringAnAnsweredDecisionKeepsTheDraft(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, 1, "yes, keep", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"answer": {"no"}})
+	if msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error")); rec.Code != http.StatusConflict || !strings.Contains(msg, "yes, keep") {
+		t.Fatalf("second answer = %d %q", rec.Code, msg)
+	}
+}
+
+func TestDecisionSlugFollowsItsStatus(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, 1, "yes", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-code="BULLETIN"`)
+}
+
+func TestUnknownPathsUseTheErrorPage(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/nope", nil, true)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `<header class="masthead">`) || !strings.Contains(rec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("unknown path = %d %q:\n%s", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+}
+
+func TestWrongMethodUsesTheErrorPage(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/supervisor/stop", nil, true)
+	if rec.Code != http.StatusMethodNotAllowed || !strings.Contains(rec.Body.String(), `<header class="masthead">`) {
+		t.Fatalf("wrong method = %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestThe403PageNamesOpenPrint(t *testing.T) {
+	rec := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, false)
+	body := rec.Body.String()
+	if rec.Code != http.StatusForbidden || !strings.Contains(body, "<code>hand open --print</code>") || strings.Contains(body, "`") {
+		t.Fatalf("403 = %d:\n%s", rec.Code, body)
+	}
+}
+
+func TestTheFleetPageHasASkipLinkAndALinkState(t *testing.T) {
+	fx := newFixture(t)
+	page := get(t, fx.handler(), "/")
+	contains(t, "fleet page", page, `<a class="skip" href="#composer-text">Skip to the message box</a>`, `id="composer-text"`, `<p id="link" class="link-state" role="status" hidden></p>`)
+	if n := strings.Index(page, `class="skip"`); n < 0 || n > strings.Index(page, `<header class="masthead">`) {
+		t.Fatal("the skip link must come before the masthead")
+	}
+}
+
+func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/decision/d1", "/task/t1", "/"} {
+		if n := strings.Count(get(t, fx.handler(), path), `id="toast"`); n != 1 {
+			t.Fatalf("%s holds %d toasts, want 1", path, n)
+		}
+	}
+	js := asset(t, "app.js")
+	if !strings.Contains(js, "if (!toast) return;") || !strings.Contains(js, "if (regions.size === 0) location.reload();") {
+		t.Fatal("app.js does not guard the toast or refresh a page without live regions after an action")
+	}
+}
+
+func TestChipsSkipCodeFences(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Pick one\n\n```\n1. make build\n```\n\n1. Ship it\n2. Wait"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/decision/d1")
+	contains(t, "chips", body, `data-fill="Ship it"`, `data-fill="Wait"`)
+	lacks(t, "chips", body, `data-fill="make build"`)
+}
+
+func TestAPollThatWorksReopensTheStream(t *testing.T) {
+	js := asset(t, "app.js")
+	_, rest, _ := strings.Cut(js, "const refresh = async () => {")
+	body, _, _ := strings.Cut(rest, "const follow = () => {")
+	if !strings.Contains(body, "follow();") {
+		t.Fatal("a successful refresh does not reopen the event stream")
+	}
+}

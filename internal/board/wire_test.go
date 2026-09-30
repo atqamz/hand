@@ -22,7 +22,7 @@ func TestTheWireNumbersDispatches(t *testing.T) {
 		t.Fatalf("dispatch numbers out of order (%d %d %d):\n%s", three, two, one, tl)
 	}
 	contains(t, "slug", tl, `<header class="slug"><span class="who">S1</span><span class="no">NO. 4</span>`)
-	older := get(t, fx.handler(), "/supervisor/log?before=3")
+	older := get(t, fx.handler(), "/supervisor/log?before=4")
 	contains(t, "paging", older, `<span class="no">NO. 3</span>`, `<span class="no">NO. 2</span>`)
 	lacks(t, "paging", older, `<span class="no">NO. 4</span>`)
 }
@@ -42,7 +42,7 @@ func TestHandLinesAreServiceLines(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ndecision.answered d1`)})
-	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service" data-no="1"><span class="slug"><span class="who">HAND</span>`, "wake: decision.answered d1")
+	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service" data-no="1"><span class="slug"><span class="who">HAND</span>`, `wake: decision.answered <a class="ref" href="/ref/d1">d1</a>`)
 }
 
 func TestTheWorkingLineCarriesThePrintHead(t *testing.T) {

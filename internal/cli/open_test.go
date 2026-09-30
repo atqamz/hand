@@ -263,3 +263,14 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
+	fx := newOpenFixture(t)
+	out, errOut, code := fx.h.run("open", "--print", "t1")
+	if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+"/task/t1?token="+fx.token(t)+`"`) || !strings.Contains(out, "holds the fleet's token") {
+		t.Fatalf("open --print: code=%d out=%q stderr=%q", code, out, errOut)
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("open --print launched a browser: %v", err)
+	}
+}

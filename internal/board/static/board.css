@@ -86,7 +86,7 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{font-weight:800;color:var(--fg)}
-.code[data-code=FLASH],.code[data-code=URGENT]{color:var(--flash)}
+.code[data-code=FLASH],.code[data-code=URGENT],.code[data-code=BLOCKED]{color:var(--flash)}
 .code[data-code=BULLETIN]{color:var(--wait)}
 .wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 4px 14px}
 .question{white-space:pre-wrap;max-height:40vh;overflow-y:auto}
@@ -251,3 +251,10 @@ form.inline{display:inline}
 .slug .status[data-state=failing]{color:var(--flash)}
 .fleet .wire-word{color:var(--muted)}
 @media (max-height:599px) and (max-width:599px){.masthead .wire-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
+form[data-busy] button{opacity:.6;cursor:progress}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+button.chip{font:inherit;cursor:pointer}
+.skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:6px}
+.skip:focus{left:16px}
+.link-state{margin:0;font-size:12px;color:var(--on-header-muted)}
+#toast[data-kind=receipt]{border-color:var(--line)}

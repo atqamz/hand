@@ -239,7 +239,7 @@ func TestTheViewportLetsTheKeyboardResizeTheShell(t *testing.T) {
 func TestTheFaviconsAreHashedSVG(t *testing.T) {
 	body := get(t, newFixture(t).handler(), "/")
 	link := regexp.MustCompile(`<link rel="icon" href="(/static/favicon\.[0-9a-f]{12}\.svg)">`).FindStringSubmatch(body)
-	alt := regexp.MustCompile(`data-icon-working="(/static/favicon-working\.[0-9a-f]{12}\.svg)" data-icon-attention="(/static/favicon-attention\.[0-9a-f]{12}\.svg)"`).FindStringSubmatch(body)
+	alt := regexp.MustCompile(`data-icon-working="(/static/favicon-working\.[0-9a-f]{12}\.svg)" data-icon-attention="(/static/favicon-attention\.[0-9a-f]{12}\.svg)" data-icon-blocked="(/static/favicon-blocked\.[0-9a-f]{12}\.svg)"`).FindStringSubmatch(body)
 	if link == nil || alt == nil {
 		t.Fatalf("no favicon links:\n%s", body)
 	}
@@ -414,5 +414,23 @@ func TestTheWireDeskFinishFixes(t *testing.T) {
 		if strings.Contains(css, gone) {
 			t.Errorf("board.css still has %q", gone)
 		}
+	}
+}
+
+func TestReceiptsDoNotLookLikeErrors(t *testing.T) {
+	css, js := asset(t, "board.css"), asset(t, "app.js")
+	if !strings.Contains(css, "#toast[data-kind=receipt]{border-color:var(--line)}") {
+		t.Fatal("board.css gives receipts no neutral border")
+	}
+	if !strings.Contains(js, `toast.dataset.kind = kind`) || !strings.Contains(js, `show(receipt, 4000, "receipt")`) {
+		t.Fatal("app.js does not mark receipts apart from errors")
+	}
+}
+
+func TestTheSubmitterIsReadBeforeButtonsAreDisabled(t *testing.T) {
+	js := asset(t, "app.js")
+	read, disable := strings.Index(js, "new FormData(form, e.submitter)"), strings.Index(js, "b.disabled = true")
+	if read < 0 || disable < 0 || read > disable {
+		t.Fatal("app.js disables the buttons before it reads the pressed key, so the key never reaches the server")
 	}
 }

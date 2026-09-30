@@ -228,3 +228,26 @@ func TestLastAttemptEventMatchesTheExactRef(t *testing.T) {
 		t.Fatalf("a10: kind %q, err %v; want attempt.quiet", kind, err)
 	}
 }
+
+func TestAttemptSignalsNameEachLiveAttemptsLatestEvent(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	a := runningAttempt(t, s)
+	if err := s.NoteAttempt(ctx, a.ID, "blocked", "Esc to cancel · Tab to amend"); err != nil {
+		t.Fatal(err)
+	}
+	signals, err := s.AttemptSignals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := signals[a.ID]
+	if !ok || e.Kind != "attempt.blocked" || e.Detail != AttemptRef(a.ID)+": Esc to cancel · Tab to amend" || e.At == "" {
+		t.Fatalf("signals = %+v", signals)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if signals, err = s.AttemptSignals(ctx); err != nil || len(signals) != 0 {
+		t.Fatalf("after the attempt ended: %+v, %v", signals, err)
+	}
+}

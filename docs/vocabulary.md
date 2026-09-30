@@ -151,7 +151,7 @@ A report stays unread until someone acknowledges it: the supervisor with `hand r
 
 ### Decision
 
-`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
+`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`, or `hand decision ask --file - tN` with a longer question on stdin. The question's first line is its headline, at most 120 characters; the lines after it are the body, shown with the board's markdown, and a numbered option in the body becomes a button that fills the answer. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
 
 | Status | Meaning |
 |---|---|
@@ -173,7 +173,7 @@ The Luvus view of one terminal. The running supervisor and every running attempt
 
 ### Blocked screen and screen revision
 
-A screen that waits for an answer, such as a trust or permission prompt, puts the agent in the `blocked` state. `hand attempt read aN` prints the screen and its revision. `hand attempt keys --revision N aN KEY...` sends keys only if the screen is still at that revision, so a stale answer is never typed. The supervisor's own screen works the same way, through `hand supervisor show` and `hand supervisor keys --revision N KEY...`, with the keys `enter`, `esc`, `up`, `down`, `1`, `2` and `3`.
+A screen that waits for an answer, such as a trust or permission prompt, puts the agent in the `blocked` state. `hand attempt read aN` prints the screen and its revision. `hand attempt keys --revision N aN KEY...` sends keys only if the screen is still at that revision, so a stale answer is never typed. The supervisor's own screen works the same way, through `hand supervisor show` and `hand supervisor keys --revision N KEY...`, with the keys `enter`, `esc`, `up`, `down`, `1`, `2` and `3`. Claude Code's auto-deny countdown moves the revision every second, so the board also sends `--screen DIGEST`, a digest of the screen with the countdown taken out: when the revision moved but the digest still matches, the keys go out once at the new revision. A key press on the supervisor's screen is recorded as a `supervisor.keys` event.
 
 ### Watcher
 
@@ -195,7 +195,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
 
-- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
+- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
 
 The wake kinds are:
@@ -220,6 +220,8 @@ Wakes reach the managed supervisor through the watcher, so `hand watch` must run
 
 A pending change of the supervisor's model or effort that keeps its harness and its conversation: `hand supervisor switch --model M --effort E`, `--profile NAME`, or the model menu on the board. Hand applies it when the current turn ends, by stopping the supervisor and resuming the same session with the new model under a new `sN`. `--cancel` drops a pending switch. opencode keeps its model in the session and cannot switch.
 
+`hand supervisor switch --harness H` (or a profile on another harness) changes harness instead. It is refused while the supervisor is working; between turns it stops the supervisor and starts the next one on the new harness, with a launch message that names the one it replaces. The new supervisor starts a new session and orients from `hand orient`; the board keeps the earlier session in Chat under a divider. `hand route list` and the board's model menu list each harness's models and efforts: claude's aliases, codex's models cache, and none for opencode.
+
 ### Routing profile
 
 A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter with `quick`, `default` and `deep` when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume`.
@@ -236,14 +238,14 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 A fleet's page has two tabs:
 
-- **Needs you:** open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, a supervisor that stopped unexpectedly, and the task cards;
+- **Needs you:** the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; open decisions; failed, exited or interrupted attempts; unread reports; a supervisor that stopped unexpectedly; "No supervisor is running" while work waits on one; and the task list with each attempt's agent state;
 - **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, plus the message box and the supervisor controls.
 
-Each task and each decision also has its own page. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
+Each task and each decision also has its own page. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
 
 ### Board token
 
-`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie scoped to that one fleet. `hand open` logs the browser in with it and never prints it.
+`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie scoped to that one fleet. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser.
 
 ### TOON
 

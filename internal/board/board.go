@@ -40,8 +40,11 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"asset":    assetURL,
 	"md":       markdown.Render,
 	"mdrefs":   markdown.RenderRefs,
+	"refs":     markdown.Refs,
+	"inline":   markdown.Inline,
 	"upper":    strings.ToUpper,
 	"when":     when,
+	"chips":    chips,
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
@@ -73,6 +76,8 @@ type Options struct {
 	Home       string
 	Base       string
 	Tick       time.Duration
+	Now        func() time.Time
+	CodexHome  string
 }
 
 type Board struct {
@@ -104,6 +109,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /supervisor/stop", b.simple("stop"))
 	b.mux.HandleFunc("POST /supervisor/interrupt", b.simple("interrupt"))
 	b.mux.HandleFunc("POST /supervisor/force", b.simple("force"))
+	b.mux.HandleFunc("POST /attempt/{ref}/keys", b.attemptKeys)
 	b.mux.HandleFunc("POST /supervisor/keys", b.keys)
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
@@ -144,14 +150,114 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c, err := r.Cookie(cookieName); err != nil || !b.valid(c.Value) {
-		b.fail(w, http.StatusForbidden, "open this fleet with `hand open` from inside it")
+		b.fail(w, http.StatusForbidden, "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints.")
 		return
 	}
 	if r.Method == http.MethodPost && !b.valid(r.PostFormValue("csrf")) {
 		b.fail(w, http.StatusForbidden, "this form is stale; reload the page and try again")
 		return
 	}
-	b.mux.ServeHTTP(w, r)
+	b.mux.ServeHTTP(&pageErrors{ResponseWriter: w, b: b}, r)
+}
+
+type pageErrors struct {
+	http.ResponseWriter
+	b    *Board
+	skip bool
+}
+
+var pageErrorText = map[int]string{http.StatusNotFound: "there is no page here", http.StatusMethodNotAllowed: "this page does not take that kind of request"}
+
+func (p *pageErrors) WriteHeader(code int) {
+	if msg, ok := pageErrorText[code]; ok && strings.HasPrefix(p.Header().Get("Content-Type"), "text/plain") {
+		p.skip = true
+		p.Header().Del("X-Content-Type-Options")
+		p.b.fail(p.ResponseWriter, code, msg)
+		return
+	}
+	p.ResponseWriter.WriteHeader(code)
+}
+
+func (p *pageErrors) Write(b []byte) (int, error) {
+	if p.skip {
+		return len(b), nil
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+func (p *pageErrors) Flush() {
+	if f, ok := p.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (p *pageErrors) Unwrap() http.ResponseWriter { return p.ResponseWriter }
+
+var option = regexp.MustCompile(`^\s*(?:\d+|[A-Z])[.)]\s+(.+)$`)
+
+func chips(body string) []string {
+	var out []string
+	fenced := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+			continue
+		}
+		if m := option.FindStringSubmatch(line); m != nil && !fenced {
+			out = append(out, strings.TrimSpace(m[1]))
+		}
+	}
+	return out
+}
+
+func (b *Board) refTitle(ctx context.Context) func(string) string {
+	seen := map[string]string{}
+	return func(ref string) string {
+		if t, ok := seen[ref]; ok {
+			return t
+		}
+		t := b.describe(ctx, ref)
+		seen[ref] = t
+		return t
+	}
+}
+
+func (b *Board) describe(ctx context.Context, ref string) string {
+	if len(ref) < 2 {
+		return ""
+	}
+	id, err := strconv.ParseInt(ref[1:], 10, 64)
+	if err != nil {
+		return ""
+	}
+	switch ref[0] {
+	case 't':
+		if t, err := b.st.Task(ctx, id); err == nil {
+			return t.Title
+		}
+	case 'a':
+		if a, err := b.st.Attempt(ctx, id); err == nil {
+			if t, err := b.st.Task(ctx, a.TaskID); err == nil {
+				return strings.Join(strings.Fields("on "+state.TaskRef(t.ID)+` "`+t.Title+`" · `+a.Harness+" "+a.Model), " ")
+			}
+		}
+	case 'd':
+		if d, err := b.st.Decision(ctx, id); err == nil {
+			return d.Headline()
+		}
+	case 'r':
+		if r, err := b.st.Report(ctx, id); err == nil {
+			return r.Summary()
+		}
+	}
+	return ""
+}
+
+func (b *Board) now() time.Time {
+	if b.o.Now != nil {
+		return b.o.Now()
+	}
+	return time.Now()
 }
 
 func Proof(token, nonce string) string {
@@ -166,6 +272,9 @@ func (b *Board) valid(t string) bool {
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
 	data["Base"] = b.o.Base
+	if _, ok := data["Titles"]; !ok {
+		data["Titles"] = b.refTitle(context.Background())
+	}
 	data["Fleet"] = "hand"
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"], data["FleetID"] = f.Name, f.ID
@@ -185,7 +294,7 @@ func renderPage(w http.ResponseWriter, status int, name string, data map[string]
 }
 
 func (b *Board) fail(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("X-Hand-Error", strings.Join(strings.Fields(msg), " "))
+	w.Header().Set("X-Hand-Error", url.PathEscape(strings.Join(strings.Fields(msg), " ")))
 	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": msg})
 }
 
@@ -430,10 +539,18 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := b.st.Answer(r.Context(), id, r.PostFormValue("answer"), "operator (board)"); err != nil {
+		if d, derr := b.st.Decision(r.Context(), id); derr == nil && errors.Is(err, state.ErrConflict) && d.Answer != "" {
+			b.fail(w, http.StatusConflict, state.DecisionRef(id)+" is already answered: "+d.Answer)
+			return
+		}
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/decision/"+state.DecisionRef(id), http.StatusSeeOther)
+	receipt := state.DecisionRef(id) + " answered · no supervisor is running; it waits"
+	if ref, running := b.supRef(r.Context()); running {
+		receipt = state.DecisionRef(id) + " answered · " + ref + " reads it now"
+	}
+	b.done(w, r, b.o.Base+"/decision/"+state.DecisionRef(id), receipt)
 }
 
 func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
@@ -447,5 +564,5 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	http.Redirect(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), http.StatusSeeOther)
+	b.done(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), state.ReportRef(id)+" marked read")
 }

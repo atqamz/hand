@@ -224,8 +224,16 @@ func (s *Store) SupervisorOrigin(ctx context.Context, sup Supervisor) (int64, er
 	return id, err
 }
 
+func (s *Store) Supervisors(ctx context.Context) ([]Supervisor, error) {
+	return s.supervisors(ctx, supervisorSelect+` ORDER BY id`)
+}
+
 func (s *Store) SessionSupervisors(ctx context.Context, session string) ([]Supervisor, error) {
-	rows, err := s.db.QueryContext(ctx, supervisorSelect+` WHERE session = ? ORDER BY id`, session)
+	return s.supervisors(ctx, supervisorSelect+` WHERE session = ? ORDER BY id`, session)
+}
+
+func (s *Store) supervisors(ctx context.Context, q string, args ...any) ([]Supervisor, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -310,8 +318,29 @@ func (s *Store) AddSupervisorInput(ctx context.Context, body string) (Supervisor
 	return in, err
 }
 
+func (s *Store) NoteSupervisor(ctx context.Context, id int64, kind, detail string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM supervisor WHERE id = ?`, id).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return fmt.Errorf("%w: supervisor %s", ErrNotFound, SupervisorRef(id))
+		}
+		return emit(tx, s.stamp(), "supervisor."+kind, 0, SupervisorRef(id)+": "+detail)
+	})
+}
+
+func (s *Store) DeliveredSupervisorInputs(ctx context.Context, limit int) ([]SupervisorInput, error) {
+	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`, limit)
+}
+
 func (s *Store) PendingSupervisorInputs(ctx context.Context) ([]SupervisorInput, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
+	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
+}
+
+func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]SupervisorInput, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -63,14 +63,17 @@
 	const icon = document.querySelector("link[rel=icon]");
 	const plain = icon?.getAttribute("href");
 	const icons = document.querySelector("[data-icon-working]")?.dataset;
+	const worst = () => regions.get("queue")?.querySelector("[data-worst]")?.dataset ?? {};
+	const urgent = () => ["blocked", "worker"].includes(worst().worst);
 	const title = () => {
-		document.title = waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
+		const w = worst();
+		document.title = urgent() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
 		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
 		}
 		if (!icon || !icons) return;
-		const href = waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
+		const href = urgent() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
 		if (href && icon.getAttribute("href") !== href) icon.setAttribute("href", href);
 	};
 
@@ -80,13 +83,20 @@
 		agent = line.dataset.agent || "none";
 		for (const d of document.querySelectorAll("[data-agent-dot]")) d.hidden = agent !== "working";
 		const hint = document.querySelector("#composer .hint");
-		if (hint && line.dataset.hint) hint.textContent = line.dataset.hint;
+		if (hint && line.dataset.hint) {
+			if (agent === "blocked") {
+				const a = document.createElement("a");
+				a.href = "#needs";
+				a.textContent = line.dataset.hint;
+				hint.replaceChildren(a);
+			} else hint.textContent = line.dataset.hint;
+		}
 		title();
 	};
 
 	const notify = (n) => {
 		if (!("Notification" in window) || Notification.permission !== "granted" || document.visibilityState === "visible") return;
-		new Notification(fleet, { body: `${n} waiting for you`, tag: base || fleet });
+		new Notification(fleet, { body: worst().worstText || `${n} waiting for you`, tag: base || fleet });
 	};
 
 	const count = (n) => {
@@ -166,12 +176,23 @@
 		});
 	});
 
-	const show = (msg) => {
+	const header = (res, name) => {
+		const v = res.headers?.get(name);
+		if (!v) return "";
+		try {
+			return decodeURIComponent(v);
+		} catch {
+			return v;
+		}
+	};
+	const show = (msg, ms = 8000, kind = "error") => {
+		if (!toast) return;
+		toast.dataset.kind = kind;
 		toast.textContent = msg;
 		clearTimeout(show.timer);
 		show.timer = setTimeout(() => {
 			toast.textContent = "";
-		}, 8000);
+		}, ms);
 	};
 
 	document.addEventListener("submit", async (e) => {
@@ -180,12 +201,17 @@
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		form.dataset.busy = "";
+		const data = new URLSearchParams(new FormData(form, e.submitter));
+		form.setAttribute("aria-busy", "true");
+		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
+		for (const b of buttons) b.disabled = true;
 		let res = null;
 		try {
-			const data = new URLSearchParams(new FormData(form, e.submitter));
-			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin" }).catch(() => null);
+			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
 		} finally {
 			delete form.dataset.busy;
+			form.removeAttribute("aria-busy");
+			for (const b of buttons) b.disabled = false;
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
@@ -195,10 +221,22 @@
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
 			if (form.closest("details.menu")) closeMenus(null);
-			toast.textContent = "";
+			if (regions.size === 0) location.reload();
+			const receipt = header(res, "X-Hand-Receipt");
+			if (receipt) show(receipt, 4000, "receipt");
+			else show("", 0);
 			return;
 		}
-		show(res.headers.get("X-Hand-Error") || `${res.status} ${res.statusText}`);
+		show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+	});
+
+	document.addEventListener("click", (e) => {
+		const chip = e.target instanceof Element ? e.target.closest("button[data-fill]") : null;
+		const box = chip?.form?.querySelector("textarea[name=answer]");
+		if (!box) return;
+		box.value = chip.dataset.fill;
+		box.focus();
+		box.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 
 	const button = document.getElementById("notify");
@@ -247,6 +285,12 @@
 			});
 		}
 		select();
+		addEventListener("hashchange", () => {
+			const next = location.hash.slice(1);
+			if (next === current || !tabs.some((t) => t.dataset.tab === next)) return;
+			current = next;
+			select();
+		});
 		addEventListener("load", () => {
 			if (current === "needs" && !tall.matches) scrollTo(0, 0);
 		}, { once: true });
@@ -282,13 +326,29 @@
 	}
 	let source = null;
 	let poll = 0;
+	const link = document.getElementById("link");
+	let lost = 0;
+	const linkState = (ok, status) => {
+		if (!link) return;
+		if (ok) {
+			lost = 0;
+			link.hidden = true;
+			return;
+		}
+		lost ||= Date.now();
+		link.hidden = false;
+		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Board offline since ${at}` : "Reconnecting…";
+	};
 	const refresh = async () => {
 		const res = await fetch(location.href, { credentials: "same-origin" }).catch(() => null);
+		linkState(res?.ok, res?.status);
 		if (!res?.ok) return;
 		const doc = new DOMParser().parseFromString(await res.text(), "text/html");
 		for (const el of doc.querySelectorAll("[data-region]")) {
 			if (served.get(el.dataset.region) !== el.innerHTML) apply(el.dataset.region, el.innerHTML);
 		}
+		follow();
 	};
 	const follow = () => {
 		if (!live || document.visibilityState === "hidden") {
@@ -301,6 +361,14 @@
 		poll = 0;
 		if (source) return;
 		source = new EventSource(`${base}/events${location.search}`);
+		source.addEventListener("open", () => linkState(true));
+		source.addEventListener("error", () => {
+			linkState(false);
+			if (source?.readyState === EventSource.CLOSED) {
+				source = null;
+				poll ||= setInterval(refresh, 10000);
+			}
+		});
 		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
 	};
 	document.addEventListener("visibilitychange", follow);

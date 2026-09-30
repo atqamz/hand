@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	hh "github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -365,11 +368,11 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	st := openStore(t, fx.h)
 	ctx := context.Background()
 	for i := range 60 {
-		if err := st.NoteAttempt(ctx, 1, "blocked", fmt.Sprintf("q%02d", i)); err != nil {
+		if err := st.NoteAttempt(ctx, 1, "reported", fmt.Sprintf("q%02d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	events, err := st.EventsAfter(ctx, 0, []string{"attempt.blocked"}, 100)
+	events, err := st.EventsAfter(ctx, 0, []string{"attempt.reported"}, 100)
 	if err != nil || len(events) != 60 {
 		t.Fatalf("events = %d, %v", len(events), err)
 	}
@@ -377,7 +380,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
 	first := strings.Split(fx.rt.prompts()[0], "\n")
-	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.blocked a1: q00" || first[50] != "attempt.blocked a1: q49" {
+	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.reported a1: q00 (t1 \"Fix login\")" || first[50] != "attempt.reported a1: q49 (t1 \"Fix login\")" {
 		t.Fatalf("first digest = %d lines: %q ... %q", len(first), first[0], first[len(first)-1])
 	}
 	eventually(t, func() bool {
@@ -385,12 +388,14 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	})
 	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[59].Seq))
+	})
 	stop()
 	second := strings.Split(fx.rt.prompts()[1], "\n")
-	if len(second) != 11 || second[1] != "attempt.blocked a1: q50" || second[10] != "attempt.blocked a1: q59" {
+	if len(second) != 11 || second[1] != "attempt.reported a1: q50 (t1 \"Fix login\")" || second[10] != "attempt.reported a1: q59 (t1 \"Fix login\")" {
 		t.Fatalf("second digest = %q", second)
 	}
-	has(t, "show", fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d", events[59].Seq))
 }
 
 func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
@@ -419,7 +424,7 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
-	if len(got) != 3 || got[0] != "first" || got[1] != "second" || !strings.HasPrefix(got[2], "[hand v1 wake]\n") || !strings.Contains(got[2], "attempt.blocked a1: needs you") {
+	if len(got) != 3 || got[0] != "first" || got[1] != "second" || !strings.HasPrefix(got[2], "[hand v1 wake]\n") || !strings.Contains(got[2], "attempt.blocked a1: its screen waits for a key") {
 		t.Fatalf("prompts = %q", got)
 	}
 }
@@ -522,22 +527,22 @@ func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
 func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
-	control := cli.SupervisorControl(h.env(&out, &errOut), h.home)
+	control := cli.Control(h.env(&out, &errOut), h.home)
 	ctx := context.Background()
-	if err := control(ctx, "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
+	if err := control(ctx, "supervisor", "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
 		t.Fatalf("resume with none = %v", err)
 	}
-	if err := control(ctx, "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
+	if err := control(ctx, "supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
 		t.Fatalf("path in error = %v", err)
 	}
 	startClaudeSupervisor(h)
-	if err := control(ctx, "send", "--text", "hi"); err != nil {
+	if err := control(ctx, "supervisor", "send", "--text", "hi"); err != nil {
 		t.Fatal(err)
 	}
 	if got := rt.prompts(); !slices.Equal(got, []string{"hi"}) {
 		t.Fatalf("prompts = %q", got)
 	}
-	if err := control(ctx, "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
+	if err := control(ctx, "supervisor", "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("bad key = %v", err)
 	}
 	if out.Len() != 0 || errOut.Len() != 0 {
@@ -667,7 +672,7 @@ func TestSwitchRefusals(t *testing.T) {
 	}{
 		{nil, 2, "switch"},
 		{[]string{"--profile", "deep", "--model", "opus"}, 2, "--profile"},
-		{[]string{"--profile", "luna"}, 2, "switch keeps harness claude"},
+		{[]string{"--profile", "luna"}, 2, "models_cache.json"},
 		{[]string{"--model", "sonnet", "--effort", "low"}, 3, "already"},
 		{[]string{"--effort", "huge"}, 2, "effort"},
 	} {
@@ -820,4 +825,174 @@ func TestSupervisorForceRefusesAPaneThatNoLongerHoldsTheSupervisor(t *testing.T)
 		t.Fatalf("force typed %q into another terminal", got)
 	}
 	has(t, "show", fx.h.ok("supervisor", "show"), "pending: 1")
+}
+
+const (
+	promptEarly = "Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:59\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	promptLate  = "Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:12\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	promptOther = "Edit file\n Claude Code will automatically deny this request in 1:12\n Do you want to make this edit?\n❯ 1. Yes\n  2. No"
+)
+
+func TestSupervisorKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptLate })
+	has(t, "keys", h.ok("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "2"), "keys: 2")
+	if got := rt.keysSent(); !slices.Equal(got, []string{"2"}) {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestSupervisorKeysRefuseWhenTheQuestionChanged(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, promptOther })
+	_, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "2")
+	if code != 3 || !strings.Contains(errOut, "the screen changed") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestSupervisorKeysAreRecorded(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "keys", "--revision", "0", "enter")
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: enter" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
+func TestWakesNameTheTaskOnOneLine(t *testing.T) {
+	title := func(int64) string { return "Fix \"login\"\nnow" }
+	digest, last := cli.WakeDigest([]state.Event{{Seq: 3, Kind: "attempt.reported", TaskID: 1, Detail: "a1: r1 done"}, {Seq: 4, Kind: "decision.answered", Detail: "d1"}}, title)
+	want := "[hand v1 wake]\nattempt.reported a1: r1 done (t1 \"Fix 'login' now\")\ndecision.answered d1"
+	if digest != want || last != 4 {
+		t.Fatalf("digest = %q (last %d), want %q", digest, last, want)
+	}
+	var many []state.Event
+	for i := range 50 {
+		many = append(many, state.Event{Seq: int64(i + 1), Kind: "attempt.blocked", TaskID: 1, Detail: "a1: " + strings.Repeat("q", 400)})
+	}
+	long := func(int64) string { return strings.Repeat("t", 200) }
+	if digest, _ := cli.WakeDigest(many, long); len(digest) > hh.MaxPromptBytes || strings.Count(digest, "\n") < 1 || !strings.Contains(digest, strings.Repeat("t", 60)+"…") || strings.Contains(digest, strings.Repeat("t", 61)) {
+		t.Fatalf("a long digest is %d bytes", len(digest))
+	}
+}
+
+func codexCache(t *testing.T, h *harness) {
+	t.Helper()
+	dir := filepath.Join(h.vars["HOME"], ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwitchToAnotherHarnessStartsTheNextSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "switch", h.ok("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"), "supervisor: s2", "harness: codex")
+	show := h.ok("supervisor", "show")
+	has(t, "show", show, "supervisor: s2", "harness: codex gpt-6-luna low")
+	argv := rt.lastCreate().Command
+	if prompt := argv[len(argv)-1]; !strings.Contains(prompt, "You replace s1, which ran on claude;") {
+		t.Fatalf("launch message = %q", prompt)
+	}
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.stopped"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: switched to codex" {
+		t.Fatalf("stop events = %+v, %v", events, err)
+	}
+}
+
+func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code != 3 || !strings.Contains(errOut, "s1 is working; switch harness when its turn ends, or interrupt it first") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
+
+func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
+	title := func(int64) string { return "Fix login" }
+	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: Enter to confirm · Esc to cancel"}}, title)
+	if want := "[hand v1 wake]\nattempt.blocked a1: its screen waits for a key (t1 \"Fix login\")"; digest != want {
+		t.Fatalf("digest = %q, want %q", digest, want)
+	}
+}
+
+func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	if err := os.Remove(filepath.Join(h.vars["PATH"], "codex")); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "codex") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+	rt.set(func(rt *fakeRuntime) { rt.status = "blocked" })
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "opencode"); code != 3 || !strings.Contains(errOut, "s1 is blocked") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
+
+func TestSupervisorKeysRetryOnlyDuringACountdown(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	still := "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, still })
+	if _, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(still), "2"); code != 3 || !strings.Contains(errOut, "the screen changed") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestSupervisorKeysRefuseAfterANewerPress(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 7, promptEarly })
+	h.ok("supervisor", "keys", "--revision", "7", "--after", "0", "1")
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys"}, 10)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("keys events = %+v, %v", events, err)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 9, promptLate })
+	if _, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "--after", "0", "2"); code != 3 || !strings.Contains(errOut, "a key was pressed on s1 after this screen was read") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("keys = %q", got)
+	}
+	has(t, "fresh", h.ok("supervisor", "keys", "--revision", "9", "--after", strconv.FormatInt(events[0].Seq, 10), "2"), "keys: 2")
+}
+
+func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "codex"), []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "s1 stopped, continue it with") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s3", "harness: claude")
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "resumes: s1")
 }

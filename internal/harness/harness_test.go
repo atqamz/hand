@@ -112,3 +112,24 @@ func TestLookPathWantsAnAbsoluteExecutable(t *testing.T) {
 		t.Fatalf("lookpath = %s, %v", got, err)
 	}
 }
+
+func TestModelsPerHarness(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "models_cache.json"), []byte(cache), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	claude, err := Models("claude", home)
+	if err != nil || len(claude) != 4 || claude[0].Name != "opus" || !slices.Equal(claude[3].Efforts, claudeEfforts) {
+		t.Fatalf("claude = %+v, %v", claude, err)
+	}
+	codex, err := Models("codex", home)
+	if err != nil || len(codex) != 2 || codex[0].Name != "gpt-6-luna" || !slices.Equal(codex[0].Efforts, []string{"low", "medium"}) || !slices.Equal(codex[1].Efforts, []string{"high"}) {
+		t.Fatalf("codex = %+v, %v", codex, err)
+	}
+	if none, err := Models("opencode", home); err != nil || none != nil {
+		t.Fatalf("opencode = %+v, %v", none, err)
+	}
+	if _, err := Models("codex", t.TempDir()); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("codex without a cache = %v", err)
+	}
+}

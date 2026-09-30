@@ -2,12 +2,14 @@ package board
 
 import (
 	"context"
+	"maps"
 	"math"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -18,6 +20,7 @@ const (
 	excerptLines  = 12
 	screenLines   = 20
 	blockedAsking = "The supervisor's screen needs a key"
+	workerGrace   = 10 * time.Minute
 )
 
 var markers = strings.NewReplacer("**", "", "`", "")
@@ -30,6 +33,8 @@ type waiting struct {
 	Attempt          *state.Attempt
 	Screen           string
 	Revision         int64
+	Digest           string
+	Pressed          int64
 	Hint             string
 	Sup              *state.Supervisor
 	Excerpt          string
@@ -42,6 +47,9 @@ var wireCodes = map[string][2]string{
 	"failure":  {"URGENT", "FAILED"},
 	"report":   {"ROUTINE", "REPORT"},
 	"resume":   {"SERVICE", "RESUME"},
+	"worker":   {"BLOCKED", "WORKER"},
+	"quiet":    {"QUIET", "WORKER"},
+	"nosup":    {"STOPPED", "SUPERVISOR"},
 }
 
 func (w waiting) Code() string { return wireCodes[w.Kind][0] }
@@ -69,11 +77,32 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		hint, _ := data["Hint"].(string)
 		screen, _ := data["Screen"].(string)
 		rev, _ := data["Revision"].(int64)
+		dig, _ := data["Digest"].(string)
 		title := hint
 		if title == "" {
 			title = blockedAsking
 		}
-		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Sup: &sup})
+		pressed, err := b.st.LastKeys(ctx, state.SupervisorRef(sup.ID))
+		if err != nil {
+			return err
+		}
+		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup})
+	}
+	supervised := live && sup.Status == state.AttemptRunning
+	liveAttempts, err := b.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	signals, err := b.signals(ctx, liveAttempts)
+	if err != nil {
+		return err
+	}
+	workers, err := b.workers(ctx, liveAttempts, signals, supervised, true)
+	if err != nil {
+		return err
+	}
+	for _, w := range workers {
+		add(w)
 	}
 	decisions, err := b.st.OpenDecisions(ctx, 0, maxWaits)
 	if err != nil {
@@ -97,7 +126,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Question, Task: t, Decision: &d})
+		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Headline(), Task: t, Decision: &d})
 	}
 	total += asked - len(decisions)
 	f, _ := data["facts"].(facts)
@@ -121,32 +150,125 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		excerpt, cut := excerptOf(r.Body)
+		_, rest, _ := strings.Cut(strings.TrimSpace(r.Body), "\n")
+		excerpt, cut := excerptOf(rest)
 		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: excerpt, Cut: cut})
 	}
 	total += unacked - len(unread)
-	if live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited) {
-		if add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup}) {
-			data["Resumable"] = false
+	resume := live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited)
+	if resume {
+		add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup})
+	}
+	if !supervised && !resume {
+		pending, _ := data["Pending"].(int)
+		waitsOnOne := len(liveAttempts) > 0 || pending > 0
+		if !waitsOnOne {
+			cursor := int64(0)
+			if live {
+				cursor = sup.WakeCursor
+			}
+			answered, err := b.st.EventsAfter(ctx, cursor, []string{"decision.answered"}, 1)
+			if err != nil {
+				return err
+			}
+			waitsOnOne = len(answered) > 0
+		}
+		if waitsOnOne {
+			add(waiting{Kind: "nosup", Title: "No supervisor is running"})
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
+	data["Worst"], data["WorstText"] = "", ""
+	if len(waits) > 0 {
+		data["Worst"], data["WorstText"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title)
+	}
 	return nil
 }
 
+func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]state.Event, error) {
+	out, err := b.st.AttemptSignals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range live {
+		if out[a.ID].Kind != "attempt.blocked" {
+			continue
+		}
+		if ag, err := b.o.Luvus.Explain(ctx, a.PaneID); err == nil && ag.Status != "blocked" {
+			delete(out, a.ID)
+		}
+	}
+	return out, nil
+}
+
+func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[int64]state.Event, supervised, screens bool) ([]waiting, error) {
+	now := b.now()
+	var out []waiting
+	for _, a := range live {
+		e, ok := signals[a.ID]
+		if !ok || a.Status != state.AttemptRunning {
+			continue
+		}
+		kind := ""
+		switch {
+		case e.Kind == "attempt.blocked":
+			kind = "worker"
+		case e.Kind == "attempt.quiet" && strings.HasSuffix(e.Detail, "without a new report"):
+			kind = "quiet"
+		default:
+			continue
+		}
+		if supervised && now.Sub(parse(e.At)) < workerGrace {
+			continue
+		}
+		t, err := b.st.Task(ctx, a.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		w := waiting{Kind: kind, Ref: state.AttemptRef(a.ID), Task: t, Attempt: &a, Title: "Its turn ended without a report"}
+		if kind == "worker" {
+			w.Title = strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": ")
+			if w.Title == "" {
+				w.Title = "Its screen needs a key"
+			}
+			if screens {
+				if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
+					w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
+					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		out = append(out, w)
+	}
+	quiet := func(w waiting) int {
+		if w.Kind == "quiet" {
+			return 1
+		}
+		return 0
+	}
+	slices.SortStableFunc(out, func(x, y waiting) int { return quiet(x) - quiet(y) })
+	return out, nil
+}
+
 type facts struct {
-	latest map[int64]state.Attempt
-	done   map[int64]bool
-	unread map[int64]bool
-	asked  map[int64]int
-	prs    map[int64]string
+	signals map[int64]state.Event
+	latest  map[int64]state.Attempt
+	done    map[int64]bool
+	unread  map[int64]bool
+	asked   map[int64]int
+	prs     map[int64]string
 }
 
 func (b *Board) facts(ctx context.Context) (facts, error) {
 	var f facts
 	var err error
 	if f.latest, err = b.st.LatestAttempts(ctx); err != nil {
+		return f, err
+	}
+	if f.signals, err = b.signals(ctx, slices.Collect(maps.Values(f.latest))); err != nil {
 		return f, err
 	}
 	if f.done, err = b.st.DoneReportAttempts(ctx); err != nil {
@@ -235,6 +357,7 @@ func when(stamp string) string {
 type check struct {
 	Task    state.Task
 	State   string
+	Agent   string
 	Attempt *state.Attempt
 	PR      string
 }
@@ -245,6 +368,14 @@ func (f facts) check(t state.Task) check {
 	if a, ok := f.latest[t.ID]; ok {
 		c.Attempt = &a
 		failed = t.Status == state.StatusActive && f.failing(a)
+		if a.Live() {
+			switch f.signals[a.ID].Kind {
+			case "attempt.blocked":
+				c.Agent = "blocked"
+			case "attempt.quiet":
+				c.Agent = "quiet"
+			}
+		}
 		done = done || f.done[a.ID]
 	}
 	switch {

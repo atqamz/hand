@@ -15,11 +15,36 @@ func Render(text string) template.HTML {
 	return template.HTML(b.String())
 }
 
-func RenderRefs(text, base string) template.HTML {
+func RenderRefs(text, base string, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
 	blocks(&b, lines, true, base+"/ref/")
-	return template.HTML(b.String())
+	return template.HTML(titled(b.String(), title))
+}
+
+func Inline(text string) template.HTML {
+	return template.HTML(inline(strings.Join(strings.Fields(text), " "), false, ""))
+}
+
+func Refs(text, base string, title func(ref string) string) template.HTML {
+	line := strings.Join(strings.Fields(text), " ")
+	return template.HTML(titled(inline(line, false, base+"/ref/"), title))
+}
+
+var refLink = regexp.MustCompile(`<a class="ref" href="([^"]*)">([a-z][0-9]+)</a>`)
+
+func titled(out string, title func(ref string) string) string {
+	if title == nil {
+		return out
+	}
+	return refLink.ReplaceAllStringFunc(out, func(m string) string {
+		sub := refLink.FindStringSubmatch(m)
+		t := title(sub[2])
+		if t == "" {
+			return m
+		}
+		return `<a class="ref" href="` + sub[1] + `" title="` + html.EscapeString(t) + `">` + sub[2] + `</a>`
+	})
 }
 
 func blocks(b *strings.Builder, lines []string, quotes bool, refs string) {

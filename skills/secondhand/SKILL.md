@@ -45,6 +45,10 @@ Hand hands over board messages and wakes by pasting them, so they may arrive wra
 
 Only through `hand decision ask tN "<question>"`. They answer on the board (`hand board`) or with `hand decision answer`. Do not ask in chat and wait.
 
+Write the question's first line as a short headline (at most 120 characters), then the details below it: numbered options or steps, and commands in code blocks. For a long question use `hand decision ask --file - tN` with the text on stdin.
+
+Never end a chat reply with a question for the operator; ask every question with `hand decision ask`.
+
 ## Finish a task
 
 1. Verify the acceptance check yourself: run the tests, and check the PR.
@@ -55,5 +59,6 @@ Only through `hand decision ask tN "<question>"`. They answer on the board (`han
 
 - After any gap, run `hand orient` again instead of recalling.
 - Keep chat short. The board shows everything, so point the operator to it.
+- Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.
 - Read a worker's terminal only when it is blocked, or quiet without a report.
 - Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.

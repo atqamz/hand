@@ -72,7 +72,7 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	interrupted := newFixture(t)
 	interrupted.supervisor(t, state.AttemptInterrupted, "gen-1")
 	body := get(t, interrupted.handler(), "/")
-	lacks(t, "interrupted console", region(body, "console"), `action="/supervisor/resume"`)
+	contains(t, "interrupted console", region(body, "console"), `action="/supervisor/resume"`)
 	contains(t, "interrupted tray", region(body, "queue"), `action="/supervisor/resume"`)
 	none := newFixture(t)
 	contains(t, "none", region(get(t, none.handler(), "/"), "console"), `name="harness"`, `name="profile"`)

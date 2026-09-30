@@ -120,6 +120,8 @@ func cmdAttemptRead(r *runner, args []string) error {
 func cmdAttemptKeys(r *runner, args []string) error {
 	fs := flags("attempt keys")
 	revision := fs.Int64("revision", -1, "content revision printed by `hand attempt read`")
+	screen := fs.String("screen", "", "digest of the screen the keys answer; lets a press survive a countdown tick")
+	after := fs.Int64("after", -1, "seq of the last key press the screen showed; refuses when someone pressed since")
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("attempt keys: %v", err)}
 	}
@@ -136,7 +138,10 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := c.Keys(ctx, a.PaneID, keys, *revision, a.TerminalID); err != nil {
+		if err := pressedSince(ctx, st, state.AttemptRef(id), *after); err != nil {
+			return err
+		}
+		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, keys, *revision, *screen); err != nil {
 			if luvus.Code(err) == "content_revision_conflict" {
 				return fmt.Errorf("%w: the screen changed since revision %d; nothing was sent; read it again", state.ErrConflict, *revision)
 			}

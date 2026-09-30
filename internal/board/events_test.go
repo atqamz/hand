@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -181,7 +182,7 @@ func TestEventsSendOnlyChangedRegions(t *testing.T) {
 		t.Fatalf("after a decision = %q", got)
 	}
 	for _, e := range evs {
-		if e.name == "queue" && (!strings.Contains(e.data, "Ship the docs today?") || !strings.Contains(e.data, `data-waiting="3"`)) {
+		if e.name == "queue" && (!strings.Contains(e.data, "Ship the docs today?") || !strings.Contains(e.data, `data-waiting="4"`)) {
 			t.Fatalf("queue event:\n%s", e.data)
 		}
 	}
@@ -264,13 +265,14 @@ func TestFailedControlsCarryTheirMessage(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	fx.fail = fmt.Errorf("%w: supervisor s1 is still running\nfrom /home/me/fleet/hand.db", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {token}}, true)
-	got := rec.Header().Get("X-Hand-Error")
+	got, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error"))
 	if rec.Code != http.StatusConflict || got != "conflict: supervisor s1 is still running from hand.db" {
 		t.Fatalf("failed control = %d %q", rec.Code, got)
 	}
 	fx.fail = errors.New("plain failure")
-	if rec := request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {"stale"}}, true); rec.Header().Get("X-Hand-Error") != "this form is stale; reload the page and try again" {
-		t.Fatalf("stale form = %d %q", rec.Code, rec.Header().Get("X-Hand-Error"))
+	rec = request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {"stale"}}, true)
+	if msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error")); msg != "this form is stale; reload the page and try again" {
+		t.Fatalf("stale form = %d %q", rec.Code, msg)
 	}
 }
 
@@ -306,4 +308,32 @@ func TestEventsFollowAnEditedTranscript(t *testing.T) {
 	if got := eventNames(evs); !slices.Equal(got, []string{"timeline"}) || !strings.Contains(evs[0].data, "edited") {
 		t.Fatalf("after the transcript was rewritten = %q", evs)
 	}
+}
+
+func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	now := time.Date(2026, 9, 26, 0, 9, 0, 0, time.UTC)
+	fx.options.Now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	base, _ := serve(t, quick(fx.st, fx.options))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 5)
+	mu.Lock()
+	now = now.Add(2 * time.Minute)
+	mu.Unlock()
+	for _, e := range collect(ch, 500*time.Millisecond) {
+		if e.name == "queue" && strings.Contains(e.data, `data-kind="quiet"`) {
+			return
+		}
+	}
+	t.Fatal("no queue event when the quiet worker outlasted the grace")
 }
