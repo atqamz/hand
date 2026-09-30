@@ -222,7 +222,7 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	case stale:
 		return "none", "Luvus restarted; your message waits until hand watch settles it."
 	case blocked:
-		return "blocked", ref + " is waiting on a screen in Needs you; your message waits too."
+		return "blocked", ref + " is waiting on a screen in Needs; your message waits too."
 	case sup.Switching():
 		return agent, ref + " switches to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn; your message waits for the new session."
 	case agent == "working":

@@ -1,59 +1,49 @@
 ---
 name: Hand board
-description: The operator's board for one Hand fleet, run as a news agency wire desk. The tray holds what waits on the operator, the news budget lists the tasks, and the wire carries the supervisor's dispatches down to the send console, all under a live masthead.
+description: The operator's board for one Hand fleet, run as an on-call desk. Everything that needs the operator is an open item in Needs, most severe first, acknowledged in place and resolved into the Chat timeline, under a masthead that answers the supervisor's state and context window.
 colors:
-  bg: "#f2e6a6"
-  card: "#e9db92"
-  hover: "#e8da8f"
-  line: "#cdbd78"
-  fg: "#1d1a14"
-  muted: "#5a5236"
-  primary: "#1d1a14"
-  on-primary: "#f2e6a6"
-  flash: "#a8231b"
-  fail: "#a8231b"
-  wait: "#7a4f00"
-  pass: "#2b6424"
-  neutral: "#5a5236"
-  pencil: "#1d4ea8"
-  accent: "#1d4ea8"
-  accent-bg: "#e2dca8"
-  wait-bg: "#ecd58a"
-  neutral-bg: "#e6d897"
-  header: "#1d1a14"
-  on-header: "#f2e6a6"
-  on-header-muted: "#b9ad83"
-  h-pass: "#86c96f"
-  h-wait: "#e8b04a"
-  h-flash: "#ff7a6b"
-  h-lamp: "#e9d98a"
-  screen: "#1b1a16"
-  screen-fg: "#e8e2c8"
-  shadow: "rgba(29,26,20,.22)"
-  bg-dark: "#15130e"
-  card-dark: "#1f1c15"
-  hover-dark: "#26221a"
-  line-dark: "#3a3526"
-  fg-dark: "#ece5cc"
-  muted-dark: "#a79f82"
-  primary-dark: "#ece5cc"
-  on-primary-dark: "#15130e"
-  flash-dark: "#ff7a6b"
-  fail-dark: "#ff7a6b"
-  wait-dark: "#e8b04a"
-  pass-dark: "#86c96f"
-  neutral-dark: "#a79f82"
-  pencil-dark: "#93b6ff"
-  accent-dark: "#93b6ff"
-  accent-bg-dark: "#1b2233"
-  wait-bg-dark: "#33270f"
-  neutral-bg-dark: "#24211a"
-  header-dark: "#0b0a07"
-  on-header-dark: "#ece5cc"
-  on-header-muted-dark: "#8f8870"
+  bg: "#fcfcfd"
+  card: "#f4f6f8"
+  fg: "#1b1f24"
+  muted: "#59616c"
+  line: "#d5dbe2"
+  hover: "#eaeef2"
+  fail: "#c4262e"
+  wait: "#8f5e00"
+  pass: "#19793b"
+  neutral: "#59616c"
+  accent: "#1d5fc2"
+  fail-bg: "#fdecec"
+  wait-bg: "#fcf3d9"
+  pass-bg: "#e3f5e8"
+  neutral-bg: "#eceff3"
+  accent-bg: "#e8f0fc"
+  screen: "#11151a"
+  screen-fg: "#d7dde4"
+  primary: "#19793b"
+  on-primary: "#ffffff"
+  shadow: "rgba(27,31,36,.14)"
+  bg-dark: "#0d1117"
+  card-dark: "#161b22"
+  fg-dark: "#e6ebf1"
+  muted-dark: "#9aa3ae"
+  line-dark: "#2e353e"
+  hover-dark: "#1c232c"
+  fail-dark: "#ff6a63"
+  wait-dark: "#e3a73b"
+  pass-dark: "#4fc46c"
+  neutral-dark: "#9aa3ae"
+  accent-dark: "#6ea6ff"
+  fail-bg-dark: "#3a1a1c"
+  wait-bg-dark: "#352912"
+  pass-bg-dark: "#15301d"
+  neutral-bg-dark: "#20262e"
+  accent-bg-dark: "#17263d"
   screen-dark: "#07090c"
   screen-fg-dark: "#d7dde4"
-  shadow-dark: "rgba(0,0,0,.55)"
+  primary-dark: "#1f7f3e"
+  on-primary-dark: "#ffffff"
+  shadow-dark: "rgba(0,0,0,.5)"
   tint-0: "#407acc"
   tint-1: "#736ad7"
   tint-2: "#9f58d3"
@@ -79,44 +69,26 @@ colors:
   tint-10-dark: "#218f61"
   tint-11-dark: "#238b95"
 typography:
-  nameplate:
+  display:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
     fontSize: "22px"
-    fontWeight: 800
-    lineHeight: "28px"
-    letterSpacing: "0.01em"
-  nameplate-compact:
-    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "19px"
-    fontWeight: 800
-    lineHeight: "24px"
-    letterSpacing: "0.01em"
+    fontWeight: 600
+    lineHeight: "30px"
+    letterSpacing: "-0.01em"
   headline:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "22px"
-    fontWeight: 700
-    lineHeight: "30px"
+    fontSize: "16px"
+    fontWeight: 600
+    lineHeight: "24px"
     letterSpacing: "-0.01em"
   title:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
     fontSize: "16px"
     fontWeight: 600
     lineHeight: "22px"
-  section:
-    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "16px"
-    fontWeight: 600
-    lineHeight: "24px"
-    letterSpacing: "-0.01em"
-  heading-small:
-    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "14px"
-    fontWeight: 600
-    lineHeight: "22px"
-    letterSpacing: "-0.01em"
   copy:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "14.5px"
+    fontSize: "15px"
     fontWeight: 400
     lineHeight: 1.6
   body:
@@ -124,80 +96,61 @@ typography:
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
+  heading-small:
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 600
+    lineHeight: "22px"
+    letterSpacing: "-0.01em"
+  nav:
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
+    fontSize: "14px"
+    fontWeight: 600
+    lineHeight: 1.5
   control:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "13px"
+    fontSize: "14px"
     fontWeight: 500
     lineHeight: "20px"
+  badge:
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+    lineHeight: "20px"
+    fontFeature: "\"tnum\""
+  label:
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 600
+    lineHeight: "18px"
   meta:
     fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.5
     fontFeature: "\"tnum\""
-  badge:
-    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Noto Sans\", Helvetica, Arial, sans-serif"
-    fontSize: "12px"
-    fontWeight: 600
-    lineHeight: "18px"
-    fontFeature: "\"tnum\""
-  label:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "11px"
-    fontWeight: 600
-    lineHeight: "18px"
-    letterSpacing: "0.03em"
-  slug:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "11.5px"
-    fontWeight: 600
-    lineHeight: "18px"
-    letterSpacing: "0.03em"
-    fontFeature: "\"tnum\""
-  wire-code:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "11.5px"
-    fontWeight: 800
-    lineHeight: "18px"
-    letterSpacing: "0.03em"
-  strip:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "12px"
-    fontWeight: 400
-    lineHeight: "20px"
-    letterSpacing: "0.03em"
-    fontFeature: "\"tnum\""
-  key-label:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "12px"
-    fontWeight: 600
-    lineHeight: 1.5
-    letterSpacing: "0.03em"
-  field-label:
-    fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "11px"
-    fontWeight: 400
-    lineHeight: 1.5
-    letterSpacing: "0.03em"
   mono:
     fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: "18px"
     fontFeature: "\"tnum\""
-  keycap:
+  severity-code:
     fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
-    fontSize: "11px"
-    fontWeight: 400
+    fontSize: "12px"
+    fontWeight: 700
     lineHeight: "18px"
+    letterSpacing: "0.03em"
   code-block:
     fontFamily: "ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.45
 rounded:
+  bar: "3px"
   sm: "4px"
   md: "6px"
+  lg: "8px"
   pill: "999px"
   round: "50%"
 spacing:
@@ -211,53 +164,64 @@ spacing:
   2xl: "16px"
   3xl: "20px"
   4xl: "24px"
-  5xl: "48px"
+  5xl: "32px"
+  6xl: "48px"
 components:
   masthead:
-    backgroundColor: "{colors.header}"
-    textColor: "{colors.on-header}"
-    padding: "10px 16px"
+    backgroundColor: "{colors.bg}"
+    textColor: "{colors.fg}"
+    height: "44px"
+    padding: "0 16px"
   masthead-compact:
     height: "36px"
-    padding: "4px 12px"
-  nameplate:
-    typography: "{typography.nameplate}"
-  nameplate-word:
-    textColor: "{colors.on-header-muted}"
+    padding: "0 12px"
+  fleet-name:
+    textColor: "{colors.fg}"
+    typography: "{typography.headline}"
   mark:
     size: "22px"
-  strip:
-    textColor: "{colors.on-header}"
-    typography: "{typography.strip}"
-  strip-quiet:
-    textColor: "{colors.on-header-muted}"
-  lamp:
-    backgroundColor: "{colors.on-header-muted}"
-    rounded: "{rounded.round}"
-    size: "8px"
-  lamp-ready:
-    backgroundColor: "{colors.h-pass}"
-  lamp-working:
-    backgroundColor: "{colors.h-lamp}"
-  lamp-failing:
-    backgroundColor: "{colors.h-flash}"
-  gauge-warn:
-    textColor: "{colors.h-wait}"
-  gauge-flash:
-    textColor: "{colors.h-flash}"
-  clock:
-    textColor: "{colors.on-header-muted}"
-    typography: "{typography.strip}"
-  button-masthead:
-    textColor: "{colors.on-header-muted}"
-    typography: "{typography.control}"
-    padding: "4px 12px"
-  button-masthead-hover:
-    textColor: "{colors.on-header}"
+  status-pill:
+    backgroundColor: "{colors.neutral-bg}"
+    textColor: "{colors.neutral}"
+    typography: "{typography.badge}"
+    rounded: "{rounded.pill}"
+    padding: "0 8px 0 6px"
+  status-pill-ready:
+    backgroundColor: "{colors.pass-bg}"
+    textColor: "{colors.pass}"
+  status-pill-working:
+    backgroundColor: "{colors.accent-bg}"
+    textColor: "{colors.accent}"
+  status-pill-failing:
+    backgroundColor: "{colors.fail-bg}"
+    textColor: "{colors.fail}"
+  context-bar:
+    backgroundColor: "{colors.line}"
+    rounded: "{rounded.bar}"
+    width: "48px"
+    height: "6px"
+  context-bar-fill:
+    backgroundColor: "{colors.accent}"
+  context-bar-warn:
+    backgroundColor: "{colors.wait}"
+  context-bar-fail:
+    backgroundColor: "{colors.fail}"
+  needs-count:
+    backgroundColor: "{colors.wait-bg}"
+    textColor: "{colors.wait}"
+    typography: "{typography.badge}"
+    rounded: "{rounded.pill}"
+    padding: "0 8px"
+  needs-count-fail:
+    backgroundColor: "{colors.fail-bg}"
+    textColor: "{colors.fail}"
+  needs-count-neutral:
+    backgroundColor: "{colors.neutral-bg}"
+    textColor: "{colors.neutral}"
   tab:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.muted}"
-    typography: "{typography.key-label}"
+    typography: "{typography.nav}"
     padding: "10px 12px"
   tab-wide:
     padding: "10px 14px"
@@ -267,130 +231,75 @@ components:
     backgroundColor: "{colors.accent}"
     rounded: "{rounded.round}"
     size: "6px"
-  count:
+  need-item:
+    backgroundColor: "{colors.bg}"
+    rounded: "{rounded.lg}"
+  need-header:
     backgroundColor: "{colors.neutral-bg}"
-    textColor: "{colors.fg}"
-    typography: "{typography.badge}"
-    rounded: "{rounded.pill}"
-    padding: "0 7px"
-  count-waiting:
+    padding: "8px 12px"
+  need-header-fail:
+    backgroundColor: "{colors.fail-bg}"
+  need-header-wait:
     backgroundColor: "{colors.wait-bg}"
-    textColor: "{colors.wait}"
-  slug:
-    textColor: "{colors.muted}"
-    typography: "{typography.slug}"
-  wire-code:
-    textColor: "{colors.fg}"
-    typography: "{typography.wire-code}"
-  wire-code-flash:
-    textColor: "{colors.flash}"
-  wire-code-bulletin:
-    textColor: "{colors.wait}"
-  dispatch:
-    padding: "12px 0"
-  dispatch-copy:
-    textColor: "{colors.fg}"
-    typography: "{typography.copy}"
-  note:
-    padding: "0 0 0 12px"
-  note-slug:
-    textColor: "{colors.pencil}"
-  service-line:
-    textColor: "{colors.muted}"
-    typography: "{typography.meta}"
-    padding: "6px 0"
-  service-text:
-    typography: "{typography.mono}"
-  working-line:
-    textColor: "{colors.muted}"
-    typography: "{typography.mono}"
-    padding: "10px 0"
-  printhead:
-    backgroundColor: "{colors.fg}"
-    width: "0.62em"
-    height: "1.05em"
-  tray-item:
-    padding: "10px 4px"
-  tray-item-hover:
-    backgroundColor: "{colors.hover}"
-  tray-headline:
+  need-headline:
     textColor: "{colors.fg}"
     typography: "{typography.title}"
-  tray-body:
-    padding: "2px 4px 14px"
-  budget-row:
-    textColor: "{colors.fg}"
-    typography: "{typography.body}"
-    padding: "7px 4px"
-  need-row:
-    padding: "9px 4px"
-  key-fence:
-    rounded: "{rounded.md}"
-    padding: "8px"
-  key-button:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.fg}"
-    rounded: "{rounded.md}"
-    padding: "4px 12px"
-    width: "2.6em"
-  screen:
+  need-body:
+    padding: "10px 12px 12px"
+  severity-code:
+    backgroundColor: "{colors.neutral-bg}"
+    textColor: "{colors.neutral}"
+    typography: "{typography.severity-code}"
+    rounded: "{rounded.pill}"
+    padding: "0 6px"
+  severity-code-fail:
+    backgroundColor: "{colors.fail-bg}"
+    textColor: "{colors.fail}"
+  severity-code-wait:
+    backgroundColor: "{colors.wait-bg}"
+    textColor: "{colors.wait}"
+  countdown:
+    backgroundColor: "{colors.bg}"
+    textColor: "{colors.fail}"
+    rounded: "{rounded.pill}"
+    padding: "0 6px"
+  terminal:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.screen-fg}"
     typography: "{typography.code-block}"
     rounded: "{rounded.md}"
     padding: "10px 0 10px 12px"
-  console-box:
+  task-row:
+    textColor: "{colors.fg}"
+    typography: "{typography.body}"
+    padding: "6px 4px"
+  chat-card:
+    backgroundColor: "{colors.bg}"
+    rounded: "{rounded.lg}"
+  chat-card-header:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.muted}"
+    typography: "{typography.meta}"
+    padding: "6px 12px"
+  chat-card-body:
+    textColor: "{colors.fg}"
+    typography: "{typography.copy}"
+    padding: "10px 12px"
+  chat-card-operator:
+    backgroundColor: "{colors.accent-bg}"
+  chat-card-operator-author:
+    textColor: "{colors.accent}"
+  hand-line:
+    textColor: "{colors.muted}"
+    typography: "{typography.meta}"
+    padding: "2px 0"
+  ring:
+    rounded: "{rounded.round}"
+    size: "8px"
+  composer:
     backgroundColor: "{colors.card}"
     rounded: "{rounded.md}"
     padding: "10px"
-  console-input:
-    textColor: "{colors.fg}"
-    typography: "{typography.body}"
-    padding: "4px 2px"
-  menu-summary:
-    textColor: "{colors.fg}"
-    typography: "{typography.key-label}"
-    rounded: "{rounded.md}"
-    padding: "4px 8px"
-  menu-summary-hover:
-    backgroundColor: "{colors.hover}"
-  menu-body:
-    backgroundColor: "{colors.bg}"
-    rounded: "{rounded.md}"
-    padding: "12px"
-    width: "230px"
-  menu-row:
-    textColor: "{colors.fg}"
-    typography: "{typography.control}"
-    rounded: "{rounded.sm}"
-    padding: "6px 12px"
-  menu-row-hover:
-    backgroundColor: "{colors.hover}"
-  field-label:
-    textColor: "{colors.muted}"
-    typography: "{typography.field-label}"
-  console-model:
-    textColor: "{colors.fg}"
-    typography: "{typography.key-label}"
-    padding: "0 6px"
-  pending-switch:
-    textColor: "{colors.wait}"
-    typography: "{typography.key-label}"
-    padding: "0 6px"
-  interrupt-key:
-    backgroundColor: "{colors.bg}"
-    textColor: "{colors.flash}"
-    rounded: "{rounded.md}"
-    width: "32px"
-    height: "28px"
-  keycap:
-    textColor: "{colors.muted}"
-    typography: "{typography.keycap}"
-    rounded: "{rounded.sm}"
-    padding: "0 5px"
-  hint:
-    textColor: "{colors.muted}"
-    typography: "{typography.meta}"
   button:
     backgroundColor: "{colors.card}"
     textColor: "{colors.fg}"
@@ -405,10 +314,26 @@ components:
     typography: "{typography.control}"
     rounded: "{rounded.md}"
     padding: "4px 12px"
+  key:
+    backgroundColor: "{colors.bg}"
+    textColor: "{colors.fg}"
+    rounded: "{rounded.md}"
+    height: "28px"
+    padding: "0 10px"
+  key-interrupt:
+    textColor: "{colors.fail}"
+  key-stop:
+    textColor: "{colors.muted}"
+  key-stop-armed:
+    backgroundColor: "{colors.fail-bg}"
+    textColor: "{colors.fail}"
+  menu:
+    backgroundColor: "{colors.bg}"
+    rounded: "{rounded.md}"
+    padding: "12px"
   input:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
-    typography: "{typography.body}"
     rounded: "{rounded.md}"
     padding: "5px 8px"
   ref:
@@ -418,47 +343,30 @@ components:
     rounded: "{rounded.md}"
     padding: "0 6px"
   chip:
-    textColor: "{colors.accent}"
-    typography: "{typography.badge}"
-    rounded: "{rounded.pill}"
-    padding: "0 7px"
-  label-queued:
-    textColor: "{colors.wait}"
     typography: "{typography.label}"
     rounded: "{rounded.pill}"
     padding: "0 7px"
+  count:
+    backgroundColor: "{colors.neutral-bg}"
+    textColor: "{colors.fg}"
+    typography: "{typography.badge}"
+    rounded: "{rounded.pill}"
+    padding: "0 7px"
+  kbd:
+    textColor: "{colors.muted}"
+    typography: "{typography.mono}"
+    rounded: "{rounded.sm}"
+    padding: "0 5px"
   thread-title:
     textColor: "{colors.fg}"
-    typography: "{typography.headline}"
-  crumbs:
-    textColor: "{colors.muted}"
-    typography: "{typography.control}"
-  fleet-row:
-    textColor: "{colors.fg}"
-    typography: "{typography.nameplate}"
-    padding: "12px 4px"
-  md-code:
-    backgroundColor: "{colors.card}"
-    rounded: "{rounded.sm}"
-    padding: "0.1em 0.4em"
-  md-pre:
-    backgroundColor: "{colors.card}"
-    typography: "{typography.code-block}"
-    rounded: "{rounded.md}"
-    padding: "10px 12px"
-  md-table:
-    rounded: "{rounded.md}"
-  md-table-head:
-    backgroundColor: "{colors.card}"
-    textColor: "{colors.muted}"
-    typography: "{typography.badge}"
-    padding: "6px 10px"
-  md-table-cell:
-    textColor: "{colors.fg}"
-    typography: "{typography.copy}"
-    padding: "6px 10px"
-  md-table-sticky:
-    backgroundColor: "{colors.bg}"
+    typography: "{typography.display}"
+  report-header:
+    backgroundColor: "{colors.neutral-bg}"
+    padding: "6px 12px"
+  report-header-fail:
+    backgroundColor: "{colors.fail-bg}"
+  report-header-done:
+    backgroundColor: "{colors.pass-bg}"
   toast:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
@@ -470,369 +378,281 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Wire Desk"**
+**Creative North Star: "The On-Call Desk"**
 
-The fleet runs like a news agency wire desk, and the operator edits the desk. Every event is a dispatch ranked by wire priority. What waits on the operator sits in the tray, FLASH first, each item with its action in place. The tasks are the news budget, one line each. The supervisor's replies come over the wire as numbered dispatches. Hand's own events are one-line service messages, and the operator's notes sit flush right in blue editor's pencil. While the supervisor works, a print head steps along the wire's last line, and the masthead counts its context.
+The fleet is an on-call desk. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order, acknowledged in place, and resolved into the timeline. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press "2 No", answer d5, mark r7 read), watch it collapse to its receipt while a Hand line lands in Chat, and then read s1's cards and steer it from the composer.
 
-The material is teleprinter copy: canary on the day desk, carbon on the night desk, near-black ink, and an ink masthead band in both themes. Rank comes from scale, weight and caps on one slug grid, never from boxes. Dispatches are separated by 1px hairlines, with no cards, no glass and no zebra. FLASH red is the one saturated signal. Fixed-pitch caps carry what the wire prints: slugs, refs, codes, datelines, counts, the live strip and the tabs. Copy stays in the system sans.
+The material is a quiet review palette: a near-white ground, pale grey cards on hairline rules and near-black ink, with a GitHub-dark night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The desk refuses chat bubbles in a SaaS shell, and it refuses the green-on-black terminal as well. Every page shows one fleet. The fleet page keeps two tabs at every width, Needs you and Chat, each over one centred 880px column, and the send console sits under the wire as a single box.
+The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1280px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.
 
 **Key Characteristics:**
-- Canary copy (day) and carbon (night) grounds under near-black ink, with the masthead an ink band in both themes.
-- One dispatch module everywhere: a mono-caps slug line, then the copy, then its actions, with hairlines between dispatches.
-- Wire codes rank the tray: FLASH, BULLETIN, URGENT, ROUTINE, SERVICE.
-- FLASH red is the one saturated signal; pencil blue marks the operator's words and focus; the fleet tint colours only the wire name and the mark.
-- A live strip in the masthead: lamp, line state, supervisor and model, queue, context gauge, compactions and clock.
-- One authored motion, the print head, plus a one-line feed for new dispatches.
-- A send console that holds the message box, the model menu, the Interrupt key, the overflow menu, the hint and Send.
-- Shadows only on the floating toast and on honest keys.
-- A strict CSP: one stylesheet, one script, no inline code and no web fonts.
+- A near-white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#0d1117` with cards raised to `#161b22` at night.
+- One severity ramp orders Needs, fills each item's header, and colours the Needs counts.
+- Every state is a word plus an icon shape plus a colour, never colour alone.
+- Chat is a thread of bordered cards: the supervisor on the left, the operator on the right on accent-bg, and Hand's own events as one-line ringed notes.
+- Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
+- A 44px masthead that answers the supervisor's state, model and context window.
+- Five type sizes, tabular numerals for live figures, no web fonts, and a strict CSP.
 
 ## Colors
 
-Warm paper and ink with three signals and one pencil: every saturated colour means one thing.
+A cool neutral review palette with four signals and one accent: every saturated colour means one thing.
 
-Every colour is a custom property on `:root` in `internal/board/static/board.css`, which is the single source of the tokens; the keys above are the property names without `--`. The night desk redefines the same properties inside `@media (prefers-color-scheme:dark)`, and the `-dark` keys record those values. The masthead signal tokens (`h-pass`, `h-wait`, `h-flash`, `h-lamp`) have no dark values, because the band they sit on is ink in both themes. `:root` sets `color-scheme: light dark`, so native controls and scrollbars follow the theme. Literal colours appear in two places only: the terminal block's scrollbar and edge fade, and the three favicons (see Components).
+Every colour is a custom property on `:root` in `internal/board/static/board.css`, the single source of the tokens; the frontmatter keys are the property names without `--`. The night theme redefines the same properties inside `@media (prefers-color-scheme:dark)`, and the `-dark` keys record those values. `:root` sets `color-scheme: light dark`, so native controls and scrollbars follow the system. There is no manual theme switch. Literal colours appear in three places only: the terminal excerpt's edge fade and scrollbar (`#6b7480`), the timeline's top fade mask, and the four favicons (see Components).
+
+`TestTheOnCallPalette` pins twenty of these tokens to their values in both themes. `TestColoursMeetContrast` holds sixteen text pairs to 4.5:1 in both themes (among them ink, muted and accent on the ground, each signal on its pale fill and on the ground, ink on accent-bg, the terminal pair and the primary pair), and every fleet tint to 3:1 on the ground.
 
 ### Primary
-- **Teleprinter Ink** (`fg`, and `primary` for fills): body copy, titles, wire codes of routine rank, the print head, the current tab's text and underline, and the fill of the one committing button in a form (Answer, Send, Resume), with canary text (`on-primary`). On the night desk it becomes warm off-white, and the committing button inverts to a warm off-white fill with carbon text.
+- **Review Blue** (`accent`; pale pair `accent-bg`): the operator's own marks and the live signal. It fills the operator's chat cards (`accent-bg`) and colours their "you" label; it draws the focus ring, the caret, links, text selection (`accent-bg`) and a linked ref's hover border. It is the working pill, the working pulse, the Chat tab's dot while the supervisor works, the context bar's fill below 80%, and the composer's frame while it has focus.
 
 ### Secondary
-- **Editor's Pencil** (`pencil`): the operator's own marks. It colours the slug of your notes and their 1px left rule, and the console frame while the message box has focus.
-- **Link Blue** (`accent`, same value as `pencil`; pale pair `accent-bg`): links, the focus ring, the caret, text selection, a linked ref chip on hover, and the PR chip. It also carries one state: the static dot on the Chat tab while the supervisor works.
+- **Commit Green** (`primary`, with `on-primary` white text): the one committing button in a form: Send, Answer, Resume and Start. By day it shares its value with `pass`; at night it stays a darker green (`primary-dark`) so white text keeps its contrast.
 
 ### Tertiary
-- **Fleet Tint** (`tint-0` to `tint-11`): twelve hues around the wheel at a similar mid lightness, each with a night-desk value. `tint()` in `internal/board/board.go` picks one per fleet as FNV-1a 32 of the fleet id, mod 12, and the page sets `class="tint-N"` on `body`. A page with no fleet id gets `tint-0`. It colours the fleet name in the masthead nameplate and the mark in the masthead and on the fleet list.
+- **Fleet Tint** (`tint-0` to `tint-11`): twelve hues around the wheel at a similar mid lightness, each with a night value. `tint()` in `internal/board/board.go` picks one per fleet as FNV-1a 32 of the fleet id, mod 12, and the page sets `class="tint-N"` on `body`; a page with no fleet id gets `tint-0`. It colours the mark and the masthead's 3px top rule, and nothing else, with one exception the build carries: on the fleet list, a fleet's name turns its tint on hover.
 
 ### Neutral
-- **Canary Copy** (`bg`): the day desk. It grounds the page, the tabs, inputs, the open menus, the Interrupt key, the toast and the sticky first column of a reply table. At night it is **Carbon**.
-- **Second Sheet** (`card`): one step darker, for buttons, ref chips, inline code, code blocks, reply table heads and the console box.
-- **Hover Wash** (`hover`): the hover fill of buttons, tray items, menu summaries and menu rows.
-- **Hairline** (`line`): every border and rule. It draws the lines between dispatches and rows, the masthead's bottom edge, the tab bar's rule, the slug separators, the underline of linked refs in slugs, the quote edge, and the scrollbars.
-- **Faded Ink** (`muted`, and `neutral` for idle state): slugs, meta, hints, service lines, the working line, inactive tabs, placeholders, field labels, crumbs, quotes, struck text and the idle-check icon.
-- **Ink Band** (`header`, with `on-header` and `on-header-muted`): the masthead in both themes. On the night desk the band is darker than carbon, and its 1px hairline bottom edge keeps it apart from the ground.
-- **Terminal** (`screen`, `screen-fg`): the block that shows a blocked supervisor screen. It stays dark in both themes.
+- **Review Ground** (`bg`): the page, the masthead, the tabs, Needs items and chat cards at rest, inputs, keys, open menus and the toast.
+- **Card Grey** (`card`): chat and thread card header strips, the composer box, default buttons, ref chips, and code in replies.
+- **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
+- **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
+- **Hairline** (`line`): every rule and border, the context bar's track, and scrollbar thumbs.
+- **Hover Wash** (`hover`): the hover fill of buttons, menu rows and the model menu's summary.
+- **Terminal** (`screen`, `screen-fg`): a blocked screen's excerpt, dark in both themes.
+- **Shadow** (`shadow`): the colour of the one lift shadow, under open menus and the toast.
 
 ### Signals
-- **FLASH Red** (`flash`, with `fail` as its status alias): the wire codes FLASH and URGENT, a failing task in a slug, a blocked or failed report, the failing-check icon, a stuck report, the Interrupt key's glyph and the toast border.
-- **Bulletin Amber** (`wait`, pale `wait-bg`): the BULLETIN code, waiting tasks, progress reports, the non-zero waiting count, the Queued label, a pending model switch and the arrival wash of a new tray item.
-- **Line Green** (`pass`): running and passing tasks, and done reports.
-- **Masthead signals** (`h-pass`, `h-wait`, `h-flash`, `h-lamp`): the same meanings, tuned for the ink band. `h-pass` is the ready lamp, `h-lamp` the working lamp, `h-flash` a failing lamp and the gauge at 90% or more, and `h-wait` the gauge at 80% or more and the stale-server note.
+- **Fail Red** (`fail`, pale `fail-bg`): blocked screens, failed attempts and an interrupted supervisor in Needs; the failing pill (blocked, unreachable, exited, interrupted, failed); failing task icons; blocked and failed report headers; the auto-deny countdown; the context bar and its figure from 90%; error toasts and error pages; and the two controls that end a turn, Interrupt, and Stop on hover or armed.
+- **Wait Amber** (`wait`, pale `wait-bg`): decisions and "no supervisor" items in Needs; a pending model switch; the context bar and its figure from 80%; a stale-server note; waiting task icons.
+- **Pass Green** (`pass`, pale `pass-bg`): the ready pill, running and passing task icons, done report headers, the All clear icon, and done states.
+- **Neutral** (`neutral`, pale `neutral-bg`): reports and quiet attempts in Needs; the starting, stopped and no-supervisor pills; idle task icons; counts at rest.
 
 ### Named Rules
-**The One Flash Rule.** FLASH red is the one saturated signal: blocked screens, failures, the Interrupt key and a context gauge at 90% or more. Amber means the operator is being asked or something waits, and green means running, passing or ready. There is no fourth signal colour. Pencil blue marks the operator and focus, and the fleet tint never carries state.
+**The Red Is Trouble Rule.** Fail red marks only what blocks or has broken: a blocked screen, a failure, an interrupted or unreachable supervisor, a context window at 90%, the auto-deny countdown and an error, plus the two controls that end a turn. Decisions, reports, links and ordinary states never take it.
 
-**The Ink Band Rule.** The masthead is an ink band in both themes and has its own tokens: `on-header` and `on-header-muted` for text, and the `h-` set for signals. Band tokens stay on the band, and ground tokens stay on the ground.
+**The Word And Shape Rule.** A state is never colour alone. The masthead pill carries an icon and a word, each Needs header carries an icon and a severity code, and each task row carries its state icon.
 
-**The Contrast Floor Rule.** In both themes, `fail`, `flash`, `wait`, `pass`, `neutral`, `fg`, `muted` and `pencil` reach 4.5:1 on `bg` and on `card`. `on-header`, `on-header-muted` and every `h-` signal reach 4.5:1 on `header`, and every tint reaches 3:1 on `header`. `TestColoursMeetContrast` in `internal/board/identity_test.go` enforces all three, and `TestTheWireDeskTokens` checks that the day ground is canary and the night ground is carbon.
-
-**The Tint Is a Name Rule.** The fleet tint colours only the wire name in the masthead and the mark. On the fleet list the rows sit on canary, where the tints reach only about 3.4:1, so the name stays in ink and only the mark takes the tint. A departure from the spec, which tinted the name there too.
+**The Tint Stays Put Rule.** The fleet tint colours the mark and the masthead's 3px top rule. It never fills a surface or colours copy.
 
 ## Typography
 
-**Body Font:** the system UI stack (`system-ui`, then `-apple-system`, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif)
-**Label/Mono Font:** the system monospace stack, held in `--mono` (`ui-monospace`, then SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace)
+**Body Font:** the system sans (`system-ui, -apple-system, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif`)
+**Label/Mono Font:** the system mono, held in `--mono` (`ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace`)
 
-**Character:** a working desk's two voices. The sans carries everything a person wrote or reads as prose. Fixed-pitch caps, tracked at .03em, carry everything the wire stamps onto a dispatch. No font is downloaded: the CSP has no `font-src`, and `TestNoWebFonts` rejects `@font-face` and `url(` in the stylesheet. The nameplate and thread titles are therefore set in the system sans too. That comes from the CSP; it is not a chosen display voice.
+**Character:** one plain sans for every word the operator reads, and a mono that appears only where the text is data: refs, keys, terminal lines, severity codes and figures that tick. There is no display face and no web font.
 
 ### Hierarchy
-- **Nameplate** (800, 22px, 28px, .01em, caps): the masthead's "`<FLEET>` WIRE", with the fleet name in its tint and the word "Wire" at 600 in `on-header-muted`. On short viewports it steps down to **Nameplate Compact** (800, 19px, 24px). Both sizes are large text, so every tint clears 3:1 on the band. The fleet list sets each fleet's row in the same style, in ink.
-- **Headline** (700, 22px, 30px, -.01em, balanced): task and decision titles on thread pages.
-- **Title** (600, 16px, 22px): the tray headline. A collapsed tray item drops to 500 and truncates to one line.
-- **Section** (600, 16px, 24px, -.01em): the Checks head and a reply's top-level heading. The Needs you head shares it, but stays hidden because the tab carries the count.
-- **Heading Small** (600, 14px, 22px, -.01em): a reply's lower headings and the fleet list's heading. The task page's Attempts, Reports and Events heads use 14px at 600 on the body line.
-- **Copy** (400, 14.5px, 1.6): the text of a dispatch on the wire, a report, a plan and a goal. Prose is capped at 72ch.
-- **Body** (400, 14px, 1.5): everything else, including budget rows, tray bodies and inputs.
-- **Control** (500, 13px, 20px): buttons and menu rows. Crumbs share the 13px size at 400.
-- **Meta** (400, 12px): hints, meta text, the service line's frame and the finished-tasks link.
-- **Badge** (600, 12px, 18px): the PR chip and reply table heads. The waiting count takes the same size and weight on a 20px line, and in the tab it inherits the tab's mono caps.
-- **Label** (mono 600, 11px, 18px, .03em, caps): the outlined Queued label in the slug of a note the supervisor has not read yet.
-- **Slug** (mono 600, 11.5px, 18px, .03em, caps): every slug line. Its wire code steps up to **Wire Code** (800).
-- **Strip** (mono 400, 12px, 20px, .03em, caps): the masthead live strip. The line word is set at 700, and the supervisor, queue and compaction items at 500 in `on-header-muted`. The clock shares the size and tracking.
-- **Key Label** (mono 600, 12px, .03em, caps): the tabs, the model menu's label, the plain model label and the pending switch.
-- **Field Label** (mono 400, 11px, .03em, caps): the Profile, Model and Effort labels inside the model menu.
-- **Mono** (400, 12px, 18px): ref chips, the service text, the working line and the fleet id. Service text and the working line keep their own case.
-- **Keycap** (mono 400, 11px, 18px): the Ctrl or ⌘ Enter keycap beside Send.
-- **Code Block** (mono 400, 12px, 1.45): the blocked-screen excerpt and preformatted text. Inline code sits at 85% of its line.
-
-Reply headings take 12px above and 4px below (none when they open the reply), and wrap balanced. The top-level reply heading is 16/24 on the Section step, rather than the 15/22 that the Plan 14 spec proposed, because 15px is not a step on the board's ramp.
+- **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
+- **Headline** (600, 16px, 24px, -0.01em): the fleet name in the masthead, the Needs and Tasks heads, and `###` headings in replies.
+- **Title** (600, 16px, 22px): the headline of an open Needs item. A collapsed item sets it at 500 on one line with an ellipsis.
+- **Copy** (400, 15px, 1.6): the body of chat and thread cards, held to a 72ch measure; tables and code blocks in replies may run wider.
+- **Body** (400, 14px, 1.5): the page default, task rows, crumbs and the composer's text.
+- **Heading small** (600, 14px, 22px, -0.01em): `h2` heads and `####` headings in replies; report titles in a report header use 14px at 600.
+- **Nav** (600, 14px, 1.5): the tabs, the model menu's summary and the model name in the composer.
+- **Control** (500, 14px, 20px): buttons. Keys in a blocked screen take the same size in mono.
+- **Badge** (600, 12px, 20px, tabular): the status pill, the masthead's Needs count and the Needs head's count.
+- **Label** (600, 12px, 18px): chips, the tab's count, the task groups' heads and labels in menus.
+- **Meta** (400, 12px, 1.5, tabular): times, meta, card header strips, Hand lines, the working line, hints and notes.
+- **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
+- **Severity code** (700, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, NO SUPERVISOR, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
+- **Code block** (400, 12px, 1.45, mono): terminal excerpts and preformatted blocks.
 
 ### Named Rules
-**The Slug Rule.** A slug line is mono caps (11.5px/18px at .03em) on one baseline row. Its items are separated by a trailing "·" in hairline colour, so the separator stays at the end of a line when the slug wraps. Every item is data: a wire code, a kind, a ref, a source, a dispatch number, a state or a dateline. A slug that only names a topic is a kicker, and the desk has none.
+**The Five Sizes Rule.** Every pixel font size is 22, 16, 15, 14 or 12px. `TestTypeHasFiveSteps` fails on any other. Inline code in replies sets at 85% of its line, and inputs rise to 16px on coarse pointers so a phone never zooms.
 
-**The Mono Carries Data Rule.** Mono is for what the wire prints or the operator could type. That covers slugs, refs, codes, datelines, counts, the live strip, the clock and the tabs. It also covers the model menu with its field labels, the Queued label, keys and terminal text. Titles, copy, command buttons, hints and links stay in the sans.
-
-**The Dateline Rule.** Datelines are 24-hour and carry the zone: `app.js` rewrites each one as local month, day, hour and minute with the short zone name, and the slug sets it in caps ("SEP 29, 22:22 GMT+7"). The masthead clock and the working line's "from" time are 24-hour without the zone. The clock names the zone in its tooltip. Without JavaScript, datelines stay in the server's UTC form ("SEP 29 15:19") and the clock is empty.
-
-**The Tabular Rule.** Times, counts, meta, refs, the gauge, the clock, dispatch numbers and reply tables all use tabular figures, so that live numbers do not jitter.
+**The Tabular Figures Rule.** Figures that update in place are set in tabular numerals so the row never shifts: the `.live` class (the context figure, the countdown), every `time`, counts, meta and refs.
 
 ## Layout
 
-The fleet page is the masthead, a sticky tab bar, then one of two panels: `#needs`, which holds the tray, the news budget and the finished-tasks link, or `#chat`, which holds the wire and the console box. The tabs show at every width, and there is no two-column grid.
-
-- **Masthead:** one row at 10px by 16px with 14px gaps, the nameplate at the left and the live strip, clock and Notify pushed to the right.
-  - **Phone,** below 600px wide: two rows. The nameplate and a bell-only Notify sit on the first. The strip, which fills the row, and the clock sit on the second. The fleet id hides.
-  - **Short viewport,** below 600px tall: a 36px sticky compact masthead, padded 4px by 12px. It never wraps; it hides the fleet id, clock and Notify, and sets the nameplate at 19px. The tabs then stick at 36px below it.
-- **Tabs:** at 600px wide and above they take their content width, starting at the column's left edge, because the tab bar pads its sides by `max(16px, (100% - 880px) / 2)`. Below that they split the bar into equal halves.
-- **Columns:** every block in `#needs` and `#chat` is full width up to 880px, centred. The fleet page's board has no maximum width, so the panels scroll from the window's gutter. The wire spans the board too, padding its sides by `max(2px, (100% - 880px) / 2)`, so its dispatches line up with the column while its scrollbar sits at the gutter.
-- **App shell,** with JavaScript (`body[data-shell]`) at `(min-height:600px)`: the body fills `100dvh` as a column, and the page itself never scrolls. `#needs` scrolls on its own. In `#chat` the wire takes the remaining height and scrolls, with the console box 12px below it.
-- **Flowing page,** below 600px tall or without JavaScript: the page scrolls, and the console box sticks to the bottom of the viewport. With JavaScript the wire stops scrolling on its own, so the page scrolls as one. Without JavaScript the wire keeps its own scroll between 12rem and 65vh, both panels show, and the tabs are plain anchors.
-- **Phone width:** board padding drops from 16px to 12px, budget rows hide their attempt, and the console box moves the hint to its own row.
-- **Coarse pointers:** inputs, selects and text areas are set at 16px, so that focusing one never zooms the page. The Send keycap hides.
-
-Thread pages (task, decision and conversation), the fleet list and the error page are single columns up to 980px wide, padded 20px at the top, 16px at the sides and 48px at the bottom, with a 14px gap.
-
-Spacing steps are 2, 4, 6, 8, 10, 12, 14, 16, 20, 24 and 48px.
-- **Slugs:** items sit 10px apart, with 2px between wrapped lines.
-- **Dispatches:** a dispatch pads 12px top and bottom, with its copy 4px under the slug. A service line pads 6px, and the working line 10px.
-- **Rows:** rows keep a 4px side inset. Tray items pad 10px, budget rows 7px, task-page need rows 9px, and fleet rows 12px.
-- **Blocks:** blocks in a panel sit 20px apart (12px in the shell's Chat panel). Gaps inside a row are 6 to 12px.
+- **Fleet page below 1280px:** one column held to 760px and centred, with the masthead's inner row aligned to it. Two tabs switch between Needs (the open items, then Tasks) and Chat (the timeline, then the composer). The tab comes from the URL hash; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript both panels show and the tabs are anchors.
+- **Fleet page at 1280px and wider:** a grid of Chat (`minmax(0,760px)`) and the Needs rail (`minmax(360px,400px)`) with a 32px gap, centred. The rail has a hairline on its left, 24px of padding inside it, and scrolls on its own; the tabs are hidden and the Needs head shows. The masthead's inner row aligns to the 1192px pair.
+- **App shell (at least 600px tall):** the body fills `100dvh` and never scrolls. Needs and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
+- **Short screens (under 600px tall):** the page flows as one scroll. The masthead shrinks to 36px, sticks to the top and merges the tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer.
+- **Phone (under 600px wide):** 12px board padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The composer moves the hint to its own row above the controls, the Interrupt key drops its label, and the tabs split the width in halves. On a phone that is also short, the fleet name hides too.
+- **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content.
+- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 12px gap, a 16px fade at its top edge and a stable scrollbar gutter on both sides. Without JavaScript it scrolls on its own up to 65vh; on short screens it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
+- **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, 20px between the sections of a panel, and a 24px board gap (32px between Chat and the rail). Rows in lists pad 6px by 4px between hairlines.
 
 ### Named Rules
-**The Region Rule.** Live content lives in exactly five fleet-page regions: `status` (the masthead live strip), `console` (the console's controls), `timeline`, `queue` and `tasks`. Each has a `data-region` attribute. The server sends each region's HTML over Server-Sent Events, and `app.js` swaps the region whole. The swap keeps typed drafts, open or closed details, focus, and a wire pinned to its newest dispatch. `#composer` and `#toast` stay outside every region: the composer form and the console region sit side by side inside `.console-box`, and neither form nests in the other. `TestFirstViewportOrder` enforces the order status, needs, queue, tasks, chat, timeline, composer, console. The task page is one `task` region. Other thread pages carry a static copy of the strip, which belongs to no region.
+**The Rail At Desk Width Rule.** Needs is a rail only from 1280px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.
 
-**The Clear-In-Place Rule.** The first tray item stands alone and open, with its action in its body. The rest share one ruled list, collapsed to one line each, and open in place.
-
-**The Hands-Off Tabs Rule.** The board opens on the tab that the URL hash names. With no hash, it opens on Needs you when something waits, and on Chat otherwise. A click on a tab writes its hash with `history.replaceState`. Nothing else changes the tab. A new waiting item raises the count, the title and the favicon, but never pulls the operator out of Chat.
-
-**The Measure Rule.** Prose in a dispatch and in a note stops at 72ch. Tables and code blocks may run wider, up to the column, and scroll sideways past it.
+**The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft.
 
 ## Elevation & Depth
 
-The desk is flat paper. Depth comes from hairlines, from one tonal step (`card` on `bg`), and from the ink band above the ground. A shadow appears in only two cases: an element floats over the page, or it is a key you press.
+The desk is flat. Depth comes from tone and hairlines: cards and header strips on `card` or a pale signal fill, borders in `line`, and a night card one step above the night ground. Only two things float, the open menus and the toast, and they share one soft lift. The keys of a blocked screen carry a 1px keycap edge, and `kbd` keycaps a 2px bottom border instead of a shadow.
 
 ### Shadow Vocabulary
-- **Toast lift** (`box-shadow: 0 8px 24px var(--shadow)`): the error toast, fixed at the bottom right.
-- **Keycap edge** (`box-shadow: inset 0 -1px 0 var(--line)`): the bottom edge of each key in a blocked screen's key fence. It makes the key read as a key rather than a command.
-- **Depressed key** (`box-shadow: inset 0 2px 0 var(--shadow)`): the Interrupt key, which shows only while the turn runs and so always sits pressed in.
-- **Keycap border**: the Send keycap draws its edge as a 2px bottom border rather than a shadow.
-- **Focus frame** (`box-shadow: 0 0 0 1px var(--pencil)` with a pencil border): the console box while the message box has focus. It is a 2px pencil frame and a focus state, not depth.
-- **Terminal scroll fade**: two background gradients on the blocked-screen block fade its right edge while it can still scroll sideways.
-
-The layers are few and fixed:
-
-| Layer | Element |
-|---|---|
-| 1 | a reply table's sticky first column |
-| 2 | the sticky console box, above those cells |
-| 3 | the tab bar |
-| 4 | the compact masthead and the open menus |
-| 5 | the toast |
+- **Lift** (`box-shadow: 0 8px 24px var(--shadow)`): the open model menu, the overflow menu and the toast.
+- **Focus frame** (`box-shadow: 0 0 0 1px var(--accent)`): with an accent border, the composer box's 2px frame while its text box has focus. A focus state, not depth.
+- **Keycap edge** (`box-shadow: inset 0 -1px 0 var(--line)`): the bottom edge of each key under a blocked screen.
 
 ### Named Rules
-**The Flat Desk Rule.** Resting surfaces carry a 1px hairline and no shadow. The sticky console box and the open menus have none either. `TestTheWireDeskTokens` fails on any `box-shadow` outside the console box's focus frame, the menus, the toast, the key fence, the Interrupt key and the keycap. The spec allowed a lift under the sticky composer; the build dropped it.
+**The Flat Desk Rule.** Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the keys and `kbd`.
 
 ## Shapes
 
 - **Corners:**
-  - A gently rounded 6px corner (`rounded.md`) goes on every box: buttons, inputs, ref chips, the console box, the menus, the key fence, the terminal block, code blocks, reply tables and the toast.
-  - 4px (`rounded.sm`) goes on the focus ring, the keycap, inline code and the overflow menu's rows.
-  - Pills (999px) are only for small inline labels: the waiting count, the PR chip and the Queued label.
-  - Circles are the lamp (8px) and the Chat tab's dot (6px).
+  - 8px (`rounded.lg`) on the bordered items that carry a header strip: Needs items, chat cards and thread cards.
+  - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, ref chips, the composer, menus, the terminal excerpt, code blocks and tables in replies, the toast and the skip link.
+  - 4px (`rounded.sm`) on the focus ring, `kbd` keycaps, inline code, the overflow menu's rows and scrollbar thumbs.
+  - 3px (`rounded.bar`) on the context bar and the terminal's scrollbar.
+  - Pills (999px) on small state labels: the status pill, counts, chips, severity codes and the countdown.
+  - Circles on the Hand line's ring (8px) and the Chat tab's dot (6px).
 - **Lines:**
-  - Dispatches and rows are not boxes. They are separated by full-width hairlines, and a list of rows has a hairline above its first row and after each row.
-  - The operator's note carries a single 1px pencil rule at its left. A quote carries a 1px hairline edge rather than the 2px the Plan 14 spec proposed, so the edge reads as one more hairline and not as a coloured stripe.
-  - The only dashed border is the fence around a blocked screen's keys.
+  - Borders and rules are 1px hairlines. A list of rows (tasks, attempts, events, decisions, fleets) has a hairline above its first row and after each row.
+  - A bordered item's header strip ends on a hairline.
+  - In Chat, day dividers are the only full-width rules.
+  - A quote in a reply carries a 1px hairline on its left, not a coloured stripe.
+  - The masthead has a 3px rule in the fleet tint on top and a hairline below.
 
 ### Icons
 Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
-- **Construction:** each uses a 16 by 16 viewBox and `aria-hidden="true"`, with one to four paths. Line icons stroke in `currentColor` at 1.5, with round caps and joins. Solid icons fill in `currentColor`.
-- **Size and colour:** they render at 16px, except the mark at 22px, and take their colour from the surrounding state. `TestIconsAreOwnInlineSVG` checks all of this and rejects Octicons.
-- **The circle family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
-- **The rest:** the mark is a dial with a needle, and the bell beside Notify is a plain bell. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square, and the overflow icon is three solid dots.
-
-The spec drew the Interrupt, overflow and menu controls as the glyphs ■, ⋯ and ▾. The build draws them as icons instead, a departure that keeps the icon set to one drawn family.
+- **Construction:** each uses a 16 by 16 viewBox and `aria-hidden="true"`, with one to four paths. Line icons stroke in `currentColor` at 1.5 with round caps and joins; solid icons fill in `currentColor`. `TestIconsAreOwnInlineSVG` checks all of this and rejects Octicons.
+- **Size and colour:** 16px, except the mark at 22px and the pill's icon at 12px. They take their colour from the surrounding state.
+- **The state family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
+- **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. A bell is defined in the set, but no page draws it since Notify moved into the overflow menu.
 
 ## Components
 
-### The dispatch
-The signature module. Every item on the board takes this one shape: an item in the tray, a message on the wire, and the goal, plan, reports and events on a task page. Each is a slug line, then the copy, then its actions, and a hairline separates it from the next. A dispatch pads 12px at the top and bottom, with its copy 4px below the slug. There is no card, fill or corner. Rank comes from the wire code, the headline size and caps.
+### Masthead
+A 44px row on the ground with the fleet tint's 3px rule on top and a hairline below, on every page.
+- **Left:** the mark in the fleet tint and the fleet name (Headline), linking home, then the fleet id as a borderless muted ref.
+- **Right, in order:** on phone only, the Needs count; the status pill; the supervisor and its model ("s1 · opus high", muted); "2 queued" when above zero; the context bar; "compacted 2×" when above zero. A stale-server note follows in amber.
+- **Link state:** when live updates drop, a muted note reads "Reconnecting…", then "Board offline since 12:41", or "Log in again: hand open --print" when the board refuses the session.
+- **Thread pages** carry the same masthead with a static copy of the strip.
 
-### Slug line
-Mono caps in faded ink, set on the Slug step (see Typography).
-- **Refs:** inside a slug a ref loses its chip. It inherits the slug's type, and when linked it underlines in hairline colour.
-- **Wire code:** set at 800 in ink. FLASH and URGENT turn FLASH red, and BULLETIN turns amber.
-- **State:** a state in a slug takes its signal: running or passing in green, waiting in amber, and failing, blocked or failed in FLASH red.
+### Status pill
+A 20px pill with a 12px icon and a lower-case word.
+- **Working:** accent on accent-bg with the running icon, which pulses to 35% opacity and back on a 2s ease-in-out loop.
+- **Ready:** pass on pass-bg with the passing icon.
+- **Failing:** fail on fail-bg with the failure icon, worded blocked, unreachable, exited, interrupted or failed. An ended supervisor's reason shows as its tooltip.
+- **Neutral:** muted on neutral-bg with the idle icon, worded starting, stopped or no supervisor.
 
-### Masthead and live strip
-The ink band across the top of every page, with a 1px hairline bottom edge.
-- **Nameplate:** the tinted mark, then the fleet name in its tint and the word "Wire" in the band's muted ink, linking home. The fleet id follows as a plain muted ref, with no chip.
-- **Live strip:** the `status` region on the fleet page. It is set in the Strip style, with these items in order:
-  - **Lamp:** an 8px circle, steady `h-pass` when ready. While the supervisor works it glows `h-lamp` and pulses to 35% and back on a 2s ease-in-out loop. It turns `h-flash` when blocked, unreachable or ended with a failure. It stays muted while starting, stopped, or when no supervisor has run.
-  - **Line word:** WORKING, READY, BLOCKED, STARTING, UNREACHABLE, NO SUPERVISOR, or the ended status (STOPPED, EXITED, INTERRUPTED, FAILED).
-  - **Supervisor:** its ref, model and effort ("S2 SONNET · LOW").
-  - **Queue:** "2 QUEUED", shown only when above zero.
-  - **Context gauge:** "CTX 55.2K", rounded to three significant figures. It adds "/ 258K · 28%" only when the window is known. At 80% it turns `h-wait`; at 90% it turns `h-flash` at 700 and adds COMPACT SOON. It is absent until there is context data.
-  - **Compactions:** "COMPACTED 2×", shown only when above zero.
-  - **Strip note:** below the row, a stale-server warning in `h-wait`, or the reason an ended supervisor stopped.
-- **Clock and Notify:** after the strip comes the clock, then the quiet Notify button. Notify is a bell and label in the band's muted ink, brightening on hover, and shows only while notification permission is undecided.
-- **Thread pages:** these carry the same masthead with a static strip that never updates.
+### Context bar
+A native `meter`, 48 by 6px on a hairline track, followed by the figure in tabular mono ("510K / 1M"). The fill is accent below 80% and amber from 80%, where the figure turns amber too; from 90% both turn red, the figure at 600 with "· compact soon" added. The figure alone shows when the window is unknown, and nothing shows before there is context data.
 
 ### Tabs
-A sticky bar on the canary ground with a hairline under it.
-- **Labels:** each tab is an anchor in Key Label caps and faded ink, at 10px by 12px (10px by 14px from 600px wide), turning to ink on hover.
+Below 1280px, a bar under the masthead row with a hairline between.
+- **Labels:** "Needs" with its count and "Chat", in Nav type and muted ink, 10px by 12px (10px by 14px and content width from 600px wide), turning to ink on hover.
 - **Current tab:** ink text and a 2px ink underline.
-- **Needs you:** carries the waiting count, a pill that is neutral at zero and amber when anything waits.
-- **Chat:** carries a static 6px link-blue dot while the supervisor works. The spec named it a lamp dot, but the lamp's colours belong to the band.
+- **Needs count:** a neutral pill that takes the worst open item's tone, red or amber.
+- **Chat:** a 6px accent dot while the supervisor works.
 
-### The tray (waiting items)
-Each item is a `details` element whose summary is a slug line over a 16px headline.
+### Needs items
+The signature component. Each open item is a `details` element with a 1px hairline border and 8px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest.
 
-| Wire code | Kind | Code colour | Slug items after the kind |
+| Kind | Order | Tone | Code |
 |---|---|---|---|
-| FLASH | BLOCKED | FLASH red | the supervisor's ref |
-| BULLETIN | DECISION | amber | the ref, the task ref and the dateline |
-| URGENT | FAILED | FLASH red | the attempt ref, the task ref, the harness, model and status, and the end time |
-| ROUTINE | REPORT | ink | the ref, the task ref, the attempt and status, and the dateline |
-| SERVICE | RESUME | ink | the supervisor's ref, its harness, model and status, and the end time |
+| a blocked supervisor screen | 1 | fail | BLOCKED |
+| a blocked worker screen | 2 | fail | BLOCKED |
+| a failed attempt | 3 | fail | FAILED |
+| work waiting with no supervisor | 4 | wait | NO SUPERVISOR |
+| an interrupted supervisor | 5 | fail | INTERRUPTED |
+| a decision | 6 | wait | DECISION |
+| an unread report | 7 | neutral | REPORT |
+| an attempt that stopped without a report | 8 | neutral | QUIET |
 
-- **Summary:** pads 10px by 4px and takes the hover wash. A hairline sits above each item, and the list closes with one below.
-- **Body:** pads 2px by 4px by 14px with 10px gaps, and holds the action:
-  - a blocked screen shows its terminal excerpt and key fence;
-  - a decision shows its question (when it differs from the headline) and an answer box with the primary Answer and an "Open dN" link;
-  - a failure shows its reason in faded ink and a "View aN" link;
+- **Header:** a grid of a 16px state icon, a slug line and a right-hand cell, over the headline on its own row, padded 8px by 12px on the tone's pale fill (`fail-bg`, `wait-bg` or `neutral-bg`). The icon takes the tone: failure for fail, waiting for wait, idle for neutral.
+- **Slug line:** the severity code in the tone's colour, then the refs, harness and model, status and time, separated by faded middle dots. Refs in the slug lose their chip, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink.
+- **Headline:** Title type; hovering the header underlines it in hairline colour.
+- **Body:** a grid with a 10px gap, padded 10px by 12px by 12px, holding the item's action:
+  - a blocked supervisor screen shows its terminal excerpt and its keys, then "Type queued messages anyway" with a hint for a screen Luvus misread;
+  - a blocked worker screen names the attempt and its task, then shows its excerpt and keys;
+  - a decision shows its question (up to 40vh, then it scrolls), option chips that fill the answer box, the answer box, the primary Answer and an "Open dN" link;
+  - a failure shows its reason in muted ink and a "View aN" link;
   - a report shows its excerpt, Mark read and an open link;
-  - a resume shows the primary Resume and New session.
-- **More:** below the list, a line counts any items beyond the fifty shown.
-- **Arrival:** a new item washes from `wait-bg` to its ground over 1.6s on `cubic-bezier(.16,1,.3,1)`. The wash is off under `prefers-reduced-motion`.
-- **Terminal excerpt:** the last lines of the blocked screen, in the Code Block style on the terminal colours with a 6px corner. Lines never wrap: the block scrolls sideways, with a thin scrollbar and a fade at its right edge.
-- **Key fence:** a dashed hairline box, padded 8px, with 6px gaps. Each key is a default button in mono, at least 2.6em wide, with the keycap edge. It is labelled with the key's own legend (Enter, Esc, ↑, ↓, digits). Each key is its own form carrying the screen revision, so a stale screen refuses the key.
+  - a quiet attempt says it stopped without a report and links to it;
+  - a no-supervisor item shows Resume or Start, and an interrupted supervisor shows the primary Resume and New session.
+- **Countdown:** Claude Code's auto-deny countdown sits in the header's right-hand cell as a live timer ("0:42", then "denying…") in red tabular mono on a ground pill.
+- **Opening and closing** animate the body's height over .24s where the browser supports `interpolate-size`.
+- **Arrival:** a new item's header starts 35% brighter and settles over 1.6s.
 
-### The news budget (checks)
-One ruled row per task, never wrapping, at 7px by 4px with 10px gaps.
-- **Row, in order:**
-  - the state icon, coloured by state: FLASH red for failing, amber for waiting, green for running or passing, and faded ink for idle;
-  - a slug with the linked task ref, the task status and the attempt ("A4 CLAUDE SONNET RUNNING"), where the attempt hides below 600px wide;
-  - the title, truncated with an ellipsis;
-  - a PR chip, when a report links a pull request.
-- **Head and foot:** the section head reads Checks. "Show finished tasks" follows the list at 12px, and so does the CLI line for any hidden tasks.
+### Acknowledge in place
+The signature interaction. Pressing a key on a blocked screen marks the item sent: the header's right-hand cell reads "Sent 2 · waiting…" in muted meta, the countdown hides, the keys dim to 55% and stop taking input, and the item collapses. A receipt toast ("Sent 2 to s1") shows for 4s. The next live update then removes the item and a Hand line lands in Chat. Answers and Mark read send the same way through `data-fetch` and leave their own receipt ("r7 marked read"); their item leaves Needs on the next update rather than collapsing to a sent state first.
 
-### The wire
-The `timeline` region. It is a flex column in reverse, so the newest dispatch sits at the bottom. The wire stays pinned there while the operator is within 48px of it. Its scrollbar is thin, with a stable gutter on both edges.
-- **Supervisor dispatch:** a slug of the ref, the dispatch number and the dateline ("S1 · NO. 4 · SEP 29, 22:22 GMT+7").
-  - The ref is the supervisor that was live when the entry was written. The number is the entry's position in the transcript, counting from 1.
-  - The copy is the reply in the safe markdown subset (see Reply markdown). Refs such as `t12`, `d3`, `a5` and `r7` become linked ref chips through `<base>/ref/<ref>`, which redirects to the task page (with an `#aN` or `#rN` anchor) or to the decision page. Refs inside code and links stay as they are.
-- **Your note:** flush right at up to 80% of the wire, as wide as its text, 12px in from a 1px pencil rule. Its slug reads "YOU · dateline" in pencil, with the Queued label while the supervisor has not read it. The copy is your plain text in ink, with line breaks kept.
-- **Service line:** one 6px line in faded ink. The slug reads "HAND · dateline" and the event follows in mono in its own case ("interrupted", "wake: decision.answered d1").
-- **Working line:** while the supervisor works, the newest entry reads "s2 is working · 4m, on your message from 22:54", "… on a wake" or "… since it started", in mono and faded ink. `app.js` relabels the elapsed time every 30 seconds.
-- **Print head:** the rest of the working line is the one authored motion. A one-character ink block (.62em by 1.05em) steps along the line in 30 steps over 2.4s, then returns to the start like a teleprinter carriage. Under `prefers-reduced-motion` it stands still at the start of the line.
-- **Feed:** a dispatch with a new number rises into place over one line: 1.4em from transparent, over .28s on `cubic-bezier(.16,1,.3,1)`. There is no feed under `prefers-reduced-motion`.
-- **Older messages:** a centred 12px link to the conversation page closes the top of the wire.
+### Blocked screen and keys
+- **Terminal excerpt:** the screen's last lines in Code block type on the terminal colours with 6px corners, padded 10px top and bottom and 12px on the left. In a Needs item the lines wrap; a right-edge fade and a thin scrollbar remain for anything wider.
+- **Keys:** a wrapping row with 6px gaps. Each key is a default button in mono, at least 2.6em wide, with the keycap edge, labelled from the screen's own options ("1 Yes", "2 No") or the fixed key set. Each key is its own form carrying the screen revision and digest, so a stale screen refuses the press.
 
-### The send console
-One box under the wire: a card-fill panel with a hairline border, a 6px corner and 10px padding, holding a grid.
-- **Grid:** the message box spans the top row. The foot row holds the console controls, the hint, then the keycap and Send at the right edge. On phones the hint takes its own row between them.
-- **Focus:** while the message box has focus, the box's frame turns to a 2px pencil line.
-- **Message box:** borderless on transparent, padded 4px by 2px, starting at three lines.
-  - **Growth:** where the browser supports `field-sizing: content`, it grows with its text and has no resize handle. It stops at 40dvh in the app shell and 30dvh on the flowing page, then scrolls inside.
-  - **Sending:** Ctrl+Enter, or ⌘+Enter, sends it or any inline answer box. Enter stays a newline.
-  - **Pinning:** when the box changes height and the operator was near the newest dispatch, the wire pins again.
-- **Console controls:** the `console` region, shown only on a loopback listener.
-  - **Model menu:** `details#model-menu`, for a running claude or codex supervisor. Its summary reads "SONNET · LOW" in Key Label caps with the chevron, at 4px by 8px, taking the hover wash.
-  - **Model form:** opens upward, 6px above the summary. It is a canary panel at least 230px wide, padded 12px, with a hairline border, a 6px corner and no shadow.
-    - Its fields are Profile, a select limited to the running harness's profiles, and Model and Effort inputs whose placeholders show the current values. Each takes a Field Label.
-    - Its button reads "Switch now" when the supervisor is ready and "Switch after this turn" otherwise.
-    - A pending switch replaces the menu with the target model and effort in amber Key Label caps, next to Cancel.
-    - Another harness shows its model as a plain Key Label.
-  - **Interrupt key:** shown only while the supervisor works and no screen blocks it. It is a 32 by 28px key on the canary ground, with a hairline border, the depressed inset and a FLASH-red solid square.
-  - **Overflow menu:** `details#more-menu`, behind the three-dot icon. Its rows are flat 6px by 12px buttons or links with a 4px corner that take the hover wash: Stop, or New session and Other harness once the supervisor has ended.
-  - **Ended or empty:** an ended supervisor shows Resume beside the overflow menu. A starting supervisor shows "starting…". The pick form offers profile or harness, model, effort and Start.
-  - **Closing:** menus close on an outside click, on Escape (which returns focus to the summary), and after a successful submit.
-- **Hint:** the 12px faded line follows the supervisor's state:
-  - "sN is ready; it reads your message now."
-  - "sN is working; your message goes to it right away."
-  - "sN is waiting on a screen in Needs you; your message waits too."
-  - "sN switches to M E after this turn; your message waits for the new session."
-  - "sN is starting; your message waits."
-  - "No supervisor is running; your message waits until one starts."
-  - "Luvus restarted; your message waits until hand watch settles it."
+### All clear
+With nothing open, Needs shows the passing icon in green, "All clear" in ink at 600, and in muted ink the time it was last cleared and a summary: "All clear since 12:41 · 1 running · 6 inbox".
 
-  A pending switch outranks working and ready.
-- **Send:** the primary button, after the keycap. The keycap is a Keycap-style `kbd` in faded ink, 0 by 5px, with a hairline border, a 2px bottom edge and a 4px corner. It reads "Ctrl Enter", or "⌘ Enter" on Apple platforms.
-- **Network listener:** on a network listener the console box is absent, and the masthead strip still shows the line state.
+### Tasks
+Under a "Tasks" head, grouped by status (Active and Inbox, plus Done and Abandoned when finished tasks show), each group with a muted label head and a count pill.
+- **Row:** a grid of the state icon, the task ref chip, the title (one line, ellipsis), a right-aligned muted meta ("a9 claude opus · blocked") and a PR chip, padded 6px by 4px between hairlines.
+- **Icon colour:** failing red, waiting amber, running and passing green, idle neutral.
+- A "Show finished tasks" link sits under the list.
+
+### Chat cards
+- **Supervisor card:** on the left, fit to its content between 16em and 90% of the column, with a hairline border and 8px corners on the ground. Its header strip, on `card` with a hairline under it, holds "s1" in ink at 600, the model when it changed, and the time, all in Meta type. The body is the reply's markdown in Copy type, padded 10px by 12px.
+- **Operator card:** on the right, up to 75% of the column, filled and bordered in accent-bg with a transparent header strip. "you" is in accent, then the time and, on the right, the delivery state: "queued", "delivered 07:18" or "typed anyway 08:17". While the supervisor reads as blocked, a queued card offers "Type anyway". The text keeps its line breaks.
+- **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
+
+### Hand lines
+Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in muted ink, the text clamped to one line with refs inline, and the time on the right. Consecutive wakes fold into one line, "3 wakes · 12:28–12:29", that expands to the individual lines indented 16px. Day dividers are centred muted meta between two hairlines. While the supervisor works, a working line reads "s1 working · 4m · last output 12s ago · on your 07:19 message", with the message part linking to that card.
+
+### Composer
+One box on `card` with a hairline border and 6px corners, padded 10px, pinned under the timeline. Its focus frame is an accent border plus a 1px accent ring.
+- **Text box:** borderless and transparent, growing with its text up to 40dvh (30dvh on short screens and without JavaScript).
+- **Foot row:** the console region on the left, the hint in muted meta, then the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers) and the primary Send. While the supervisor is blocked, the hint links to Needs.
+- **Console region:** the model menu (its summary in Nav type with the chevron); a pending switch in amber with Cancel; Interrupt while a turn runs, a 28px key with a red border and text, the stop-square icon and its label; Stop, a muted key that turns red on hover and asks "Press again to stop" on a red pale fill for 4s; and the overflow menu. With no supervisor running, Resume, New session and the harness picker take its place, and Start shows "starting…" at once.
+
+### Menus
+The model menu and the overflow menu are `details` elements whose body opens above the summary on the ground, with a hairline border, 6px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of 6px by 12px rows with 4px corners and the hover wash: Notify me, New session and Other harness. Escape and a click outside close any open menu.
 
 ### Buttons
-Compact and quiet, like the keys of a desk console rather than calls to action.
-- **Shape:** gently rounded (6px) with a 1px hairline border.
-- **Default:** card fill, ink text, Control type, 4px by 12px. Hover takes the hover wash, and disabled drops to 55% opacity.
-- **Primary:** an ink fill with canary text and no visible border (on the night desk, a warm off-white fill with carbon text). Hover brightens it by 8%. One per form, on the committing action: Answer, Send, and Resume in the tray.
-- **Quiet:** no fill or border, muted text with an icon, brightening on hover. Used for Notify on the band.
-- **Focus:** every focusable element shows a 2px link-blue outline, 2px out, with a 4px corner. Inputs draw it 1px inside instead.
+- **Shape:** gently rounded corners (6px).
+- **Default:** card fill, hairline border, ink text in Control type, padded 4px by 12px; hover takes the hover wash.
+- **Primary:** Commit Green with white text and no visible border, one per form; hover brightens it 8%.
+- **Disabled and busy:** disabled buttons fade to 55%; a form in flight fades its buttons to 60% with a progress cursor.
+- **Focus:** a 2px accent outline, 2px out, with 4px corners, on every focusable element.
 
 ### Refs, chips and counts
-- **Ref chip:** Mono 12px on card fill, 0 by 6px, with a hairline border and a 6px corner. A linked chip takes link-blue border and text on hover. Refs appear as chips in crumbs and in dispatch copy, and as plain slug items in slugs. An action label such as "Open d1" or "View a2" keeps its ref as plain text.
-- **PR chip:** a pill with a hairline border, in Badge type and link blue.
-- **Waiting count:** a pill at least 22px wide on a 20px line, neutral at zero and amber when anything waits.
-- **Queued label:** an 11px amber outline pill in the note's slug, in mono caps.
+- **Ref:** a mono chip on `card` with a hairline border, 6px corners and 0 by 6px padding. A linked ref turns its border and text accent on hover. Inside slug lines and Hand lines a ref drops its chip and takes the line's size and colour.
+- **Chip:** a pill with a hairline border in Label type: the PR link, and the option chips that fill a decision's answer.
+- **Count:** a pill at least 22px wide on neutral-bg in Badge type, taking the worst open item's tone in the Needs head.
 
 ### Inputs
-- **Style:** canary ground, hairline border, 6px corner, 5px by 8px, in the body face. Text areas are full width, at least 4.5em tall, and resize vertically. Placeholders take faded ink.
-- **Focus:** the border goes transparent and a 2px link-blue outline sits just inside it. The console's message box is the exception: it has no border of its own, and its focus shows on the box's frame instead.
+Text boxes, inputs and selects sit on the ground with a hairline border, 6px corners and 5px by 8px padding. Focus draws a 2px accent outline inset by 1px and hides the border. Placeholders are muted.
 
 ### Reply markdown
-Supervisor replies, plans, reports and tray excerpts render an in-house safe subset from `internal/markdown`. It covers bold, italics, strikethrough, lists, inline and block code, links, headings, rules, one level of quotes and GFM tables. Blocks sit 8px apart.
-- **Headings:** one or two `#` render on the Section step (16/24); three to six render on Heading Small (14/22).
-- **Rule:** a 1px hairline with 12px above and below.
-- **Quote:** faded ink, 12px in from a 1px hairline edge.
-- **Struck text:** faded ink.
-- **Code:** inline code on card fill at 85%, with a 4px corner. Code blocks sit on card fill at 10px by 12px with a 6px corner, keep their lines, and scroll sideways.
-- **Table:** a focusable scroll wrapper, a region labelled "Table". It is as wide as its table, never wider than the column, with a hairline border and a 6px corner.
-  - **Cells:** hairlines split the rows, with no zebra and no other vertical line. Cells pad 6px by 10px, align to the top, and are at least 10ch wide. The head is 12px faded semibold on card fill and does not wrap.
-  - **Alignment:** a column whose non-empty cells are all numeric aligns right and does not wrap. Explicit `:-`, `-:` and `:-:` delimiters set left, right or centre through classes, because the CSP forbids `style=`.
-  - **Sticky first column:** the first column sticks to the left edge on the canary ground, unwrapped, with one hairline after it.
+Supervisor replies render a safe subset: paragraphs and lists 8px apart; `###` in Headline and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` with 6px corners that scroll rather than wrap; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
 
 ### Thread pages
-Each thread page opens with a head: crumbs of fleet and ref chips, a slug line, a Headline, and optional meta, 6px apart, over 14px of space and a hairline.
-- **Task page:**
-  - **Head:** the slug carries the coloured status, the project, the plan revision, the dateline and any PR chips.
-  - **Waiting on the task:** each wait is a ruled row with its wire code (BULLETIN · DECISION · dN with Answer, or ROUTINE · REPORT · rN with Mark read).
-  - **Goal and plan:** each is a dispatch.
-  - **Attempts:** listed in budget-row shape.
-  - **Reports:** each is a dispatch whose slug carries the ref, its attempt, its state (done in green, progress in amber, stuck in FLASH red, blocked or failed in FLASH red) and the dateline, with Mark read or "read by" at the right.
-  - **Events:** ruled service lines.
-- **Decision page:** a BULLETIN · DECISION slug above the question. Below it sits the answer form, or the given answer as a pencil note.
-- **Conversation page:** the wire without its live updates, reached through Older messages.
-- **Fleet list:** a ruled row for each fleet on the loopback board. Each row has the tinted mark, then the nameplate in ink turning to its tint on hover, then the fleet id as a ref chip.
-- **Error page:** one dispatch with a FLASH code carrying the status, the kind ERROR, the message and a link back to the board.
+- **Head:** crumbs in muted 14px with ref chips, the title in Display type, a slug line with the status pill, refs, time and PR chips, then one hairline rule.
+- **Task page:** waiting rows for its open decisions and unread reports, each with a filled severity code; the goal and plan as cards with Copy at 72ch; attempts as task rows; reports as bordered cards whose header strip is neutral-bg, fail-bg when blocked or failed, or pass-bg when done, holding the ref, the summary, "from aN", the state word, the time and Mark read or "read by"; decisions with their answers; events as a grid of time, kind in plain words and detail.
+- **Decision page:** the headline, the question as markdown, option chips, the answer box and the primary Answer. Once answered, the answer shows as an operator card.
+- **Error page:** one card with the status code as a red severity code, the message and a link back. It never shows a path.
+- **Fleet list:** one row per fleet with its mark in its tint, its name and its id.
 
-### Favicon and tab title
-The browser tab shows one of three hashed SVG favicons:
-- the mark alone;
-- the mark with a blue dot while the supervisor works;
-- the mark with an amber dot when something waits or the supervisor is blocked, which outranks working.
+### Toast and receipts
+A fixed box 16px from the bottom right, up to 28em wide, on the ground with 6px corners, the lift shadow and 10px by 14px padding, announced politely to screen readers. Errors take a red border and stay 8s; receipts take a hairline border and stay 4s.
 
-The mark strokes in a fixed mid-tone gray. The mark and the dots are drawn with presentation attributes, because a static asset served under the strict CSP cannot read the page's properties or follow its theme. On the fleet page the tab title is the fleet name, prefixed with "(N) " when something waits or "● " while the supervisor works.
-
-### Toast
-A fixed box at the bottom right, at most 28em wide, on the canary ground. It has a FLASH-red hairline border, a 6px corner and the toast lift. It holds the server's error text for 8 seconds, in a polite live region.
+### Favicon, tab title and notifications
+- **Favicon:** the mark stroked in `#6e7681`, alone when quiet, with a blue dot (`#3d7fe0`) while the supervisor works, an amber dot (`#a87400`) when anything waits, and a red dot (`#c4262e`) when the worst item is a blocked screen.
+- **Tab title:** "(!) s1 blocked" for a blocked screen, "(3) fleet" when items wait, "● fleet" while the supervisor works, else the fleet's name.
+- **Notifications:** opt-in from the overflow menu. When the open count rises while the page is hidden, one notification names the worst item.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** take every colour from a custom property on `:root` in `board.css`, and give each new property a value in the `prefers-color-scheme:dark` block too, unless it lives on the ink band.
-- **Do** keep signals at 4.5:1 on `bg` and `card`, band text and `h-` signals at 4.5:1 on `header`, and tints at 3:1 on `header`, in both themes; `TestColoursMeetContrast` checks all three.
-- **Do** build every new item as a dispatch: a slug line of data in mono caps, the copy, then its actions, with a 1px hairline to the next.
-- **Do** rank with scale, weight and caps: 22px for nameplates and thread titles, 16px for tray headlines and section heads, 14.5px for wire copy, and the slug line at 11.5px.
-- **Do** keep FLASH red for blocked screens, failures, the Interrupt key and a gauge at 90% or more, amber for what asks or waits, and green for running, passing or ready.
-- **Do** mark the operator's own words and the console's focus in pencil blue.
-- **Do** cap prose at 72ch, and let tables and code blocks run to the column.
-- **Do** put live content in one of the five regions, `status`, `console`, `timeline`, `queue` or `tasks`, and keep `#composer` and `#toast` outside every region.
-- **Do** draw new icons as Hand's own inline SVG in `icons.html`, on a 16px viewBox, with `aria-hidden="true"` and one to four paths.
-- **Do** open menus upward from the console as `details` elements with no shadow, so that every control still works as a POST without JavaScript.
-- **Do** stop every motion under `prefers-reduced-motion`: the print head, the feed, the lamp's pulse and the tray's arrival wash.
-- **Do** lay out for both scenes with the paired height queries: the app shell at `(min-height:600px)` under `body[data-shell]`, and the flowing page at `(max-height:599px)` or without `data-shell`.
+- **Do** take every colour from the custom properties in `board.css` (`var(--fail)`, `var(--accent-bg)`), and give any new token both a light and a dark value that keeps 4.5:1 for text.
+- **Do** order anything that needs the operator by the severity ramp in `internal/board/queue.go`, and fill its header with its tone's pale fill.
+- **Do** give every state a word and an icon shape as well as its colour.
+- **Do** keep font sizes to 22, 16, 15, 14 and 12px, and set figures that update in place in tabular numerals.
+- **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
+- **Do** keep one primary button per form, and keep Stop behind a second press.
+- **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute.
+- **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition.
 
 ### Don't:
-- **Don't** add inline script, a `<style>` element, a `style=` attribute, `@font-face` or `url(` in the stylesheet. The CSP is `default-src 'none'` with `script-src 'self'` and `style-src 'self'`, and the board tests reject each of these.
-- **Don't** put an item in a card, a glass panel or a zebra row; hairlines and type carry rank.
-- **Don't** add a shadow outside the toast and the keys; `TestTheWireDeskTokens` fails on any other `box-shadow`.
-- **Don't** put a topic label above a heading; a slug line carries only data.
-- **Don't** set copy, titles, command buttons, hints or links in mono; only a key's own legend is set in mono.
-- **Don't** use the fleet tint anywhere but the masthead's wire name and the mark, and don't let it carry state.
-- **Don't** put band tokens (`on-header`, `on-header-muted`, `h-`) on the canary or carbon ground, or ground tokens on the band.
-- **Don't** add a fourth signal colour, or let pencil blue mark a task, a waiting item or an outcome.
-- **Don't** use Octicons, an icon package, an icon font, or a Unicode glyph standing in for an icon on the page.
-- **Don't** bring back the two-column grid or a `min-width:900px` split; `TestTheAppShellNeedsHeight` rejects it.
-- **Don't** switch tabs for the operator; only the URL hash, the opening rule and a click choose the panel.
-- **Don't** remove `[hidden]{display:none!important}`; the tabs rely on it to hide the other panel.
+- **Don't** use fail red for decisions, reports, links or ordinary states.
+- **Don't** put a shadow on a resting surface; only the open menus and the toast lift.
+- **Don't** colour copy or fill a surface with the fleet tint.
+- **Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.
+- **Don't** load web fonts or images from the stylesheet.
+- **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
+- **Don't** show the Needs rail below 1280px, and don't switch tabs for the operator.
+- **Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt.

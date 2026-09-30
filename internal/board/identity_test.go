@@ -131,7 +131,7 @@ func TestTypeHasFiveSteps(t *testing.T) {
 	contains(t, "live figures", css, ".live{font-variant-numeric:tabular-nums")
 }
 
-var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "bell", "chevron", "interrupt", "more"}
+var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "chevron", "interrupt", "more"}
 
 func TestIconsAreOwnInlineSVG(t *testing.T) {
 	src, err := os.ReadFile("templates/icons.html")
@@ -391,7 +391,6 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 func TestTheDeskFinishFixes(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
-		".masthead .quiet-button{color:var(--muted)}",
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"max-width:72ch",

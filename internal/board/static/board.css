@@ -35,16 +35,12 @@ button:hover{background:var(--hover)}
 button:disabled{opacity:.55;cursor:default}
 button.primary{background:var(--primary);border-color:transparent;color:var(--on-primary)}
 button.primary:hover{filter:brightness(1.08)}
-.quiet-button{display:inline-flex;align-items:center;gap:6px;background:none;border-color:transparent;color:var(--muted)}
-.quiet-button:hover{color:var(--fg)}
 textarea,input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
 textarea{display:block;width:100%;min-height:4.5em;resize:vertical;line-height:1.45}
 ::placeholder{color:var(--muted)}
 textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
 .brand:hover{text-decoration:none}
 .masthead{background:var(--bg);color:var(--fg);border-top:3px solid var(--tint);border-bottom:1px solid var(--line)}
-.masthead .quiet-button{color:var(--muted)}
-.masthead .quiet-button:hover{color:var(--fg)}
 .masthead-inner{min-height:44px;padding:0 16px;display:flex;align-items:center;gap:12px;min-width:0}
 body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 760px)/2))}
 body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% - 848px)/2))}
@@ -185,7 +181,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .hand-line .ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .working{padding:10px 0}
 .working-line{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
-.label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:12px;font-weight:600;line-height:18px}
+
 .older{text-align:center;font-size:12px}
 .md>:last-child{margin-bottom:0}
 .md p,.md ul,.md ol,.md pre{margin:0 0 8px}
@@ -225,6 +221,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 #more-menu .menu-body button,#more-menu .menu-body a{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
+.field-label{margin:8px 0 2px;color:var(--muted);font-size:12px;font-weight:600}
 .menu-body a{font-size:14px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;height:28px;padding:0 10px;background:var(--bg);color:var(--fg)}
 .key.fail{border-color:var(--fail);color:var(--fail)}
@@ -286,7 +283,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .masthead .tabs a{padding:6px 10px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.check .attempt{display:none}.fleet-id{display:none}
+@media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
 .masthead .spacer{display:none}
 .masthead .strip{flex:1 1 auto;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}
