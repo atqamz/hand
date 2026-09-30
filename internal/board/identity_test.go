@@ -416,3 +416,13 @@ func TestTheWireDeskFinishFixes(t *testing.T) {
 		}
 	}
 }
+
+func TestReceiptsDoNotLookLikeErrors(t *testing.T) {
+	css, js := asset(t, "board.css"), asset(t, "app.js")
+	if !strings.Contains(css, "#toast[data-kind=receipt]{border-color:var(--line)}") {
+		t.Fatal("board.css gives receipts no neutral border")
+	}
+	if !strings.Contains(js, `toast.dataset.kind = kind`) || !strings.Contains(js, `show(receipt, 4000, "receipt")`) {
+		t.Fatal("app.js does not mark receipts apart from errors")
+	}
+}

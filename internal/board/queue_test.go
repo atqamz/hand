@@ -209,7 +209,7 @@ func TestAnInterruptedSupervisorAsksToResume(t *testing.T) {
 		t.Fatalf("queue = %q %q", kinds, refs)
 	}
 	contains(t, "resume item", region(body, "queue"), `action="/supervisor/resume" data-fetch`, `action="/supervisor/start" data-fetch`)
-	lacks(t, "console region", region(body, "console"), `action="/supervisor/resume"`)
+	contains(t, "console region", region(body, "console"), `action="/supervisor/resume"`)
 	fx.options.Controls = false
 	lacks(t, "read-only resume item", region(get(t, fx.handler(), "/"), "queue"), `action="/supervisor/resume"`)
 	stopped := newFixture(t)

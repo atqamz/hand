@@ -176,7 +176,8 @@
 		});
 	});
 
-	const show = (msg, ms = 8000) => {
+	const show = (msg, ms = 8000, kind = "error") => {
+		toast.dataset.kind = kind;
 		toast.textContent = msg;
 		clearTimeout(show.timer);
 		show.timer = setTimeout(() => {
@@ -211,7 +212,7 @@
 			if (form.id === "composer") form.reset();
 			if (form.closest("details.menu")) closeMenus(null);
 			const receipt = res.headers?.get("X-Hand-Receipt");
-			if (receipt) show(receipt, 4000);
+			if (receipt) show(receipt, 4000, "receipt");
 			else toast.textContent = "";
 			return;
 		}

@@ -810,7 +810,12 @@ func wakeDigest(events []state.Event, title func(taskID int64) string) (string, 
 	b.WriteString(wakeHeader)
 	var last int64
 	for _, e := range events {
-		line := "\n" + e.Kind + " " + oneLine(e.Detail)
+		detail := e.Detail
+		if e.Kind == "attempt.blocked" {
+			ref, _, _ := strings.Cut(detail, ": ")
+			detail = ref + ": its screen waits for a key"
+		}
+		line := "\n" + e.Kind + " " + oneLine(detail)
 		if t := strings.ReplaceAll(oneLine(title(e.TaskID)), `"`, "'"); e.TaskID != 0 && t != "" {
 			if r := []rune(t); len(r) > wakeTitleRunes {
 				t = string(r[:wakeTitleRunes]) + "…"

@@ -151,9 +151,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	total += unacked - len(unread)
 	resume := live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited)
 	if resume {
-		if add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup}) {
-			data["Resumable"] = false
-		}
+		add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup})
 	}
 	if !supervised && !resume {
 		pending, _ := data["Pending"].(int)

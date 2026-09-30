@@ -367,11 +367,11 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	st := openStore(t, fx.h)
 	ctx := context.Background()
 	for i := range 60 {
-		if err := st.NoteAttempt(ctx, 1, "blocked", fmt.Sprintf("q%02d", i)); err != nil {
+		if err := st.NoteAttempt(ctx, 1, "reported", fmt.Sprintf("q%02d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	events, err := st.EventsAfter(ctx, 0, []string{"attempt.blocked"}, 100)
+	events, err := st.EventsAfter(ctx, 0, []string{"attempt.reported"}, 100)
 	if err != nil || len(events) != 60 {
 		t.Fatalf("events = %d, %v", len(events), err)
 	}
@@ -379,7 +379,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
 	first := strings.Split(fx.rt.prompts()[0], "\n")
-	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.blocked a1: q00 (t1 \"Fix login\")" || first[50] != "attempt.blocked a1: q49 (t1 \"Fix login\")" {
+	if len(first) != 51 || first[0] != "[hand v1 wake]" || first[1] != "attempt.reported a1: q00 (t1 \"Fix login\")" || first[50] != "attempt.reported a1: q49 (t1 \"Fix login\")" {
 		t.Fatalf("first digest = %d lines: %q ... %q", len(first), first[0], first[len(first)-1])
 	}
 	eventually(t, func() bool {
@@ -389,7 +389,7 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
 	stop()
 	second := strings.Split(fx.rt.prompts()[1], "\n")
-	if len(second) != 11 || second[1] != "attempt.blocked a1: q50 (t1 \"Fix login\")" || second[10] != "attempt.blocked a1: q59 (t1 \"Fix login\")" {
+	if len(second) != 11 || second[1] != "attempt.reported a1: q50 (t1 \"Fix login\")" || second[10] != "attempt.reported a1: q59 (t1 \"Fix login\")" {
 		t.Fatalf("second digest = %q", second)
 	}
 	has(t, "show", fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d", events[59].Seq))
@@ -421,7 +421,7 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
-	if len(got) != 3 || got[0] != "first" || got[1] != "second" || !strings.HasPrefix(got[2], "[hand v1 wake]\n") || !strings.Contains(got[2], "attempt.blocked a1: needs you") {
+	if len(got) != 3 || got[0] != "first" || got[1] != "second" || !strings.HasPrefix(got[2], "[hand v1 wake]\n") || !strings.Contains(got[2], "attempt.blocked a1: its screen waits for a key") {
 		t.Fatalf("prompts = %q", got)
 	}
 }
@@ -918,4 +918,12 @@ func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
+
+func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
+	title := func(int64) string { return "Fix login" }
+	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: Enter to confirm · Esc to cancel"}}, title)
+	if want := "[hand v1 wake]\nattempt.blocked a1: its screen waits for a key (t1 \"Fix login\")"; digest != want {
+		t.Fatalf("digest = %q, want %q", digest, want)
+	}
 }

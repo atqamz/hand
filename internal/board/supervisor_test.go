@@ -548,3 +548,12 @@ func TestModelMenuListsModels(t *testing.T) {
 	console := region(get(t, fx.handler(), "/"), "console")
 	contains(t, "console", console, `<option value="opus">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna">gpt-6-luna</option>`, `name="harness" value="opencode"`, "Switch to codex", "Switch to opencode")
 }
+
+func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
+	page := get(t, fx.handler(), "/")
+	contains(t, "console", region(page, "console"), `action="/supervisor/resume"`)
+	contains(t, "composer hint", page, "s1 stopped: ", "Resume continues its session")
+	contains(t, "tray", region(page, "queue"), `data-kind="resume"`)
+}
