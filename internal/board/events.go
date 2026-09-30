@@ -73,7 +73,7 @@ func (b *Board) version(ctx context.Context) (version, error) {
 	if err != nil {
 		return v, err
 	}
-	signals, err := b.st.AttemptSignals(ctx)
+	signals, err := b.signals(ctx, live)
 	if err != nil {
 		return v, err
 	}

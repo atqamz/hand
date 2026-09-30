@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"maps"
 	"math"
 	"net/url"
 	"slices"
@@ -87,7 +88,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	if err != nil {
 		return err
 	}
-	signals, err := b.st.AttemptSignals(ctx)
+	signals, err := b.signals(ctx, liveAttempts)
 	if err != nil {
 		return err
 	}
@@ -180,6 +181,22 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	return nil
 }
 
+func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]state.Event, error) {
+	out, err := b.st.AttemptSignals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range live {
+		if out[a.ID].Kind != "attempt.blocked" {
+			continue
+		}
+		if ag, err := b.o.Luvus.Explain(ctx, a.PaneID); err == nil && ag.Status != "blocked" {
+			delete(out, a.ID)
+		}
+	}
+	return out, nil
+}
+
 func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[int64]state.Event, supervised, screens bool) ([]waiting, error) {
 	now := b.now()
 	var out []waiting
@@ -234,7 +251,7 @@ func (b *Board) facts(ctx context.Context) (facts, error) {
 	if f.latest, err = b.st.LatestAttempts(ctx); err != nil {
 		return f, err
 	}
-	if f.signals, err = b.st.AttemptSignals(ctx); err != nil {
+	if f.signals, err = b.signals(ctx, slices.Collect(maps.Values(f.latest))); err != nil {
 		return f, err
 	}
 	if f.done, err = b.st.DoneReportAttempts(ctx); err != nil {

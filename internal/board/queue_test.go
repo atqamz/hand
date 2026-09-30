@@ -390,6 +390,7 @@ func workerAttempt(t *testing.T, st *state.Store, taskID int64) state.Attempt {
 
 func TestAWorkerBlockedWithoutASupervisorJoinsNeeds(t *testing.T) {
 	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Esc to cancel · Tab to amend"); err != nil {
 		t.Fatal(err)
@@ -441,6 +442,7 @@ func TestNoSupervisorItemShowsWhileWorkIsLive(t *testing.T) {
 
 func TestTasksRowsNameTheAgentState(t *testing.T) {
 	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
@@ -450,6 +452,7 @@ func TestTasksRowsNameTheAgentState(t *testing.T) {
 
 func TestTheQueueNamesItsWorstItem(t *testing.T) {
 	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Do you want to proceed?"); err != nil {
 		t.Fatal(err)
@@ -470,4 +473,16 @@ func TestAReportItemSplitsItsSummaryFromItsBody(t *testing.T) {
 	if strings.Count(q, ">Cookie fixed<") != 1 {
 		t.Fatalf("the summary repeats in the body:\n%s", q)
 	}
+}
+
+func TestAWorkerThatMovedOnLeavesNeedsAndTasks(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "working"}
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Do you want to proceed?"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/")
+	lacks(t, "moved on", region(body, "queue"), `data-kind="worker"`)
+	lacks(t, "moved on", region(body, "tasks"), "BLOCKED")
 }

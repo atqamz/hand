@@ -31,6 +31,7 @@ type fixture struct {
 	calls    [][]string
 	fail     error
 	status   string
+	panes    map[string]string
 	hint     string
 	revision int
 	screen   string
@@ -42,10 +43,16 @@ func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	fx := &fixture{st: open(t), status: "working", revision: 7, screen: "Trust this folder?\n❯ 1. Yes", claude: t.TempDir()}
 	fx.srv = fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
-	fx.srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
+	fx.srv.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
-		return map[string]any{"pane": "2", "agent": "claude", "status": fx.status, "state_evidence": map[string]any{"blocked_hint": fx.hint}}, nil
+		var p struct{ Pane string }
+		_ = json.Unmarshal(raw, &p)
+		status, ok := fx.panes[p.Pane]
+		if !ok {
+			status = fx.status
+		}
+		return map[string]any{"pane": p.Pane, "agent": "claude", "status": status, "state_evidence": map[string]any{"blocked_hint": fx.hint}}, nil
 	})
 	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
