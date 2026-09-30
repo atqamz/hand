@@ -141,3 +141,10 @@ func TestAnswerChipsReadAsOptions(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .chip{max-width:100%;padding:6px 12px;border-radius:8px;text-align:left;white-space:normal;font-size:14px;font-weight:500;line-height:20px}")
 }
+
+func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "brand", get(t, fx.handler(), "/"), `<h1 class="fleet-name">test</h1><span class="ref fleet-id">`)
+	contains(t, "css", asset(t, "board.css"), ".brand{display:flex;align-items:baseline;", ".brand>.mark{align-self:center}")
+}
