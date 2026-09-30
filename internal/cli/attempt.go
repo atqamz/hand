@@ -216,7 +216,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, pane, terminalID, worktree
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	own := squash("Accessing workspace:" + worktree + trustQuestion)
+	own := "Accessing workspace:" + worktree + trustQuestion
 	seen := false
 	for retried := false; ; {
 		s, err := c.Read(wait, pane, 60)
@@ -226,7 +226,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, pane, terminalID, worktree
 		case luvus.Code(err) != "":
 			return missed(seen)
 		case asked && strings.Contains(s.Text, trustCursor):
-			if !strings.Contains(squash(s.Text), own) {
+			if !strings.Contains(unwrap(s.Text), own) {
 				return "not pressed", "agy asks to trust a folder that is not its worktree; check the screen"
 			}
 			err := c.Keys(wait, pane, []string{"enter"}, s.ContentRevision, terminalID)
@@ -257,7 +257,8 @@ func missed(seen bool) (trust, note string) {
 }
 
 func trustCleared(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
-	deadline := time.After(trustConfirm)
+	ctx, cancel := context.WithTimeout(ctx, trustConfirm)
+	defer cancel()
 	for {
 		if s, err := c.Read(ctx, pane, 60); err == nil && !strings.Contains(s.Text, trustQuestion) {
 			return true
@@ -265,15 +266,17 @@ func trustCleared(ctx context.Context, c luvus.Client, pane string, tick <-chan 
 		select {
 		case <-ctx.Done():
 			return false
-		case <-deadline:
-			return false
 		case <-tick:
 		}
 	}
 }
 
-func squash(s string) string {
-	return strings.Join(strings.Fields(s), "")
+func unwrap(screen string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(screen, "\n") {
+		b.WriteString(strings.TrimSpace(line))
+	}
+	return b.String()
 }
 
 func idle(ctx context.Context, c luvus.Client, pane string) bool {

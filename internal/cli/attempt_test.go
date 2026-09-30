@@ -371,7 +371,7 @@ func TestAgyTrustScreenIsAcceptedInItsOwnWorktree(t *testing.T) {
 	fx := agyFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
-		rt.screen, rt.revision, rt.afterScreen = trustScreen(wt[:20]+"\n "+wt[20:]), 4, "> \n"
+		rt.screen, rt.revision, rt.afterScreen = trustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, "> \n"
 	})
 	out := fx.startAgy()
 	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
@@ -388,6 +388,7 @@ func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 		"elsewhere": func(string) string { return "/tmp/elsewhere" },
 		"sibling":   func(wt string) string { return wt + "2" },
 		"parent":    filepath.Dir,
+		"spaced":    func(wt string) string { return wt[:len(wt)/2] + " " + wt[len(wt)/2:] },
 	} {
 		t.Run(name, func(t *testing.T) {
 			fx := agyFixture(t)
@@ -440,6 +441,20 @@ func TestAgyTrustScreenThatClearsSlowlyIsAccepted(t *testing.T) {
 	out := fx.startAgy()
 	if !strings.Contains(out, "trust: accepted") || strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestAgyTrustClearCheckIsBoundedByItsDeadline(t *testing.T) {
+	fx := agyFixture(t)
+	screen := trustScreen(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen, rt.afterStall = screen, "> \n", 4*time.Second })
+	began := time.Now()
+	out := fx.startAgy()
+	if took := time.Since(began); took > 3*time.Second || !strings.Contains(out, "trust: accepted") {
+		t.Fatalf("start took %s: %q", took, out)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `"a1: agy trust screen did not clear; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
 	}
 }
 

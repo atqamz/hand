@@ -45,6 +45,8 @@ type fakeRuntime struct {
 	screen      string
 	screens     []string
 	afterScreen string
+	afterStall  time.Duration
+	stall       time.Duration
 	readFail    string
 	keysFail    string
 	afterKeys   string
@@ -242,6 +244,10 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 
 func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
+	stall := rt.stall
+	rt.mu.Unlock()
+	time.Sleep(stall)
+	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.readFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
@@ -279,6 +285,7 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	if rt.afterScreen != "" {
 		rt.screen = rt.afterScreen
 	}
+	rt.stall = rt.afterStall
 	return map[string]any{"type": "ok"}, nil
 }
 
