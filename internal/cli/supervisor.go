@@ -34,6 +34,7 @@ var supervisorCommands = map[string]handler{
 	"send":      cmdSupervisorSend,
 	"interrupt": cmdSupervisorInterrupt,
 	"switch":    cmdSupervisorSwitch,
+	"force":     cmdSupervisorForce,
 }
 
 func init() {
@@ -776,6 +777,134 @@ func wakeDigest(events []state.Event) (string, int64) {
 }
 
 const escGap = 300 * time.Millisecond
+
+func cmdSupervisorForce(r *runner, args []string) error {
+	if _, err := parse(flags("supervisor force"), args, 0); err != nil {
+		return err
+	}
+	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
+		n, why, err := r.force(ctx, st, c, caps)
+		if err != nil {
+			return err
+		}
+		var d toon.Doc
+		d.Field("typed", strconv.Itoa(n))
+		if why != "" {
+			d.Field("why", why)
+		}
+		return r.print(&d)
+	})
+}
+
+func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) (int, string, error) {
+	unlock, _, err := r.supervisorLock(true)
+	if err != nil {
+		return 0, "", err
+	}
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
+	sup, err := runningSupervisor(ctx, st)
+	if err != nil {
+		return 0, "", err
+	}
+	if sup.ServerGeneration != caps.ServerGeneration {
+		return 0, "", fmt.Errorf("%w: supervisor %s belongs to an earlier luvus server", state.ErrConflict, state.SupervisorRef(sup.ID))
+	}
+	if sup.Harness != "claude" {
+		return 0, "", fmt.Errorf("%w: force types into Claude Code only; a %s supervisor waits for Luvus to read it as ready", state.ErrInvalid, sup.Harness)
+	}
+	ag, err := c.Explain(ctx, sup.PaneID)
+	if err != nil {
+		return 0, "", runtimeErr(err)
+	}
+	if ag.Status != "blocked" {
+		unlock()
+		locked = false
+		why, err := r.deliver(ctx, st, c, caps, true)
+		if why == "" {
+			why = "the supervisor is " + ag.Status + ", so Hand delivered normally"
+		}
+		return 0, why, err
+	}
+	pending, err := st.PendingSupervisorInputs(ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	for i, in := range pending {
+		if err := typeIn(ctx, c, sup, in.Body); err != nil {
+			if i > 0 {
+				err = fmt.Errorf("%w (typed %d of %d queued messages first)", err, i, len(pending))
+			}
+			return i, "", err
+		}
+		if err := st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+			return i, "", err
+		}
+	}
+	if len(pending) > 0 {
+		return len(pending), "", nil
+	}
+	events, err := st.EventsAfter(ctx, sup.WakeCursor, wakeKinds, 50)
+	if err != nil {
+		return 0, "", err
+	}
+	if len(events) == 0 {
+		return 0, "nothing waits for the supervisor", nil
+	}
+	digest, last := wakeDigest(events)
+	if err := typeIn(ctx, c, sup, digest); err != nil {
+		return 0, "", err
+	}
+	return 1, "", st.AdvanceWakeCursor(ctx, sup.ID, last)
+}
+
+func emptyPrompt(screen string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.TrimSpace(strings.ReplaceAll(line, "\u00a0", " ")) == "❯" {
+			return true
+		}
+	}
+	return false
+}
+
+func typeIn(ctx context.Context, c luvus.Client, sup state.Supervisor, text string) error {
+	keys := make([]string, 0, len(text)+1)
+	for _, ch := range text {
+		switch ch {
+		case '\n':
+			keys = append(keys, `\`, "enter")
+		case '\t':
+			keys = append(keys, " ")
+		default:
+			keys = append(keys, string(ch))
+		}
+	}
+	keys = append(keys, "enter")
+	for range 3 {
+		s, err := c.Read(ctx, sup.PaneID, 40)
+		if err != nil {
+			return runtimeErr(err)
+		}
+		if s.TerminalID != sup.TerminalID {
+			return fmt.Errorf("%w: pane %s no longer holds supervisor %s; nothing was typed", state.ErrConflict, sup.PaneID, state.SupervisorRef(sup.ID))
+		}
+		if !emptyPrompt(s.Text) {
+			return fmt.Errorf("%w: the supervisor's screen shows no empty prompt, so it may really be asking something; answer it with its keys", state.ErrConflict)
+		}
+		err = c.Keys(ctx, sup.PaneID, keys, s.ContentRevision, sup.TerminalID)
+		if luvus.Code(err) != "content_revision_conflict" {
+			if err != nil {
+				return runtimeErr(err)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: the supervisor's screen kept changing; nothing was typed; try again", state.ErrConflict)
+}
 
 func cmdSupervisorInterrupt(r *runner, args []string) error {
 	if _, err := parse(flags("supervisor interrupt"), args, 0); err != nil {

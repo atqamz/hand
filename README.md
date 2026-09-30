@@ -267,6 +267,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor send --text TEXT` | Queue a message for the supervisor (or `--file PATH`). |
 | `hand supervisor keys --revision N KEY...` | Answer the supervisor's blocked screen with `enter`, `esc`, `up`, `down`, `1`, `2` or `3`. |
 | `hand supervisor interrupt` | Press Escape in the supervisor's terminal. |
+| `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. |
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
 | `hand open [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. |
