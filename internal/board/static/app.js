@@ -191,12 +191,12 @@
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		form.dataset.busy = "";
+		const data = new URLSearchParams(new FormData(form, e.submitter));
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
 		let res = null;
 		try {
-			const data = new URLSearchParams(new FormData(form, e.submitter));
 			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
 		} finally {
 			delete form.dataset.busy;

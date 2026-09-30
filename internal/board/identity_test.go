@@ -426,3 +426,11 @@ func TestReceiptsDoNotLookLikeErrors(t *testing.T) {
 		t.Fatal("app.js does not mark receipts apart from errors")
 	}
 }
+
+func TestTheSubmitterIsReadBeforeButtonsAreDisabled(t *testing.T) {
+	js := asset(t, "app.js")
+	read, disable := strings.Index(js, "new FormData(form, e.submitter)"), strings.Index(js, "b.disabled = true")
+	if read < 0 || disable < 0 || read > disable {
+		t.Fatal("app.js disables the buttons before it reads the pressed key, so the key never reaches the server")
+	}
+}
