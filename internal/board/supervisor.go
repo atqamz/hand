@@ -529,7 +529,7 @@ func (b *Board) done(w http.ResponseWriter, r *http.Request, next, receipt strin
 		return
 	}
 	if receipt != "" {
-		w.Header().Set("X-Hand-Receipt", receipt)
+		w.Header().Set("X-Hand-Receipt", url.PathEscape(receipt))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

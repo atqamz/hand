@@ -289,7 +289,7 @@ func renderPage(w http.ResponseWriter, status int, name string, data map[string]
 }
 
 func (b *Board) fail(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("X-Hand-Error", strings.Join(strings.Fields(msg), " "))
+	w.Header().Set("X-Hand-Error", url.PathEscape(strings.Join(strings.Fields(msg), " ")))
 	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": msg})
 }
 

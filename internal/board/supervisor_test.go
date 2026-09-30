@@ -429,8 +429,8 @@ func fetchPost(h http.Handler, path string, form url.Values) *httptest.ResponseR
 
 func receipt(t *testing.T, rec *httptest.ResponseRecorder, want string) {
 	t.Helper()
-	if rec.Code != http.StatusNoContent || rec.Header().Get("X-Hand-Receipt") != want {
-		t.Fatalf("status %d, receipt %q, want 204 and %q:\n%s", rec.Code, rec.Header().Get("X-Hand-Receipt"), want, rec.Body.String())
+	if got, _ := url.PathUnescape(rec.Header().Get("X-Hand-Receipt")); rec.Code != http.StatusNoContent || got != want {
+		t.Fatalf("status %d, receipt %q, want 204 and %q:\n%s", rec.Code, got, want, rec.Body.String())
 	}
 }
 
@@ -556,4 +556,24 @@ func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {
 	contains(t, "console", region(page, "console"), `action="/supervisor/resume"`)
 	contains(t, "composer hint", page, "s1 stopped: ", "Resume continues its session")
 	contains(t, "tray", region(page, "queue"), `data-kind="resume"`)
+}
+
+func TestHeadersSurviveNonASCIIText(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"answer": {"ya · lanjut"}})
+	raw := rec.Header().Get("X-Hand-Receipt")
+	for i := range len(raw) {
+		if raw[i] >= 0x80 {
+			t.Fatalf("receipt header %q is not ASCII, so a browser reads it as Latin-1", raw)
+		}
+	}
+	if got, err := url.PathUnescape(raw); err != nil || got != "d1 answered · no supervisor is running; it waits" {
+		t.Fatalf("receipt decodes to %q, %v", got, err)
+	}
+	if !strings.Contains(asset(t, "app.js"), "decodeURIComponent") {
+		t.Fatal("app.js does not decode the headers")
+	}
 }

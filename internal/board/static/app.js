@@ -176,6 +176,15 @@
 		});
 	});
 
+	const header = (res, name) => {
+		const v = res.headers?.get(name);
+		if (!v) return "";
+		try {
+			return decodeURIComponent(v);
+		} catch {
+			return v;
+		}
+	};
 	const show = (msg, ms = 8000, kind = "error") => {
 		toast.dataset.kind = kind;
 		toast.textContent = msg;
@@ -211,12 +220,12 @@
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
 			if (form.closest("details.menu")) closeMenus(null);
-			const receipt = res.headers?.get("X-Hand-Receipt");
+			const receipt = header(res, "X-Hand-Receipt");
 			if (receipt) show(receipt, 4000, "receipt");
 			else toast.textContent = "";
 			return;
 		}
-		show(res.headers.get("X-Hand-Error") || `${res.status} ${res.statusText}`);
+		show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
 	});
 
 	document.addEventListener("click", (e) => {

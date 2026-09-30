@@ -183,8 +183,8 @@ func TestAnsweringAnAnsweredDecisionKeepsTheDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"answer": {"no"}})
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Header().Get("X-Hand-Error"), "yes, keep") {
-		t.Fatalf("second answer = %d %q", rec.Code, rec.Header().Get("X-Hand-Error"))
+	if msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error")); rec.Code != http.StatusConflict || !strings.Contains(msg, "yes, keep") {
+		t.Fatalf("second answer = %d %q", rec.Code, msg)
 	}
 }
 

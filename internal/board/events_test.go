@@ -265,13 +265,14 @@ func TestFailedControlsCarryTheirMessage(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	fx.fail = fmt.Errorf("%w: supervisor s1 is still running\nfrom /home/me/fleet/hand.db", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {token}}, true)
-	got := rec.Header().Get("X-Hand-Error")
+	got, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error"))
 	if rec.Code != http.StatusConflict || got != "conflict: supervisor s1 is still running from hand.db" {
 		t.Fatalf("failed control = %d %q", rec.Code, got)
 	}
 	fx.fail = errors.New("plain failure")
-	if rec := request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {"stale"}}, true); rec.Header().Get("X-Hand-Error") != "this form is stale; reload the page and try again" {
-		t.Fatalf("stale form = %d %q", rec.Code, rec.Header().Get("X-Hand-Error"))
+	rec = request(fx.handler(), "POST", "/supervisor/stop", url.Values{"csrf": {"stale"}}, true)
+	if msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error")); msg != "this form is stale; reload the page and try again" {
+		t.Fatalf("stale form = %d %q", rec.Code, msg)
 	}
 }
 
