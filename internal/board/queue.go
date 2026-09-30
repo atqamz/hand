@@ -118,7 +118,7 @@ var severity = map[string]struct {
 	"blocked":  {0, "fail", "BLOCKED"},
 	"worker":   {1, "fail", "BLOCKED"},
 	"failure":  {2, "fail", "FAILED"},
-	"nosup":    {3, "fail", "NO SUPERVISOR"},
+	"nosup":    {3, "wait", "NO SUPERVISOR"},
 	"resume":   {4, "fail", "INTERRUPTED"},
 	"decision": {5, "wait", "DECISION"},
 	"report":   {6, "neutral", "REPORT"},
@@ -273,11 +273,17 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	slices.SortStableFunc(waits, func(x, y waiting) int { return x.Rank() - y.Rank() })
 	waits = waits[:min(len(waits), maxWaits)]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
-	data["Worst"], data["WorstText"], data["WorstWord"] = "", "", ""
+	data["Worst"], data["WorstText"], data["WorstWord"], data["WorstCount"] = "", "", "", total
 	if len(waits) > 0 {
 		data["Worst"], data["WorstText"], data["WorstWord"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title), "waiting"
 		if waits[0].Tone() == "fail" {
-			data["WorstWord"] = strings.ToLower(waits[0].Word())
+			n := 0
+			for _, w := range waits {
+				if w.Word() == waits[0].Word() {
+					n++
+				}
+			}
+			data["WorstWord"], data["WorstCount"] = strings.ToLower(waits[0].Word()), n
 		}
 	}
 	return nil

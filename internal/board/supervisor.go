@@ -216,7 +216,7 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	case sup.Status == state.AttemptLaunching:
 		return "none", ref + " is starting; your message waits."
 	case !sup.Live() && sup.Session != "":
-		return "none", ref + " stopped: " + sup.Reason + ". Resume continues its session and then delivers your message."
+		return "none", once(ref, "stopped", sup.Reason) + ". Resume continues its session and then delivers your message."
 	case sup.Status != state.AttemptRunning:
 		return "none", "No supervisor is running; your message waits until one starts."
 	case stale:
@@ -467,7 +467,7 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 				text = ref + " will switch " + detail + " after this turn"
 			}
 		default:
-			text = ref + " " + kind + ": " + detail
+			text = once(ref, kind, detail)
 		}
 		out = append(out, chatItem{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
 	}
@@ -481,6 +481,13 @@ type chatItem struct {
 	Delivered, Delivery string
 	Input               int64
 	Wakes               []chatItem
+}
+
+func once(ref, kind, detail string) string {
+	if strings.HasPrefix(detail, kind+" ") {
+		return ref + " " + detail
+	}
+	return ref + " " + kind + ": " + detail
 }
 
 func groupWakes(all []chatItem) []chatItem {

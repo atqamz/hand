@@ -483,7 +483,7 @@ func TestKeysAndLifecycleShowInChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/supervisor/log")
-	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped: stopped by operator")
+	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped by operator")
 	if !(strings.Index(body, "s1 stopped") < strings.Index(body, "You pressed 2") && strings.Index(body, "You pressed 2") < strings.Index(body, "s1 started")) {
 		t.Fatalf("lifecycle lines out of order (newest first):\n%s", body)
 	}

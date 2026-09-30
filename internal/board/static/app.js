@@ -235,9 +235,11 @@
 			const item = form.action.endsWith("/keys") && form.closest("details.wait");
 			if (item) {
 				item.dataset.sent = e.submitter?.textContent || data.get("key") || "";
-				const title = item.querySelector(".wait-title");
-				if (title) title.dataset.sent = item.dataset.sent;
+				const summary = item.querySelector("summary");
+				if (summary) summary.dataset.sent = item.dataset.sent;
 				for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
+				item.open = false;
+				chosen.set(item.id, false);
 			}
 			if (form.closest("details.menu")) closeMenus(null);
 			if (regions.size === 0) location.reload();

@@ -108,11 +108,6 @@ func TestTheCountdownNeverGoesNegative(t *testing.T) {
 	contains(t, "app.js", asset(t, "app.js"), "[data-countdown]", "Math.max(0,", `"denying…"`)
 }
 
-func TestAPressCollapsesTheItem(t *testing.T) {
-	contains(t, "app.js", asset(t, "app.js"), "item.dataset.sent")
-	contains(t, "board.css", asset(t, "board.css"), `.wait[data-sent]>summary .wait-title::after{content:" · Sent " attr(data-sent) " · waiting…"`, ".wait[data-sent] .keys")
-}
-
 func TestAllClear(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

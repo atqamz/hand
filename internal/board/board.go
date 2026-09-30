@@ -46,6 +46,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"when":     when,
 	"chips":    chips,
 	"tabonce":  tabOnce,
+	"plain":    func(s string) string { return eventKind.ReplaceAllString(s, "$1 $2") },
 	"rest": func(s string) string {
 		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
 		return strings.TrimSpace(rest)
@@ -62,6 +63,8 @@ const (
 	cookieName = "hand_board"
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
+
+var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task)\.([a-z]+)\b`)
 
 var refAnchor = regexp.MustCompile(`<a class="ref" `)
 
