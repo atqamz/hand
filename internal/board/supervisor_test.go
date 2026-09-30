@@ -418,7 +418,7 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	status = region(get(t, pending.handler(), "/"), "console")
-	contains(t, "pending", status, "→ OPUS · HIGH", `name="cancel" value="1"`)
+	contains(t, "pending", status, "→ opus · high", `name="cancel" value="1"`)
 	lacks(t, "pending", status, `id="model-menu"`)
 }
 

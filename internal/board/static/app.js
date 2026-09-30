@@ -192,11 +192,28 @@
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
+		const primary = form.querySelector("button");
+		if (form.dataset.confirm && !("armed" in form.dataset)) {
+			form.dataset.armed = primary.textContent;
+			primary.textContent = form.dataset.confirm;
+			setTimeout(() => {
+				if (!("armed" in form.dataset)) return;
+				primary.textContent = form.dataset.armed;
+				delete form.dataset.armed;
+			}, 4000);
+			return;
+		}
+		if ("armed" in form.dataset) {
+			primary.textContent = form.dataset.armed;
+			delete form.dataset.armed;
+		}
 		form.dataset.busy = "";
 		const data = new URLSearchParams(new FormData(form, e.submitter));
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
+		const label = form.classList.contains("start") ? primary.textContent : null;
+		if (label) primary.textContent = "starting…";
 		let res = null;
 		try {
 			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
@@ -204,6 +221,7 @@
 			delete form.dataset.busy;
 			form.removeAttribute("aria-busy");
 			for (const b of buttons) b.disabled = false;
+			if (label && !(res?.ok || res?.type === "opaqueredirect")) primary.textContent = label;
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {

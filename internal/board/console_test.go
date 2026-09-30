@@ -60,7 +60,7 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	working := newFixture(t)
 	working.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, working.handler(), "/"), "console")
-	contains(t, "working", console, `id="model-menu"`, `action="/supervisor/switch"`, `action="/supervisor/interrupt"`, `id="more-menu"`, `action="/supervisor/stop"`, "SONNET · LOW")
+	contains(t, "working", console, `id="model-menu"`, `action="/supervisor/switch"`, `action="/supervisor/interrupt"`, `id="more-menu"`, `action="/supervisor/stop"`, "sonnet · low")
 	idle := newFixture(t)
 	idle.status = "idle"
 	idle.supervisor(t, state.AttemptRunning, "gen-1")
@@ -83,7 +83,7 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	console = region(get(t, pending.handler(), "/"), "console")
-	contains(t, "pending", console, "→ OPUS · HIGH", `name="cancel" value="1"`)
+	contains(t, "pending", console, "→ opus · high", `name="cancel" value="1"`)
 	lacks(t, "pending", console, `id="model-menu"`)
 	lan := newFixture(t)
 	lan.options.Controls = false
@@ -153,7 +153,7 @@ func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
 	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "opencode", get(t, oc.handler(), "/"), `<span class="who">s1 · opencode</span>`, `<span class="model">OPENCODE</span>`)
+	contains(t, "opencode", get(t, oc.handler(), "/"), `<span class="who">s1 · opencode</span>`, `<span class="model">opencode</span>`)
 }
 
 func TestTheMastheadNamesStateAndContext(t *testing.T) {
@@ -186,4 +186,42 @@ func TestThePhoneRowNamesTheWorstItem(t *testing.T) {
 	calm := newFixture(t)
 	calm.supervisor(t, state.AttemptRunning, "gen-1")
 	lacks(t, "calm", region(get(t, calm.handler(), "/"), "status"), `class="needs-count"`)
+}
+
+func TestTheComposerFootRow(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, fx.handler(), "/"), "console")
+	model, interrupt, stop := strings.Index(console, `id="model-menu"`), strings.Index(console, `<button class="key fail"`), strings.Index(console, `<button class="key stop">Stop</button>`)
+	if model < 0 || interrupt < model || stop < interrupt {
+		t.Fatalf("foot row order model %d, interrupt %d, stop %d:\n%s", model, interrupt, stop, console)
+	}
+	contains(t, "interrupt", console, `<span class="key-label">Interrupt</span>`)
+	more := console[strings.Index(console, `id="more-menu"`):]
+	lacks(t, "more menu", more[:strings.Index(more, "</details>")], "supervisor/stop")
+	contains(t, "css", asset(t, "board.css"), `grid-template-areas:"text text text" "console hint send"`, "#more-menu:not(:has(.menu-body>:not([hidden])))")
+}
+
+func TestStopArmsWithJS(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "stop form", region(get(t, fx.handler(), "/"), "console"), `action="/supervisor/stop" data-fetch data-confirm="Press again to stop"`)
+	contains(t, "app.js", asset(t, "app.js"), "form.dataset.confirm", "4000")
+}
+
+func TestProfilesShowWhatTheyResolveTo(t *testing.T) {
+	fx := newFixture(t)
+	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
+	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">deep · claude opus xhigh</option>`)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	contains(t, "switch", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">deep · claude opus xhigh</option>`)
+}
+
+func TestStartIsPrimaryAndFetches(t *testing.T) {
+	fx := newFixture(t)
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch>`, `<button class="primary">Start</button>`)
+	contains(t, "app.js", asset(t, "app.js"), `"starting…"`)
 }

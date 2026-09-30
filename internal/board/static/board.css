@@ -189,7 +189,12 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
 .menu-body label{display:grid;gap:2px;font-family:var(--mono);font-size:12px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
 .menu-body a{font-size:14px}
-.key{display:inline-flex;align-items:center;justify-content:center;width:32px;height:28px;padding:0;background:var(--bg);box-shadow:inset 0 2px 0 var(--shadow);color:var(--fail)}
+.key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;height:28px;padding:0 10px;background:var(--bg);color:var(--fg)}
+.key.fail{border-color:var(--fail);color:var(--fail)}
+.key.stop{color:var(--muted)}
+.key.stop:hover{border-color:var(--fail);color:var(--fail)}
+form[data-armed] .key.stop{border-color:var(--fail);background:var(--fail-bg);color:var(--fail)}
+#more-menu:not(:has(.menu-body>:not([hidden]))){display:none}
 kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap}
 .hint{color:var(--muted);font-size:12px}
 .menu{position:relative}
@@ -236,7 +241,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .tabs{top:36px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.board{padding:12px}.check .attempt{display:none}.fleet-id{display:none}
+@media (max-width:599px){.board{padding:12px}.key-label{display:none}.check .attempt{display:none}.fleet-id{display:none}
 .masthead .spacer{display:none}
 .masthead .strip{flex:1 1 auto;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}

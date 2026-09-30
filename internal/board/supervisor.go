@@ -318,23 +318,20 @@ func (b *Board) models(name string) ([]harness.Model, []string) {
 	return models, efforts
 }
 
-func (b *Board) profiles() []string {
-	p, err := harness.LoadPolicy(b.o.Home)
-	if err != nil {
-		return nil
-	}
-	return p.Names()
-}
+type profile struct{ Name, Label string }
 
-func (b *Board) profilesFor(name string) []string {
+func (b *Board) profiles() []profile { return b.profilesFor("") }
+
+func (b *Board) profilesFor(name string) []profile {
 	p, err := harness.LoadPolicy(b.o.Home)
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []profile
 	for _, n := range p.Names() {
-		if p.Profiles[n].Harness == name {
-			out = append(out, n)
+		s := p.Profiles[n]
+		if name == "" || s.Harness == name {
+			out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " ")})
 		}
 	}
 	return out

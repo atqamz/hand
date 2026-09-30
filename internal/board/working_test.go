@@ -70,7 +70,7 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 			contains(t, c.name, body, `<span class="hint">`+c.want+`</span>`)
 			contains(t, c.name, region(body, "status"), `data-agent="`+c.data+`"`, `data-hint="`+c.want+`"`)
 			if c.switching {
-				contains(t, c.name, region(body, "console"), "→ OPUS · HIGH")
+				contains(t, c.name, region(body, "console"), "→ opus · high")
 			}
 		})
 	}
