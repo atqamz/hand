@@ -303,7 +303,7 @@ type harnessChoice struct {
 }
 
 func (b *Board) models(name string) ([]harness.Model, []string) {
-	models, err := harness.Models(name, b.o.CodexHome)
+	models, err := harness.Models(name, b.o.Harness)
 	if err != nil {
 		return nil, nil
 	}

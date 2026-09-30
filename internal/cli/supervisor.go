@@ -303,7 +303,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
-		if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+		if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 			return err
 		}
 		if spec.Model == sup.Model && spec.Effort == sup.Effort {
@@ -374,7 +374,7 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 }
 
 func supervisorBin(r *runner, spec harness.Spec) (string, error) {
-	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return "", err
 	}
 	return harness.LookPath(spec.Harness, r.env.Getenv("PATH"))

@@ -1,13 +1,17 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -18,6 +22,14 @@ type Spec struct {
 	Effort  string `json:"effort"`
 }
 
+type Env struct {
+	CodexHome, Path string
+}
+
+func EnvOf(getenv func(string) string) Env {
+	return Env{CodexHome: CodexHome(getenv), Path: getenv("PATH")}
+}
+
 const MaxPromptBytes = 16384
 
 var (
@@ -25,7 +37,7 @@ var (
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
 
-func Validate(s Spec, codexHome string) error {
+func Validate(s Spec, env Env) error {
 	switch s.Harness {
 	case "claude":
 		if !claudeModel.MatchString(s.Model) {
@@ -36,7 +48,19 @@ func Validate(s Spec, codexHome string) error {
 		}
 		return nil
 	case "codex":
-		return validateCodex(s, filepath.Join(codexHome, "models_cache.json"))
+		return validateCodex(s, filepath.Join(env.CodexHome, "models_cache.json"))
+	case "agy":
+		if s.Effort != "" {
+			return fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
+		}
+		models, err := agyModels(env)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(models, func(m Model) bool { return m.Name == s.Model }) {
+			return fmt.Errorf("%w: agy model %q is not in `agy models`", state.ErrInvalid, s.Model)
+		}
+		return nil
 	case "opencode":
 		if s.Model != "" || s.Effort != "" {
 			return fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
@@ -55,7 +79,7 @@ type Model struct {
 
 var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
-func Models(name, codexHome string) ([]Model, error) {
+func Models(name string, env Env) ([]Model, error) {
 	switch name {
 	case "claude":
 		out := make([]Model, 0, len(claudeAliases))
@@ -64,11 +88,47 @@ func Models(name, codexHome string) ([]Model, error) {
 		}
 		return out, nil
 	case "codex":
-		return codexModels(filepath.Join(codexHome, "models_cache.json"))
+		return codexModels(filepath.Join(env.CodexHome, "models_cache.json"))
+	case "agy":
+		return agyModels(env)
 	case "opencode":
 		return nil, nil
 	}
 	return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
+}
+
+var agyLists = struct {
+	sync.Mutex
+	byBin map[string][]Model
+}{byBin: map[string][]Model{}}
+
+func agyModels(env Env) ([]Model, error) {
+	bin, err := LookPath("agy", env.Path)
+	if err != nil {
+		return nil, err
+	}
+	agyLists.Lock()
+	defer agyLists.Unlock()
+	if m, ok := agyLists.byBin[bin]; ok {
+		return slices.Clone(m), nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "models").Output()
+	var models []Model
+	for _, line := range strings.Split(string(out), "\n") {
+		if id, _, ok := strings.Cut(line, "\t"); ok && strings.TrimSpace(id) != "" {
+			models = append(models, Model{Name: strings.TrimSpace(id)})
+		}
+	}
+	if err == nil && len(models) == 0 {
+		err = fmt.Errorf("it listed no models")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
+	}
+	agyLists.byBin[bin] = models
+	return slices.Clone(models), nil
 }
 
 func codexModels(cache string) ([]Model, error) {
@@ -147,6 +207,8 @@ func Argv(bin string, s Spec, prompt string) ([]string, error) {
 		return []string{bin, "--standalone", "--auto", "--prompt", prompt}, nil
 	case "claude":
 		return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
+	case "agy":
+		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
 	case "codex":
 		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
 	}

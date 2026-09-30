@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/markdown"
 	"github.com/atqamz/hand/internal/state"
@@ -98,7 +99,7 @@ type Options struct {
 	Base       string
 	Tick       time.Duration
 	Now        func() time.Time
-	CodexHome  string
+	Harness    harness.Env
 }
 
 type Board struct {

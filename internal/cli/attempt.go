@@ -57,7 +57,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return err
 	}
 	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))

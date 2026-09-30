@@ -20,7 +20,7 @@ const (
 	AttemptFailed      = "failed"
 )
 
-var Harnesses = []string{"claude", "codex", "opencode"}
+var Harnesses = []string{"claude", "codex", "opencode", "agy"}
 
 var attemptEnds = map[string][]string{
 	AttemptLaunching: {AttemptFailed},
