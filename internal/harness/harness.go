@@ -1,8 +1,10 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -97,10 +99,15 @@ func Models(name string, env Env) ([]Model, error) {
 	return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
 }
 
+type agyListing struct {
+	models []Model
+	err    error
+}
+
 var agyLists = struct {
 	sync.Mutex
-	byBin map[string][]Model
-}{byBin: map[string][]Model{}}
+	byBin map[string]agyListing
+}{byBin: map[string]agyListing{}}
 
 func agyModels(env Env) ([]Model, error) {
 	bin, err := LookPath("agy", env.Path)
@@ -109,8 +116,8 @@ func agyModels(env Env) ([]Model, error) {
 	}
 	agyLists.Lock()
 	defer agyLists.Unlock()
-	if m, ok := agyLists.byBin[bin]; ok {
-		return slices.Clone(m), nil
+	if l, ok := agyLists.byBin[bin]; ok {
+		return slices.Clone(l.models), l.err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -121,14 +128,19 @@ func agyModels(env Env) ([]Model, error) {
 			models = append(models, Model{Name: strings.TrimSpace(id)})
 		}
 	}
-	if err == nil && len(models) == 0 {
+	var exit *exec.ExitError
+	switch {
+	case errors.As(err, &exit) && len(bytes.TrimSpace(exit.Stderr)) > 0:
+		err = fmt.Errorf("%v: %s", err, bytes.TrimSpace(exit.Stderr))
+	case err == nil && len(models) == 0:
 		err = fmt.Errorf("it listed no models")
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
+		err = fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
+		models = nil
 	}
-	agyLists.byBin[bin] = models
-	return slices.Clone(models), nil
+	agyLists.byBin[bin] = agyListing{models, err}
+	return slices.Clone(models), err
 }
 
 func codexModels(cache string) ([]Model, error) {

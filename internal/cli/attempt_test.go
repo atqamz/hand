@@ -427,6 +427,49 @@ func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
 	}
 }
 
+func TestAgyTrustScreenThatClearsSlowlyIsAccepted(t *testing.T) {
+	fx := agyFixture(t)
+	*cli.TrustWait, *cli.TrustConfirm = time.Second, 3*time.Second
+	screen := trustScreen(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "> \n"
+		for range 8 {
+			rt.screens = append(rt.screens, screen)
+		}
+	})
+	out := fx.startAgy()
+	if !strings.Contains(out, "trust: accepted") || strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
+	wt := func(fx *attemptFixture) string { return fx.h.worktree("t1-a1") }
+	for name, set := range map[string]func(fx *attemptFixture, rt *fakeRuntime){
+		"other cursor": func(fx *attemptFixture, rt *fakeRuntime) {
+			rt.screen = strings.Replace(trustScreen(wt(fx)), "> Yes", "❯ Yes", 1)
+		},
+		"conflicts": func(fx *attemptFixture, rt *fakeRuntime) {
+			rt.screen, rt.keysFail = trustScreen(wt(fx)), "content_revision_conflict"
+		},
+		"keys refused": func(fx *attemptFixture, rt *fakeRuntime) {
+			rt.screen, rt.keysFail = trustScreen(wt(fx)), "agent_not_ready"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := agyFixture(t)
+			fx.rt.set(func(rt *fakeRuntime) { set(fx, rt) })
+			out := fx.startAgy()
+			if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || len(fx.rt.keysSent()) != 0 {
+				t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+			}
+			if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: agy trust screen was not pressed; check the screen"`) {
+				t.Fatalf("wait = %q", woke)
+			}
+		})
+	}
+}
+
 func TestAgyNeedsItsModelList(t *testing.T) {
 	fx := agyFixture(t)
 	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "agy"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {

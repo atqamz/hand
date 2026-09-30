@@ -184,6 +184,23 @@ func TestAgyModelsAreListed(t *testing.T) {
 	}
 }
 
+func TestAgyModelsFailureIsListedOnceWithItsReason(t *testing.T) {
+	dir := t.TempDir()
+	count := filepath.Join(dir, "count")
+	script := "#!/bin/sh\necho x >> " + count + "\necho 'not signed in' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := Models("agy", Env{Path: dir}); err == nil || !strings.Contains(err.Error(), "not signed in") || !strings.Contains(err.Error(), "check that agy is logged in") {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 1 {
+		t.Fatalf("agy models ran %q times, %v", b, err)
+	}
+}
+
 func TestAgyModelsAreListedOnce(t *testing.T) {
 	path, count := fakeAgy(t, agyList, false)
 	for range 2 {

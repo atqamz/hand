@@ -233,4 +233,14 @@ func TestTheSupervisorMenusLeaveOutAgy(t *testing.T) {
 	running.status = "idle"
 	running.supervisor(t, state.AttemptRunning, "gen-1")
 	lacks(t, "other harness", region(get(t, running.handler(), "/"), "console"), `value="agy"`)
+	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
+	for _, fx := range []*fixture{none, running} {
+		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contains(t, "start profiles", region(get(t, none.handler(), "/"), "console"), `<option value="deep">`)
+	lacks(t, "start profiles", region(get(t, none.handler(), "/"), "console"), `<option value="gem">`)
+	contains(t, "switch profiles", region(get(t, running.handler(), "/"), "console"), `<option value="deep">`)
+	lacks(t, "switch profiles", region(get(t, running.handler(), "/"), "console"), `<option value="gem">`)
 }

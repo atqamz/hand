@@ -337,7 +337,7 @@ func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]st
 		if out[a.ID].Kind != "attempt.blocked" {
 			continue
 		}
-		if ag, err := b.o.Luvus.Explain(ctx, a.PaneID); err == nil && ag.Status != "blocked" {
+		if ag, err := b.o.Luvus.Explain(ctx, a.PaneID); err == nil && ag.Status != "blocked" && ag.Status != "idle" {
 			delete(out, a.ID)
 		}
 	}

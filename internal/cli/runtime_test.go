@@ -46,6 +46,7 @@ type fakeRuntime struct {
 	screens     []string
 	afterScreen string
 	readFail    string
+	keysFail    string
 	afterKeys   string
 	explainFail string
 	closeDelay  time.Duration
@@ -265,6 +266,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.keysFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.keysFail, Message: "keys failed"}
+	}
 	if p.Revision != rt.revision {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}

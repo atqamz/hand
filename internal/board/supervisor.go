@@ -330,7 +330,7 @@ func (b *Board) profilesFor(name string) []profile {
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n]
-		if name == "" || s.Harness == name {
+		if slices.Contains(state.SupervisorHarnesses, s.Harness) && (name == "" || s.Harness == name) {
 			out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " ")})
 		}
 	}
