@@ -83,7 +83,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 		}
 		ref := state.SupervisorRef(last.ID + 1)
 		cmd := r.env.command()
-		prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is " + exe + ": when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`."
+		prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is `" + exe + "`: when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`."
 		session := ""
 		if spec.Harness == "claude" {
 			session = harness.NewSessionID()
