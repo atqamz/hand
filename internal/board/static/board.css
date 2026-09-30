@@ -60,7 +60,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .pill[data-state=working] .icon{animation:lamp 2s ease-in-out infinite}
 .pill[data-state=failing]{background:var(--fail-bg);color:var(--fail)}
 .ctx{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-family:var(--mono)}
-.ctx meter{width:48px;height:6px;border:0;border-radius:3px;background:var(--line)}
+.ctx meter{width:48px;height:6px;border:0;border-radius:3px;background:var(--line);transform:translateY(-1px)}
 .ctx meter::-webkit-meter-bar{height:6px;border:0;border-radius:3px;background:var(--line)}
 .ctx meter::-webkit-meter-optimum-value{border-radius:3px;background:var(--accent)}
 .ctx meter::-webkit-meter-suboptimum-value{border-radius:3px;background:var(--wait)}
@@ -110,7 +110,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}
 .wait-title{grid-column:1/-1;grid-row:2;min-width:0;color:var(--fg);font-size:16px;font-weight:600;line-height:22px}
 .wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.slug>*:not(:last-child):not(.code):not(.pill)::after{content:"·";display:inline-block;margin-left:8px;opacity:.5}
+.slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{content:"·";display:inline-block;margin-left:8px;opacity:.5}
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{padding:0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-family:var(--mono);font-weight:700;letter-spacing:.03em;text-transform:uppercase}
@@ -297,7 +297,7 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .thread-head{display:grid;gap:6px}
 .rule{width:100%;margin:0;border:0;border-top:1px solid var(--line)}
 .thread>.card{border:1px solid var(--line);border-radius:8px;padding:0;overflow:hidden}
-.thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--card)}
+.thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--card)}
 .thread>.card>header .who{color:var(--fg);font-weight:600}
 .thread>.card>.copy{margin:0;padding:10px 12px}
 .thread>.card.report>header.slug{background:var(--neutral-bg)}

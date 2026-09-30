@@ -82,7 +82,7 @@ func TestCountsFollowTheSeverityRamp(t *testing.T) {
 
 func TestHeadersTintTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "tint", css, ".wait[data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}", "::after{content:\"·\";display:inline-block;margin-left:8px;opacity:.5}")
+	contains(t, "tint", css, ".wait[data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}", ":not(:has(+.spacer))::after{content:\"·\";display:inline-block;margin-left:8px;opacity:.5}")
 	i := strings.Index(css, ".menu-body label{")
 	if i < 0 || strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "--mono") {
 		t.Fatal("menu labels still wear mono caps")
@@ -147,4 +147,9 @@ func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	contains(t, "brand", get(t, fx.handler(), "/"), `<h1 class="fleet-name">test</h1><span class="ref fleet-id">`)
 	contains(t, "css", asset(t, "board.css"), ".brand{display:flex;align-items:baseline;", ".brand>.mark{align-self:center}")
+}
+
+func TestReportHeadersCentreTheirMeta(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "report head", css, ".thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;", ".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{")
 }
