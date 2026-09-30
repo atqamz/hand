@@ -490,3 +490,36 @@ func TestDeliveredMessagesShowTheirTime(t *testing.T) {
 	claudeLog(t, fx, []string{userRecord("ship it")})
 	contains(t, "log", get(t, fx.handler(), "/supervisor/log"), "delivered <time")
 }
+
+func TestChatKeepsAnEarlierSession(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptStopped, "stopped by operator"); err != nil {
+		t.Fatal(err)
+	}
+	claudeLog(t, fx, []string{
+		`{"type":"user","timestamp":"2026-09-25T01:00:00Z","message":{"role":"user","content":"old question"}}`,
+		`{"type":"assistant","timestamp":"2026-09-25T01:00:01Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"old answer"}]}}`,
+	})
+	const second = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "haiku", Effort: "low", Argv: []string{"/bin/claude", "x"}, Session: second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(fx.claude, "projects", "-fleet")
+	if err := os.WriteFile(filepath.Join(dir, second+".jsonl"), []byte(`{"type":"user","timestamp":"2026-09-27T01:00:00Z","message":{"role":"user","content":"new question"}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/supervisor/log")
+	contains(t, "log", body, "old question", "old answer", "s2 started · claude haiku low", "new question")
+	if !(strings.Index(body, "new question") < strings.Index(body, "s2 started") && strings.Index(body, "s2 started") < strings.Index(body, "old answer")) {
+		t.Fatalf("sessions out of order (newest first):\n%s", body)
+	}
+	older := get(t, fx.handler(), "/supervisor/log?before=2")
+	contains(t, "older page", older, "old question", "old answer")
+	lacks(t, "older page", older, "new question")
+}

@@ -309,7 +309,10 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	entries, note := b.conversation(ctx, sup, ok)
+	entries, note, sups, err := b.sessions(ctx)
+	if err != nil {
+		return err
+	}
 	if note != "" {
 		data["Note"] = note
 	}
@@ -323,12 +326,6 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	pending, err := b.st.PendingSupervisorInputs(ctx)
 	if err != nil {
 		return err
-	}
-	var sups []state.Supervisor
-	if ok && sup.Session != "" {
-		if sups, err = b.st.SessionSupervisors(ctx, sup.Session); err != nil {
-			return err
-		}
 	}
 	delivered, err := b.st.DeliveredSupervisorInputs(ctx, deliveredLookback)
 	if err != nil {
@@ -434,6 +431,33 @@ func refAt(sups []state.Supervisor, at string) string {
 		}
 	}
 	return state.SupervisorRef(ref)
+}
+
+func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []state.Supervisor, error) {
+	sups, err := b.st.Supervisors(ctx)
+	if err != nil || len(sups) == 0 {
+		return nil, "no supervisor yet", nil, err
+	}
+	latest := sups[len(sups)-1]
+	var all []transcript.Entry
+	note := ""
+	seen := map[string]bool{}
+	for _, s := range sups {
+		key := s.Harness + ":" + s.Session
+		if s.Session == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		entries, n := b.conversation(ctx, s, true)
+		if s.Session == latest.Session && s.Harness == latest.Harness {
+			note = n
+		}
+		all = append(all, entries...)
+	}
+	if latest.Session == "" {
+		_, note = b.conversation(ctx, latest, true)
+	}
+	return all, note, sups, nil
 }
 
 func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
