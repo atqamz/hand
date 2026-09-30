@@ -5,7 +5,7 @@
 <p class="slug"><span class="status" data-state="{{.Pill}}">{{upper .Card.Task.Status}}</span><span>{{upper .Card.Task.Project}}</span>{{with .Card.Plan}}<span>PLAN {{upper (plan .Revision)}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time>{{range .Card.PRs}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</p>
 </header>
 {{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">
-{{range .Card.Decisions}}<div class="need"><span class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">{{decision .ID}}</span></span> <span class="need-title">{{.Question}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
+{{range .Card.Decisions}}<div class="need"><span class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">{{decision .ID}}</span></span> <span class="need-title">{{.Headline}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
 {{end}}{{range .Unread}}<div class="need"><span class="slug"><span class="code" data-code="ROUTINE">ROUTINE</span><span class="kind">REPORT</span><a class="ref" href="#{{report .ID}}">{{report .ID}}</a></span> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form></div>
 {{end}}</section>{{end}}
 {{with .Card.Task.Goal}}<article class="dispatch" data-role="goal"><header class="slug"><span class="who">GOAL</span></header><div class="copy plain">{{.}}</div></article>{{end}}

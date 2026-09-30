@@ -74,3 +74,17 @@ func TestDecisionListAllShowsAnsweredOnes(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionAskReadsAFileOrStdin(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("task", "start", "t1")
+	h.in = strings.NewReader("Pick one\n\n1. A\n2. B\n")
+	h.ok("decision", "ask", "--file", "-", "t1")
+	if out := h.ok("decision", "show", "d1"); !strings.Contains(out, `Pick one\n\n1. A\n2. B`) {
+		t.Fatalf("show = %q", out)
+	}
+	if _, errOut, code := h.run("decision", "ask", "--file", "-", "t1", "also this"); code != 2 || !strings.Contains(errOut, "exactly one") {
+		t.Fatalf("both a file and a question: code=%d stderr=%q", code, errOut)
+	}
+}

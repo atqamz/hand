@@ -251,7 +251,7 @@ func TestLongWaitingContentIsBounded(t *testing.T) {
 	if _, err := st.AddReport(context.Background(), b.ID, state.ReportDone, strings.Repeat("x", 64<<10)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.Ask(context.Background(), long.ID, strings.Repeat("why ", 490)+"really?"); err != nil {
+	if _, err := st.Ask(context.Background(), long.ID, "Why is it slow?\n"+strings.Repeat("why ", 490)+"really?"); err != nil {
 		t.Fatal(err)
 	}
 	q = region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
@@ -264,7 +264,7 @@ func TestLongWaitingContentIsBounded(t *testing.T) {
 			t.Fatalf("a waiting title holds %d runes", n)
 		}
 	}
-	contains(t, "long question", q, `<p class="question">why why`, "really?")
+	contains(t, "long question", q, `<div class="question md"><p>why why`, "really?")
 	css := asset(t, "board.css")
 	for _, want := range []string{".wait{", "overflow-wrap:anywhere", "pre{", "overflow-x:auto", "grid-template-columns:minmax(0,1fr)"} {
 		if !strings.Contains(css, want) {

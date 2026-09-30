@@ -252,3 +252,5 @@ form.inline{display:inline}
 .fleet .wire-word{color:var(--muted)}
 @media (max-height:599px) and (max-width:599px){.masthead .wire-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
 form[data-busy] button{opacity:.6;cursor:progress}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+button.chip{font:inherit;cursor:pointer}

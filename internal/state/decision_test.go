@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +118,24 @@ func TestDecisionByID(t *testing.T) {
 	}
 	if _, err := s.Decision(ctx, 99); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing decision err = %v", err)
+	}
+}
+
+func TestAskKeepsTheHeadlineShort(t *testing.T) {
+	s, _ := openTest(t)
+	task := activeTask(t, s)
+	ctx := context.Background()
+	if _, err := s.Ask(ctx, task.ID, strings.Repeat("x", 121)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "first line is its headline") {
+		t.Fatalf("a 121-character headline = %v", err)
+	}
+	d, err := s.Ask(ctx, task.ID, "Pick how to publish the docs\n\n1. From CI\n2. From a wiki\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Headline() != "Pick how to publish the docs" || d.Body() != "1. From CI\n2. From a wiki" {
+		t.Fatalf("headline %q, body %q", d.Headline(), d.Body())
+	}
+	if d, err = s.Ask(ctx, task.ID, strings.Repeat("y", 120)); err != nil || d.Body() != "" {
+		t.Fatalf("a 120-character one-line question = %+v, %v", d, err)
 	}
 }

@@ -120,7 +120,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Question, Task: t, Decision: &d})
+		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Headline(), Task: t, Decision: &d})
 	}
 	total += asked - len(decisions)
 	f, _ := data["facts"].(facts)

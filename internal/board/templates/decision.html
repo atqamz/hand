@@ -1,12 +1,14 @@
 {{define "decision.html"}}{{template "head" .}}{{template "top" .}}<main class="thread">
 <header class="thread-head">
 <p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <a class="ref" href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{decision .Decision.ID}}</span></p>
-<p class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">{{decision .Decision.ID}}</span><span class="status" data-state="{{.Pill}}">{{upper .Decision.Status}}</span><time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></p>
-<h2 class="thread-title">{{.Decision.Question}}</h2>
+<p class="slug">{{if eq .Decision.Status "open"}}<span class="code" data-code="BULLETIN">BULLETIN</span>{{end}}<span class="kind">DECISION</span><span class="ref">{{decision .Decision.ID}}</span><span class="status" data-state="{{.Pill}}">{{upper .Decision.Status}}</span><time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></p>
+<h2 class="thread-title">{{.Decision.Headline}}</h2>
+{{with .Decision.Body}}<div class="question md">{{mdrefs . $.Base}}</div>{{end}}
 <p class="meta">for <a href="{{.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a></p>
 </header>
-{{if eq .Decision.Status "open"}}<form class="answer" method="post" action="{{.Base}}/decision/{{decision .Decision.ID}}/answer">
+{{if eq .Decision.Status "open"}}<form class="answer" method="post" action="{{.Base}}/decision/{{decision .Decision.ID}}/answer" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
+{{with chips .Decision.Body}}<div class="chips">{{range .}}<button type="button" class="chip" data-fill="{{.}}">{{.}}</button>{{end}}</div>{{end}}
 <textarea name="answer" required rows="5" placeholder="Your answer" aria-label="Your answer"></textarea>
 <div class="actions"><button class="primary">Answer</button></div>
 </form>

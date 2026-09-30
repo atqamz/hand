@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -28,20 +29,30 @@ func decisionDoc(d state.Decision) *toon.Doc {
 }
 
 func cmdDecisionAsk(r *runner, args []string) error {
-	pos, err := parse(flags("decision ask"), args, 2)
+	fs := flags("decision ask")
+	file := fs.String("file", "", "file holding the question, or - for stdin")
+	if err := fs.Parse(args); err != nil {
+		return usageError{fmt.Sprintf("decision ask: %v", err)}
+	}
+	if fs.NArg() < 1 || (*file == "") != (fs.NArg() == 2) || fs.NArg() > 2 {
+		return usageError{"usage: hand decision ask [--file PATH|-] tN [QUESTION]; give exactly one of --file or QUESTION"}
+	}
+	id, err := parseID("t", fs.Arg(0))
 	if err != nil {
 		return err
 	}
-	id, err := parseID("t", pos[0])
-	if err != nil {
-		return err
+	question := fs.Arg(1)
+	if *file != "" {
+		if question, err = r.readText(*file, 8193); err != nil {
+			return err
+		}
 	}
 	st, err := r.store()
 	if err != nil {
 		return err
 	}
 	defer st.Close()
-	d, err := st.Ask(context.Background(), id, pos[1])
+	d, err := st.Ask(context.Background(), id, question)
 	if err != nil {
 		return err
 	}

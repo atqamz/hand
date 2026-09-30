@@ -208,6 +208,15 @@
 		show(res.headers.get("X-Hand-Error") || `${res.status} ${res.statusText}`);
 	});
 
+	document.addEventListener("click", (e) => {
+		const chip = e.target instanceof Element ? e.target.closest("button[data-fill]") : null;
+		const box = chip?.form?.querySelector("textarea[name=answer]");
+		if (!box) return;
+		box.value = chip.dataset.fill;
+		box.focus();
+		box.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+
 	const button = document.getElementById("notify");
 	if (button && "Notification" in window && Notification.permission === "default") {
 		button.hidden = false;

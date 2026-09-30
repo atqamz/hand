@@ -93,20 +93,10 @@ func cmdReportAdd(r *runner, args []string) error {
 	}
 	body := *text
 	if *file != "" {
-		src := r.env.Stdin
-		if *file != "-" {
-			f, err := os.Open(*file)
-			if err != nil {
-				return fmt.Errorf("%w: %v", state.ErrInvalid, err)
-			}
-			defer f.Close()
-			src = f
+		var err error
+		if body, err = r.readText(*file, state.MaxReportBytes+1); err != nil {
+			return err
 		}
-		b, err := io.ReadAll(io.LimitReader(src, state.MaxReportBytes+1))
-		if err != nil {
-			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
-		}
-		body = string(b)
 	}
 	ctx := context.Background()
 	id, top, hereErr := r.attemptHere(ctx)
@@ -257,4 +247,21 @@ func cmdReportAck(r *runner, args []string) error {
 	d.Field("report", state.ReportRef(rep.ID))
 	d.Field("acked_by", rep.AckedBy)
 	return r.print(&d)
+}
+
+func (r *runner) readText(file string, limit int64) (string, error) {
+	src := r.env.Stdin
+	if file != "-" {
+		f, err := os.Open(file)
+		if err != nil {
+			return "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
+		}
+		defer f.Close()
+		src = f
+	}
+	b, err := io.ReadAll(io.LimitReader(src, limit))
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
+	}
+	return string(b), nil
 }

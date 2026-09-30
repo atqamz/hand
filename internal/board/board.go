@@ -42,6 +42,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"mdrefs":   markdown.RenderRefs,
 	"upper":    strings.ToUpper,
 	"when":     when,
+	"chips":    chips,
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
@@ -154,6 +155,18 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+var option = regexp.MustCompile(`^\s*(?:\d+|[A-Z])[.)]\s+(.+)$`)
+
+func chips(body string) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		if m := option.FindStringSubmatch(line); m != nil {
+			out = append(out, strings.TrimSpace(m[1]))
+		}
+	}
+	return out
 }
 
 func (b *Board) now() time.Time {
@@ -439,6 +452,10 @@ func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := b.st.Answer(r.Context(), id, r.PostFormValue("answer"), "operator (board)"); err != nil {
+		if d, derr := b.st.Decision(r.Context(), id); derr == nil && errors.Is(err, state.ErrConflict) && d.Answer != "" {
+			b.fail(w, http.StatusConflict, state.DecisionRef(id)+" is already answered: "+d.Answer)
+			return
+		}
 		b.failErr(w, err)
 		return
 	}

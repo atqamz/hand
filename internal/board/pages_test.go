@@ -153,3 +153,50 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 	}
 	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status" data-state="waiting">OPEN</span>`)
 }
+
+func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Pick how to publish the docs\n\n1. From CI, see t1\n2. From a wiki"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Ask(ctx, task.ID, "Ship it?"); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	q := region(get(t, h, "/"), "queue")
+	contains(t, "tray", q, `<span class="wait-title">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
+	page := get(t, h, "/decision/d1")
+	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, "<ol>", `data-fill="From a wiki"`, `data-fetch`)
+	lacks(t, "one-line page", get(t, h, "/decision/d2"), `data-fill=`, `<div class="question md">`)
+}
+
+func TestAnsweringAnAnsweredDecisionKeepsTheDraft(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, 1, "yes, keep", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"answer": {"no"}})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Header().Get("X-Hand-Error"), "yes, keep") {
+		t.Fatalf("second answer = %d %q", rec.Code, rec.Header().Get("X-Hand-Error"))
+	}
+}
+
+func TestDecisionSlugFollowsItsStatus(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(ctx, task.ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, 1, "yes", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-code="BULLETIN"`)
+}

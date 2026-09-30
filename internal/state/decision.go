@@ -16,6 +16,18 @@ const (
 	DecisionWithdrawn = "withdrawn"
 )
 
+const MaxHeadline = 120
+
+func (d Decision) Headline() string {
+	line, _, _ := strings.Cut(strings.TrimSpace(d.Question), "\n")
+	return strings.TrimSpace(line)
+}
+
+func (d Decision) Body() string {
+	_, rest, _ := strings.Cut(strings.TrimSpace(d.Question), "\n")
+	return strings.TrimSpace(rest)
+}
+
 type Decision struct {
 	ID         int64
 	TaskID     int64
@@ -39,6 +51,9 @@ func (s *Store) Ask(ctx context.Context, taskID int64, question string) (Decisio
 	question = strings.TrimSpace(question)
 	if question == "" || utf8.RuneCountInString(question) > 2000 {
 		return Decision{}, fmt.Errorf("%w: question must be 1-2000 characters", ErrInvalid)
+	}
+	if utf8.RuneCountInString(Decision{Question: question}.Headline()) > MaxHeadline {
+		return Decision{}, fmt.Errorf("%w: the question's first line is its headline; keep it within %d characters and put the details below it", ErrInvalid, MaxHeadline)
 	}
 	d := Decision{TaskID: taskID, Question: question, Status: DecisionOpen, CreatedAt: s.stamp()}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
