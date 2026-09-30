@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -333,5 +334,108 @@ func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
 	fx.rt.srv.Handle("terminal.backend.inventory", fx.rt.inventory)
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") {
 		t.Fatalf("retry show = %q", show)
+	}
+}
+
+func agyFixture(t *testing.T) *attemptFixture {
+	t.Helper()
+	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
+	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
+	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
+	return newAttemptFixture(t)
+}
+
+func (fx *attemptFixture) startAgy() string {
+	fx.h.t.Helper()
+	return fx.h.ok("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1")
+}
+
+func trustScreen(path string) string {
+	return "Accessing workspace:\n" + path + "\nDo you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n  No, exit\n  ↑/↓ Navigate · enter Confirm"
+}
+
+func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
+	fx := agyFixture(t)
+	out := fx.startAgy()
+	call := fx.rt.lastCreate()
+	want := []string{filepath.Join(fx.h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
+	if !slices.Equal(call.Command[:5], want) || len(call.Command) != 6 || !strings.HasPrefix(call.Command[5], "Fix the login bug, commit, then stop.") {
+		t.Fatalf("argv = %q", call.Command)
+	}
+	if !strings.Contains(out, "trust: not asked") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestAgyTrustScreenIsAcceptedInItsOwnWorktree(t *testing.T) {
+	fx := agyFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.afterScreen = trustScreen(wt[:20]+"\n "+wt[20:]), 4, "> \n"
+	})
+	out := fx.startAgy()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	events, err := openStore(t, fx.h).RecentEventsOf(context.Background(), []string{"attempt.keys", "attempt.blocked"}, 10)
+	if err != nil || len(events) != 1 || events[0].Kind != "attempt.keys" || events[0].Detail != "a1: enter" {
+		t.Fatalf("events = %+v, err %v", events, err)
+	}
+}
+
+func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
+	for name, path := range map[string]func(wt string) string{
+		"elsewhere": func(string) string { return "/tmp/elsewhere" },
+		"sibling":   func(wt string) string { return wt + "2" },
+		"parent":    filepath.Dir,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := agyFixture(t)
+			screen := trustScreen(path(fx.h.worktree("t1-a1")))
+			fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
+			out := fx.startAgy()
+			if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || len(fx.rt.keysSent()) != 0 {
+				t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+			}
+			if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: agy asks to trust a folder that is not its worktree; check the screen"`) {
+				t.Fatalf("wait = %q", woke)
+			}
+		})
+	}
+}
+
+func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
+	fx := agyFixture(t)
+	screen := trustScreen(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
+	out := fx.startAgy()
+	if !strings.Contains(out, "trust: accepted") || !strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: agy trust screen did not clear; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
+	fx := agyFixture(t)
+	screen := trustScreen(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screens, rt.screen, rt.afterScreen = []string{"", ""}, screen, "> \n" })
+	out := fx.startAgy()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestAgyNeedsItsModelList(t *testing.T) {
+	fx := agyFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "agy"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "check that agy is logged in") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1,") {
+		t.Fatalf("list = %q", list)
 	}
 }

@@ -43,6 +43,8 @@ type fakeRuntime struct {
 	sent        []string
 	keyed       []string
 	screen      string
+	screens     []string
+	afterScreen string
 	readFail    string
 	afterKeys   string
 	explainFail string
@@ -247,6 +249,9 @@ func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	if rt.screen != "" {
 		text = rt.screen
 	}
+	if len(rt.screens) > 0 {
+		text, rt.screens = rt.screens[0], rt.screens[1:]
+	}
 	return map[string]any{"text": text, "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 }
 
@@ -266,6 +271,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	rt.keyed = append(rt.keyed, p.Keys...)
 	if rt.afterKeys != "" {
 		rt.status = rt.afterKeys
+	}
+	if rt.afterScreen != "" {
+		rt.screen = rt.afterScreen
 	}
 	return map[string]any{"type": "ok"}, nil
 }

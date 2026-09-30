@@ -32,7 +32,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude, codex or opencode")
+	name := fs.String("harness", "", "claude, codex, opencode or agy")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -128,6 +128,30 @@ func cmdAttemptStart(r *runner, args []string) error {
 				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
 			}
 		}
+		if running.Harness == "agy" {
+			pressed, cleared, other := acceptTrust(r.ctx(), c, running.PaneID, running.TerminalID, running.Worktree)
+			if pressed {
+				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
+					return err
+				}
+			}
+			trust, note := "not asked", ""
+			switch {
+			case pressed && cleared:
+				trust = "accepted"
+			case pressed:
+				trust, note = "accepted", "agy trust screen did not clear; check the screen"
+			case other:
+				trust, note = "not pressed", "agy asks to trust a folder that is not its worktree; check the screen"
+			}
+			d.Field("trust", trust)
+			if note != "" {
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", note); err != nil {
+					return err
+				}
+				help = append(help, "Read the screen: `hand attempt read "+ref+"`")
+			}
+		}
 		d.Help(help...)
 		return r.print(&d)
 	})
@@ -155,6 +179,8 @@ const (
 	submitConfirm = 5 * time.Second
 	submitTries   = 3
 )
+
+var trustWait, trustConfirm = 15 * time.Second, 5 * time.Second
 
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
@@ -186,6 +212,68 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		}
 	}
 	return sent, false
+}
+
+const (
+	trustQuestion = "Do you trust the contents of this project?"
+	trustCursor   = "> Yes, I trust this folder"
+)
+
+func acceptTrust(ctx context.Context, c luvus.Client, pane, terminalID, worktree string) (pressed, cleared, other bool) {
+	ctx, cancel := context.WithTimeout(ctx, trustWait)
+	defer cancel()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	own := squash("Accessing workspace:" + worktree + trustQuestion)
+	for retried := false; ; {
+		s, err := c.Read(ctx, pane, 60)
+		switch {
+		case luvus.Code(err) != "":
+			return false, false, false
+		case err == nil && trustAsked(s.Text):
+			if !strings.Contains(squash(s.Text), own) {
+				return false, false, true
+			}
+			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
+			if err == nil {
+				return true, trustCleared(ctx, c, pane, tick.C), false
+			}
+			if luvus.Code(err) != "content_revision_conflict" || retried {
+				return false, false, false
+			}
+			retried = true
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return false, false, false
+		case <-tick.C:
+		}
+	}
+}
+
+func trustAsked(screen string) bool {
+	return strings.Contains(screen, trustQuestion) && strings.Contains(screen, trustCursor)
+}
+
+func trustCleared(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
+	deadline := time.After(trustConfirm)
+	for {
+		if s, err := c.Read(ctx, pane, 60); err == nil && !strings.Contains(s.Text, trustQuestion) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-deadline:
+			return false
+		case <-tick:
+		}
+	}
+}
+
+func squash(s string) string {
+	return strings.Join(strings.Fields(s), "")
 }
 
 func idle(ctx context.Context, c luvus.Client, pane string) bool {
