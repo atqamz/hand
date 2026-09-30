@@ -12,7 +12,7 @@ related_targets: []
 - **Covers:** every board surface, including:
   - the fleet page: the masthead, Needs (the open items, then Tasks), Chat (the supervisor thread) and the composer;
   - the task page, the decision page, and the fleet list at `/`;
-  - the error pages, the read-only network variant, and the first-run empty state.
+  - the error pages, the network variant (no supervisor controls; answering decisions and marking reports read still work), and the first-run empty state.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
@@ -24,7 +24,7 @@ related_targets: []
 - **Constraints:**
   - rendered on the server with Go `html/template`, plus small first-party JS embedded in the binary, with no framework and no build step;
   - live updates over Server-Sent Events, through five fleet-page regions;
-  - controls only on loopback, CSRF on every form, and no paths on error pages;
+  - supervisor controls only on loopback (on a network address only answering decisions and marking reports read work), CSRF on every form, and no paths on error pages;
   - light and dark themes follow the system;
   - supervisor replies render as the safe markdown subset, with refs (`t12`, `d3`, `a5`, `r7`, `s2`) linking through `/ref/`;
   - the masthead shows the supervisor's context use against its window.

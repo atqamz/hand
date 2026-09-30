@@ -236,10 +236,10 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 `hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`).
 
-A fleet's page has two tabs:
+A fleet's page has two parts. At 1280px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
 
-- **Needs you:** the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; open decisions; failed, exited or interrupted attempts; unread reports; a supervisor that stopped unexpectedly; "No supervisor is running" while work waits on one; and the task list with each attempt's agent state;
-- **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, plus the message box and the supervisor controls.
+- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
+- **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, as a thread of cards (the supervisor on the left, the operator on the right), plus the message box and the supervisor controls.
 
 Each task and each decision also has its own page. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
 
