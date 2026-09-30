@@ -171,7 +171,7 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 		return state.Supervisor{}, err
 	}
 	defer unlock()
-	last, ok, err := st.LatestSupervisor(ctx)
+	last, ok, err := lastStarted(ctx, st)
 	switch {
 	case err != nil:
 		return state.Supervisor{}, err
@@ -196,6 +196,19 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
 	}
 	return r.relaunch(ctx, st, c, last, spec)
+}
+
+func lastStarted(ctx context.Context, st *state.Store) (state.Supervisor, bool, error) {
+	all, err := st.Supervisors(ctx)
+	if err != nil {
+		return state.Supervisor{}, false, err
+	}
+	for i := len(all) - 1; i >= 0; i-- {
+		if all[i].Status != state.AttemptFailed || all[i].TerminalID != "" {
+			return all[i], true, nil
+		}
+	}
+	return state.Supervisor{}, false, nil
 }
 
 func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec) (state.Supervisor, error) {
@@ -277,10 +290,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			d.Field("switch", "canceled")
 			return r.print(&d)
 		}
-		if target := cmp.Or(*other, routed.Harness); target != "" && target != sup.Harness {
-			if *profile == "" {
-				routed = harness.Spec{Harness: target, Model: *model, Effort: *effort}
-			}
+		if routed.Harness != "" && routed.Harness != sup.Harness {
 			return r.switchHarness(ctx, st, c, routed)
 		}
 		if sup.Harness == "opencode" {

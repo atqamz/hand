@@ -214,7 +214,7 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	switch {
 	case sup.Status == state.AttemptLaunching:
 		return "none", ref + " is starting; your message waits."
-	case sup.Status != state.AttemptRunning && sup.Session != "" && sup.Status != state.AttemptLaunching && !sup.Live():
+	case !sup.Live() && sup.Session != "":
 		return "none", ref + " stopped: " + sup.Reason + ". Resume continues its session and then delivers your message."
 	case sup.Status != state.AttemptRunning:
 		return "none", "No supervisor is running; your message waits until one starts."

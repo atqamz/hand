@@ -388,12 +388,14 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 	})
 	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[59].Seq))
+	})
 	stop()
 	second := strings.Split(fx.rt.prompts()[1], "\n")
 	if len(second) != 11 || second[1] != "attempt.reported a1: q50 (t1 \"Fix login\")" || second[10] != "attempt.reported a1: q59 (t1 \"Fix login\")" {
 		t.Fatalf("second digest = %q", second)
 	}
-	has(t, "show", fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d", events[59].Seq))
 }
 
 func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
@@ -978,4 +980,19 @@ func TestSupervisorKeysRefuseAfterANewerPress(t *testing.T) {
 		t.Fatalf("keys = %q", got)
 	}
 	has(t, "fresh", h.ok("supervisor", "keys", "--revision", "9", "--after", strconv.FormatInt(events[0].Seq, 10), "2"), "keys: 2")
+}
+
+func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "codex"), []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "s1 stopped, continue it with") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s3", "harness: claude")
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "resumes: s1")
 }
