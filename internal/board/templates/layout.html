@@ -14,6 +14,7 @@
 {{define "top"}}{{if .Live}}<a class="skip" href="#composer-text">Skip to the message box</a>{{end}}<header class="masthead"><div class="masthead-inner"><a class="brand" href="{{.Base}}/">{{template "icon-mark"}}<h1 class="wire-name">{{.Fleet}} <span class="wire-word">Wire</span></h1></a>{{with .FleetID}}<span class="ref fleet-id">{{.}}</span>{{end}}<span class="spacer"></span>{{if .Live}}<section class="strip" data-region="status">{{template "region-status" .}}</section>{{else}}{{with .StripData}}<div class="strip">{{template "region-status" .}}</div>{{end}}{{end}}{{if .Live}}<p id="link" class="link-state" role="status" hidden></p>{{end}}<time class="clock" data-clock-now></time>{{if .FleetID}}<button type="button" id="notify" class="quiet-button" aria-label="Notify me" hidden>{{template "icon-bell"}}<span class="notify-text">Notify me</span></button>{{end}}</div></header>
 {{end}}
 
-{{define "foot"}}</body>
+{{define "foot"}}<div id="toast" role="status" aria-live="polite"></div>
+</body>
 </html>
 {{end}}

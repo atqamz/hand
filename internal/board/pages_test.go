@@ -231,3 +231,19 @@ func TestTheFleetPageHasASkipLinkAndALinkState(t *testing.T) {
 		t.Fatal("the skip link must come before the masthead")
 	}
 }
+
+func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/decision/d1", "/task/t1", "/"} {
+		if n := strings.Count(get(t, fx.handler(), path), `id="toast"`); n != 1 {
+			t.Fatalf("%s holds %d toasts, want 1", path, n)
+		}
+	}
+	js := asset(t, "app.js")
+	if !strings.Contains(js, "if (!toast) return;") || !strings.Contains(js, "if (regions.size === 0) location.reload();") {
+		t.Fatal("app.js does not guard the toast or refresh a page without live regions after an action")
+	}
+}

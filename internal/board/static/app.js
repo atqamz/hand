@@ -186,6 +186,7 @@
 		}
 	};
 	const show = (msg, ms = 8000, kind = "error") => {
+		if (!toast) return;
 		toast.dataset.kind = kind;
 		toast.textContent = msg;
 		clearTimeout(show.timer);
@@ -220,9 +221,10 @@
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
 			if (form.closest("details.menu")) closeMenus(null);
+			if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
 			if (receipt) show(receipt, 4000, "receipt");
-			else toast.textContent = "";
+			else show("", 0);
 			return;
 		}
 		show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
