@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestDecisionAskAnswerAndRefuseRepeat(t *testing.T) {
@@ -137,5 +138,16 @@ func TestAskKeepsTheHeadlineShort(t *testing.T) {
 	}
 	if d, err = s.Ask(ctx, task.ID, strings.Repeat("y", 120)); err != nil || d.Body() != "" {
 		t.Fatalf("a 120-character one-line question = %+v, %v", d, err)
+	}
+}
+
+func TestALongOldQuestionKeepsItsWholeTextInTheBody(t *testing.T) {
+	old := strings.Repeat("word ", 60) + "end?"
+	d := Decision{Question: old + "\nmore"}
+	if h := d.Headline(); utf8.RuneCountInString(h) > MaxHeadline || !strings.HasSuffix(h, "…") {
+		t.Fatalf("headline = %q", h)
+	}
+	if d.Body() != old+"\nmore" {
+		t.Fatalf("body = %q", d.Body())
 	}
 }

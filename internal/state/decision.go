@@ -19,13 +19,24 @@ const (
 const MaxHeadline = 120
 
 func (d Decision) Headline() string {
-	line, _, _ := strings.Cut(strings.TrimSpace(d.Question), "\n")
-	return strings.TrimSpace(line)
+	line := []rune(d.firstLine())
+	if len(line) > MaxHeadline {
+		return strings.TrimSpace(string(line[:MaxHeadline-1])) + "…"
+	}
+	return string(line)
 }
 
 func (d Decision) Body() string {
+	if utf8.RuneCountInString(d.firstLine()) > MaxHeadline {
+		return strings.TrimSpace(d.Question)
+	}
 	_, rest, _ := strings.Cut(strings.TrimSpace(d.Question), "\n")
 	return strings.TrimSpace(rest)
+}
+
+func (d Decision) firstLine() string {
+	line, _, _ := strings.Cut(strings.TrimSpace(d.Question), "\n")
+	return strings.TrimSpace(line)
 }
 
 type Decision struct {
@@ -52,7 +63,7 @@ func (s *Store) Ask(ctx context.Context, taskID int64, question string) (Decisio
 	if question == "" || utf8.RuneCountInString(question) > 2000 {
 		return Decision{}, fmt.Errorf("%w: question must be 1-2000 characters", ErrInvalid)
 	}
-	if utf8.RuneCountInString(Decision{Question: question}.Headline()) > MaxHeadline {
+	if utf8.RuneCountInString(Decision{Question: question}.firstLine()) > MaxHeadline {
 		return Decision{}, fmt.Errorf("%w: the question's first line is its headline; keep it within %d characters and put the details below it", ErrInvalid, MaxHeadline)
 	}
 	d := Decision{TaskID: taskID, Question: question, Status: DecisionOpen, CreatedAt: s.stamp()}
