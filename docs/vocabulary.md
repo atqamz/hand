@@ -1,0 +1,286 @@
+# Hand vocabulary
+
+This page defines the terms of the redesigned Hand, the line that becomes 0.8.0, as its code implements them. The design and its reasons are in [`spec.md`](spec.md). What a command accepts and prints is owned by the command itself and its tests.
+
+## People and agents
+
+### Operator
+
+The one person Hand is built for. The operator owns intent and every irreversible choice: they talk to the supervisor, answer decisions, and approve what the supervisor proposes. Their standing preferences live in the operator memory file.
+
+### Supervisor
+
+The single agent the operator talks to in a fleet. It captures each request as a task, writes plans and briefs, starts attempts, reads reports, and asks the operator through decisions. It does not write the code itself; workers do.
+
+Normally Hand runs it: the managed supervisor lives in the background in the fleet's Luvus session, started from the fleet home in full-auto mode, and the operator reaches it from the board. Each launch gets a ref `sN`, and its launch message begins `You are supervisor sN of the Hand fleet NAME`. At most one supervisor is live at a time.
+
+Resuming continues the same harness session under a new `sN`. `hand orient` names the first `sN` of that session. `hand supervisor show` names the current one and adds a `resumes:` line with the first.
+
+A supervisor has the same six states as an attempt. It is `stopped` after `hand supervisor stop` or a model switch, and `interrupted` after a reboot or a Luvus server restart.
+
+An agent the operator opens by hand in the fleet folder is not the managed supervisor. It waits with `hand wait` instead of receiving wakes, and it stands down while a managed supervisor runs.
+
+### Worker
+
+The harness process that runs one attempt. It works in the attempt's worktree, never in the fleet home, and it sends its result back with `hand report add` from inside that worktree. Hand finds the attempt from the worktree's path.
+
+### Harness
+
+The coding-agent CLI that Hand launches as a supervisor or a worker. There are three: `claude` (Claude Code), `codex` (Codex) and `opencode` (opencode). Each runs in full-auto mode:
+
+| Harness | Launch flags | Model and effort |
+|---|---|---|
+| `claude` | `--dangerously-skip-permissions` | an alias (`opus`, `sonnet`, `haiku`, `fable`) or a `claude-*` name; effort `low`, `medium`, `high`, `xhigh` or `max` |
+| `codex` | `--dangerously-bypass-approvals-and-sandbox` | checked against Codex's model cache, `$CODEX_HOME/models_cache.json` |
+| `opencode` | `--standalone --auto` | none; opencode uses the model from its own configuration |
+
+### Agent state
+
+Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
+
+## Fleets and files
+
+### Hand
+
+The CLI, one Go binary. It owns state, worktrees, the watcher and the board. It calls itself by its binary's name, so a build installed as `hand-next` writes `hand-next` into the fleet's `AGENTS.md`, its skill, its help lines and its errors.
+
+### Secondhand
+
+The family and storage name around Hand: the shared folder `~/.secondhand`, the `secondhand` skill, and the `secondhand-*` Luvus sessions and systemd units.
+
+### Fleet
+
+One supervisor's world: a fleet home with its projects, tasks, attempts, Luvus session and watcher. Several fleets can run side by side, and one board serves them all. `hand fleet list` shows the registered fleets and whether each home is `ok`, `missing`, `moved` or unreadable.
+
+### Fleet ID and fleet name
+
+The first `hand init` in a folder gives the fleet an ID that never changes: `f` followed by 12 hex digits. The ID names the fleet's link in the shared folder, its worktree folder, its Luvus session, its branches and its board path. The name is what people see. It defaults to the folder's name, and `hand init --name NEW` changes it.
+
+### Fleet home
+
+Any folder that holds `hand.db`, which `hand init` creates. Commands find the fleet home in this order:
+
+1. `--home DIR`, given before the command;
+2. the working directory or the nearest folder above it that holds `hand.db`;
+3. `$HAND_HOME`.
+
+A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, `mv` its folder and run `hand init` in the new place. A copy of a fleet home is refused until one of the two copies is deleted.
+
+A fleet home holds:
+
+- `hand.db`: the SQLite state;
+- `AGENTS.md` and `CLAUDE.md`, which Hand owns and rewrites on every `hand init`;
+- the `secondhand` skill under `.claude/`, `.agents/`, `.grok/` and `.pi/`;
+- `memory/`: the operator memory;
+- `routing.json`: the routing profiles;
+- `board.token`, made the first time the board serves the fleet;
+- run-time files such as `luvus/`, `locks/` and `watch.lock`.
+
+### Shared folder
+
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, and `board.addr` records where the running board listens.
+
+### Operator memory
+
+Plain files under `memory/` that Hand never rewrites. `hand init` creates `memory/operator.md` once; it holds the operator's standing constraints, and `hand orient` prints up to 4000 bytes of it. `memory/projects/NAME.md`, when it exists, holds one project's lessons, and the supervisor reads it before writing a brief.
+
+### Skill
+
+The instructions `hand init` installs for the supervisor. The `secondhand` skill describes the supervision loop. The `secondhand-migrate` skill is installed only beside Hand 0.7 data, and it guides one migration.
+
+## Work
+
+### Project
+
+A short name (lowercase letters, digits and hyphens) for a git repository at an absolute path on this machine: `hand project add api /home/you/src/api`. Hand does not clone or copy the repository. It adds worker worktrees and branches to that repository with `git worktree add`. Every task belongs to one project.
+
+### Task
+
+`tN`. The durable record of one operator request, with a project, a one-line title of 1–200 characters, and a goal that says what done looks like. The supervisor creates it with `hand task add` before any other work, so nothing lives only in chat.
+
+| State | Meaning | Reached with |
+|---|---|---|
+| `inbox` | captured, not started | `hand task add` |
+| `active` | work has begun; only now can attempts start | `hand task start` |
+| `done` | finished; refused while an attempt is live or a report is unread | `hand task done` |
+| `abandoned` | dropped; refused while an attempt is live | `hand task abandon` |
+
+An `inbox` task can become `active` or `abandoned`, and an `active` task can become `done` or `abandoned`. `done` and `abandoned` are final, and reaching either withdraws the task's open decisions.
+
+### Plan and plan revision
+
+The supervisor's written plan for a task. `hand plan set --body-file PLAN.md tN` adds a new revision, numbered `p1`, `p2` and so on within that task. The newest revision is the current plan, and older ones are kept. Only an `inbox` or `active` task takes a new revision. `hand plan show tN` prints the current plan.
+
+### Brief
+
+The text the supervisor gives a worker with `hand attempt start --prompt-file BRIEF.md`: the goal, the constraints, the exact acceptance check, and what to commit. Hand appends the instructions for reporting back. Luvus takes at most 16 KiB per argument, so the brief and that footer must fit in 16 KiB.
+
+### Attempt
+
+`aN`. One worker's run on one task. `hand attempt start` needs an `active` task with no live attempt. Hand then:
+
+1. makes a worktree at `worktrees/<fleet id>/tN-aN` in the shared folder, on the new branch `hand/<fleet id>/tN-aN`, from `--base` (default `HEAD`) of the project's repository;
+2. starts the harness there in a Luvus terminal, with the brief as its prompt.
+
+A task keeps all its attempts. At most one is live, that is `launching` or `running`.
+
+| State | Meaning |
+|---|---|
+| `launching` | recorded; the worktree and terminal are being made |
+| `running` | the worker's terminal is live in a pane |
+| `exited` | the terminal or its process ended by itself |
+| `interrupted` | the Luvus server restarted, or the terminal's root process changed |
+| `stopped` | `hand attempt stop` ended it |
+| `failed` | the launch failed, or did not finish within two minutes |
+
+`launching` becomes `running` or `failed`, and `running` becomes `exited`, `interrupted` or `stopped`. The watcher and every `hand attempt`, `hand supervisor` and `hand attach` command first check the live attempts against Luvus.
+
+`hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes unless `--discard` is given.
+
+### Report
+
+`rN`. A worker's account of its attempt, added with `hand report add --status STATUS` from inside its worktree. Only a `running` attempt can report, and the body is 1 byte to 64 KiB.
+
+| Status | Meaning |
+|---|---|
+| `progress` | a milestone; work goes on |
+| `done` | the worker finished |
+| `stuck` | the worker cannot continue |
+
+A report stays unread until someone acknowledges it: the supervisor with `hand report ack rN`, or the operator with **Mark read** on the board. `hand task done` is refused while any report of the task is unread.
+
+### Decision
+
+`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
+
+| Status | Meaning |
+|---|---|
+| `open` | waiting for the operator |
+| `answered` | the operator answered on the board or with `hand decision answer dN "ANSWER"` |
+| `withdrawn` | the supervisor withdrew it with `hand decision withdraw dN`, or its task became `done` or `abandoned` |
+
+## Runtime
+
+### Luvus
+
+The terminal runtime Hand runs every agent in ([RizRiyz/luvus](https://github.com/RizRiyz/luvus)). Hand speaks UHP 1.x to it over a Unix socket and uses only exact-argv terminals, agent status, fenced input and events. Hand keeps its own state and worktrees, and never uses Luvus's task ledger or worktree commands.
+
+Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user session, that session's server runs in the user unit `secondhand-luvus-<fleet id>`, so restarting the watcher or the board never stops an agent. Without a user session, Hand starts the server directly.
+
+### Pane
+
+The Luvus view of one terminal. The running supervisor and every running attempt each have a pane. Hand reads the screen and sends keys through it, and `hand attach supervisor` or `hand attach aN` opens it in your terminal.
+
+### Blocked screen and screen revision
+
+A screen that waits for an answer, such as a trust or permission prompt, puts the agent in the `blocked` state. `hand attempt read aN` prints the screen and its revision. `hand attempt keys --revision N aN KEY...` sends keys only if the screen is still at that revision, so a stale answer is never typed. The supervisor's own screen works the same way, through `hand supervisor show` and `hand supervisor keys --revision N KEY...`, with the keys `enter`, `esc`, `up`, `down`, `1`, `2` and `3`.
+
+### Watcher
+
+`hand watch`, one per fleet. It:
+
+- follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
+- records the `attempt.blocked` and `attempt.quiet` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
+- delivers queued messages and wakes to the managed supervisor;
+- resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
+- sends desktop notifications through `notify-send` unless `--notify=false`.
+
+`hand unit watch` prints a systemd user unit for it.
+
+### Event and cursor
+
+Every state change is one transaction that also appends an event with a sequence number, a kind such as `task.active` or `attempt.reported`, a task and a detail. A cursor is the sequence number of the last event seen. `hand orient` prints the current one.
+
+### Wake
+
+A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
+
+- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
+- **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
+
+The wake kinds are:
+
+| Kind | Meaning |
+|---|---|
+| `attempt.reported` | a worker added a report |
+| `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn |
+| `attempt.blocked` | the worker waits at a screen that needs an answer |
+| `attempt.exited` | the attempt ended by itself |
+| `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |
+| `attempt.failed` | the attempt's launch failed |
+| `decision.answered` | the operator answered a decision |
+
+Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
+
+### Supervisor input
+
+`iN`. A message queued for the supervisor, from the board's message box or `hand supervisor send --text TEXT`. It is at most 16 KiB of UTF-8 with no control characters other than newline and tab, and it may not start with `[hand v1`, which Hand keeps for its own messages. Inputs are delivered in order as soon as the supervisor can take them.
+
+### Model switch
+
+A pending change of the supervisor's model or effort that keeps its harness and its conversation: `hand supervisor switch --model M --effort E`, `--profile NAME`, or the model menu on the board. Hand applies it when the current turn ends, by stopping the supervisor and resuming the same session with the new model under a new `sN`. `--cancel` drops a pending switch. opencode keeps its model in the session and cannot switch.
+
+### Routing profile
+
+A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter with `quick`, `default` and `deep` when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume`.
+
+## Surfaces
+
+### Orient
+
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt, report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+
+### Board
+
+`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`).
+
+A fleet's page has two tabs:
+
+- **Needs you:** open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, a supervisor that stopped unexpectedly, and the task cards;
+- **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, plus the message box and the supervisor controls.
+
+Each task and each decision also has its own page. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
+
+### Board token
+
+`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie scoped to that one fleet. `hand open` logs the browser in with it and never prints it.
+
+### TOON
+
+The compact text format of every command's output: `key: value` fields, `name[N]{fields}:` tables, and `help[N]:` hints that name the next command.
+
+## Refs
+
+Every record has a short ref that commands, the board and wakes share.
+
+| Ref | Record | Numbered |
+|---|---|---|
+| `tN` | task | across the fleet |
+| `pN` | plan revision | within its task |
+| `aN` | attempt | across the fleet |
+| `rN` | report | across the fleet |
+| `dN` | decision | across the fleet |
+| `sN` | supervisor launch | across the fleet |
+| `iN` | supervisor input | across the fleet |
+
+## Changed since 0.7
+
+Hand 0.7 ([`main`](https://github.com/atqamz/hand/blob/main/docs/vocabulary.md)) used some terms that the redesign dropped or changed:
+
+- **Supervisor** was the operator's own interactive session. It is now the managed background agent `sN`. A session opened by hand still works, but stands down while a managed supervisor runs.
+- **Supervisor harness and worker harness** were separate registries. There is now one list of harnesses, `claude`, `codex` and `opencode`, used for both roles. Grok, Pi and Antigravity are no longer launched, although `hand init` still installs the skill for Grok and Pi.
+- **Fleet identity** in `state/hand.db` is now the fleet ID in `hand.db` at the root of the fleet home, and fleets also have a name.
+- **Fleet registry** (`~/.secondhand/registry.db`) is replaced by the links in `~/.secondhand/fleets/`.
+- **Current invocation context** has no term of its own. The fleet home is still found from the working directory or `HAND_HOME`, but the working directory now wins: a `HAND_HOME` naming another fleet is refused while you are inside one. `--home DIR` is new.
+- **Duplicate fleet** remains a refusal: a copied fleet home is refused until one copy is deleted.
+- **Supervisor orientation** is still `hand orient`. Monitor targets and currentness tokens are gone, and it prints an event cursor instead.
+- **Monitor target, currentness token and wake hint** are replaced by events, the cursor and the `[hand v1 wake]` message.
+- **Legacy Herdr namespace** is gone: Herdr and Treehouse are replaced by Luvus and plain `git worktree`.
+- **Task kind** (`scout`, `ship`) and **execution class** (`mechanical`, `standard`, `deep`) are dropped. A task has only a goal. Whether it ships code is up to the brief.
+- **Brief** front matter (`execution_class`, `planned_against`, `model`, `effort`) is dropped. A brief is plain text, and the harness, model and effort come from the attempt's flags or profile.
+- **Profile** is now a routing profile in `routing.json`. **Route**, the mapping from task kind and execution class to a profile, is dropped. `hand route list` lists the profiles, and the supervisor names one per attempt.
+- **Project** was cloned, adopted or created under the fleet home. It is now a name for an existing repository, which Hand uses in place.
+- **Delivery mode and gate** (`direct-pr`, `local-only`, `no-mistakes`) are dropped, and Hand has no merge, deliver or teardown step.
+- **Worker** is recognised by its worktree's path. `HAND_ROLE=worker` is gone.
+- **Report** was a scout's file, `data/<id>/report.md`. It is now a record of any attempt, with a status, and it is read and acknowledged through Hand.
+- **Plan**, **decision** and **supervisor input** are new records with their own refs.
