@@ -104,6 +104,9 @@ func (w *watcher) session(ctx context.Context) error {
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
+	if err := w.catchUp(sctx, c, caps); err != nil {
+		return err
+	}
 	w.autoresume(sctx, c, caps)
 	events := make(chan luvus.Event)
 	failed := make(chan error, 1)
@@ -229,32 +232,73 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 		return err
 	}
 	for _, a := range live {
-		if a.Status != state.AttemptRunning || a.PaneID != ev.Pane || a.ServerGeneration != caps.ServerGeneration {
+		if a.Status == state.AttemptRunning && a.PaneID == ev.Pane && a.ServerGeneration == caps.ServerGeneration {
+			return w.observe(ctx, c, a, ev.Status)
+		}
+	}
+	return nil
+}
+
+func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range live {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration {
 			continue
 		}
-		if w.seen[a.ID] == ev.Status {
+		ag, err := c.Explain(ctx, a.PaneID)
+		if err != nil {
+			continue
+		}
+		last, err := w.st.LastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		prev := "working"
+		switch {
+		case last == "attempt.quiet":
+			prev = ag.Status
+		case last == "attempt.blocked":
+			prev = "blocked"
+		case last != "attempt.keys" && ag.Status == "idle":
+			prev = "idle"
+		}
+		w.seen[a.ID] = prev
+		if err := w.observe(ctx, c, a, ag.Status); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, status string) error {
+	prev := w.seen[a.ID]
+	if prev == status {
+		return nil
+	}
+	w.seen[a.ID] = status
+	ref := state.AttemptRef(a.ID)
+	switch status {
+	case "blocked":
+		detail := ""
+		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
+			detail = ag.Hint
+		}
+		if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
+			return err
+		}
+		w.alert(ctx, ref+" blocked: "+detail)
+	case "done", "idle":
+		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
 		}
-		w.seen[a.ID] = ev.Status
-		ref := state.AttemptRef(a.ID)
-		switch ev.Status {
-		case "blocked":
-			detail := ""
-			if ag, err := c.Explain(ctx, a.PaneID); err == nil {
-				detail = ag.Hint
-			}
-			if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
-				return err
-			}
-			w.alert(ctx, ref+" blocked: "+detail)
-		case "done":
-			detail, err := w.st.RecordQuiet(ctx, a.ID)
-			if err != nil {
-				return err
-			}
-			w.alert(ctx, ref+" quiet: "+detail)
+		detail, err := w.st.RecordQuiet(ctx, a.ID)
+		if err != nil {
+			return err
 		}
-		return nil
+		w.alert(ctx, ref+" quiet: "+detail)
 	}
 	return nil
 }

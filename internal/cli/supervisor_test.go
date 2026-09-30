@@ -366,6 +366,9 @@ func TestWakeCursorStopsAtWhatWasSent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := st.NoteAttempt(ctx, 1, "sent", "12 bytes"); err != nil {
+		t.Fatal(err)
+	}
 	events, err := st.EventsAfter(ctx, 0, []string{"attempt.blocked"}, 100)
 	if err != nil || len(events) != 60 {
 		t.Fatalf("events = %d, %v", len(events), err)

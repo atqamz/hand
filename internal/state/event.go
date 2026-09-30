@@ -53,6 +53,16 @@ func (s *Store) LatestEvent(ctx context.Context, kind string) (Event, bool, erro
 	return e, err == nil, err
 }
 
+func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, error) {
+	ref := AttemptRef(attemptID)
+	var kind string
+	err := s.db.QueryRowContext(ctx, `SELECT kind FROM event WHERE kind LIKE 'attempt.%' AND (detail = ? OR detail LIKE ?) ORDER BY seq DESC LIMIT 1`, ref, ref+": %").Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return kind, err
+}
+
 func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {
 	var seq int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM event`).Scan(&seq)
