@@ -394,7 +394,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"max-width:72ch",
-		".slug>*:not(:last-child):not(.code)::after{",
+		".slug>*:not(:last-child):not(.code):not(.pill)::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
 		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",

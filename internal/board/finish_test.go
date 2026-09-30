@@ -136,3 +136,8 @@ func TestErrorPagesSpeakLowerCase(t *testing.T) {
 	lacks(t, "error", body, ">ERROR<")
 	contains(t, "error", body, `<span class="kind">error</span>`)
 }
+
+func TestAnswerChipsReadAsOptions(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .chip{max-width:100%;padding:6px 12px;border-radius:8px;text-align:left;white-space:normal;font-size:14px;font-weight:500;line-height:20px}")
+}

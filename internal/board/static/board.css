@@ -109,7 +109,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}
 .wait-title{grid-column:1/-1;grid-row:2;min-width:0;color:var(--fg);font-size:16px;font-weight:600;line-height:22px}
 .wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.slug>*:not(:last-child):not(.code)::after{content:"·";display:inline-block;margin-left:8px;opacity:.5}
+.slug>*:not(:last-child):not(.code):not(.pill)::after{content:"·";display:inline-block;margin-left:8px;opacity:.5}
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{padding:0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-family:var(--mono);font-weight:700;letter-spacing:.03em;text-transform:uppercase}
@@ -341,7 +341,9 @@ form.inline{display:inline}
 .slug .status[data-state=failing]{color:var(--fail)}
 @media (max-height:599px) and (max-width:599px){.masthead .fleet-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
 form[data-busy] button{opacity:.6;cursor:progress}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}
+.chips .chip{max-width:100%;padding:6px 12px;border-radius:8px;text-align:left;white-space:normal;font-size:14px;font-weight:500;line-height:20px}
+.chips .chip:hover{border-color:var(--accent);background:var(--accent-bg)}
 button.chip{font:inherit;cursor:pointer}
 .skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:6px}
 .skip:focus{left:16px}
