@@ -22,7 +22,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\.$")
+var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `(/[^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
 
 func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	t.Helper()
@@ -62,6 +62,8 @@ func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
 	}
 	if m := launchPrompt.FindStringSubmatch(argv[8]); m == nil || m[1] != "s1" {
 		t.Fatalf("prompt = %q", argv[8])
+	} else if exe, err := os.Executable(); err != nil || m[2] != exe {
+		t.Fatalf("prompt names Hand as %q, want %q (%v)", m[2], exe, err)
 	}
 	has(t, "start", out, "supervisor: s1", "harness: claude", "status: running", "pane: 2", "session: "+argv[3])
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running", "session: "+argv[3], "agent: working", "pending: 0")
