@@ -151,7 +151,7 @@ func TestTaskPageShowsPlanReportsAndEvents(t *testing.T) {
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
 	body := request(h, "GET", "/task/t1", nil, true).Body.String()
-	for _, want := range []string{"<ol><li>reproduce</li><li>fix the cookie</li></ol>", `PR: <a href="https://github.com/atqamz/hand/pull/42"`, "attempt.reported", "decision.asked"} {
+	for _, want := range []string{"<ol><li>reproduce</li><li>fix the cookie</li></ol>", `PR: <a href="https://github.com/atqamz/hand/pull/42"`, "attempt reported", "decision asked"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("task page missing %q:\n%s", want, body)
 		}

@@ -46,6 +46,11 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"when":     when,
 	"chips":    chips,
 	"tabonce":  tabOnce,
+	"rest": func(s string) string {
+		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
+		return strings.TrimSpace(rest)
+	},
+	"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
 	"hm":       func(at string) string { return parse(at).UTC().Format("15:04") },
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
@@ -533,13 +538,18 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 			row.State = "running"
 		case facts{done: done}.failing(a):
 			row.State = "failing"
-		case a.Status == state.AttemptExited:
+		case done[a.ID]:
 			row.State = "passing"
 		}
 		rows = append(rows, row)
 	}
+	decisions, err := b.st.Decisions(ctx, id, historyLimit)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx),
+		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -561,7 +571,7 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx)})
+	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx)})
 }
 
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {

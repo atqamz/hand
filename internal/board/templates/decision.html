@@ -1,7 +1,7 @@
 {{define "decision.html"}}{{template "head" .}}{{template "top" .}}<main class="thread">
 <header class="thread-head">
 <p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <a class="ref" href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{decision .Decision.ID}}</span></p>
-<p class="slug">{{if eq .Decision.Status "open"}}<span class="code" data-tone="wait">OPEN</span>{{end}}<span class="kind">DECISION</span><span class="ref">{{decision .Decision.ID}}</span><span class="status" data-state="{{.Pill}}">{{upper .Decision.Status}}</span><time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></p>
+<p class="slug"><span class="status pill" data-state="{{.Pill}}">{{.Decision.Status}}</span><span class="ref">{{decision .Decision.ID}}</span><time datetime="{{.Decision.CreatedAt}}">{{when .Decision.CreatedAt}}</time></p>
 <h2 class="thread-title">{{.Decision.Headline}}</h2>
 {{with .Decision.Body}}<div class="question md">{{mdrefs . $.Base $.Titles}}</div>{{end}}
 <p class="meta">for <a href="{{.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a></p>
@@ -12,6 +12,6 @@
 <textarea name="answer" required rows="5" placeholder="Your answer" aria-label="Your answer"></textarea>
 <div class="actions"><button class="primary">Answer</button></div>
 </form>
-{{else}}{{with .Decision.Answer}}<article class="card note" data-role="operator"><header class="slug"><span class="who">{{$.Decision.AnsweredBy}}</span><span class="meta">answered</span></header><div class="copy plain">{{.}}</div></article>{{end}}
+{{else}}{{with .Decision.Answer}}<article class="card from-you" data-role="operator"><header class="slug"><span class="who">you</span><span class="meta">answered{{if ne $.Decision.AnsweredBy "operator"}} by {{$.Decision.AnsweredBy}}{{end}}</span>{{with $.Decision.ClosedAt}}<time datetime="{{.}}">{{when .}}</time>{{end}}</header><div class="copy plain">{{.}}</div></article>{{end}}
 {{end}}</main>
 {{template "foot"}}{{end}}

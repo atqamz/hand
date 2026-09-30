@@ -153,6 +153,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .wakes>.hand-line{padding:4px 0 0 14px}
 .card .copy{font-size:15px;line-height:1.6}
 .card .copy>:not(.table):not(pre){max-width:72ch}
+.thread>.card[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width:72ch}
 
 .from-you .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
 .hand-line{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:2px 0;color:var(--muted);font-size:12px}
@@ -252,7 +253,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .tabs{top:36px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.board{padding:12px}.key-label{display:none}.check .attempt{display:none}.fleet-id{display:none}
+@media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.check .attempt{display:none}.fleet-id{display:none}
 .masthead .spacer{display:none}
 .masthead .strip{flex:1 1 auto;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}
@@ -261,8 +262,23 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
 [data-send-key]{display:none}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]{animation:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}
-.thread,.list{max-width:980px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
-.thread-head{display:grid;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
+.thread-head{display:grid;gap:6px}
+.rule{width:100%;margin:0;border:0;border-top:1px solid var(--line)}
+.thread>.card{border:1px solid var(--line);border-radius:8px;padding:0;overflow:hidden}
+.thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--card)}
+.thread>.card>header .who{color:var(--fg);font-weight:600}
+.thread>.card>.copy{margin:0;padding:10px 12px}
+.thread>.card.report>header.slug{background:var(--neutral-bg)}
+.thread>.card.report[data-status=blocked]>header.slug,.thread>.card.report[data-status=failed]>header.slug{background:var(--fail-bg)}
+.thread>.card.report[data-status=done]>header.slug{background:var(--pass-bg)}
+.thread>.card.from-you{align-self:flex-end;max-width:75%;border-color:var(--accent-bg);background:var(--accent-bg)}
+.thread>.card.from-you>header.slug{background:transparent}
+.report-title{flex:1 1 12rem;min-width:0;color:var(--fg);font-size:14px;font-weight:600}
+.status.pill{padding:0 8px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-weight:600}
+.status.pill[data-state=running],.status.pill[data-state=passing]{background:var(--pass-bg)}
+.status.pill[data-state=waiting]{background:var(--wait-bg)}
+.status.pill[data-state=failing]{background:var(--fail-bg)}
 .crumbs{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
 h3{margin:10px 0 0;font-size:14px;font-weight:600}
 .need-title{flex:1 1 12rem;min-width:0;font-weight:600;overflow-wrap:anywhere}
@@ -276,14 +292,18 @@ form.inline{display:inline}
 .card>header.slug .spacer{flex:1}
 .card>header.slug .meta,.card>header.slug .state{font-size:inherit}
 .card.report[data-status=blocked] .state,.card.report[data-status=failed] .state{color:var(--fail)}
-.events{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.events .hand-line{border-bottom:1px solid var(--line)}
+.events,.decisions{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.event{display:grid;grid-template-columns:7.5em 11em minmax(0,1fr);gap:4px 12px;align-items:baseline;padding:6px 4px;border-bottom:1px solid var(--line);font-size:12px}
+.event .kind{color:var(--fg)}
+.event .detail{min-width:0;color:var(--muted);overflow-wrap:anywhere}
+.decision{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;padding:8px 4px;border-bottom:1px solid var(--line)}
+.decision .answer{flex-basis:100%;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
 .fleets{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .fleet{display:flex;align-items:baseline;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line)}
 .fleet .fleet-name{flex:1;min-width:0;color:var(--fg)}
 .fleet .fleet-name:hover{color:var(--tint);text-decoration:none}
 .card.error .copy{margin:6px 0 10px}
-.thread-title{font-size:22px;line-height:30px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+.thread-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
 .fleet .mark{align-self:center;color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
 .slug .status[data-state=running],.slug .status[data-state=passing]{color:var(--pass)}
