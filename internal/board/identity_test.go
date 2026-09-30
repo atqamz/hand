@@ -212,15 +212,27 @@ func TestTheAppShellNeedsHeight(t *testing.T) {
 	if !strings.Contains(css, "@media (min-height:600px){") || !strings.Contains(css, "@media (max-height:599px){") || !strings.Contains(css, "[data-shell]") {
 		t.Fatal("a short landscape phone gets neither the shell nor the flowing page, so the composer is cut off")
 	}
-	if strings.Contains(css, "min-width:900px") {
-		t.Fatal("the two-column desktop grid is back; the tabs show at every width")
-	}
 }
 
-func TestTabsShowAtEveryWidth(t *testing.T) {
+func TestNeedsIsARailAtDeskWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	if strings.Contains(css, ".tabs{display:none}") || !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:880px") {
-		t.Fatal("the tabs must show at every width, over panels up to 880px wide")
+	i := strings.Index(css, "@media (min-width:1280px){")
+	if i < 0 {
+		t.Fatal("board.css has no desk-width query")
+	}
+	desk := css[i:]
+	desk = desk[:strings.Index(desk, "}}")+2]
+	contains(t, "desk width", desk, "grid-template-columns:minmax(0,760px) minmax(360px,400px)", "#needs{grid-column:2;grid-row:1;", "overflow-y:auto", "#chat{grid-column:1;grid-row:1", ".tabs{display:none}")
+	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:1280px)")`)
+}
+
+func TestTabsBelowDeskWidth(t *testing.T) {
+	css := asset(t, "board.css")
+	if strings.Contains(css[:strings.Index(css, "@media (min-width:1280px){")], ".tabs{display:none}") {
+		t.Fatal("the tabs are hidden below desk width")
+	}
+	if !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:760px") {
+		t.Fatal("below desk width the tabbed panels are not held to the 760px column")
 	}
 }
 

@@ -195,10 +195,10 @@ kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-ra
 #toast:empty{display:none}
 body[data-page=fleet] .board{max-width:none}
 #needs,#chat{width:100%}
-#needs>*,#chat>*{width:100%;max-width:880px;margin-inline:auto}
-#chat>.timeline{max-width:none;padding-inline:max(2px,calc((100% - 880px)/2))}
+#needs>*,#chat>*{width:100%;max-width:760px;margin-inline:auto}
+#chat>.timeline{max-width:none;padding-inline:max(2px,calc((100% - 760px)/2))}
 .queue-head{display:none}
-.tabs{padding:0 max(16px,calc((100% - 880px)/2))}
+.tabs{padding:0 max(16px,calc((100% - 760px)/2))}
 #composer textarea{max-height:40dvh}
 @supports (field-sizing:content){#composer textarea{field-sizing:content;resize:none}}
 @media (min-height:600px){body[data-page=fleet][data-shell]{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
@@ -206,6 +206,13 @@ body[data-page=fleet][data-shell] .board{flex:1;min-height:0;width:100%;grid-tem
 body[data-page=fleet][data-shell] #needs{min-height:0;overflow-y:auto}
 body[data-page=fleet][data-shell] #chat{min-height:0;gap:12px}
 body[data-page=fleet][data-shell] .timeline{flex:1;min-height:0;max-height:none}}
+@media (min-width:1280px){body[data-page=fleet] .board{grid-template-columns:minmax(0,760px) minmax(360px,400px);justify-content:center;column-gap:32px}
+#needs{grid-column:2;grid-row:1;position:sticky;top:48px;max-height:calc(100dvh - 64px);overflow-y:auto;padding-left:24px;border-left:1px solid var(--line)}
+#chat{grid-column:1;grid-row:1}
+#needs>*,#chat>*{max-width:none}
+#chat>.timeline{padding-inline:2px}
+body[data-page=fleet][data-shell] #needs{position:static;max-height:none}
+.tabs{display:none}}
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
