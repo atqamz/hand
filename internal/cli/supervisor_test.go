@@ -669,7 +669,7 @@ func TestSwitchRefusals(t *testing.T) {
 	}{
 		{nil, 2, "switch"},
 		{[]string{"--profile", "deep", "--model", "opus"}, 2, "--profile"},
-		{[]string{"--profile", "luna"}, 2, "switch keeps harness claude"},
+		{[]string{"--profile", "luna"}, 2, "models_cache.json"},
 		{[]string{"--model", "sonnet", "--effort", "low"}, 3, "already"},
 		{[]string{"--effort", "huge"}, 2, "effort"},
 	} {
@@ -878,4 +878,44 @@ func TestWakesNameTheTaskOnOneLine(t *testing.T) {
 	if digest, _ := cli.WakeDigest(many, long); len(digest) > hh.MaxPromptBytes || strings.Count(digest, "\n") < 1 || !strings.Contains(digest, strings.Repeat("t", 60)+"…") || strings.Contains(digest, strings.Repeat("t", 61)) {
 		t.Fatalf("a long digest is %d bytes", len(digest))
 	}
+}
+
+func codexCache(t *testing.T, h *harness) {
+	t.Helper()
+	dir := filepath.Join(h.vars["HOME"], ".codex")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSwitchToAnotherHarnessStartsTheNextSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "switch", h.ok("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"), "supervisor: s2", "harness: codex")
+	show := h.ok("supervisor", "show")
+	has(t, "show", show, "supervisor: s2", "harness: codex gpt-6-luna low")
+	argv := rt.lastCreate().Command
+	if prompt := argv[len(argv)-1]; !strings.Contains(prompt, "You replace s1, which ran on claude;") {
+		t.Fatalf("launch message = %q", prompt)
+	}
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.stopped"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: switched to codex" {
+		t.Fatalf("stop events = %+v, %v", events, err)
+	}
+}
+
+func TestSwitchingHarnessIsRefusedWhileWorking(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code != 3 || !strings.Contains(errOut, "s1 is working; switch harness when its turn ends, or interrupt it first") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
 }

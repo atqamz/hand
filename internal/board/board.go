@@ -76,6 +76,7 @@ type Options struct {
 	Base       string
 	Tick       time.Duration
 	Now        func() time.Time
+	CodexHome  string
 }
 
 type Board struct {

@@ -113,8 +113,17 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			text, level := gauge(st)
 			data["Gauge"], data["Compactions"] = map[string]string{"Text": text, "Level": level}, st.Compactions
 		}
-		if sup.Status == state.AttemptRunning && (sup.Harness == "claude" || sup.Harness == "codex") {
+		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
+			data["CurrentModels"], data["CurrentEfforts"] = b.models(sup.Harness)
+			var others []harnessChoice
+			for _, h := range state.Harnesses {
+				if h != sup.Harness {
+					models, efforts := b.models(h)
+					others = append(others, harnessChoice{Name: h, Models: models, Efforts: efforts})
+				}
+			}
+			data["OtherHarnesses"] = others
 		}
 	}
 	label, _ := data["PillLabel"].(string)
@@ -280,6 +289,28 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 		return
 	}
 	data["Blocked"], data["Screen"], data["Revision"], data["Digest"] = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
+}
+
+type harnessChoice struct {
+	Name    string
+	Models  []harness.Model
+	Efforts []string
+}
+
+func (b *Board) models(name string) ([]harness.Model, []string) {
+	models, err := harness.Models(name, b.o.CodexHome)
+	if err != nil {
+		return nil, nil
+	}
+	var efforts []string
+	for _, m := range models {
+		for _, e := range m.Efforts {
+			if !slices.Contains(efforts, e) {
+				efforts = append(efforts, e)
+			}
+		}
+	}
+	return models, efforts
 }
 
 func (b *Board) profiles() []string {
@@ -608,7 +639,7 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 	case r.PostFormValue("profile") != "":
 		args = append(args, "--profile", r.PostFormValue("profile"))
 	default:
-		for _, f := range []string{"model", "effort"} {
+		for _, f := range []string{"harness", "model", "effort"} {
 			if v := strings.TrimSpace(r.PostFormValue(f)); v != "" {
 				args = append(args, "--"+f, v)
 			}
@@ -618,5 +649,9 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
 		return
 	}
-	b.run(w, r, "Switch set for after this turn", args...)
+	receipt := "Switch set for after this turn"
+	if h := strings.TrimSpace(r.PostFormValue("harness")); h != "" {
+		receipt = "Switching to " + h + "…"
+	}
+	b.run(w, r, receipt, args...)
 }

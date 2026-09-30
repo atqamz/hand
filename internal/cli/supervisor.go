@@ -74,35 +74,78 @@ func cmdSupervisorStart(r *runner, args []string) error {
 			}
 			spec = harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
 		}
-		bin, err := supervisorBin(r, spec)
-		if err != nil {
-			return err
-		}
-		exe, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		ref := state.SupervisorRef(last.ID + 1)
-		cmd := r.env.command()
-		prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is `" + exe + "`: when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`."
-		session := ""
-		if spec.Harness == "claude" {
-			session = harness.NewSessionID()
-		}
-		argv, err := harness.SupervisorArgv(bin, spec, session, prompt, false)
-		if err != nil {
-			return err
-		}
-		cursor, err := st.LastEventSeq(ctx)
-		if err != nil {
-			return err
-		}
-		sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: session, WakeCursor: cursor}, ref)
+		sup, err := r.startSupervisor(ctx, st, c, last, spec, "")
 		if err != nil {
 			return err
 		}
 		return r.reportLaunch(c, sup, true)
 	})
+}
+
+func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec, note string) (state.Supervisor, error) {
+	bin, err := supervisorBin(r, spec)
+	if err != nil {
+		return state.Supervisor{}, err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return state.Supervisor{}, err
+	}
+	ref := state.SupervisorRef(last.ID + 1)
+	cmd := r.env.command()
+	prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is `" + exe + "`: when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`."
+	if note != "" {
+		prompt += " " + note
+	}
+	session := ""
+	if spec.Harness == "claude" {
+		session = harness.NewSessionID()
+	}
+	argv, err := harness.SupervisorArgv(bin, spec, session, prompt, false)
+	if err != nil {
+		return state.Supervisor{}, err
+	}
+	cursor, err := st.LastEventSeq(ctx)
+	if err != nil {
+		return state.Supervisor{}, err
+	}
+	return r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: session, WakeCursor: cursor}, ref)
+}
+
+func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec) error {
+	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+		return err
+	}
+	unlock, _, err := r.supervisorLock(true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	sup, err := runningSupervisor(ctx, st)
+	if err != nil {
+		return err
+	}
+	ref := state.SupervisorRef(sup.ID)
+	ag, err := c.Explain(ctx, sup.PaneID)
+	if err != nil {
+		return runtimeErr(err)
+	}
+	if ag.Status == "working" {
+		return fmt.Errorf("%w: %s is working; switch harness when its turn ends, or interrupt it first", state.ErrConflict, ref)
+	}
+	if rootAlive(sup.PID, sup.StartMarker) {
+		if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
+			return err
+		}
+	}
+	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "switched to "+spec.Harness); err != nil {
+		return err
+	}
+	next, err := r.startSupervisor(ctx, st, c, sup, spec, "You replace "+ref+", which ran on "+sup.Harness+"; `"+r.env.command()+" orient` has the fleet's state.")
+	if err != nil {
+		return err
+	}
+	return r.reportLaunch(c, next, true)
 }
 
 func cmdSupervisorResume(r *runner, args []string) error {
@@ -196,13 +239,14 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
+	other := fs.String("harness", "", "switch to another harness between turns: claude, codex or opencode")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	if *cancel == (*model != "" || *effort != "" || *profile != "") {
-		return usageError{"supervisor switch: give --profile, or --model and --effort (either may be left out), or --cancel alone"}
+	if *cancel == (*model != "" || *effort != "" || *profile != "" || *other != "") {
+		return usageError{"supervisor switch: give --profile, or --model and --effort (either may be left out), with --harness to change harness, or --cancel alone"}
 	}
-	routed, err := r.routed("supervisor switch", harness.Spec{Model: *model, Effort: *effort}, *profile)
+	routed, err := r.routed("supervisor switch", harness.Spec{Harness: *other, Model: *model, Effort: *effort}, *profile)
 	if err != nil {
 		return err
 	}
@@ -229,13 +273,17 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			d.Field("switch", "canceled")
 			return r.print(&d)
 		}
+		if target := cmp.Or(*other, routed.Harness); target != "" && target != sup.Harness {
+			if *profile == "" {
+				routed = harness.Spec{Harness: target, Model: *model, Effort: *effort}
+			}
+			return r.switchHarness(ctx, st, c, routed)
+		}
 		if sup.Harness == "opencode" {
 			return fmt.Errorf("%w: opencode keeps its model in the session; switching is not supported", state.ErrInvalid)
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {
-		case *profile != "" && routed.Harness != sup.Harness:
-			return fmt.Errorf("%w: switch keeps harness %s; profile %s uses %s. Stop and start a new supervisor to change harness", state.ErrInvalid, sup.Harness, *profile, routed.Harness)
 		case *profile != "":
 			spec = routed
 		default:

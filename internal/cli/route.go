@@ -36,9 +36,21 @@ func cmdRouteList(r *runner, args []string) error {
 		}
 		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid})
 	}
+	var models [][]string
+	for _, name := range state.Harnesses {
+		list, err := harness.Models(name, harness.CodexHome(r.env.Getenv))
+		if err != nil {
+			models = append(models, []string{name, "", "unavailable: " + err.Error()})
+			continue
+		}
+		for _, m := range list {
+			models = append(models, []string{name, m.Name, strings.Join(m.Efforts, " ")})
+		}
+	}
 	var d toon.Doc
 	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid"}, rows)
 	d.Field("harnesses", strings.Join(state.Harnesses, " "))
+	d.Rows("models", []string{"harness", "model", "efforts"}, models)
 	d.Help("Edit profiles in " + r.home + "/" + harness.PolicyFile + "; start with one: `hand attempt start --profile NAME --prompt-file BRIEF.md tN`")
 	return r.print(&d)
 }

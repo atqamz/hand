@@ -40,3 +40,14 @@ func TestAttemptStartWithAProfile(t *testing.T) {
 		t.Fatalf("malformed policy: code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestRouteListPrintsModels(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	list := h.ok("route", "list")
+	for _, want := range []string{"models[", "{harness,model,efforts}", "claude,opus,low medium high xhigh max", "claude,fable,low medium high xhigh max"} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("route list = %q, missing %q", list, want)
+		}
+	}
+}

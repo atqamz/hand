@@ -48,10 +48,33 @@ func Validate(s Spec, codexHome string) error {
 
 func Prefills(name string) bool { return name == "opencode" }
 
-func validateCodex(s Spec, cache string) error {
+type Model struct {
+	Name    string
+	Efforts []string
+}
+
+var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
+
+func Models(name, codexHome string) ([]Model, error) {
+	switch name {
+	case "claude":
+		out := make([]Model, 0, len(claudeAliases))
+		for _, m := range claudeAliases {
+			out = append(out, Model{Name: m, Efforts: slices.Clone(claudeEfforts)})
+		}
+		return out, nil
+	case "codex":
+		return codexModels(filepath.Join(codexHome, "models_cache.json"))
+	case "opencode":
+		return nil, nil
+	}
+	return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
+}
+
+func codexModels(cache string) ([]Model, error) {
 	b, err := os.ReadFile(cache)
 	if err != nil {
-		return fmt.Errorf("%w: cannot read codex model cache %s (run codex once): %v", state.ErrInvalid, cache, err)
+		return nil, fmt.Errorf("%w: cannot read codex model cache %s (run codex once): %v", state.ErrInvalid, cache, err)
 	}
 	var c struct {
 		Models []struct {
@@ -62,20 +85,32 @@ func validateCodex(s Spec, cache string) error {
 		} `json:"models"`
 	}
 	if err := json.Unmarshal(b, &c); err != nil {
-		return fmt.Errorf("%w: codex model cache %s: %v", state.ErrInvalid, cache, err)
+		return nil, fmt.Errorf("%w: codex model cache %s: %v", state.ErrInvalid, cache, err)
+	}
+	out := make([]Model, 0, len(c.Models))
+	for _, m := range c.Models {
+		model := Model{Name: m.Slug}
+		for _, l := range m.Levels {
+			model.Efforts = append(model.Efforts, l.Effort)
+		}
+		out = append(out, model)
+	}
+	return out, nil
+}
+
+func validateCodex(s Spec, cache string) error {
+	models, err := codexModels(cache)
+	if err != nil {
+		return err
 	}
 	var slugs []string
-	for _, m := range c.Models {
-		slugs = append(slugs, m.Slug)
-		if m.Slug != s.Model {
+	for _, m := range models {
+		slugs = append(slugs, m.Name)
+		if m.Name != s.Model {
 			continue
 		}
-		var efforts []string
-		for _, l := range m.Levels {
-			efforts = append(efforts, l.Effort)
-		}
-		if !slices.Contains(efforts, s.Effort) {
-			return fmt.Errorf("%w: codex model %s supports effort %s, not %q", state.ErrInvalid, s.Model, strings.Join(efforts, ", "), s.Effort)
+		if !slices.Contains(m.Efforts, s.Effort) {
+			return fmt.Errorf("%w: codex model %s supports effort %s, not %q", state.ErrInvalid, s.Model, strings.Join(m.Efforts, ", "), s.Effort)
 		}
 		return nil
 	}

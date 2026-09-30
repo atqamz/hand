@@ -218,6 +218,8 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/resume", nil, []string{"supervisor", "resume"}, "/"},
 		{"/supervisor/stop", nil, []string{"supervisor", "stop"}, "/"},
 		{"/supervisor/interrupt", nil, []string{"supervisor", "interrupt"}, "/"},
+		{"/supervisor/switch", url.Values{"harness": {"codex"}, "model": {"gpt-6-luna"}, "effort": {"low"}}, []string{"supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"}, "/"},
+		{"/supervisor/switch", url.Values{"harness": {"opencode"}}, []string{"supervisor", "switch", "--harness", "opencode"}, "/"},
 		{"/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"2"}}, []string{"attempt", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "a1", "2"}, "/"},
 		{"/supervisor/force", nil, []string{"supervisor", "force"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
@@ -398,7 +400,9 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 	if _, err := oc.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	lacks(t, "opencode", get(t, oc.handler(), "/"), `id="model-menu"`)
+	ocPage := get(t, oc.handler(), "/")
+	contains(t, "opencode", ocPage, `id="model-menu"`, "Switch to claude", "Switch to codex")
+	lacks(t, "opencode", ocPage, "Switch now", "Switch after this turn")
 	pending := fixture(t, "working")
 	pending.supervisor(t, state.AttemptRunning, "gen-1")
 	if _, err := pending.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
@@ -531,4 +535,16 @@ func TestRefChipsCarryTheirTitle(t *testing.T) {
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\nattempt.quiet a1: turn ended`), reply("t1 is done")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", tl, `href="/ref/t1" title="Fix login"`, `href="/ref/a1" title="on t1 &#34;Fix login&#34; · claude sonnet"`)
+}
+
+func TestModelMenuListsModels(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.CodexHome = t.TempDir()
+	if err := os.WriteFile(filepath.Join(fx.options.CodexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.status = "idle"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "console", console, `<option value="opus">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna">gpt-6-luna</option>`, `name="harness" value="opencode"`, "Switch to codex", "Switch to opencode")
 }
