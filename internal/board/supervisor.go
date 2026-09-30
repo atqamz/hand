@@ -601,6 +601,9 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 	if d := r.PostFormValue("screen"); digest.MatchString(d) {
 		args = append(args, "--screen", d)
 	}
+	if a, err := strconv.ParseInt(r.PostFormValue("after"), 10, 64); err == nil && a >= 0 {
+		args = append(args, "--after", strconv.FormatInt(a, 10))
+	}
 	to := target
 	if target != "" {
 		args = append(args, target)

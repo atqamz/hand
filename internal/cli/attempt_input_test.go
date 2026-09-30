@@ -91,3 +91,14 @@ func TestAttemptKeysRetryWhenOnlyTheCountdownMoved(t *testing.T) {
 		t.Fatalf("keys sent = %q", got)
 	}
 }
+
+func TestAttemptKeysRefuseAfterANewerPress(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, promptEarly })
+	fx.h.ok("attempt", "keys", "--revision", "7", "--after", "0", "a1", "1")
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 9, promptLate })
+	if _, errOut, code := fx.h.run("attempt", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "--after", "0", "a1", "2"); code != 3 || !strings.Contains(errOut, "a key was pressed on a1 after this screen was read") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}

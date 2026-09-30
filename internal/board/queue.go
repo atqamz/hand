@@ -34,6 +34,7 @@ type waiting struct {
 	Screen           string
 	Revision         int64
 	Digest           string
+	Pressed          int64
 	Hint             string
 	Sup              *state.Supervisor
 	Excerpt          string
@@ -81,7 +82,11 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if title == "" {
 			title = blockedAsking
 		}
-		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Sup: &sup})
+		pressed, err := b.st.LastKeys(ctx, state.SupervisorRef(sup.ID))
+		if err != nil {
+			return err
+		}
+		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup})
 	}
 	supervised := live && sup.Status == state.AttemptRunning
 	liveAttempts, err := b.st.LiveAttempts(ctx)
@@ -229,6 +234,9 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			}
 			if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); screens && err == nil && s.TerminalID == a.TerminalID {
 				w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
+				if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
+					return nil, err
+				}
 			}
 		}
 		out = append(out, w)

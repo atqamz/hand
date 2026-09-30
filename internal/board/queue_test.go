@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -485,4 +486,27 @@ func TestAWorkerThatMovedOnLeavesNeedsAndTasks(t *testing.T) {
 	body := get(t, fx.handler(), "/")
 	lacks(t, "moved on", region(body, "queue"), `data-kind="worker"`)
 	lacks(t, "moved on", region(body, "tasks"), "BLOCKED")
+}
+
+func TestKeyFormsCarryTheLastPress(t *testing.T) {
+	fx := newFixture(t)
+	fx.status = "blocked"
+	fx.panes = map[string]string{"3": "blocked"}
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(ctx, a.ID, "keys", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.NoteAttempt(ctx, a.ID, "blocked", "Pick one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.NoteSupervisor(ctx, 1, "keys", "1"); err != nil {
+		t.Fatal(err)
+	}
+	sup, _ := fx.st.LastKeys(ctx, "s1")
+	att, _ := fx.st.LastKeys(ctx, "a1")
+	fx.options.Now = func() time.Time { return time.Now().Add(time.Hour) }
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "last press", q, `action="/supervisor/keys" data-fetch><input type="hidden" name="csrf" value="`+token+`"><input type="hidden" name="revision" value="7"><input type="hidden" name="after" value="`+strconv.FormatInt(sup, 10)+`">`, `action="/attempt/a1/keys" data-fetch><input type="hidden" name="csrf" value="`+token+`"><input type="hidden" name="revision" value="7"><input type="hidden" name="after" value="`+strconv.FormatInt(att, 10)+`">`)
 }

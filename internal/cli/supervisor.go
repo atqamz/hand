@@ -538,6 +538,7 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	fs := flags("supervisor keys")
 	revision := fs.Int64("revision", -1, "content revision printed by `hand supervisor show`")
 	screen := fs.String("screen", "", "digest of the screen the keys answer; lets a press survive a countdown tick")
+	after := fs.Int64("after", -1, "seq of the last key press the screen showed; refuses when someone pressed since")
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("supervisor keys: %v", err)}
 	}
@@ -553,6 +554,9 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
+			return err
+		}
+		if err := pressedSince(ctx, st, state.SupervisorRef(sup.ID), *after); err != nil {
 			return err
 		}
 		if err := pressKeys(ctx, c, sup.PaneID, sup.TerminalID, keys, *revision, *screen); err != nil {
@@ -953,13 +957,27 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	return 1, "", st.AdvanceWakeCursor(ctx, sup.ID, last)
 }
 
+func pressedSince(ctx context.Context, st *state.Store, ref string, after int64) error {
+	if after < 0 {
+		return nil
+	}
+	seq, err := st.LastKeys(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if seq > after {
+		return fmt.Errorf("%w: a key was pressed on %s after this screen was read; nothing was sent; read it again", state.ErrConflict, ref)
+	}
+	return nil
+}
+
 func pressKeys(ctx context.Context, c luvus.Client, pane, terminal string, keys []string, revision int64, digest string) error {
 	err := c.Keys(ctx, pane, keys, revision, terminal)
 	if digest == "" || luvus.Code(err) != "content_revision_conflict" {
 		return err
 	}
 	s, rerr := c.Read(ctx, pane, luvus.ScreenLines)
-	if rerr != nil || s.TerminalID != terminal || luvus.ScreenDigest(s.Text) != digest {
+	if rerr != nil || s.TerminalID != terminal || !luvus.Counting(s.Text) || luvus.ScreenDigest(s.Text) != digest {
 		return err
 	}
 	return c.Keys(ctx, pane, keys, s.ContentRevision, terminal)

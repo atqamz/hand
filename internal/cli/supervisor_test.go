@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -945,4 +946,36 @@ func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
+
+func TestSupervisorKeysRetryOnlyDuringACountdown(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	still := "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 8, still })
+	if _, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(still), "2"); code != 3 || !strings.Contains(errOut, "the screen changed") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys = %q", got)
+	}
+}
+
+func TestSupervisorKeysRefuseAfterANewerPress(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.revision, rt.screen = "blocked", 7, promptEarly })
+	h.ok("supervisor", "keys", "--revision", "7", "--after", "0", "1")
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys"}, 10)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("keys events = %+v, %v", events, err)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 9, promptLate })
+	if _, errOut, code := h.run("supervisor", "keys", "--revision", "7", "--screen", luvus.ScreenDigest(promptEarly), "--after", "0", "2"); code != 3 || !strings.Contains(errOut, "a key was pressed on s1 after this screen was read") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("keys = %q", got)
+	}
+	has(t, "fresh", h.ok("supervisor", "keys", "--revision", "9", "--after", strconv.FormatInt(events[0].Seq, 10), "2"), "keys: 2")
 }

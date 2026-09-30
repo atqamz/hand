@@ -102,6 +102,12 @@ func (s *Store) AttemptSignals(ctx context.Context) (map[int64]Event, error) {
 	return out, nil
 }
 
+func (s *Store) LastKeys(ctx context.Context, ref string) (int64, error) {
+	var seq int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM event WHERE kind IN ('attempt.keys', 'supervisor.keys') AND detail LIKE ?`, ref+": %").Scan(&seq)
+	return seq, err
+}
+
 func (s *Store) lastAttemptEvent(ctx context.Context, attemptID int64) (Event, bool, error) {
 	ref := AttemptRef(attemptID)
 	var e Event

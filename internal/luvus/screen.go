@@ -26,6 +26,8 @@ func ScreenDigest(text string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+func Counting(text string) bool { return countdown.MatchString(text) }
+
 func rule(line string) bool {
 	t := strings.TrimSpace(line)
 	return len([]rune(t)) >= 10 && strings.Trim(t, "─━") == ""

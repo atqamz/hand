@@ -230,6 +230,8 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"2"}}, []string{"attempt", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "a1", "2"}, "/"},
 		{"/supervisor/force", nil, []string{"supervisor", "force"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"4"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--after", "4", "enter"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"-1"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "enter"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"not-a-digest"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"supervisor", "send", "--text", "hi"}, "/"},
