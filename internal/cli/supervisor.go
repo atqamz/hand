@@ -802,7 +802,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			}
 			return "luvus refused the message: " + err.Error(), nil
 		}
-		if err := st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+		if err := st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
 			return "", err
 		}
 	}
@@ -946,7 +946,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 			}
 			return i, "", err
 		}
-		if err := st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+		if err := st.DeliverSupervisorInput(ctx, in.ID, true); err != nil {
 			return i, "", err
 		}
 	}

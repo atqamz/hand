@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -231,7 +232,8 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 }
 
 type working struct {
-	Ref, Since, Label, On, From, FromLabel string
+	Ref, Since, Label, On, From, FromLabel, Last, LastLabel string
+	Input                                                   int64
 }
 
 func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, error) {
@@ -242,12 +244,13 @@ func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, err
 	}
 	if ok && !parse(e.At).Before(parse(sup.CreatedAt)) {
 		w.Since, w.On = e.At, "on a wake"
-		if id, err := strconv.ParseInt(strings.TrimPrefix(e.Detail, "i"), 10, 64); err == nil && strings.HasPrefix(e.Detail, "i") {
+		ref, _, _ := strings.Cut(e.Detail, ": ")
+		if id, err := strconv.ParseInt(strings.TrimPrefix(ref, "i"), 10, 64); err == nil && strings.HasPrefix(ref, "i") {
 			in, err := b.st.SupervisorInput(ctx, id)
 			if err != nil {
 				return w, err
 			}
-			w.On, w.From, w.FromLabel = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04")
+			w.On, w.From, w.FromLabel, w.Input = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04"), in.ID
 		}
 	}
 	w.Label = elapsed(time.Since(parse(w.Since)))
@@ -354,6 +357,12 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		if err != nil {
 			return err
 		}
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].Role == "supervisor" {
+				w.Last, w.LastLabel = entries[i].At, elapsed(time.Since(parse(entries[i].At)))
+				break
+			}
+		}
 		data["Working"] = w
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
@@ -364,11 +373,15 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	sent := map[string]string{}
+	sent := map[string]state.SupervisorInput{}
 	for _, in := range delivered {
 		if _, ok := sent[strings.TrimSpace(in.Body)]; !ok {
-			sent[strings.TrimSpace(in.Body)] = in.DeliveredAt
+			sent[strings.TrimSpace(in.Body)] = in
 		}
+	}
+	models := map[string]string{}
+	for _, s := range sups {
+		models[state.SupervisorRef(s.ID)] = strings.TrimSpace(cmp.Or(s.Model, s.Harness) + " " + s.Effort)
 	}
 	all := make([]chatItem, 0, len(entries)+len(pending))
 	no := 0
@@ -378,8 +391,11 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		}
 		no++
 		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
-		if e.Role == "operator" {
-			d.Delivered = sent[strings.TrimSpace(e.Text)]
+		if in, ok := sent[strings.TrimSpace(e.Text)]; ok && e.Role == "operator" {
+			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
+			if in.Typed {
+				d.Delivery = "typed anyway"
+			}
 		}
 		all = append(all, d)
 	}
@@ -389,8 +405,18 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	}
 	all = append(all, lines...)
 	slices.SortStableFunc(all, func(x, y chatItem) int { return parse(x.At).Compare(parse(y.At)) })
+	last := ""
+	for i := range all {
+		if all[i].Role == "supervisor" {
+			if all[i].Ref != last {
+				all[i].Model = models[all[i].Ref]
+			}
+			last = all[i].Ref
+		}
+	}
+	all = groupWakes(all)
 	for _, in := range pending {
-		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
+		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
 	}
 	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
@@ -399,6 +425,11 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	start := max(0, end-pageSize)
 	page := slices.Clone(all[start:end])
 	slices.Reverse(page)
+	for i := 0; i+1 < len(page); i++ {
+		if day := parse(page[i].At).Local(); day.Format(time.DateOnly) != parse(page[i+1].At).Local().Format(time.DateOnly) {
+			page[i].Day = day.Format("Mon 2 Jan")
+		}
+	}
 	data["Entries"], data["Older"] = page, start
 	return nil
 }
@@ -448,9 +479,30 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 
 type chatItem struct {
 	transcript.Entry
-	No        int
-	Ref       string
-	Delivered string
+	No                  int
+	Ref, Model, Day     string
+	Delivered, Delivery string
+	Input               int64
+	Wakes               []chatItem
+}
+
+func groupWakes(all []chatItem) []chatItem {
+	wake := func(d chatItem) bool { return d.Role == "hand" && strings.HasPrefix(d.Text, "wake:") }
+	out := make([]chatItem, 0, len(all))
+	for i := 0; i < len(all); {
+		j := i
+		for j < len(all) && wake(all[j]) {
+			j++
+		}
+		if j-i < 2 {
+			out = append(out, all[i])
+			i++
+			continue
+		}
+		out = append(out, chatItem{Entry: transcript.Entry{Role: "wakes", At: all[j-1].At}, No: all[j-1].No, Wakes: slices.Clone(all[i:j])})
+		i = j
+	}
+	return out
 }
 
 func refAt(sups []state.Supervisor, at string) string {

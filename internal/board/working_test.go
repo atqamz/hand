@@ -11,16 +11,16 @@ func TestTheWorkingRowNamesWhatItWorksOn(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := fx.handler()
-	contains(t, "fresh", region(get(t, h, "/"), "timeline"), "data-working", "s1 is working", "data-since", "since it started")
+	contains(t, "fresh", region(get(t, h, "/"), "timeline"), "data-working", "s1 working", "data-since", "since it started")
 	ctx := context.Background()
 	in, err := fx.st.AddSupervisorInput(ctx, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+	if err := fx.st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "message", region(get(t, h, "/"), "timeline"), "on your message from", "data-clock")
+	contains(t, "message", region(get(t, h, "/"), "timeline"), `on your <a href="#msg-i1">`, "data-clock")
 	seq, err := fx.st.LastEventSeq(ctx)
 	if err != nil {
 		t.Fatal(err)

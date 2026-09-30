@@ -352,7 +352,7 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", ">Queued<", `class="timeline"`)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", ">queued<", `class="timeline"`)
 	lacks(t, "log", body, "#end")
 	if !(strings.Index(body, "second queued") < strings.Index(body, "first queued") && strings.Index(body, "first queued") < strings.Index(body, "Hi, operator.")) {
 		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
@@ -497,7 +497,7 @@ func TestDeliveredMessagesShowTheirTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+	if err := fx.st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	claudeLog(t, fx, []string{userRecord("ship it")})

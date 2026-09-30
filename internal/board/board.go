@@ -45,6 +45,8 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"upper":    strings.ToUpper,
 	"when":     when,
 	"chips":    chips,
+	"tabonce":  tabOnce,
+	"hm":       func(at string) string { return parse(at).UTC().Format("15:04") },
 	"tint":     tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
@@ -55,6 +57,18 @@ const (
 	cookieName = "hand_board"
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
+
+var refAnchor = regexp.MustCompile(`<a class="ref" `)
+
+func tabOnce(h template.HTML) template.HTML {
+	n := 0
+	return template.HTML(refAnchor.ReplaceAllStringFunc(string(h), func(m string) string {
+		if n++; n == 1 {
+			return m
+		}
+		return `<a class="ref" tabindex="-1" `
+	}))
+}
 
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 

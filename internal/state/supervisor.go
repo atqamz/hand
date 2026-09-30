@@ -48,6 +48,7 @@ type SupervisorInput struct {
 	Body        string
 	CreatedAt   string
 	DeliveredAt string
+	Typed       bool
 }
 
 func SupervisorRef(id int64) string { return "s" + strconv.FormatInt(id, 10) }
@@ -332,11 +333,11 @@ func (s *Store) NoteSupervisor(ctx context.Context, id int64, kind, detail strin
 }
 
 func (s *Store) DeliveredSupervisorInputs(ctx context.Context, limit int) ([]SupervisorInput, error) {
-	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`, limit)
+	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at, EXISTS(SELECT 1 FROM event WHERE kind = 'supervisor.delivered' AND detail = 'i' || supervisor_input.id || ': typed') FROM supervisor_input WHERE delivered_at != '' ORDER BY id DESC LIMIT ?`, limit)
 }
 
 func (s *Store) PendingSupervisorInputs(ctx context.Context) ([]SupervisorInput, error) {
-	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
+	return s.inputs(ctx, `SELECT id, body, created_at, delivered_at, 0 FROM supervisor_input WHERE delivered_at = '' ORDER BY id`)
 }
 
 func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]SupervisorInput, error) {
@@ -348,7 +349,7 @@ func (s *Store) inputs(ctx context.Context, q string, args ...any) ([]Supervisor
 	var out []SupervisorInput
 	for rows.Next() {
 		var in SupervisorInput
-		if err := rows.Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt); err != nil {
+		if err := rows.Scan(&in.ID, &in.Body, &in.CreatedAt, &in.DeliveredAt, &in.Typed); err != nil {
 			return nil, err
 		}
 		out = append(out, in)
@@ -365,7 +366,7 @@ func (s *Store) SupervisorInput(ctx context.Context, id int64) (SupervisorInput,
 	return in, err
 }
 
-func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64) error {
+func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64, typed bool) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		now := s.stamp()
 		res, err := tx.Exec(`UPDATE supervisor_input SET delivered_at = ? WHERE id = ? AND delivered_at = ''`, now, inputID)
@@ -377,7 +378,11 @@ func (s *Store) DeliverSupervisorInput(ctx context.Context, inputID int64) error
 		} else if n == 0 {
 			return fmt.Errorf("%w: input %s is already delivered or does not exist", ErrConflict, inputRef(inputID))
 		}
-		return emit(tx, now, "supervisor.delivered", 0, inputRef(inputID))
+		detail := inputRef(inputID)
+		if typed {
+			detail += ": typed"
+		}
+		return emit(tx, now, "supervisor.delivered", 0, detail)
 	})
 }
 

@@ -195,8 +195,8 @@ func TestLatestEventAndInput(t *testing.T) {
 	}
 	a, _ := s.AddSupervisorInput(ctx, "first")
 	b, _ := s.AddSupervisorInput(ctx, "second")
-	_ = s.DeliverSupervisorInput(ctx, a.ID)
-	_ = s.DeliverSupervisorInput(ctx, b.ID)
+	_ = s.DeliverSupervisorInput(ctx, a.ID, false)
+	_ = s.DeliverSupervisorInput(ctx, b.ID, false)
 	e, ok, err := s.LatestEvent(ctx, "supervisor.delivered")
 	if err != nil || !ok || e.Detail != "i2" {
 		t.Fatalf("latest = %+v, %v, %v", e, ok, err)
@@ -249,5 +249,32 @@ func TestAttemptSignalsNameEachLiveAttemptsLatestEvent(t *testing.T) {
 	}
 	if signals, err = s.AttemptSignals(ctx); err != nil || len(signals) != 0 {
 		t.Fatalf("after the attempt ended: %+v, %v", signals, err)
+	}
+}
+
+func TestTypedDeliveriesAreMarked(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	a, err := s.AddSupervisorInput(ctx, "plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.AddSupervisorInput(ctx, "forced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeliverSupervisorInput(ctx, a.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeliverSupervisorInput(ctx, b.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.DeliveredSupervisorInputs(ctx, 10)
+	if err != nil || len(got) != 2 || !got[0].Typed || got[1].Typed {
+		t.Fatalf("delivered = %+v, %v", got, err)
+	}
+	e, ok, err := s.LatestEvent(ctx, "supervisor.delivered")
+	if err != nil || !ok || e.Detail != "i2: typed" {
+		t.Fatalf("latest delivery = %+v %v %v", e, ok, err)
 	}
 }

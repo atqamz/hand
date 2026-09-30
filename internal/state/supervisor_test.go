@@ -81,13 +81,13 @@ func TestSupervisorInputsQueueAndDeliverOnce(t *testing.T) {
 	if err != nil || len(pending) != 2 || pending[0].ID != a.ID || pending[1].Body != "second" {
 		t.Fatalf("pending = %+v, %v", pending, err)
 	}
-	if err := s.DeliverSupervisorInput(ctx, a.ID); err != nil {
+	if err := s.DeliverSupervisorInput(ctx, a.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if pending, _ := s.PendingSupervisorInputs(ctx); len(pending) != 1 || pending[0].ID != b.ID {
 		t.Fatalf("pending after one delivery = %+v", pending)
 	}
-	if err := s.DeliverSupervisorInput(ctx, a.ID); !errors.Is(err, ErrConflict) {
+	if err := s.DeliverSupervisorInput(ctx, a.ID, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("second delivery = %v", err)
 	}
 	if _, err := s.AddSupervisorInput(ctx, ""); err == nil {
@@ -119,7 +119,7 @@ func TestSupervisorEventsAreRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	in, _ := s.AddSupervisorInput(ctx, "hello")
-	_ = s.DeliverSupervisorInput(ctx, in.ID)
+	_ = s.DeliverSupervisorInput(ctx, in.ID, false)
 	_, _ = s.EndSupervisor(ctx, sup.ID, AttemptInterrupted, "restart")
 	events, err := s.RecentEvents(ctx, 10)
 	if err != nil {
