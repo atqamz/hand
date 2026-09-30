@@ -797,6 +797,16 @@ func cmdSupervisorForce(r *runner, args []string) error {
 }
 
 func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) (int, string, error) {
+	unlock, _, err := r.supervisorLock(true)
+	if err != nil {
+		return 0, "", err
+	}
+	locked := true
+	defer func() {
+		if locked {
+			unlock()
+		}
+	}()
 	sup, err := runningSupervisor(ctx, st)
 	if err != nil {
 		return 0, "", err
@@ -812,17 +822,14 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 		return 0, "", runtimeErr(err)
 	}
 	if ag.Status != "blocked" {
+		unlock()
+		locked = false
 		why, err := r.deliver(ctx, st, c, caps, true)
 		if why == "" {
 			why = "the supervisor is " + ag.Status + ", so Hand delivered normally"
 		}
 		return 0, why, err
 	}
-	unlock, _, err := r.supervisorLock(true)
-	if err != nil {
-		return 0, "", err
-	}
-	defer unlock()
 	pending, err := st.PendingSupervisorInputs(ctx)
 	if err != nil {
 		return 0, "", err
