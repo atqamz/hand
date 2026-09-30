@@ -113,7 +113,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 }
 
 func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec) error {
-	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+	if _, err := supervisorBin(r, spec); err != nil {
 		return err
 	}
 	unlock, _, err := r.supervisorLock(true)
@@ -130,8 +130,12 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	if err != nil {
 		return runtimeErr(err)
 	}
-	if ag.Status == "working" {
+	switch ag.Status {
+	case "idle", "done":
+	case "working":
 		return fmt.Errorf("%w: %s is working; switch harness when its turn ends, or interrupt it first", state.ErrConflict, ref)
+	default:
+		return fmt.Errorf("%w: %s is %s; answer its screen or wait until it is idle, then switch harness", state.ErrConflict, ref, ag.Status)
 	}
 	if rootAlive(sup.PID, sup.StartMarker) {
 		if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
@@ -143,7 +147,7 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	}
 	next, err := r.startSupervisor(ctx, st, c, sup, spec, "You replace "+ref+", which ran on "+sup.Harness+"; `"+r.env.command()+" orient` has the fleet's state.")
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; %s stopped, continue it with `%s supervisor resume`", err, ref, r.env.command())
 	}
 	return r.reportLaunch(c, next, true)
 }

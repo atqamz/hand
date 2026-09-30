@@ -927,3 +927,22 @@ func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
 		t.Fatalf("digest = %q, want %q", digest, want)
 	}
 }
+
+func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	if err := os.Remove(filepath.Join(h.vars["PATH"], "codex")); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "codex") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+	rt.set(func(rt *fakeRuntime) { rt.status = "blocked" })
+	if _, errOut, code := h.run("supervisor", "switch", "--harness", "opencode"); code != 3 || !strings.Contains(errOut, "s1 is blocked") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
