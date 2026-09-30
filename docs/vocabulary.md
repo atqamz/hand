@@ -64,7 +64,7 @@ Any folder that holds `hand.db`, which `hand init` creates. Commands find the fl
 2. the working directory or the nearest folder above it that holds `hand.db`;
 3. `$HAND_HOME`.
 
-A `HAND_HOME` that names another fleet is refused while you are inside one. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, `mv` its folder and run `hand init` in the new place. A copy of a fleet home is refused until one of the two copies is deleted.
+A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, `mv` its folder and run `hand init` in the new place. A copy of a fleet home is refused until one of the two copies is deleted.
 
 A fleet home holds:
 
