@@ -43,7 +43,12 @@ type fakeRuntime struct {
 	sent        []string
 	keyed       []string
 	screen      string
+	screens     []string
+	afterScreen string
+	afterStall  time.Duration
+	stall       time.Duration
 	readFail    string
+	keysFail    string
 	afterKeys   string
 	explainFail string
 	closeDelay  time.Duration
@@ -239,6 +244,10 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 
 func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
+	stall := rt.stall
+	rt.mu.Unlock()
+	time.Sleep(stall)
+	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.readFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
@@ -246,6 +255,9 @@ func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	text := "Do you want to proceed?\n❯ 1. Yes"
 	if rt.screen != "" {
 		text = rt.screen
+	}
+	if len(rt.screens) > 0 {
+		text, rt.screens = rt.screens[0], rt.screens[1:]
 	}
 	return map[string]any{"text": text, "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 }
@@ -260,6 +272,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if rt.keysFail != "" {
+		return nil, fakeuhp.Fail{Code: rt.keysFail, Message: "keys failed"}
+	}
 	if p.Revision != rt.revision {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}
@@ -267,6 +282,10 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	if rt.afterKeys != "" {
 		rt.status = rt.afterKeys
 	}
+	if rt.afterScreen != "" {
+		rt.screen = rt.afterScreen
+	}
+	rt.stall = rt.afterStall
 	return map[string]any{"type": "ok"}, nil
 }
 
@@ -364,6 +383,10 @@ func fakeBin(t *testing.T) string {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	agy := "#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; exit 0; fi\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(agy), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	return dir
 }

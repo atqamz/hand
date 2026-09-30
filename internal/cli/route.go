@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -31,20 +32,24 @@ func cmdRouteList(r *runner, args []string) error {
 	for _, name := range p.Names() {
 		s := p.Profiles[name]
 		valid := "yes"
-		if err := harness.Validate(s, harness.CodexHome(r.env.Getenv)); err != nil {
+		if err := harness.Validate(s, harness.EnvOf(r.env.Getenv)); err != nil {
 			valid = err.Error()
 		}
 		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid})
 	}
 	var models [][]string
 	for _, name := range state.Harnesses {
-		list, err := harness.Models(name, harness.CodexHome(r.env.Getenv))
+		list, err := harness.Models(name, harness.EnvOf(r.env.Getenv))
 		if err != nil {
 			models = append(models, []string{name, "", "unavailable: " + err.Error()})
 			continue
 		}
 		for _, m := range list {
-			models = append(models, []string{name, m.Name, strings.Join(m.Efforts, " ")})
+			efforts := strings.Join(m.Efforts, " ")
+			if !slices.Contains(state.SupervisorHarnesses, name) {
+				efforts = "worker only"
+			}
+			models = append(models, []string{name, m.Name, efforts})
 		}
 	}
 	var d toon.Doc

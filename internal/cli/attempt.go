@@ -32,7 +32,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude, codex or opencode")
+	name := fs.String("harness", "", "claude, codex, opencode or agy")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -57,7 +57,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := harness.Validate(spec, harness.CodexHome(r.env.Getenv)); err != nil {
+	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return err
 	}
 	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
@@ -128,6 +128,21 @@ func cmdAttemptStart(r *runner, args []string) error {
 				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
 			}
 		}
+		if running.Harness == "agy" {
+			trust, note := acceptTrust(r.ctx(), c, running.PaneID, running.TerminalID, running.Worktree)
+			if trust == "accepted" {
+				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
+					return err
+				}
+			}
+			d.Field("trust", trust)
+			if note != "" {
+				if err := st.NoteAttempt(ctx, running.ID, "blocked", note); err != nil {
+					return err
+				}
+				help = append(help, "Read the screen: `hand attempt read "+ref+"`")
+			}
+		}
 		d.Help(help...)
 		return r.print(&d)
 	})
@@ -155,6 +170,8 @@ const (
 	submitConfirm = 5 * time.Second
 	submitTries   = 3
 )
+
+var trustWait, trustConfirm = 15 * time.Second, 5 * time.Second
 
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
@@ -186,6 +203,80 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		}
 	}
 	return sent, false
+}
+
+const (
+	trustQuestion  = "Do you trust the contents of this project?"
+	trustCursor    = "> Yes, I trust this folder"
+	trustUnpressed = "agy trust screen was not pressed; check the screen"
+)
+
+func acceptTrust(ctx context.Context, c luvus.Client, pane, terminalID, worktree string) (trust, note string) {
+	wait, cancel := context.WithTimeout(ctx, trustWait)
+	defer cancel()
+	tick := time.NewTicker(250 * time.Millisecond)
+	defer tick.Stop()
+	own := "Accessing workspace:" + worktree + trustQuestion
+	seen := false
+	for retried := false; ; {
+		s, err := c.Read(wait, pane, 60)
+		asked := err == nil && strings.Contains(s.Text, trustQuestion)
+		seen = seen || asked
+		switch {
+		case luvus.Code(err) != "":
+			return missed(seen)
+		case asked && strings.Contains(s.Text, trustCursor):
+			if !strings.Contains(unwrap(s.Text), own) {
+				return "not pressed", "agy asks to trust a folder that is not its worktree; check the screen"
+			}
+			err := c.Keys(wait, pane, []string{"enter"}, s.ContentRevision, terminalID)
+			switch {
+			case err == nil && trustCleared(ctx, c, pane, tick.C):
+				return "accepted", ""
+			case err == nil:
+				return "accepted", "agy trust screen did not clear; check the screen"
+			case luvus.Code(err) != "content_revision_conflict" || retried:
+				return "not pressed", trustUnpressed
+			}
+			retried = true
+			continue
+		}
+		select {
+		case <-wait.Done():
+			return missed(seen)
+		case <-tick.C:
+		}
+	}
+}
+
+func missed(seen bool) (trust, note string) {
+	if seen {
+		return "not pressed", trustUnpressed
+	}
+	return "not asked", ""
+}
+
+func trustCleared(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {
+	ctx, cancel := context.WithTimeout(ctx, trustConfirm)
+	defer cancel()
+	for {
+		if s, err := c.Read(ctx, pane, 60); err == nil && !strings.Contains(s.Text, trustQuestion) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-tick:
+		}
+	}
+}
+
+func unwrap(screen string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(screen, "\n") {
+		b.WriteString(strings.TrimSpace(line))
+	}
+	return b.String()
 }
 
 func idle(ctx context.Context, c luvus.Client, pane string) bool {

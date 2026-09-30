@@ -76,8 +76,8 @@ func getSupervisor(tx *sql.Tx, id int64) (Supervisor, error) {
 }
 
 func (s *Store) AddSupervisor(ctx context.Context, spec SupervisorSpec) (Supervisor, error) {
-	if !slices.Contains(Harnesses, spec.Harness) {
-		return Supervisor{}, fmt.Errorf("%w: harness %q must be one of %s", ErrInvalid, spec.Harness, strings.Join(Harnesses, ", "))
+	if err := CheckSupervisorHarness(spec.Harness); err != nil {
+		return Supervisor{}, err
 	}
 	if len(spec.Argv) == 0 {
 		return Supervisor{}, fmt.Errorf("%w: supervisor needs a launch command", ErrInvalid)

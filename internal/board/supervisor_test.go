@@ -548,8 +548,8 @@ func TestRefChipsCarryTheirTitle(t *testing.T) {
 
 func TestModelMenuListsModels(t *testing.T) {
 	fx := newFixture(t)
-	fx.options.CodexHome = t.TempDir()
-	if err := os.WriteFile(filepath.Join(fx.options.CodexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]}]}`), 0o644); err != nil {
+	fx.options.Harness.CodexHome = t.TempDir()
+	if err := os.WriteFile(filepath.Join(fx.options.Harness.CodexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fx.status = "idle"

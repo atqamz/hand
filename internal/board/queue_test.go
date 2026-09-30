@@ -494,6 +494,18 @@ func TestAWorkerThatMovedOnLeavesNeedsAndTasks(t *testing.T) {
 	lacks(t, "moved on", region(body, "tasks"), "BLOCKED")
 }
 
+func TestHandsOwnBlockedNoteStaysWhileThePaneIsIdle(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "idle"}
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "agy asks to trust a folder that is not its worktree; check the screen"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/")
+	contains(t, "idle", region(body, "queue"), `data-kind="worker"`)
+	contains(t, "idle", region(body, "tasks"), "blocked")
+}
+
 func TestKeyFormsCarryTheLastPress(t *testing.T) {
 	fx := newFixture(t)
 	fx.status = "blocked"

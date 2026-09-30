@@ -51,3 +51,13 @@ func TestRouteListPrintsModels(t *testing.T) {
 		}
 	}
 }
+
+func TestRouteListMarksAgyWorkerOnly(t *testing.T) {
+	h := newHarness(t)
+	h.vars["PATH"] = fakeBin(t)
+	h.ok("init")
+	list := h.ok("route", "list")
+	if !strings.Contains(list, "agy,gemini-3.8-flash-low,worker only") {
+		t.Fatalf("route list = %q", list)
+	}
+}
