@@ -153,7 +153,7 @@ func gauge(s transcript.Status) (string, string) {
 	text += " / " + short(s.Window) + " · " + strconv.Itoa(pct) + "%"
 	switch {
 	case pct >= 90:
-		return text + " COMPACT SOON", "flash"
+		return text + " COMPACT SOON", "fail"
 	case pct >= 80:
 		return text, "warn"
 	}
@@ -370,14 +370,14 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 			sent[strings.TrimSpace(in.Body)] = in.DeliveredAt
 		}
 	}
-	all := make([]dispatch, 0, len(entries)+len(pending))
+	all := make([]chatItem, 0, len(entries)+len(pending))
 	no := 0
 	for _, e := range entries {
 		if e.Role == "hand" && launched.MatchString(e.Text) {
 			continue
 		}
 		no++
-		d := dispatch{Entry: e, Ref: refAt(sups, e.At), No: no}
+		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
 		if e.Role == "operator" {
 			d.Delivered = sent[strings.TrimSpace(e.Text)]
 		}
@@ -388,9 +388,9 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		return err
 	}
 	all = append(all, lines...)
-	slices.SortStableFunc(all, func(x, y dispatch) int { return parse(x.At).Compare(parse(y.At)) })
+	slices.SortStableFunc(all, func(x, y chatItem) int { return parse(x.At).Compare(parse(y.At)) })
 	for _, in := range pending {
-		all = append(all, dispatch{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
+		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
 	}
 	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
@@ -409,7 +409,7 @@ const deliveredLookback = 50
 
 var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch"}
 
-func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
+func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
 	if err != nil {
 		return nil, err
@@ -422,7 +422,7 @@ func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
 	for _, s := range sups {
 		byRef[state.SupervisorRef(s.ID)] = s
 	}
-	out := make([]dispatch, 0, len(events))
+	out := make([]chatItem, 0, len(events))
 	for _, e := range events {
 		ref, detail, _ := strings.Cut(e.Detail, ": ")
 		text := ""
@@ -441,12 +441,12 @@ func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
 		default:
 			text = ref + " " + kind + ": " + detail
 		}
-		out = append(out, dispatch{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
+		out = append(out, chatItem{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
 	}
 	return out, nil
 }
 
-type dispatch struct {
+type chatItem struct {
 	transcript.Entry
 	No        int
 	Ref       string

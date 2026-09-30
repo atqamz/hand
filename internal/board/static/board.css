@@ -42,8 +42,7 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .masthead .quiet-button:hover{color:var(--fg)}
 .masthead-inner{padding:10px 16px;display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;min-width:0}
 .brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--fg)}
-.wire-name{color:var(--tint);font-size:22px;font-weight:800;line-height:28px;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wire-word{color:var(--muted);font-weight:600}
+.fleet-name{color:var(--tint);font-size:22px;font-weight:800;line-height:28px;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mark{width:22px;height:22px;color:var(--tint)}
 .masthead .fleet-id{border-color:transparent;background:none;color:var(--muted)}
 .strip{font-family:var(--mono);font-size:12px;line-height:20px;letter-spacing:.03em;text-transform:uppercase;color:var(--fg);min-width:0}
@@ -59,11 +58,11 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 @keyframes lamp{50%{opacity:.35}}
 .gauge{font-variant-numeric:tabular-nums}
 .gauge[data-level=warn]{color:var(--wait)}
-.gauge[data-level=flash]{color:var(--fail);font-weight:700}
+.gauge[data-level=fail]{color:var(--fail);font-weight:700}
 .clock{font-family:var(--mono);font-size:12px;letter-spacing:.03em;color:var(--muted);font-variant-numeric:tabular-nums}
 .slug{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-family:var(--mono);font-size:12px;font-weight:600;line-height:18px;letter-spacing:.03em;text-transform:uppercase;color:var(--muted)}
-.dispatch{padding:12px 0;border-top:1px solid var(--line)}
-.dispatch>.copy{margin-top:4px}
+.card{padding:12px 0;border-top:1px solid var(--line)}
+.card>.copy{margin-top:4px}
 @keyframes feed{from{transform:translateY(1.4em);opacity:0}}
 .timeline>[data-new]{animation:feed .28s cubic-bezier(.16,1,.3,1)}
 .spacer{flex:1}
@@ -85,8 +84,8 @@ textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{font-weight:800;color:var(--fg)}
-.code[data-code=FLASH],.code[data-code=URGENT],.code[data-code=BLOCKED]{color:var(--fail)}
-.code[data-code=BULLETIN]{color:var(--wait)}
+.code[data-tone=fail]{color:var(--fail)}
+.code[data-tone=wait]{color:var(--wait)}
 .wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 4px 14px}
 .question{white-space:pre-wrap;max-height:40vh;overflow-y:auto}
 .reason{color:var(--muted)}
@@ -117,16 +116,16 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .warn{color:var(--wait)}
 .timeline{display:flex;flex-direction:column-reverse;gap:0;min-height:12rem;max-height:65vh;overflow-y:auto;overscroll-behavior:contain;padding:2px;scrollbar-width:thin;scrollbar-gutter:stable both-edges}
 .timeline>*{flex:none}
-.timeline>.dispatch,.timeline>.service,.timeline>.working{border-top:1px solid var(--line)}
+.timeline>.card,.timeline>.hand-line,.timeline>.working{border-top:1px solid var(--line)}
 .timeline>:last-child{border-top:0}
-.dispatch .copy{font-size:15px;line-height:1.6}
-.dispatch .copy>:not(.table):not(pre){max-width:72ch}
-.dispatch .slug .no{font-variant-numeric:tabular-nums}
+.card .copy{font-size:15px;line-height:1.6}
+.card .copy>:not(.table):not(pre){max-width:72ch}
+
 .note{align-self:flex-end;width:fit-content;max-width:80%;margin-left:auto;padding-left:12px;border-left:1px solid var(--accent)}
 .note .slug,.note .slug .who{color:var(--accent)}
 .note .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
-.service{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding:6px 0;color:var(--muted);font-size:12px}
-.service-text{font-family:var(--mono);overflow-wrap:anywhere}
+.hand-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 12px;padding:6px 0;color:var(--muted);font-size:12px}
+.hand-text{font-family:var(--mono);overflow-wrap:anywhere}
 .working{padding:10px 0}
 .working-line{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .label{padding:0 7px;border:1px solid currentColor;border-radius:999px;color:var(--wait);font-size:12px;font-weight:600;line-height:18px}
@@ -204,7 +203,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .masthead{position:sticky;top:0;z-index:4}
 .masthead-inner{height:36px;padding:4px 12px;flex-wrap:nowrap;overflow:hidden}
 .masthead .fleet-id,.masthead .clock,#notify{display:none}
-.wire-name{font-size:16px;line-height:24px}
+.fleet-name{font-size:16px;line-height:24px}
 .masthead .strip{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
 .masthead .strip .status-line{flex-wrap:nowrap;white-space:nowrap}
 .masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -232,24 +231,23 @@ h3{margin:10px 0 0;font-size:14px;font-weight:600}
 form.inline{display:inline}
 .needs-here{display:grid;border-top:1px solid var(--line)}
 .need{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:9px 4px;border-bottom:1px solid var(--line)}
-.dispatch>header.slug .spacer{flex:1}
-.dispatch>header.slug .meta,.dispatch>header.slug .state{font-size:inherit}
-.dispatch.report[data-status=blocked] .state,.dispatch.report[data-status=failed] .state{color:var(--fail)}
+.card>header.slug .spacer{flex:1}
+.card>header.slug .meta,.card>header.slug .state{font-size:inherit}
+.card.report[data-status=blocked] .state,.card.report[data-status=failed] .state{color:var(--fail)}
 .events{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.events .service{border-bottom:1px solid var(--line)}
+.events .hand-line{border-bottom:1px solid var(--line)}
 .fleets{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .fleet{display:flex;align-items:baseline;gap:12px;padding:12px 4px;border-bottom:1px solid var(--line)}
-.fleet .wire-name{flex:1;min-width:0;color:var(--fg)}
-.fleet .wire-name:hover{color:var(--tint);text-decoration:none}
-.dispatch.error .copy{margin:6px 0 10px}
+.fleet .fleet-name{flex:1;min-width:0;color:var(--fg)}
+.fleet .fleet-name:hover{color:var(--tint);text-decoration:none}
+.card.error .copy{margin:6px 0 10px}
 .thread-title{font-size:22px;line-height:30px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
 .fleet .mark{align-self:center;color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
 .slug .status[data-state=running],.slug .status[data-state=passing]{color:var(--pass)}
 .slug .status[data-state=waiting]{color:var(--wait)}
 .slug .status[data-state=failing]{color:var(--fail)}
-.fleet .wire-word{color:var(--muted)}
-@media (max-height:599px) and (max-width:599px){.masthead .wire-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
+.fleet @media (max-height:599px) and (max-width:599px){.masthead .fleet-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
 form[data-busy] button{opacity:.6;cursor:progress}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
 button.chip{font:inherit;cursor:pointer}

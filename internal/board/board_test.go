@@ -32,7 +32,7 @@ func open(t *testing.T) *state.Store {
 
 func TestPagesNameTheFleet(t *testing.T) {
 	body := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, true).Body.String()
-	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, `<h1 class="wire-name">test <span class="wire-word">Wire</span></h1>`) {
+	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, `<h1 class="fleet-name">test</h1>`) {
 		t.Fatalf("index does not name the fleet:\n%s", body)
 	}
 }

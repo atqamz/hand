@@ -376,7 +376,7 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 	}
 }
 
-func TestTheWireDeskFinishFixes(t *testing.T) {
+func TestTheDeskFinishFixes(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
 		".masthead .quiet-button{color:var(--muted)}",
@@ -387,7 +387,7 @@ func TestTheWireDeskFinishFixes(t *testing.T) {
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
 		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-		"@media (max-height:599px) and (max-width:599px){.masthead .wire-name,",
+		"@media (max-height:599px) and (max-width:599px){.masthead .fleet-name,",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)

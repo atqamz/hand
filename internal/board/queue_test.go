@@ -108,7 +108,7 @@ func TestQueueOrdersWhatNeedsYou(t *testing.T) {
 	}
 	body := get(t, fx.handler(), "/")
 	kinds, refs, open := waits(body)
-	if !slices.Equal(kinds, []string{"blocked", "decision", "decision", "failure", "report"}) || !slices.Equal(refs, []string{"s2", "d1", "d2", "a1", "r1"}) {
+	if !slices.Equal(kinds, []string{"blocked", "failure", "decision", "decision", "report"}) || !slices.Equal(refs, []string{"s2", "a1", "d1", "d2", "r1"}) {
 		t.Fatalf("queue = %q %q:\n%s", kinds, refs, region(body, "queue"))
 	}
 	if !slices.Equal(open, []bool{true, false, false, false, false}) {
@@ -523,7 +523,7 @@ func TestBlockedWorkersComeBeforeQuietOnes(t *testing.T) {
 	if err := fx.st.NoteAttempt(ctx, blocked.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
 	}
-	if kinds, _, _ := waits(get(t, fx.handler(), "/")); len(kinds) < 2 || kinds[0] != "worker" || kinds[1] != "quiet" {
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Index(kinds, "worker") < 0 || slices.Index(kinds, "worker") > slices.Index(kinds, "quiet") {
 		t.Fatalf("kinds = %q", kinds)
 	}
 }

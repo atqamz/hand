@@ -12,22 +12,23 @@ func reply(text string) string {
 	return `{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"` + text + `"}]}}`
 }
 
-func TestTheWireNumbersDispatches(t *testing.T) {
+func TestChatKeepsOrderWithoutNumbers(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	claudeLog(t, fx, []string{userRecord("go"), reply("one"), reply("two"), reply("three")})
+	claudeLog(t, fx, []string{userRecord("go"), reply("first reply"), reply("second reply"), reply("third reply")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	three, two, one := strings.Index(tl, `<span class="no">NO. 4</span>`), strings.Index(tl, `<span class="no">NO. 3</span>`), strings.Index(tl, `<span class="no">NO. 2</span>`)
-	if one < 0 || two < 0 || three < 0 || !(three < two && two < one) {
-		t.Fatalf("dispatch numbers out of order (%d %d %d):\n%s", three, two, one, tl)
+	third, second, first := strings.Index(tl, "third reply"), strings.Index(tl, "second reply"), strings.Index(tl, "first reply")
+	if first < 0 || second < 0 || third < 0 || !(third < second && second < first) {
+		t.Fatalf("replies out of order (%d %d %d):\n%s", third, second, first, tl)
 	}
-	contains(t, "slug", tl, `<header class="slug"><span class="who">S1</span><span class="no">NO. 4</span>`)
+	contains(t, "slug", tl, `<header class="slug"><span class="who">S1</span>`)
+	lacks(t, "numbers", tl, "NO. ")
 	older := get(t, fx.handler(), "/supervisor/log?before=4")
-	contains(t, "paging", older, `<span class="no">NO. 3</span>`, `<span class="no">NO. 2</span>`)
-	lacks(t, "paging", older, `<span class="no">NO. 4</span>`)
+	contains(t, "paging", older, "second reply", "first reply")
+	lacks(t, "paging", older, "third reply")
 }
 
-func TestYourNotesAreInPencil(t *testing.T) {
+func TestYourNotesAreYours(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("please look")})
@@ -35,14 +36,14 @@ func TestYourNotesAreInPencil(t *testing.T) {
 		t.Fatal(err)
 	}
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "notes", tl, `<article class="dispatch note" data-role="operator"><header class="slug"><span class="who">YOU</span>`, "please look", `<span class="label">Queued</span>`, "later please")
+	contains(t, "notes", tl, `<article class="card note" data-role="operator"><header class="slug"><span class="who">YOU</span>`, "please look", `<span class="label">Queued</span>`, "later please")
 }
 
-func TestHandLinesAreServiceLines(t *testing.T) {
+func TestHandLinesAreOneLine(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ndecision.answered d1`)})
-	contains(t, "service", region(get(t, fx.handler(), "/"), "timeline"), `<p class="service" data-no="1"><span class="slug"><span class="who">HAND</span>`, `wake: decision.answered <a class="ref" href="/ref/d1">d1</a>`)
+	contains(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), `<p class="hand-line" data-no="1"><span class="slug"><span class="who">HAND</span>`, `wake: decision.answered <a class="ref" href="/ref/d1">d1</a>`)
 }
 
 func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {

@@ -64,16 +64,16 @@
 	const plain = icon?.getAttribute("href");
 	const icons = document.querySelector("[data-icon-working]")?.dataset;
 	const worst = () => regions.get("queue")?.querySelector("[data-worst]")?.dataset ?? {};
-	const urgent = () => ["blocked", "worker"].includes(worst().worst);
+	const blockedNow = () => ["blocked", "worker"].includes(worst().worst);
 	const title = () => {
 		const w = worst();
-		document.title = urgent() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
+		document.title = blockedNow() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
 		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
 		}
 		if (!icon || !icons) return;
-		const href = urgent() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
+		const href = blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
 		if (href && icon.getAttribute("href") !== href) icon.setAttribute("href", href);
 	};
 

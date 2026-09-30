@@ -17,7 +17,7 @@ func TestGaugeFormat(t *testing.T) {
 		{transcript.Status{Context: 1234567}, "CTX 1.23M", ""},
 		{transcript.Status{Context: 72479, Window: 258400}, "CTX 72.5K / 258K · 28%", ""},
 		{transcript.Status{Context: 210000, Window: 258400}, "CTX 210K / 258K · 81%", "warn"},
-		{transcript.Status{Context: 240000, Window: 258400}, "CTX 240K / 258K · 93% COMPACT SOON", "flash"},
+		{transcript.Status{Context: 240000, Window: 258400}, "CTX 240K / 258K · 93% COMPACT SOON", "fail"},
 		{transcript.Status{Context: 950}, "CTX 950", ""},
 	} {
 		if text, level := gauge(c.in); text != c.text || level != c.level {

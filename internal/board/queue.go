@@ -41,20 +41,25 @@ type waiting struct {
 	Cut              bool
 }
 
-var wireCodes = map[string][2]string{
-	"blocked":  {"FLASH", "BLOCKED"},
-	"decision": {"BULLETIN", "DECISION"},
-	"failure":  {"URGENT", "FAILED"},
-	"report":   {"ROUTINE", "REPORT"},
-	"resume":   {"SERVICE", "RESUME"},
-	"worker":   {"BLOCKED", "WORKER"},
-	"quiet":    {"QUIET", "WORKER"},
-	"nosup":    {"STOPPED", "SUPERVISOR"},
+var severity = map[string]struct {
+	rank       int
+	tone, word string
+}{
+	"blocked":  {0, "fail", "BLOCKED"},
+	"worker":   {1, "fail", "BLOCKED"},
+	"failure":  {2, "fail", "FAILED"},
+	"nosup":    {3, "fail", "NO SUPERVISOR"},
+	"resume":   {4, "fail", "INTERRUPTED"},
+	"decision": {5, "wait", "DECISION"},
+	"report":   {6, "neutral", "REPORT"},
+	"quiet":    {7, "neutral", "QUIET"},
 }
 
-func (w waiting) Code() string { return wireCodes[w.Kind][0] }
+func (w waiting) Rank() int { return severity[w.Kind].rank }
 
-func (w waiting) Word() string { return wireCodes[w.Kind][1] }
+func (w waiting) Tone() string { return severity[w.Kind].tone }
+
+func (w waiting) Word() string { return severity[w.Kind].word }
 
 func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
 	counts, err := b.st.CountTasks(ctx)
@@ -63,14 +68,10 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	}
 	var waits []waiting
 	total := 0
-	add := func(w waiting) bool {
+	add := func(w waiting) {
 		total++
-		if len(waits) >= maxWaits {
-			return false
-		}
 		w.Title = clip(w.Title, titleRunes)
 		waits = append(waits, w)
-		return true
 	}
 	sup, live := data["Sup"].(state.Supervisor)
 	if blocked, _ := data["Blocked"].(bool); blocked && live {
@@ -178,6 +179,8 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
+	slices.SortStableFunc(waits, func(x, y waiting) int { return x.Rank() - y.Rank() })
+	waits = waits[:min(len(waits), maxWaits)]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
 	data["Worst"], data["WorstText"] = "", ""
 	if len(waits) > 0 {

@@ -564,7 +564,7 @@ func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {
 	page := get(t, fx.handler(), "/")
 	contains(t, "console", region(page, "console"), `action="/supervisor/resume"`)
 	contains(t, "composer hint", page, "s1 stopped: ", "Resume continues its session")
-	contains(t, "tray", region(page, "queue"), `data-kind="resume"`)
+	contains(t, "needs", region(page, "queue"), `data-kind="resume"`)
 }
 
 func TestHeadersSurviveNonASCIIText(t *testing.T) {
