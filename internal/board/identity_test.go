@@ -83,55 +83,55 @@ func themes(t *testing.T) (light, dark string) {
 	return css[:start] + css[end:], css[start+len(marker) : end-1]
 }
 
+func rootTokens(t *testing.T, block string) map[string]string {
+	t.Helper()
+	root := block[strings.Index(block, ":root{"):]
+	root = root[:strings.IndexByte(root, '}')]
+	tokens := map[string]string{}
+	for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
+		tokens[m[1]] = m[2]
+	}
+	return tokens
+}
+
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	lightTokens := map[string]string{}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"muted", "bg"}, {"muted", "card"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
-		name, block := c.name, c.block
-		root := block[strings.Index(block, ":root{"):]
-		root = root[:strings.IndexByte(root, '}')]
-		tokens := map[string]string{}
-		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
-			tokens[m[1]] = m[2]
-		}
-		for _, fg := range []string{"fail", "wait", "pass", "neutral", "fg", "muted", "pencil", "flash"} {
-			for _, bg := range []string{"bg", "card"} {
-				if tokens[fg] == "" || tokens[bg] == "" {
-					t.Fatalf("%s theme lacks --%s or --%s", name, fg, bg)
-				}
-				if c := contrast(tokens[fg], tokens[bg]); c < 4.5 {
-					t.Errorf("%s: --%s on --%s = %.2f", name, fg, bg, c)
-				}
+		tokens := rootTokens(t, c.block)
+		for _, p := range pairs {
+			if tokens[p[0]] == "" || tokens[p[1]] == "" {
+				t.Fatalf("%s theme lacks --%s or --%s", c.name, p[0], p[1])
+			}
+			if r := contrast(tokens[p[0]], tokens[p[1]]); r < 4.5 {
+				t.Errorf("%s: --%s on --%s = %.2f", c.name, p[0], p[1], r)
 			}
 		}
-		for _, fg := range []string{"on-header", "on-header-muted", "h-pass", "h-wait", "h-flash", "h-lamp"} {
-			hex := tokens[fg]
-			if hex == "" {
-				hex = lightTokens[fg]
-			}
-			if hex == "" || tokens["header"] == "" {
-				t.Fatalf("%s theme lacks --%s or --header", name, fg)
-			}
-			if c := contrast(hex, tokens["header"]); c < 4.5 {
-				t.Errorf("%s: --%s on --header = %.2f", name, fg, c)
-			}
-		}
-		if name == "light" {
-			lightTokens = tokens
-		}
-		tints := tintToken.FindAllStringSubmatch(block, -1)
+		tints := tintToken.FindAllStringSubmatch(c.block, -1)
 		if len(tints) != 12 {
-			t.Fatalf("%s theme defines %d tints", name, len(tints))
+			t.Fatalf("%s theme defines %d tints", c.name, len(tints))
 		}
 		for _, m := range tints {
-			if c := contrast(m[2], tokens["header"]); c < 3 {
-				t.Errorf("%s: tint-%s on --header = %.2f", name, m[1], c)
+			if r := contrast(m[2], tokens["bg"]); r < 3 {
+				t.Errorf("%s: tint-%s on --bg = %.2f", c.name, m[1], r)
 			}
 		}
 	}
 }
 
-var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "bell", "chevron", "interrupt", "more"}
+func TestTypeHasFiveSteps(t *testing.T) {
+	css := asset(t, "board.css")
+	for _, m := range regexp.MustCompile(`font-size:([0-9.]+px)`).FindAllStringSubmatch(css, -1) {
+		switch m[1] {
+		case "22px", "16px", "15px", "14px", "12px":
+		default:
+			t.Errorf("board.css uses font-size %s", m[1])
+		}
+	}
+	contains(t, "live figures", css, ".live{font-variant-numeric:tabular-nums")
+}
+
+var iconNames = []string{"mark", "failure", "running", "passing", "idle", "waiting", "chevron", "interrupt", "more"}
 
 func TestIconsAreOwnInlineSVG(t *testing.T) {
 	src, err := os.ReadFile("templates/icons.html")
@@ -185,7 +185,7 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs you <span class="count n" data-waiting="1">1</span>`, `data-waiting="1"`)
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs <span class="count n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
 	for _, id := range []string{"needs", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
@@ -212,15 +212,27 @@ func TestTheAppShellNeedsHeight(t *testing.T) {
 	if !strings.Contains(css, "@media (min-height:600px){") || !strings.Contains(css, "@media (max-height:599px){") || !strings.Contains(css, "[data-shell]") {
 		t.Fatal("a short landscape phone gets neither the shell nor the flowing page, so the composer is cut off")
 	}
-	if strings.Contains(css, "min-width:900px") {
-		t.Fatal("the two-column desktop grid is back; the tabs show at every width")
-	}
 }
 
-func TestTabsShowAtEveryWidth(t *testing.T) {
+func TestNeedsIsARailAtDeskWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	if strings.Contains(css, ".tabs{display:none}") || !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:880px") {
-		t.Fatal("the tabs must show at every width, over panels up to 880px wide")
+	i := strings.Index(css, "@media (min-width:1280px){")
+	if i < 0 {
+		t.Fatal("board.css has no desk-width query")
+	}
+	desk := css[i:]
+	desk = desk[:strings.Index(desk, "}}")+2]
+	contains(t, "desk width", desk, "grid-template-columns:minmax(0,760px) minmax(360px,400px)", "#needs{grid-column:2;grid-row:1;", "overflow-y:auto", "#chat{grid-column:1;grid-row:1", ".tabs{display:none}")
+	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:1280px)")`)
+}
+
+func TestTabsBelowDeskWidth(t *testing.T) {
+	css := asset(t, "board.css")
+	if strings.Contains(css[:strings.Index(css, "@media (min-width:1280px){")], ".tabs{display:none}") {
+		t.Fatal("the tabs are hidden below desk width")
+	}
+	if !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:760px") {
+		t.Fatal("below desk width the tabbed panels are not held to the 760px column")
 	}
 }
 
@@ -260,8 +272,8 @@ func TestEverySlugStateHasItsColour(t *testing.T) {
 		}
 	}
 	for _, s := range []string{"ready", "working", "failing"} {
-		if !strings.Contains(css, ".lamp[data-state="+s+"]") {
-			t.Errorf("board.css has no colour for the %s lamp", s)
+		if !strings.Contains(css, ".pill[data-state="+s+"]") {
+			t.Errorf("board.css has no colour for the %s pill", s)
 		}
 	}
 }
@@ -283,9 +295,10 @@ func TestRepliesStyleTheirBlocks(t *testing.T) {
 func TestMotionHonoursReducedMotion(t *testing.T) {
 	css := asset(t, "board.css")
 	i := strings.Index(css, "@media (prefers-reduced-motion:reduce){")
-	if i < 0 || !strings.Contains(css[i:], ".printhead{animation:none}") || !strings.Contains(css[i:], ".lamp{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
-		t.Fatal("the print head, the lamp or the feed keeps moving under prefers-reduced-motion")
+	if i < 0 || !strings.Contains(css[i:], ".pill .icon{animation:none}") || !strings.Contains(css[i:], ".timeline>[data-new]{animation:none}") {
+		t.Fatal("the working pulse or the feed keeps moving under prefers-reduced-motion")
 	}
+	lacks(t, "motion", css, "printhead", "@keyframes carriage")
 }
 
 func TestTheFinishFixesHold(t *testing.T) {
@@ -317,40 +330,23 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
 }
 
-func TestTheWireDeskTokens(t *testing.T) {
+func TestTheOnCallPalette(t *testing.T) {
 	light, dark := themes(t)
-	token := func(block, name string) string {
-		root := block[strings.Index(block, ":root{"):]
-		root = root[:strings.IndexByte(root, '}')]
-		for _, m := range hexToken.FindAllStringSubmatch(root, -1) {
-			if m[1] == name {
-				return m[2]
-			}
+	want := map[string][2]string{
+		"bg": {"#fcfcfd", "#0d1117"}, "card": {"#f4f6f8", "#161b22"}, "fg": {"#1b1f24", "#e6ebf1"}, "muted": {"#59616c", "#9aa3ae"},
+		"line": {"#d5dbe2", "#2e353e"}, "hover": {"#eaeef2", "#1c232c"}, "fail": {"#c4262e", "#ff6a63"}, "wait": {"#8f5e00", "#e3a73b"},
+		"pass": {"#19793b", "#4fc46c"}, "neutral": {"#59616c", "#9aa3ae"}, "accent": {"#1d5fc2", "#6ea6ff"}, "fail-bg": {"#fdecec", "#3a1a1c"},
+		"wait-bg": {"#fcf3d9", "#352912"}, "pass-bg": {"#e3f5e8", "#15301d"}, "neutral-bg": {"#eceff3", "#20262e"}, "accent-bg": {"#e8f0fc", "#17263d"},
+		"screen": {"#11151a", "#07090c"}, "screen-fg": {"#d7dde4", "#d7dde4"}, "primary": {"#19793b", "#1f7f3e"}, "on-primary": {"#ffffff", "#ffffff"},
+	}
+	lt, dt := rootTokens(t, light), rootTokens(t, dark)
+	for name, v := range want {
+		if lt[name] != v[0] || dt[name] != v[1] {
+			t.Errorf("--%s = %q / %q, want %s / %s", name, lt[name], dt[name], v[0], v[1])
 		}
-		t.Fatalf("no --%s", name)
-		return ""
-	}
-	bg := token(light, "bg")
-	r, _ := strconv.ParseUint(bg[1:3], 16, 8)
-	g, _ := strconv.ParseUint(bg[3:5], 16, 8)
-	b, _ := strconv.ParseUint(bg[5:7], 16, 8)
-	if r < 0xe0 || g < 0xe0 || b > 0xb0 {
-		t.Errorf("the day desk ground %s is not canary copy", bg)
-	}
-	if l := luminance(token(dark, "bg")); l >= 0.02 {
-		t.Errorf("the night desk ground is not carbon: luminance %.3f", l)
 	}
 	css := asset(t, "board.css")
-	for _, sel := range []string{".slug{", ".strip{"} {
-		i := strings.Index(css, sel)
-		if i < 0 {
-			t.Fatalf("board.css has no %s rule", sel)
-		}
-		rule := css[i : i+strings.IndexByte(css[i:], '}')]
-		if !strings.Contains(rule, "font-family:var(--mono)") || !strings.Contains(rule, "text-transform:uppercase") {
-			t.Errorf("%s is not mono caps: %s", sel, rule)
-		}
-	}
+	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")
 	}
@@ -392,19 +388,17 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 	}
 }
 
-func TestTheWireDeskFinishFixes(t *testing.T) {
+func TestTheDeskFinishFixes(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
-		".masthead .quiet-button{color:var(--on-header-muted)}",
 		".working-line{display:flex;",
-		".printhead{flex:1;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"max-width:72ch",
-		".slug>*:not(:last-child)::after{",
+		".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
 		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-		"@media (max-height:599px) and (max-width:599px){.masthead .wire-name,",
+		"@media (max-height:599px) and (max-width:599px){.masthead .fleet-name,",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
@@ -429,8 +423,26 @@ func TestReceiptsDoNotLookLikeErrors(t *testing.T) {
 
 func TestTheSubmitterIsReadBeforeButtonsAreDisabled(t *testing.T) {
 	js := asset(t, "app.js")
+	js = js[strings.Index(js, `document.addEventListener("submit"`):]
 	read, disable := strings.Index(js, "new FormData(form, e.submitter)"), strings.Index(js, "b.disabled = true")
 	if read < 0 || disable < 0 || read > disable {
 		t.Fatal("app.js disables the buttons before it reads the pressed key, so the key never reaches the server")
+	}
+}
+
+func TestNotificationsReadTheFreshWorstItem(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "const heldWorst = (html) =>", "count(Number(m[1]), heldWorst(html))", "const notify = (n, text) =>")
+}
+
+func TestNoSidewaysScrollOnPhone(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "wrapping", css, ".copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}", "text-overflow:ellipsis}")
+	i := strings.Index(css, ".fleet-name{")
+	if i < 0 || !strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "text-overflow:ellipsis") {
+		t.Fatal("the fleet name does not truncate first")
+	}
+	if regexp.MustCompile(`(?:^|\n)(?:html|body)\{[^}]*[{;]width:`).MatchString(css) {
+		t.Fatal("html or body carries a fixed width")
 	}
 }

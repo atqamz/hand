@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -110,8 +111,8 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		if b.o.Transcript != nil {
 			b.conversation(ctx, sup, ok)
 			st := b.o.Transcript.Status(sup.Harness, sup.Session)
-			text, level := gauge(st)
-			data["Gauge"], data["Compactions"] = map[string]string{"Text": text, "Level": level}, st.Compactions
+			text, level, pct := gauge(st)
+			data["Gauge"], data["Compactions"] = map[string]any{"Text": text, "Level": level, "Pct": pct}, st.Compactions
 		}
 		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
@@ -127,7 +128,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 	}
 	label, _ := data["PillLabel"].(string)
-	data["Line"] = lineWord(label)
+	data["Line"] = strings.ToLower(lineWord(label))
 	return nil
 }
 
@@ -141,23 +142,23 @@ func lineWord(label string) string {
 	return strings.ToUpper(label)
 }
 
-func gauge(s transcript.Status) (string, string) {
+func gauge(s transcript.Status) (string, string, int) {
 	if s.Context <= 0 {
-		return "", ""
+		return "", "", 0
 	}
-	text := "CTX " + short(s.Context)
+	text := short(s.Context)
 	if s.Window <= 0 {
-		return text, ""
+		return text, "", 0
 	}
 	pct := int(math.Round(float64(s.Context) * 100 / float64(s.Window)))
-	text += " / " + short(s.Window) + " · " + strconv.Itoa(pct) + "%"
+	text += " / " + short(s.Window)
 	switch {
 	case pct >= 90:
-		return text + " COMPACT SOON", "flash"
+		return text + " · compact soon", "fail", pct
 	case pct >= 80:
-		return text, "warn"
+		return text, "warn", pct
 	}
-	return text, ""
+	return text, "", pct
 }
 
 func short(n int64) string {
@@ -215,13 +216,13 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	case sup.Status == state.AttemptLaunching:
 		return "none", ref + " is starting; your message waits."
 	case !sup.Live() && sup.Session != "":
-		return "none", ref + " stopped: " + sup.Reason + ". Resume continues its session and then delivers your message."
+		return "none", once(ref, "stopped", sup.Reason) + ". Resume continues its session and then delivers your message."
 	case sup.Status != state.AttemptRunning:
 		return "none", "No supervisor is running; your message waits until one starts."
 	case stale:
 		return "none", "Luvus restarted; your message waits until hand watch settles it."
 	case blocked:
-		return "blocked", ref + " is waiting on a screen in Needs you; your message waits too."
+		return "blocked", ref + " is waiting on a screen in Needs; your message waits too."
 	case sup.Switching():
 		return agent, ref + " switches to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn; your message waits for the new session."
 	case agent == "working":
@@ -231,7 +232,8 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 }
 
 type working struct {
-	Ref, Since, Label, On, From, FromLabel string
+	Ref, Since, Label, On, From, FromLabel, Last, LastLabel string
+	Input                                                   int64
 }
 
 func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, error) {
@@ -242,12 +244,13 @@ func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, err
 	}
 	if ok && !parse(e.At).Before(parse(sup.CreatedAt)) {
 		w.Since, w.On = e.At, "on a wake"
-		if id, err := strconv.ParseInt(strings.TrimPrefix(e.Detail, "i"), 10, 64); err == nil && strings.HasPrefix(e.Detail, "i") {
+		ref, _, _ := strings.Cut(e.Detail, ": ")
+		if id, err := strconv.ParseInt(strings.TrimPrefix(ref, "i"), 10, 64); err == nil && strings.HasPrefix(ref, "i") {
 			in, err := b.st.SupervisorInput(ctx, id)
 			if err != nil {
 				return w, err
 			}
-			w.On, w.From, w.FromLabel = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04")
+			w.On, w.From, w.FromLabel, w.Input = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04"), in.ID
 		}
 	}
 	w.Label = elapsed(time.Since(parse(w.Since)))
@@ -315,23 +318,20 @@ func (b *Board) models(name string) ([]harness.Model, []string) {
 	return models, efforts
 }
 
-func (b *Board) profiles() []string {
-	p, err := harness.LoadPolicy(b.o.Home)
-	if err != nil {
-		return nil
-	}
-	return p.Names()
-}
+type profile struct{ Name, Label string }
 
-func (b *Board) profilesFor(name string) []string {
+func (b *Board) profiles() []profile { return b.profilesFor("") }
+
+func (b *Board) profilesFor(name string) []profile {
 	p, err := harness.LoadPolicy(b.o.Home)
 	if err != nil {
 		return nil
 	}
-	var out []string
+	var out []profile
 	for _, n := range p.Names() {
-		if p.Profiles[n].Harness == name {
-			out = append(out, n)
+		s := p.Profiles[n]
+		if name == "" || s.Harness == name {
+			out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " ")})
 		}
 	}
 	return out
@@ -354,6 +354,12 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		if err != nil {
 			return err
 		}
+		for i := len(entries) - 1; i >= 0; i-- {
+			if entries[i].Role == "supervisor" {
+				w.Last, w.LastLabel = entries[i].At, elapsed(time.Since(parse(entries[i].At)))
+				break
+			}
+		}
 		data["Working"] = w
 	}
 	pending, err := b.st.PendingSupervisorInputs(ctx)
@@ -364,22 +370,29 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	sent := map[string]string{}
+	sent := map[string]state.SupervisorInput{}
 	for _, in := range delivered {
 		if _, ok := sent[strings.TrimSpace(in.Body)]; !ok {
-			sent[strings.TrimSpace(in.Body)] = in.DeliveredAt
+			sent[strings.TrimSpace(in.Body)] = in
 		}
 	}
-	all := make([]dispatch, 0, len(entries)+len(pending))
+	models := map[string]string{}
+	for _, s := range sups {
+		models[state.SupervisorRef(s.ID)] = strings.TrimSpace(cmp.Or(s.Model, s.Harness) + " " + s.Effort)
+	}
+	all := make([]chatItem, 0, len(entries)+len(pending))
 	no := 0
 	for _, e := range entries {
 		if e.Role == "hand" && launched.MatchString(e.Text) {
 			continue
 		}
 		no++
-		d := dispatch{Entry: e, Ref: refAt(sups, e.At), No: no}
-		if e.Role == "operator" {
-			d.Delivered = sent[strings.TrimSpace(e.Text)]
+		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
+		if in, ok := sent[strings.TrimSpace(e.Text)]; ok && e.Role == "operator" {
+			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
+			if in.Typed {
+				d.Delivery = "typed anyway"
+			}
 		}
 		all = append(all, d)
 	}
@@ -388,9 +401,19 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		return err
 	}
 	all = append(all, lines...)
-	slices.SortStableFunc(all, func(x, y dispatch) int { return parse(x.At).Compare(parse(y.At)) })
+	slices.SortStableFunc(all, func(x, y chatItem) int { return parse(x.At).Compare(parse(y.At)) })
+	last := ""
+	for i := range all {
+		if all[i].Role == "supervisor" {
+			if all[i].Ref != last {
+				all[i].Model = models[all[i].Ref]
+			}
+			last = all[i].Ref
+		}
+	}
+	all = groupWakes(all)
 	for _, in := range pending {
-		all = append(all, dispatch{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}})
+		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
 	}
 	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
@@ -399,6 +422,11 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	start := max(0, end-pageSize)
 	page := slices.Clone(all[start:end])
 	slices.Reverse(page)
+	for i := 0; i+1 < len(page); i++ {
+		if day := parse(page[i].At).Local(); day.Format(time.DateOnly) != parse(page[i+1].At).Local().Format(time.DateOnly) {
+			page[i].Day = day.Format("Mon 2 Jan")
+		}
+	}
 	data["Entries"], data["Older"] = page, start
 	return nil
 }
@@ -409,7 +437,7 @@ const deliveredLookback = 50
 
 var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch"}
 
-func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
+func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
 	if err != nil {
 		return nil, err
@@ -422,7 +450,7 @@ func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
 	for _, s := range sups {
 		byRef[state.SupervisorRef(s.ID)] = s
 	}
-	out := make([]dispatch, 0, len(events))
+	out := make([]chatItem, 0, len(events))
 	for _, e := range events {
 		ref, detail, _ := strings.Cut(e.Detail, ": ")
 		text := ""
@@ -439,18 +467,46 @@ func (b *Board) lifecycle(ctx context.Context) ([]dispatch, error) {
 				text = ref + " will switch " + detail + " after this turn"
 			}
 		default:
-			text = ref + " " + kind + ": " + detail
+			text = once(ref, kind, detail)
 		}
-		out = append(out, dispatch{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
+		out = append(out, chatItem{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
 	}
 	return out, nil
 }
 
-type dispatch struct {
+type chatItem struct {
 	transcript.Entry
-	No        int
-	Ref       string
-	Delivered string
+	No                  int
+	Ref, Model, Day     string
+	Delivered, Delivery string
+	Input               int64
+	Wakes               []chatItem
+}
+
+func once(ref, kind, detail string) string {
+	if strings.HasPrefix(detail, kind+" ") {
+		return ref + " " + detail
+	}
+	return ref + " " + kind + ": " + detail
+}
+
+func groupWakes(all []chatItem) []chatItem {
+	wake := func(d chatItem) bool { return d.Role == "hand" && strings.HasPrefix(d.Text, "wake:") }
+	out := make([]chatItem, 0, len(all))
+	for i := 0; i < len(all); {
+		j := i
+		for j < len(all) && wake(all[j]) {
+			j++
+		}
+		if j-i < 2 {
+			out = append(out, all[i])
+			i++
+			continue
+		}
+		out = append(out, chatItem{Entry: transcript.Entry{Role: "wakes", At: all[j-1].At}, No: all[j-1].No, Wakes: slices.Clone(all[i:j])})
+		i = j
+	}
+	return out
 }
 
 func refAt(sups []state.Supervisor, at string) string {

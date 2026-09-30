@@ -27,21 +27,13 @@
 	};
 
 	const local = (root) => {
-		for (const t of root.querySelectorAll("time[datetime]:not([data-since]):not([data-clock-now])")) {
+		for (const b of root.querySelectorAll("#notify")) b.hidden = !("Notification" in window) || Notification.permission !== "default";
+		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);
 			if (Number.isNaN(d.getTime())) continue;
-			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZoneName: "short" };
+			const clock = t.hasAttribute("data-clock") ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
 			t.textContent = d.toLocaleString([], clock);
 			t.title = d.toLocaleString();
-		}
-	};
-
-	const clock = () => {
-		const now = new Date();
-		for (const c of document.querySelectorAll("[data-clock-now]")) {
-			c.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-			c.title = now.toLocaleTimeString([], { timeZoneName: "long" });
-			c.dateTime = now.toISOString();
 		}
 	};
 
@@ -64,16 +56,17 @@
 	const plain = icon?.getAttribute("href");
 	const icons = document.querySelector("[data-icon-working]")?.dataset;
 	const worst = () => regions.get("queue")?.querySelector("[data-worst]")?.dataset ?? {};
-	const urgent = () => ["blocked", "worker"].includes(worst().worst);
+	const blockedNow = () => ["blocked", "worker"].includes(worst().worst);
 	const title = () => {
 		const w = worst();
-		document.title = urgent() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
+		document.title = blockedNow() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
 		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
+			n.dataset.worst = w.worst || "";
 		}
 		if (!icon || !icons) return;
-		const href = urgent() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
+		const href = blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
 		if (href && icon.getAttribute("href") !== href) icon.setAttribute("href", href);
 	};
 
@@ -94,17 +87,32 @@
 		title();
 	};
 
-	const notify = (n) => {
+	const notify = (n, text) => {
 		if (!("Notification" in window) || Notification.permission !== "granted" || document.visibilityState === "visible") return;
-		new Notification(fleet, { body: worst().worstText || `${n} waiting for you`, tag: base || fleet });
+		new Notification(fleet, { body: text || `${n} waiting for you`, tag: base || fleet });
 	};
 
-	const count = (n) => {
-		if (n > waiting) notify(n);
+	const heldWorst = (html) => new DOMParser().parseFromString(html, "text/html").querySelector("[data-worst]")?.dataset.worstText || "";
+	const count = (n, text = worst().worstText) => {
+		if (n > waiting) notify(n, text);
 		waiting = n;
 		title();
 	};
 
+	const sent = new Map();
+	const collapse = (item) => {
+		const s = item && sent.get(item.id);
+		if (!s) return;
+		if ((item.querySelector('input[name="screen"]')?.value || "") !== s.screen) {
+			sent.delete(item.id);
+			return;
+		}
+		item.dataset.sent = s.label;
+		const summary = item.querySelector("summary");
+		if (summary) summary.dataset.sent = s.label;
+		for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
+		item.open = false;
+	};
 	const apply = (name, html) => {
 		const el = regions.get(name);
 		if (!el) return;
@@ -112,7 +120,7 @@
 		if (typing(el)) {
 			held.set(name, html);
 			const m = name === "queue" && /data-waiting="(\d+)"/.exec(html);
-			if (m) count(Number(m[1]));
+			if (m) count(Number(m[1]), heldWorst(html));
 			return;
 		}
 		held.delete(name);
@@ -144,7 +152,14 @@
 		local(el);
 		since();
 		if (pinned) pin(el);
-		if (name === "queue") count(waitingNow());
+		if (name === "queue") {
+			for (const id of [...sent.keys()]) {
+				const item = document.getElementById(id);
+				if (item) collapse(item);
+				else sent.delete(id);
+			}
+			count(waitingNow());
+		}
 		if (name === "status") reflect();
 	};
 
@@ -200,11 +215,28 @@
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
+		const primary = form.querySelector("button");
+		if (form.dataset.confirm && !("armed" in form.dataset)) {
+			form.dataset.armed = primary.textContent;
+			primary.textContent = form.dataset.confirm;
+			setTimeout(() => {
+				if (!("armed" in form.dataset)) return;
+				primary.textContent = form.dataset.armed;
+				delete form.dataset.armed;
+			}, 4000);
+			return;
+		}
+		if ("armed" in form.dataset) {
+			primary.textContent = form.dataset.armed;
+			delete form.dataset.armed;
+		}
 		form.dataset.busy = "";
 		const data = new URLSearchParams(new FormData(form, e.submitter));
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
+		const label = form.dataset.starting ? primary.textContent : null;
+		if (label) primary.textContent = form.dataset.starting;
 		let res = null;
 		try {
 			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
@@ -212,6 +244,7 @@
 			delete form.dataset.busy;
 			form.removeAttribute("aria-busy");
 			for (const b of buttons) b.disabled = false;
+			if (label) primary.textContent = label;
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
@@ -220,6 +253,12 @@
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
 			if (form.id === "composer") form.reset();
+			const id = form.action.endsWith("/keys") && form.closest("details.wait")?.id;
+			if (id) {
+				const label = (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
+				sent.set(id, { label, screen: data.get("screen") || "" });
+				collapse(document.getElementById(id));
+			}
 			if (form.closest("details.menu")) closeMenus(null);
 			if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
@@ -239,14 +278,11 @@
 		box.dispatchEvent(new Event("input", { bubbles: true }));
 	});
 
-	const button = document.getElementById("notify");
-	if (button && "Notification" in window && Notification.permission === "default") {
-		button.hidden = false;
-		button.addEventListener("click", async () => {
-			await Notification.requestPermission();
-			button.hidden = Notification.permission !== "default";
-		});
-	}
+	document.addEventListener("click", async (e) => {
+		if (!(e.target instanceof Element) || !e.target.closest("#notify")) return;
+		await Notification.requestPermission();
+		local(document);
+	});
 
 	for (const k of document.querySelectorAll("[data-send-key]")) k.textContent = apple ? "⌘ Enter" : "Ctrl Enter";
 	document.addEventListener("keydown", (e) => {
@@ -260,13 +296,14 @@
 	const tabs = [...document.querySelectorAll("[data-tab]")];
 	const hashed = location.hash.slice(1);
 	let current = tabs.some((t) => t.dataset.tab === hashed) ? hashed : waiting > 0 ? "needs" : "chat";
+	const desk = matchMedia("(min-width:1280px)");
 	const select = () => {
 		for (const t of tabs) {
 			const on = t.dataset.tab === current;
 			if (on) t.setAttribute("aria-current", "true");
 			else t.removeAttribute("aria-current");
 			const panel = document.getElementById(t.dataset.tab);
-			if (panel) panel.hidden = !on;
+			if (panel) panel.hidden = !on && !desk.matches;
 		}
 		const timeline = regions.get("timeline");
 		if (timeline && current === "chat") pin(timeline);
@@ -285,6 +322,7 @@
 			});
 		}
 		select();
+		desk.addEventListener("change", select);
 		addEventListener("hashchange", () => {
 			const next = location.hash.slice(1);
 			if (next === current || !tabs.some((t) => t.dataset.tab === next)) return;
@@ -298,12 +336,20 @@
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
+	const tick = () => {
+		for (const c of document.querySelectorAll("[data-countdown]")) {
+			if (!c.dataset.endsAt) {
+				const [m, sec] = c.dataset.countdown.split(":").map(Number);
+				c.dataset.endsAt = String(Date.now() + (m * 60 + sec) * 1000);
+			}
+			const left = Math.max(0, Math.round((Number(c.dataset.endsAt) - Date.now()) / 1000));
+			c.textContent = left === 0 ? "denying…" : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+		}
+	};
 	since();
-	clock();
-	setInterval(() => {
-		since();
-		clock();
-	}, 30000);
+	tick();
+	setInterval(since, 30000);
+	setInterval(tick, 1000);
 	if (regions.size === 0) return;
 	const live = regions.has("queue");
 	if (live) reflect();

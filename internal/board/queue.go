@@ -5,7 +5,9 @@ import (
 	"maps"
 	"math"
 	"net/url"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,22 +41,134 @@ type waiting struct {
 	Sup              *state.Supervisor
 	Excerpt          string
 	Cut              bool
+	Prompt           prompt
 }
 
-var wireCodes = map[string][2]string{
-	"blocked":  {"FLASH", "BLOCKED"},
-	"decision": {"BULLETIN", "DECISION"},
-	"failure":  {"URGENT", "FAILED"},
-	"report":   {"ROUTINE", "REPORT"},
-	"resume":   {"SERVICE", "RESUME"},
-	"worker":   {"BLOCKED", "WORKER"},
-	"quiet":    {"QUIET", "WORKER"},
-	"nosup":    {"STOPPED", "SUPERVISOR"},
+type prompt struct {
+	Headline string
+	Options  []key
+	Deadline string
 }
 
-func (w waiting) Code() string { return wireCodes[w.Kind][0] }
+var (
+	numbered = regexp.MustCompile(`^(?:[❯›]\s*)?([1-9])\.\s+(.+?)$`)
+	autoDeny = regexp.MustCompile(`deny this request in (\d+:\d{2})`)
+	boxRule  = regexp.MustCompile(`^\s*(?:[─━]{10,}\s*|╭.*)$`)
+	boxEdge  = regexp.MustCompile(`^[\s│┃]+|[\s│┃]+$`)
+	hintLine = regexp.MustCompile(`(?i)\besc to\b|\benter to\b|\btab to\b`)
+	kindWord = regexp.MustCompile(`^\p{L}+`)
+	refusal  = regexp.MustCompile(`^No\b`)
+)
 
-func (w waiting) Word() string { return wireCodes[w.Kind][1] }
+func blockedPrompt(screen string) prompt {
+	lines := strings.Split(screen, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if boxRule.MatchString(lines[i]) {
+			lines = lines[i+1:]
+			break
+		}
+	}
+	var p prompt
+	var clean []string
+	for _, l := range lines {
+		t := boxEdge.ReplaceAllString(l, "")
+		if m := autoDeny.FindStringSubmatch(t); m != nil {
+			p.Deadline = m[1]
+			continue
+		}
+		if t != "" && !hintLine.MatchString(t) {
+			clean = append(clean, t)
+		}
+	}
+	end := -1
+	for i := len(clean) - 1; i >= 0 && end < 0; i-- {
+		if numbered.MatchString(clean[i]) {
+			end = i
+		}
+	}
+	if end < 0 {
+		return p
+	}
+	start := end
+	for start > 0 && numbered.MatchString(clean[start-1]) {
+		start--
+	}
+	for i := end; i >= start; i-- {
+		if numbered.FindStringSubmatch(clean[i])[1] == "1" {
+			start = i
+			break
+		}
+	}
+	var no, rest []key
+	fits := true
+	for i, l := range clean[start : end+1] {
+		m := numbered.FindStringSubmatch(l)
+		if m[1] != strconv.Itoa(i+1) || !slices.Contains(state.SupervisorKeys, m[1]) {
+			fits = false
+			break
+		}
+		k := key{m[1], m[1] + " " + clip(m[2], 24)}
+		if refusal.MatchString(m[2]) {
+			no = append(no, k)
+		} else {
+			rest = append(rest, k)
+		}
+	}
+	if fits {
+		p.Options = append(append(no, key{"esc", "Esc"}), rest...)
+	}
+	body := clean[:start]
+	q := -1
+	for i, l := range body {
+		if strings.HasSuffix(l, "?") {
+			q = i
+		}
+	}
+	if q < 0 {
+		return p
+	}
+	cmd, kind := "", ""
+	switch {
+	case q+1 < len(body):
+		cmd = body[q+1]
+	case q >= 2:
+		cmd = body[1]
+	}
+	if q >= 1 {
+		kind = kindWord.FindString(body[0])
+	}
+	switch {
+	case kind != "" && cmd != "":
+		p.Headline = kind + ": " + cmd + " · " + body[q]
+	case cmd != "":
+		p.Headline = cmd + " · " + body[q]
+	case kind != "":
+		p.Headline = kind + " · " + body[q]
+	default:
+		p.Headline = body[q]
+	}
+	return p
+}
+
+var severity = map[string]struct {
+	rank       int
+	tone, word string
+}{
+	"blocked":  {0, "fail", "BLOCKED"},
+	"worker":   {1, "fail", "BLOCKED"},
+	"failure":  {2, "fail", "FAILED"},
+	"nosup":    {3, "wait", "NO SUPERVISOR"},
+	"resume":   {4, "fail", "INTERRUPTED"},
+	"decision": {5, "wait", "DECISION"},
+	"report":   {6, "neutral", "REPORT"},
+	"quiet":    {7, "neutral", "QUIET"},
+}
+
+func (w waiting) Rank() int { return severity[w.Kind].rank }
+
+func (w waiting) Tone() string { return severity[w.Kind].tone }
+
+func (w waiting) Word() string { return severity[w.Kind].word }
 
 func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
 	counts, err := b.st.CountTasks(ctx)
@@ -63,14 +177,10 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	}
 	var waits []waiting
 	total := 0
-	add := func(w waiting) bool {
+	add := func(w waiting) {
 		total++
-		if len(waits) >= maxWaits {
-			return false
-		}
 		w.Title = clip(w.Title, titleRunes)
 		waits = append(waits, w)
-		return true
 	}
 	sup, live := data["Sup"].(state.Supervisor)
 	if blocked, _ := data["Blocked"].(bool); blocked && live {
@@ -86,7 +196,11 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		if err != nil {
 			return err
 		}
-		add(waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup})
+		w := waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup, Prompt: blockedPrompt(screen)}
+		if w.Prompt.Headline != "" {
+			w.Title = w.Prompt.Headline
+		}
+		add(w)
 	}
 	supervised := live && sup.Status == state.AttemptRunning
 	liveAttempts, err := b.st.LiveAttempts(ctx)
@@ -174,14 +288,42 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 			waitsOnOne = len(answered) > 0
 		}
 		if waitsOnOne {
-			add(waiting{Kind: "nosup", Title: "No supervisor is running"})
+			add(waiting{Kind: "nosup", Title: "Work is waiting for a supervisor"})
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
+	if len(waits) == 0 {
+		cleared, err := b.st.RecentEventsOf(ctx, []string{"decision.answered", "report.acked", "supervisor.keys", "attempt.keys"}, 1)
+		if err != nil {
+			return err
+		}
+		if len(cleared) > 0 {
+			data["Cleared"] = cleared[0].At
+		}
+		var parts []string
+		if n := len(liveAttempts); n > 0 {
+			parts = append(parts, strconv.Itoa(n)+" running")
+		}
+		if n := counts[state.StatusInbox]; n > 0 {
+			parts = append(parts, strconv.Itoa(n)+" inbox")
+		}
+		data["Summary"] = strings.Join(parts, " · ")
+	}
+	slices.SortStableFunc(waits, func(x, y waiting) int { return x.Rank() - y.Rank() })
+	waits = waits[:min(len(waits), maxWaits)]
 	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
-	data["Worst"], data["WorstText"] = "", ""
+	data["Worst"], data["WorstText"], data["WorstWord"], data["WorstCount"] = "", "", "", total
 	if len(waits) > 0 {
-		data["Worst"], data["WorstText"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title)
+		data["Worst"], data["WorstText"], data["WorstWord"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title), "waiting"
+		if waits[0].Tone() == "fail" {
+			n := 0
+			for _, w := range waits {
+				if w.Word() == waits[0].Word() {
+					n++
+				}
+			}
+			data["WorstWord"], data["WorstCount"] = strings.ToLower(waits[0].Word()), n
+		}
 	}
 	return nil
 }
@@ -234,7 +376,10 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			}
 			if screens {
 				if s, err := b.o.Luvus.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
-					w.Screen, w.Revision, w.Digest = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text)
+					w.Screen, w.Revision, w.Digest, w.Prompt = lastLines(s.Text, screenLines), s.ContentRevision, luvus.ScreenDigest(s.Text), blockedPrompt(s.Text)
+					if w.Prompt.Headline != "" {
+						w.Title = w.Prompt.Headline
+					}
 					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
 						return nil, err
 					}

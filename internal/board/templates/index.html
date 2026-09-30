@@ -1,4 +1,6 @@
-{{define "index.html"}}{{template "head" .}}{{template "top" .}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"><a href="#needs" data-tab="needs">Needs you <span class="count n" data-waiting="{{.Waiting}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>
+{{define "fleet-tabs"}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"><a href="#needs" data-tab="needs">Needs <span class="count n" data-waiting="{{.Waiting}}" data-worst="{{.Worst}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>{{end}}
+
+{{define "index.html"}}{{template "head" .}}{{template "top" .}}
 <main class="board">
 <div class="column" id="needs">
 <section class="queue" data-region="queue">{{template "region-queue" .}}</section>

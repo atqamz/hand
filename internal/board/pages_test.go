@@ -25,9 +25,9 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 		t.Fatalf("task page regions = %d:\n%s", n, body)
 	}
 	contains(t, "task thread", body,
-		`<span class="ref">t1</span>`, `<span class="status" data-state="running">ACTIVE</span>`,
-		"PLAN P1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
-		`<article class="dispatch report" id="r1"`, `<article class="dispatch report" id="r2"`, "<strong>tests</strong>",
+		`<span class="ref">t1</span>`, `<span class="status pill" data-state="running">active</span>`,
+		"plan p1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
+		`<article class="card report" id="r1"`, `<article class="card report" id="r2"`, "<strong>tests</strong>",
 		`<li class="check" data-state="running" id="a1">`,
 		"Keep the old cookie name?", `href="/decision/d1"`)
 }
@@ -58,7 +58,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 		for _, r := range row {
 			if strings.Contains(r, `href="/`+l.ID+`/"`) {
 				found = true
-				contains(t, "fleet row", r, l.Name, `<span class="ref">`+l.ID+`</span>`, `class="wire-name"`)
+				contains(t, "fleet row", r, l.Name, `<span class="ref">`+l.ID+`</span>`, `class="fleet-name"`)
 			}
 		}
 		if !found {
@@ -73,7 +73,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 
 func TestTheFirstRunState(t *testing.T) {
 	body := get(t, board.New(open(t), token, board.Options{Controls: true, Control: func(context.Context, ...string) error { return nil }}), "/")
-	contains(t, "first run", body, "Nothing needs you", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", "NO SUPERVISOR")
+	contains(t, "first run", body, "All clear", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", `<span class="word">no supervisor</span>`)
 }
 
 func TestTheReadOnlyBoard(t *testing.T) {
@@ -96,7 +96,7 @@ func TestErrorPagesKeepNoPaths(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError || strings.Contains(body, "/home/me") || !strings.Contains(body, "hand.db") {
 		t.Fatalf("error page = %d:\n%s", rec.Code, body)
 	}
-	contains(t, "error page", body, `<article class="dispatch error">`, `href="/"`)
+	contains(t, "error page", body, `<article class="card error">`, `href="/"`)
 	missing := request(fx.handler(), "GET", "/task/t99", nil, true)
 	if missing.Code != http.StatusNotFound || strings.Contains(missing.Body.String(), "/home/") {
 		t.Fatalf("missing task = %d:\n%s", missing.Code, missing.Body.String())
@@ -126,20 +126,20 @@ func TestThreadPagesUseTheDispatchModule(t *testing.T) {
 	h := board.New(st, token, board.Options{})
 	task := get(t, h, "/task/t1")
 	contains(t, "task page", task,
-		`<article class="dispatch" data-role="goal"><header class="slug"><span class="who">GOAL</span>`,
-		`<article class="dispatch" data-role="plan"><header class="slug"><span class="who">PLAN P1</span>`,
-		`<article class="dispatch report" id="r1" data-status="done"><header class="slug"><span class="who">R1</span>`,
-		`<li class="service"><span class="slug"><span class="who">`,
+		`<article class="card" data-role="goal"><header class="slug"><span class="who">goal</span>`,
+		`<article class="card" data-role="plan"><header class="slug"><span class="who">plan p1</span>`,
+		`<article class="card report" id="r1" data-status="done"><header class="slug"><span class="who">r1</span>`,
+		`<li class="event"><time datetime=`,
 		`<li class="check" data-state="running" id="a1">`,
-		`<span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span>`,
+		`<span class="code" data-tone="wait">DECISION</span>`,
 		`<div class="strip">`)
 	lacks(t, "task page", task, `data-region="status"`)
-	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
+	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="status pill" data-state="waiting">open</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
 	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
 	}})
-	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="wire-name" href="/f6b63e98d4af2/">hand <span class="wire-word">Wire</span></a>`)
-	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-code="FLASH">404</span>`)
+	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="fleet-name" href="/f6b63e98d4af2/">hand</a>`)
+	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-tone="fail">404</span>`)
 }
 
 func TestThreadPagesCarryAStaticStrip(t *testing.T) {
@@ -148,10 +148,10 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 	h := board.New(st, token, board.Options{})
 	for _, path := range []string{"/task/t1", "/decision/d1", "/supervisor/log"} {
 		body := get(t, h, path)
-		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="line">NO SUPERVISOR</span>`)
+		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="word">no supervisor</span>`)
 		lacks(t, path, body, `data-region="status"`)
 	}
-	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status" data-state="waiting">OPEN</span>`)
+	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status pill" data-state="waiting">open</span>`)
 }
 
 func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
@@ -166,7 +166,7 @@ func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
 	}
 	h := fx.handler()
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "tray", q, `<span class="wait-title">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
+	contains(t, "needs", q, `<span class="wait-title">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
 	page := get(t, h, "/decision/d1")
 	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, "<ol>", `data-fill="From a wiki"`, `data-fetch`)
 	lacks(t, "one-line page", get(t, h, "/decision/d2"), `data-fill=`, `<div class="question md">`)
@@ -198,7 +198,7 @@ func TestDecisionSlugFollowsItsStatus(t *testing.T) {
 	if _, err := fx.st.Answer(ctx, 1, "yes", "operator"); err != nil {
 		t.Fatal(err)
 	}
-	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-code="BULLETIN"`)
+	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-state="waiting">open`)
 }
 
 func TestUnknownPathsUseTheErrorPage(t *testing.T) {
@@ -265,4 +265,78 @@ func TestAPollThatWorksReopensTheStream(t *testing.T) {
 	if !strings.Contains(body, "follow();") {
 		t.Fatal("a successful refresh does not reopen the event stream")
 	}
+}
+
+func TestTheTaskPageHead(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	body := get(t, fx.handler(), "/task/t1")
+	contains(t, "head", body, `<p class="crumbs">`, `<h2 class="thread-title">Fix login</h2>`, `<span class="status pill" data-state="`, `<hr class="rule">`)
+	_ = task
+}
+
+func TestTheTaskPageListsDecisions(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	ctx := context.Background()
+	d, err := fx.st.Ask(ctx, task.ID, "Keep the cookie?\n\nIt is old.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, d.ID, "yes, keep it", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	section := get(t, fx.handler(), "/task/t1")
+	section = section[strings.Index(section, `<h3>Decisions</h3>`):]
+	contains(t, "decisions", section, `<a class="ref" href="/decision/d1">d1</a>`, "Keep the cookie?", "yes, keep it")
+}
+
+func TestTaskEventsAreAGrid(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	body := get(t, fx.handler(), "/task/t1")
+	contains(t, "events", body, `<ol class="events">`, `<li class="event"><time datetime=`, `<span class="kind">task added</span>`, `<span class="detail">`)
+	lacks(t, "events", body, `<li class="hand-line"><span class="slug"><span class="who">task.`)
+}
+
+func TestReportsLeadWithTheirSummary(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	a := attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	if _, err := fx.st.AddReport(context.Background(), a.ID, state.ReportDone, "Shipped the fix\n\nAll tests pass."); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/task/t1")
+	contains(t, "report", body, `<span class="report-title">Shipped the fix</span>`, "<p>All tests pass.</p>")
+	lacks(t, "report", body, "<p>Shipped the fix</p>")
+}
+
+func TestAnAttemptPassesOnlyWithADoneReport(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	attempt(t, fx.st, task.ID, state.AttemptExited, "")
+	lacks(t, "exited", get(t, fx.handler(), "/task/t1"), `data-state="passing" id="a1"`)
+}
+
+func TestDecisionPageCtrlEnter(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Keep it?"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "form", get(t, fx.handler(), "/decision/d1"), `<form class="answer" method="post" action="/decision/d1/answer" data-fetch>`, `<textarea name="answer"`)
+	contains(t, "app.js", asset(t, "app.js"), `(e.ctrlKey || e.metaKey)`, `form?.hasAttribute("data-fetch")`, "form.requestSubmit()")
+}
+
+func TestAnAnsweredDecisionShowsYourCard(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	d, err := fx.st.Ask(ctx, active(t, fx.st, "Fix login").ID, "Keep it?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.Answer(ctx, d.ID, "yes", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "answered", get(t, fx.handler(), "/decision/d1"), `<article class="card from-you" data-role="operator"><header class="slug"><span class="who">you</span>`, "yes")
 }

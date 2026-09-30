@@ -2,23 +2,27 @@
 <header class="thread-head">
 <p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
 <h2 class="thread-title">{{.Card.Task.Title}}</h2>
-<p class="slug"><span class="status" data-state="{{.Pill}}">{{upper .Card.Task.Status}}</span><span>{{upper .Card.Task.Project}}</span>{{with .Card.Plan}}<span>PLAN {{upper (plan .Revision)}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time>{{range .Card.PRs}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</p>
+<p class="slug"><span class="status pill" data-state="{{.Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time>{{range .Card.PRs}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</p>
 </header>
+<hr class="rule">
 {{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">
-{{range .Card.Decisions}}<div class="need"><span class="slug"><span class="code" data-code="BULLETIN">BULLETIN</span><span class="kind">DECISION</span><span class="ref">{{decision .ID}}</span></span> <span class="need-title">{{.Headline}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
-{{end}}{{range .Unread}}<div class="need"><span class="slug"><span class="code" data-code="ROUTINE">ROUTINE</span><span class="kind">REPORT</span><a class="ref" href="#{{report .ID}}">{{report .ID}}</a></span> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form></div>
+{{range .Card.Decisions}}<div class="need"><span class="slug"><span class="code" data-tone="wait">DECISION</span><span class="ref">{{decision .ID}}</span></span> <span class="need-title">{{.Headline}}</span> <a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a></div>
+{{end}}{{range .Unread}}<div class="need"><span class="slug"><span class="code" data-tone="neutral">REPORT</span><a class="ref" href="#{{report .ID}}">{{report .ID}}</a></span> <span class="need-title">{{.Summary}}</span> <form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form></div>
 {{end}}</section>{{end}}
-{{with .Card.Task.Goal}}<article class="dispatch" data-role="goal"><header class="slug"><span class="who">GOAL</span></header><div class="copy plain">{{.}}</div></article>{{end}}
-{{with .Card.Plan}}<article class="dispatch" data-role="plan"><header class="slug"><span class="who">PLAN {{upper (plan .Revision)}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><div class="copy md">{{md .Body}}</div></article>{{end}}
+{{with .Card.Task.Goal}}<article class="card" data-role="goal"><header class="slug"><span class="who">goal</span></header><div class="copy plain">{{.}}</div></article>{{end}}
+{{with .Card.Plan}}<article class="card" data-role="plan"><header class="slug"><span class="who">plan {{plan .Revision}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><div class="copy md">{{md .Body}}</div></article>{{end}}
 <h3>Attempts</h3>
 {{with .Attempts}}<ol class="checks">{{range .}}<li class="check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<span class="ref">{{attempt .Attempt.ID}}</span> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
 {{else}}<p class="quiet">No attempts yet.</p>
 {{end}}<h3>Reports</h3>
-{{range .Reports}}<article class="dispatch report" id="{{report .ID}}" data-status="{{.Status}}"><header class="slug"><span class="who">{{upper (report .ID)}}</span><span class="meta">from {{attempt .AttemptID}}</span><span class="state {{.Status}}">{{.Status}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time><span class="spacer"></span>{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form>{{end}}</header><div class="copy md">{{md .Body}}</div></article>
+{{range .Reports}}<article class="card report" id="{{report .ID}}" data-status="{{.Status}}"><header class="slug"><span class="who">{{report .ID}}</span><span class="report-title">{{inline .Summary}}</span><span class="meta">from {{attempt .AttemptID}}</span><span class="state {{.Status}}">{{.Status}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time><span class="spacer"></span>{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form>{{end}}</header>{{with rest .Body}}<div class="copy md">{{md .}}</div>{{end}}</article>
 {{else}}<p class="quiet">No reports yet.</p>
 {{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>
+{{end}}<h3>Decisions</h3>
+{{with .Decisions}}<ol class="decisions">{{range .}}<li class="decision" data-status="{{.Status}}"><a class="ref" href="{{$.Base}}/decision/{{decision .ID}}">{{decision .ID}}</a><span class="need-title">{{.Headline}}</span>{{with .Answer}}<span class="answer">{{.}}</span>{{else}}<a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a>{{end}}</li>{{end}}</ol>
+{{else}}<p class="quiet">No decisions yet.</p>
 {{end}}<h3>Events</h3>
-<ol class="events">{{range .Events}}<li class="service"><span class="slug"><span class="who">{{.Kind}}</span><time datetime="{{.At}}">{{when .At}}</time></span><span class="service-text">{{.Detail}}</span></li>
+<ol class="events">{{range .Events}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{words .Kind}}</span><span class="detail">{{refs .Detail $.Base $.Titles}}</span></li>
 {{end}}</ol>
 {{if .MoreEvents}}<p class="more">Only the latest 50 events are shown.</p>{{end}}
 </main>

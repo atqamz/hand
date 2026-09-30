@@ -773,6 +773,9 @@ func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
 		t.Fatalf("keys = %q, want %q", got, want)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "pending: 0")
+	if events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.delivered"}, 10); err != nil || len(events) != 1 || events[0].Detail != "i1: typed" {
+		t.Fatalf("deliveries = %+v, %v", events, err)
+	}
 	if len(rt.prompts()) != 0 {
 		t.Fatalf("force pasted %q instead of typing", rt.prompts())
 	}

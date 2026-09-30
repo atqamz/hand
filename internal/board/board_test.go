@@ -32,7 +32,7 @@ func open(t *testing.T) *state.Store {
 
 func TestPagesNameTheFleet(t *testing.T) {
 	body := request(board.New(open(t), token, board.Options{}), "GET", "/", nil, true).Body.String()
-	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, `<h1 class="wire-name">test <span class="wire-word">Wire</span></h1>`) {
+	if !strings.Contains(body, "<title>board · test</title>") || !strings.Contains(body, `<h1 class="fleet-name">test</h1>`) {
 		t.Fatalf("index does not name the fleet:\n%s", body)
 	}
 }
@@ -118,7 +118,7 @@ func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 	rec := request(h, "GET", "/", nil, true)
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Fix login", "A1 CLAUDE SONNET RUNNING",
+		"Fix login", "a1 claude sonnet · running",
 		"r1", "Cookie fixed", `href="https://github.com/atqamz/hand/pull/42"`,
 		"Keep the old cookie name?", `href="/decision/d1"`, "Write docs",
 		`action="/report/r1/ack"`, `name="csrf" value="` + token + `"`,
@@ -151,7 +151,7 @@ func TestTaskPageShowsPlanReportsAndEvents(t *testing.T) {
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
 	body := request(h, "GET", "/task/t1", nil, true).Body.String()
-	for _, want := range []string{"<ol><li>reproduce</li><li>fix the cookie</li></ol>", `PR: <a href="https://github.com/atqamz/hand/pull/42"`, "attempt.reported", "decision.asked"} {
+	for _, want := range []string{"<ol><li>reproduce</li><li>fix the cookie</li></ol>", `PR: <a href="https://github.com/atqamz/hand/pull/42"`, "attempt reported", "decision asked"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("task page missing %q:\n%s", want, body)
 		}

@@ -10,49 +10,52 @@ related_targets: []
 ## Scope and mode
 
 - **Covers:** every board surface, including:
-  - the fleet page: the masthead live strip, the tray (waiting items), the news budget (tasks), the wire (conversation) and the send console;
-  - the task page, the decision page, the conversation page, and the fleet list at `/`;
-  - the error page, the read-only network variant, and the first-run empty state.
+  - the fleet page: the masthead, Needs (the open items, then Tasks), Chat (the supervisor thread) and the composer;
+  - the task page, the decision page, and the fleet list at `/`;
+  - the error pages, the network variant (no supervisor controls; answering decisions and marking reports read still work), and the first-run empty state.
 - **Mode:** Operate.
 
 ## Audience, job and constraints
 
 - **Audience and load:** the sole operator, on desktop and phone equally, usually with 7 or more tasks running in one fleet.
 - **Job:**
-  - first, clear what waits on them in place: answer decisions, press a blocked screen's keys, ack reports, see failures;
-  - second, talk to the supervisor and steer it (model, interrupt, stop) from the console under the message box.
+  - first, clear what waits on them in place: press a blocked screen's keys, answer decisions, mark reports read, see failures;
+  - second, talk to the supervisor and steer it (model, harness, interrupt, stop) from the composer.
 - **Constraints:**
   - rendered on the server with Go `html/template`, plus small first-party JS embedded in the binary, with no framework and no build step;
   - live updates over Server-Sent Events, through five fleet-page regions;
-  - controls only on loopback, CSRF on every form, and no paths on error pages;
+  - supervisor controls only on loopback (on a network address only answering decisions and marking reports read work), CSRF on every form, and no paths on error pages;
   - light and dark themes follow the system;
-  - supervisor replies render as the safe markdown subset, with refs (`t12`, `d3`, `a5`, `r7`) linking through `/ref/`;
-  - the masthead shows the supervisor's context use and compactions.
-- **Alerts:** a tab-title count, the favicon states, and opt-in browser notifications for new waiting items.
+  - supervisor replies render as the safe markdown subset, with refs (`t12`, `d3`, `a5`, `r7`, `s2`) linking through `/ref/`;
+  - the masthead shows the supervisor's context use against its window.
+- **Alerts:** the tab title, the favicon states, and opt-in browser notifications that name the worst open item.
+- **Physical scene:** at a desk by day with the board beside an editor, and on a phone in the evening, checking one question: is anything paged? The system theme decides light or dark.
 
 ## Chosen direction and memorable moment
 
-**The Wire Desk:** a news agency wire desk and its teleprinter copy. The memorable moment is the print head running along the wire's last line while the supervisor works, with the gauge in the masthead counting its context.
+**The On-Call Desk:** an on-call incident console. The memorable moment is acknowledging in place: pressing "2 No" on a blocked screen collapses the item to its receipt while a Hand line lands in the timeline, and the masthead pill turns from red back to ready.
 
 ## Unresolved
 
-- The exact canary and carbon values, tuned under the craft floor to 4.5:1 for every text pair.
+- The claude model-to-context-window values, checked against the models' published limits (ruled in the plan).
+- Whether a grouped run of wakes expands to each wake's detail or links to its task (ruled in the plan).
 
 ## Direction contract
 
-THESIS: The fleet runs like a news agency wire desk. Every event is a dispatch ranked by wire priority, and the operator edits the desk. It refuses chat bubbles in a SaaS shell, and it refuses the green-on-black terminal opposite.
+THESIS: The fleet is an on-call desk. Everything that needs the operator is an open item (a blocked screen, a failure, a decision, an unread report), paged in severity order, acknowledged in place and resolved into the timeline. It refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite.
 
-OWN-WORLD: Canary teleprinter copy on the day desk and carbon black on the night desk. Ink is near-black, FLASH red is the one saturated signal, and the operator's own marks are blue editor's pencil. Fixed-pitch caps slug lines (priority · ref · slug · dateline) sit on one baseline grid. There is one dispatch module under a slug rule. Rank comes from scale and caps, never from boxes, and there are no cards and no glass.
+OWN-WORLD: The Plan 14 review palette: ground #fcfcfd, cards #f4f6f8 on hairline #d5dbe2 rules, ink #1b1f24; at night ground #0d1117 with cards raised to #161b22. Accent blue #1d5fc2 marks the operator's own card, focus and the working pulse. Fail red is reserved for what blocks now. Severity lives in pale header fills on bordered items, and in a word plus an icon shape on every pill. System sans at five steps; mono only for refs, keys, terminal text and live figures in tabular numerals. The fleet tint touches only the mark and a 3px top rule.
 
-STORY: The operator sees what needs them in the tray, FLASH first, and acts in place. They read s1's dispatches like wire copy and send notes from the console. They always know whether the line is live (the print head) and how full s1's context is.
+STORY: The operator opens the board and knows at once whether anything is paged: the masthead pill and the Needs count answer before the page settles. They acknowledge the top item in place (press "2 No", answer d5, mark r7 read) and watch it collapse to its receipt while a Hand line lands in the timeline. Then they read s1's cards and steer it from the composer.
 
-FIRST VIEWPORT: The masthead carries the fleet's wire name in its tint, the line state, the context gauge ("CTX 508K") and a clock. Below it sit the tabs Needs you (n) · Chat. Chat is the wire feed, centred at about 880px, newest at the bottom, with a print head running along the last line while s1 works. The send console is pinned at the bottom, holding `opus · high ▾`, the Interrupt key and Send. Needs you is the tray, FLASH to ROUTINE, with the top item open in place, and the news budget below it.
+FIRST VIEWPORT: A 44px masthead: the mark and fleet name on the left; on the right the s1 status pill (working with an accent pulse, ready, blocked in red, stopped), `s1 · opus high`, and a 48px context bar reading "510K / 1M". At 1280px and up, Chat is the 760px main column of GitHub-thread cards (s1 on the left at up to 90%, "you" on the right at up to 75% on accent-bg, Hand events as 12px ringed lines), with the composer card pinned beneath. The Needs rail, 360 to 400px, sits on the right: open items most severe first with the top one open, then Tasks under Active and Inbox. Below 1280px the tabs read "Needs (n)" and "Chat", and the phone's first row answers "1 blocked". With nothing paged, Needs reads "All clear since 12:41 · 1 running · 6 inbox".
 
-FORM: The Wire Desk, position 7 of 7 on the ranked grounded list, seed key 2455c3da. It takes these raises:
-- from the type specimen: rank by scale contrast on one baseline grid;
-- from the CD-ROM console: honest keys, with Interrupt depressed while s1 works;
-- from Dumbar: one dispatch module that every item snaps to;
-- from the sneaker boxes: one slug grid rules every item;
-- from the tensegrity column: every dispatch traces to its task and attempt along a visible leader.
+FORM: The On-Call Desk, position 3 of 7 on the ranked grounded list, seed key 14c264fa. It takes these raises:
+- from the teletext service: red is reserved for what blocks the operator now;
+- from the type specimen: live figures (the countdown, the context bar, the working timer) update in place in tabular mono without shifting layout;
+- from the star atlas: one fixed severity ramp (blocked, failure, decision, report, quiet) orders Needs, fills each header, and colours the tab count and the favicon;
+- from the folding sequence: every action leaves a recoverable trace, namely a receipt, a timeline line and a deep link back to the item;
+- from the cyclorama: state is never colour alone; every pill carries a word and an icon shape.
+Signature interaction: acknowledge in place. A pressed key or a sent answer collapses the item to "Sent 2 · waiting…" with its keys disabled, then resolves it into the timeline as a Hand line. Motion grammar: an arrival wash on new items, one accent working pulse, and the collapse on acknowledge; all of it stops under `prefers-reduced-motion`.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance

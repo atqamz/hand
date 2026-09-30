@@ -42,10 +42,17 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"mdrefs":   markdown.RenderRefs,
 	"refs":     markdown.Refs,
 	"inline":   markdown.Inline,
-	"upper":    strings.ToUpper,
 	"when":     when,
 	"chips":    chips,
-	"tint":     tint,
+	"tabonce":  tabOnce,
+	"plain":    func(s string) string { return eventKind.ReplaceAllString(s, "$1 $2") },
+	"rest": func(s string) string {
+		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
+		return strings.TrimSpace(rest)
+	},
+	"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
+	"hm":    func(at string) string { return parse(at).UTC().Format("15:04") },
+	"tint":  tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
 	},
@@ -55,6 +62,20 @@ const (
 	cookieName = "hand_board"
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
+
+var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task)\.([a-z]+)\b`)
+
+var refAnchor = regexp.MustCompile(`<a class="ref" `)
+
+func tabOnce(h template.HTML) template.HTML {
+	n := 0
+	return template.HTML(refAnchor.ReplaceAllStringFunc(string(h), func(m string) string {
+		if n++; n == 1 {
+			return m
+		}
+		return `<a class="ref" tabindex="-1" `
+	}))
+}
 
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 
@@ -442,8 +463,26 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 	if all {
 		total += counts[state.StatusDone] + counts[state.StatusAbandoned]
 	}
-	data["Checks"], data["All"], data["Hidden"] = checks, all, total-len(checks)
+	var sections []taskGroup
+	for _, status := range groups {
+		g := taskGroup{Name: strings.ToUpper(status[:1]) + status[1:], Count: counts[status]}
+		for _, c := range checks {
+			if c.Task.Status == status {
+				g.Checks = append(g.Checks, c)
+			}
+		}
+		if len(g.Checks) > 0 {
+			sections = append(sections, g)
+		}
+	}
+	data["Checks"], data["Groups"], data["All"], data["Hidden"] = checks, sections, all, total-len(checks)
 	return nil
+}
+
+type taskGroup struct {
+	Name   string
+	Count  int
+	Checks []check
 }
 
 func (b *Board) task(w http.ResponseWriter, r *http.Request) {
@@ -501,13 +540,18 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 			row.State = "running"
 		case facts{done: done}.failing(a):
 			row.State = "failing"
-		case a.Status == state.AttemptExited:
+		case done[a.ID]:
 			row.State = "passing"
 		}
 		rows = append(rows, row)
 	}
+	decisions, err := b.st.Decisions(ctx, id, historyLimit)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx),
+		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -529,7 +573,7 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx)})
+	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx)})
 }
 
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {

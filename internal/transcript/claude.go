@@ -71,6 +71,7 @@ func (s *session) claudeLine(line []byte) {
 	case "assistant":
 		if u := rec.Message.Usage; u != nil && u.Input+u.CacheCreation+u.CacheRead > 0 {
 			s.status.Context = u.Input + u.CacheCreation + u.CacheRead
+			s.status.Window = claudeWindow(rec.Message.Model)
 		}
 		var blocks []struct {
 			Type string `json:"type"`
@@ -107,4 +108,16 @@ func claudeUserText(content json.RawMessage) (string, bool) {
 		}
 	}
 	return strings.Join(parts, "\n"), len(parts) > 0
+}
+
+func claudeWindow(model string) int64 {
+	for _, w := range []struct {
+		prefix string
+		size   int64
+	}{{"claude-opus-5", 1_000_000}, {"claude-sonnet-5", 1_000_000}, {"claude-fable-5", 1_000_000}, {"claude-haiku-4-5", 200_000}} {
+		if strings.HasPrefix(model, w.prefix) {
+			return w.size
+		}
+	}
+	return 0
 }

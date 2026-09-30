@@ -165,7 +165,7 @@ func TestEveryPanelState(t *testing.T) {
 				}
 			}
 			if c.agent == "blocked" {
-				contains(t, "blocked", body, "Trust this folder?", `name="revision" value="7"`, `value="enter"`, `value="esc"`, `value="up"`, `value="down"`, `value="1"`, `value="2"`, `value="3"`)
+				contains(t, "blocked", body, "Trust this folder?", `name="revision" value="7"`, `value="esc"`, `value="1"`)
 			}
 			if c.status == "" {
 				contains(t, "start", body, `value="claude"`, `value="codex"`, `value="opencode"`)
@@ -352,7 +352,7 @@ func TestConversationShowsTheCalmViewAndTheQueue(t *testing.T) {
 		}
 	}
 	body := get(t, h, "/supervisor/log")
-	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", ">Queued<", `class="timeline"`)
+	contains(t, "log", body, "hello &lt;b&gt;there&lt;/b&gt;", "Hi, operator.", "first queued", "second queued", ">queued<", `class="timeline"`)
 	lacks(t, "log", body, "#end")
 	if !(strings.Index(body, "second queued") < strings.Index(body, "first queued") && strings.Index(body, "first queued") < strings.Index(body, "Hi, operator.")) {
 		t.Fatalf("entries must be newest first in the page, so the reversed column shows the newest at the bottom:\n%s", body)
@@ -418,7 +418,7 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	status = region(get(t, pending.handler(), "/"), "console")
-	contains(t, "pending", status, "→ OPUS · HIGH", `name="cancel" value="1"`)
+	contains(t, "pending", status, "next turn: opus · high", `name="cancel" value="1"`)
 	lacks(t, "pending", status, `id="model-menu"`)
 }
 
@@ -483,7 +483,7 @@ func TestKeysAndLifecycleShowInChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/supervisor/log")
-	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped: stopped by operator")
+	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped by operator")
 	if !(strings.Index(body, "s1 stopped") < strings.Index(body, "You pressed 2") && strings.Index(body, "You pressed 2") < strings.Index(body, "s1 started")) {
 		t.Fatalf("lifecycle lines out of order (newest first):\n%s", body)
 	}
@@ -497,7 +497,7 @@ func TestDeliveredMessagesShowTheirTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.st.DeliverSupervisorInput(ctx, in.ID); err != nil {
+	if err := fx.st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	claudeLog(t, fx, []string{userRecord("ship it")})
@@ -564,7 +564,7 @@ func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {
 	page := get(t, fx.handler(), "/")
 	contains(t, "console", region(page, "console"), `action="/supervisor/resume"`)
 	contains(t, "composer hint", page, "s1 stopped: ", "Resume continues its session")
-	contains(t, "tray", region(page, "queue"), `data-kind="resume"`)
+	contains(t, "needs", region(page, "queue"), `data-kind="resume"`)
 }
 
 func TestHeadersSurviveNonASCIIText(t *testing.T) {

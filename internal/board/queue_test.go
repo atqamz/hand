@@ -16,7 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]*)"( open)?>`)
+var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]*)"( open)?[^>]*>`)
 
 func waits(body string) (kinds, refs []string, open []bool) {
 	for _, m := range waitItem.FindAllStringSubmatch(region(body, "queue"), -1) {
@@ -108,7 +108,7 @@ func TestQueueOrdersWhatNeedsYou(t *testing.T) {
 	}
 	body := get(t, fx.handler(), "/")
 	kinds, refs, open := waits(body)
-	if !slices.Equal(kinds, []string{"blocked", "decision", "decision", "failure", "report"}) || !slices.Equal(refs, []string{"s2", "d1", "d2", "a1", "r1"}) {
+	if !slices.Equal(kinds, []string{"blocked", "failure", "decision", "decision", "report"}) || !slices.Equal(refs, []string{"s2", "a1", "d1", "d2", "r1"}) {
 		t.Fatalf("queue = %q %q:\n%s", kinds, refs, region(body, "queue"))
 	}
 	if !slices.Equal(open, []bool{true, false, false, false, false}) {
@@ -141,11 +141,17 @@ func TestTheBlockedScreenJoinsTheQueue(t *testing.T) {
 	body := get(t, fx.handler(), "/")
 	q := region(body, "queue")
 	contains(t, "blocked item", q, `data-kind="blocked"`, "Trust this folder?", "❯ 1. Yes", `action="/supervisor/keys" data-fetch`, `action="/supervisor/force" data-fetch`)
-	if n := strings.Count(q, `name="revision" value="7"`); n != len(state.SupervisorKeys) {
-		t.Fatalf("key forms with the revision = %d, want %d", n, len(state.SupervisorKeys))
+	if n := strings.Count(q, `name="revision" value="7"`); n != 2 || !strings.Contains(q, `value="esc">Esc</button>`) || !strings.Contains(q, `value="1">1 Yes</button>`) {
+		t.Fatalf("the screen's options = %d key forms:\n%s", n, q)
 	}
-	if n := strings.Count(q, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`); n != len(state.SupervisorKeys) {
-		t.Fatalf("key forms with the screen digest = %d, want %d", n, len(state.SupervisorKeys))
+	bare := newFixture(t)
+	bare.status, bare.hint, bare.screen = "blocked", "Press Enter", "Press Enter to continue"
+	bare.supervisor(t, state.AttemptRunning, "gen-1")
+	if n := strings.Count(region(get(t, bare.handler(), "/"), "queue"), `name="revision" value="7"`); n != len(state.SupervisorKeys) {
+		t.Fatalf("a screen without options offers %d keys, want the %d fixed keys", n, len(state.SupervisorKeys))
+	}
+	if n := strings.Count(q, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`); n != 2 {
+		t.Fatalf("key forms with the screen digest = %d, want 2", n)
 	}
 	lacks(t, "status region", region(body, "status"), "<pre", `action="/supervisor/keys"`)
 	fx.options.Controls = false
@@ -291,7 +297,7 @@ func TestTheQueueShowsAtMostFifty(t *testing.T) {
 
 func TestAnEmptyQueueSaysSo(t *testing.T) {
 	q := region(get(t, board.New(open(t), token, board.Options{}), "/"), "queue")
-	contains(t, "empty queue", q, "Nothing needs you", `data-waiting="0"`)
+	contains(t, "empty queue", q, "All clear", `data-waiting="0"`)
 }
 
 func asset(t *testing.T, name string) string {
@@ -398,7 +404,7 @@ func TestAWorkerBlockedWithoutASupervisorJoinsNeeds(t *testing.T) {
 	}
 	fx.screen = "Bash command\n  rm -f $r/$f\n Do you want to proceed?\n❯ 1. Yes\n  2. No"
 	q := region(get(t, fx.handler(), "/"), "queue")
-	contains(t, "worker item", q, `data-kind="worker"`, "Esc to cancel · Tab to amend", "Fix login", "Do you want to proceed?", `action="/attempt/a1/keys" data-fetch`, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`, `data-kind="nosup"`)
+	contains(t, "worker item", q, `data-kind="worker"`, "Bash: rm -f $r/$f · Do you want to proceed?", "Fix login", "Do you want to proceed?", `action="/attempt/a1/keys" data-fetch`, `name="screen" value="`+luvus.ScreenDigest(fx.screen)+`"`, `data-kind="nosup"`)
 }
 
 func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
@@ -438,7 +444,7 @@ func TestNoSupervisorItemShowsWhileWorkIsLive(t *testing.T) {
 	}
 	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	q := region(get(t, fx.handler(), "/"), "queue")
-	contains(t, "no-supervisor item", q, `data-kind="nosup"`, "No supervisor is running", `href="/#chat"`)
+	contains(t, "no-supervisor item", q, `data-kind="nosup"`, "Work is waiting for a supervisor", `href="/#chat"`)
 }
 
 func TestTasksRowsNameTheAgentState(t *testing.T) {
@@ -448,7 +454,7 @@ func TestTasksRowsNameTheAgentState(t *testing.T) {
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), "A1 CLAUDE SONNET BLOCKED")
+	contains(t, "tasks row", region(get(t, fx.handler(), "/"), "tasks"), "a1 claude sonnet · blocked")
 }
 
 func TestTheQueueNamesItsWorstItem(t *testing.T) {
@@ -458,7 +464,7 @@ func TestTheQueueNamesItsWorstItem(t *testing.T) {
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Do you want to proceed?"); err != nil {
 		t.Fatal(err)
 	}
-	contains(t, "queue head", region(get(t, fx.handler(), "/"), "queue"), `data-worst="worker"`, `data-worst-text="a1 Do you want to proceed?"`)
+	contains(t, "queue head", region(get(t, fx.handler(), "/"), "queue"), `data-worst="worker"`, `data-worst-text="a1 Trust this folder?"`)
 	calm := newFixture(t)
 	contains(t, "calm queue head", region(get(t, calm.handler(), "/"), "queue"), `data-worst=""`)
 }
@@ -523,7 +529,7 @@ func TestBlockedWorkersComeBeforeQuietOnes(t *testing.T) {
 	if err := fx.st.NoteAttempt(ctx, blocked.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
 	}
-	if kinds, _, _ := waits(get(t, fx.handler(), "/")); len(kinds) < 2 || kinds[0] != "worker" || kinds[1] != "quiet" {
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Index(kinds, "worker") < 0 || slices.Index(kinds, "worker") > slices.Index(kinds, "quiet") {
 		t.Fatalf("kinds = %q", kinds)
 	}
 }

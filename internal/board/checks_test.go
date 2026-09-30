@@ -61,7 +61,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 			t.Fatalf("%s state = %q, want %q (%v)", ref, got, state, rows)
 		}
 	}
-	contains(t, "running row", rows["t1"], "Running work", "A1 CODEX GPT-6-LUNA", `href="https://github.com/atqamz/hand/pull/7"`)
+	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}
@@ -84,9 +84,9 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 	}
 	tl := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", tl,
-		`<article class="dispatch" data-role="supervisor" data-no=`, "<strong>shipped</strong>",
-		`<article class="dispatch note" data-role="operator" data-no=`, "please **look**",
-		`<p class="service" data-no=`, `wake: <a class="ref" href="/ref/r3">r3</a> from <a class="ref" href="/ref/a2">a2</a> done`,
-		"Queued", "later please")
+		`<article class="card from-sup" data-role="supervisor" data-no=`, "<strong>shipped</strong>",
+		`<article class="card from-you" data-role="operator" data-no=`, "please **look**",
+		`<p class="hand-line" data-no=`, `wake: <a class="ref" href="/ref/r3">r3</a> from <a class="ref" tabindex="-1" href="/ref/a2">a2</a> done`,
+		"queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
 }
