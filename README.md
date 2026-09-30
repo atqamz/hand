@@ -207,7 +207,7 @@ A fleet's page has two tabs. **Needs you** lists what waits on you, then the tas
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
 | `hand open tN --pr` | the task's newest PR, on GitHub |
 
-It logs the browser in with the fleet's token through `xdg-open` and never prints the token. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
+It logs the browser in with the fleet's token through `xdg-open` and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 
@@ -255,7 +255,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand report add --status STATUS --file -` | Report from inside a worker's worktree: `progress`, `done` or `stuck`, from stdin, a file, or `--text`. |
 | `hand report list [--task tN] [--attempt aN] [--unacked]`, `hand report show rN` | List and read reports. |
 | `hand report ack [--by NAME] rN` | Acknowledge a report. |
-| `hand decision ask tN QUESTION` | Ask the operator about a task. |
+| `hand decision ask [--file PATH\|-] tN [QUESTION]` | Ask the operator about a task; the first line is the headline (at most 120 characters). |
 | `hand decision answer [--by NAME] dN ANSWER`, `hand decision withdraw dN` | Answer or withdraw a decision. |
 | `hand decision list [--all]`, `hand decision show dN` | List open decisions (or all), and read one with its answer. |
 | `hand route list` | Show the routing profiles and the harnesses. |
@@ -268,9 +268,9 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor keys --revision N KEY...` | Answer the supervisor's blocked screen with `enter`, `esc`, `up`, `down`, `1`, `2` or `3`. |
 | `hand supervisor interrupt` | Press Escape in the supervisor's terminal. |
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
-| `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. |
+| `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. `--harness H` switches to another harness between turns. |
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
-| `hand open [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. |
+| `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. |
 | `hand version` | Print the version. |
