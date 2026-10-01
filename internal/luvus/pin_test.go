@@ -185,6 +185,13 @@ func TestAnUnreadablePinSaysHowToRecover(t *testing.T) {
 	if _, _, err := luvus.LoadPin(root); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "re-pin with `hand luvus pin`") {
 		t.Fatalf("err = %v", err)
 	}
+	dirRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dirRoot, "luvus", "pin.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := luvus.LoadPin(dirRoot); !errors.Is(err, luvus.ErrPinChanged) {
+		t.Fatalf("a pin.json that cannot be read: %v", err)
+	}
 }
 
 func TestLoadPinWithoutAPin(t *testing.T) {

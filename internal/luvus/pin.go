@@ -37,11 +37,11 @@ func LoadPin(root string) (Pin, bool, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return Pin{}, false, nil
 	}
-	if err != nil {
-		return Pin{}, false, err
-	}
 	var p Pin
-	if err := json.Unmarshal(b, &p); err != nil {
+	if err == nil {
+		err = json.Unmarshal(b, &p)
+	}
+	if err != nil {
 		return Pin{}, false, fmt.Errorf("%w: cannot read %s (%v); re-pin with `hand luvus pin`", ErrPinChanged, pinFile(root), err)
 	}
 	return p, true, nil
@@ -68,6 +68,9 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 	}
 	store := filepath.Join(root, "luvus")
 	if err := os.MkdirAll(store, 0o755); err != nil {
+		return Pin{}, err
+	}
+	if err := syncDir(root); err != nil {
 		return Pin{}, err
 	}
 	tmp, hash, err := copyHashed(store, bin)
