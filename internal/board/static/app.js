@@ -215,6 +215,10 @@
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
+		if ("attaching" in form.dataset) {
+			show("Wait for the images to finish attaching, then send.", 4000, "receipt");
+			return;
+		}
 		const primary = form.querySelector("button");
 		if (form.dataset.confirm && !("armed" in form.dataset)) {
 			form.dataset.armed = primary.textContent;
@@ -427,13 +431,15 @@
 		let running = 0;
 		const busy = (n) => {
 			running += n;
+			if (running > 0) draft.dataset.attaching = "";
+			else delete draft.dataset.attaching;
 			if (running > 0 && note) note.textContent = `Attaching ${running} image${running === 1 ? "" : "s"}…`;
 			else reflect();
 		};
 		const put = (line) => {
-			const at = text.selectionStart ?? text.value.length;
+			const at = text.selectionEnd ?? text.value.length;
 			const head = text.value.slice(0, at);
-			const tail = text.value.slice(text.selectionEnd ?? at).replace(/^\n/, "");
+			const tail = text.value.slice(at).replace(/^\n/, "");
 			const insert = `${head && !head.endsWith("\n") ? "\n" : ""}${line}\n`;
 			text.value = head + insert + tail;
 			text.setSelectionRange(head.length + insert.length, head.length + insert.length);

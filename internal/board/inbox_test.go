@@ -226,3 +226,9 @@ func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
 	contains(t, "board.css", css, "@media (min-width:800px){.console-box:has(.console .start)", `@media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`, ".attach:has(input:focus-visible)", "grid-template-columns:auto minmax(0,1fr) auto")
 	lacks(t, "board.css", css, ".attach:focus-within", ".shots:first-child", "minmax(10em,1fr)")
 }
+
+func TestTheComposerWaitsForItsUploads(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, `"attaching" in form.dataset`, "Wait for the images to finish attaching", "const at = text.selectionEnd ?? text.value.length")
+	lacks(t, "app.js", js, "text.selectionStart ?? text.value.length")
+}
