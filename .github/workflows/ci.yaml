@@ -59,11 +59,9 @@ jobs:
             echo "edge is already past $GITHUB_SHA"
             exit 0
           fi
-          git push --force origin "$GITHUB_SHA:refs/tags/edge"
           notes="Rolling build of main at ${GITHUB_SHA:0:12}, $(date -u +%Y-%m-%d). Not a release; install with HAND_INSTALL_VERSION=edge."
-          if gh release view edge >/dev/null 2>&1; then
-            gh release edit edge --prerelease --title Edge --notes "$notes"
-          else
+          if ! gh release view edge >/dev/null 2>&1; then
+            git push --force origin "$GITHUB_SHA:refs/tags/edge"
             gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
           fi
           gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz checksums.txt --clobber
@@ -73,3 +71,5 @@ jobs:
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done
+          git push --force origin "$GITHUB_SHA:refs/tags/edge"
+          gh release edit edge --prerelease --title Edge --notes "$notes"
