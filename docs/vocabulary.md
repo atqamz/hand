@@ -276,7 +276,7 @@ Every record has a short ref that commands, the board and wakes share.
 
 ## Changed since 0.7
 
-Hand 0.7 ([`main`](https://github.com/atqamz/hand/blob/main/docs/vocabulary.md)) used some terms that the redesign dropped or changed:
+Hand 0.7 ([`0.7`](https://github.com/atqamz/hand/blob/0.7/docs/vocabulary.md)) used some terms that the redesign dropped or changed:
 
 - **Supervisor** was the operator's own interactive session. It is now the managed background agent `sN`. A session opened by hand still works, but stands down while a managed supervisor runs.
 - **Supervisor harness and worker harness** were separate registries. There is now one list of harnesses, `claude`, `codex`, `opencode` and `agy`. The supervisor runs on the first three, and `agy` runs workers only. Grok and Pi are no longer launched, although `hand init` still installs the skill for them.
