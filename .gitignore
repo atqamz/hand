@@ -17,6 +17,8 @@
 !/go.mod
 !/go.sum
 !/main.go
+!/install.sh
+!/install_test.go
 !/internal/
 !/internal/**
 !/skills/

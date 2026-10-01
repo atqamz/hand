@@ -35,13 +35,27 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 ## Requirements
 
 - Linux.
-- Go 1.26.5 or newer and git, to build Hand and to make worktrees.
+- git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
 - Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install
+
+Install the latest release on Linux (amd64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+```
+
+You can choose another version:
+- **Edge:** `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`. Edge is the rolling build of `main` that passed CI.
+- **A pinned release:** `HAND_INSTALL_VERSION=v0.9.0`.
+
+`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
+
+To build from source instead:
 
 ```sh
 git clone https://github.com/atqamz/hand
@@ -288,7 +302,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. |
-| `hand version` | Print the version. |
+| `hand version` | Print the version, the channel (`source`, `edge` or `stable`) and the commit. |
 
 ## Upgrading from 0.7
 

@@ -20,3 +20,56 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+
+  edge:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: edge
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          set -eu
+          base=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          test -n "$base"
+          pkg=github.com/atqamz/hand/internal/cli
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=$base -X $pkg.Channel=edge -X $pkg.Commit=$GITHUB_SHA" -o hand .
+            tar -czf "hand-linux-$arch.tar.gz" hand
+            rm hand
+          done
+          sha256sum hand-linux-*.tar.gz > checksums.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          old=$(git rev-parse -q --verify 'refs/tags/edge^{commit}' || true)
+          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$old"; then
+            echo "edge is already past $GITHUB_SHA"
+            exit 0
+          fi
+          notes="Rolling build of main at ${GITHUB_SHA:0:12}, $(date -u +%Y-%m-%d). Not a release; install with HAND_INSTALL_VERSION=edge."
+          if ! gh release view edge >/dev/null 2>&1; then
+            git push --force origin "$GITHUB_SHA:refs/tags/edge"
+            gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
+          fi
+          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz checksums.txt --clobber
+          for name in $(gh release view edge --json assets --jq '.assets[].name'); do
+            case "$name" in
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | checksums.txt) ;;
+              *) gh release delete-asset edge "$name" -y ;;
+            esac
+          done
+          git push --force origin "$GITHUB_SHA:refs/tags/edge"
+          gh release edit edge --prerelease --title Edge --notes "$notes"

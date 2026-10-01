@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach binaries to, such as v0.8.0.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check the tag
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "not a release tag: $TAG" >&2; exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./...
+      - name: Build
+        run: |
+          set -eu
+          pkg=github.com/atqamz/hand/internal/cli
+          commit=$(git rev-parse HEAD)
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand .
+            tar -czf "hand-linux-$arch.tar.gz" hand
+            rm hand
+          done
+          sha256sum hand-linux-*.tar.gz > checksums.txt
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "Hand ${TAG#v}" --notes "Draft: write the notes, then publish." --verify-tag
+          fi
+          gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz checksums.txt --clobber

@@ -45,6 +45,15 @@ Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. 
 
 The CLI, one Go binary. It owns state, worktrees, the watcher and the board. It calls itself by its binary's name, so a build installed as `hand-next` writes `hand-next` into the fleet's `AGENTS.md`, its skill, its help lines and its errors.
 
+### Channel
+
+Where a `hand` binary comes from. `hand version` prints it next to the version and the commit:
+- `source`: a local `go build`;
+- `edge`: the rolling build of `main` that passed CI, published as the `edge` pre-release;
+- `stable`: the binaries attached to a `vX.Y.Z` release.
+
+`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`.
+
 ### Secondhand
 
 The family and storage name around Hand: the shared folder `~/.secondhand`, the `secondhand` skill, and the `secondhand-*` Luvus sessions and systemd units.
