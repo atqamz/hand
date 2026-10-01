@@ -415,6 +415,11 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	for _, in := range pending {
 		all = append(all, chatItem{Entry: transcript.Entry{Role: "operator", Text: in.Body, At: in.CreatedAt, Queued: true}, Input: in.ID, Delivery: "queued"})
 	}
+	for i := range all {
+		if all[i].Role == "operator" {
+			all[i].Text, all[i].Shots = shots(all[i].Text, b.o.Home)
+		}
+	}
 	end := len(all)
 	if n, err := strconv.Atoi(q.Get("before")); err == nil && n >= 0 && n < end {
 		end = n
@@ -481,6 +486,7 @@ type chatItem struct {
 	Delivered, Delivery string
 	Input               int64
 	Wakes               []chatItem
+	Shots               []string
 }
 
 func once(ref, kind, detail string) string {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -110,4 +111,22 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	_, _ = io.Copy(w, f)
+}
+
+var shotLine = regexp.MustCompile(`^\[image: (/[^\]\n]+)\]$`)
+
+func shots(text, home string) (string, []string) {
+	inbox := filepath.Join(home, "inbox")
+	var keep []string
+	var names []string
+	for _, line := range strings.Split(text, "\n") {
+		if m := shotLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+			if dir, name := filepath.Split(m[1]); filepath.Clean(dir) == inbox && shotName.MatchString(name) {
+				names = append(names, name)
+				continue
+			}
+		}
+		keep = append(keep, line)
+	}
+	return strings.Trim(strings.Join(keep, "\n"), "\n"), names
 }

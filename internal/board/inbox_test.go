@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"mime/multipart"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 var (
@@ -152,4 +155,25 @@ func TestOnlyInboxNamesAreServed(t *testing.T) {
 			t.Fatalf("%s = %d", path, rec.Code)
 		}
 	}
+}
+
+func TestAnOperatorMessageShowsItsImages(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{userRecord(`look\n[image: ` + fx.options.Home + `/inbox/20261001-120000-1.png]`)})
+	timeline := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "timeline", timeline, `<img src="/inbox/20261001-120000-1.png" alt="Attached image 20261001-120000-1.png" loading="lazy">`, `href="/inbox/20261001-120000-1.png"`, `look`)
+	lacks(t, "timeline", timeline, "[image: ")
+}
+
+func TestAQueuedMessageShowsItsImages(t *testing.T) {
+	fx := newFixture(t)
+	if _, err := fx.st.AddSupervisorInput(context.Background(), "look\n[image: "+fx.options.Home+"/inbox/20261001-120000-1.png]"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "timeline", region(get(t, fx.handler(), "/"), "timeline"), `<img src="/inbox/20261001-120000-1.png" alt="Attached image 20261001-120000-1.png" loading="lazy">`)
+}
+
+func TestShotsAreStyledInTheStylesheet(t *testing.T) {
+	contains(t, "board.css", asset(t, "board.css"), ".shots img", "max-width:240px", "object-fit:cover")
 }
