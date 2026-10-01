@@ -38,7 +38,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 - Go 1.26.5 or newer and git, to build Hand and to make worktrees.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
-- Optional, for workers only: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models. The supervisor does not run on it.
+- Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
 - Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install
@@ -219,9 +219,12 @@ Hand runs the supervisor in the background in the fleet's Luvus session, in full
 
 - `claude --dangerously-skip-permissions`;
 - `codex --dangerously-bypass-approvals-and-sandbox`;
-- `opencode --standalone --auto`.
+- `opencode --standalone --auto`;
+- `agy --model ID --dangerously-skip-permissions`.
 
-Workers run with the same flags, each in its own worktree. Antigravity runs workers only, as `agy --model ID --dangerously-skip-permissions -i BRIEF`. agy asks once per folder whether to trust it, and every attempt is a new folder: Hand presses Enter on that screen only when it names the attempt's own worktree, and notes the attempt blocked otherwise. The board has no Chat or context bar for agy, because the supervisor never runs on it (atqamz/hand#736).
+Workers run with the same flags, each in its own worktree.
+
+agy asks once per folder whether to trust it. Every attempt is a new folder, and so is a new fleet home. Hand presses Enter on that screen only when it names the attempt's own worktree, or for the supervisor the fleet home. Otherwise it notes the attempt or the supervisor blocked. The board reads agy's conversation database for Chat and the context bar.
 
 The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
 

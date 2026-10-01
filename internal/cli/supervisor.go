@@ -78,7 +78,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.reportLaunch(c, sup, true)
+		return r.reportLaunch(ctx, st, c, sup, true)
 	})
 }
 
@@ -149,7 +149,7 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	if err != nil {
 		return fmt.Errorf("%w; %s stopped, continue it with `%s supervisor resume`", err, ref, r.env.command())
 	}
-	return r.reportLaunch(c, next, true)
+	return r.reportLaunch(ctx, st, c, next, true)
 }
 
 func cmdSupervisorResume(r *runner, args []string) error {
@@ -161,7 +161,7 @@ func cmdSupervisorResume(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.reportLaunch(c, sup, false)
+		return r.reportLaunch(ctx, st, c, sup, false)
 	})
 }
 
@@ -410,7 +410,7 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 	return running, nil
 }
 
-func (r *runner) reportLaunch(c luvus.Client, running state.Supervisor, prompted bool) error {
+func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Client, running state.Supervisor, prompted bool) error {
 	var d toon.Doc
 	d.Field("supervisor", state.SupervisorRef(running.ID))
 	d.Field("harness", running.Harness)
@@ -429,6 +429,21 @@ func (r *runner) reportLaunch(c luvus.Client, running state.Supervisor, prompted
 		default:
 			d.Field("prompt", "not submitted")
 			help = append(help, "Press Enter once the launch prompt is on screen: `hand supervisor show`, then `hand supervisor keys --revision N enter`")
+		}
+	}
+	if prompted && running.Harness == "agy" {
+		trust, note := acceptTrust(r.ctx(), c, running.PaneID, running.TerminalID, r.home)
+		if trust == "accepted" {
+			if err := st.NoteSupervisor(ctx, running.ID, "keys", "enter"); err != nil {
+				return err
+			}
+		}
+		d.Field("trust", trust)
+		if note != "" {
+			if err := st.NoteSupervisor(ctx, running.ID, "blocked", note); err != nil {
+				return err
+			}
+			help = append(help, "Read the screen: `hand attach supervisor`")
 		}
 	}
 	d.Help(help...)
@@ -672,6 +687,8 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
 			id, err = harness.OpencodeSession(bin, dir, since, marker)
 		}
+	case "agy":
+		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker)
 	}
 	if err != nil || id == "" {
 		return err

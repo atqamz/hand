@@ -225,3 +225,25 @@ func TestStartIsPrimaryAndFetches(t *testing.T) {
 	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<form method="post" class="start" action="/supervisor/start" data-fetch data-starting="starting…">`, `<button class="primary">Start</button>`)
 	contains(t, "app.js", asset(t, "app.js"), "form.dataset.starting")
 }
+
+func TestTheSupervisorMenusOfferAgy(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; fi\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	policy := `{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
+	none := newFixture(t)
+	running := newFixture(t)
+	for _, fx := range []*fixture{none, running} {
+		fx.options.Harness.Path = bin
+		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<option value="agy">agy</option>`, `<option value="gem">`)
+	running.status = "idle"
+	running.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, running.handler(), "/"), "console")
+	contains(t, "other harness", console, `<input type="hidden" name="harness" value="agy">`, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`, `<button>Switch to agy</button>`)
+	lacks(t, "other harness", console, `aria-label="agy effort"`)
+}
