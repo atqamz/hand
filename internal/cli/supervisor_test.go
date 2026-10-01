@@ -1133,3 +1133,41 @@ func TestAnAgyStartWithoutATrustScreenDoesNotWait(t *testing.T) {
 		t.Fatalf("start waited %s for a trust screen that never came", took)
 	}
 }
+
+func firstSession(t *testing.T, h *harness) string {
+	t.Helper()
+	sups, err := openStore(t, h).Supervisors(context.Background())
+	if err != nil || len(sups) == 0 {
+		t.Fatalf("supervisors = %+v, %v", sups, err)
+	}
+	for _, s := range sups {
+		if s.ID == 1 {
+			return s.Session
+		}
+	}
+	t.Fatal("no s1")
+	return ""
+}
+
+func TestStoppingKeepsAnUndiscoveredSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startAgySupervisor(t, h, rt)
+	argv := rt.lastCreate().Command
+	agytest.Conversation(t, agyConversations(t, h), "c1", h.home, 0, 0, agytest.Step{Type: 14, Text: argv[len(argv)-1], At: time.Now()})
+	h.ok("supervisor", "stop")
+	if got := firstSession(t, h); got != "c1" {
+		t.Fatalf("s1 session = %q, want c1", got)
+	}
+}
+
+func TestSwitchingHarnessKeepsAnUndiscoveredSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startAgySupervisor(t, h, rt)
+	argv := rt.lastCreate().Command
+	agytest.Conversation(t, agyConversations(t, h), "c1", h.home, 0, 0, agytest.Step{Type: 14, Text: argv[len(argv)-1], At: time.Now()})
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", "" })
+	h.ok("supervisor", "switch", "--harness", "claude", "--model", "sonnet", "--effort", "low")
+	if got := firstSession(t, h); got != "c1" {
+		t.Fatalf("s1 session = %q, want c1", got)
+	}
+}

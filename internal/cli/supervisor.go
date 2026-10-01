@@ -142,6 +142,7 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 			return err
 		}
 	}
+	_ = r.findSession(ctx, st, &sup)
 	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "switched to "+spec.Harness); err != nil {
 		return err
 	}
@@ -484,6 +485,7 @@ func cmdSupervisorStop(r *runner, args []string) error {
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
 		}
+		_ = r.findSession(ctx, st, &sup)
 		ended, err := st.EndSupervisor(ctx, sup.ID, to, reason)
 		if err != nil {
 			return err
@@ -658,6 +660,7 @@ func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Cli
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
+	_ = r.findSession(ctx, st, &sup)
 	if _, err := st.EndSupervisor(ctx, sup.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
