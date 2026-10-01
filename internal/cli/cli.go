@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
@@ -17,7 +18,11 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const Version = "0.8.0"
+var Version = "0.8.0"
+
+var Channel = "source"
+
+var Commit = ""
 
 type Env struct {
 	Name     string
@@ -51,6 +56,8 @@ var commands = map[string]handler{
 	"version": func(r *runner, _ []string) error {
 		var d toon.Doc
 		d.Field("version", Version)
+		d.Field("channel", Channel)
+		d.Field("commit", commit())
 		return r.print(&d)
 	},
 }
@@ -170,4 +177,19 @@ func (r *runner) getwd() (string, error) {
 		return r.env.Getwd()
 	}
 	return os.Getwd()
+}
+
+func commit() string {
+	id := Commit
+	if info, ok := debug.ReadBuildInfo(); ok && id == "" {
+		for _, kv := range info.Settings {
+			if kv.Key == "vcs.revision" {
+				id = kv.Value
+			}
+		}
+	}
+	if id == "" {
+		return "unknown"
+	}
+	return id[:min(12, len(id))]
 }
