@@ -284,16 +284,52 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 			args = append(args, "-E", name)
 		}
 	}
-	out, err := command(ctx, env, run, append(args, bin, "--session", session, "server", "start")...).CombinedOutput()
+	start := append(args, bin, "--session", session, "server", "start")
+	out, err := command(ctx, env, run, start...).CombinedOutput()
+	if err != nil && bytes.Contains(out, []byte("already loaded")) {
+		show := func(ctx context.Context, prop string) string {
+			out, _ := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", prop, "--value").Output()
+			return strings.TrimSpace(string(out))
+		}
+		if loaded := execPath(show(ctx, "ExecStart")); loaded == "" || loaded == bin {
+			if systemctl("start", unit+".service") == nil {
+				return nil
+			}
+		} else if systemctl("stop", unit+".service") == nil && unloaded(ctx, show) {
+			out, err = command(ctx, env, run, start...).CombinedOutput()
+		}
+	}
 	switch {
 	case err == nil:
 		return nil
 	case bytes.Contains(out, []byte("Failed to connect to")):
 		return errNoManager
-	case bytes.Contains(out, []byte("already loaded")) && systemctl("start", unit+".service") == nil:
-		return nil
 	}
 	return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
+}
+
+func execPath(execStart string) string {
+	_, rest, ok := strings.Cut(execStart, "path=")
+	if !ok {
+		return ""
+	}
+	path, _, _ := strings.Cut(rest, " ;")
+	return strings.TrimSpace(path)
+}
+
+var unloadWait = 10 * time.Second
+
+func unloaded(ctx context.Context, show func(context.Context, string) string) bool {
+	ctx, cancel := context.WithTimeout(ctx, unloadWait)
+	defer cancel()
+	for show(ctx, "LoadState") != "not-found" {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return true
 }
 
 func Scrub(environ []string) []string {

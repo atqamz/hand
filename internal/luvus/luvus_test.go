@@ -215,6 +215,41 @@ func TestStartServerJoinsAStartAlreadyUnderWay(t *testing.T) {
 	}
 }
 
+func TestStartServerJoinsALoadedUnitOfTheSameBinary(t *testing.T) {
+	bin, calls := fakeTools(t, map[string]string{"systemd-run": "echo 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "luvus": "exit 1"})
+	exec := filepath.Join(bin, "luvus")
+	systemctl := "#!/bin/sh\necho \"systemctl $*\" >> " + calls + "\ncase \"$*\" in *ExecStart*) echo '{ path=" + exec + " ; argv[]=" + exec + " --session secondhand-f1 server start ; }';; esac\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
+	if err := luvus.StartServer(context.Background(), exec, "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(calls); !strings.HasSuffix(string(b), "systemctl --user start secondhand-luvus-f1.service\n") || strings.Contains(string(b), "--user stop") {
+		t.Fatalf("calls = %q", b)
+	}
+}
+
+func TestStartServerReplacesAUnitThatRunsAnotherBinary(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "loaded")
+	bin, calls := fakeTools(t, map[string]string{"systemd-run": "if [ -e " + state + " ]; then exit 0; fi\n: > " + state + "\necho 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "luvus": "exit 1"})
+	systemctl := "#!/bin/sh\necho \"systemctl $*\" >> " + calls + "\ncase \"$*\" in *ExecStart*) echo '{ path=/usr/bin/luvus ; argv[]=/usr/bin/luvus --session secondhand-f1 server start ; }';; *LoadState*) echo not-found;; esac\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pinned := filepath.Join(bin, "luvus")
+	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
+	if err := luvus.StartServer(context.Background(), pinned, "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(calls)
+	got := string(b)
+	if strings.Contains(got, "--user start secondhand-luvus-f1.service") || !strings.Contains(got, "systemctl --user stop secondhand-luvus-f1.service") || strings.Count(got, "systemd-run") != 2 || !strings.Contains(got, "["+pinned+"] [--session] [secondhand-f1] [server] [start]") {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
 func TestStartServerFallsBackWhenTheManagerIsGone(t *testing.T) {
 	bin, calls := fakeTools(t, map[string]string{"systemd-run": "exit 0", "systemctl": "echo 'Failed to connect to user scope bus via local transport: No such file or directory' >&2; exit 1", "luvus": "exit 0"})
 	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
