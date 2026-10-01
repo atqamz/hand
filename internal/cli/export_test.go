@@ -5,4 +5,5 @@ var (
 	WakeDigest   = wakeDigest
 	TrustWait    = &trustWait
 	TrustConfirm = &trustConfirm
+	ServerMatch  = serverMatch
 )

@@ -79,7 +79,7 @@ A fleet home holds:
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, and `board.addr` records where the running board listens.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, and `board.addr` records where the running board listens.
 
 ### Operator memory
 
@@ -167,6 +167,14 @@ A report stays unread until someone acknowledges it: the supervisor with `hand r
 The terminal runtime Hand runs every agent in ([RizRiyz/luvus](https://github.com/RizRiyz/luvus)). Hand speaks UHP 1.x to it over a Unix socket and uses only exact-argv terminals, agent status, fenced input and events. Hand keeps its own state and worktrees, and never uses Luvus's task ledger or worktree commands.
 
 Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user session, that session's server runs in the user unit `secondhand-luvus-<fleet id>`, so restarting the watcher or the board never stops an agent. Without a user session, Hand starts the server directly.
+
+### Luvus pin
+
+The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<version>-<sha8>/luvus` and chosen by `$SECONDHAND_HOME/luvus/pin.json`. Every fleet under one `SECONDHAND_HOME` uses it, so a system upgrade never changes the Luvus a fleet runs.
+
+- `hand init` pins the `luvus` on `PATH` when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
+- The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
+- A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
 
 ### Pane
 

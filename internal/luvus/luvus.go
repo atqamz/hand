@@ -195,6 +195,38 @@ func StartServer(ctx context.Context, bin, session, unit, dir string, environ []
 
 var errNoManager = errors.New("no systemd user manager")
 
+var serverProbe = 5 * time.Second
+
+type Server struct {
+	Exe    string
+	SHA256 string
+}
+
+func RunningServer(ctx context.Context, env []string, unit string) (Server, bool) {
+	env = Scrub(env)
+	run, ok := userManager(env)
+	if !ok {
+		return Server{}, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, serverProbe)
+	defer cancel()
+	out, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", "MainPID", "--value").Output()
+	if err != nil {
+		return Server{}, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || pid <= 0 {
+		return Server{}, false
+	}
+	link := filepath.Join("/proc", strconv.Itoa(pid), "exe")
+	exe, err := os.Readlink(link)
+	if err != nil {
+		return Server{}, false
+	}
+	sum, _ := fileSum(link)
+	return Server{Exe: exe, SHA256: sum}, true
+}
+
 var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
 
 func userManager(env []string) (string, bool) {
