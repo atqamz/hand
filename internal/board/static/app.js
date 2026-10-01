@@ -215,6 +215,10 @@
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
+		if ("attaching" in form.dataset) {
+			show("Wait for the images to finish attaching, then send.", 4000, "receipt");
+			return;
+		}
 		const primary = form.querySelector("button");
 		if (form.dataset.confirm && !("armed" in form.dataset)) {
 			form.dataset.armed = primary.textContent;
@@ -417,6 +421,87 @@
 		});
 		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
 	};
+	const draft = document.getElementById("composer");
+	const picker = draft?.querySelector("[data-attach]");
+	const box = draft?.closest(".console-box");
+	if (draft && picker && box) {
+		const text = draft.querySelector("textarea");
+		const csrf = draft.querySelector("input[name=csrf]")?.value || "";
+		const note = draft.querySelector(".hint");
+		let running = 0;
+		const busy = (n) => {
+			running += n;
+			if (running > 0) draft.dataset.attaching = "";
+			else delete draft.dataset.attaching;
+			if (running > 0 && note) note.textContent = `Attaching ${running} image${running === 1 ? "" : "s"}…`;
+			else reflect();
+		};
+		const put = (line) => {
+			const at = text.selectionEnd ?? text.value.length;
+			const head = text.value.slice(0, at);
+			const tail = text.value.slice(at).replace(/^\n/, "");
+			const insert = `${head && !head.endsWith("\n") ? "\n" : ""}${line}\n`;
+			text.value = head + insert + tail;
+			text.setSelectionRange(head.length + insert.length, head.length + insert.length);
+			text.dispatchEvent(new Event("input", { bubbles: true }));
+		};
+		const attach = async (files) => {
+			busy(files.length);
+			for (const file of files) {
+				try {
+					if (file.size > 10 << 20) {
+						show("an image can be at most 10 MiB");
+						continue;
+					}
+					const data = new FormData();
+					data.append("csrf", csrf);
+					data.append("image", file, file.name || "pasted-image");
+					const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
+					if (!res) {
+						show("The board did not answer; check that hand board is running.");
+						continue;
+					}
+					if (!res.ok) {
+						show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+						continue;
+					}
+					const { path } = await res.json();
+					put(`[image: ${path}]`);
+				} catch {
+					show("The image could not be attached; try again.");
+				} finally {
+					busy(-1);
+				}
+			}
+		};
+		picker.addEventListener("change", () => {
+			const files = [...picker.files];
+			picker.value = "";
+			attach(files);
+		});
+		text.addEventListener("paste", (e) => {
+			const items = [...(e.clipboardData?.items || [])];
+			const files = items.filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+			if (!files.length) return;
+			if (!items.some((i) => i.type === "text/plain")) e.preventDefault();
+			attach(files);
+		});
+		const carries = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+		box.addEventListener("dragover", (e) => {
+			if (!carries(e)) return;
+			e.preventDefault();
+			box.classList.add("dropping");
+		});
+		box.addEventListener("dragleave", (e) => {
+			if (!box.contains(e.relatedTarget)) box.classList.remove("dropping");
+		});
+		box.addEventListener("drop", (e) => {
+			box.classList.remove("dropping");
+			if (!e.dataTransfer?.files.length) return;
+			e.preventDefault();
+			attach([...e.dataTransfer.files]);
+		});
+	}
 	document.addEventListener("visibilitychange", follow);
 	follow();
 })();

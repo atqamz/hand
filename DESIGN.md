@@ -587,7 +587,7 @@ Under a "Tasks" head, grouped by status (Active and Inbox, plus Done and Abandon
 
 ### Chat cards
 - **Supervisor card:** on the left, fit to its content between 16em and 90% of the column, with a hairline border and 8px corners on the ground. Its header strip, on `card` with a hairline under it, holds "s1" in ink at 600, the model when it changed, and the time, all in Meta type. The body is the reply's markdown in Copy type, padded 10px by 12px.
-- **Operator card:** on the right, up to 75% of the column, filled and bordered in accent-bg with a transparent header strip. "you" is in accent, then the time and, on the right, the delivery state: "queued", "delivered 07:18" or "typed anyway 08:17". While the supervisor reads as blocked, a queued card offers "Type anyway". The text keeps its line breaks.
+- **Operator card:** on the right, up to 75% of the column, filled and bordered in accent-bg with a transparent header strip. "you" is in accent, then the time and, on the right, the delivery state: "queued", "delivered 07:18" or "typed anyway 08:17". While the supervisor reads as blocked, a queued card offers "Type anyway". The text keeps its line breaks. Each `[image: PATH]` line that points into this fleet's `inbox/` shows as a thumbnail under the text instead. A thumbnail is at most 240 by 180 px, with the hairline border and the 6px radius, and it opens the full image.
 - **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
 
 ### Hand lines
@@ -596,7 +596,10 @@ Hand's own events take one muted 12px line each, with no card: an 8px ring outli
 ### Composer
 One box on `card` with a hairline border and 6px corners, padded 10px, pinned under the timeline. Its focus frame is an accent border plus a 1px accent ring.
 - **Text box:** borderless and transparent, growing with its text up to 40dvh (30dvh on short screens and without JavaScript).
-- **Foot row:** the console region on the left, the hint in muted meta, then the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers) and the primary Send. While the supervisor is blocked, the hint links to Needs.
+- **Foot row:** the console region on the left, the hint in muted meta, then the send group.
+  - **Send group:** the 30px paperclip "Attach images" button, the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers) and the primary Send.
+  - **Hint:** while the supervisor is blocked, it links to Needs. While images upload, it reads "Attaching n image(s)…". While the Start form fills the console region, the hint takes its own row above it.
+  - **Attaching:** paste, a drop on the composer and the paperclip each attach png, jpeg, webp or gif images up to 10 MiB. During a drag, the composer shows an accent dashed outline.
 - **Console region:** the model menu (its summary in Nav type with the chevron); a pending switch in amber with Cancel; Interrupt while a turn runs, a 28px key with a red border and text, the stop-square icon and its label; Stop, a muted key that turns red on hover and asks "Press again to stop" on a red pale fill for 4s; and the overflow menu. With no supervisor running, Resume, New session and the harness picker take its place, and Start shows "starting…" at once.
 
 ### Menus

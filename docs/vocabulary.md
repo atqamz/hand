@@ -225,6 +225,8 @@ Wakes reach the managed supervisor through the watcher, so `hand watch` must run
 
 `iN`. A message queued for the supervisor, from the board's message box or `hand supervisor send --text TEXT`. It is at most 16 KiB of UTF-8 with no control characters other than newline and tab, and it may not start with `[hand v1`, which Hand keeps for its own messages. Inputs are delivered in order as soon as the supervisor can take them.
 
+An input can carry images. Each one the operator pastes, drops or picks on the board is saved in the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N.ext`, and the message gets a line `[image: PATH]`. The supervisor opens that path with its harness's image reading. Chat shows each such line from this fleet's `inbox/` as a thumbnail.
+
 ### Model switch
 
 A pending change of the supervisor's model or effort that keeps its harness and its conversation: `hand supervisor switch --model M --effort E`, `--profile NAME`, or the model menu on the board. Hand applies it when the current turn ends, by stopping the supervisor and resuming the same session with the new model under a new `sN`. `--cancel` drops a pending switch. opencode keeps its model in the session and cannot switch.

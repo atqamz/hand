@@ -12,7 +12,7 @@
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea id="composer-text" name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<span class="hint">{{.ComposerHint}}</span><span class="send"><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span>
+<span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach images">{{template "icon-attach"}}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach><span class="sr">Attach images</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span>
 </form><section class="console" data-region="console">{{template "region-console" .}}</section></div>{{end}}
 </div>
 </main>
