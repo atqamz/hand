@@ -17,7 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const Version = "0.0.0-next"
+const Version = "0.8.0"
 
 type Env struct {
 	Name     string
