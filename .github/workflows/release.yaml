@@ -21,7 +21,6 @@ jobs:
   binaries:
     runs-on: ubuntu-latest
     env:
-      GH_TOKEN: ${{ github.token }}
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Check the tag
@@ -32,7 +31,8 @@ jobs:
           esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -49,6 +49,8 @@ jobs:
           done
           sha256sum hand-linux-*.tar.gz > checksums.txt
       - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
           if ! gh release view "$TAG" >/dev/null 2>&1; then

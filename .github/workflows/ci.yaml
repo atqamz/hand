@@ -29,9 +29,7 @@ jobs:
       contents: write
     concurrency:
       group: edge
-      cancel-in-progress: true
-    env:
-      GH_TOKEN: ${{ github.token }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,6 +41,7 @@ jobs:
         run: |
           set -eu
           base=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
+          test -n "$base"
           pkg=github.com/atqamz/hand/internal/cli
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=$base -X $pkg.Channel=edge -X $pkg.Commit=$GITHUB_SHA" -o hand .
@@ -51,8 +50,15 @@ jobs:
           done
           sha256sum hand-linux-*.tar.gz > checksums.txt
       - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          old=$(git rev-parse -q --verify 'refs/tags/edge^{commit}' || true)
+          if [ -n "$old" ] && [ "$old" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$old"; then
+            echo "edge is already past $GITHUB_SHA"
+            exit 0
+          fi
           git push --force origin "$GITHUB_SHA:refs/tags/edge"
           notes="Rolling build of main at ${GITHUB_SHA:0:12}, $(date -u +%Y-%m-%d). Not a release; install with HAND_INSTALL_VERSION=edge."
           if gh release view edge >/dev/null 2>&1; then

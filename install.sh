@@ -30,11 +30,12 @@ asset="hand-linux-$arch.tar.gz"
 tmp=$(mktemp -d)
 part=""
 trap 'rm -rf "$tmp"; if [ -n "$part" ]; then rm -f "$part"; fi' EXIT
+trap 'exit 1' HUP INT TERM
 
 curl -fsSL -o "$tmp/$asset" "$url/$asset"
 curl -fsSL -o "$tmp/checksums.txt" "$url/checksums.txt"
 grep " $asset\$" "$tmp/checksums.txt" >"$tmp/want" || die "checksum mismatch for $asset"
-(cd "$tmp" && sha256sum -c --status want) || die "checksum mismatch for $asset"
+(cd "$tmp" && sha256sum -c want >/dev/null 2>&1) || die "checksum mismatch for $asset"
 tar -xzf "$tmp/$asset" -C "$tmp" hand
 
 mkdir -p "$dir"

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,7 @@ type release struct {
 	*httptest.Server
 	mu    sync.Mutex
 	paths []string
+	cut   string
 }
 
 func (r *release) asked() []string {
@@ -56,6 +58,7 @@ func fakeRelease(t *testing.T, version string, mutate func(files map[string][]by
 	r.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.mu.Lock()
 		r.paths = append(r.paths, req.URL.Path)
+		cut := r.cut == filepath.Base(req.URL.Path)
 		r.mu.Unlock()
 		body, ok := files[filepath.Base(req.URL.Path)]
 		switch {
@@ -63,6 +66,9 @@ func fakeRelease(t *testing.T, version string, mutate func(files map[string][]by
 			http.NotFound(w, req)
 		case body == nil:
 			http.Error(w, "boom", http.StatusInternalServerError)
+		case cut:
+			w.Header().Set("Content-Length", strconv.Itoa(2*len(body)))
+			_, _ = w.Write(body)
 		default:
 			_, _ = w.Write(body)
 		}
@@ -80,8 +86,11 @@ func runInstall(t *testing.T, srv *release, env map[string]string, system, machi
 	}
 	dir = t.TempDir()
 	cmd := exec.Command("sh", "install.sh")
-	cmd.Env = append(os.Environ(), "PATH="+stub+":"+os.Getenv("PATH"), "HAND_INSTALL_BASE="+srv.URL, "HAND_INSTALL_DIR="+dir)
+	cmd.Env = append(os.Environ(), "PATH="+stub+":"+os.Getenv("PATH"), "HAND_INSTALL_BASE="+srv.URL, "HAND_INSTALL_DIR="+dir, "HAND_INSTALL_VERSION=", "no_proxy=*")
 	for k, v := range env {
+		if k == "PATH" {
+			v = stub + ":" + v
+		}
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	var out, errOut bytes.Buffer
@@ -148,10 +157,30 @@ func TestInstallScriptRefusesABadChecksum(t *testing.T) {
 }
 
 func TestInstallScriptRefusesAFailedDownload(t *testing.T) {
-	srv := fakeRelease(t, "9.9.9", func(f map[string][]byte) { f["hand-linux-amd64.tar.gz"] = nil })
-	dir, _, _, code := runInstall(t, srv, nil, "Linux", "x86_64")
-	if code == 0 || len(installed(t, dir)) != 0 {
-		t.Fatalf("code %d, installed %q", code, installed(t, dir))
+	failed := fakeRelease(t, "9.9.9", func(f map[string][]byte) { f["hand-linux-amd64.tar.gz"] = nil })
+	cut := fakeRelease(t, "9.9.9", nil)
+	cut.cut = "hand-linux-amd64.tar.gz"
+	for name, srv := range map[string]*release{"500": failed, "closed early": cut} {
+		dir, _, _, code := runInstall(t, srv, nil, "Linux", "x86_64")
+		if code == 0 || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d, installed %q", name, code, installed(t, dir))
+		}
+	}
+}
+
+func TestInstallScriptWorksWithBusyboxSha256sum(t *testing.T) {
+	real, err := exec.LookPath("sha256sum")
+	if err != nil {
+		t.Fatal(err)
+	}
+	busybox := t.TempDir()
+	stub := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = --status ] && { echo 'sha256sum: unrecognized option' >&2; exit 1; }; done\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(busybox, "sha256sum"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"PATH": busybox + ":" + os.Getenv("PATH")}, "Linux", "x86_64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) {
+		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
 	}
 }
 
