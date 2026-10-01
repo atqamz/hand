@@ -287,11 +287,11 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 	start := append(args, bin, "--session", session, "server", "start")
 	out, err := command(ctx, env, run, start...).CombinedOutput()
 	if err != nil && bytes.Contains(out, []byte("already loaded")) {
-		show := func(prop string) string {
+		show := func(ctx context.Context, prop string) string {
 			out, _ := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", prop, "--value").Output()
 			return strings.TrimSpace(string(out))
 		}
-		if loaded := execPath(show("ExecStart")); loaded == "" || loaded == bin {
+		if loaded := execPath(show(ctx, "ExecStart")); loaded == "" || loaded == bin {
 			if systemctl("start", unit+".service") == nil {
 				return nil
 			}
@@ -317,10 +317,12 @@ func execPath(execStart string) string {
 	return strings.TrimSpace(path)
 }
 
-func unloaded(ctx context.Context, show func(string) string) bool {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+var unloadWait = 10 * time.Second
+
+func unloaded(ctx context.Context, show func(context.Context, string) string) bool {
+	ctx, cancel := context.WithTimeout(ctx, unloadWait)
 	defer cancel()
-	for show("LoadState") != "not-found" {
+	for show(ctx, "LoadState") != "not-found" {
 		select {
 		case <-ctx.Done():
 			return false
