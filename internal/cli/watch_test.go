@@ -56,6 +56,7 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 	return func() (string, int) {
 		cancel()
 		r := <-done
+		eventually(t, func() bool { return fx.rt.srv.Subscribers() == 0 })
 		return r.out, r.code
 	}
 }
@@ -194,8 +195,9 @@ func TestWatchCatchesUpOnAScreenThatBlockedWhileItWasDown(t *testing.T) {
 	stop := startWatch(t, fx)
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	stop()
-	stop = startWatch(t, fx)
+	stop = startWatch(t, fx, "--every", "100ms")
 	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
 	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,"); n != 1 {
