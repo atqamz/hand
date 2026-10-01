@@ -43,6 +43,20 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Install
 
+Install the latest release on Linux (amd64 or arm64):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+```
+
+You can choose another version:
+- **Edge:** `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`. Edge is the rolling build of `main` that passed CI.
+- **A pinned release:** `HAND_INSTALL_VERSION=v0.9.0`.
+
+`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
+
+To build from source instead:
+
 ```sh
 git clone https://github.com/atqamz/hand
 cd hand
