@@ -417,6 +417,78 @@
 		});
 		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
 	};
+	const draft = document.getElementById("composer");
+	const picker = draft?.querySelector("[data-attach]");
+	const box = draft?.closest(".console-box");
+	if (draft && picker && box) {
+		const text = draft.querySelector("textarea");
+		const csrf = draft.querySelector("input[name=csrf]")?.value || "";
+		const note = draft.querySelector(".hint");
+		let running = 0;
+		let resting = "";
+		const busy = (n) => {
+			if (!note) return;
+			if (running === 0 && n > 0) resting = note.textContent;
+			running += n;
+			note.textContent = running > 0 ? `Attaching ${running} image${running === 1 ? "" : "s"}…` : resting;
+		};
+		const put = (line) => {
+			const at = text.selectionStart ?? text.value.length;
+			const head = text.value.slice(0, at);
+			const tail = text.value.slice(text.selectionEnd ?? at).replace(/^\n/, "");
+			const insert = `${head && !head.endsWith("\n") ? "\n" : ""}${line}\n`;
+			text.value = head + insert + tail;
+			text.setSelectionRange(head.length + insert.length, head.length + insert.length);
+			text.dispatchEvent(new Event("input", { bubbles: true }));
+		};
+		const attach = async (files) => {
+			for (const file of files) {
+				busy(1);
+				const data = new FormData();
+				data.append("csrf", csrf);
+				data.append("image", file, file.name || "pasted-image");
+				const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
+				busy(-1);
+				if (!res) {
+					show("The board did not answer; check that hand board is running.");
+					continue;
+				}
+				if (!res.ok) {
+					show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+					continue;
+				}
+				const { path } = await res.json();
+				put(`[image: ${path}]`);
+			}
+		};
+		picker.addEventListener("change", () => {
+			const files = [...picker.files];
+			picker.value = "";
+			attach(files);
+		});
+		text.addEventListener("paste", (e) => {
+			const items = [...(e.clipboardData?.items || [])];
+			const files = items.filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+			if (!files.length) return;
+			if (!items.some((i) => i.type === "text/plain")) e.preventDefault();
+			attach(files);
+		});
+		const carries = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+		box.addEventListener("dragover", (e) => {
+			if (!carries(e)) return;
+			e.preventDefault();
+			box.classList.add("dropping");
+		});
+		box.addEventListener("dragleave", (e) => {
+			if (!box.contains(e.relatedTarget)) box.classList.remove("dropping");
+		});
+		box.addEventListener("drop", (e) => {
+			box.classList.remove("dropping");
+			if (!e.dataTransfer?.files.length) return;
+			e.preventDefault();
+			attach([...e.dataTransfer.files]);
+		});
+	}
 	document.addEventListener("visibilitychange", follow);
 	follow();
 })();

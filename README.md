@@ -226,7 +226,15 @@ Workers run with the same flags, each in its own worktree.
 
 agy asks once per folder whether to trust it. Every attempt is a new folder, and so is a new fleet home. Hand presses Enter on that screen only when it names the attempt's own worktree, or for the supervisor the fleet home. Otherwise it notes the attempt or the supervisor blocked. The board reads agy's conversation database for Chat and the context bar.
 
-The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
+The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys.
+
+To attach images, paste them into the message box, drop them on it, or pick them with its paperclip button. On a phone, the button opens the gallery or the camera.
+- **Accepted:** png, jpeg, webp and gif, up to 10 MiB each.
+- **Where they go:** each one is saved in the fleet's `inbox/` folder, and the message gets a line `[image: PATH]`. Hand never deletes `inbox/`.
+- **What the supervisor sees:** the supervisor reads the image from that path.
+- **In Chat:** the line shows as a thumbnail.
+
+Attaching works over loopback only, but thumbnails also show on a network address. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
 
 The model menu next to the message box changes the supervisor's model or effort, keeping its harness and its conversation. The switch waits for the current turn to end. opencode keeps its model in its session, so it cannot switch. The same controls exist as `hand supervisor start|send|keys|interrupt|switch|stop|resume|show`.
 

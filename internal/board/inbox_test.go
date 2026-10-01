@@ -177,3 +177,17 @@ func TestAQueuedMessageShowsItsImages(t *testing.T) {
 func TestShotsAreStyledInTheStylesheet(t *testing.T) {
 	contains(t, "board.css", asset(t, "board.css"), ".shots img", "max-width:240px", "object-fit:cover")
 }
+
+func TestTheComposerAttachesImages(t *testing.T) {
+	fx := newFixture(t)
+	page := get(t, fx.handler(), "/")
+	contains(t, "page", page, `<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach>`, "Attach images")
+	contains(t, "app.js", asset(t, "app.js"), `"paste"`, `"drop"`, `"dragover"`, "data-attach", "/supervisor/image", "[image: ", "Attaching ")
+	contains(t, "board.css", asset(t, "board.css"), ".console-box.dropping", ".attach")
+}
+
+func TestANetworkBoardHasNoAttachControl(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Controls = false
+	lacks(t, "page", get(t, fx.handler(), "/"), "data-attach")
+}

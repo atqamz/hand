@@ -194,3 +194,13 @@ func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
 		t.Fatalf("the migrate skill was removed: %v", err)
 	}
 }
+
+func TestTheSkillExplainsAttachedImages(t *testing.T) {
+	home := t.TempDir()
+	if err := fleet.Install(home, "hand"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(home, skillPaths[0])); !strings.Contains(got, "A line `[image: PATH]` is an image the operator attached") {
+		t.Fatalf("skill = %q", got)
+	}
+}
