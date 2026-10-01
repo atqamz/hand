@@ -232,3 +232,10 @@ func TestTheComposerWaitsForItsUploads(t *testing.T) {
 	contains(t, "app.js", js, `"attaching" in form.dataset`, "Wait for the images to finish attaching", "const at = text.selectionEnd ?? text.value.length")
 	lacks(t, "app.js", js, "text.selectionStart ?? text.value.length")
 }
+
+func TestEveryAttachEndsItsUploadOnce(t *testing.T) {
+	js := asset(t, "app.js")
+	if strings.Count(js, "busy(-1)") != 1 || !strings.Contains(js, "} finally {") || !strings.Contains(js, "The image could not be attached") {
+		t.Fatal("attach must release each upload once, in a finally, after the line is inserted")
+	}
+}

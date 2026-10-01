@@ -448,26 +448,30 @@
 		const attach = async (files) => {
 			busy(files.length);
 			for (const file of files) {
-				if (file.size > 10 << 20) {
+				try {
+					if (file.size > 10 << 20) {
+						show("an image can be at most 10 MiB");
+						continue;
+					}
+					const data = new FormData();
+					data.append("csrf", csrf);
+					data.append("image", file, file.name || "pasted-image");
+					const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
+					if (!res) {
+						show("The board did not answer; check that hand board is running.");
+						continue;
+					}
+					if (!res.ok) {
+						show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+						continue;
+					}
+					const { path } = await res.json();
+					put(`[image: ${path}]`);
+				} catch {
+					show("The image could not be attached; try again.");
+				} finally {
 					busy(-1);
-					show("an image can be at most 10 MiB");
-					continue;
 				}
-				const data = new FormData();
-				data.append("csrf", csrf);
-				data.append("image", file, file.name || "pasted-image");
-				const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
-				busy(-1);
-				if (!res) {
-					show("The board did not answer; check that hand board is running.");
-					continue;
-				}
-				if (!res.ok) {
-					show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
-					continue;
-				}
-				const { path } = await res.json();
-				put(`[image: ${path}]`);
 			}
 		};
 		picker.addEventListener("change", () => {
