@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/agydb/agytest"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -132,5 +133,42 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	}
 	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
 		t.Fatalf("nothing newer = %q, %v", id, err)
+	}
+}
+
+func TestAgySupervisorArgv(t *testing.T) {
+	spec := Spec{Harness: "agy", Model: "gemini-3.8-flash-low"}
+	if got, err := SupervisorArgv("/bin/agy", spec, "", "You are supervisor s1", false); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "You are supervisor s1"}) {
+		t.Fatalf("new = %q, %v", got, err)
+	}
+	if got, err := SupervisorArgv("/bin/agy", spec, "c1", "", true); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "--conversation", "c1"}) {
+		t.Fatalf("resume = %q, %v", got, err)
+	}
+	if _, err := SupervisorArgv("/bin/agy", spec, "c1", "You are supervisor s1", false); err == nil || !strings.Contains(err.Error(), "picks its own session id") {
+		t.Fatalf("new with a session = %v", err)
+	}
+}
+
+func TestAgySessionPicksTheLaunchedConversation(t *testing.T) {
+	dir, fleet := t.TempDir(), t.TempDir()
+	since := time.Now().Add(-time.Minute)
+	marker := "You are supervisor s2 of the Hand fleet "
+	at := since.Add(time.Second)
+	old := agytest.Conversation(t, dir, "old", fleet, 0, 0, agytest.Step{Type: 14, Text: marker + "demo.", At: at})
+	if err := os.Chtimes(old, since.Add(-time.Hour), since.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	agytest.Conversation(t, dir, "other", fleet, 0, 0, agytest.Step{Type: 14, Text: "hello", At: at})
+	agytest.Conversation(t, dir, "mine", fleet, 0, 0, agytest.Step{Type: 14, Text: marker + "demo.", At: at})
+	if id, err := AgySession(dir, fleet, since, marker); err != nil || id != "mine" {
+		t.Fatalf("session = %q, %v", id, err)
+	}
+	elsewhere := t.TempDir()
+	agytest.Conversation(t, elsewhere, "mine", "/srv/elsewhere", 0, 0, agytest.Step{Type: 14, Text: marker + "demo.", At: at})
+	if id, err := AgySession(elsewhere, fleet, since, marker); err != nil || id != "" {
+		t.Fatalf("another folder = %q, %v", id, err)
+	}
+	if id, err := AgySession(filepath.Join(dir, "absent"), fleet, since, marker); err != nil || id != "" {
+		t.Fatalf("no folder = %q, %v", id, err)
 	}
 }

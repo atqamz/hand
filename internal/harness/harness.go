@@ -102,7 +102,10 @@ func Models(name string, env Env) ([]Model, error) {
 type agyListing struct {
 	models []Model
 	err    error
+	at     time.Time
 }
+
+var agyRetry = 60 * time.Second
 
 var agyLists = struct {
 	sync.Mutex
@@ -116,7 +119,7 @@ func agyModels(env Env) ([]Model, error) {
 	}
 	agyLists.Lock()
 	defer agyLists.Unlock()
-	if l, ok := agyLists.byBin[bin]; ok {
+	if l, ok := agyLists.byBin[bin]; ok && (l.err == nil || time.Since(l.at) < agyRetry) {
 		return slices.Clone(l.models), l.err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -139,7 +142,7 @@ func agyModels(env Env) ([]Model, error) {
 		err = fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
 		models = nil
 	}
-	agyLists.byBin[bin] = agyListing{models, err}
+	agyLists.byBin[bin] = agyListing{models, err, time.Now()}
 	return slices.Clone(models), err
 }
 

@@ -421,7 +421,9 @@ func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
 func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
 	fx := agyFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
-	fx.rt.set(func(rt *fakeRuntime) { rt.screens, rt.screen, rt.afterScreen = []string{"", ""}, screen, "> \n" })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screens, rt.screen, rt.afterScreen, rt.status = []string{"", ""}, screen, "> \n", "idle"
+	})
 	out := fx.startAgy()
 	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())

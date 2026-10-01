@@ -96,7 +96,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	if err != nil {
 		return err
 	}
-	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.SupervisorHarnesses, b.profiles(), keyButtons()
+	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
 	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
 	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits until one starts."
@@ -118,7 +118,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 			data["CurrentModels"], data["CurrentEfforts"] = b.models(sup.Harness)
 			var others []harnessChoice
-			for _, h := range state.SupervisorHarnesses {
+			for _, h := range state.Harnesses {
 				if h != sup.Harness {
 					models, efforts := b.models(h)
 					others = append(others, harnessChoice{Name: h, Models: models, Efforts: efforts})
@@ -330,7 +330,7 @@ func (b *Board) profilesFor(name string) []profile {
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n]
-		if slices.Contains(state.SupervisorHarnesses, s.Harness) && (name == "" || s.Harness == name) {
+		if name == "" || s.Harness == name {
 			out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " ")})
 		}
 	}

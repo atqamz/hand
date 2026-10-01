@@ -47,7 +47,7 @@ func (r *runner) supervisorLock(wait bool) (func(), bool, error) { return r.lock
 
 func cmdSupervisorStart(r *runner, args []string) error {
 	fs := flags("supervisor start")
-	name := fs.String("harness", "", "claude, codex or opencode")
+	name := fs.String("harness", "", "claude, codex, opencode or agy")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
@@ -78,7 +78,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.reportLaunch(c, sup, true)
+		return r.reportLaunch(ctx, st, c, sup, true)
 	})
 }
 
@@ -149,7 +149,7 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	if err != nil {
 		return fmt.Errorf("%w; %s stopped, continue it with `%s supervisor resume`", err, ref, r.env.command())
 	}
-	return r.reportLaunch(c, next, true)
+	return r.reportLaunch(ctx, st, c, next, true)
 }
 
 func cmdSupervisorResume(r *runner, args []string) error {
@@ -161,7 +161,7 @@ func cmdSupervisorResume(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.reportLaunch(c, sup, false)
+		return r.reportLaunch(ctx, st, c, sup, false)
 	})
 }
 
@@ -256,7 +256,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
-	other := fs.String("harness", "", "switch to another harness between turns: claude, codex or opencode")
+	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode or agy")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -374,9 +374,6 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 }
 
 func supervisorBin(r *runner, spec harness.Spec) (string, error) {
-	if err := state.CheckSupervisorHarness(spec.Harness); err != nil {
-		return "", err
-	}
 	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return "", err
 	}
@@ -413,7 +410,7 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 	return running, nil
 }
 
-func (r *runner) reportLaunch(c luvus.Client, running state.Supervisor, prompted bool) error {
+func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Client, running state.Supervisor, prompted bool) error {
 	var d toon.Doc
 	d.Field("supervisor", state.SupervisorRef(running.ID))
 	d.Field("harness", running.Harness)
@@ -432,6 +429,21 @@ func (r *runner) reportLaunch(c luvus.Client, running state.Supervisor, prompted
 		default:
 			d.Field("prompt", "not submitted")
 			help = append(help, "Press Enter once the launch prompt is on screen: `hand supervisor show`, then `hand supervisor keys --revision N enter`")
+		}
+	}
+	if prompted && running.Harness == "agy" {
+		trust, note := acceptTrust(r.ctx(), c, running.PaneID, running.TerminalID, r.home)
+		if trust == "accepted" {
+			if err := st.NoteSupervisor(ctx, running.ID, "keys", "enter"); err != nil {
+				return err
+			}
+		}
+		d.Field("trust", trust)
+		if note != "" {
+			if err := st.NoteSupervisor(ctx, running.ID, "blocked", note); err != nil {
+				return err
+			}
+			help = append(help, "Read the screen: `hand attach supervisor`")
 		}
 	}
 	d.Help(help...)
@@ -675,6 +687,8 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
 			id, err = harness.OpencodeSession(bin, dir, since, marker)
 		}
+	case "agy":
+		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")
 	}
 	if err != nil || id == "" {
 		return err
@@ -764,6 +778,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		}
 		if sup.Session == "" {
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
+		}
+	}
+	if sup.Harness == "agy" {
+		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil && strings.Contains(s.Text, trustQuestion) {
+			return "agy is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)

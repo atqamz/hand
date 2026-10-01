@@ -38,6 +38,7 @@ type Paths struct {
 	Codex        string
 	Opencode     string
 	OpencodeData string
+	Agy          string
 }
 
 type Reader struct {
@@ -94,6 +95,8 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 		err = r.codex(s, id)
 	case "opencode":
 		err = r.opencode(ctx, s, id, dir)
+	case "agy":
+		err = r.agy(s, id)
 	default:
 		err = fmt.Errorf("transcript: harness %q has no reader", harness)
 	}

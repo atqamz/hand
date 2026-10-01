@@ -26,14 +26,14 @@ The harness process that runs one attempt. It works in the attempt's worktree, n
 
 ### Harness
 
-The coding-agent CLI that Hand launches as a supervisor or a worker. There are four: `claude` (Claude Code), `codex` (Codex), `opencode` (opencode) and `agy` (Antigravity). The supervisor runs on the first three; `agy` runs workers only. Each runs in full-auto mode:
+The coding-agent CLI that Hand launches as a supervisor or a worker. There are four: `claude` (Claude Code), `codex` (Codex), `opencode` (opencode) and `agy` (Antigravity). Each can run the supervisor or a worker, in full-auto mode:
 
 | Harness | Launch flags | Model and effort |
 |---|---|---|
 | `claude` | `--dangerously-skip-permissions` | an alias (`opus`, `sonnet`, `haiku`, `fable`) or a `claude-*` name; effort `low`, `medium`, `high`, `xhigh` or `max` |
 | `codex` | `--dangerously-bypass-approvals-and-sandbox` | checked against Codex's model cache, `$CODEX_HOME/models_cache.json` |
 | `opencode` | `--standalone --auto` | none; opencode uses the model from its own configuration |
-| `agy` | `--dangerously-skip-permissions -i BRIEF` | a model id from `agy models`, which names the effort level (`gemini-3.8-flash-low`); no effort. Workers only. |
+| `agy` | `--dangerously-skip-permissions`, with `-i BRIEF` for a new session or `--conversation ID` to resume | a model id from `agy models`, which names the effort level (`gemini-3.8-flash-low`); no effort |
 
 ### Agent state
 
@@ -229,7 +229,7 @@ Wakes reach the managed supervisor through the watcher, so `hand watch` must run
 
 A pending change of the supervisor's model or effort that keeps its harness and its conversation: `hand supervisor switch --model M --effort E`, `--profile NAME`, or the model menu on the board. Hand applies it when the current turn ends, by stopping the supervisor and resuming the same session with the new model under a new `sN`. `--cancel` drops a pending switch. opencode keeps its model in the session and cannot switch.
 
-`hand supervisor switch --harness H` (or a profile on another harness) changes harness instead. It is refused while the supervisor is working; between turns it stops the supervisor and starts the next one on the new harness, with a launch message that names the one it replaces. The new supervisor starts a new session and orients from `hand orient`; the board keeps the earlier session in Chat under a divider. `hand route list` and the board's model menu list each harness's models and efforts: claude's aliases, codex's models cache, and none for opencode. `hand route list` also lists agy's models, marked worker only; the board's menu leaves agy out.
+`hand supervisor switch --harness H` (or a profile on another harness) changes harness instead. It is refused while the supervisor is working; between turns it stops the supervisor and starts the next one on the new harness, with a launch message that names the one it replaces. The new supervisor starts a new session and orients from `hand orient`; the board keeps the earlier session in Chat under a divider. `hand route list` and the board's model menu list each harness's models and efforts: claude's aliases, codex's models cache, and none for opencode. agy's come from `agy models`, with no efforts.
 
 ### Routing profile
 
@@ -279,7 +279,7 @@ Every record has a short ref that commands, the board and wakes share.
 Hand 0.7 ([`0.7`](https://github.com/atqamz/hand/blob/0.7/docs/vocabulary.md)) used some terms that the redesign dropped or changed:
 
 - **Supervisor** was the operator's own interactive session. It is now the managed background agent `sN`. A session opened by hand still works, but stands down while a managed supervisor runs.
-- **Supervisor harness and worker harness** were separate registries. There is now one list of harnesses, `claude`, `codex`, `opencode` and `agy`. The supervisor runs on the first three, and `agy` runs workers only. Grok and Pi are no longer launched, although `hand init` still installs the skill for them.
+- **Supervisor harness and worker harness** were separate registries. There is now one list of harnesses, `claude`, `codex`, `opencode` and `agy`, used for both roles. Grok and Pi are no longer launched, although `hand init` still installs the skill for them.
 - **Fleet identity** in `state/hand.db` is now the fleet ID in `hand.db` at the root of the fleet home, and fleets also have a name.
 - **Fleet registry** (`~/.secondhand/registry.db`) is replaced by the links in `~/.secondhand/fleets/`.
 - **Current invocation context** has no term of its own. The fleet home is still found from the working directory or `HAND_HOME`, but the working directory now wins: a `HAND_HOME` naming another fleet is refused while you are inside one. `--home DIR` is new.
