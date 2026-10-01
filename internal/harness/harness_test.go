@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -209,6 +210,28 @@ func TestAgyModelsAreListedOnce(t *testing.T) {
 		}
 	}
 	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 1 {
+		t.Fatalf("agy models ran %q times, %v", b, err)
+	}
+}
+
+func TestAgyModelsFailureIsRetriedAfterAWhile(t *testing.T) {
+	path, count := fakeAgy(t, agyList, true)
+	if _, err := Models("agy", Env{Path: path}); err == nil {
+		t.Fatal("a failing listing succeeded")
+	}
+	fixed := "#!/bin/sh\nif [ \"$1\" = models ]; then echo x >> " + count + "; printf '%s' '" + agyList + "'; exit 0; fi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(path, "agy"), []byte(fixed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Models("agy", Env{Path: path}); err == nil {
+		t.Fatal("a cached failure was not kept within agyRetry")
+	}
+	defer func(d time.Duration) { agyRetry = d }(agyRetry)
+	agyRetry = 0
+	if m, err := Models("agy", Env{Path: path}); err != nil || len(m) != 2 {
+		t.Fatalf("after agyRetry = %v, %v", m, err)
+	}
+	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 2 {
 		t.Fatalf("agy models ran %q times, %v", b, err)
 	}
 }

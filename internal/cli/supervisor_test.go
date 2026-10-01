@@ -999,22 +999,3 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s3", "harness: claude")
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "resumes: s1")
 }
-
-func TestTheSupervisorRefusesAgy(t *testing.T) {
-	const refusal = `harness "agy" runs workers only; the supervisor runs on claude, codex or opencode (atqamz/hand#736)`
-	h, _ := newSupervisorFixture(t)
-	if _, errOut, code := h.run("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"); code != 2 || !strings.Contains(errOut, refusal) {
-		t.Fatalf("start = %d %q", code, errOut)
-	}
-	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, errOut, code := h.run("supervisor", "start", "--profile", "gem"); code != 2 || !strings.Contains(errOut, refusal) {
-		t.Fatalf("start --profile = %d %q", code, errOut)
-	}
-	startClaudeSupervisor(h)
-	if _, errOut, code := h.run("supervisor", "switch", "--harness", "agy", "--model", "gemini-3.8-flash-low"); code != 2 || !strings.Contains(errOut, refusal) {
-		t.Fatalf("switch = %d %q", code, errOut)
-	}
-	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
-}

@@ -244,14 +244,13 @@ func TestSessionSupervisorsListsOneSessionInOrder(t *testing.T) {
 	}
 }
 
-func TestSupervisorsRunOnlyOnSupervisorHarnesses(t *testing.T) {
+func TestEverySupervisorHarnessIsAccepted(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
-	if _, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy"}}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `harness "agy" runs workers only; the supervisor runs on claude, codex or opencode (atqamz/hand#736)`) {
+	if _, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy"}}); err != nil {
 		t.Fatalf("an agy supervisor = %v", err)
 	}
-	task := activeTask(t, s)
-	if _, err := s.AddAttempt(ctx, AttemptSpec{TaskID: task.ID, Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy", "-i", "x"}}, t.TempDir()); err != nil {
-		t.Fatalf("an agy worker = %v", err)
+	if _, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "grok", Argv: []string{"/bin/grok"}}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "must be one of claude, codex, opencode, agy") {
+		t.Fatalf("a grok supervisor = %v", err)
 	}
 }

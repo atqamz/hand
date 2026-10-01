@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/agydb"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -82,8 +83,69 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 			return []string{bin, "--standalone", "--auto", "--session", session}, nil
 		}
 		return []string{bin, "--standalone", "--auto", "--prompt", prompt}, nil
+	case "agy":
+		argv := []string{bin, "--model", s.Model, "--dangerously-skip-permissions"}
+		if resume {
+			return append(argv, "--conversation", session), nil
+		}
+		return append(argv, "-i", prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
+}
+
+func AgySession(dir, cwd string, since time.Time, marker string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	want := realPath(cwd)
+	var id string
+	var newest time.Time
+	for _, e := range entries {
+		name, ok := strings.CutSuffix(e.Name(), ".db")
+		if !ok || e.IsDir() {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || fi.ModTime().Before(since) || !fi.ModTime().After(newest) {
+			continue
+		}
+		if agyLaunched(filepath.Join(dir, e.Name()), want, marker) {
+			id, newest = name, fi.ModTime()
+		}
+	}
+	return id, nil
+}
+
+func agyLaunched(path, cwd, marker string) bool {
+	db, err := agydb.Open(path)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	if ws, err := agydb.Workspace(db); err != nil || (ws != "" && realPath(ws) != cwd) {
+		return false
+	}
+	steps, err := agydb.Steps(db)
+	if err != nil {
+		return false
+	}
+	for _, s := range steps {
+		if s.Type == 14 {
+			return launches(s.Text, marker)
+		}
+	}
+	return false
+}
+
+func realPath(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 func AgyConversations(getenv func(string) string) string {

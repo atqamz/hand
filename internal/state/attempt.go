@@ -20,20 +20,7 @@ const (
 	AttemptFailed      = "failed"
 )
 
-var (
-	Harnesses           = []string{"claude", "codex", "opencode", "agy"}
-	SupervisorHarnesses = []string{"claude", "codex", "opencode"}
-)
-
-func CheckSupervisorHarness(name string) error {
-	switch {
-	case slices.Contains(SupervisorHarnesses, name):
-		return nil
-	case slices.Contains(Harnesses, name):
-		return fmt.Errorf("%w: harness %q runs workers only; the supervisor runs on claude, codex or opencode (atqamz/hand#736)", ErrInvalid, name)
-	}
-	return fmt.Errorf("%w: harness %q must be one of %s", ErrInvalid, name, strings.Join(SupervisorHarnesses, ", "))
-}
+var Harnesses = []string{"claude", "codex", "opencode", "agy"}
 
 var attemptEnds = map[string][]string{
 	AttemptLaunching: {AttemptFailed},
