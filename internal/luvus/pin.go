@@ -87,6 +87,9 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 		if err := os.Rename(tmp, dest); err != nil {
 			return Pin{}, err
 		}
+		if err := syncDir(filepath.Dir(dest)); err != nil {
+			return Pin{}, err
+		}
 	}
 	p := Pin{Path: dest, SHA256: hash, Version: version, Source: bin, PinnedAt: now.UTC().Format(time.RFC3339)}
 	return p, writePin(store, p)
@@ -127,6 +130,15 @@ func copyHashed(dir, src string) (string, string, error) {
 	return out.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
 func fileSum(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -160,5 +172,8 @@ func writePin(store string, p Pin) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(store, "pin.json"))
+	if err := os.Rename(tmp.Name(), filepath.Join(store, "pin.json")); err != nil {
+		return err
+	}
+	return syncDir(store)
 }

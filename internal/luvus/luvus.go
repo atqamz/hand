@@ -195,6 +195,8 @@ func StartServer(ctx context.Context, bin, session, unit, dir string, environ []
 
 var errNoManager = errors.New("no systemd user manager")
 
+var serverProbe = 5 * time.Second
+
 type Server struct {
 	Exe    string
 	SHA256 string
@@ -206,6 +208,8 @@ func RunningServer(ctx context.Context, env []string, unit string) (Server, bool
 	if !ok {
 		return Server{}, false
 	}
+	ctx, cancel := context.WithTimeout(ctx, serverProbe)
+	defer cancel()
 	out, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", "MainPID", "--value").Output()
 	if err != nil {
 		return Server{}, false
