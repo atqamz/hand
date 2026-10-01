@@ -38,8 +38,6 @@ func (r *runner) luvusBin() (string, error) {
 		err = pin.Verify()
 	}
 	switch {
-	case errors.Is(err, luvus.ErrPinChanged):
-		return "", fmt.Errorf("%w: %w", state.ErrConflict, err)
 	case err != nil:
 		return "", err
 	case !ok:

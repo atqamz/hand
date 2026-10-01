@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -83,7 +84,7 @@ func exitCode(err error) int {
 	switch {
 	case errors.As(err, &u), errors.Is(err, state.ErrInvalid):
 		return 2
-	case errors.Is(err, state.ErrNotFound), errors.Is(err, state.ErrConflict):
+	case errors.Is(err, state.ErrNotFound), errors.Is(err, state.ErrConflict), errors.Is(err, luvus.ErrPinChanged):
 		return 3
 	}
 	return 1

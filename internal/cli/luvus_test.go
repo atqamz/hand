@@ -347,3 +347,17 @@ func TestLuvusShowWithoutAUserManager(t *testing.T) {
 	h.ok("init")
 	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 ", "server: unknown", "match: unknown")
 }
+
+func TestLuvusShowRefusesAnUnreadablePin(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	if err := os.MkdirAll(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("luvus", "show"); code != 3 || !strings.Contains(errOut, "re-pin with") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
