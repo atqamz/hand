@@ -86,6 +86,10 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }
 
+func AgyConversations(getenv func(string) string) string {
+	return filepath.Join(getenv("HOME"), ".gemini", "antigravity-cli", "conversations")
+}
+
 func NewSessionID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
