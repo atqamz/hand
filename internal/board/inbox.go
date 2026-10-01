@@ -101,7 +101,7 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(filepath.Join(b.o.Home, "inbox", name))
+	f, err := os.OpenInRoot(filepath.Join(b.o.Home, "inbox"), name)
 	if err != nil {
 		http.NotFound(w, r)
 		return

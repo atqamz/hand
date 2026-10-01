@@ -425,12 +425,10 @@
 		const csrf = draft.querySelector("input[name=csrf]")?.value || "";
 		const note = draft.querySelector(".hint");
 		let running = 0;
-		let resting = "";
 		const busy = (n) => {
-			if (!note) return;
-			if (running === 0 && n > 0) resting = note.textContent;
 			running += n;
-			note.textContent = running > 0 ? `Attaching ${running} image${running === 1 ? "" : "s"}…` : resting;
+			if (running > 0 && note) note.textContent = `Attaching ${running} image${running === 1 ? "" : "s"}…`;
+			else reflect();
 		};
 		const put = (line) => {
 			const at = text.selectionStart ?? text.value.length;
@@ -442,8 +440,13 @@
 			text.dispatchEvent(new Event("input", { bubbles: true }));
 		};
 		const attach = async (files) => {
+			busy(files.length);
 			for (const file of files) {
-				busy(1);
+				if (file.size > 10 << 20) {
+					busy(-1);
+					show("an image can be at most 10 MiB");
+					continue;
+				}
 				const data = new FormData();
 				data.append("csrf", csrf);
 				data.append("image", file, file.name || "pasted-image");

@@ -191,3 +191,38 @@ func TestANetworkBoardHasNoAttachControl(t *testing.T) {
 	fx.options.Controls = false
 	lacks(t, "page", get(t, fx.handler(), "/"), "data-attach")
 }
+
+func TestTheComposerChecksAnImagesSizeBeforeUploading(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"), "file.size > 10 << 20", "an image can be at most 10 MiB", "busy(files.length)", "reflect()")
+}
+
+func TestABigURLEncodedPostIsTooLarge(t *testing.T) {
+	fx := newFixture(t)
+	res := post(fx.handler(), "/supervisor/send", url.Values{"text": {strings.Repeat("x", 12<<20)}})
+	if res.StatusCode != http.StatusRequestEntityTooLarge || hint(res) != "the request is too large" {
+		t.Fatalf("12 MiB form = %d %q", res.StatusCode, hint(res))
+	}
+}
+
+func TestASymlinkInTheInboxIsNotFollowed(t *testing.T) {
+	fx := newFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.options.Home, "hand.db"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fx.options.Home, "inbox"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../hand.db", filepath.Join(fx.options.Home, "inbox", "20261001-120000-9.png")); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(fx.handler(), "GET", "/inbox/20261001-120000-9.png", nil, true)
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "secret") {
+		t.Fatalf("symlink = %d", rec.Code)
+	}
+}
+
+func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, "@media (min-width:800px){.console-box:has(.console .start)", `@media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`, ".attach:has(input:focus-visible)", "grid-template-columns:auto minmax(0,1fr) auto")
+	lacks(t, "board.css", css, ".attach:focus-within", ".shots:first-child", "minmax(10em,1fr)")
+}

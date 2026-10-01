@@ -179,7 +179,10 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, maxPost)
-		err := r.ParseMultipartForm(maxPost)
+		err := r.ParseForm()
+		if err == nil {
+			err = r.ParseMultipartForm(maxPost)
+		}
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			b.fail(w, http.StatusRequestEntityTooLarge, "the request is too large")
