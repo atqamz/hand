@@ -134,6 +134,8 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /attempt/{ref}/keys", b.attemptKeys)
 	b.mux.HandleFunc("POST /supervisor/keys", b.keys)
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
+	b.mux.HandleFunc("POST /supervisor/image", b.image)
+	b.mux.HandleFunc("GET /inbox/{name}", b.inbox)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
 	b.mux.HandleFunc("GET /ref/{ref}", b.ref)
@@ -174,6 +176,15 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err != nil || !b.valid(c.Value) {
 		b.fail(w, http.StatusForbidden, "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints.")
 		return
+	}
+	if r.Method == http.MethodPost {
+		r.Body = http.MaxBytesReader(w, r.Body, maxPost)
+		err := r.ParseMultipartForm(maxPost)
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			b.fail(w, http.StatusRequestEntityTooLarge, "the request is too large")
+			return
+		}
 	}
 	if r.Method == http.MethodPost && !b.valid(r.PostFormValue("csrf")) {
 		b.fail(w, http.StatusForbidden, "this form is stale; reload the page and try again")
