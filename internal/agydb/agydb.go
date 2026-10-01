@@ -19,11 +19,11 @@ type Step struct {
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
 func Open(path string) (*sql.DB, error) {
-	return sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?mode=ro&_pragma=busy_timeout(2000)")
+	return sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?mode=ro&_pragma=busy_timeout(100)")
 }
 
 func Steps(db *sql.DB) ([]Step, error) {
-	rows, err := db.Query("SELECT step_type, step_payload FROM steps ORDER BY idx")
+	rows, err := db.Query("SELECT step_type, step_payload FROM steps WHERE step_type IN (14, 15) ORDER BY idx")
 	if err != nil {
 		return nil, err
 	}

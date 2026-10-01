@@ -241,6 +241,11 @@ func acceptTrust(ctx context.Context, c luvus.Client, pane, terminalID, worktree
 			retried = true
 			continue
 		}
+		if !asked {
+			if ag, err := c.Explain(wait, pane); err == nil && ag.Status == "working" {
+				return missed(seen)
+			}
+		}
 		select {
 		case <-wait.Done():
 			return missed(seen)

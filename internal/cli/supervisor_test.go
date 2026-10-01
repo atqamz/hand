@@ -1054,14 +1054,82 @@ func TestAnAgySupervisorFindsAndResumesItsConversation(t *testing.T) {
 func TestSwitchingFromAgyToClaudeAndBack(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
+	dir := agyConversations(t, h)
+	first := rt.lastCreate().Command
+	agytest.Conversation(t, dir, "c1", h.home, 0, 0, agytest.Step{Type: 14, Text: first[len(first)-1], At: time.Now()})
 	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", "" })
+	h.ok("supervisor", "send", "--text", "hello")
+	has(t, "s1", h.ok("supervisor", "show"), "session: c1")
 	has(t, "to claude", h.ok("supervisor", "switch", "--harness", "claude", "--model", "sonnet", "--effort", "low"), "supervisor: s2", "harness: claude")
 	if argv := rt.lastCreate().Command; !slices.Contains(argv, "--session-id") || !strings.Contains(argv[len(argv)-1], "You replace s1, which ran on agy;") {
 		t.Fatalf("claude argv = %q", argv)
 	}
 	has(t, "back to agy", h.ok("supervisor", "switch", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "supervisor: s3", "harness: agy", "trust: not asked")
+	third := rt.lastCreate().Command
+	if !slices.Contains(third, "-i") || !strings.Contains(third[len(third)-1], "You replace s2, which ran on claude;") {
+		t.Fatalf("agy argv = %q", third)
+	}
+	later := agytest.Conversation(t, dir, "c3", h.home, 0, 0, agytest.Step{Type: 14, Text: third[len(third)-1], At: time.Now()})
+	if err := os.Chtimes(later, time.Now().Add(time.Second), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	h.ok("supervisor", "send", "--text", "again")
+	has(t, "s3", h.ok("supervisor", "show"), "supervisor: s3", "session: c3")
+	h.ok("supervisor", "stop")
+	h.ok("supervisor", "resume")
+	if got := rt.lastCreate().Command; !slices.Equal(got[len(got)-2:], []string{"--conversation", "c3"}) {
+		t.Fatalf("resume argv = %q", got)
+	}
+}
+
+func agyConversations(t *testing.T, h *harness) string {
+	t.Helper()
+	dir := filepath.Join(h.vars["HOME"], ".gemini", "antigravity-cli", "conversations")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestAgyDiscoveryIgnoresAnotherFleetsConversation(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startAgySupervisor(t, h, rt)
 	argv := rt.lastCreate().Command
-	if !slices.Contains(argv, "-i") || !strings.Contains(argv[len(argv)-1], "You replace s2, which ran on claude;") {
-		t.Fatalf("agy argv = %q", argv)
+	prompt := argv[len(argv)-1]
+	dir := agyConversations(t, h)
+	agytest.Conversation(t, dir, "mine", "", 0, 0, agytest.Step{Type: 14, Text: prompt, At: time.Now()})
+	other := strings.Replace(prompt, "of the Hand fleet ", "of the Hand fleet other-", 1)
+	theirs := agytest.Conversation(t, dir, "theirs", "", 0, 0, agytest.Step{Type: 14, Text: other, At: time.Now()})
+	if err := os.Chtimes(theirs, time.Now().Add(time.Minute), time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	h.ok("supervisor", "send", "--text", "hello")
+	has(t, "show", h.ok("supervisor", "show"), "session: mine")
+}
+
+func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	rt.set(func(rt *fakeRuntime) { rt.screen = trustScreen("/elsewhere") })
+	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not pressed")
+	argv := rt.lastCreate().Command
+	agytest.Conversation(t, agyConversations(t, h), "c1", "", 0, 0, agytest.Step{Type: 14, Text: argv[len(argv)-1], At: time.Now()})
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "agy is asking to trust a folder")
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("typed into the trust screen: %q", got)
+	}
+}
+
+func TestAnAgyStartWithoutATrustScreenDoesNotWait(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	*cli.TrustWait = 10 * time.Second
+	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	began := time.Now()
+	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not asked")
+	if took := time.Since(began); took > 3*time.Second {
+		t.Fatalf("start waited %s for a trust screen that never came", took)
 	}
 }

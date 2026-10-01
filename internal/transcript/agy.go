@@ -27,7 +27,7 @@ func (r *Reader) agy(s *session, id string) error {
 	}
 	defer db.Close()
 	var rows int
-	if err := db.QueryRow("SELECT COUNT(*) FROM steps").Scan(&rows); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM steps WHERE step_type IN (14, 15)").Scan(&rows); err != nil {
 		return keep(s)
 	}
 	steps, err := agydb.Steps(db)

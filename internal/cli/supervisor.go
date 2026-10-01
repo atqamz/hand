@@ -47,7 +47,7 @@ func (r *runner) supervisorLock(wait bool) (func(), bool, error) { return r.lock
 
 func cmdSupervisorStart(r *runner, args []string) error {
 	fs := flags("supervisor start")
-	name := fs.String("harness", "", "claude, codex or opencode")
+	name := fs.String("harness", "", "claude, codex, opencode or agy")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
@@ -256,7 +256,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
-	other := fs.String("harness", "", "switch to another harness between turns: claude, codex or opencode")
+	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode or agy")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -688,7 +688,7 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 			id, err = harness.OpencodeSession(bin, dir, since, marker)
 		}
 	case "agy":
-		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker)
+		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")
 	}
 	if err != nil || id == "" {
 		return err
@@ -778,6 +778,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		}
 		if sup.Session == "" {
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
+		}
+	}
+	if sup.Harness == "agy" {
+		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil && strings.Contains(s.Text, trustQuestion) {
+			return "agy is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
