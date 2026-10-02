@@ -32,6 +32,7 @@ type Options struct {
 	Server                              func(ctx context.Context, unit string) (luvus.Server, bool)
 	Hold                                func()
 	Cgroup                              string
+	Stop                                func(pid int, marker string) error
 }
 
 type UnitResult struct{ Name, Action, Result string }
@@ -145,8 +146,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		pinned, rep.PinTo = true, pin.Version
 	}
 	hold()
-	units, err := Units(ctx, o.Env, o.Target)
-	listed := err == nil
+	var units []Unit
+	listed := true
+	if o.Stop == nil {
+		units, err = Units(ctx, o.Env, o.Target)
+		listed = err == nil
+	}
 	switch {
 	case errors.Is(err, ErrNoSystemctl):
 		rep.Help = append(rep.Help, fmt.Sprintf("systemctl was not found; restart the board and watch units that run %s by hand", o.Target))
@@ -198,6 +203,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			names = append(names, u.Name)
 		}
 		stopped := listed
+		if o.Stop != nil {
+			var did bool
+			if stopped, did = rep.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid")); did && stopped {
+				rep.Help = append(rep.Help, "Start the watch again in "+e.Home+": `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it")
+			}
+		}
 		if len(names) > 0 {
 			if err := rep.record(o, func(j *journal) { j.Watch = append(j.Watch, names...) }); err != nil {
 				rep.fail(fmt.Sprintf("could not write %s (%v), so %s keeps running and its Luvus server is left alone", journalPath(o.Root), err, strings.Join(names, ", ")))
@@ -226,6 +237,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	for _, u := range units {
 		if u.Command == "board" && u.Active {
 			rep.unit(ctx, o, u.Name, "restart")
+		}
+	}
+	if o.Stop != nil {
+		if stopped, did := rep.stopPID(o, "board", filepath.Join(o.Root, "board.pid")); did && stopped {
+			rep.Help = append(rep.Help, "Start the board again: `hand board`")
 		}
 	}
 	rep.unrecord(o, func(j *journal) { j.Board = nil })
@@ -260,6 +276,23 @@ func (r *Report) unit(ctx context.Context, o Options, name, action string) bool 
 	}
 	r.Units = append(r.Units, res)
 	return err == nil
+}
+
+func (r *Report) stopPID(o Options, name, path string) (stopped, did bool) {
+	pid, marker, live := livePID(path)
+	if !live {
+		return true, false
+	}
+	res := UnitResult{Name: name, Action: "stop", Result: "ok"}
+	err := o.Stop(pid, marker)
+	if err != nil {
+		res.Result = "failed: " + err.Error()
+		r.fail(fmt.Sprintf("could not stop %s (%v); stop process %d", name, err, pid))
+	} else {
+		_ = os.Remove(path)
+	}
+	r.Units = append(r.Units, res)
+	return err == nil, true
 }
 
 func pendingLine(e fleet.Entry) string {
@@ -411,16 +444,15 @@ func child(ctx context.Context, o Options, home string, args ...string) error {
 	return nil
 }
 
-func swap(src, target string) error {
-	fail := func(err error) error { return fmt.Errorf("update: cannot replace %s: %w", target, err) }
+func stage(src, target string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
-		return fail(err)
+		return "", err
 	}
 	defer in.Close()
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".hand.update-*")
 	if err != nil {
-		return fail(err)
+		return "", err
 	}
 	_, err = io.Copy(tmp, in)
 	if err == nil {
@@ -432,14 +464,11 @@ func swap(src, target string) error {
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), target)
-	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())
-		return fail(err)
+		return "", err
 	}
-	return nil
+	return tmp.Name(), nil
 }
 
 func Render(r Report) *toon.Doc {

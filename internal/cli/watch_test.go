@@ -360,3 +360,72 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 		}
 	}
 }
+
+func wantPID(t *testing.T, path string) {
+	t.Helper()
+	var f []string
+	eventually(t, func() bool {
+		b, err := os.ReadFile(path)
+		f = strings.Fields(string(b))
+		return err == nil && len(f) == 2
+	})
+	m, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m {
+		t.Fatalf("%s = %q, want %d %s (%v)", path, f, os.Getpid(), m, err)
+	}
+}
+
+func TestPidFileWrittenAndRemoved(t *testing.T) {
+	fx := newAttemptFixture(t)
+	stop := startWatch(t, fx)
+	wantPID(t, filepath.Join(fx.h.home, "watch.pid"))
+	stop()
+	if _, err := os.Stat(filepath.Join(fx.h.home, "watch.pid")); !os.IsNotExist(err) {
+		t.Fatalf("watch.pid after exit: %v", err)
+	}
+	_, stopBoard := startBoard(t, fx.h, "127.0.0.1")
+	wantPID(t, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.pid"))
+	stopBoard()
+	if _, err := os.Stat(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.pid")); !os.IsNotExist(err) {
+		t.Fatalf("board.pid after exit: %v", err)
+	}
+}
+
+func TestWatchRunsWhenItsPidFileIsUnwritable(t *testing.T) {
+	fx := newAttemptFixture(t)
+	pid := filepath.Join(fx.h.home, "watch.pid")
+	if err := os.Mkdir(pid, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	type result struct {
+		errOut string
+		code   int
+	}
+	done := make(chan result, 1)
+	go func() {
+		_, errOut, code := fx.h.runCtx(ctx, "watch")
+		done <- result{errOut, code}
+	}()
+	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
+	if _, errOut, code := fx.h.runCtx(context.Background(), "watch"); code != 3 || !strings.Contains(errOut, "another hand watch is running") {
+		t.Fatalf("second watch = %d %q; want the lock held", code, errOut)
+	}
+	cancel()
+	r := <-done
+	if r.code != 0 || !strings.Contains(r.errOut, "warning: cannot write "+pid+": ") || !strings.Contains(r.errOut, "; hand update on Windows will not stop this process\n") {
+		t.Fatalf("watch = %d %q", r.code, r.errOut)
+	}
+}
+
+func TestBoardRunsWhenItsPidFileIsUnwritable(t *testing.T) {
+	h := newHarness(t)
+	pid := filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid")
+	if err := os.Mkdir(pid, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, stop := startBoard(t, h, "127.0.0.1")
+	if out := stop(); !strings.Contains(out, "warning: cannot write "+pid+": ") {
+		t.Fatalf("board output = %q", out)
+	}
+}

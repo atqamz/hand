@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -907,5 +908,64 @@ func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
 	}
 	if len(r.journal.Watch) != 0 {
 		t.Fatalf("a failed record kept %q in memory", r.journal.Watch)
+	}
+}
+
+func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
+	f := newRun(t, nil)
+	self := os.Getpid()
+	marker, err := luvus.ProcStartMarker(self)
+	if err != nil {
+		t.Skip(err)
+	}
+	entry := strconv.Itoa(self) + " " + marker + "\n"
+	if err := os.WriteFile(filepath.Join(f.root, "board.pid"), []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	f.o.Stop = func(pid int, m string) error {
+		stopped = append(stopped, strconv.Itoa(pid)+" "+m)
+		return nil
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if want := []string{strconv.Itoa(self) + " " + marker, strconv.Itoa(self) + " " + marker}; !slices.Equal(stopped, want) {
+		t.Fatalf("stopped = %q, want %q", stopped, want)
+	}
+	if got := f.log(t, " stop ", " start ", " restart "); len(got) != 0 {
+		t.Fatalf("systemctl calls = %q", got)
+	}
+	if !slices.Contains(rep.Help, "Start the board again: `hand board`") {
+		t.Fatalf("help = %q", rep.Help)
+	}
+	if want := "Start the watch again in " + f.alpha + ": `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it"; !slices.Contains(rep.Help, want) {
+		t.Fatalf("help = %q, want %q", rep.Help, want)
+	}
+	absent(t, filepath.Join(f.root, "board.pid"))
+	absent(t, filepath.Join(f.alpha, "watch.pid"))
+}
+
+func TestRunDoesNotAskToRestartWhatItFailedToStop(t *testing.T) {
+	f := newRun(t, nil)
+	marker, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Skip(err)
+	}
+	for _, p := range []string{filepath.Join(f.alpha, "watch.pid"), filepath.Join(f.root, "board.pid")} {
+		if err := os.WriteFile(p, []byte(strconv.Itoa(os.Getpid())+" "+marker+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.o.Stop = func(int, string) error { return errors.New("denied") }
+	rep, _ := Run(context.Background(), f.o)
+	for _, h := range rep.Help {
+		if strings.HasPrefix(h, "Start the watch again") || strings.HasPrefix(h, "Start the board again") {
+			t.Fatalf("help = %q", rep.Help)
+		}
 	}
 }

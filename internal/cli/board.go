@@ -80,6 +80,7 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	defer forget()
+	defer r.writePID(filepath.Join(root, "board.pid"))()
 	var d toon.Doc
 	d.Field("board", "http://"+local+"/")
 	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"

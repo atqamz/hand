@@ -106,7 +106,7 @@ A fleet home holds:
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` links each fleet ID to its home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, and `board.addr` records where the running board listens.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, and `board.pid` holds the running board's `PID MARKER`. A fleet home also holds `watch.pid` for its running watcher. `hand update` on Windows stops the processes these files name.
 
 ### Operator memory
 
@@ -312,7 +312,7 @@ Hand 0.7 ([`0.7`](https://github.com/atqamz/hand/blob/0.7/docs/vocabulary.md)) u
 - **Supervisor** was the operator's own interactive session. It is now the managed background agent `sN`. A session opened by hand still works, but stands down while a managed supervisor runs.
 - **Supervisor harness and worker harness** were separate registries. There is now one list of harnesses, `claude`, `codex`, `opencode` and `agy`, used for both roles. Grok and Pi are no longer launched, although `hand init` still installs the skill for them.
 - **Fleet identity** in `state/hand.db` is now the fleet ID in `hand.db` at the root of the fleet home, and fleets also have a name.
-- **Fleet registry** (`~/.secondhand/registry.db`) is replaced by the links in `~/.secondhand/fleets/`.
+- **Fleet registry** (`~/.secondhand/registry.db`) is replaced by the pointer files in `~/.secondhand/fleets/`.
 - **Current invocation context** has no term of its own. The fleet home is still found from the working directory or `HAND_HOME`, but the working directory now wins: a `HAND_HOME` naming another fleet is refused while you are inside one. `--home DIR` is new.
 - **Duplicate fleet** remains a refusal: a copied fleet home is refused until one copy is deleted.
 - **Supervisor orientation** is still `hand orient`. Monitor targets and currentness tokens are gone, and it prints an event cursor instead.
