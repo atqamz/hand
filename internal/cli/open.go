@@ -13,11 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -182,7 +182,7 @@ func (r *runner) launch(url, shown, yourself string) error {
 	}
 	cmd := exec.Command(bin, url)
 	cmd.Env = r.env.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%s could not start; %s", opener, yourself)
 	}
