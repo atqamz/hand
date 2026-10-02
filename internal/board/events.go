@@ -26,6 +26,7 @@ type version struct {
 	status      string
 	session     string
 	agent, hint string
+	limited     string
 	stale       string
 	revision    int64
 	entries     uint64
@@ -56,6 +57,7 @@ func (b *Board) version(ctx context.Context) (version, error) {
 			b.live(ctx, sup, live)
 			v.agent, _ = live["Agent"].(string)
 			v.hint, _ = live["Hint"].(string)
+			v.limited, _ = live["Limited"].(string)
 			v.stale, _ = live["Stale"].(string)
 			v.revision, _ = live["Revision"].(int64)
 		}

@@ -281,6 +281,13 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 		return
 	}
 	data["Agent"], data["Hint"] = ag.Status, ag.Hint
+	if ag.Status == "idle" || ag.Status == "done" {
+		if s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == sup.TerminalID {
+			if line, ok := harness.Limit(sup.Harness, s.Text); ok {
+				data["Limited"] = line
+			}
+		}
+	}
 	if ag.Status != "blocked" {
 		return
 	}

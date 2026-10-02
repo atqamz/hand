@@ -548,7 +548,7 @@ The signature component. Each open item is a `details` element with a 1px hairli
 | a blocked supervisor screen | 1 | fail | BLOCKED |
 | a blocked worker screen | 2 | fail | BLOCKED |
 | a failed attempt | 3 | fail | FAILED |
-| an attempt stopped at a usage limit | 4 | wait | LIMITED |
+| a supervisor or an attempt stopped at a usage limit | 4 | wait | LIMITED |
 | work waiting with no supervisor | 5 | wait | NO SUPERVISOR |
 | an interrupted supervisor | 6 | fail | INTERRUPTED |
 | a decision | 7 | wait | DECISION |
@@ -566,6 +566,7 @@ The signature component. Each open item is a `details` element with a 1px hairli
   - a report shows its excerpt, Mark read and an open link;
   - a quiet attempt says it stopped without a report and links to it;
   - a limited attempt's headline is its limit line, and its body says it stopped at a usage limit and links to it;
+  - a limited supervisor's headline is its limit line, and its body says Hand holds wakes until that line leaves the screen;
   - a no-supervisor item shows Resume or Start, and an interrupted supervisor shows the primary Resume and New session.
 - **Countdown:** Claude Code's auto-deny countdown sits in the header's right-hand cell as a live timer ("0:42", then "denying…") in red tabular mono on a ground pill.
 - **Opening and closing** animate the body's height over .24s where the browser supports `interpolate-size`.

@@ -603,3 +603,16 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 		t.Fatalf("a worker that reported after its limit stayed limited in Needs: %q", kinds)
 	}
 }
+
+func TestALimitedSupervisorJoinsNeeds(t *testing.T) {
+	fx := newFixture(t)
+	fx.status = "idle"
+	fx.screen = "● Read the wake\n  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n\n> "
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "limited supervisor", q, `id="wait-limited-s1"`, "LIMITED", "You&#39;ve hit your session limit · resets 6:10am (Asia/Jakarta)", "Hand holds wakes until the limit line leaves its screen")
+	fx.mu.Lock()
+	fx.screen = "● Back after the reset\n\n> "
+	fx.mu.Unlock()
+	lacks(t, "limit cleared", region(get(t, fx.handler(), "/"), "queue"), `data-kind="limited"`)
+}
