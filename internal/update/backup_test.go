@@ -127,3 +127,19 @@ func TestBackupSkipsAFleetThatIsNotOk(t *testing.T) {
 	}
 	absent(t, filepath.Join(root, "backups", id))
 }
+
+func TestBackupMovesPastAnExistingStamp(t *testing.T) {
+	root := t.TempDir()
+	id, _ := newFleet(t, root, "alpha")
+	if err := os.MkdirAll(filepath.Join(root, "backups"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "backups", "hand.20261002T010203"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Backup(context.Background(), root, binary(t, "old hand"), entries(t, root), stamp)
+	want := []string{filepath.Join(root, "backups", id, "hand.db.20261002T010204"), filepath.Join(root, "backups", "hand.20261002T010204")}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("backups = %q, %v", got, err)
+	}
+}

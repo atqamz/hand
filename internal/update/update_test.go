@@ -627,3 +627,26 @@ func TestRunTreatsAnUnreadableSupervisorAsBusy(t *testing.T) {
 		t.Fatalf("calls = %q", got)
 	}
 }
+
+func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
+	f := newRun(t, nil)
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "7", "0.14.4") {
+		f.srv.set(name, body)
+	}
+	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: the download is a stable build, not edge") {
+		t.Fatalf("err = %v", err)
+	}
+	f.unchanged(t)
+}
+
+func TestRunDoesNotHoldWhileDownloading(t *testing.T) {
+	f := newRun(t, nil)
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	f.srv.set("luvus-v0.14.4-x86_64-unknown-linux-musl.tar.gz", nil)
+	held := 0
+	f.o.Hold = func() { held++ }
+	if _, err := Run(context.Background(), f.o); err == nil || held != 0 {
+		t.Fatalf("held %d times, %v", held, err)
+	}
+	f.unchanged(t)
+}

@@ -56,7 +56,7 @@ func cmdUpdate(r *runner, args []string) error {
 		Env:       r.env.Environ(),
 		Getenv:    r.env.Getenv,
 		Now:       r.env.Now,
-		Hold:      func() { signal.Ignore(os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
+		Hold:      func() { signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
 		Cgroup:    string(cgroup),
 	})
 	if err != nil {

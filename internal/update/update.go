@@ -67,6 +67,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if rep.To.Schema < state.SchemaVersion {
 		return rep, fmt.Errorf("update: %s reads state schema %d, older than this fleet's %d", rep.To.Version, rep.To.Schema, state.SchemaVersion)
 	}
+	if rep.To.Channel != o.Channel {
+		return rep, fmt.Errorf("update: the download is a %s build, not %s", rep.To.Channel, o.Channel)
+	}
 	pin, pinned, err := luvus.LoadPin(o.Root)
 	if err != nil {
 		return rep, err
@@ -115,19 +118,25 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.Status = "checked"
 		return rep, nil
 	}
-	if o.Hold != nil {
-		o.Hold()
+	held := false
+	hold := func() {
+		if o.Hold != nil && !held {
+			o.Hold()
+		}
+		held = true
 	}
 	if repin {
 		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.Arch, tmp)
 		if err != nil {
 			return rep, err
 		}
+		hold()
 		if pin, err = luvus.Keep(ctx, o.Root, bin, o.Env, o.Now()); err != nil {
 			return rep, err
 		}
 		pinned, rep.PinTo = true, pin.Version
 	}
+	hold()
 	if !current {
 		if rep.Backups, err = Backup(ctx, o.Root, o.Target, fleets, o.Now()); err != nil {
 			return rep, err

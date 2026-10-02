@@ -29,6 +29,8 @@ var luvusTriples = map[string]string{"amd64": "x86_64-unknown-linux-musl", "arm6
 
 var client = &http.Client{Timeout: 5 * time.Minute}
 
+const maxBinary = 512 << 20
+
 func FetchHand(ctx context.Context, base, channel, arch, dir string, env []string) (Build, error) {
 	url := strings.TrimRight(base, "/") + "/download/edge"
 	if channel == "stable" {
@@ -207,11 +209,14 @@ func extract(archive, name, dest string) error {
 		if hdr.Typeflag != tar.TypeReg || strings.TrimPrefix(hdr.Name, "./") != name {
 			continue
 		}
+		if hdr.Size > maxBinary {
+			return fmt.Errorf("update: %s in %s is %d bytes, more than %d", name, filepath.Base(archive), hdr.Size, maxBinary)
+		}
 		out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(out, tr); err != nil {
+		if _, err := io.Copy(out, io.LimitReader(tr, maxBinary)); err != nil {
 			_ = out.Close()
 			_ = os.Remove(dest)
 			return fmt.Errorf("update: %s: %w", archive, err)

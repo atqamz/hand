@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,7 +50,11 @@ func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 			}
 		}
 		path, argv := execStartOf(props["ExecStart"])
-		if path != target || props["Id"] == "" {
+		resolved := path
+		if p, err := filepath.EvalSymlinks(path); err == nil {
+			resolved = p
+		}
+		if resolved != target || props["Id"] == "" {
 			continue
 		}
 		command, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(argv, path), " "), " ")

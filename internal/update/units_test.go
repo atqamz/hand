@@ -110,3 +110,16 @@ func TestSystemctlReportsItsOutput(t *testing.T) {
 		t.Fatalf("calls = %q", log)
 	}
 }
+
+func TestUnitsMatchASymlinkedExecStart(t *testing.T) {
+	target := binary(t, "hand")
+	link := filepath.Join(t.TempDir(), "hand")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "active", link, link+" watch", "HAND_HOME=/f/alpha"), nil)
+	got, err := Units(context.Background(), pathEnv(dir), target)
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
+		t.Fatalf("units = %+v, %v", got, err)
+	}
+}

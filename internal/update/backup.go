@@ -17,6 +17,10 @@ const stampLayout = "20060102T150405"
 
 func Backup(ctx context.Context, root, target string, fleets []fleet.Entry, now time.Time) ([]string, error) {
 	stamp := now.UTC().Format(stampLayout)
+	for taken(root, fleets, stamp) {
+		now = now.Add(time.Second)
+		stamp = now.UTC().Format(stampLayout)
+	}
 	var out []string
 	for _, e := range fleets {
 		if e.State != "ok" {
@@ -53,6 +57,19 @@ func Prune(root string, fleets []fleet.Entry) error {
 		}
 	}
 	return prune(filepath.Join(root, "backups"), "hand.")
+}
+
+func taken(root string, fleets []fleet.Entry, stamp string) bool {
+	paths := []string{filepath.Join(root, "backups", "hand."+stamp)}
+	for _, e := range fleets {
+		paths = append(paths, filepath.Join(root, "backups", e.ID, "hand.db."+stamp))
+	}
+	for _, p := range paths {
+		if _, err := os.Lstat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func backupStore(ctx context.Context, home, path string, now time.Time) error {
