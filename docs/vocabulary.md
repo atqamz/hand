@@ -14,7 +14,7 @@ The single agent the operator talks to in a fleet. It captures each request as a
 
 Normally Hand runs it: the managed supervisor lives in the background in the fleet's Luvus session, started from the fleet home in full-auto mode, and the operator reaches it from the board. Each launch gets a ref `sN`, and its launch message begins `You are supervisor sN of the Hand fleet NAME`. At most one supervisor is live at a time.
 
-Resuming continues the same harness session under a new `sN`. `hand orient` names the first `sN` of that session. `hand supervisor show` names the current one and adds a `resumes:` line with the first.
+Resuming continues the same harness session under a new `sN`. `hand orient` names the current `sN` and adds the first one of that session, as in `s6 claude running (resumes s1)`. `hand supervisor show` names the current one and adds a `resumes:` line with the first.
 
 A supervisor has the same six states as an attempt. It is `stopped` after `hand supervisor stop` or a model switch, and `interrupted` after a reboot or a Luvus server restart.
 

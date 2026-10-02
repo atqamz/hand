@@ -56,7 +56,10 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		if err != nil {
 			return nil, err
 		}
-		supervisor = state.SupervisorRef(origin) + " " + sup.Harness + " " + sup.Status
+		supervisor = state.SupervisorRef(sup.ID) + " " + sup.Harness + " " + sup.Status
+		if origin != sup.ID {
+			supervisor += " (resumes " + state.SupervisorRef(origin) + ")"
+		}
 		resumable = sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited
 	}
 	active, err := st.Tasks(ctx, []string{state.StatusActive}, b.Active)
