@@ -105,3 +105,18 @@ func TestUnitFilesKeepACustomSecondhandHome(t *testing.T) {
 		t.Fatalf("board unit names a root nobody set:\n%s", out)
 	}
 }
+
+func TestUnitFilesKeepTheCallersPath(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	h.vars["PATH"] = "/opt/tools/bin:/usr/bin"
+	for _, unit := range []string{"watch", "board"} {
+		if out := h.ok("unit", unit); !strings.Contains(out, `Environment="PATH=/opt/tools/bin:/usr/bin"`+"\n") {
+			t.Fatalf("%s unit does not keep PATH:\n%s", unit, out)
+		}
+	}
+	h.vars["PATH"] = `/opt/a"b`
+	if _, errOut, code := h.run("unit", "board"); code != 2 || !strings.Contains(errOut, "systemd unit") {
+		t.Fatalf("quoted PATH: code=%d stderr=%q", code, errOut)
+	}
+}

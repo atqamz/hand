@@ -61,13 +61,13 @@ func cmdUnit(r *runner, args []string) error {
 			return err
 		}
 	}
-	vals = append(vals, exe, root)
+	vals = append(vals, exe, root, r.env.Getenv("PATH"))
 	for i, v := range vals {
 		if vals[i], err = unitValue(v); err != nil {
 			return err
 		}
 	}
-	name, home, command, exe, root := vals[0], vals[1], vals[2], vals[3], vals[4]
+	name, home, command, exe, root, path := vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]
 	service := ""
 	if home != "" {
 		description += " for " + name + " (" + home + ")"
@@ -75,6 +75,9 @@ func cmdUnit(r *runner, args []string) error {
 	}
 	if root != "" {
 		service += `Environment="SECONDHAND_HOME=` + root + "\"\n"
+	}
+	if path != "" {
+		service += `Environment="PATH=` + path + "\"\n"
 	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
 		"Description="+description+"\n\n"+
