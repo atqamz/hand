@@ -302,7 +302,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. A `SECONDHAND_HOME` set when you run it goes into the unit. |
-| `hand version` | Print the version, the channel (`source`, `edge` or `stable`) and the commit. |
+| `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 
 ## Upgrading from 0.7
 

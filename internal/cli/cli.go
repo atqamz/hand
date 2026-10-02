@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,8 @@ var commands = map[string]handler{
 		d.Field("version", Version)
 		d.Field("channel", Channel)
 		d.Field("commit", commit())
+		d.Field("schema", strconv.Itoa(state.SchemaVersion))
+		d.Field("luvus", luvus.Tested)
 		return r.print(&d)
 	},
 }
