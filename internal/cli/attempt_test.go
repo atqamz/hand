@@ -113,6 +113,9 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 }
 
 func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
+	confirm := *cli.SubmitConfirm
+	*cli.SubmitConfirm = 300 * time.Millisecond
+	t.Cleanup(func() { *cli.SubmitConfirm = confirm })
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
