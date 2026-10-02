@@ -41,7 +41,7 @@ type watcher struct {
 
 func cmdWatch(r *runner, args []string) error {
 	fs := flags("watch")
-	notify := fs.Bool("notify", true, "send desktop notifications with notify-send")
+	notify := fs.Bool("notify", true, "send desktop notifications (notify-send on Linux, osascript on macOS)")
 	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err

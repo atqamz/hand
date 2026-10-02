@@ -245,7 +245,7 @@ A fleet's page has two tabs. **Needs you** lists what waits on you, then the tas
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
 | `hand open tN --pr` | the task's newest PR, on GitHub |
 
-It logs the browser in with the fleet's token through `xdg-open` and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
+It logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 

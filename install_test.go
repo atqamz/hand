@@ -173,7 +173,7 @@ func TestInstallScriptRefusesAFailedDownload(t *testing.T) {
 func TestInstallScriptWorksWithBusyboxSha256sum(t *testing.T) {
 	real, err := exec.LookPath("sha256sum")
 	if err != nil {
-		t.Fatal(err)
+		t.Skip("no sha256sum on this host")
 	}
 	busybox := t.TempDir()
 	stub := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = --status ] && { echo 'sha256sum: unrecognized option' >&2; exit 1; }; done\nexec " + real + " \"$@\"\n"
@@ -219,9 +219,12 @@ func bsdTools(t *testing.T, shasum bool) string {
 	if shasum {
 		real, err := exec.LookPath("sha256sum")
 		if err != nil {
-			t.Fatal(err)
+			if real, err = exec.LookPath("shasum"); err != nil {
+				t.Fatal(err)
+			}
+			real += " -a 256"
 		}
-		stub := "#!/bin/sh\nif [ \"$1\" = -a ] && [ \"$2\" = 256 ]; then shift 2; fi\nexec " + real + " \"$@\"\n"
+		stub := "#!/bin/sh\nif [ \"$1 $2\" != \"-a 256\" ]; then exit 9; fi\nshift 2\nexec " + real + " \"$@\"\n"
 		if err := os.WriteFile(filepath.Join(dir, "shasum"), []byte(stub), 0o755); err != nil {
 			t.Fatal(err)
 		}

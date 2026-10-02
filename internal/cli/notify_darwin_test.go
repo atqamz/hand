@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/atqamz/hand/internal/cli"
@@ -9,12 +10,8 @@ import (
 func TestNotifyArgvKeepsTheTextOutOfTheScript(t *testing.T) {
 	text := `a"; do shell script "x`
 	bin, args := cli.NotifyArgv("fleet", text)
-	if bin != "osascript" || len(args) < 2 || args[len(args)-2] != "fleet" || args[len(args)-1] != text {
+	want := []string{"-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "fleet", text}
+	if bin != "osascript" || !slices.Equal(args, want) {
 		t.Fatalf("notify = %q %q", bin, args)
-	}
-	for _, a := range args[:len(args)-2] {
-		if a == text {
-			t.Fatalf("the text is part of the script: %q", args)
-		}
 	}
 }
