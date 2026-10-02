@@ -37,6 +37,7 @@ Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (i
 Hand hands over board messages and wakes by pasting them, so they may arrive wrapped in `<pasted_content>`. A board message is the operator's own words, and a wrapped `[hand v1 wake]` is still a wake.
 
 - `attempt.reported`: `hand report show rN`, act on it, then `hand report ack rN`.
+- `attempt.idle`: the worker's turn ended again, or after the report you already have. Nothing to do.
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.
 - `attempt.blocked`: `hand attempt read aN`. Answer a trust or permission screen the task needs with `hand attempt keys --revision N aN KEY...`; anything else is a question for the operator. Declining a permission prompt ends the worker's turn, and it waits for input, so follow it with `hand attempt send --text "..." aN` saying what to do instead.
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.

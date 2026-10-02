@@ -238,7 +238,7 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (string, error
 		var status string
 		err = tx.QueryRow(`SELECT id, status FROM report WHERE attempt_id = ? AND EXISTS (
 			SELECT 1 FROM event WHERE kind = 'attempt.reported' AND detail LIKE ?
-			AND seq > COALESCE((SELECT MAX(seq) FROM event WHERE kind = 'attempt.quiet' AND detail LIKE ?), 0)
+			AND seq > COALESCE((SELECT MAX(seq) FROM event WHERE kind IN ('attempt.quiet', 'attempt.idle') AND detail LIKE ?), 0)
 		) ORDER BY id DESC LIMIT 1`, attemptID, prefix, prefix).Scan(&id, &status)
 		switch {
 		case err == nil:
@@ -246,7 +246,15 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (string, error
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
 		}
-		return emit(tx, s.stamp(), "attempt.quiet", a.TaskID, AttemptRef(attemptID)+": "+detail)
+		last, _, err := lastAttemptEvent(ctx, tx, attemptID)
+		if err != nil {
+			return err
+		}
+		kind := "attempt.quiet"
+		if last.Kind == "attempt.quiet" || last.Kind == "attempt.idle" || last.Kind == "attempt.reported" && !strings.HasSuffix(last.Detail, " "+ReportProgress) {
+			kind = "attempt.idle"
+		}
+		return emit(tx, s.stamp(), kind, a.TaskID, AttemptRef(attemptID)+": "+detail)
 	})
 	return detail, err
 }
