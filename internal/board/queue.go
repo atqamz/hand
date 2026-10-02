@@ -335,10 +335,15 @@ func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]st
 		return nil, err
 	}
 	for _, a := range live {
-		if out[a.ID].Kind != "attempt.blocked" {
+		kind := out[a.ID].Kind
+		if kind != "attempt.blocked" && kind != "attempt.limited" {
 			continue
 		}
-		if ag, err := b.o.Luvus.Explain(ctx, a.PaneID); err == nil && ag.Status != "blocked" && ag.Status != "idle" {
+		ag, err := b.o.Luvus.Explain(ctx, a.PaneID)
+		if err != nil {
+			continue
+		}
+		if (kind == "attempt.blocked" && ag.Status != "blocked" && ag.Status != "idle") || (kind == "attempt.limited" && ag.Status == "working") {
 			delete(out, a.ID)
 		}
 	}

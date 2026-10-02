@@ -580,6 +580,7 @@ func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
 
 func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "idle"}
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "limited", "You've hit your session limit · resets 6:10am (Asia/Jakarta)"); err != nil {
@@ -589,4 +590,16 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 	body := get(t, fx.handler(), "/")
 	contains(t, "limited item", region(body, "queue"), `data-kind="limited"`, "LIMITED", "You&#39;ve hit your session limit · resets 6:10am (Asia/Jakarta)", "a1 on t1 “Fix login” stopped at a usage limit.")
 	contains(t, "tasks row", region(body, "tasks"), "a1 claude sonnet · limited")
+	fx.mu.Lock()
+	fx.panes["3"] = "working"
+	fx.mu.Unlock()
+	body = get(t, fx.handler(), "/")
+	lacks(t, "working again", region(body, "queue"), `data-kind="limited"`)
+	lacks(t, "working again", region(body, "tasks"), "· limited")
+	if _, err := fx.st.AddReport(context.Background(), a.ID, state.ReportDone, "Fixed login"); err != nil {
+		t.Fatal(err)
+	}
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Contains(kinds, "limited") {
+		t.Fatalf("a worker that reported after its limit stayed limited in Needs: %q", kinds)
+	}
 }
