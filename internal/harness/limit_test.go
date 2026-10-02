@@ -22,22 +22,23 @@ func TestLimitMatchesTheLinesEachHarnessShows(t *testing.T) {
 }
 
 func TestLimitJoinsAgyWrappedQuotaLineAndAddsTheResetTime(t *testing.T) {
-	screen := "⚠ Individual quota reached. Please upgrade your subscription to increase your\n  limits. Resets in 118h19m26s.\n\n> "
 	before := time.Now()
-	got, ok := Limit("agy", screen)
-	if !ok {
-		t.Fatalf("Limit(agy) did not match %q", screen)
-	}
-	m := regexp.MustCompile(`^Individual quota reached\. Please upgrade your subscription to increase your limits\. Resets in 118h19m26s\. \(~(\S+)\)$`).FindStringSubmatch(got)
-	if m == nil {
-		t.Fatalf("Limit(agy) = %q", got)
-	}
-	at, err := time.Parse(time.RFC3339, m[1])
-	if err != nil || !strings.HasSuffix(m[1], "Z") {
-		t.Fatalf("reset time %q: %v", m[1], err)
-	}
-	if want := before.Add(118*time.Hour + 19*time.Minute + 26*time.Second); at.Before(want.Add(-time.Second)) || at.After(want.Add(time.Minute)) {
-		t.Fatalf("reset time %s, want about %s", at, want.UTC())
+	for _, screen := range []string{
+		"⚠ Individual quota reached. Please upgrade your subscription to increase your\n  limits. Resets in 118h19m26s.\n\n> ",
+		"⚠ Individual quota reached. Please upgrade your subscription to\n  increase your limits. Resets\n  in 118h19m26s.\n\n> ",
+	} {
+		got, ok := Limit("agy", screen)
+		m := regexp.MustCompile(`^Individual quota reached\. Please upgrade your subscription to increase your limits\. Resets in 118h19m26s\. \(~(\S+)\)$`).FindStringSubmatch(got)
+		if !ok || m == nil {
+			t.Fatalf("Limit(agy, %q) = %q, %v", screen, got, ok)
+		}
+		at, err := time.Parse(time.RFC3339, m[1])
+		if err != nil || !strings.HasSuffix(m[1], "Z") {
+			t.Fatalf("reset time %q: %v", m[1], err)
+		}
+		if want := before.Add(118*time.Hour + 19*time.Minute + 26*time.Second); at.Before(want.Add(-time.Second)) || at.After(want.Add(time.Minute)) {
+			t.Fatalf("reset time %s, want about %s", at, want.UTC())
+		}
 	}
 }
 
@@ -49,6 +50,7 @@ func TestLimitIgnoresWarningsOtherHarnessesAndOpencode(t *testing.T) {
 		{"claude", "● I raised the rate limit in config.go.\n> "},
 		{"claude", `● The test expects "You've hit your session limit" on the screen.`},
 		{"agy", `● The banner reads "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h2m3s."`},
+		{"agy", "⚠ Individual quota reached. Please upgrade your subscription to increase your limits.\n> retry\n● Retried the build.\n● It printed: Resets in 5m."},
 		{"agy", claude},
 		{"codex", claude},
 		{"opencode", claude},

@@ -10,7 +10,7 @@ var (
 	limitLines = map[string]*regexp.Regexp{
 		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your [^\n]*limit[^\n]*)`),
 		"codex":  regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your usage limit[^\n]*)`),
-		"agy":    regexp.MustCompile(`(?m)^[^\w\n]*(Individual quota reached\.[\s\S]*?Resets in (\w+)\.)`),
+		"agy":    regexp.MustCompile(`(?m)^[^\w\n]*(Individual quota reached\.(?:[^\n]*\n){0,2}?[^\n]*?Resets\s+in\s+(\w+)\.)`),
 	}
 	wrapped = regexp.MustCompile(`\s*\n\s*`)
 )
