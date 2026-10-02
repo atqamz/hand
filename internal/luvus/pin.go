@@ -75,7 +75,8 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 	if err := syncDir(root); err != nil {
 		return Pin{}, err
 	}
-	tmp, hash, err := copyHashed(store, bin)
+	ext := exeExt(bin)
+	tmp, hash, err := copyHashed(store, bin, ext)
 	if err != nil {
 		return Pin{}, err
 	}
@@ -84,7 +85,7 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 	if err != nil {
 		return Pin{}, fmt.Errorf("%w (copied from %s)", err, bin)
 	}
-	dest := filepath.Join(store, version+"-"+hash[:8], "luvus")
+	dest := filepath.Join(store, version+"-"+hash[:8], "luvus"+ext)
 	if have, err := fileSum(dest); err != nil || have != hash {
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return Pin{}, err
@@ -107,13 +108,13 @@ func (p Pin) Verify() error {
 	return nil
 }
 
-func copyHashed(dir, src string) (string, string, error) {
+func copyHashed(dir, src, ext string) (string, string, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", "", err
 	}
 	defer in.Close()
-	out, err := os.CreateTemp(dir, ".luvus-*")
+	out, err := os.CreateTemp(dir, ".luvus-*"+ext)
 	if err != nil {
 		return "", "", err
 	}

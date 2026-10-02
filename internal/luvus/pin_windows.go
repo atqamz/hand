@@ -19,4 +19,6 @@ func executable(fi os.FileInfo) bool {
 	return false
 }
 
+func exeExt(bin string) string { return strings.ToLower(filepath.Ext(bin)) }
+
 func syncDir(string) error { return nil }

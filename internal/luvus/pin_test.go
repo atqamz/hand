@@ -65,12 +65,15 @@ func TestKeepCopiesAndPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := sum(t, bin)
-	want := luvus.Pin{Path: filepath.Join(root, "luvus", "0.14.3-"+hash[:8], "luvus"), SHA256: hash, Version: "0.14.3", Source: bin, PinnedAt: "2026-10-01T09:30:00Z"}
+	want := luvus.Pin{Path: filepath.Join(root, "luvus", "0.14.3-"+hash[:8], filepath.Base(bin)), SHA256: hash, Version: "0.14.3", Source: bin, PinnedAt: "2026-10-01T09:30:00Z"}
 	if pin != want {
 		t.Fatalf("pin = %+v, want %+v", pin, want)
 	}
 	if sum(t, pin.Path) != hash {
 		t.Fatal("the copy differs from its source")
+	}
+	if v, err := luvus.BinaryVersion(context.Background(), pin.Path, nil); err != nil || v != "0.14.3" {
+		t.Fatalf("the pinned copy runs as %q, %v", v, err)
 	}
 	if got, ok, err := luvus.LoadPin(root); err != nil || !ok || got != want {
 		t.Fatalf("LoadPin = %+v %v %v", got, ok, err)
@@ -94,7 +97,7 @@ func TestKeepReusesTheSameBuild(t *testing.T) {
 	if got := names(t, filepath.Join(root, "luvus")); !slices.Equal(got, []string{dir, "pin.json"}) {
 		t.Fatalf("store = %q", got)
 	}
-	if got := names(t, filepath.Dir(first.Path)); !slices.Equal(got, []string{"luvus"}) {
+	if got := names(t, filepath.Dir(first.Path)); !slices.Equal(got, []string{filepath.Base(bin)}) {
 		t.Fatalf("copy dir = %q", got)
 	}
 }
