@@ -172,6 +172,8 @@ func AttachArgv(bin, session, pane string) []string {
 }
 
 func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
+	ctx, cancel := context.WithTimeout(ctx, startWait)
+	defer cancel()
 	env := Scrub(environ)
 	if run, ok := UserManager(env); ok && unit != "" {
 		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
@@ -196,6 +198,8 @@ func StartServer(ctx context.Context, bin, session, unit, dir string, environ []
 var errNoManager = errors.New("no systemd user manager")
 
 var serverProbe = 5 * time.Second
+
+var startWait = time.Minute
 
 type Server struct {
 	Exe    string
@@ -262,7 +266,11 @@ func command(ctx context.Context, env []string, name string, args ...string) *ex
 
 func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []string) error {
 	systemctl := func(args ...string) error {
-		return command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...).Run()
+		out, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemctl --user %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(out))
+		}
+		return nil
 	}
 	_ = systemctl("reset-failed", unit+".service")
 	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
@@ -292,10 +300,12 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 			return strings.TrimSpace(string(out))
 		}
 		if loaded := execPath(show(ctx, "ExecStart")); loaded == "" || loaded == bin {
-			if systemctl("start", unit+".service") == nil {
+			if err = systemctl("start", unit+".service"); err == nil {
 				return nil
 			}
-		} else if systemctl("stop", unit+".service") == nil && unloaded(ctx, show) {
+		} else if stopErr := systemctl("stop", unit+".service"); stopErr != nil {
+			err = stopErr
+		} else if unloaded(ctx, show) {
 			out, err = command(ctx, env, run, start...).CombinedOutput()
 		}
 	}

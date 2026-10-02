@@ -62,3 +62,29 @@ func TestWaitingForAUnitToUnloadIsBounded(t *testing.T) {
 		t.Fatalf("err=%v after %s", err, time.Since(began))
 	}
 }
+
+func TestStartServerHasItsOwnDeadline(t *testing.T) {
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin, run := t.TempDir(), t.TempDir()
+	for name, script := range map[string]string{"systemd-run": "#!/bin/sh\nexit 0\n", "systemctl": "#!/bin/sh\nexec " + sleep + " 30\n"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(run, "systemd"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(run, "systemd", "private"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	defer func(d time.Duration) { startWait = d }(startWait)
+	startWait = 200 * time.Millisecond
+	began := time.Now()
+	err = StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + run})
+	if err == nil || time.Since(began) > 3*time.Second {
+		t.Fatalf("err=%v after %s", err, time.Since(began))
+	}
+}
