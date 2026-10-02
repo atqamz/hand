@@ -230,7 +230,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 		waitSettled(ctx, c, sup.PaneID)
 		if origin, oerr := st.SupervisorOrigin(ctx, sup); oerr == nil {
 			note := "[hand v1 resume] you are now " + state.SupervisorRef(sup.ID) + " (resumes " + state.SupervisorRef(origin) + ")"
-			_ = detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, note) })
+			_ = detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
 		}
 	}
 	return sup, err
@@ -829,12 +829,14 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		if ctx.Err() != nil {
 			return "", nil
 		}
-		if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, in.Body) }); err != nil {
+		if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, in.Body) }); err != nil {
 			switch luvus.Code(err) {
 			case "":
 				return "", runtimeErr(err)
 			case "agent_not_ready":
 				return "supervisor is not at a prompt", nil
+			case "content_revision_conflict":
+				return "supervisor terminal changed", nil
 			}
 			return "luvus refused the message: " + err.Error(), nil
 		}
@@ -860,7 +862,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if ctx.Err() != nil {
 		return "", nil
 	}
-	if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, digest) }); err != nil {
+	if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, digest) }); err != nil {
 		if luvus.Code(err) == "" {
 			return "", runtimeErr(err)
 		}
