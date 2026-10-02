@@ -179,7 +179,6 @@ func (r *runner) observeTerminal(ctx context.Context, c luvus.Client, caps luvus
 
 func (r *runner) exitReason(terminalID string) string {
 	if reason, ok := r.exits[terminalID]; ok {
-		delete(r.exits, terminalID)
 		return reason
 	}
 	return "terminal exited"
