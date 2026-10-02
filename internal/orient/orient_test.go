@@ -37,13 +37,14 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(context.Background(), st, home, DefaultBudget)
+	doc, err := Build(context.Background(), st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "home: " + home + "\n" +
 		"fleet: test (" + f.ID + ")\n" +
 		"supervisor: none\n" +
+		"watch: running\n" +
 		"tasks: inbox=0 active=0 done=0 abandoned=0\n" +
 		"cursor: 1\n" +
 		"active[0]{id,project,title,plan,attempt,report,open_decisions}:\n" +
@@ -73,11 +74,11 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
 	_, _ = st.Ask(ctx, a.ID, "Keep cookie name?")
 	_, _ = st.AddTask(ctx, "hand", "Write docs", "")
-	first, err := Build(ctx, st, home, DefaultBudget)
+	first, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _ := Build(ctx, st, home, DefaultBudget)
+	second, _ := Build(ctx, st, home, true, DefaultBudget)
 	if first.String() != second.String() {
 		t.Fatal("orient is not deterministic")
 	}
@@ -107,7 +108,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(strings.Repeat("a\n", 100000)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +171,7 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	_, _ = st.EndAttempt(ctx, a1.ID, state.AttemptStopped, "retry")
 	a2, _ := st.AddAttempt(ctx, spec, "/w")
 	_, _ = st.AttemptRunning(ctx, a2.ID, term)
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,7 @@ func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
 	st, home := setup(t)
 	b := DefaultBudget
 	b.Reports = 0
-	if _, err := Build(context.Background(), st, home, b); err != nil {
+	if _, err := Build(context.Background(), st, home, false, b); err != nil {
 		t.Fatalf("zero report budget: %v", err)
 	}
 }
@@ -250,7 +251,7 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	ctx := context.Background()
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, DefaultBudget)
+		doc, err := Build(ctx, st, home, true, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -317,7 +318,7 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, DefaultBudget)
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,5 +333,23 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestOrientWatchLine(t *testing.T) {
+	st, home := setup(t)
+	running, err := Build(context.Background(), st, home, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missing, err := Build(context.Background(), st, home, false, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(running.String(), "supervisor: none\nwatch: running\ntasks:") || strings.Contains(running.String(), "Start the watcher") {
+		t.Fatalf("running orient =\n%s", running)
+	}
+	if !strings.Contains(missing.String(), "supervisor: none\nwatch: missing\ntasks:") || !strings.Contains(missing.String(), "Start the watcher: `hand watch`") {
+		t.Fatalf("missing orient =\n%s", missing)
 	}
 }
