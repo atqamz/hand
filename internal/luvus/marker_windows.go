@@ -2,10 +2,11 @@ package luvus
 
 import (
 	"strconv"
-	"syscall"
 
 	"golang.org/x/sys/windows"
 )
+
+const stillActive = 259
 
 func ProcStartMarker(pid int) (string, error) {
 	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
@@ -17,7 +18,7 @@ func ProcStartMarker(pid int) (string, error) {
 	if err := windows.GetExitCodeProcess(h, &code); err != nil {
 		return "", err
 	}
-	if code != syscall.STILL_ACTIVE {
+	if code != stillActive {
 		return "", windows.ERROR_INVALID_PARAMETER
 	}
 	var created, exited, kernel, user windows.Filetime
