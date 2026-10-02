@@ -74,6 +74,11 @@ func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
 	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file - <<'") || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
 		t.Fatalf("prompt = %q", prompt)
 	}
+	for _, want := range []string{"one blocking foreground command", "gh pr checks URL --watch", "about 9 minutes", "never wait in a background shell", "only when the work is done or you are stuck"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q", want)
+		}
+	}
 }
 
 func heredocDelimiter(t *testing.T, prompt string) string {
