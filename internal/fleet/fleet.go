@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,7 +46,7 @@ func WatchUnit(id string) string { return "secondhand-watch-" + id }
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
 
 func Check(root, id, home string) error {
-	target, err := os.Readlink(link(root, id))
+	target, err := readLink(root, id)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		if err := claim(root, id, home); errors.Is(err, fs.ErrExist) {
@@ -68,7 +69,7 @@ func Check(root, id, home string) error {
 }
 
 func Register(root, id, home string) (string, error) {
-	target, err := os.Readlink(link(root, id))
+	target, err := readLink(root, id)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		if err := claim(root, id, home); errors.Is(err, fs.ErrExist) {
@@ -79,9 +80,9 @@ func Register(root, id, home string) (string, error) {
 		return "", nil
 	case err != nil:
 		return "", err
-	case target == home:
+	case target == home && !isSymlink(root, id):
 		return "", nil
-	case sameDir(target, home):
+	case target == home || sameDir(target, home):
 		return "", point(root, id, home)
 	}
 	if err := refuseCopy(target, id); err != nil {
@@ -91,7 +92,7 @@ func Register(root, id, home string) (string, error) {
 }
 
 func Moved(root, id, home string) (string, error) {
-	target, err := os.Readlink(link(root, id))
+	target, err := readLink(root, id)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return "", nil
@@ -107,7 +108,7 @@ func Moved(root, id, home string) (string, error) {
 }
 
 func Home(root, id string) (string, error) {
-	target, err := os.Readlink(link(root, id))
+	target, err := readLink(root, id)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("%w: no fleet %s is registered in %s", state.ErrInvalid, id, root)
 	}
@@ -127,7 +128,7 @@ func List(root string) ([]Entry, error) {
 		if !state.FleetID.MatchString(de.Name()) {
 			continue
 		}
-		target, err := os.Readlink(link(root, de.Name()))
+		target, err := readLink(root, de.Name())
 		if err != nil {
 			return nil, err
 		}
@@ -148,20 +149,44 @@ func List(root string) ([]Entry, error) {
 
 func link(root, id string) string { return filepath.Join(root, "fleets", id) }
 
+func readLink(root, id string) (string, error) {
+	if target, err := os.Readlink(link(root, id)); err == nil {
+		return target, nil
+	}
+	b, err := os.ReadFile(link(root, id))
+	return strings.TrimSpace(string(b)), err
+}
+
+func isSymlink(root, id string) bool {
+	info, err := os.Lstat(link(root, id))
+	return err == nil && info.Mode()&fs.ModeSymlink != 0
+}
+
+func stage(root, id, home string) (string, error) {
+	dir := filepath.Join(root, "fleets")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	tmp := filepath.Join(dir, "."+id+"."+rand.Text())
+	if err := os.WriteFile(tmp, []byte(home+"\n"), 0o600); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return tmp, nil
+}
+
 func claim(root, id, home string) error {
-	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+	tmp, err := stage(root, id, home)
+	if err != nil {
 		return err
 	}
-	return os.Symlink(home, link(root, id))
+	defer os.Remove(tmp)
+	return os.Link(tmp, link(root, id))
 }
 
 func point(root, id, home string) error {
-	dir := filepath.Join(root, "fleets")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, "."+id+"."+rand.Text())
-	if err := os.Symlink(home, tmp); err != nil {
+	tmp, err := stage(root, id, home)
+	if err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, link(root, id)); err != nil {
