@@ -193,8 +193,11 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 		return w.agentStatus(ctx, c, caps, ev.Data)
 	case "terminal.exited":
 		w.noteExit(ev.Data)
-		defer clear(w.r.exits)
-		return w.reconcile(ctx, c, caps)
+		err := w.reconcile(ctx, c, caps)
+		if err == nil {
+			clear(w.r.exits)
+		}
+		return err
 	case "pane.closed":
 		return w.reconcile(ctx, c, caps)
 	case "events.resync_required":
