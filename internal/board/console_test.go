@@ -270,6 +270,6 @@ func TestTheAgyModelMenuHasNoEffortSelect(t *testing.T) {
 
 func TestStopKeepsItsArmAcrossARedraw(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, "const arms = new Map()", "const until = Date.now() + armFor", "arms.set(action, until)", "if (arms.get(action) === until) disarm(action)", `for (const f of el.querySelectorAll("form[data-confirm]"))`, "(arms.get(f.getAttribute(\"action\")) ?? 0) > Date.now()", "disarm(action)")
+	contains(t, "app.js", js, "const arms = new Map()", "const until = Date.now() + armFor", "arms.set(action, until)", "if (arms.get(action) === until) disarm(action)", `if ("armed" in form.dataset && (arms.get(action) ?? 0) <= Date.now()) disarm(action);`, `for (const f of el.querySelectorAll("form[data-confirm]"))`, "(arms.get(f.getAttribute(\"action\")) ?? 0) > Date.now()", "disarm(action)")
 	lacks(t, "app.js", js, "if (!(\"armed\" in form.dataset)) return;")
 }

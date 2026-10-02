@@ -238,6 +238,7 @@
 		}
 		const primary = form.querySelector("button");
 		const action = form.getAttribute("action");
+		if ("armed" in form.dataset && (arms.get(action) ?? 0) <= Date.now()) disarm(action);
 		if (form.dataset.confirm && !("armed" in form.dataset)) {
 			form.dataset.armed = primary.textContent;
 			primary.textContent = form.dataset.confirm;
