@@ -1,5 +1,20 @@
-//go:build windows
-
 package cli
 
-func init() { updateStop = stopRoot }
+import (
+	"fmt"
+
+	"github.com/atqamz/hand/internal/state"
+)
+
+func init() { updateStop = stopOne }
+
+func stopOne(pid int, marker string) error {
+	if !rootAlive(pid, marker) {
+		return nil
+	}
+	terminate(uint32(pid))
+	if waitGone(pid, marker, killGrace) {
+		return nil
+	}
+	return fmt.Errorf("%w: process %d is still alive after TerminateProcess", state.ErrConflict, pid)
+}

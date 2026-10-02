@@ -154,7 +154,11 @@ func readLink(root, id string) (string, error) {
 		return target, nil
 	}
 	b, err := os.ReadFile(link(root, id))
-	return strings.TrimSpace(string(b)), err
+	target := strings.TrimSpace(string(b))
+	if err == nil && target == "" {
+		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
+	}
+	return target, err
 }
 
 func isSymlink(root, id string) bool {

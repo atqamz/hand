@@ -3,11 +3,15 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestSwapWithLockedOld(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "a[1]")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(dir, "hand.exe")
 	src := filepath.Join(dir, "new.exe")
 	for path, body := range map[string]string{target: "current", src: "next", target + ".old": "stale"} {
@@ -26,5 +30,12 @@ func TestSwapWithLockedOld(t *testing.T) {
 	if b, err := os.ReadFile(target); err != nil || string(b) != "next" {
 		t.Fatalf("target = %q, %v", b, err)
 	}
+	held.Close()
 	CleanOld(target)
+	left, _ := os.ReadDir(dir)
+	for _, e := range left {
+		if strings.Contains(e.Name(), ".old") {
+			t.Fatalf("left behind: %s", e.Name())
+		}
+	}
 }

@@ -204,7 +204,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		stopped := listed
 		if o.Stop != nil {
-			stopped = rep.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"))
+			var did bool
+			if stopped, did = rep.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid")); did && stopped {
+				rep.Help = append(rep.Help, "Start the watch again in "+e.Home+": `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it")
+			}
 		}
 		if len(names) > 0 {
 			if err := rep.record(o, func(j *journal) { j.Watch = append(j.Watch, names...) }); err != nil {
@@ -237,8 +240,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if o.Stop != nil {
-		rep.stopPID(o, "board", filepath.Join(o.Root, "board.pid"))
-		if slices.ContainsFunc(rep.Units, func(u UnitResult) bool { return u.Name == "board" }) {
+		if _, did := rep.stopPID(o, "board", filepath.Join(o.Root, "board.pid")); did {
 			rep.Help = append(rep.Help, "Start the board again: `hand board`")
 		}
 	}
@@ -276,10 +278,10 @@ func (r *Report) unit(ctx context.Context, o Options, name, action string) bool 
 	return err == nil
 }
 
-func (r *Report) stopPID(o Options, name, path string) bool {
+func (r *Report) stopPID(o Options, name, path string) (stopped, did bool) {
 	pid, marker, live := livePID(path)
 	if !live {
-		return true
+		return true, false
 	}
 	res := UnitResult{Name: name, Action: "stop", Result: "ok"}
 	err := o.Stop(pid, marker)
@@ -290,7 +292,7 @@ func (r *Report) stopPID(o Options, name, path string) bool {
 		_ = os.Remove(path)
 	}
 	r.Units = append(r.Units, res)
-	return err == nil
+	return err == nil, true
 }
 
 func pendingLine(e fleet.Entry) string {

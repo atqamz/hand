@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func swap(src, target string) error {
@@ -23,16 +24,20 @@ func swap(src, target string) error {
 		return fail(err)
 	}
 	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Rename(old, target)
 		_ = os.Remove(tmp)
+		if rerr := os.Rename(old, target); rerr != nil {
+			return fail(fmt.Errorf("%w; rolling back from %s failed: %v", err, old, rerr))
+		}
 		return fail(err)
 	}
 	return nil
 }
 
 func CleanOld(exe string) {
-	olds, _ := filepath.Glob(exe + ".old*")
-	for _, p := range olds {
-		_ = os.Remove(p)
+	entries, _ := os.ReadDir(filepath.Dir(exe))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), filepath.Base(exe)+".old") {
+			_ = os.Remove(filepath.Join(filepath.Dir(exe), e.Name()))
+		}
 	}
 }

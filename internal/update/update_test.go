@@ -919,11 +919,10 @@ func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
 		t.Skip(err)
 	}
 	entry := strconv.Itoa(self) + " " + marker + "\n"
-	stale := strconv.Itoa(self) + " 0\n"
 	if err := os.WriteFile(filepath.Join(f.root, "board.pid"), []byte(entry), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(stale), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(entry), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stopped []string
@@ -935,7 +934,7 @@ func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
 	if err != nil || rep.Failed {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	if want := []string{strconv.Itoa(self) + " " + marker}; !slices.Equal(stopped, want) {
+	if want := []string{strconv.Itoa(self) + " " + marker, strconv.Itoa(self) + " " + marker}; !slices.Equal(stopped, want) {
 		t.Fatalf("stopped = %q, want %q", stopped, want)
 	}
 	if got := f.log(t, " stop ", " start ", " restart "); len(got) != 0 {
@@ -944,5 +943,27 @@ func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
 	if !slices.Contains(rep.Help, "Start the board again: `hand board`") {
 		t.Fatalf("help = %q", rep.Help)
 	}
+	if want := "Start the watch again in " + f.alpha + ": `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it"; !slices.Contains(rep.Help, want) {
+		t.Fatalf("help = %q, want %q", rep.Help, want)
+	}
 	absent(t, filepath.Join(f.root, "board.pid"))
+	absent(t, filepath.Join(f.alpha, "watch.pid"))
+}
+
+func TestRunDoesNotAskToRestartAWatchItFailedToStop(t *testing.T) {
+	f := newRun(t, nil)
+	marker, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Skip(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(strconv.Itoa(os.Getpid())+" "+marker+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.o.Stop = func(int, string) error { return errors.New("denied") }
+	rep, _ := Run(context.Background(), f.o)
+	for _, h := range rep.Help {
+		if strings.HasPrefix(h, "Start the watch again") {
+			t.Fatalf("help = %q", rep.Help)
+		}
+	}
 }

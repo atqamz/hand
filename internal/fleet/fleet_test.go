@@ -264,3 +264,19 @@ func TestPointerFileClaimExclusive(t *testing.T) {
 		t.Fatalf("home = %q, %v", got, err)
 	}
 }
+
+func TestAnEmptyPointerFileIsInvalid(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "fleets", "f000000000000"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.Home(root, "f000000000000"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("home = %v, want ErrInvalid", err)
+	}
+	if _, err := fleet.Register(root, "f000000000000", root); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("register = %v, want ErrInvalid", err)
+	}
+}
