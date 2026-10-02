@@ -8,16 +8,53 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
+
+func TestMain(m *testing.M) {
+	fakebin.Main(map[string]func([]string) int{"hand": fakeHandMain, "luvus": func([]string) int {
+		fmt.Println("luvus " + fakebin.Params()["version"])
+		return 0
+	}})
+	os.Exit(m.Run())
+}
+
+func fakeHandMain(args []string) int {
+	if len(args) > 0 && args[0] == "version" {
+		fmt.Print(fakebin.Params()["version"])
+		return 0
+	}
+	if calls := os.Getenv("HAND_CALLS"); calls != "" {
+		wd, _ := os.Getwd()
+		fakebin.Append(calls, "hand "+strings.Join(args, " ")+" @ "+wd)
+	}
+	if fail := os.Getenv("HAND_FAIL"); fail != "" && len(args) > 1 && args[0]+" "+args[1] == fail {
+		fmt.Fprintln(os.Stderr, "stop failed")
+		return 1
+	}
+	code, _ := strconv.Atoi(os.Getenv("HAND_EXIT"))
+	return code
+}
+
+func runsTheDownload(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("extension-less hand binary; atqamz/hand#766 PR D2")
+	}
+}
 
 type server struct {
 	*httptest.Server
@@ -59,10 +96,20 @@ func release(t *testing.T, files map[string][]byte) *server {
 	return s
 }
 
+var tarballs = struct {
+	sync.Mutex
+	m map[[2]string][]byte
+}{m: map[[2]string][]byte{}}
+
 func tarball(t *testing.T, name, body string) []byte {
 	t.Helper()
+	tarballs.Lock()
+	defer tarballs.Unlock()
+	if b, ok := tarballs.m[[2]string{name, body}]; ok {
+		return b
+	}
 	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
+	gz, _ := gzip.NewWriterLevel(&buf, gzip.NoCompression)
 	tw := tar.NewWriter(gz)
 	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body))}); err != nil {
 		t.Fatal(err)
@@ -72,6 +119,7 @@ func tarball(t *testing.T, name, body string) []byte {
 	}
 	_ = tw.Close()
 	_ = gz.Close()
+	tarballs.m[[2]string{name, body}] = buf.Bytes()
 	return buf.Bytes()
 }
 
@@ -80,28 +128,30 @@ func sum(b []byte) string {
 	return hex.EncodeToString(s[:])
 }
 
-func handScript(version, channel, commit, schema, luvus string) string {
-	lines := "version: " + version + "\\nchannel: " + channel + "\\ncommit: " + commit + "\\n"
+func handScript(t *testing.T, version, channel, commit, schema, luvus string) string {
+	t.Helper()
+	lines := "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\n"
 	if schema != "" {
-		lines += "schema: " + schema + "\\n"
+		lines += "schema: " + schema + "\n"
 	}
-	lines += "luvus: " + luvus + "\\n"
-	return "#!/bin/sh\nif [ \"$1\" = version ]; then printf '" + lines + "'; exit 0; fi\nif [ -n \"$HAND_CALLS\" ]; then echo \"hand $* @ $(pwd)\" >> \"$HAND_CALLS\"; fi\nif [ -n \"$HAND_FAIL\" ] && [ \"$1 $2\" = \"$HAND_FAIL\" ]; then echo 'stop failed' >&2; exit 1; fi\nexit ${HAND_EXIT:-0}\n"
+	lines += "luvus: " + luvus + "\n"
+	return string(fakebin.Embed(t, "hand", map[string]string{"version": lines}))
 }
 
 func fakeHand(t *testing.T, version, channel, commit, schema, luvus string) map[string][]byte {
 	t.Helper()
-	archive := tarball(t, "hand", handScript(version, channel, commit, schema, luvus))
+	archive := tarball(t, "hand", handScript(t, version, channel, commit, schema, luvus))
+	s := sum(archive)
 	return map[string][]byte{
 		"hand-linux-amd64.tar.gz":  archive,
 		"hand-darwin-arm64.tar.gz": archive,
-		"checksums.txt":            []byte(sum(archive) + "  hand-linux-amd64.tar.gz\n" + sum(archive) + "  hand-linux-arm64.tar.gz\n" + sum(archive) + "  hand-darwin-arm64.tar.gz\n"),
+		"checksums.txt":            []byte(s + "  hand-linux-amd64.tar.gz\n" + s + "  hand-linux-arm64.tar.gz\n" + s + "  hand-darwin-arm64.tar.gz\n"),
 	}
 }
 
 func fakeLuvus(t *testing.T, version string) map[string][]byte {
 	t.Helper()
-	archive := tarball(t, "luvus", "#!/bin/sh\necho 'luvus "+version+"'\n")
+	archive := tarball(t, "luvus", string(fakebin.Embed(t, "luvus", map[string]string{"version": version})))
 	files := map[string][]byte{}
 	for _, triple := range []string{"x86_64-unknown-linux-musl", "aarch64-apple-darwin"} {
 		name := "luvus-v" + version + "-" + triple
@@ -119,6 +169,7 @@ func absent(t *testing.T, path string) {
 }
 
 func TestFetchHandReadsTheBuild(t *testing.T) {
+	runsTheDownload(t)
 	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4"))
 	if _, err := FetchHand(context.Background(), srv.URL, "edge", "darwin", "arm64", t.TempDir(), os.Environ()); err != nil || !slices.Contains(srv.asked(), "/download/edge/hand-darwin-arm64.tar.gz") {
 		t.Fatalf("darwin: %v, asked %q", err, srv.asked())
