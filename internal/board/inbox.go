@@ -113,7 +113,7 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
-var shotLine = regexp.MustCompile(`^\[image: (/[^\]\n]+)\]$`)
+var shotLine = regexp.MustCompile(`^\[image: ([^\]\n]+)\]$`)
 
 func shots(text, home string) (string, []string) {
 	inbox := filepath.Join(home, "inbox")

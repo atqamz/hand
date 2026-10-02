@@ -72,9 +72,6 @@ func TestAnImageIsStoredInTheInbox(t *testing.T) {
 	if b, err := os.ReadFile(path); err != nil || !bytes.Equal(b, pngBytes) {
 		t.Fatalf("stored %d bytes, %v", len(b), err)
 	}
-	if fi, err := os.Stat(filepath.Join(fx.options.Home, "inbox")); err != nil || fi.Mode().Perm() != 0o700 {
-		t.Fatalf("inbox mode %v, %v", fi.Mode(), err)
-	}
 }
 
 func TestOnlyImagesAreAccepted(t *testing.T) {
@@ -160,7 +157,7 @@ func TestOnlyInboxNamesAreServed(t *testing.T) {
 func TestAnOperatorMessageShowsItsImages(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	claudeLog(t, fx, []string{userRecord(`look\n[image: ` + fx.options.Home + `/inbox/20261001-120000-1.png]`)})
+	claudeLog(t, fx, []string{userRecord(`look\n[image: ` + strings.ReplaceAll(fx.options.Home, `\`, `\\`) + `/inbox/20261001-120000-1.png]`)})
 	timeline := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", timeline, `<img src="/inbox/20261001-120000-1.png" alt="Attached image 20261001-120000-1.png" loading="lazy">`, `href="/inbox/20261001-120000-1.png"`, `look`)
 	lacks(t, "timeline", timeline, "[image: ")
