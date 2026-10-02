@@ -41,6 +41,9 @@ Hand hands over board messages and wakes by pasting them, so they may arrive wra
 - `attempt.reported`: `hand report show rN`, act on it, then `hand report ack rN`.
 - `attempt.idle`: the worker's turn ended again, or after the report you already have. Nothing to do.
 - `attempt.quiet` "without a new report": a likely false done or a crash. Look once with `hand attempt read aN`, then `hand attempt send --text "..." aN` or `hand attempt stop aN`.
+- `attempt.limited`: the worker stopped at its harness's usage limit; the detail is the limit line and its reset time.
+  - A claude worker whose reset is within about an hour: leave it. Claude Code continues by itself at the reset, and a message could cancel that.
+  - Otherwise hand the work over to another harness. `hand attempt stop aN`, then pick a profile on another harness from `hand route list` and start it from aN's branch (`hand/<fleet>/tN-aN`, shown by `hand attempt show aN`): `hand attempt start --profile P --base hand/<fleet>/tN-aN --prompt-file BRIEF.md tN`. The brief carries the goal, what `hand report show rN` says is done, the PR URL, and "push to the PR branch with `git push origin HEAD:hand/<fleet>/tN-aN`".
 - `attempt.blocked`: `hand attempt read aN`. Answer a trust or permission screen the task needs with `hand attempt keys --revision N aN KEY...`; anything else is a question for the operator. Declining a permission prompt ends the worker's turn, and it waits for input, so follow it with `hand attempt send --text "..." aN` saying what to do instead.
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.
 - `decision.answered`: `hand decision show dN` prints the answer; continue the task with it.
