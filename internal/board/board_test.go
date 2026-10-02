@@ -250,6 +250,8 @@ func TestScrubKeepsOnlyTheBaseOfAPath(t *testing.T) {
 		"open D:/a/_temp/x/.codex/models_cache.json: denied": "open models_cache.json: denied",
 		`open \\host\share\x\models_cache.json: denied`:      "open models_cache.json: denied",
 		`dial \\?\C:\secret\dir\luvus.sock: refused`:         "dial luvus.sock: refused",
+		`open C:\Program Files\x\secret.txt: denied`:         "open secret.txt: denied",
+		`rename D:\a\x D:\a\y: Access is denied.`:            "rename x y: Access is denied.",
 	} {
 		if got := board.Scrub(in); got != want {
 			t.Fatalf("Scrub(%q) = %q, want %q", in, got, want)

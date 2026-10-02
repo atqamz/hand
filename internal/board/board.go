@@ -358,7 +358,7 @@ func tint(id any) int {
 
 func PRLinks(text string) []string { return prLink.FindAllString(text, -1) }
 
-var absPath = regexp.MustCompile(`(^|[\s"'(=])(/|[A-Za-z]:[\\/]|\\\\[?]\\[A-Za-z]:[\\/]|\\\\)[^\s"'():,]+`)
+var absPath = regexp.MustCompile(`(^|[\s"'(=])(?:/|[A-Za-z]:[\\/]|\\\\[?]\\[A-Za-z]:[\\/]|\\\\)(?:[^\s"'():,/\\]+(?: [^\s"'():,/\\]+)*[/\\])*[^\s"'():,]+`)
 
 func Scrub(msg string) string {
 	return absPath.ReplaceAllStringFunc(msg, func(m string) string {
