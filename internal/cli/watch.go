@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -280,11 +281,11 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case (last.Kind == "attempt.quiet" || last.Kind == "attempt.idle" || last.Kind == "attempt.limited") && ag.Status != "blocked":
+		case (last == "attempt.quiet" || last == "attempt.idle" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
-		case last.Kind == "attempt.blocked":
+		case last == "attempt.blocked":
 			prev = "blocked"
-		case ag.Status == "idle" && last.Kind != "attempt.keys" && last.Kind != "attempt.sent":
+		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
 		w.seen[a.ID] = prev
@@ -316,19 +317,21 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
 		}
-		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
-			if line, ok := harness.Limit(a.Harness, s.Text); ok {
-				last, err := w.st.LastAttemptEvent(ctx, a.ID)
-				if err != nil {
+		s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
+		if err != nil {
+			return err
+		}
+		if line, ok := harness.Limit(a.Harness, s.Text); ok {
+			seen, err := w.st.LastLimit(ctx, a.ID)
+			if err != nil {
+				return err
+			}
+			if shown(seen) != shown(line) {
+				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
 					return err
 				}
-				if last.Kind != "attempt.limited" || last.Detail != ref+": "+line {
-					if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
-						return err
-					}
-					w.alert(ctx, ref+" limited: "+line)
-					return nil
-				}
+				w.alert(ctx, ref+" limited: "+line)
+				return nil
 			}
 		}
 		detail, err := w.st.RecordQuiet(ctx, a.ID)
@@ -338,6 +341,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.alert(ctx, ref+" quiet: "+detail)
 	}
 	return nil
+}
+
+func shown(line string) string {
+	line, _, _ = strings.Cut(line, " (~")
+	return line
 }
 
 func (w *watcher) alert(ctx context.Context, text string) {
