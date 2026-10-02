@@ -69,7 +69,7 @@ func TestAckAReportFromTheBoard(t *testing.T) {
 	if page := request(h, "GET", "/task/t1", nil, true).Body.String(); !strings.Contains(page, "read by operator (board)") {
 		t.Fatalf("task page after ack:\n%s", page)
 	}
-	if index := request(h, "GET", "/", nil, true).Body.String(); strings.Contains(index, `id="wait-r1"`) {
+	if index := request(h, "GET", "/", nil, true).Body.String(); strings.Contains(index, `id="wait-report-r1"`) {
 		t.Fatalf("the acked report still waits:\n%s", index)
 	}
 }
