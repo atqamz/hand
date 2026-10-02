@@ -194,7 +194,7 @@ func point(root, id, home string) error {
 		return err
 	}
 	err = os.Rename(tmp, link(root, id))
-	if err != nil && isSymlink(root, id) && os.Remove(link(root, id)) == nil {
+	if errors.Is(err, fs.ErrPermission) && isSymlink(root, id) && os.Remove(link(root, id)) == nil {
 		err = os.Rename(tmp, link(root, id))
 	}
 	if err != nil {
