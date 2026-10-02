@@ -90,7 +90,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	r.exits = map[string]string{}
+	r.exits = &exitLog{m: map[string]string{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
@@ -136,14 +136,6 @@ func (w *watcher) session(ctx context.Context) error {
 		return runtimeErr(err)
 	}
 	defer stream.Close()
-	w.seen = map[int64]string{}
-	if err := w.reconcile(sctx, c, caps); err != nil {
-		return err
-	}
-	if err := w.catchUp(sctx, c, caps); err != nil {
-		return err
-	}
-	w.autoresume(sctx, c, caps)
 	events := make(chan luvus.Event)
 	failed := make(chan error, 1)
 	go func() {
@@ -153,6 +145,9 @@ func (w *watcher) session(ctx context.Context) error {
 				failed <- err
 				return
 			}
+			if ev.Event == "terminal.exited" {
+				w.r.exits.note(ev.Data)
+			}
 			select {
 			case events <- ev:
 			case <-sctx.Done():
@@ -160,6 +155,14 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		}
 	}()
+	w.seen = map[int64]string{}
+	if err := w.reconcile(sctx, c, caps); err != nil {
+		return err
+	}
+	if err := w.catchUp(sctx, c, caps); err != nil {
+		return err
+	}
+	w.autoresume(sctx, c, caps)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -191,14 +194,7 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	switch ev.Event {
 	case "pane.agent_status_changed":
 		return w.agentStatus(ctx, c, caps, ev.Data)
-	case "terminal.exited":
-		w.noteExit(ev.Data)
-		err := w.reconcile(ctx, c, caps)
-		if err == nil {
-			clear(w.r.exits)
-		}
-		return err
-	case "pane.closed":
+	case "terminal.exited", "pane.closed":
 		return w.reconcile(ctx, c, caps)
 	case "events.resync_required":
 		return errors.New("event stream overflowed; reconnecting")
@@ -206,7 +202,30 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	return nil
 }
 
-func (w *watcher) noteExit(data json.RawMessage) {
+type exitLog struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+const exitWait = time.Second
+
+func (l *exitLog) wait(ctx context.Context, id string) string {
+	deadline := time.Now().Add(exitWait)
+	for {
+		l.mu.Lock()
+		reason, ok := l.m[id]
+		l.mu.Unlock()
+		if ok {
+			return reason
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return "terminal exited"
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (l *exitLog) note(data json.RawMessage) {
 	var ev struct {
 		TerminalID string `json:"terminal_id"`
 		Detail     struct {
@@ -217,12 +236,21 @@ func (w *watcher) noteExit(data json.RawMessage) {
 	if json.Unmarshal(data, &ev) != nil || ev.TerminalID == "" {
 		return
 	}
+	var reason string
 	switch {
 	case ev.Detail.Signal != nil && *ev.Detail.Signal != "":
-		w.r.exits[ev.TerminalID] = "terminal exited (signal " + *ev.Detail.Signal + ")"
+		reason = "terminal exited (signal " + *ev.Detail.Signal + ")"
 	case ev.Detail.ExitCode != nil:
-		w.r.exits[ev.TerminalID] = "terminal exited (code " + strconv.Itoa(*ev.Detail.ExitCode) + ")"
+		reason = "terminal exited (code " + strconv.Itoa(*ev.Detail.ExitCode) + ")"
+	default:
+		return
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.m) >= 256 {
+		clear(l.m)
+	}
+	l.m[ev.TerminalID] = reason
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
