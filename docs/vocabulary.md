@@ -68,6 +68,8 @@ What `hand update` does, in order:
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
+Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
+
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy the backup over `hand.db`.
 
 ### Secondhand
