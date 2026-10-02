@@ -49,6 +49,7 @@ type runner struct {
 	root    string
 	fleet   state.Fleet
 	addrs   sync.Map
+	exits   map[string]string
 }
 
 type usageError struct{ msg string }
