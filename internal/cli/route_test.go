@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func TestInitWritesAStarterRoutingPolicy(t *testing.T) {
 	h := newHarness(t)
-	if out := h.ok("init"); !strings.Contains(out, "routing: "+filepath.Join(h.home, "routing.json")) {
+	if out := h.ok("init"); !strings.Contains(out, "routing: "+toon.Value(filepath.Join(h.home, "routing.json"))) {
 		t.Fatalf("init = %q", out)
 	}
 	list := h.ok("route", "list")

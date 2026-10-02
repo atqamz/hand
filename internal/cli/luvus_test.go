@@ -4,14 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func fakeLuvusAt(t *testing.T, dir, version string) string {
@@ -21,10 +22,7 @@ func fakeLuvusAt(t *testing.T, dir, version string) string {
 
 func embedAt(t *testing.T, dir, name string, params map[string]string) string {
 	t.Helper()
-	bin := filepath.Join(dir, name)
-	if runtime.GOOS == "windows" {
-		bin += ".exe"
-	}
+	bin := exe(dir, name)
 	if err := os.WriteFile(bin, fakebin.Embed(t, "fake", params), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +43,9 @@ func pinnedPath(t *testing.T, out string) string {
 	if m == nil {
 		t.Fatalf("no path in %q", out)
 	}
+	if p, err := strconv.Unquote(m[1]); err == nil {
+		return p
+	}
 	return m[1]
 }
 
@@ -53,10 +54,13 @@ func TestLuvusPinCopiesTheBinaryOnPath(t *testing.T) {
 	h.vars["HAND_HOME"], h.cwd = "", t.TempDir()
 	script := pinnable(t, h, "0.14.3")
 	out := h.ok("luvus", "pin")
-	has(t, "first pin", out, "version: 0.14.3", "source: "+script, "previous: none", "path: "+filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-"))
+	has(t, "first pin", out, "version: 0.14.3", "source: "+toon.Value(script), "previous: none")
 	first := pinnedPath(t, out)
+	if !strings.HasPrefix(first, filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-")) {
+		t.Fatalf("first pin path = %s", first)
+	}
 	other := fakeLuvusAt(t, t.TempDir(), "0.14.4")
-	has(t, "second pin", h.ok("luvus", "pin", other), "version: 0.14.4", "source: "+other, "previous: 0.14.3 "+first)
+	has(t, "second pin", h.ok("luvus", "pin", other), "version: 0.14.4", "source: "+toon.Value(other), "previous: "+toon.Value("0.14.3 "+first))
 }
 
 func TestLuvusPinRefusals(t *testing.T) {

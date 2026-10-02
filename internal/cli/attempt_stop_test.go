@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func gone(pid int) bool {
@@ -72,7 +74,7 @@ func TestCleanProtectsLiveWorkersAndUncommittedWork(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(wt, "wip.txt")); err != nil {
 		t.Fatalf("uncommitted work lost: %v", err)
 	}
-	if out := fx.h.ok("attempt", "clean", "--discard", "a1"); !strings.Contains(out, "removed: "+wt) {
+	if out := fx.h.ok("attempt", "clean", "--discard", "a1"); !strings.Contains(out, "removed: "+toon.Value(wt)) {
 		t.Fatalf("clean = %q", out)
 	}
 	if _, err := os.Stat(wt); !errors.Is(err, fs.ErrNotExist) {

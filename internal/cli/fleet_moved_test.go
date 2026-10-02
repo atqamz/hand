@@ -6,12 +6,16 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("moving a home whose files are open is Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	fx.start()
 	type result struct {
@@ -46,6 +50,9 @@ func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
 }
 
 func TestWatchStopsOnTheFirstEventAfterAMove(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("moving a home whose files are open is Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	fx.start()
 	done := make(chan int, 1)

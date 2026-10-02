@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,9 @@ func TestInitNamesAndRenamesTheFleet(t *testing.T) {
 }
 
 func TestAMovedHomeIsRefusedUntilInitAdoptsIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
+	}
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -242,6 +246,9 @@ func TestAFailedAdoptionLeavesTheMoveUnadopted(t *testing.T) {
 }
 
 func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
+	}
 	h := newHarness(t)
 	h.ok("init")
 	repo := filepath.Join(h.home, "projects", "app")
@@ -313,6 +320,9 @@ func TestA07FleetNamedByHandHomeGetsTheMigrationHint(t *testing.T) {
 func TestAnUnreadable07MarkerIsReported(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any folder")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file modes: Windows has no unreadable folder")
 	}
 	h := newHarness(t)
 	old := t.TempDir()

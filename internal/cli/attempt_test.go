@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
@@ -39,7 +40,7 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 		t.Fatalf("worktree not created: %v", err)
 	}
 	show := fx.h.ok("attempt", "show", "a1")
-	for _, want := range []string{"status: running", "agent: working", "launch: " + call.Command[0] + " --dangerously-skip-permissions --model sonnet --effort low"} {
+	for _, want := range []string{"status: running", "agent: working", "launch: " + toon.Value(call.Command[0]+" --dangerously-skip-permissions --model sonnet --effort low")} {
 		if !strings.Contains(show, want) {
 			t.Fatalf("show = %q, missing %q", show, want)
 		}

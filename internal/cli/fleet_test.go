@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
@@ -21,7 +24,7 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 	h.cwd = t.TempDir()
 	h.vars["HAND_HOME"] = ""
 	out := h.ok("fleet", "list")
-	for _, want := range []string{"fleets[3]{id,name,home,state}:", alpha + ",alpha," + h.home + ",ok", beta + ",beta," + other + ",ok", dead + `,"",` + gone + ",missing"} {
+	for _, want := range []string{"fleets[3]{id,name,home,state}:", alpha + ",alpha," + toon.Value(h.home) + ",ok", beta + ",beta," + toon.Value(other) + ",ok", dead + `,"",` + toon.Value(gone) + ",missing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("fleet list missing %q:\n%s", want, out)
 		}
@@ -29,6 +32,9 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 }
 
 func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
+	}
 	fx := newAttemptFixture(t)
 	inner := filepath.Join(fx.h.home, "projects", "inner")
 	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {

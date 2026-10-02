@@ -101,7 +101,7 @@ func TestOpenDeepLinks(t *testing.T) {
 		if got := opened[len(opened)-1]; got != want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
 		}
-		if field(out, "opened") != `"`+fx.base+"/"+fx.id+c.path+c.frag+`"` {
+		if field(out, "opened") != fx.base+"/"+fx.id+c.path+c.frag {
 			t.Fatalf("open %q printed %q", c.args, out)
 		}
 	}

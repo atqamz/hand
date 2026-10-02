@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,6 +21,13 @@ import (
 )
 
 var handRepo, _ = filepath.Abs("/home/me/hand")
+
+func exe(dir, name string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(dir, name)
+}
 
 func fakeBehaviors() map[string]func([]string) int {
 	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "opener": func(args []string) int {
@@ -145,6 +153,9 @@ func (h *harness) runCtx(ctx context.Context, args ...string) (string, string, i
 func field(out, name string) string {
 	for _, l := range strings.Split(out, "\n") {
 		if v, ok := strings.CutPrefix(l, name+": "); ok {
+			if u, err := strconv.Unquote(v); err == nil {
+				return u
+			}
 			return v
 		}
 	}

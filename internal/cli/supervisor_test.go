@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,7 +27,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `(/[^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
+var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `([^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
 
 func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	t.Helper()
@@ -183,7 +182,7 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + cwd + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n" +
+	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + strings.ReplaceAll(cwd, `\`, `\\`) + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n" +
 		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"You are supervisor s1 of the Hand fleet x."}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
@@ -936,7 +935,7 @@ func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T
 	codexCache(t, h)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	if err := os.Remove(filepath.Join(h.vars["PATH"], "codex")); err != nil {
+	if err := os.Remove(exe(h.vars["PATH"], "codex")); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "codex") {
@@ -987,10 +986,7 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	codexCache(t, h)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	codex := filepath.Join(h.vars["PATH"], "codex")
-	if runtime.GOOS == "windows" {
-		codex += ".exe"
-	}
+	codex := exe(h.vars["PATH"], "codex")
 	if err := os.Remove(codex); err != nil {
 		t.Fatal(err)
 	}
