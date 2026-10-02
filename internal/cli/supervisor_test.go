@@ -1171,3 +1171,39 @@ func TestSwitchingHarnessKeepsAnUndiscoveredSession(t *testing.T) {
 		t.Fatalf("s1 session = %q, want c1", got)
 	}
 }
+
+func TestADeliveryCancelledMidPromptIsStillRecorded(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fx := &attemptFixture{h: h, rt: rt}
+	pane := supervisorPane(t, startClaudeSupervisor(h))
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Trust this folder?" })
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt.set(func(rt *fakeRuntime) { rt.onPrompt = cancel })
+	done := make(chan struct{})
+	go func() {
+		h.runCtx(ctx, "watch", "--every", "1h")
+		close(done)
+	}()
+	eventually(t, func() bool { return rt.srv.Subscribers() == 1 })
+	publishStatus(fx, pane, "idle")
+	<-done
+	rt.set(func(rt *fakeRuntime) { rt.onPrompt = nil })
+	has(t, "show", h.ok("supervisor", "show"), "pending: 0")
+	h.ok("supervisor", "send", "--text", "again")
+	if got := rt.prompts(); !slices.Equal(got, []string{"hello", "again"}) {
+		t.Fatalf("prompts = %q, want hello once", got)
+	}
+}
+
+func TestSupervisorStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
+	out, errOut, code := h.run("supervisor", "stop")
+	if code != 0 || !strings.Contains(out, "status: stopped") || !strings.Contains(out, "did not close") {
+		t.Fatalf("stop: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "status: stopped")
+}
