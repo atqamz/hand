@@ -353,3 +353,40 @@ func TestOrientWatchLine(t *testing.T) {
 		t.Fatalf("missing orient =\n%s", missing)
 	}
 }
+
+func TestOrientShowsWorkerSignal(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	spec := state.AttemptSpec{Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
+	for i, title := range []string{"Fix login", "Ship it", "Write docs"} {
+		task, _ := st.AddTask(ctx, "hand", title, "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+		spec.TaskID = task.ID
+		a, err := st.AddAttempt(ctx, spec, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t" + strconv.Itoa(i), PaneID: strconv.Itoa(i + 2), PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 2 {
+		if _, err := st.RecordQuiet(ctx, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.NoteAttempt(ctx, 2, "blocked", "Do you want to proceed? "+strings.Repeat("x", 100)); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{"t1,hand,Fix login,none,a1 running quiet,none,0", `t2,hand,Ship it,none,"a2 running blocked: Do you want to proceed? xxxxxxxxxxxxx…",none,0`, "t3,hand,Write docs,none,a3 running,none,0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+}

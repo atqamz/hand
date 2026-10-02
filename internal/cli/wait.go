@@ -2,16 +2,33 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered"}
+var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.idle", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered"}
 
-const waitPoll = 250 * time.Millisecond
+const (
+	waitPoll  = 250 * time.Millisecond
+	wakeBatch = 50
+)
+
+func wakeEvents(ctx context.Context, st *state.Store, after int64) ([]state.Event, error) {
+	events, err := st.EventsAfter(ctx, after, wakeKinds, wakeBatch)
+	if err != nil || len(events) == wakeBatch || slices.ContainsFunc(events, wakes) {
+		return events, err
+	}
+	return nil, nil
+}
+
+func wakes(e state.Event) bool {
+	return e.Kind != "attempt.idle" && (e.Kind != "attempt.reported" || !strings.HasSuffix(e.Detail, " "+state.ReportProgress))
+}
 
 func init() {
 	commands["wait"] = cmdWait
@@ -46,7 +63,7 @@ func cmdWait(r *runner, args []string) error {
 		}
 	}
 	for {
-		events, err := st.EventsAfter(query, cursor, wakeKinds, 50)
+		events, err := wakeEvents(query, st, cursor)
 		if err != nil {
 			return err
 		}

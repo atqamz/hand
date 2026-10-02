@@ -96,3 +96,13 @@ func TestEnsureWatcherSkipsHeldLock(t *testing.T) {
 		t.Fatal("orient must report the held lock as a running watcher")
 	}
 }
+
+func TestOrientDoesNotCreateWatchLock(t *testing.T) {
+	h := initWithProject(t)
+	if !strings.Contains(h.ok("orient"), "watch: missing") {
+		t.Fatal("orient must report a missing watcher")
+	}
+	if _, err := os.Stat(filepath.Join(h.home, "watch.lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("orient left watch.lock behind: %v", err)
+	}
+}

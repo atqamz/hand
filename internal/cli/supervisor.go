@@ -838,7 +838,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if len(pending) > 0 || (ag.Status != "idle" && ag.Status != "done") {
 		return "", nil
 	}
-	events, err := st.EventsAfter(ctx, sup.WakeCursor, wakeKinds, 50)
+	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil || len(events) == 0 {
 		return "", err
 	}
@@ -985,7 +985,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	if len(pending) > 0 {
 		return len(pending), "", nil
 	}
-	events, err := st.EventsAfter(ctx, sup.WakeCursor, wakeKinds, 50)
+	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil {
 		return 0, "", err
 	}

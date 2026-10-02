@@ -1,9 +1,12 @@
 package cli_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestWaitReturnsOnlyWakeEventsAfterTheCursor(t *testing.T) {
@@ -54,5 +57,32 @@ func TestWaitRejectsABadTimeout(t *testing.T) {
 		if _, _, code := h.run("wait", "--timeout", bad); code != 2 {
 			t.Fatalf("--timeout %s code = %d, want 2", bad, code)
 		}
+	}
+}
+
+func TestProgressReportDoesNotWake(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "progress", "--text", "Halfway")
+	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(out, ",attempt.reported,") {
+		t.Fatalf("a progress report woke the supervisor: %q", out)
+	}
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(out, `,attempt.reported,t1,"a1: r1 progress"`) || !strings.Contains(out, `,attempt.reported,t1,"a1: r2 done"`) {
+		t.Fatalf("the progress report did not ride in the next wake: %q", out)
+	}
+}
+
+func TestAFullBatchOfRidersStillWakes(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	st := openStore(t, fx.h)
+	for range 51 {
+		if _, err := st.AddReport(context.Background(), 1, state.ReportProgress, "Halfway"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(out, "events[50]") {
+		t.Fatalf("fifty progress reports kept every later wake behind them: %q", out)
 	}
 }

@@ -37,7 +37,7 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 
 ### Agent state
 
-Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
+Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. When the attempt's newest event is already `attempt.quiet` or `attempt.idle`, or is a `done` or `stuck` report, the supervisor already knows, so the watcher records that turn as `attempt.idle` instead. A turn that ends after a `progress` report stays `attempt.quiet`: it is the likely false done. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
 
 ## Fleets and files
 
@@ -216,14 +216,14 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 `hand watch`, one per fleet. It:
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
-- records the `attempt.blocked` and `attempt.quiet` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
+- records the `attempt.blocked`, `attempt.quiet` and `attempt.idle` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
 
-`hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock.
+`hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock, without creating it. That probe holds the lock for an instant, so a starting watcher tries it five times, 20 ms apart, before it gives up.
 
 ### Event and cursor
 
@@ -242,11 +242,14 @@ The wake kinds are:
 |---|---|
 | `attempt.reported` | a worker added a report |
 | `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn |
+| `attempt.idle` | the worker's turn ended again, or after its `done` or `stuck` report |
 | `attempt.blocked` | the worker waits at a screen that needs an answer |
 | `attempt.exited` | the attempt ended by itself |
 | `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
+
+`attempt.idle` and a `progress` report never wake the supervisor on their own. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
 
@@ -270,7 +273,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt, report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 

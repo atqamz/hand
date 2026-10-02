@@ -356,7 +356,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 		switch {
 		case e.Kind == "attempt.blocked":
 			kind = "worker"
-		case e.Kind == "attempt.quiet" && strings.HasSuffix(e.Detail, "without a new report"):
+		case (e.Kind == "attempt.quiet" || e.Kind == "attempt.idle") && strings.HasSuffix(e.Detail, "without a new report"):
 			kind = "quiet"
 		default:
 			continue
@@ -517,7 +517,7 @@ func (f facts) check(t state.Task) check {
 			switch f.signals[a.ID].Kind {
 			case "attempt.blocked":
 				c.Agent = "blocked"
-			case "attempt.quiet":
+			case "attempt.quiet", "attempt.idle":
 				c.Agent = "quiet"
 			}
 		}

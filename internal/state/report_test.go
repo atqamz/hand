@@ -88,7 +88,7 @@ func TestRecordQuietLabelsTheTurnInOneTransaction(t *testing.T) {
 	check("turn ended; reported r1 done")
 	check("turn ended without a new report")
 	events, _ := s.RecentEvents(ctx, 1)
-	if events[0].Kind != "attempt.quiet" || events[0].Detail != "a1: turn ended without a new report" {
+	if events[0].Kind != "attempt.idle" || events[0].Detail != "a1: turn ended without a new report" {
 		t.Fatalf("event = %+v", events[0])
 	}
 }

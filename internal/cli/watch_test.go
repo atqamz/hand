@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func eventually(t *testing.T, ok func() bool) {
@@ -143,9 +145,7 @@ func TestWatchRecordsAQuietTurnAgainAfterAReconnect(t *testing.T) {
 	fx.rt.srv.DropSubscribers()
 	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
 	fx.rt.srv.Publish("pane.agent_status_changed", done)
-	eventually(t, func() bool {
-		return strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.quiet,") == 2
-	})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 2 })
 }
 
 func TestWatchRecordsAQuietTurnWhenADeclinedPromptLeavesTheWorkerIdle(t *testing.T) {
@@ -314,7 +314,7 @@ func TestQuietTurnSaysWhetherTheWorkerReported(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", working)
 	fx.rt.srv.Publish("pane.agent_status_changed", done)
 	eventually(t, func() bool {
-		return strings.Contains(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), `"a1: turn ended; reported r1 done"`)
+		return slices.ContainsFunc(turnEvents(t, fx), func(e state.Event) bool { return e.Detail == "a1: turn ended; reported r1 done" })
 	})
 }
 
@@ -427,5 +427,86 @@ func TestBoardRunsWhenItsPidFileIsUnwritable(t *testing.T) {
 	_, stop := startBoard(t, h, "127.0.0.1")
 	if out := stop(); !strings.Contains(out, "warning: cannot write "+pid+": ") {
 		t.Fatalf("board output = %q", out)
+	}
+}
+
+func turnEvents(t *testing.T, fx *attemptFixture) []state.Event {
+	t.Helper()
+	events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"attempt.quiet", "attempt.idle"}, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+func TestRepeatedQuietWakesOnce(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	for range 3 {
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
+	}
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 3 })
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.quiet,"); n != 1 {
+		t.Fatalf("three quiet turns woke the supervisor %d times, want 1: %+v", n, turnEvents(t, fx))
+	}
+}
+
+func TestQuietRightAfterReportDoesNotWake(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+	if woken(fx, "attempt.quiet") {
+		t.Fatalf("a turn that ended right after its report woke the supervisor twice: %+v", turnEvents(t, fx))
+	}
+}
+
+func TestQuietAfterDoneDoesNotWake(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.h.now = fx.h.now.Add(time.Hour)
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+	out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if strings.Contains(out, ",attempt.quiet,") || !strings.Contains(out, `,attempt.idle,t1,"a1: turn ended; reported r1 done"`) {
+		t.Fatalf("a turn that ended an hour after a done report woke, or did not ride with the report: %q", out)
+	}
+}
+
+func TestQuietAfterProgressWakes(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "progress", "--text", "Halfway")
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+	if !woken(fx, "attempt.quiet") {
+		t.Fatalf("a turn that ended right after a progress report did not wake: %+v", turnEvents(t, fx))
+	}
+}
+
+func TestWatchStartSurvivesAProbe(t *testing.T) {
+	fx := newAttemptFixture(t)
+	probe, err := os.OpenFile(filepath.Join(fx.h.home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := flock.Lock(probe, false); !ok || err != nil {
+		t.Fatalf("probe lock = %v, %v", ok, err)
+	}
+	time.AfterFunc(20*time.Millisecond, func() { _ = probe.Close() })
+	stop := startWatch(t, fx)
+	if out, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d, out %q", code, out)
 	}
 }

@@ -562,3 +562,18 @@ func TestTheEventLoopLeavesWorkerScreensUnread(t *testing.T) {
 		t.Fatalf("the event loop read worker screens %d times with nothing changed", n)
 	}
 }
+
+func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
+	fx := newFixture(t)
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	for range 2 {
+		if _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page := get(t, fx.handler(), "/")
+	contains(t, "tasks row", region(page, "tasks"), "a1 claude sonnet · quiet")
+	if kinds, _, _ := waits(page); !slices.Contains(kinds, "quiet") {
+		t.Fatalf("a worker quiet for two turns left Needs: %q", kinds)
+	}
+}
