@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -589,9 +590,7 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 
 func TestAgyNeedsItsModelList(t *testing.T) {
 	fx := agyFixture(t)
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "agy"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1"})
 	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "check that agy is logged in") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}

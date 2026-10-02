@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -56,9 +57,7 @@ func newOpenFixture(t *testing.T) *openFixture {
 	}
 	fx := &openFixture{h: h, id: field(h.ok("init"), "id"), log: filepath.Join(t.TempDir(), "opened")}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, openerName()), []byte("#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$XDG_LOG\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, bin, openerName(), "opener", nil)
 	h.vars["PATH"] = bin
 	h.vars["XDG_LOG"] = fx.log
 	fx.base, fx.stop = startBoard(t, h, "127.0.0.1")
@@ -253,8 +252,11 @@ func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
 }
 
 func openerName() string {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		return "open"
+	case "windows":
+		return "rundll32"
 	}
 	return "xdg-open"
 }

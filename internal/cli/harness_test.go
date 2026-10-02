@@ -2,15 +2,47 @@ package cli_test
 
 import (
 	"bytes"
+	"cmp"
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 )
+
+var handRepo, _ = filepath.Abs("/home/me/hand")
+
+func fakeBehaviors() map[string]func([]string) int {
+	return map[string]func([]string) int{"fake": fakeMain, "opener": func(args []string) int {
+		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
+		return 0
+	}}
+}
+
+func fakeMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) > 0 {
+		if out, ok := p["on "+args[0]]; ok {
+			fmt.Print(out)
+			return 0
+		}
+	}
+	d, _ := time.ParseDuration(p["sleep"])
+	time.Sleep(d)
+	if log := cmp.Or(p["log"], os.Getenv(p["logenv"])); log != "" {
+		fakebin.Append(log, strings.TrimSpace(p["prefix"]+" "+strings.Join(args, " ")))
+	}
+	fmt.Fprint(os.Stderr, p["stderr"])
+	code, _ := strconv.Atoi(p["exit"])
+	return code
+}
 
 type harness struct {
 	name string

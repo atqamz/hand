@@ -12,6 +12,9 @@ import (
 func TestOpenReturnsWhileTheBrowserRuns(t *testing.T) {
 	fx := newOpenFixture(t)
 	script := "#!/bin/sh\nread -r _ _ _ _ _ sid _ < /proc/$$/stat\nprintf '%s %s\\n' \"$sid\" \"$$\" >> \"$XDG_LOG\"\nexec /usr/bin/sleep 30\n"
+	if err := os.Remove(filepath.Join(fx.h.vars["PATH"], "xdg-open")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "xdg-open"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

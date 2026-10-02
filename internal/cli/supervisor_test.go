@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/atqamz/hand/internal/agydb/agytest"
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
 	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
@@ -258,10 +260,7 @@ func TestSupervisorKeysAreLimited(t *testing.T) {
 
 func TestOpencodeSupervisorPromptIsSubmitted(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	script := "#!/bin/sh\nif [ \"$1\" = session ]; then echo '[]'; exit 0; fi\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "opencode"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "sleep": "300s"})
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.status, rt.afterKeys = "┃  You are supervisor s1 of the Hand fleet", 7, "idle", "working"
 	})
@@ -553,10 +552,7 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 
 func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n int32)) {
 	t.Helper()
-	script := "#!/bin/sh\nif [ \"$1\" = session ]; then echo '[]'; exit 0; fi\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "opencode"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "sleep": "300s"})
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.status = "┃  You are supervisor s1 of the Hand fleet", 7, "idle"
 	})
@@ -785,7 +781,7 @@ func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
 func TestSupervisorForceTypesTheWakesWhenNoMessageWaits(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
-	h.ok("project", "add", "hand", "/home/me/hand")
+	h.ok("project", "add", "hand", handRepo)
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("decision", "ask", "t1", "Keep it?")
 	h.ok("decision", "answer", "d1", "yes")
@@ -991,7 +987,14 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	codexCache(t, h)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	if err := os.WriteFile(filepath.Join(h.vars["PATH"], "codex"), []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
+	codex := filepath.Join(h.vars["PATH"], "codex")
+	if runtime.GOOS == "windows" {
+		codex += ".exe"
+	}
+	if err := os.Remove(codex); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(codex, []byte("#!/nonexistent/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "s1 stopped, continue it with") {

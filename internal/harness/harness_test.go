@@ -30,6 +30,8 @@ func fakeAgyMain(args []string) int {
 	if p["count"] != "" {
 		fakebin.Append(p["count"], "x")
 	}
+	d, _ := time.ParseDuration(p["sleep"])
+	time.Sleep(d)
 	if p["hold"] != "" {
 		hold()
 	}
@@ -313,9 +315,7 @@ func TestAgyModelsTimeoutSaysTimedOut(t *testing.T) {
 	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
 	agyTimeout = 200 * time.Millisecond
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "5s"})
 	_, err := Models("agy", Env{Path: dir})
 	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "agy models timed out after 200ms") || strings.Contains(err.Error(), "logged in") {
 		t.Fatalf("err = %v", err)
@@ -326,10 +326,7 @@ func TestAgyModelsSlowListingWithinTimeoutSucceeds(t *testing.T) {
 	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
 	agyTimeout = 3 * time.Second
 	dir := t.TempDir()
-	script := "#!/bin/sh\nsleep 1\nprintf '%s' '" + agyList + "'\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "1s", "models": agyList})
 	if err := Validate(Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: dir}); err != nil {
 		t.Fatalf("slow listing = %v", err)
 	}

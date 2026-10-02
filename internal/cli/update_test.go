@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func TestUpdateRefusesASourceBuildWithoutAChannel(t *testing.T) {
@@ -38,9 +41,12 @@ func TestUpdateTakesNoArguments(t *testing.T) {
 }
 
 func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
-	script := "#!/bin/sh\nprintf 'version: 0.9.0\\nchannel: edge\\ncommit: 0123456789ab\\nschema: 7\\nluvus: 0.14.4\\n'\n"
+	if runtime.GOOS == "windows" {
+		t.Skip("extension-less hand binary; atqamz/hand#766 PR D2")
+	}
+	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 7\nluvus: 0.14.4\n"}))
 	var archive bytes.Buffer
-	gz := gzip.NewWriter(&archive)
+	gz, _ := gzip.NewWriterLevel(&archive, gzip.NoCompression)
 	tw := tar.NewWriter(gz)
 	_ = tw.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(script))})
 	_, _ = tw.Write([]byte(script))

@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -35,10 +37,7 @@ func woken(fx *attemptFixture, kind string) bool {
 func fakeNotify(t *testing.T, fx *attemptFixture) string {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "notify.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\n"
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, fx.h.vars["PATH"], notifierName(), "fake", map[string]string{"log": log})
 	return log
 }
 
@@ -86,6 +85,9 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 	}
 	if !strings.Contains(out, `observed: "a1 blocked: Do you want to proceed?"`) {
 		t.Fatalf("watch out = %q", out)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
 	}
 	name := filepath.Base(fx.h.home)
 	for _, want := range []string{" " + name + " a1 blocked: Do you want to proceed?", " " + name + " a1 quiet: turn ended"} {
@@ -255,9 +257,7 @@ func TestWatchReconcilesWithoutAnyEvent(t *testing.T) {
 
 func TestWatchIsNotBlockedByASlowNotifier(t *testing.T) {
 	fx := newAttemptFixture(t)
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, fx.h.vars["PATH"], notifierName(), "fake", map[string]string{"sleep": "5s"})
 	fx.start()
 	stop := startWatch(t, fx)
 	defer stop()
@@ -282,12 +282,12 @@ func TestOnlyWatchNeedsTheEventStream(t *testing.T) {
 }
 
 func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
-	script := "#!/bin/sh\nsleep 0.5\nprintf '%s\\n' \"$*\" >> " + log + "\n"
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, fx.h.vars["PATH"], notifierName(), "fake", map[string]string{"sleep": "500ms", "log": log})
 	fx.start()
 	stop := startWatch(t, fx)
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
