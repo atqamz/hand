@@ -141,7 +141,7 @@ The supervisor's written plan for a task. `hand plan set --body-file PLAN.md tN`
 
 ### Brief
 
-The text the supervisor gives a worker with `hand attempt start --prompt-file BRIEF.md`: the goal, the constraints, the exact acceptance check, and what to commit. Hand appends the instructions for reporting back. Luvus takes at most 16 KiB per argument, so the brief and that footer must fit in 16 KiB.
+The text the supervisor gives a worker with `hand attempt start --prompt-file BRIEF.md`: the goal, the constraints, the exact acceptance check, and what to commit. Hand appends the instructions for reporting back. Luvus takes at most 16 KiB per argument, so the brief and that footer must fit in 16 KiB. The footer also asks the worker to wait for CI and reviews inside one blocking foreground command, never to end its turn to wait, and to report only when done or stuck.
 
 ### Attempt
 
