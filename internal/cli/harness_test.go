@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,10 +22,26 @@ import (
 var handRepo, _ = filepath.Abs("/home/me/hand")
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"fake": fakeMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
+}
+
+func wrapMain(args []string) int {
+	p := fakebin.Params()
+	fmt.Fprint(os.Stderr, p["stderr"])
+	cmd := exec.Command(p["exec"], args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode()
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
 }
 
 func fakeMain(args []string) int {

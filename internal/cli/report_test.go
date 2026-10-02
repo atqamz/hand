@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -201,10 +202,7 @@ func TestGitIgnoresStderrWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	wrapper := "#!/bin/sh\necho 'warning: noisy' >&2\nexec " + real + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, bin, "git", "wrap", map[string]string{"stderr": "warning: noisy\n", "exec": real})
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	fx.h.cwd = fx.h.worktree("t1-a1")
 	if out := fx.h.ok("report", "add", "--status", "done", "--text", "ok"); !strings.Contains(out, "attempt: a1") {
