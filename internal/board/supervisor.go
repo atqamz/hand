@@ -96,7 +96,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	if err != nil {
 		return err
 	}
-	data["Pending"], data["Harnesses"], data["Profiles"], data["Keys"] = len(pending), state.Harnesses, b.profiles(), keyButtons()
+	data["Pending"], data["Profiles"], data["Keys"] = len(pending), b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
 	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
 	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits until one starts."
@@ -117,15 +117,11 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 			data["CurrentModels"], data["CurrentEfforts"] = b.models(sup.Harness)
-			var others []harnessChoice
-			for _, h := range state.Harnesses {
-				if h != sup.Harness {
-					models, efforts := b.models(h)
-					others = append(others, harnessChoice{Name: h, Models: models, Efforts: efforts})
-				}
-			}
-			data["OtherHarnesses"] = others
+			data["OtherHarnesses"] = b.choices(sup.Harness)
 		}
+	}
+	if data["Pick"] == true {
+		data["StartHarnesses"] = b.choices("")
 	}
 	label, _ := data["PillLabel"].(string)
 	data["Line"] = strings.ToLower(lineWord(label))
@@ -300,6 +296,17 @@ type harnessChoice struct {
 	Name    string
 	Models  []harness.Model
 	Efforts []string
+}
+
+func (b *Board) choices(except string) []harnessChoice {
+	var out []harnessChoice
+	for _, h := range state.Harnesses {
+		if h != except {
+			models, efforts := b.models(h)
+			out = append(out, harnessChoice{Name: h, Models: models, Efforts: efforts})
+		}
+	}
+	return out
 }
 
 func (b *Board) models(name string) ([]harness.Model, []string) {
