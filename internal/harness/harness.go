@@ -140,20 +140,18 @@ func agyModels(env Env) ([]Model, error) {
 		}
 	}
 	var exit *exec.ExitError
-	timedOut := err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
+	const hint = "could not list agy models: %v; check that agy is logged in"
 	switch {
-	case timedOut:
-	case errors.As(err, &exit) && len(bytes.TrimSpace(exit.Stderr)) > 0:
-		err = fmt.Errorf("%v: %s", err, bytes.TrimSpace(exit.Stderr))
-	case err == nil && len(models) == 0:
-		err = fmt.Errorf("it listed no models")
-	}
-	switch {
-	case timedOut:
+	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
 		err = fmt.Errorf("%w: agy models timed out after %v", state.ErrInvalid, agyTimeout)
-		models = nil
+	case errors.As(err, &exit) && len(bytes.TrimSpace(exit.Stderr)) > 0:
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, fmt.Sprintf("%v: %s", err, bytes.TrimSpace(exit.Stderr)))
 	case err != nil:
-		err = fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, err)
+	case len(models) == 0:
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, "it listed no models")
+	}
+	if err != nil {
 		models = nil
 	}
 	agyLists.byBin[bin] = agyListing{models, err, time.Now()}
