@@ -8,12 +8,12 @@ import (
 	"slices"
 	"strconv"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/proc"
 )
 
 type createCall struct {
@@ -76,7 +76,7 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proc.NewGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	if !exited(term) {
-		_ = syscall.Kill(-term.cmd.Process.Pid, syscall.SIGHUP)
+		killGroup(term.cmd, false)
 	}
 	<-term.done
 	rt.mu.Lock()
@@ -336,7 +336,7 @@ func (rt *fakeRuntime) exitAll() {
 	rt.mu.Unlock()
 	for _, term := range terms {
 		if !exited(term) {
-			_ = syscall.Kill(-term.cmd.Process.Pid, syscall.SIGKILL)
+			killGroup(term.cmd, true)
 		}
 		<-term.done
 	}
