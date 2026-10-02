@@ -80,10 +80,28 @@ func TestBoardUnitIsGlobal(t *testing.T) {
 			t.Fatalf("board unit missing %q:\n%s", want, board)
 		}
 	}
-	if strings.Contains(board, "HAND_HOME") {
+	if strings.Contains(board, `Environment="HAND_HOME=`) {
 		t.Fatalf("board unit names a fleet home:\n%s", board)
 	}
 	if _, errOut, code := h.run("unit", "watch"); code != 3 || !strings.Contains(errOut, "not inside a fleet home") {
 		t.Fatalf("watch unit outside a fleet: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestUnitFilesKeepACustomSecondhandHome(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unit := range []string{"watch", "board"} {
+		if out := h.ok("unit", unit); !strings.Contains(out, `Environment="SECONDHAND_HOME=`+root+"\"\n") {
+			t.Fatalf("%s unit does not keep the root:\n%s", unit, out)
+		}
+	}
+	delete(h.vars, "SECONDHAND_HOME")
+	if out := h.ok("unit", "board"); strings.Contains(out, "SECONDHAND_HOME") {
+		t.Fatalf("board unit names a root nobody set:\n%s", out)
 	}
 }

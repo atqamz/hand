@@ -124,7 +124,12 @@ func agyModels(env Env) ([]Model, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin, "models").Output()
+	cmd := exec.CommandContext(ctx, bin, "models")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	var models []Model
 	for _, line := range strings.Split(string(out), "\n") {
 		if id, _, ok := strings.Cut(line, "\t"); ok && strings.TrimSpace(id) != "" {
