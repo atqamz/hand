@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -240,7 +241,7 @@ func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<option value="agy">agy</option>`, `<option value="gem">`)
+	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<button>Start agy</button>`, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`, `<option value="gem">`)
 	running.status = "idle"
 	running.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, running.handler(), "/"), "console")
@@ -272,4 +273,64 @@ func TestStopKeepsItsArmAcrossARedraw(t *testing.T) {
 	js := asset(t, "app.js")
 	contains(t, "app.js", js, "const arms = new Map()", "const until = Date.now() + armFor", "arms.set(action, until)", "if (arms.get(action) === until) disarm(action)", `if ("armed" in form.dataset && (arms.get(action) ?? 0) <= Date.now()) disarm(action);`, `for (const f of el.querySelectorAll("form[data-confirm]"))`, "(arms.get(f.getAttribute(\"action\")) ?? 0) > Date.now()", "disarm(action)")
 	lacks(t, "app.js", js, "if (!(\"armed\" in form.dataset)) return;")
+}
+
+func startRow(t *testing.T, console, name string) string {
+	t.Helper()
+	marker := `<input type="hidden" name="harness" value="` + name + `">`
+	i := strings.Index(console, marker)
+	if i < 0 {
+		t.Fatalf("no start row for %s:\n%s", name, console)
+	}
+	end := strings.Index(console[i:], "</form>")
+	return console[i : i+end]
+}
+
+func TestStartFormListsClaudeModelsAndEfforts(t *testing.T) {
+	fx := newFixture(t)
+	console := region(get(t, fx.handler(), "/"), "console")
+	row := startRow(t, console, "claude")
+	contains(t, "claude row", row, `<option value="opus">opus</option>`, `<option value="xhigh">xhigh</option>`, `<button>Start claude</button>`)
+	lacks(t, "claude row", row, `<input name="model"`)
+	contains(t, "profile first", console, `name="profile"`)
+	if strings.Index(console, `name="profile"`) > strings.Index(console, `name="harness"`) {
+		t.Fatal("profile select does not come first")
+	}
+}
+
+func TestStartFormCodexRowsComeFromTheModelsCache(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Harness.CodexHome = t.TempDir()
+	if err := os.WriteFile(filepath.Join(fx.options.Harness.CodexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "codex")
+	contains(t, "codex row", row, `<option value="gpt-6-luna">gpt-6-luna</option>`, `<option value="medium">medium</option>`)
+}
+
+func TestStartFormFallsBackToTextBoxesWithoutModels(t *testing.T) {
+	fx := newFixture(t)
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode")
+	contains(t, "opencode row", row, `<input name="model"`, `<input name="effort"`)
+	lacks(t, "opencode row", row, "<select")
+}
+
+func TestStartRowPostsHarnessModelAndEffort(t *testing.T) {
+	fx := newFixture(t)
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "claude")
+	contains(t, "row", row, `<select name="model"`, `<select name="effort"`)
+	post(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "model": {"opus"}, "effort": {"xhigh"}})
+	if got := strings.Join(fx.called()[0], " "); got != "supervisor start --harness claude --model opus --effort xhigh" {
+		t.Fatalf("ran %q", got)
+	}
+}
+
+func TestStartRowDefaultsPostNoModelOrEffort(t *testing.T) {
+	fx := newFixture(t)
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "claude")
+	contains(t, "row", row, `<select name="model" aria-label="claude model"><option value="">default</option>`, `<select name="effort" aria-label="claude effort"><option value="">default</option>`)
+	post(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "model": {""}, "effort": {""}})
+	if got := strings.Join(fx.called()[0], " "); got != "supervisor start --harness claude" {
+		t.Fatalf("ran %q", got)
+	}
 }
