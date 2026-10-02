@@ -1286,3 +1286,53 @@ func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
 	}
 	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
 }
+
+func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
+	fx := newAttemptFixture(t)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	session := fx.rt.lastCreate().Command[3]
+	fx.start()
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
+	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	stop := startWatch(t, fx, "--every", "1h")
+	eventually(t, func() bool { return explains(fx.rt) > 0 })
+	n := explains(fx.rt)
+	publishStatus(fx, pane, "working")
+	eventually(t, func() bool { return explains(fx.rt) > n })
+	if got := fx.rt.prompts(); len(got) != 0 {
+		t.Fatalf("wake sent while a switch waits: %q", got)
+	}
+	has(t, "held", fx.h.ok("supervisor", "show"), "switch: opus high", cursor)
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	stop()
+	resumedArgv(t, fx.rt, session, "opus", "high")
+	if wake := fx.rt.prompts()[0]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "\nattempt.reported a1: r1 done") {
+		t.Fatalf("wake = %q", wake)
+	}
+	if out := fx.h.ok("supervisor", "show"); strings.Contains(out, "switch:") || strings.Contains(out, cursor) {
+		t.Fatalf("show after the switch = %q", out)
+	}
+}
+
+func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "switch: pending")
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	rt.srv.SetGeneration("gen-2")
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	st := openStore(t, h)
+	eventually(t, func() bool {
+		sup, _, err := st.LatestSupervisor(context.Background())
+		return err == nil && sup.ID == 2 && sup.Status == "running"
+	})
+	stop()
+	resumedArgv(t, rt, session, "opus", "high")
+}
