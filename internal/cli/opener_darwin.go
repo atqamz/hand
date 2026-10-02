@@ -1,3 +1,3 @@
 package cli
 
-const opener = "open"
+var openerArgv = []string{"open"}

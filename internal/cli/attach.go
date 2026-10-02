@@ -3,10 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
-	"syscall"
-	"unsafe"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
@@ -78,14 +75,12 @@ func cmdAttach(r *runner, args []string) error {
 	if r.env.Exec != nil {
 		return r.env.Exec(argv[0], argv, r.env.Environ())
 	}
-	return syscall.Exec(argv[0], argv, r.env.Environ())
+	return replaceProcess(argv, r.env.Environ())
 }
 
 func (r *runner) terminal() bool {
 	if r.env.Terminal != nil {
 		return r.env.Terminal()
 	}
-	var t syscall.Termios
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), uintptr(getTermios), uintptr(unsafe.Pointer(&t)))
-	return errno == 0
+	return stdinTerminal()
 }
