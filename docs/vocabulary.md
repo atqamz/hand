@@ -64,11 +64,11 @@ What `hand update` does, in order:
 5. for each fleet:
    - stops its watch unit;
    - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane;
-   - starts the watch unit again;
+   - starts the watch unit again; a transient watch unit is gone once stopped, so it starts that watcher the way `hand supervisor start` does;
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
-Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
+Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units and watchers, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
 
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy the backup over `hand.db`.
 

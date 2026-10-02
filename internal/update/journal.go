@@ -17,6 +17,7 @@ import (
 
 type journal struct {
 	Watch      []string `json:"watch,omitempty"`
+	Watcher    []string `json:"watcher,omitempty"`
 	Supervisor []string `json:"supervisor,omitempty"`
 	Board      []string `json:"board,omitempty"`
 	Init       []string `json:"init,omitempty"`
@@ -56,6 +57,9 @@ func (j journal) describe() string {
 	for _, u := range j.Watch {
 		steps = append(steps, "start "+u)
 	}
+	for _, h := range j.Watcher {
+		steps = append(steps, "start the watcher in "+h)
+	}
 	for _, h := range j.Supervisor {
 		steps = append(steps, "resume the supervisor in "+h)
 	}
@@ -73,11 +77,11 @@ func without(list []string, items ...string) []string {
 }
 
 func (j journal) empty() bool {
-	return len(j.Watch)+len(j.Supervisor)+len(j.Board)+len(j.Init) == 0
+	return len(j.Watch)+len(j.Watcher)+len(j.Supervisor)+len(j.Board)+len(j.Init) == 0
 }
 
 func (r *Report) record(o Options, edit func(*journal)) error {
-	next := journal{Watch: slices.Clone(r.journal.Watch), Supervisor: slices.Clone(r.journal.Supervisor), Board: slices.Clone(r.journal.Board), Init: slices.Clone(r.journal.Init)}
+	next := journal{Watch: slices.Clone(r.journal.Watch), Watcher: slices.Clone(r.journal.Watcher), Supervisor: slices.Clone(r.journal.Supervisor), Board: slices.Clone(r.journal.Board), Init: slices.Clone(r.journal.Init)}
 	edit(&next)
 	if err := next.save(o.Root); err != nil {
 		return err
@@ -120,6 +124,9 @@ func (r *Report) finishJournal(ctx context.Context, o Options, hold func()) erro
 func (r *Report) repair(ctx context.Context, o Options, j journal) {
 	for _, u := range j.Watch {
 		r.unit(ctx, o, u, "start")
+	}
+	for _, home := range j.Watcher {
+		r.watcher(ctx, o, home)
 	}
 	for _, home := range j.Supervisor {
 		if live, err := supervisorLive(ctx, home, o.Now); err == nil && live {

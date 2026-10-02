@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/signal"
@@ -62,6 +63,18 @@ func cmdUpdate(r *runner, args []string) error {
 		Hold:      func() { signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
 		Cgroup:    string(cgroup),
 		Stop:      updateStop,
+		Watch: func(ctx context.Context, home string) error {
+			w := &runner{env: r.env, home: home, root: root}
+			st, err := w.store()
+			if err != nil {
+				return err
+			}
+			if err := st.Close(); err != nil {
+				return err
+			}
+			_, err = w.ensureWatcher(ctx)
+			return err
+		},
 	})
 	if err != nil {
 		if rep.Status == "repaired" {
