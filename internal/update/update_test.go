@@ -674,3 +674,20 @@ func TestRunKeepsItsChildrenOutOfTheTerminalGroup(t *testing.T) {
 		}
 	}
 }
+
+func TestRunTriesAResumeWhenTheSupervisorStopFails(t *testing.T) {
+	f := newRun(t, nil)
+	f.stale()
+	f.supervisor(t)
+	f.o.Env = append(f.o.Env, "HAND_FAIL=supervisor stop")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := f.log(t, "supervisor", "secondhand-luvus-"); !slices.Equal(got, []string{"hand supervisor stop @ " + f.alpha, "hand supervisor resume @ " + f.alpha}) {
+		t.Fatalf("calls = %q", got)
+	}
+	if !rep.Failed || !strings.HasPrefix(alphaLuvus(t, rep), "failed: ") {
+		t.Fatalf("report = %+v", rep)
+	}
+}

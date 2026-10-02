@@ -123,3 +123,11 @@ func TestUnitsMatchASymlinkedExecStart(t *testing.T) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }
+
+func TestUnitsReadTheCommandBehindAnArgv0Override(t *testing.T) {
+	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "active", "/t/hand", "hand-watch watch", "HAND_HOME=/f/alpha"), nil)
+	got, err := Units(context.Background(), pathEnv(dir), "/t/hand")
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
+		t.Fatalf("units = %+v, %v", got, err)
+	}
+}

@@ -86,7 +86,7 @@ func handScript(version, channel, commit, schema, luvus string) string {
 		lines += "schema: " + schema + "\\n"
 	}
 	lines += "luvus: " + luvus + "\\n"
-	return "#!/bin/sh\nif [ \"$1\" = version ]; then printf '" + lines + "'; exit 0; fi\nif [ -n \"$HAND_CALLS\" ]; then echo \"hand $* @ $(pwd)\" >> \"$HAND_CALLS\"; fi\nexit ${HAND_EXIT:-0}\n"
+	return "#!/bin/sh\nif [ \"$1\" = version ]; then printf '" + lines + "'; exit 0; fi\nif [ -n \"$HAND_CALLS\" ]; then echo \"hand $* @ $(pwd)\" >> \"$HAND_CALLS\"; fi\nif [ -n \"$HAND_FAIL\" ] && [ \"$1 $2\" = \"$HAND_FAIL\" ]; then echo 'stop failed' >&2; exit 1; fi\nexit ${HAND_EXIT:-0}\n"
 }
 
 func fakeHand(t *testing.T, version, channel, commit, schema, luvus string) map[string][]byte {

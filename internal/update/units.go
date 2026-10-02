@@ -58,7 +58,12 @@ func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 		if resolved != target || props["Id"] == "" {
 			continue
 		}
-		command, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(argv, path), " "), " ")
+		command := ""
+		if rest, ok := strings.CutPrefix(argv, path+" "); ok {
+			command, _, _ = strings.Cut(rest, " ")
+		} else if fields := strings.Fields(argv); len(fields) > 1 {
+			command = fields[1]
+		}
 		units = append(units, Unit{Name: props["Id"], Command: command, Home: envValue(props["Environment"], "HAND_HOME"), Active: props["ActiveState"] == "active" || props["ActiveState"] == "activating" || props["ActiveState"] == "reloading"})
 	}
 	return units, nil

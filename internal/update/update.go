@@ -263,6 +263,9 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 	if live {
 		if err := child(ctx, o, e.Home, "supervisor", "stop"); err != nil {
 			r.fail(fmt.Sprintf("`hand supervisor stop` failed in %s (%v). %s", e.Home, err, pending))
+			if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {
+				r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); check the supervisor there", e.Home, err))
+			}
 			return "failed: " + err.Error()
 		}
 	}
