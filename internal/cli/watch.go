@@ -90,7 +90,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	r.exits = &exitLog{m: map[string]string{}}
+	r.exits = &exitLog{m: map[string]exitRecord{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
@@ -202,9 +202,16 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	return nil
 }
 
+type exitRecord struct {
+	reason string
+	at     time.Time
+}
+
+const exitKeep = 10 * time.Minute
+
 type exitLog struct {
 	mu       sync.Mutex
-	m        map[string]string
+	m        map[string]exitRecord
 	deadline time.Time
 }
 
@@ -219,11 +226,11 @@ func (l *exitLog) budget() {
 func (l *exitLog) wait(ctx context.Context, id string) string {
 	for {
 		l.mu.Lock()
-		reason, ok := l.m[id]
+		rec, ok := l.m[id]
 		deadline := l.deadline
 		l.mu.Unlock()
 		if ok {
-			return reason
+			return rec.reason
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return "terminal exited"
@@ -254,10 +261,13 @@ func (l *exitLog) note(data json.RawMessage) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.m) >= 256 {
-		clear(l.m)
+	now := time.Now()
+	for id, rec := range l.m {
+		if now.Sub(rec.at) > exitKeep {
+			delete(l.m, id)
+		}
 	}
-	l.m[ev.TerminalID] = reason
+	l.m[ev.TerminalID] = exitRecord{reason, now}
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
