@@ -63,7 +63,7 @@ What `hand update` does, in order:
 4. replaces the binary;
 5. for each fleet:
    - stops its watch unit;
-   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input), otherwise reports the switch as pending;
+   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane;
    - starts the watch unit again;
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
