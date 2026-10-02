@@ -300,11 +300,9 @@ func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []s
 			return strings.TrimSpace(string(out))
 		}
 		if loaded := execPath(show(ctx, "ExecStart")); loaded == "" || loaded == bin {
-			if err = systemctl("start", unit+".service"); err == nil {
-				return nil
-			}
+			return systemctl("start", unit+".service")
 		} else if stopErr := systemctl("stop", unit+".service"); stopErr != nil {
-			err = stopErr
+			return stopErr
 		} else if unloaded(ctx, show) {
 			out, err = command(ctx, env, run, start...).CombinedOutput()
 		}

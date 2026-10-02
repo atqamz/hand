@@ -313,7 +313,7 @@ func TestStartServerReportsASystemctlStartFailure(t *testing.T) {
 	bin, _ := fakeTools(t, map[string]string{"systemd-run": "echo 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "systemctl": `if [ "$2" = start ]; then echo 'unit is masked' >&2; exit 1; fi; exit 0`, "luvus": "exit 1"})
 	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
 	err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env)
-	if err == nil || !strings.Contains(err.Error(), "unit is masked") {
+	if err == nil || !strings.Contains(err.Error(), "unit is masked") || strings.Contains(err.Error(), "systemd-run") {
 		t.Fatalf("err = %v", err)
 	}
 }

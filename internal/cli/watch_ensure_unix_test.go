@@ -4,13 +4,13 @@ package cli_test
 
 import (
 	"context"
-	"time"
-
-	"github.com/atqamz/hand/internal/cli"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
 func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
