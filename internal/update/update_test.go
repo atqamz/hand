@@ -27,6 +27,8 @@ type fixture struct {
 	o                            Options
 	mu                           sync.Mutex
 	status                       string
+	uhp                          *fakeuhp.Server
+	terms                        []luvus.Terminal
 }
 
 var oldHand = handScript("0.8.0", "source", "unknown", "7", "0.14.3")
@@ -87,6 +89,12 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 		}
 		return map[string]any{"pane": "2", "agent": "claude", "status": f.status}, nil
 	})
+	uhp.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return map[string]any{"server_generation": uhp.Generation(), "terminals": f.terms}, nil
+	})
+	f.uhp = uhp
 	env := append(pathEnv(f.sysdir), "HAND_CALLS="+f.calls, "HAND_LUVUS_SOCKET="+uhp.Socket)
 	f.o = Options{
 		Target:    f.target,
@@ -328,6 +336,25 @@ func (f *fixture) supervisor(t *testing.T) {
 	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
+	f.terms = append(f.terms, luvus.Terminal{TerminalID: "t1", PaneID: "2", Root: luvus.Root{PID: 1, StartMarker: "m"}, CWD: f.alpha, Label: "hand-supervisor"})
+}
+
+func self(t *testing.T) luvus.Root {
+	t.Helper()
+	m, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return luvus.Root{PID: os.Getpid(), StartMarker: m}
+}
+
+func (f *fixture) initialShell(t *testing.T) luvus.Terminal {
+	t.Helper()
+	dir := filepath.Join(f.alpha, "luvus")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return luvus.Terminal{TerminalID: "t0", PaneID: "1", Root: self(t), CWD: dir}
 }
 
 func (f *fixture) worker(t *testing.T) {
@@ -407,6 +434,7 @@ func TestRunSwitchesAQuietFleet(t *testing.T) {
 	f := newRun(t, nil)
 	f.stale()
 	f.supervisor(t)
+	f.terms = append(f.terms, luvus.Terminal{TerminalID: "t7", PaneID: "9", Root: luvus.Root{PID: 1, StartMarker: "gone"}, CWD: f.alpha, Label: "hand-a3"})
 	rep, err := Run(context.Background(), f.o)
 	if err != nil {
 		t.Fatal(err)
@@ -436,6 +464,10 @@ func TestRunLeavesABusyFleetPending(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
+		"stale pane": func(t *testing.T, f *fixture) { f.supervisor(t); f.uhp.SetGeneration("gen-2") },
+		"no inventory": func(t *testing.T, f *fixture) {
+			f.uhp.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) { return nil, errors.New("down") })
+		},
 	} {
 		f := newRun(t, nil)
 		f.stale()
@@ -448,6 +480,34 @@ func TestRunLeavesABusyFleetPending(t *testing.T) {
 		if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.Contains(rep.Help, line) {
 			t.Fatalf("%s: calls %q, report %+v", name, got, rep)
 		}
+	}
+}
+
+func TestRunSwitchesBesideLuvusInitialShell(t *testing.T) {
+	f := newRun(t, nil)
+	f.stale()
+	f.terms = []luvus.Terminal{f.initialShell(t)}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "switched" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
+func TestRunNamesAPaneHandDidNotStart(t *testing.T) {
+	f := newRun(t, nil)
+	f.stale()
+	f.supervisor(t)
+	shell := f.initialShell(t)
+	other := shell
+	other.TerminalID, other.PaneID = "t9", "13"
+	f.terms = append(f.terms, shell, other)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "pending" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	line := "Pane 13 (" + other.CWD + ") is not Hand's, and stopping the Luvus server ends it. " + pendingLine(fleet.Entry{ID: f.alphaID, Home: f.alpha})
+	if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || !slices.Contains(rep.Help, line) {
+		t.Fatalf("calls %q, help %q", got, rep.Help)
 	}
 }
 

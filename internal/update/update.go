@@ -124,7 +124,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				fr.Name, fr.Init = e.ID, "skipped: "+e.State
 			} else if repin || !matches(e) {
 				fr.Luvus = "would stay pending"
-				if _, ok, err := o.switchable(ctx, e); err == nil && ok {
+				if _, ok, _, err := o.switchable(ctx, e); err == nil && ok {
 					fr.Luvus = "would switch"
 				}
 			}
@@ -270,32 +270,35 @@ func (o Options) inside(e fleet.Entry) bool {
 	return strings.Contains(o.Cgroup, "/"+fleet.LuvusUnit(e.ID)+".service")
 }
 
-func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, err error) {
+func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, other string, err error) {
 	if o.inside(e) {
-		return false, false, nil
+		return false, false, "", nil
 	}
 	st, err := state.Open(filepath.Join(e.Home, "hand.db"), o.Now)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 	defer st.Close()
 	if _, live, err = st.LiveSupervisor(ctx); err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
-	ok, err = quiet(ctx, st, luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))})
-	return live, ok, err
+	ok, other, err = quiet(ctx, st, luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))}, e.Home)
+	return live, ok, other, err
 }
 
 func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
 	unit := fleet.LuvusUnit(e.ID) + ".service"
 	pending := pendingLine(e)
-	live, ok, err := o.switchable(ctx, e)
+	live, ok, other, err := o.switchable(ctx, e)
 	switch {
 	case err != nil:
 		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pending))
 		return "failed: " + err.Error()
 	case o.inside(e):
 		r.Help = append(r.Help, "This hand update runs inside "+fleet.LuvusUnit(e.ID)+", so it leaves that server alone; run it from outside the fleet's Luvus panes. "+pending)
+		return "pending"
+	case other != "":
+		r.Help = append(r.Help, other+" "+pending)
 		return "pending"
 	case !ok:
 		r.Help = append(r.Help, pending)
@@ -336,24 +339,64 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 	return "switched"
 }
 
-func quiet(ctx context.Context, st *state.Store, c luvus.Client) (bool, error) {
+func quiet(ctx context.Context, st *state.Store, c luvus.Client, home string) (bool, string, error) {
 	attempts, err := st.LiveAttempts(ctx)
 	if err != nil || len(attempts) > 0 {
-		return false, err
+		return false, "", err
 	}
 	inputs, err := st.PendingSupervisorInputs(ctx)
 	if err != nil || len(inputs) > 0 {
-		return false, err
+		return false, "", err
 	}
 	sup, live, err := st.LiveSupervisor(ctx)
-	if err != nil || !live {
-		return err == nil, err
+	if err != nil {
+		return false, "", err
+	}
+	terms, err := c.Inventory(ctx)
+	if err != nil {
+		return false, "", nil
+	}
+	listed := false
+	for _, t := range terms {
+		switch {
+		case live && t.ServerGeneration == sup.ServerGeneration && t.TerminalID == sup.TerminalID && t.PaneID == sup.PaneID:
+			listed = true
+		case initialShell(t, home):
+		case rootAlive(t.Root):
+			return false, "Pane " + t.PaneID + " (" + t.CWD + ") is not Hand's, and stopping the Luvus server ends it.", nil
+		}
+	}
+	if !live {
+		return true, "", nil
+	}
+	if !listed {
+		return false, "", nil
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
 	if err != nil {
-		return false, nil
+		return false, "", nil
 	}
-	return ag.Status == "idle" || ag.Status == "done", nil
+	return ag.Status == "idle" || ag.Status == "done", "", nil
+}
+
+func initialShell(t luvus.Terminal, home string) bool {
+	if t.Label != "" || t.PaneID != "1" {
+		return false
+	}
+	a, err := os.Stat(t.CWD)
+	if err != nil {
+		return false
+	}
+	b, err := os.Stat(filepath.Join(home, "luvus"))
+	return err == nil && os.SameFile(a, b)
+}
+
+func rootAlive(r luvus.Root) bool {
+	m, err := luvus.ProcStartMarker(r.PID)
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
+	}
+	return m == r.StartMarker
 }
 
 func child(ctx context.Context, o Options, home string, args ...string) error {
