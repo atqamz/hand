@@ -251,7 +251,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	for _, w := range failures {
 		add(w)
 	}
-	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true}, maxWaits)
+	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true, Oldest: true}, maxWaits)
 	if err != nil {
 		return err
 	}

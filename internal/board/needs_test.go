@@ -192,3 +192,18 @@ func TestABlockedAndAResumeItemNeverShareAnID(t *testing.T) {
 	resume.supervisor(t, state.AttemptInterrupted, "gen-1")
 	contains(t, "resume", region(get(t, resume.handler(), "/"), "queue"), `id="wait-resume-s1"`)
 }
+
+func TestNeedsListsTheOldestUnreadReports(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Chatty")
+	a := attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	for range 51 {
+		if _, err := fx.st.AddReport(ctx, a.ID, state.ReportProgress, "step"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queue := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "queue", queue, `<span class="ref">r1</span>`, `<span class="ref">r2</span>`)
+	lacks(t, "queue", queue, `<span class="ref">r51</span>`)
+}
