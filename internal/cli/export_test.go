@@ -8,4 +8,5 @@ var (
 	ServerMatch  = serverMatch
 	NotifyArgv   = notifyArgv
 	WatchExe     = &watchExecutable
+	Git          = git
 )

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -50,8 +51,13 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 		defer cancel()
 		cmd := exec.CommandContext(runCtx, run, append(args, exe, "watch")...)
 		cmd.Env, cmd.WaitDelay = env, time.Second
-		if cmd.Run() == nil {
+		out, err := cmd.CombinedOutput()
+		if err == nil {
 			return true, r.awaitWatcher(ctx, "run `journalctl --user -u "+fleet.WatchUnit(r.fleet.ID)+"`")
+		}
+		if f, ferr := os.OpenFile(filepath.Join(r.home, "watch.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); ferr == nil {
+			fmt.Fprintf(f, "systemd-run: %v: %s\n", err, bytes.TrimSpace(out))
+			f.Close()
 		}
 		if held, err := r.watchHeld(); held || err != nil {
 			return false, err
