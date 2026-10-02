@@ -628,3 +628,21 @@ func TestALimitedTurnAfterADoneReportStillWakes(t *testing.T) {
 		t.Fatalf("wait after a done report = %q", got)
 	}
 }
+
+func TestWatchCatchesUpOnAnIdleTurnOnce(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+	stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	stop = startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	if events := turnEvents(t, fx); len(events) != 1 || events[0].Kind != "attempt.idle" {
+		t.Fatalf("turn events across a restart = %+v", events)
+	}
+}

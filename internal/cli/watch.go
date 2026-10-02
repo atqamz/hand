@@ -280,7 +280,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case (last.Kind == "attempt.quiet" || last.Kind == "attempt.limited") && ag.Status != "blocked":
+		case (last.Kind == "attempt.quiet" || last.Kind == "attempt.idle" || last.Kind == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
 		case last.Kind == "attempt.blocked":
 			prev = "blocked"
