@@ -213,7 +213,7 @@ func closeTerminalsUnder(ctx context.Context, c luvus.Client, dir string) error 
 	return nil
 }
 
-func stopped(_ string, err error) error { return err }
+func stopErr(_ string, err error) error { return err }
 
 func withNote(note string, lines ...string) []string {
 	if note == "" {

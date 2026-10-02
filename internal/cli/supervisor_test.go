@@ -1207,3 +1207,39 @@ func TestSupervisorStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
 	}
 	has(t, "show", h.ok("supervisor", "show"), "status: stopped")
 }
+
+func TestSwitchingHarnessSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	codexCache(t, h)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.closeFail = "idle", "backend_error" })
+	out, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low")
+	if code != 0 || !strings.Contains(out, "supervisor: s2") || !strings.Contains(errOut, "did not close") {
+		t.Fatalf("switch: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+}
+
+func TestAWatcherStoppedMidQueueLeavesTheRestPending(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fx := &attemptFixture{h: h, rt: rt}
+	pane := supervisorPane(t, startClaudeSupervisor(h))
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Trust this folder?" })
+	h.ok("supervisor", "send", "--text", "one")
+	h.ok("supervisor", "send", "--text", "two")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt.set(func(rt *fakeRuntime) { rt.onPrompt = cancel })
+	done := make(chan struct{})
+	go func() {
+		h.runCtx(ctx, "watch", "--every", "1h")
+		close(done)
+	}()
+	eventually(t, func() bool { return rt.srv.Subscribers() == 1 })
+	publishStatus(fx, pane, "idle")
+	<-done
+	rt.set(func(rt *fakeRuntime) { rt.onPrompt = nil })
+	if got := rt.prompts(); !slices.Equal(got, []string{"one"}) {
+		t.Fatalf("prompts after the stop = %q, want only the one in flight", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
+}
