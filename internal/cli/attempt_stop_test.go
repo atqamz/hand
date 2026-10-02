@@ -101,3 +101,25 @@ func TestCleanAfterTheWorktreeVanished(t *testing.T) {
 		t.Fatalf("stale worktree entry kept: %s", out)
 	}
 }
+
+func TestCleanRefusesUnreachableCommits(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	wt := fx.h.worktree("t1-a1")
+	for _, args := range [][]string{
+		{"checkout", "-q", "--detach"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "lost"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", wt}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %q: %v: %s", args, err, out)
+		}
+	}
+	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 3 || !strings.Contains(errOut, "1 commit") || !strings.Contains(errOut, "--discard") {
+		t.Fatalf("clean code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("worktree removed: %v", err)
+	}
+	fx.h.ok("attempt", "clean", "--discard", "a1")
+}

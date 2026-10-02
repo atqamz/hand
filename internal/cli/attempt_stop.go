@@ -151,12 +151,21 @@ func removeWorktree(ctx context.Context, c luvus.Client, repo, dir string, disca
 	} else if err != nil {
 		return err
 	}
-	dirty, err := git(ctx, dir, "status", "--porcelain")
+	dirty, err := git(ctx, dir, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(dirty) != "" && !discard {
 		return fmt.Errorf("%w: worktree %s has uncommitted changes; commit them or pass --discard", state.ErrConflict, dir)
+	}
+	if !discard {
+		n, err := git(ctx, dir, "rev-list", "--count", "HEAD", "--not", "--branches", "--tags", "--remotes")
+		if err != nil {
+			return err
+		}
+		if n = strings.TrimSpace(n); n != "0" {
+			return fmt.Errorf("%w: worktree %s has %s commit(s) on no branch, tag or remote; they would be lost, pass --discard", state.ErrConflict, dir, n)
+		}
 	}
 	if err := closeTerminalsUnder(ctx, c, dir); err != nil {
 		return err
