@@ -180,6 +180,7 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 		return w.agentStatus(ctx, c, caps, ev.Data)
 	case "terminal.exited":
 		w.noteExit(ev.Data)
+		defer clear(w.r.exits)
 		return w.reconcile(ctx, c, caps)
 	case "pane.closed":
 		return w.reconcile(ctx, c, caps)
