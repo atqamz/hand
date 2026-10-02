@@ -262,7 +262,7 @@ Hand runs the supervisor in the background in the fleet's Luvus session, in full
 
 Workers run with the same flags, each in its own worktree.
 
-agy asks once per folder whether to trust it. Every attempt is a new folder, and so is a new fleet home. Hand presses Enter on that screen only when it names the attempt's own worktree, or for the supervisor the fleet home. Otherwise it notes the attempt or the supervisor blocked. The board reads agy's conversation database for Chat and the context bar.
+agy asks once per folder whether to trust it. Every attempt is a new folder, and so is a new fleet home. Hand presses Enter on that screen only when it names the attempt's own worktree, or for the supervisor the fleet home. Otherwise it notes the attempt or the supervisor blocked. Claude asks too, with `Quick safety check: Is this a project you created or one you trust?`. Its cursor starts on `No, exit`, so Hand sends Down once, re-reads the screen, and sends Enter only when the cursor is on `Yes, I trust this folder`. A reworded screen is left alone, and the watcher reports the attempt blocked. If the screen is recognized but the cursor never reaches Yes, or the screen does not clear after Enter, Hand notes the attempt or supervisor blocked. The board reads agy's conversation database for Chat and the context bar.
 
 The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys.
 

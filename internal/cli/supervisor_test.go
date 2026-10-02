@@ -1032,6 +1032,37 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	}
 }
 
+func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
+	})
+	out := startClaudeSupervisor(h)
+	has(t, "start", out, "harness: claude", "trust: accepted")
+	argv := rt.lastCreate().Command
+	if len(argv) != 9 || !strings.HasSuffix(argv[0], "/claude") || !strings.HasPrefix(argv[8], "You are supervisor s1 of the Hand fleet ") {
+		t.Fatalf("argv = %q", argv)
+	}
+	if !slices.Equal(rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("keys = %q", rt.keysSent())
+	}
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys", "supervisor.blocked"}, 10)
+	if err != nil || len(events) != 1 || events[0].Kind != "supervisor.keys" || events[0].Detail != "s1: down enter" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
+func TestAClaudeSupervisorWithCursorOnYesPressesOnlyEnter(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = claudeTrustScreenYes(h.home), "> \n" })
+	has(t, "start", startClaudeSupervisor(h), "trust: accepted")
+	if !slices.Equal(rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("keys = %q", rt.keysSent())
+	}
+}
+
 func TestAnAgySupervisorFindsAndResumesItsConversation(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)
@@ -1117,6 +1148,18 @@ func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 	agytest.Conversation(t, agyConversations(t, h), "c1", "", 0, 0, agytest.Step{Type: 14, Text: argv[len(argv)-1], At: time.Now()})
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "agy is asking to trust a folder")
+	if got := rt.prompts(); len(got) != 0 {
+		t.Fatalf("typed into the trust screen: %q", got)
+	}
+}
+
+func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	rt.set(func(rt *fakeRuntime) { rt.screen = claudeTrustScreen("/elsewhere") })
+	has(t, "start", startClaudeSupervisor(h), "trust: not pressed")
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "claude is asking to trust a folder")
 	if got := rt.prompts(); len(got) != 0 {
 		t.Fatalf("typed into the trust screen: %q", got)
 	}

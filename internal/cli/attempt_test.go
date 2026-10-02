@@ -354,6 +354,22 @@ func trustScreen(path string) string {
 	return "Accessing workspace:\n" + path + "\nDo you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n  No, exit\n  ↑/↓ Navigate · enter Confirm"
 }
 
+func claudeFixture(t *testing.T) *attemptFixture {
+	t.Helper()
+	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
+	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
+	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
+	return newAttemptFixture(t)
+}
+
+func claudeTrustScreen(path string) string {
+	return "Accessing workspace:\n\n" + path + "\n\nQuick safety check: Is this a project you created or one you trust? (Like your\nown code, a well-known open source project, or work from your team). If not,\ntake a moment to review what's in this folder first.\n...\n❯ No, exit\n  Yes, I trust this folder\n\nEnter to confirm · Esc to cancel"
+}
+
+func claudeTrustScreenYes(path string) string {
+	return strings.Replace(claudeTrustScreen(path), "❯ No, exit\n  Yes, I trust this folder", "  No, exit\n❯ Yes, I trust this folder", 1)
+}
+
 func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
 	fx := agyFixture(t)
 	out := fx.startAgy()
@@ -484,6 +500,90 @@ func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
 				t.Fatalf("wait = %q", woke)
 			}
 		})
+	}
+}
+
+func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.keyScreens = claudeTrustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	events, err := openStore(t, fx.h).RecentEventsOf(context.Background(), []string{"attempt.keys", "attempt.blocked"}, 10)
+	if err != nil || len(events) != 1 || events[0].Kind != "attempt.keys" || events[0].Detail != "a1: down enter" {
+		t.Fatalf("events = %+v, err %v", events, err)
+	}
+}
+
+func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.afterScreen = claudeTrustScreenYes(wt), 4, "> \n"
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	events, err := openStore(t, fx.h).RecentEventsOf(context.Background(), []string{"attempt.keys", "attempt.blocked"}, 10)
+	if err != nil || len(events) != 1 || events[0].Kind != "attempt.keys" || events[0].Detail != "a1: enter" {
+		t.Fatalf("events = %+v, err %v", events, err)
+	}
+}
+
+func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
+	for name, path := range map[string]func(wt string) string{
+		"elsewhere": func(string) string { return "/tmp/elsewhere" },
+		"sibling":   func(wt string) string { return wt + "2" },
+		"parent":    filepath.Dir,
+		"spaced":    func(wt string) string { return wt[:len(wt)/2] + " " + wt[len(wt)/2:] },
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := claudeFixture(t)
+			screen := claudeTrustScreen(path(fx.h.worktree("t1-a1")))
+			fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
+			out := fx.start()
+			if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || len(fx.rt.keysSent()) != 0 {
+				t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+			}
+			if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude asks to trust a folder that is not its worktree; check the screen"`) {
+				t.Fatalf("wait = %q", woke)
+			}
+		})
+	}
+}
+
+func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
+	fx := claudeFixture(t)
+	screen := claudeTrustScreen(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
+	out := fx.start()
+	if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"down"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude trust screen was not pressed; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
+	}
+	events, err := openStore(t, fx.h).RecentEventsOf(context.Background(), []string{"attempt.keys"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "a1: down" {
+		t.Fatalf("events = %+v, err %v", events, err)
+	}
+}
+
+func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
+	fx := claudeFixture(t)
+	screen := claudeTrustScreenYes(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude trust screen did not clear; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
 	}
 }
 
