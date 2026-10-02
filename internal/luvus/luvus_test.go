@@ -28,9 +28,14 @@ func TestSocketPath(t *testing.T) {
 	if got := luvus.SocketPath(vars(map[string]string{"HAND_LUVUS_SOCKET": "/x.sock", "HOME": "/home/me"}), "hand"); got != "/x.sock" {
 		t.Fatalf("override = %s", got)
 	}
-	long := "/tmp/claude-1000/-home-atqa-secondhand-dev/f6218d56-7092-4541-a758-a96c0a0d8ec3/scratchpad/luvus-ref/home"
-	want := fmt.Sprintf("/tmp/luvus-%d/ad6a6b2b37a55ba4-api.sock", os.Geteuid())
-	if got := luvus.SocketPath(vars(map[string]string{"LUVUS_HOME": long}), "hand"); got != want {
+}
+
+const longLuvusHome = "/tmp/claude-1000/-home-atqa-secondhand-dev/f6218d56-7092-4541-a758-a96c0a0d8ec3/scratchpad/luvus-ref/home"
+
+func socketUnder(t *testing.T, root string) {
+	t.Helper()
+	want := fmt.Sprintf("%s/luvus-%d/ad6a6b2b37a55ba4-api.sock", root, os.Geteuid())
+	if got := luvus.SocketPath(vars(map[string]string{"LUVUS_HOME": longLuvusHome}), "hand"); got != want {
 		t.Fatalf("long = %s, want %s", got, want)
 	}
 }

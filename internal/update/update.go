@@ -20,17 +20,17 @@ import (
 )
 
 type Options struct {
-	Target                          string
-	From                            Build
-	Channel                         string
-	Check                           bool
-	Root, HandBase, LuvusBase, Arch string
-	Env                             []string
-	Getenv                          func(string) string
-	Now                             func() time.Time
-	Server                          func(ctx context.Context, unit string) (luvus.Server, bool)
-	Hold                            func()
-	Cgroup                          string
+	Target                              string
+	From                                Build
+	Channel                             string
+	Check                               bool
+	Root, HandBase, LuvusBase, OS, Arch string
+	Env                                 []string
+	Getenv                              func(string) string
+	Now                                 func() time.Time
+	Server                              func(ctx context.Context, unit string) (luvus.Server, bool)
+	Hold                                func()
+	Cgroup                              string
 }
 
 type UnitResult struct{ Name, Action, Result string }
@@ -62,7 +62,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, fmt.Errorf("update: cannot replace %s: %w", o.Target, err)
 	}
 	defer os.RemoveAll(tmp)
-	if rep.To, err = FetchHand(ctx, o.HandBase, o.Channel, o.Arch, tmp, o.Env); err != nil {
+	if rep.To, err = FetchHand(ctx, o.HandBase, o.Channel, o.OS, o.Arch, tmp, o.Env); err != nil {
 		return rep, err
 	}
 	if rep.To.Schema < state.SchemaVersion {
@@ -127,7 +127,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		held = true
 	}
 	if repin {
-		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.Arch, tmp)
+		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.OS, o.Arch, tmp)
 		if err != nil {
 			return rep, err
 		}

@@ -21,8 +21,21 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  test-macos:
+    runs-on: macos-latest
+    env:
+      TMPDIR: /private/tmp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...
+
   edge:
-    needs: test
+    needs: [test, test-macos]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -43,12 +56,14 @@ jobs:
           base=$(sed -n 's/^var Version = "\(.*\)"$/\1/p' internal/cli/cli.go)
           test -n "$base"
           pkg=github.com/atqamz/hand/internal/cli
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=$base -X $pkg.Channel=edge -X $pkg.Commit=$GITHUB_SHA" -o hand .
-            tar -czf "hand-linux-$arch.tar.gz" hand
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}
+            arch=${target#*/}
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=$base -X $pkg.Channel=edge -X $pkg.Commit=$GITHUB_SHA" -o hand .
+            tar -czf "hand-$os-$arch.tar.gz" hand
             rm hand
           done
-          sha256sum hand-linux-*.tar.gz > checksums.txt
+          sha256sum hand-*.tar.gz > checksums.txt
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -64,10 +79,10 @@ jobs:
             git push --force origin "$GITHUB_SHA:refs/tags/edge"
             gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
           fi
-          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz checksums.txt --clobber
+          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt --clobber
           for name in $(gh release view edge --json assets --jq '.assets[].name'); do
             case "$name" in
-              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | checksums.txt) ;;
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt) ;;
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done

@@ -217,7 +217,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - records the `attempt.blocked` and `attempt.quiet` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
-- sends desktop notifications through `notify-send` unless `--notify=false`.
+- sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it.
 

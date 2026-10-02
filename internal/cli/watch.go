@@ -41,7 +41,7 @@ type watcher struct {
 
 func cmdWatch(r *runner, args []string) error {
 	fs := flags("watch")
-	notify := fs.Bool("notify", true, "send desktop notifications with notify-send")
+	notify := fs.Bool("notify", true, "send desktop notifications (notify-send on Linux, osascript on macOS)")
 	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -308,7 +308,8 @@ func (w *watcher) alert(ctx context.Context, text string) {
 	if !w.notify {
 		return
 	}
-	bin, err := harness.LookPath("notify-send", w.r.env.Getenv("PATH"))
+	name, args := notifyArgv(w.r.fleet.Name, text)
+	bin, err := harness.LookPath(name, w.r.env.Getenv("PATH"))
 	if err != nil {
 		return
 	}
@@ -317,7 +318,7 @@ func (w *watcher) alert(ctx context.Context, text string) {
 		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
-		_ = exec.CommandContext(nctx, bin, "--app-name=hand", w.r.fleet.Name, text).Run()
+		_ = exec.CommandContext(nctx, bin, args...).Run()
 	}()
 }
 

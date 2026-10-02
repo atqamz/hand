@@ -34,7 +34,7 @@ func fakeNotify(t *testing.T, fx *attemptFixture) string {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "notify.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\n"
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "notify-send"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return log
@@ -86,7 +86,7 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 		t.Fatalf("watch out = %q", out)
 	}
 	name := filepath.Base(fx.h.home)
-	for _, want := range []string{"--app-name=hand " + name + " a1 blocked: Do you want to proceed?", "--app-name=hand " + name + " a1 quiet: turn ended"} {
+	for _, want := range []string{" " + name + " a1 blocked: Do you want to proceed?", " " + name + " a1 quiet: turn ended"} {
 		eventually(t, func() bool {
 			log, _ := os.ReadFile(notes)
 			return strings.Contains(string(log), want)
@@ -255,7 +255,7 @@ func TestWatchReconcilesWithoutAnyEvent(t *testing.T) {
 
 func TestWatchIsNotBlockedByASlowNotifier(t *testing.T) {
 	fx := newAttemptFixture(t)
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "notify-send"), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	fx.start()
@@ -285,7 +285,7 @@ func TestWatchDeliversPendingNotificationsBeforeExiting(t *testing.T) {
 	fx := newAttemptFixture(t)
 	log := filepath.Join(t.TempDir(), "notify.log")
 	script := "#!/bin/sh\nsleep 0.5\nprintf '%s\\n' \"$*\" >> " + log + "\n"
-	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], "notify-send"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(fx.h.vars["PATH"], notifierName()), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	fx.start()

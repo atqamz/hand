@@ -72,7 +72,7 @@ func SocketPath(getenv func(string) string, session string) string {
 	}
 	h := fnv.New64a()
 	h.Write([]byte(p))
-	return fmt.Sprintf("/tmp/luvus-%d/%016x-api.sock", os.Geteuid(), h.Sum64())
+	return fmt.Sprintf("%s/luvus-%d/%016x-api.sock", tempRoot, os.Geteuid(), h.Sum64())
 }
 
 var requests atomic.Uint64
