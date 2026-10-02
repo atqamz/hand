@@ -49,9 +49,22 @@ func Main(behaviors map[string]func(args []string) int) {
 
 func Params() map[string]string { return params }
 
+var source = sync.OnceValues(func() (string, error) {
+	exe, err := os.Executable()
+	if err != nil || runtime.GOOS != "windows" {
+		return exe, err
+	}
+	src := filepath.Join(filepath.Dir(exe), "fakebin.exe")
+	b, err := os.ReadFile(exe)
+	if err == nil {
+		err = os.WriteFile(src, b, 0o755)
+	}
+	return src, err
+})
+
 func Install(t testing.TB, dir, name, behavior string, params map[string]string) string {
 	t.Helper()
-	exe, err := os.Executable()
+	exe, err := source()
 	if err != nil {
 		t.Fatal(err)
 	}
