@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 )
 
@@ -427,5 +428,21 @@ func TestBoardRunsWhenItsPidFileIsUnwritable(t *testing.T) {
 	_, stop := startBoard(t, h, "127.0.0.1")
 	if out := stop(); !strings.Contains(out, "warning: cannot write "+pid+": ") {
 		t.Fatalf("board output = %q", out)
+	}
+}
+
+func TestWatchStartSurvivesAProbe(t *testing.T) {
+	fx := newAttemptFixture(t)
+	probe, err := os.OpenFile(filepath.Join(fx.h.home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := flock.Lock(probe, false); !ok || err != nil {
+		t.Fatalf("probe lock = %v, %v", ok, err)
+	}
+	time.AfterFunc(20*time.Millisecond, func() { _ = probe.Close() })
+	stop := startWatch(t, fx)
+	if out, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d, out %q", code, out)
 	}
 }

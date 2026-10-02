@@ -223,7 +223,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
 
-`hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock.
+`hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock, without creating it. That probe holds the lock for an instant, so a starting watcher tries it five times, 20 ms apart, before it gives up.
 
 ### Event and cursor
 

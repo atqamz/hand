@@ -61,8 +61,18 @@ func cmdWatch(r *runner, args []string) error {
 		return err
 	}
 	defer lock.Close()
-	if ok, err := flock.Lock(lock, false); !ok || err != nil {
-		return fmt.Errorf("%w: another hand watch is running for %s", state.ErrConflict, r.home)
+	for try := 1; ; try++ {
+		ok, err := flock.Lock(lock, false)
+		if err != nil {
+			return err
+		}
+		if ok {
+			break
+		}
+		if try == 5 {
+			return fmt.Errorf("%w: another hand watch is running for %s", state.ErrConflict, r.home)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
