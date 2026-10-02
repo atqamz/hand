@@ -2,7 +2,7 @@
 
 Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
-Hand is built for one operator on Linux, not as a product for other users. The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
+Hand is built for one operator on Linux or macOS, not as a product for other users. The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
 ```mermaid
 flowchart LR
@@ -34,16 +34,18 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Requirements
 
-- Linux.
+- Linux, or macOS (Apple silicon or Intel).
+  - On macOS, `hand unit` still prints systemd units, so run `hand watch` and `hand board` in a terminal or under your own LaunchAgent. The Luvus server starts directly, without restart on failure. launchd support comes later.
+  - On Windows, use WSL2 with systemd enabled, and install the Linux build there.
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
-- Optional: `notify-send` for desktop notifications, `xdg-open` for `hand open`, and a systemd user session to keep the watcher, the board and Luvus running.
+- Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`), and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install
 
-Install the latest release on Linux (amd64 or arm64):
+Install the latest release on Linux or macOS (amd64 or arm64):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh

@@ -47,7 +47,13 @@ func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
 	_ = tw.Close()
 	_ = gz.Close()
 	sum := sha256.Sum256(archive.Bytes())
-	files := map[string][]byte{"hand-linux-amd64.tar.gz": archive.Bytes(), "hand-linux-arm64.tar.gz": archive.Bytes(), "checksums.txt": []byte(hex.EncodeToString(sum[:]) + "  hand-linux-amd64.tar.gz\n" + hex.EncodeToString(sum[:]) + "  hand-linux-arm64.tar.gz\n")}
+	files := map[string][]byte{}
+	var sums strings.Builder
+	for _, name := range []string{"hand-linux-amd64.tar.gz", "hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz"} {
+		files[name] = archive.Bytes()
+		sums.WriteString(hex.EncodeToString(sum[:]) + "  " + name + "\n")
+	}
+	files["checksums.txt"] = []byte(sums.String())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if b, ok := files[filepath.Base(r.URL.Path)]; ok && strings.HasPrefix(r.URL.Path, "/download/edge/") {
 			_, _ = w.Write(b)
