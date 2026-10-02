@@ -125,7 +125,7 @@ func (w *watcher) session(ctx context.Context) error {
 		return runtimeErr(err)
 	}
 	defer stream.Close()
-	events := make(chan luvus.Event)
+	events := make(chan luvus.Event, 64)
 	failed := make(chan error, 1)
 	go func() {
 		for {
@@ -190,17 +190,24 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 }
 
 type exitLog struct {
-	mu sync.Mutex
-	m  map[string]string
+	mu       sync.Mutex
+	m        map[string]string
+	deadline time.Time
 }
 
 const exitWait = time.Second
 
+func (l *exitLog) budget() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.deadline = time.Now().Add(exitWait)
+}
+
 func (l *exitLog) wait(ctx context.Context, id string) string {
-	deadline := time.Now().Add(exitWait)
 	for {
 		l.mu.Lock()
 		reason, ok := l.m[id]
+		deadline := l.deadline
 		l.mu.Unlock()
 		if ok {
 			return reason
@@ -244,6 +251,7 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 	if err := w.r.stillHome(); err != nil {
 		return err
 	}
+	w.r.exits.budget()
 	before, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err
