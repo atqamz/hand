@@ -690,7 +690,7 @@ func TestSwitchRefusals(t *testing.T) {
 
 func TestSwitchRefusesOpencode(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	opencodeSupervisor(t, h, rt, func(int32) {})
+	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
 	h.ok("supervisor", "start", "--harness", "opencode")
 	if _, errOut, code := h.run("supervisor", "switch", "--model", "x"); code != 2 || !strings.Contains(errOut, "opencode keeps its model") {
 		t.Fatalf("opencode switch code=%d stderr=%q", code, errOut)
