@@ -280,11 +280,11 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case (last == "attempt.quiet" || last == "attempt.limited") && ag.Status != "blocked":
+		case (last.Kind == "attempt.quiet" || last.Kind == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
-		case last == "attempt.blocked":
+		case last.Kind == "attempt.blocked":
 			prev = "blocked"
-		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
+		case ag.Status == "idle" && last.Kind != "attempt.keys" && last.Kind != "attempt.sent":
 			prev = "idle"
 		}
 		w.seen[a.ID] = prev
@@ -318,11 +318,17 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		}
 		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
 			if line, ok := harness.Limit(a.Harness, s.Text); ok {
-				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+				last, err := w.st.LastAttemptEvent(ctx, a.ID)
+				if err != nil {
 					return err
 				}
-				w.alert(ctx, ref+" limited: "+line)
-				return nil
+				if last.Kind != "attempt.limited" || last.Detail != ref+": "+line {
+					if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+						return err
+					}
+					w.alert(ctx, ref+" limited: "+line)
+					return nil
+				}
 			}
 		}
 		detail, err := w.st.RecordQuiet(ctx, a.ID)

@@ -580,6 +580,23 @@ func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
 	}
 }
 
+func TestWatchRecordsAQuietTurnWhileAnEarlierLimitLineStaysOnScreen(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = strings.TrimSuffix(claudeLimit, "> ") + "● Fixed login\n\n> " })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.limited,"); n != 1 {
+		t.Fatalf("attempt.limited recorded %d times for one limit line, want 1", n)
+	}
+}
+
 func TestWatchRecordsAQuietTurnAfterTheLimitClears(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
