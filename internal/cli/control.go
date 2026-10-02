@@ -23,7 +23,7 @@ func control(env Env, home string) func(context.Context, ...string) error {
 	return func(ctx context.Context, args ...string) error {
 		var stderr bytes.Buffer
 		run := env
-		run.Stdout, run.Stderr, run.Context = io.Discard, &stderr, ctx
+		run.Stdout, run.Stderr, run.Context = io.Discard, &stderr, context.WithoutCancel(ctx)
 		code := Run(append([]string{"--home", home}, args...), run)
 		if code == 0 {
 			return nil

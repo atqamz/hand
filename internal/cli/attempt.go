@@ -104,45 +104,18 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
-		if harness.Prefills(running.Harness) {
-			sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, reportMarker)
-			if sent {
-				if err := st.NoteAttempt(ctx, running.ID, "keys", "enter"); err != nil {
-					return err
-				}
-			}
-			switch {
-			case confirmed:
-				d.Field("prompt", "submitted")
-			case sent:
-				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing sent but not confirmed; check the screen"); err != nil {
-					return err
-				}
-				d.Field("prompt", "sent unconfirmed")
-				help = append(help, "Enter was sent but the agent did not react: check `hand attempt read "+ref+"`, and press Enter with `hand attempt keys --revision N "+ref+" enter` only if the briefing is still in the input box")
-			default:
-				if err := st.NoteAttempt(ctx, running.ID, "blocked", "briefing not submitted; press Enter"); err != nil {
-					return err
-				}
-				d.Field("prompt", "not submitted")
-				help = append(help, "Press Enter once the briefing is on screen: `hand attempt read "+ref+"`, then `hand attempt keys --revision N "+ref+" enter`")
-			}
+		fields, more, err := afterLaunch(ctx, c, launched{
+			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
+			marker: reportMarker, thing: "briefing", who: "agent",
+			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
+		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
+		if err != nil {
+			return err
 		}
-		if _, ok := trustScreens[running.Harness]; ok {
-			trust, note, pressed := acceptTrust(r.ctx(), c, running.Harness, running.PaneID, running.TerminalID, running.Worktree)
-			if len(pressed) > 0 {
-				if err := st.NoteAttempt(ctx, running.ID, "keys", strings.Join(pressed, " ")); err != nil {
-					return err
-				}
-			}
-			d.Field("trust", trust)
-			if note != "" {
-				if err := st.NoteAttempt(ctx, running.ID, "blocked", note); err != nil {
-					return err
-				}
-				help = append(help, "Read the screen: `hand attempt read "+ref+"`")
-			}
+		for _, f := range fields {
+			d.Field(f[0], f[1])
 		}
+		help = append(help, more...)
 		d.Help(help...)
 		return r.print(&d)
 	})
@@ -172,6 +145,54 @@ const (
 )
 
 var trustWait, trustConfirm = 15 * time.Second, 5 * time.Second
+
+type launched struct {
+	harness, pane, terminalID, worktree, marker string
+	thing, who, look, keys, screen              string
+}
+
+func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind, detail string) error) (fields [][2]string, help []string, err error) {
+	if harness.Prefills(l.harness) {
+		sent, confirmed := submitPrefilled(ctx, c, l.pane, l.terminalID, l.marker)
+		if sent {
+			if err := note("keys", "enter"); err != nil {
+				return nil, nil, err
+			}
+		}
+		switch {
+		case confirmed:
+			fields = append(fields, [2]string{"prompt", "submitted"})
+		case sent:
+			if err := note("blocked", l.thing+" sent but not confirmed; check the screen"); err != nil {
+				return nil, nil, err
+			}
+			fields = append(fields, [2]string{"prompt", "sent unconfirmed"})
+			help = append(help, "Enter was sent but the "+l.who+" did not react: check `"+l.look+"`, and press Enter with `"+l.keys+"` only if the "+l.thing+" is still in the input box")
+		default:
+			if err := note("blocked", l.thing+" not submitted; press Enter"); err != nil {
+				return nil, nil, err
+			}
+			fields = append(fields, [2]string{"prompt", "not submitted"})
+			help = append(help, "Press Enter once the "+l.thing+" is on screen: `"+l.look+"`, then `"+l.keys+"`")
+		}
+	}
+	if _, ok := trustScreens[l.harness]; ok {
+		trust, blocked, pressed := acceptTrust(ctx, c, l.harness, l.pane, l.terminalID, l.worktree)
+		if len(pressed) > 0 {
+			if err := note("keys", strings.Join(pressed, " ")); err != nil {
+				return nil, nil, err
+			}
+		}
+		fields = append(fields, [2]string{"trust", trust})
+		if blocked != "" {
+			if err := note("blocked", blocked); err != nil {
+				return nil, nil, err
+			}
+			help = append(help, "Read the screen: `"+l.screen+"`")
+		}
+	}
+	return fields, help, nil
+}
 
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)

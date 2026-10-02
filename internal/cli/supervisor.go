@@ -423,35 +423,19 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
-	if prompted && harness.Prefills(running.Harness) {
-		sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, supervisorMarker)
-		switch {
-		case confirmed:
-			d.Field("prompt", "submitted")
-		case sent:
-			d.Field("prompt", "sent unconfirmed")
-			help = append(help, "Enter was sent but the supervisor did not react: check `hand supervisor show`, and press Enter with `hand supervisor keys --revision N enter` only if the launch prompt is still in the input box")
-		default:
-			d.Field("prompt", "not submitted")
-			help = append(help, "Press Enter once the launch prompt is on screen: `hand supervisor show`, then `hand supervisor keys --revision N enter`")
-		}
-	}
 	if prompted {
-		if _, ok := trustScreens[running.Harness]; ok {
-			trust, note, pressed := acceptTrust(r.ctx(), c, running.Harness, running.PaneID, running.TerminalID, r.home)
-			if len(pressed) > 0 {
-				if err := st.NoteSupervisor(ctx, running.ID, "keys", strings.Join(pressed, " ")); err != nil {
-					return err
-				}
-			}
-			d.Field("trust", trust)
-			if note != "" {
-				if err := st.NoteSupervisor(ctx, running.ID, "blocked", note); err != nil {
-					return err
-				}
-				help = append(help, "Read the screen: `hand attach supervisor`")
-			}
+		fields, more, err := afterLaunch(ctx, c, launched{
+			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: r.home,
+			marker: supervisorMarker, thing: "launch prompt", who: "supervisor",
+			look: "hand supervisor show", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
+		}, func(kind, detail string) error { return st.NoteSupervisor(ctx, running.ID, kind, detail) })
+		if err != nil {
+			return err
 		}
+		for _, f := range fields {
+			d.Field(f[0], f[1])
+		}
+		help = append(help, more...)
 	}
 	if _, err := r.ensureWatcher(ctx); err != nil {
 		help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+")")
