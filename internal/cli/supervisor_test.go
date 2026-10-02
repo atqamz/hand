@@ -1336,3 +1336,39 @@ func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 	stop()
 	resumedArgv(t, rt, session, "opus", "high")
 }
+
+func TestBoardStartSurvivesCancelledRequest(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt.srv.Handle("terminal.backend.create", func(params json.RawMessage) (any, error) {
+		cancel()
+		return rt.create(params)
+	})
+	var out, errOut bytes.Buffer
+	control := cli.Control(h.env(&out, &errOut), h.home)
+	if err := control(ctx, "supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("keys = %q", rt.keysSent())
+	}
+}
+
+func TestOpencodeSupervisorThatNeverSubmitsRecordsABlockedNote(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	rt.set(func(rt *fakeRuntime) { rt.screen = "" })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	out, errOut, code := h.runCtx(ctx, "supervisor", "start", "--harness", "opencode")
+	if code != 0 || !strings.Contains(out, "prompt: not submitted") {
+		t.Fatalf("code=%d out=%q stderr=%q", code, out, errOut)
+	}
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.blocked"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "s1: launch prompt not submitted; press Enter" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
