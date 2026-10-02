@@ -139,12 +139,11 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 }
 
 const (
-	prefillWait   = 30 * time.Second
-	submitConfirm = 5 * time.Second
-	submitTries   = 3
+	prefillWait = 30 * time.Second
+	submitTries = 3
 )
 
-var trustWait, trustConfirm = 15 * time.Second, 5 * time.Second
+var trustWait, trustConfirm, submitConfirm = 15 * time.Second, 5 * time.Second, 5 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string

@@ -690,7 +690,7 @@ func TestSwitchRefusals(t *testing.T) {
 
 func TestSwitchRefusesOpencode(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	opencodeSupervisor(t, h, rt, func(int32) {})
+	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
 	h.ok("supervisor", "start", "--harness", "opencode")
 	if _, errOut, code := h.run("supervisor", "switch", "--model", "x"); code != 2 || !strings.Contains(errOut, "opencode keeps its model") {
 		t.Fatalf("opencode switch code=%d stderr=%q", code, errOut)
@@ -1370,5 +1370,37 @@ func TestOpencodeSupervisorThatNeverSubmitsRecordsABlockedNote(t *testing.T) {
 	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.blocked"}, 10)
 	if err != nil || len(events) != 1 || events[0].Detail != "s1: launch prompt not submitted; press Enter" {
 		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
+func TestSendReportsAPromptErrorWithNoCode(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop })
+	if _, _, code := h.run("supervisor", "send", "--text", "hello"); code == 0 {
+		t.Fatal("send succeeded although the prompt call dropped")
+	}
+	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
+}
+
+func TestSendKeepsAMessageWhenTheSupervisorIsNotAtAPrompt(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "input is fenced"}
+	})
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "supervisor is not at a prompt")
+	has(t, "show", h.ok("supervisor", "show"), "pending: 1")
+}
+
+func TestSupervisorForceDeliversNormallyWhenNotBlocked(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "blocked", false })
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no")
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "idle", true })
+	has(t, "force", h.ok("supervisor", "force"), "the supervisor is idle, so Hand delivered normally")
+	if got := rt.prompts(); !slices.Equal(got, []string{"hello"}) || len(rt.keysSent()) != 0 {
+		t.Fatalf("prompts = %q, keys = %q", got, rt.keysSent())
 	}
 }

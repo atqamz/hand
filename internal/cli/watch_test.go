@@ -510,3 +510,32 @@ func TestWatchStartSurvivesAProbe(t *testing.T) {
 		t.Fatalf("watch exit = %d, out %q", code, out)
 	}
 }
+
+func TestWatchReconcilesOnATerminalExitOrPaneClose(t *testing.T) {
+	for event, data := range map[string]map[string]any{
+		"terminal.exited": {"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"},
+		"pane.closed":     {"pane_id": "2"},
+	} {
+		t.Run(event, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			fx.start()
+			stop := startWatch(t, fx)
+			t.Cleanup(func() { stop() })
+			eventually(t, func() bool { return explains(fx.rt) > 0 })
+			fx.rt.exitAll()
+			fx.rt.srv.Publish(event, data)
+			eventually(t, func() bool { return woken(fx, "attempt.exited") })
+			if n := len(fx.rt.srv.Calls("events.subscribe")); n != 1 {
+				t.Fatalf("subscribed %d times, want 1", n)
+			}
+		})
+	}
+}
+
+func TestWatchReconnectsOnResyncRequired(t *testing.T) {
+	fx := newAttemptFixture(t)
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("events.resync_required", map[string]any{})
+	eventually(t, func() bool { return len(fx.rt.srv.Calls("events.subscribe")) == 2 })
+}
