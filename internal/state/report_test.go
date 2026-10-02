@@ -205,3 +205,31 @@ func TestBoardFactsAreGroupedQueries(t *testing.T) {
 		t.Fatalf("no tasks = %v, %v", none, err)
 	}
 }
+
+func TestReportsOldestKeepsTheOldestN(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	for range 5 {
+		if _, err := s.AddReport(ctx, a.ID, ReportProgress, "step"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(f ReportFilter) []int64 {
+		rs, err := s.Reports(ctx, f, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []int64
+		for _, r := range rs {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+	if got := ids(ReportFilter{Unacked: true}); len(got) != 2 || got[0] != 4 || got[1] != 5 {
+		t.Fatalf("newest = %v", got)
+	}
+	if got := ids(ReportFilter{Unacked: true, Oldest: true}); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("oldest = %v", got)
+	}
+}

@@ -43,6 +43,7 @@ type ReportFilter struct {
 	AttemptID int64
 	TaskID    int64
 	Unacked   bool
+	Oldest    bool
 }
 
 const reportSelect = `SELECT id, attempt_id, task_id, status, body, created_at, acked_at, acked_by FROM report`
@@ -141,7 +142,11 @@ func (s *Store) Reports(ctx context.Context, f ReportFilter, limit int) ([]Repor
 		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
 	}
 	where, args := f.where()
-	rows, err := s.db.QueryContext(ctx, `SELECT * FROM (`+reportSelect+where+` ORDER BY id DESC LIMIT ?) ORDER BY id`, append(args, limit)...)
+	query := `SELECT * FROM (` + reportSelect + where + ` ORDER BY id DESC LIMIT ?) ORDER BY id`
+	if f.Oldest {
+		query = reportSelect + where + ` ORDER BY id LIMIT ?`
+	}
+	rows, err := s.db.QueryContext(ctx, query, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
