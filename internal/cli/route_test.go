@@ -61,3 +61,23 @@ func TestRouteListShowsAgyEfforts(t *testing.T) {
 		t.Fatalf("route list = %q", list)
 	}
 }
+
+func TestRouteListEmptyTrackRecord(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	if list := h.ok("route", "list"); !strings.Contains(list, "track[0]{harness,model,effort,n,first_try,reattempt,stuck,sent_per,wakes_per,median_min}:") {
+		t.Fatalf("route list = %q", list)
+	}
+}
+
+func TestRouteListShowsTrackRecord(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	list := fx.h.ok("route", "list")
+	for _, want := range []string{"track[1]{harness,model,effort,n,first_try,reattempt,stuck,sent_per,wakes_per,median_min}:", `claude,sonnet,low,1,0.00,0.00,0.00,0.00,0.00,""`} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("route list = %q, missing %q", list, want)
+		}
+	}
+}
