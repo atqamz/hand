@@ -19,7 +19,11 @@ func cmdOrient(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
-	doc, err := orient.Build(context.Background(), st, r.home, orient.DefaultBudget)
+	watch, err := r.watchHeld()
+	if err != nil {
+		return err
+	}
+	doc, err := orient.Build(context.Background(), st, r.home, watch, orient.DefaultBudget)
 	if err != nil {
 		return err
 	}

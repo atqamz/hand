@@ -173,7 +173,7 @@ func AttachArgv(bin, session, pane string) []string {
 
 func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
 	env := Scrub(environ)
-	if run, ok := userManager(env); ok && unit != "" {
+	if run, ok := UserManager(env); ok && unit != "" {
 		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
 			return err
 		}
@@ -204,7 +204,7 @@ type Server struct {
 
 func RunningServer(ctx context.Context, env []string, unit string) (Server, bool) {
 	env = Scrub(env)
-	run, ok := userManager(env)
+	run, ok := UserManager(env)
 	if !ok {
 		return Server{}, false
 	}
@@ -229,7 +229,7 @@ func RunningServer(ctx context.Context, env []string, unit string) (Server, bool
 
 var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
 
-func userManager(env []string) (string, bool) {
+func UserManager(env []string) (string, bool) {
 	var runtime, path string
 	for _, kv := range env {
 		switch name, value, _ := strings.Cut(kv, "="); name {

@@ -7,4 +7,5 @@ var (
 	TrustConfirm = &trustConfirm
 	ServerMatch  = serverMatch
 	NotifyArgv   = notifyArgv
+	WatchExe     = &watchExecutable
 )

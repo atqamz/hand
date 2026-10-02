@@ -33,7 +33,7 @@ type section struct {
 	cmd    string
 }
 
-func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.Doc, error) {
+func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budget) (*toon.Doc, error) {
 	f, err := st.Fleet(ctx)
 	if err != nil {
 		return nil, err
@@ -165,7 +165,7 @@ func Build(ctx context.Context, st *state.Store, home string, b Budget) (*toon.D
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, resumable, counts, cursor, sections, memLines, truncated)
+		d := render(home, f, supervisor, watch, resumable, counts, cursor, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -189,11 +189,16 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor string, resumable bool, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor string, watch, resumable bool, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
 	d.Field("supervisor", supervisor)
+	watchState := "missing"
+	if watch {
+		watchState = "running"
+	}
+	d.Field("watch", watchState)
 	d.Field("tasks", fmt.Sprintf("inbox=%d active=%d done=%d abandoned=%d",
 		counts[state.StatusInbox], counts[state.StatusActive], counts[state.StatusDone], counts[state.StatusAbandoned]))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))
@@ -212,6 +217,9 @@ func render(home string, f state.Fleet, supervisor string, resumable bool, count
 		"Wait for workers without polling: `hand wait --after CURSOR` (needs `hand watch` running; the managed supervisor gets wakes as messages instead)"}
 	if resumable {
 		help = append(help, "Resume the supervisor: `hand supervisor resume`")
+	}
+	if !watch {
+		help = append(help, "Start the watcher: `hand watch`")
 	}
 	d.Help(help...)
 	return &d

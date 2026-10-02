@@ -453,6 +453,9 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 			}
 		}
 	}
+	if _, err := r.ensureWatcher(ctx); err != nil {
+		help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+")")
+	}
 	d.Help(help...)
 	return r.print(&d)
 }

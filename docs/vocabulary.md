@@ -102,7 +102,7 @@ A fleet home holds:
 - `memory/`: the operator memory;
 - `routing.json`: the routing profiles;
 - `board.token`, made the first time the board serves the fleet;
-- run-time files such as `luvus/`, `locks/` and `watch.lock`.
+- run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
 
 ### Shared folder
 
@@ -222,6 +222,8 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
+
+`hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock.
 
 ### Event and cursor
 

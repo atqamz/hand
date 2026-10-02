@@ -40,6 +40,8 @@ func Session(id string) string { return "secondhand-" + id }
 
 func LuvusUnit(id string) string { return "secondhand-luvus-" + id }
 
+func WatchUnit(id string) string { return "secondhand-watch-" + id }
+
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
 
 func Check(root, id, home string) error {
