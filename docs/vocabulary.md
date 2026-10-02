@@ -1,6 +1,6 @@
 # Hand vocabulary
 
-This page defines the terms of the redesigned Hand, the line that becomes 0.8.0, as its code implements them. The design and its reasons are in [`spec.md`](spec.md). What a command accepts and prints is owned by the command itself and its tests.
+This page defines the terms of Hand as its code implements them. The design and its reasons are in [`spec.md`](spec.md). What a command accepts and prints is owned by the command itself and its tests.
 
 ## People and agents
 
