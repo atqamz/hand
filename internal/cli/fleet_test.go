@@ -56,7 +56,7 @@ func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
 	if out, err := exec.Command("git", "-C", wt, "status", "--short").CombinedOutput(); err != nil {
 		t.Fatalf("worktree broken after init: %v: %s", err, out)
 	}
-	if list := fx.h.ok("project", "list"); !strings.Contains(list, "inner,"+filepath.Join(moved, "projects", "inner")) {
+	if list := fx.h.ok("project", "list"); !strings.Contains(list, "inner,"+toon.Value(filepath.Join(moved, "projects", "inner"))) {
 		t.Fatalf("project list = %q", list)
 	}
 }
