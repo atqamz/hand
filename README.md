@@ -220,6 +220,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now secondhand-board
 ```
 
+Each unit keeps the `PATH` of the shell you ran `hand unit` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board, the watcher and the Luvus server they start need it to find `claude`, `hand` and your tools. Run `hand unit` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
+
 In a systemd user session, Hand runs each fleet's Luvus server in its own user unit, `secondhand-luvus-<fleet id>`. Restarting the watcher or the board therefore never stops the agents, and `systemctl --user stop secondhand-luvus-<fleet id>` stops the server and every agent in that fleet. Without a user session, for example over plain SSH, Hand starts Luvus directly; there is no unit then, so that command does not apply.
 
 To move from one board per fleet, stop and remove each old board unit, then install the one above:
@@ -323,7 +325,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
-| `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. A `SECONDHAND_HOME` set when you run it goes into the unit. |
+| `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart Hand's units, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 

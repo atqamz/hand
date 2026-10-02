@@ -219,7 +219,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
-`hand unit watch` prints a systemd user unit for it.
+`hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
 
 ### Event and cursor
 
