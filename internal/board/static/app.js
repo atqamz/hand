@@ -241,9 +241,10 @@
 		if (form.dataset.confirm && !("armed" in form.dataset)) {
 			form.dataset.armed = primary.textContent;
 			primary.textContent = form.dataset.confirm;
-			arms.set(action, Date.now() + armFor);
+			const until = Date.now() + armFor;
+			arms.set(action, until);
 			setTimeout(() => {
-				if ((arms.get(action) ?? 0) <= Date.now()) disarm(action);
+				if (arms.get(action) === until) disarm(action);
 			}, armFor);
 			return;
 		}
