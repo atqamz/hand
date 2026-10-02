@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -72,11 +73,26 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.PinFrom = pin.Version
 	}
 	rep.PinTo = rep.PinFrom
+	repin := Newer(rep.To.Luvus, pin.Version) || (!pinned && rep.To.Luvus != "")
+	if repin {
+		rep.PinTo = rep.To.Luvus
+	}
 	fleets, err := fleet.List(o.Root)
 	if err != nil {
 		return rep, err
 	}
-	if rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit {
+	server := o.Server
+	if server == nil {
+		server = func(ctx context.Context, unit string) (luvus.Server, bool) {
+			return luvus.RunningServer(ctx, o.Env, unit)
+		}
+	}
+	matches := func(e fleet.Entry) bool {
+		srv, known := server(ctx, fleet.LuvusUnit(e.ID))
+		return !known || (pinned && srv.SHA256 == pin.SHA256)
+	}
+	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
+	if current && !repin && !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && !matches(e) }) {
 		rep.Status = "up to date"
 		return rep, nil
 	}
@@ -84,18 +100,33 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.Status = "checked"
 		return rep, nil
 	}
-	if rep.Backups, err = Backup(ctx, o.Root, o.Target, fleets, o.Now()); err != nil {
-		return rep, err
+	if repin {
+		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.Arch, tmp)
+		if err != nil {
+			return rep, err
+		}
+		if pin, err = luvus.Keep(ctx, o.Root, bin, o.Env, o.Now()); err != nil {
+			return rep, err
+		}
+		pinned, rep.PinTo = true, pin.Version
 	}
-	if err := swap(rep.To.Path, o.Target); err != nil {
-		return rep, err
+	if !current {
+		if rep.Backups, err = Backup(ctx, o.Root, o.Target, fleets, o.Now()); err != nil {
+			return rep, err
+		}
+		if err := swap(rep.To.Path, o.Target); err != nil {
+			return rep, err
+		}
 	}
 	units, err := Units(ctx, o.Env, o.Target)
 	if err != nil {
 		rep.fail(fmt.Sprintf("could not list Hand's units (%v); restart the board and watch units with `systemctl --user restart`", err))
 	}
 	for _, e := range fleets {
+		fr := FleetResult{Name: e.Name, Init: "ok", Luvus: "kept"}
 		if e.State != "ok" {
+			fr.Name, fr.Init = e.ID, "skipped: "+e.State
+			rep.Fleets = append(rep.Fleets, fr)
 			continue
 		}
 		var watches []Unit
@@ -107,27 +138,93 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		for _, u := range watches {
 			rep.unit(ctx, o, u.Name, "stop")
 		}
+		if !matches(e) {
+			fr.Luvus = rep.switchLuvus(ctx, o, e)
+		}
 		for _, u := range watches {
 			rep.unit(ctx, o, u.Name, "start")
 		}
+		rep.Fleets = append(rep.Fleets, fr)
 	}
 	for _, u := range units {
 		if u.Command == "board" && u.Active {
 			rep.unit(ctx, o, u.Name, "restart")
 		}
 	}
-	for _, e := range fleets {
-		fr := FleetResult{Name: e.Name, Init: "ok", Luvus: "kept"}
+	for i, e := range fleets {
 		if e.State != "ok" {
-			fr.Name, fr.Init = e.ID, "skipped: "+e.State
-		} else if err := child(ctx, o, e.Home, "init"); err != nil {
-			fr.Init = "failed: " + err.Error()
+			continue
+		}
+		if err := child(ctx, o, e.Home, "init"); err != nil {
+			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there", e.Home, err))
 		}
-		rep.Fleets = append(rep.Fleets, fr)
 	}
 	rep.Status = "updated"
 	return rep, nil
+}
+
+func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
+	unit := fleet.LuvusUnit(e.ID) + ".service"
+	pending := "At a quiet time: `systemctl --user stop " + unit + "`, then `hand supervisor resume` in " + e.Home
+	st, err := state.Open(filepath.Join(e.Home, "hand.db"), o.Now)
+	if err != nil {
+		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pending))
+		return "failed: " + err.Error()
+	}
+	_, live, err := st.LiveSupervisor(ctx)
+	q := false
+	if err == nil {
+		q, err = quiet(ctx, st, luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))})
+	}
+	_ = st.Close()
+	switch {
+	case err != nil:
+		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pending))
+		return "failed: " + err.Error()
+	case !q:
+		r.Help = append(r.Help, pending)
+		return "pending"
+	}
+	if live {
+		if err := child(ctx, o, e.Home, "supervisor", "stop"); err != nil {
+			r.fail(fmt.Sprintf("`hand supervisor stop` failed in %s (%v). %s", e.Home, err, pending))
+			return "failed: " + err.Error()
+		}
+	}
+	if err := Systemctl(ctx, o.Env, "stop", unit); err != nil {
+		r.Units = append(r.Units, UnitResult{Name: unit, Action: "stop", Result: "failed: " + err.Error()})
+		r.fail(fmt.Sprintf("`systemctl --user stop %s` failed (%v). %s", unit, err, pending))
+		return "failed: " + err.Error()
+	}
+	r.Units = append(r.Units, UnitResult{Name: unit, Action: "stop", Result: "ok"})
+	if live {
+		if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {
+			r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", e.Home, err))
+			return "switched; resume failed"
+		}
+	}
+	return "switched"
+}
+
+func quiet(ctx context.Context, st *state.Store, c luvus.Client) (bool, error) {
+	attempts, err := st.LiveAttempts(ctx)
+	if err != nil || len(attempts) > 0 {
+		return false, err
+	}
+	inputs, err := st.PendingSupervisorInputs(ctx)
+	if err != nil || len(inputs) > 0 {
+		return false, err
+	}
+	sup, live, err := st.LiveSupervisor(ctx)
+	if err != nil || !live {
+		return err == nil, err
+	}
+	ag, err := c.Explain(ctx, sup.PaneID)
+	if err != nil {
+		return false, nil
+	}
+	return ag.Status == "idle" || ag.Status == "done", nil
 }
 
 func (r *Report) fail(help string) {

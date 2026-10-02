@@ -2,15 +2,20 @@ package update
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/state"
 )
 
 type fixture struct {
@@ -19,6 +24,8 @@ type fixture struct {
 	srv                          *server
 	pin                          luvus.Pin
 	o                            Options
+	mu                           sync.Mutex
+	status                       string
 }
 
 var oldHand = handScript("0.8.0", "source", "unknown", "7", "0.14.3")
@@ -65,7 +72,18 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 		unitBlock("secondhand-watch-alpha.service", "active", f.target, f.target+" watch", "HAND_HOME="+f.alpha)
 	f.sysdir, f.calls = fakeSystemctl(t, listing("secondhand-board.service", "secondhand-watch-alpha.service"), show, fail)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
-	env := append(pathEnv(f.sysdir), "HAND_CALLS="+f.calls)
+	f.status = "idle"
+	uhp := fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	uhp.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if file, err := os.OpenFile(f.calls, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			_, _ = file.WriteString("explain\n")
+			_ = file.Close()
+		}
+		return map[string]any{"pane": "2", "agent": "claude", "status": f.status}, nil
+	})
+	env := append(pathEnv(f.sysdir), "HAND_CALLS="+f.calls, "HAND_LUVUS_SOCKET="+uhp.Socket)
 	f.o = Options{
 		Target:    f.target,
 		From:      Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 7, Luvus: "0.14.3"},
@@ -278,5 +296,172 @@ func TestRenderPrintsTheReport(t *testing.T) {
 	r.PinFrom = "0.14.4"
 	if out := Render(r).String(); !strings.Contains(out, "luvus: 0.14.4 kept\n") {
 		t.Fatalf("kept:\n%s", out)
+	}
+}
+
+func (f *fixture) store(t *testing.T) *state.Store {
+	t.Helper()
+	st, err := state.Open(filepath.Join(f.alpha, "hand.db"), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+func (f *fixture) supervisor(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	st := f.store(t)
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Session: "0f8fad5b-d9cb-469f-a165-70867728950e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fixture) worker(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	st := f.store(t)
+	if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := st.AddTask(ctx, "hand", "Fix login", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Transition(ctx, task.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "3", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fixture) stale() {
+	f.o.Server = func(context.Context, string) (luvus.Server, bool) {
+		return luvus.Server{Exe: "/old/luvus", SHA256: "old"}, true
+	}
+}
+
+func (f *fixture) current() {
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 7, Luvus: "0.14.4"}
+}
+
+func alphaLuvus(t *testing.T, rep Report) string {
+	t.Helper()
+	for _, fr := range rep.Fleets {
+		if fr.Name == "alpha" {
+			return fr.Luvus
+		}
+	}
+	t.Fatalf("no alpha in %+v", rep.Fleets)
+	return ""
+}
+
+func TestRunPinsTheTestedLuvus(t *testing.T) {
+	f := newRun(t, nil)
+	f.pin = keepLuvus(t, f.root, "0.14.3")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pin, ok, err := luvus.LoadPin(f.root); err != nil || !ok || pin.Version != "0.14.4" {
+		t.Fatalf("pin = %+v, %v, %v", pin, ok, err)
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "luvus: 0.14.3 -> 0.14.4\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunNeverLowersThePin(t *testing.T) {
+	f := newRun(t, nil)
+	f.pin = keepLuvus(t, f.root, "0.15.0")
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	if pin, _, _ := luvus.LoadPin(f.root); pin.Version != "0.15.0" {
+		t.Fatalf("pin = %+v", pin)
+	}
+	if slices.ContainsFunc(f.srv.asked(), func(p string) bool { return strings.Contains(p, "luvus-") }) {
+		t.Fatalf("asked %q", f.srv.asked())
+	}
+}
+
+func TestRunSwitchesAQuietFleet(t *testing.T) {
+	f := newRun(t, nil)
+	f.stale()
+	f.supervisor(t)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"systemctl --user stop secondhand-watch-alpha.service",
+		"explain",
+		"hand supervisor stop @ " + f.alpha,
+		"systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service",
+		"hand supervisor resume @ " + f.alpha,
+		"systemctl --user start secondhand-watch-alpha.service",
+	}
+	if got := f.log(t, " stop secondhand-watch-alpha", " start secondhand-watch-alpha", "explain", "supervisor", "secondhand-luvus-"); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q", got)
+	}
+	if got := alphaLuvus(t, rep); got != "switched" {
+		t.Fatalf("luvus = %q", got)
+	}
+}
+
+func TestRunLeavesABusyFleetPending(t *testing.T) {
+	for name, busy := range map[string]func(*testing.T, *fixture){
+		"worker":  func(t *testing.T, f *fixture) { f.worker(t) },
+		"working": func(t *testing.T, f *fixture) { f.supervisor(t); f.status = "working" },
+		"input": func(t *testing.T, f *fixture) {
+			if _, err := f.store(t).AddSupervisorInput(context.Background(), "hello"); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		f := newRun(t, nil)
+		f.stale()
+		busy(t, f)
+		rep, err := Run(context.Background(), f.o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := "At a quiet time: `systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service`, then `hand supervisor resume` in " + f.alpha
+		if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.Contains(rep.Help, line) {
+			t.Fatalf("%s: calls %q, report %+v", name, got, rep)
+		}
+	}
+}
+
+func TestRunRetriesAPendingSwitch(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.stale()
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "updated" || alphaLuvus(t, rep) != "switched" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	f.unchanged(t)
+	if got := f.log(t, "secondhand-luvus-"); !slices.Equal(got, []string{"systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service"}) {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestRunKeepsAFleetWhoseServerIsNotRunning(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.o.Server = func(context.Context, string) (luvus.Server, bool) { return luvus.Server{}, false }
+	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "up to date" {
+		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }
