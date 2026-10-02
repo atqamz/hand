@@ -516,16 +516,18 @@ func TestWatchReconcilesOnATerminalExitOrPaneClose(t *testing.T) {
 		"terminal.exited": {"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"},
 		"pane.closed":     {"pane_id": "2"},
 	} {
-		fx := newAttemptFixture(t)
-		fx.start()
-		stop := startWatch(t, fx)
-		fx.rt.exitAll()
-		fx.rt.srv.Publish(event, data)
-		eventually(t, func() bool { return woken(fx, "attempt.exited") })
-		if n := len(fx.rt.srv.Calls("events.subscribe")); n != 1 {
-			t.Fatalf("%s: subscribed %d times, want 1", event, n)
-		}
-		stop()
+		t.Run(event, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			fx.start()
+			stop := startWatch(t, fx)
+			t.Cleanup(func() { stop() })
+			fx.rt.exitAll()
+			fx.rt.srv.Publish(event, data)
+			eventually(t, func() bool { return woken(fx, "attempt.exited") })
+			if n := len(fx.rt.srv.Calls("events.subscribe")); n != 1 {
+				t.Fatalf("subscribed %d times, want 1", n)
+			}
+		})
 	}
 }
 
