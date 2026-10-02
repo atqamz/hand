@@ -370,10 +370,14 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if err != nil {
 		return err
 	}
-	sent := map[string]state.SupervisorInput{}
+	sent := map[string][]state.SupervisorInput{}
 	for _, in := range delivered {
-		if _, ok := sent[strings.TrimSpace(in.Body)]; !ok {
-			sent[strings.TrimSpace(in.Body)] = in
+		sent[strings.TrimSpace(in.Body)] = append(sent[strings.TrimSpace(in.Body)], in)
+	}
+	paired := map[int]state.SupervisorInput{}
+	for i := len(entries) - 1; i >= 0; i-- {
+		if k := strings.TrimSpace(entries[i].Text); entries[i].Role == "operator" && len(sent[k]) > 0 {
+			paired[i], sent[k] = sent[k][0], sent[k][1:]
 		}
 	}
 	models := map[string]string{}
@@ -382,13 +386,13 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	}
 	all := make([]chatItem, 0, len(entries)+len(pending))
 	no := 0
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.Role == "hand" && launched.MatchString(e.Text) {
 			continue
 		}
 		no++
 		d := chatItem{Entry: e, Ref: refAt(sups, e.At), No: no}
-		if in, ok := sent[strings.TrimSpace(e.Text)]; ok && e.Role == "operator" {
+		if in, ok := paired[i]; ok {
 			d.Input, d.Delivered, d.Delivery = in.ID, in.DeliveredAt, "delivered"
 			if in.Typed {
 				d.Delivery = "typed anyway"
