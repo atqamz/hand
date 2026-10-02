@@ -66,6 +66,10 @@ func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budg
 	if err != nil {
 		return nil, err
 	}
+	signals, err := st.AttemptSignals(ctx)
+	if err != nil {
+		return nil, err
+	}
 	activeRows := make([][]string, 0, len(active))
 	for _, t := range active {
 		plan := "none"
@@ -87,6 +91,15 @@ func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budg
 		}
 		if ok {
 			attempt = state.AttemptRef(a.ID) + " " + a.Status
+			switch e := signals[a.ID]; e.Kind {
+			case "attempt.quiet", "attempt.idle":
+				attempt += " quiet"
+			case "attempt.blocked":
+				attempt += " blocked"
+				if hint := strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": "); hint != "" {
+					attempt += ": " + clip(hint, 40)
+				}
+			}
 		}
 		report := "none"
 		if ok {

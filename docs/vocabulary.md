@@ -273,7 +273,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt, report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 
