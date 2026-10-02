@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestEnsureWatcherUsesTheUserManager(t *testing.T) {
+func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
 	enableWatcher(t, h.home)
 	runtime, bin := t.TempDir(), t.TempDir()
@@ -20,7 +20,7 @@ func TestEnsureWatcherUsesTheUserManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := filepath.Join(t.TempDir(), "systemd-run.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "systemd-run"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -32,11 +32,10 @@ func TestEnsureWatcherUsesTheUserManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(log)
-	want := "--user --unit=secondhand-watch-" + field(h.ok("init", h.home), "id") + " --collect --setenv=HAND_HOME=" + h.home + " --setenv=PATH=" + path + " " + exe + " watch"
+	want := "--user --unit=secondhand-watch-" + field(h.ok("init", h.home), "id") + " --collect --setenv=HAND_HOME=" + h.home + " --setenv=PATH=" + path +
+		" --setenv=SECONDHAND_HOME=" + h.vars["SECONDHAND_HOME"] + " --setenv=HAND_LUVUS_SOCKET=" + h.vars["HAND_LUVUS_SOCKET"] + " --setenv=HOME=" + h.vars["HOME"] + " " + exe + " watch"
 	if !strings.Contains(string(got), want) {
 		t.Fatalf("systemd-run got %q, want %q", got, want)
 	}
-	if n := watchSpawns(h.home); n != 0 {
-		t.Fatalf("a user manager must replace the detached start, got %d", n)
-	}
+	eventually(t, func() bool { return watchSpawns(h.home) == 1 })
 }

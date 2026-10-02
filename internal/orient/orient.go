@@ -194,7 +194,11 @@ func render(home string, f state.Fleet, supervisor string, watch, resumable bool
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
 	d.Field("supervisor", supervisor)
-	d.Field("watch", map[bool]string{true: "running", false: "missing"}[watch])
+	watchState := "missing"
+	if watch {
+		watchState = "running"
+	}
+	d.Field("watch", watchState)
 	d.Field("tasks", fmt.Sprintf("inbox=%d active=%d done=%d abandoned=%d",
 		counts[state.StatusInbox], counts[state.StatusActive], counts[state.StatusDone], counts[state.StatusAbandoned]))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))

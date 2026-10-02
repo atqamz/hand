@@ -6,7 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
@@ -14,7 +14,10 @@ import (
 	"github.com/atqamz/hand/internal/proc"
 )
 
-var watchExecutable = os.Executable
+var (
+	watchExecutable  = os.Executable
+	watcherStartWait = 3 * time.Second
+)
 
 func (r *runner) watchHeld() (bool, error) {
 	f, err := os.OpenFile(filepath.Join(r.home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
@@ -36,12 +39,20 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 	}
 	env := luvus.Scrub(r.env.Environ())
 	if run, ok := luvus.UserManager(env); ok {
-		cmd := exec.CommandContext(ctx, run, "--user", "--unit="+fleet.WatchUnit(r.fleet.ID), "--collect", "--setenv=HAND_HOME="+r.home, "--setenv=PATH="+r.env.Getenv("PATH"), exe, "watch")
-		cmd.Env = env
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return false, fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
+		args := []string{"--user", "--unit=" + fleet.WatchUnit(r.fleet.ID), "--collect", "--setenv=HAND_HOME=" + r.home, "--setenv=PATH=" + r.env.Getenv("PATH")}
+		for _, name := range []string{"SECONDHAND_HOME", "LUVUS_HOME", "HAND_LUVUS_SOCKET", "HOME"} {
+			if v := r.env.Getenv(name); v != "" {
+				args = append(args, "--setenv="+name+"="+v)
+			}
 		}
-		return true, nil
+		cmd := exec.CommandContext(ctx, run, append(args, exe, "watch")...)
+		cmd.Env = env
+		if cmd.Run() == nil {
+			return true, r.awaitWatcher(ctx)
+		}
+		if held, err := r.watchHeld(); held || err != nil {
+			return false, err
+		}
 	}
 	log, err := os.OpenFile(filepath.Join(r.home, "watch.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -55,5 +66,25 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}
-	return true, cmd.Process.Release()
+	if err := cmd.Process.Release(); err != nil {
+		return false, err
+	}
+	return true, r.awaitWatcher(ctx)
+}
+
+func (r *runner) awaitWatcher(ctx context.Context) error {
+	deadline := time.Now().Add(watcherStartWait)
+	for {
+		if held, err := r.watchHeld(); held || err != nil {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the watcher did not take watch.lock within %s; read %s", watcherStartWait, filepath.Join(r.home, "watch.log"))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }

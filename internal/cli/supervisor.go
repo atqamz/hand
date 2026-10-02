@@ -423,9 +423,6 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
-	if _, err := r.ensureWatcher(ctx); err != nil {
-		help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+")")
-	}
 	if prompted && harness.Prefills(running.Harness) {
 		sent, confirmed := submitPrefilled(r.ctx(), c, running.PaneID, running.TerminalID, supervisorMarker)
 		switch {
@@ -455,6 +452,9 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 				help = append(help, "Read the screen: `hand attach supervisor`")
 			}
 		}
+	}
+	if _, err := r.ensureWatcher(ctx); err != nil {
+		help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+")")
 	}
 	d.Help(help...)
 	return r.print(&d)
