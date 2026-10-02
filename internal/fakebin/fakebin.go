@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"testing"
 )
@@ -78,21 +79,35 @@ func Install(t testing.TB, dir, name, behavior string, params map[string]string)
 	return path
 }
 
+var (
+	mu     sync.Mutex
+	self   []byte
+	embeds = map[string][]byte{}
+)
+
 func Embed(t testing.TB, behavior string, params map[string]string) []byte {
 	t.Helper()
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin, err := os.ReadFile(exe)
-	if err != nil {
-		t.Fatal(err)
-	}
 	b, err := json.Marshal(spec{behavior, params})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append(binary.BigEndian.AppendUint64(append(bin, b...), uint64(len(b))), magic...)
+	mu.Lock()
+	defer mu.Unlock()
+	if out, ok := embeds[string(b)]; ok {
+		return out
+	}
+	if self == nil {
+		exe, err := os.Executable()
+		if err == nil {
+			self, err = os.ReadFile(exe)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := append(binary.BigEndian.AppendUint64(append(self[:len(self):len(self)], b...), uint64(len(b))), magic...)
+	embeds[string(b)] = out
+	return out
 }
 
 func embedded(exe string) []byte {
