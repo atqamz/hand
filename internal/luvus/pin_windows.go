@@ -18,3 +18,5 @@ func executable(fi os.FileInfo) bool {
 	}
 	return false
 }
+
+func syncDir(string) error { return nil }

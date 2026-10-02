@@ -135,15 +135,6 @@ func copyHashed(dir, src string) (string, string, error) {
 	return out.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
-
 func fileSum(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
