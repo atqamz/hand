@@ -61,3 +61,11 @@ func TestProcStartMarkerOfAnExitedProcess(t *testing.T) {
 		t.Fatalf("marker of an exited process = %q, %v", m, err)
 	}
 }
+
+func TestProcStartMarkerRefusesAPidOutsideTheRange(t *testing.T) {
+	for _, pid := range []int{0, -1, 1<<32 + os.Getpid()} {
+		if m, err := luvus.ProcStartMarker(pid); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("pid %d: marker %q, %v", pid, m, err)
+		}
+	}
+}

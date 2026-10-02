@@ -3,11 +3,15 @@ package luvus
 import (
 	"fmt"
 	"io/fs"
+	"math"
 
 	"golang.org/x/sys/unix"
 )
 
 func ProcStartMarker(pid int) (string, error) {
+	if pid <= 0 || pid > math.MaxInt32 {
+		return "", fmt.Errorf("process %d: %w", pid, fs.ErrNotExist)
+	}
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
 		return "", fmt.Errorf("process %d: %w (%v)", pid, fs.ErrNotExist, err)
