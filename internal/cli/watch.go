@@ -20,6 +20,7 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/update"
 )
 
 const (
@@ -63,6 +64,11 @@ func cmdWatch(r *runner, args []string) error {
 	if ok, err := flock.Lock(lock, false); !ok || err != nil {
 		return fmt.Errorf("%w: another hand watch is running for %s", state.ErrConflict, r.home)
 	}
+	forget, err := update.WritePID(filepath.Join(r.home, "watch.pid"))
+	if err != nil {
+		return err
+	}
+	defer forget()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	w := &watcher{r: r, st: st, notify: *notify, every: *every}

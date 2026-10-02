@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -908,4 +909,40 @@ func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
 	if len(r.journal.Watch) != 0 {
 		t.Fatalf("a failed record kept %q in memory", r.journal.Watch)
 	}
+}
+
+func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
+	f := newRun(t, nil)
+	self := os.Getpid()
+	marker, err := luvus.ProcStartMarker(self)
+	if err != nil {
+		t.Skip(err)
+	}
+	entry := strconv.Itoa(self) + " " + marker + "\n"
+	stale := strconv.Itoa(self) + " 0\n"
+	if err := os.WriteFile(filepath.Join(f.root, "board.pid"), []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(stale), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	f.o.Stop = func(pid int, m string) error {
+		stopped = append(stopped, strconv.Itoa(pid)+" "+m)
+		return nil
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if want := []string{strconv.Itoa(self) + " " + marker}; !slices.Equal(stopped, want) {
+		t.Fatalf("stopped = %q, want %q", stopped, want)
+	}
+	if got := f.log(t, " stop ", " start ", " restart "); len(got) != 0 {
+		t.Fatalf("systemctl calls = %q", got)
+	}
+	if !slices.Contains(rep.Help, "Start the board again: `hand board`") {
+		t.Fatalf("help = %q", rep.Help)
+	}
+	absent(t, filepath.Join(f.root, "board.pid"))
 }

@@ -188,11 +188,11 @@ A fleet folder looks like this:
 
 `hand init` rewrites `AGENTS.md`, `CLAUDE.md` and the skills every time, so put your own preferences in `memory/operator.md` instead. `hand orient` shows the supervisor up to 4000 bytes of that file on every turn.
 
-Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleets/` links each fleet ID to its folder, and `worktrees/` holds every worker worktree, outside every fleet:
+Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleets/` holds a file per fleet ID that names its folder, and `worktrees/` holds every worker worktree, outside every fleet:
 
 ```text
 ~/.secondhand/
-├── fleets/<fleet id>                  link to the fleet folder
+├── fleets/<fleet id>                  file naming the fleet folder
 ├── worktrees/<fleet id>/tN-aN/        one worktree per attempt
 ├── luvus/                             pinned Luvus copies and pin.json
 └── board.addr                         where the running board listens

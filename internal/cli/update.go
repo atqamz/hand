@@ -12,6 +12,8 @@ import (
 	"github.com/atqamz/hand/internal/update"
 )
 
+var updateStop func(pid int, marker string) error
+
 func init() {
 	commands["update"] = cmdUpdate
 }
@@ -59,6 +61,7 @@ func cmdUpdate(r *runner, args []string) error {
 		Now:       r.env.Now,
 		Hold:      func() { signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
 		Cgroup:    string(cgroup),
+		Stop:      updateStop,
 	})
 	if err != nil {
 		if rep.Status == "repaired" {

@@ -26,6 +26,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/transcript"
+	"github.com/atqamz/hand/internal/update"
 )
 
 func init() {
@@ -80,6 +81,11 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	defer forget()
+	forgetPID, err := update.WritePID(filepath.Join(root, "board.pid"))
+	if err != nil {
+		return err
+	}
+	defer forgetPID()
 	var d toon.Doc
 	d.Field("board", "http://"+local+"/")
 	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"

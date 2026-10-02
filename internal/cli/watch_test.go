@@ -360,3 +360,33 @@ func TestAutoresumeBringsTheSupervisorBack(t *testing.T) {
 		}
 	}
 }
+
+func wantPID(t *testing.T, path string) {
+	t.Helper()
+	var f []string
+	eventually(t, func() bool {
+		b, err := os.ReadFile(path)
+		f = strings.Fields(string(b))
+		return err == nil && len(f) == 2
+	})
+	m, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m {
+		t.Fatalf("%s = %q, want %d %s (%v)", path, f, os.Getpid(), m, err)
+	}
+}
+
+func TestPidFileWrittenAndRemoved(t *testing.T) {
+	fx := newAttemptFixture(t)
+	stop := startWatch(t, fx)
+	wantPID(t, filepath.Join(fx.h.home, "watch.pid"))
+	stop()
+	if _, err := os.Stat(filepath.Join(fx.h.home, "watch.pid")); !os.IsNotExist(err) {
+		t.Fatalf("watch.pid after exit: %v", err)
+	}
+	_, stopBoard := startBoard(t, fx.h, "127.0.0.1")
+	wantPID(t, filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.pid"))
+	stopBoard()
+	if _, err := os.Stat(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.pid")); !os.IsNotExist(err) {
+		t.Fatalf("board.pid after exit: %v", err)
+	}
+}
