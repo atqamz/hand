@@ -48,6 +48,7 @@ func TestLimitIgnoresWarningsOtherHarnessesAndOpencode(t *testing.T) {
 		{"claude", "⚠ Heads up, you have less than 25% of your 5h limit left. Run /status for a breakdown."},
 		{"claude", "● I raised the rate limit in config.go.\n> "},
 		{"claude", `● The test expects "You've hit your session limit" on the screen.`},
+		{"agy", `● The banner reads "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h2m3s."`},
 		{"agy", claude},
 		{"codex", claude},
 		{"opencode", claude},
