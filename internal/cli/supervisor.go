@@ -436,19 +436,21 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 			help = append(help, "Press Enter once the launch prompt is on screen: `hand supervisor show`, then `hand supervisor keys --revision N enter`")
 		}
 	}
-	if prompted && running.Harness == "agy" {
-		trust, note := acceptTrust(r.ctx(), c, running.PaneID, running.TerminalID, r.home)
-		if trust == "accepted" {
-			if err := st.NoteSupervisor(ctx, running.ID, "keys", "enter"); err != nil {
-				return err
+	if prompted {
+		if _, ok := trustScreens[running.Harness]; ok {
+			trust, note, pressed := acceptTrust(r.ctx(), c, running.Harness, running.PaneID, running.TerminalID, r.home)
+			if len(pressed) > 0 {
+				if err := st.NoteSupervisor(ctx, running.ID, "keys", strings.Join(pressed, " ")); err != nil {
+					return err
+				}
 			}
-		}
-		d.Field("trust", trust)
-		if note != "" {
-			if err := st.NoteSupervisor(ctx, running.ID, "blocked", note); err != nil {
-				return err
+			d.Field("trust", trust)
+			if note != "" {
+				if err := st.NoteSupervisor(ctx, running.ID, "blocked", note); err != nil {
+					return err
+				}
+				help = append(help, "Read the screen: `hand attach supervisor`")
 			}
-			help = append(help, "Read the screen: `hand attach supervisor`")
 		}
 	}
 	d.Help(help...)
@@ -795,9 +797,9 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
 		}
 	}
-	if sup.Harness == "agy" {
-		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil && strings.Contains(s.Text, trustQuestion) {
-			return "agy is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
+	if screen, ok := trustScreens[sup.Harness]; ok {
+		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil && strings.Contains(s.Text, screen.question) {
+			return sup.Harness + " is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
