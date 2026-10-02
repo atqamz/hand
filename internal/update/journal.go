@@ -72,11 +72,44 @@ func without(list []string, items ...string) []string {
 	return slices.DeleteFunc(slices.Clone(list), func(s string) bool { return slices.Contains(items, s) })
 }
 
-func (r *Report) record(o Options, edit func(*journal)) {
+func (j journal) empty() bool {
+	return len(j.Watch)+len(j.Supervisor)+len(j.Board)+len(j.Init) == 0
+}
+
+func (r *Report) record(o Options, edit func(*journal)) error {
 	edit(&r.journal)
-	if err := r.journal.save(o.Root); err != nil {
+	return r.journal.save(o.Root)
+}
+
+func (r *Report) unrecord(o Options, edit func(*journal)) {
+	if err := r.record(o, edit); err != nil {
 		r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v)", journalPath(o.Root), err))
 	}
+}
+
+func (r *Report) finishJournal(ctx context.Context, o Options, hold func()) error {
+	left, found, err := loadJournal(o.Root)
+	switch {
+	case err != nil && o.Check:
+		r.Help = append(r.Help, fmt.Sprintf("could not read %s (%v); the next hand update sets it aside", journalPath(o.Root), err))
+		return nil
+	case err != nil:
+		r.Help = append(r.Help, fmt.Sprintf("could not read %s (%v); set it aside as %s.bad", journalPath(o.Root), err, journalPath(o.Root)))
+		return os.Rename(journalPath(o.Root), journalPath(o.Root)+".bad")
+	case !found:
+		return nil
+	case left.empty() && o.Check:
+		return nil
+	case left.empty():
+		return os.Remove(journalPath(o.Root))
+	case o.Check:
+		r.Help = append(r.Help, left.describe())
+		return nil
+	}
+	hold()
+	r.repair(ctx, o, left)
+	r.Status = "repaired"
+	return os.Remove(journalPath(o.Root))
 }
 
 func (r *Report) repair(ctx context.Context, o Options, j journal) {

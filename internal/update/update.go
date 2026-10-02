@@ -59,6 +59,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if o.Channel != "edge" && o.Channel != "stable" {
 		return rep, fmt.Errorf("%w: update: --channel must be edge or stable", state.ErrInvalid)
 	}
+	held := false
+	hold := func() {
+		if o.Hold != nil && !held {
+			o.Hold()
+		}
+		held = true
+	}
+	if err := rep.finishJournal(ctx, o, hold); err != nil {
+		return rep, err
+	}
 	tmp, err := os.MkdirTemp(filepath.Dir(o.Target), ".hand-update-")
 	if err != nil {
 		return rep, fmt.Errorf("update: cannot replace %s: %w", o.Target, err)
@@ -100,32 +110,10 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		srv, known := server(ctx, fleet.LuvusUnit(e.ID))
 		return !known || !pinned || srv.SHA256 == pin.SHA256
 	}
-	held := false
-	hold := func() {
-		if o.Hold != nil && !held {
-			o.Hold()
-		}
-		held = true
-	}
-	left, interrupted, err := loadJournal(o.Root)
-	if err != nil {
-		return rep, err
-	}
-	switch {
-	case interrupted && o.Check:
-		rep.Help = append(rep.Help, left.describe())
-	case interrupted:
-		hold()
-		rep.repair(ctx, o, left)
-		if err := os.Remove(journalPath(o.Root)); err != nil {
-			return rep, err
-		}
-	}
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
 	if current && !repin && !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && !matches(e) }) {
-		rep.Status = "up to date"
-		if interrupted && !o.Check {
-			rep.Status = "repaired"
+		if rep.Status != "repaired" {
+			rep.Status = "up to date"
 		}
 		return rep, nil
 	}
@@ -175,14 +163,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.journal.Init = append(rep.journal.Init, e.Home)
 		}
 	}
-	if err := rep.journal.save(o.Root); err != nil {
-		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
-	}
 	if !current {
 		if rep.Backups, err = Backup(ctx, o.Root, o.Target, fleets, o.Now()); err != nil {
 			return rep, err
 		}
+	}
+	if err := rep.journal.save(o.Root); err != nil {
+		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
+	}
+	if !current {
 		if err := swap(rep.To.Path, o.Target); err != nil {
+			_ = os.Remove(journalPath(o.Root))
 			return rep, err
 		}
 		if err := Prune(o.Root, fleets); err != nil {
@@ -206,8 +197,13 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		for _, u := range watches {
 			names = append(names, u.Name)
 		}
-		rep.record(o, func(j *journal) { j.Watch = append(j.Watch, names...) })
 		stopped := listed
+		if len(names) > 0 {
+			if err := rep.record(o, func(j *journal) { j.Watch = append(j.Watch, names...) }); err != nil {
+				rep.fail(fmt.Sprintf("could not write %s (%v), so %s keeps running and its Luvus server is left alone", journalPath(o.Root), err, strings.Join(names, ", ")))
+				watches, stopped = nil, false
+			}
+		}
 		for _, u := range watches {
 			stopped = rep.unit(ctx, o, u.Name, "stop") && stopped
 		}
@@ -222,7 +218,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		for _, u := range watches {
 			rep.unit(ctx, o, u.Name, "start")
 		}
-		rep.record(o, func(j *journal) { j.Watch = without(j.Watch, names...) })
+		if len(watches) > 0 {
+			rep.unrecord(o, func(j *journal) { j.Watch = without(j.Watch, names...) })
+		}
 		rep.Fleets = append(rep.Fleets, fr)
 	}
 	for _, u := range units {
@@ -230,7 +228,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.unit(ctx, o, u.Name, "restart")
 		}
 	}
-	rep.record(o, func(j *journal) { j.Board = nil })
+	rep.unrecord(o, func(j *journal) { j.Board = nil })
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -239,7 +237,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Fleets[i].Init = "failed: " + err.Error()
 			rep.fail(fmt.Sprintf("`hand init` failed in %s (%v); run it there", e.Home, err))
 		}
-		rep.record(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
+		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
 	if err := os.Remove(journalPath(o.Root)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		rep.Help = append(rep.Help, fmt.Sprintf("could not remove %s (%v)", journalPath(o.Root), err))
@@ -304,8 +302,11 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 		return "pending"
 	}
 	if live {
-		r.record(o, func(j *journal) { j.Supervisor = append(j.Supervisor, e.Home) })
-		defer r.record(o, func(j *journal) { j.Supervisor = without(j.Supervisor, e.Home) })
+		if err := r.record(o, func(j *journal) { j.Supervisor = append(j.Supervisor, e.Home) }); err != nil {
+			r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v). %s", journalPath(o.Root), err, pending))
+			return "pending"
+		}
+		defer r.unrecord(o, func(j *journal) { j.Supervisor = without(j.Supervisor, e.Home) })
 		if err := child(ctx, o, e.Home, "supervisor", "stop"); err != nil {
 			r.fail(fmt.Sprintf("`hand supervisor stop` failed in %s (%v). %s", e.Home, err, pending))
 			if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {

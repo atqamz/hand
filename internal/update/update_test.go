@@ -809,3 +809,64 @@ func TestCheckReportsAnInterruptedUpdate(t *testing.T) {
 		t.Fatalf("check removed the journal: %v", err)
 	}
 }
+
+func TestRunRepairsBeforeFetching(t *testing.T) {
+	f := newRun(t, nil)
+	f.leaveJournal(t, false)
+	f.srv.set("hand-linux-amd64.tar.gz", nil)
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a failed download succeeded")
+	}
+	if got := f.log(t, " start ", " restart ", "hand init"); !slices.Equal(got, []string{"systemctl --user start secondhand-watch-alpha.service", "systemctl --user restart secondhand-board.service", "hand init @ " + f.alpha}) {
+		t.Fatalf("calls = %q", got)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunSetsAsideAnUnreadableJournal(t *testing.T) {
+	f := newRun(t, nil)
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "updated" || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "could not read") }) {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunTreatsAnEmptyJournalAsDone(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunLeavesNoJournalWhenTheBackupFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a 0555 folder")
+	}
+	f := newRun(t, nil)
+	backups := filepath.Join(f.root, "backups")
+	if err := os.MkdirAll(backups, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(backups, 0o755) })
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a failed backup succeeded")
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
+	var r Report
+	if err := r.record(Options{Root: filepath.Join(t.TempDir(), "missing")}, func(j *journal) { j.Watch = []string{"w"} }); err == nil {
+		t.Fatal("record wrote into a missing folder")
+	}
+}

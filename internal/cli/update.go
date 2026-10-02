@@ -61,6 +61,9 @@ func cmdUpdate(r *runner, args []string) error {
 		Cgroup:    string(cgroup),
 	})
 	if err != nil {
+		if rep.Status == "repaired" {
+			_ = r.print(update.Render(rep))
+		}
 		return err
 	}
 	if err := r.print(update.Render(rep)); err != nil {
