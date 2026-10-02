@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
@@ -40,25 +39,6 @@ func waitGone(pid int, marker string, d time.Duration) bool {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return !rootAlive(pid, marker)
-}
-
-func stopRoot(pid int, marker string) error {
-	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
-		if !rootAlive(pid, marker) {
-			return nil
-		}
-		if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
-			return err
-		}
-		grace := stopGrace
-		if sig == syscall.SIGKILL {
-			grace = killGrace
-		}
-		if waitGone(pid, marker, grace) {
-			return nil
-		}
-	}
-	return fmt.Errorf("%w: root process %d is still alive after SIGKILL", state.ErrConflict, pid)
 }
 
 func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal) (string, error) {

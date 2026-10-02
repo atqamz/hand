@@ -1,3 +1,3 @@
 package cli
 
-const opener = "xdg-open"
+var openerArgv = []string{"xdg-open"}

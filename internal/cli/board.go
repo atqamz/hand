@@ -20,6 +20,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -221,7 +222,7 @@ func lockPath(path string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if _, err := flock.Lock(lock, true); err != nil {
 		_ = lock.Close()
 		return nil, err
 	}

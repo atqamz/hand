@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -15,7 +14,7 @@ import (
 func gone(pid int) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		if !alive(pid) {
 			return true
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -50,8 +49,8 @@ func TestStopNeverSignalsAProcessWithAnotherStartMarker(t *testing.T) {
 	if !strings.Contains(out, "status: exited") || !strings.Contains(out, "root process already gone") {
 		t.Fatalf("stop = %q", out)
 	}
-	if err := syscall.Kill(pid, 0); err != nil {
-		t.Fatalf("a process with another start marker was signalled: %v", err)
+	if !alive(pid) {
+		t.Fatal("a process with another start marker was signalled")
 	}
 }
 

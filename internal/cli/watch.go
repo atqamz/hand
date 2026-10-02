@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -59,7 +60,7 @@ func cmdWatch(r *runner, args []string) error {
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if ok, err := flock.Lock(lock, false); !ok || err != nil {
 		return fmt.Errorf("%w: another hand watch is running for %s", state.ErrConflict, r.home)
 	}
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)

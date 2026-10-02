@@ -14,12 +14,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/agydb/agytest"
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/flock"
 	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
@@ -200,7 +200,7 @@ func TestSendToAStaleSupervisorIsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if _, err := flock.Lock(lock, true); err != nil {
 		t.Fatal(err)
 	}
 	rt.srv.SetGeneration("gen-2")

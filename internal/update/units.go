@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/proc"
 )
 
 var ErrNoSystemctl = errors.New("systemctl was not found")
@@ -94,7 +94,7 @@ func systemctlOutput(ctx context.Context, env []string, args ...string) (string,
 	cmd := exec.CommandContext(ctx, bin, append([]string{"--user"}, args...)...)
 	var stdout, stderr bytes.Buffer
 	cmd.Env, cmd.Stdout, cmd.Stderr, cmd.WaitDelay = env, &stdout, &stderr, time.Second
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proc.NewGroup(cmd)
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("systemctl --user %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()+stdout.String()))
 	}

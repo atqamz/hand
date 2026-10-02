@@ -10,10 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -138,15 +138,8 @@ func (r *runner) lock(name string, wait bool) (func(), bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	how := syscall.LOCK_EX
-	if !wait {
-		how |= syscall.LOCK_NB
-	}
-	if err := syscall.Flock(int(f.Fd()), how); err != nil {
+	if ok, err := flock.Lock(f, wait); !ok {
 		_ = f.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, false, nil
-		}
 		return nil, false, err
 	}
 	return func() { _ = f.Close() }, true, nil

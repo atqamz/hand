@@ -12,12 +12,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -176,13 +177,14 @@ func boardAddr(ctx context.Context, root, id, token string) (string, error) {
 }
 
 func (r *runner) launch(url, shown, yourself string) error {
+	opener := openerArgv[0]
 	bin, err := harness.LookPath(opener, r.env.Getenv("PATH"))
 	if err != nil {
 		return fmt.Errorf("%w: no %s on PATH; %s", state.ErrNotFound, opener, yourself)
 	}
-	cmd := exec.Command(bin, url)
+	cmd := exec.Command(bin, append(slices.Clone(openerArgv[1:]), url)...)
 	cmd.Env = r.env.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	proc.Detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("%s could not start; %s", opener, yourself)
 	}

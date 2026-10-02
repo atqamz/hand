@@ -11,9 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/atqamz/hand/internal/flock"
 	_ "modernc.org/sqlite"
 )
 
@@ -65,7 +65,7 @@ func Open(path string, now func() time.Time) (*Store, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if _, err := flock.Lock(lock, true); err != nil {
 		return nil, err
 	}
 	dsn := "file:" + uriPath.Replace(path) + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_txlock=immediate"

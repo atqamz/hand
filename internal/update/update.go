@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -361,7 +361,7 @@ func child(ctx context.Context, o Options, home string, args ...string) error {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, o.Target, args...)
 	cmd.Dir, cmd.Env, cmd.WaitDelay = home, append(append([]string{}, o.Env...), "HAND_HOME="+home), time.Second
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	proc.NewGroup(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
