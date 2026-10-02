@@ -9,6 +9,16 @@
 	const held = new Map();
 	const served = new Map();
 	const chosen = new Map();
+	const armFor = 4000;
+	const arms = new Map();
+	const disarm = (action) => {
+		arms.delete(action);
+		for (const f of document.querySelectorAll("form[data-confirm]")) {
+			if (f.getAttribute("action") !== action || !("armed" in f.dataset)) continue;
+			f.querySelector("button").textContent = f.dataset.armed;
+			delete f.dataset.armed;
+		}
+	};
 	const apple = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 	body.dataset.shell = "";
 	const typing = (el) => el.contains(document.activeElement) && document.activeElement.matches("textarea, select, input:not([type=hidden])");
@@ -134,6 +144,13 @@
 		const pinned = name === "timeline" && gap(el) <= 48;
 		el.innerHTML = html;
 		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
+		for (const f of el.querySelectorAll("form[data-confirm]")) {
+			if ((arms.get(f.getAttribute("action")) ?? 0) > Date.now()) {
+				const b = f.querySelector("button");
+				f.dataset.armed = b.textContent;
+				b.textContent = f.dataset.confirm;
+			}
+		}
 		for (const d of el.querySelectorAll("details[id]")) {
 			if (chosen.has(d.id)) d.open = chosen.get(d.id);
 			if (!before.has(d.id) && d.classList.contains("wait")) {
@@ -220,20 +237,17 @@
 			return;
 		}
 		const primary = form.querySelector("button");
+		const action = form.getAttribute("action");
 		if (form.dataset.confirm && !("armed" in form.dataset)) {
 			form.dataset.armed = primary.textContent;
 			primary.textContent = form.dataset.confirm;
+			arms.set(action, Date.now() + armFor);
 			setTimeout(() => {
-				if (!("armed" in form.dataset)) return;
-				primary.textContent = form.dataset.armed;
-				delete form.dataset.armed;
-			}, 4000);
+				if ((arms.get(action) ?? 0) <= Date.now()) disarm(action);
+			}, armFor);
 			return;
 		}
-		if ("armed" in form.dataset) {
-			primary.textContent = form.dataset.armed;
-			delete form.dataset.armed;
-		}
+		if ("armed" in form.dataset) disarm(action);
 		form.dataset.busy = "";
 		const data = new URLSearchParams(new FormData(form, e.submitter));
 		form.setAttribute("aria-busy", "true");

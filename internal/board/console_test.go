@@ -267,3 +267,9 @@ func TestTheAgyModelMenuHasNoEffortSelect(t *testing.T) {
 	contains(t, "agy model menu", console, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`)
 	lacks(t, "agy model menu", console, `<select name="effort"><option value="">keep`)
 }
+
+func TestStopKeepsItsArmAcrossARedraw(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "const arms = new Map()", "arms.set(action, Date.now() + armFor)", `for (const f of el.querySelectorAll("form[data-confirm]"))`, "(arms.get(f.getAttribute(\"action\")) ?? 0) > Date.now()", "disarm(action)")
+	lacks(t, "app.js", js, "if (!(\"armed\" in form.dataset)) return;")
+}
