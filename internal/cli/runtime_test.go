@@ -382,6 +382,8 @@ func gitRepo(t *testing.T) string {
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
+		{"config", "maintenance.autoDetach", "false"},
+		{"config", "gc.autoDetach", "false"},
 		{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "root"},
 	} {
 		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
