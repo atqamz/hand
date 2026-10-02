@@ -28,6 +28,8 @@ type Pin struct {
 	PinnedAt string `json:"pinned_at"`
 }
 
+const Tested = "0.14.3"
+
 var versionLine = regexp.MustCompile(`^luvus (\d+\.\d+\.\d+)$`)
 
 func pinFile(root string) string { return filepath.Join(root, "luvus", "pin.json") }

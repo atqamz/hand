@@ -52,7 +52,23 @@ Where a `hand` binary comes from. `hand version` prints it next to the version a
 - `edge`: the rolling build of `main` that passed CI, published as the `edge` pre-release;
 - `stable`: the binaries attached to a `vX.Y.Z` release.
 
-`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`.
+`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`. `hand update` stays on the channel of the running binary, and `hand update --channel edge|stable` moves to the other one.
+
+### Update
+
+What `hand update` does, in order:
+1. downloads and checks the newest build of the channel;
+2. pins the Luvus version that build was tested with, when it is newer than the pin;
+3. backs up each fleet's `hand.db` and the old binary to `$SECONDHAND_HOME/backups/`, keeping two of each;
+4. replaces the binary;
+5. for each fleet:
+   - stops its watch unit;
+   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input), otherwise reports the switch as pending;
+   - starts the watch unit again;
+6. restarts the board unit;
+7. runs `hand init` in each fleet.
+
+A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy the backup over `hand.db`.
 
 ### Secondhand
 
