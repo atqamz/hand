@@ -27,9 +27,10 @@ func descendants(root uint32) ([]uint32, error) {
 	var out []uint32
 	seen := map[uint32]bool{root: true}
 	for queue := []uint32{root}; len(queue) > 0; queue = queue[1:] {
-		parent := startedAt(queue[0], started)
+		parent, parentKnown := startedAt(queue[0], started)
 		for _, c := range children[queue[0]] {
-			if seen[c] || startedAt(c, started) < parent {
+			born, known := startedAt(c, started)
+			if seen[c] || !known || parentKnown && born < parent {
 				continue
 			}
 			seen[c] = true
@@ -40,15 +41,16 @@ func descendants(root uint32) ([]uint32, error) {
 	return out, nil
 }
 
-func startedAt(pid uint32, cache map[uint32]int64) int64 {
+func startedAt(pid uint32, cache map[uint32]int64) (int64, bool) {
 	if t, ok := cache[pid]; ok {
-		return t
+		return t, t != 0
 	}
-	m, err := luvus.ProcStartMarker(int(pid))
-	if err == nil {
+	if m, err := luvus.ProcStartMarker(int(pid)); err == nil {
 		cache[pid], _ = strconv.ParseInt(m, 10, 64)
+	} else {
+		cache[pid] = 0
 	}
-	return cache[pid]
+	return cache[pid], cache[pid] != 0
 }
 
 func terminate(pid uint32) {
