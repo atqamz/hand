@@ -3,10 +3,14 @@
 package cli_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
 func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
@@ -20,7 +24,7 @@ func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := filepath.Join(t.TempDir(), "systemd-run.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\nexit 1\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\necho 'systemd-run boom' >&2\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "systemd-run"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -38,4 +42,19 @@ func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
 		t.Fatalf("systemd-run got %q, want %q", got, want)
 	}
 	eventually(t, func() bool { return watchSpawns(h.home) == 1 })
+	if b, _ := os.ReadFile(filepath.Join(h.home, "watch.log")); !strings.Contains(string(b), "systemd-run boom") {
+		t.Fatalf("watch.log = %q, want the systemd-run output", b)
+	}
+}
+
+func TestGitReturnsWhenAChildHoldsThePipe(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nsleep 30 &\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	began := time.Now()
+	if _, err := cli.Git(context.Background(), t.TempDir(), "status"); time.Since(began) > 5*time.Second {
+		t.Fatalf("git = %v after %s", err, time.Since(began))
+	}
 }
