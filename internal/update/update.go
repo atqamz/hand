@@ -393,7 +393,10 @@ func initialShell(t luvus.Terminal, home string) bool {
 
 func rootAlive(r luvus.Root) bool {
 	m, err := luvus.ProcStartMarker(r.PID)
-	return err == nil && m == r.StartMarker
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
+	}
+	return m == r.StartMarker
 }
 
 func child(ctx context.Context, o Options, home string, args ...string) error {
