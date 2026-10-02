@@ -60,7 +60,10 @@ func cmdAttemptSend(r *runner, args []string) error {
 			return err
 		}
 		ref := state.AttemptRef(id)
-		if err := c.Prompt(ctx, a.PaneID, *text); err != nil {
+		if err := c.Prompt(ctx, a.PaneID, a.TerminalID, *text); err != nil {
+			if luvus.Code(err) == "content_revision_conflict" {
+				return fmt.Errorf("%w: attempt %s terminal changed; nothing was sent", state.ErrConflict, ref)
+			}
 			if luvus.Code(err) != "agent_not_ready" {
 				return runtimeErr(err)
 			}
