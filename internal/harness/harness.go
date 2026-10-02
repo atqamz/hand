@@ -234,16 +234,3 @@ func Argv(bin string, s Spec, prompt string) ([]string, error) {
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }
-
-func LookPath(name, path string) (string, error) {
-	for _, dir := range filepath.SplitList(path) {
-		if !filepath.IsAbs(dir) {
-			continue
-		}
-		p := filepath.Join(dir, name)
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
-			return p, nil
-		}
-	}
-	return "", fmt.Errorf("%w: %s not found on PATH", state.ErrInvalid, name)
-}
