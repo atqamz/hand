@@ -12,7 +12,7 @@ func TestLookPathPathext(t *testing.T) {
 	if err := os.WriteFile(want, []byte("@exit 0\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "foo"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "foo"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATHEXT", "EXE;.CMD")

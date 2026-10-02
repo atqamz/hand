@@ -13,7 +13,7 @@ import (
 func TestLookPathWantsAnAbsoluteExecutable(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "codex")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o644); err != nil {
+	if err := os.WriteFile(bin, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LookPath("codex", "relative:"+dir); !errors.Is(err, state.ErrInvalid) {
