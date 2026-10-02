@@ -61,7 +61,14 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 - replaces the binary and restarts the board and watch units that run it;
 - runs `hand init` in every fleet.
 
-It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when no worker attempt is live and the supervisor is idle, and otherwise prints the command to run at a quiet time.
+It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, and no message waits for it. Otherwise it prints the command to run at a quiet time. Once it starts changing things it ignores Ctrl-C, so it does not leave a fleet without its watcher. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
+
+To restore a backup:
+1. stop the fleet's watch unit and the board;
+2. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
+3. copy the backup over `hand.db`;
+4. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
+5. start the units again.
 
 The options:
 - `hand update --check` shows what would change and changes nothing;

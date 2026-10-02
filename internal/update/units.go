@@ -3,6 +3,7 @@ package update
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 )
 
+var ErrNoSystemctl = errors.New("systemctl was not found")
+
 type Unit struct {
 	Name, Command, Home string
 	Active              bool
@@ -18,7 +21,7 @@ type Unit struct {
 
 func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 	if _, err := systemctl(env); err != nil {
-		return nil, nil
+		return nil, ErrNoSystemctl
 	}
 	out, err := systemctlOutput(ctx, env, "list-units", "--all", "--plain", "--no-legend", "secondhand-*")
 	if err != nil {
@@ -50,7 +53,7 @@ func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 			continue
 		}
 		command, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(argv, path), " "), " ")
-		units = append(units, Unit{Name: props["Id"], Command: command, Home: envValue(props["Environment"], "HAND_HOME"), Active: props["ActiveState"] == "active"})
+		units = append(units, Unit{Name: props["Id"], Command: command, Home: envValue(props["Environment"], "HAND_HOME"), Active: props["ActiveState"] == "active" || props["ActiveState"] == "activating" || props["ActiveState"] == "reloading"})
 	}
 	return units, nil
 }
@@ -75,7 +78,7 @@ func systemctlOutput(ctx context.Context, env []string, args ...string) (string,
 	if err != nil {
 		return "", err
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, append([]string{"--user"}, args...)...)
 	var stdout, stderr bytes.Buffer

@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,11 +20,14 @@ func fakeSystemctl(t *testing.T, list, show string, fail map[string]bool) (strin
 		}
 	}
 	var fails []string
-	for verb := range fail {
-		fails = append(fails, verb)
+	for prefix := range fail {
+		fails = append(fails, prefix)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fail.txt"), []byte(strings.Join(fails, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	script := "#!/bin/sh\necho \"systemctl $*\" >> " + calls + "\n" +
-		"for f in " + strings.Join(fails, " ") + "; do if [ \"$2\" = \"$f\" ]; then echo \"Failed to $2 $3: boom\" >&2; exit 1; fi; done\n" +
+		"while IFS= read -r f; do if [ -n \"$f\" ]; then case \"$2 $3\" in \"$f\"*) echo \"Failed to $2 $3: boom\" >&2; exit 1 ;; esac; fi; done < " + filepath.Join(dir, "fail.txt") + "\n" +
 		"case \"$2\" in list-units) cat " + filepath.Join(dir, "list.txt") + " ;; show) cat " + filepath.Join(dir, "show.txt") + " ;; esac\n"
 	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -83,7 +87,15 @@ func TestUnitsReadAQuotedHome(t *testing.T) {
 
 func TestUnitsWithoutSystemctl(t *testing.T) {
 	got, err := Units(context.Background(), []string{"PATH=" + t.TempDir()}, "/t/hand")
-	if err != nil || got != nil {
+	if !errors.Is(err, ErrNoSystemctl) || got != nil {
+		t.Fatalf("units = %+v, %v", got, err)
+	}
+}
+
+func TestUnitsCountAnActivatingUnitAsActive(t *testing.T) {
+	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "activating", "/t/hand", "/t/hand watch", "HAND_HOME=/f/alpha"), nil)
+	got, err := Units(context.Background(), pathEnv(dir), "/t/hand")
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }

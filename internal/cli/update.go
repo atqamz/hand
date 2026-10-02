@@ -3,7 +3,9 @@ package cli
 import (
 	"errors"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -41,6 +43,7 @@ func cmdUpdate(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	cgroup, _ := os.ReadFile("/proc/self/cgroup")
 	rep, err := update.Run(r.ctx(), update.Options{
 		Target:    target,
 		From:      update.Build{Version: Version, Channel: Channel, Commit: commit(), Schema: state.SchemaVersion, Luvus: luvus.Tested},
@@ -53,6 +56,8 @@ func cmdUpdate(r *runner, args []string) error {
 		Env:       r.env.Environ(),
 		Getenv:    r.env.Getenv,
 		Now:       r.env.Now,
+		Hold:      func() { signal.Ignore(os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
+		Cgroup:    string(cgroup),
 	})
 	if err != nil {
 		return err

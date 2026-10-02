@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,8 @@ type Options struct {
 	Getenv                          func(string) string
 	Now                             func() time.Time
 	Server                          func(ctx context.Context, unit string) (luvus.Server, bool)
+	Hold                            func()
+	Cgroup                          string
 }
 
 type UnitResult struct{ Name, Action, Result string }
@@ -53,9 +56,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if o.Channel != "edge" && o.Channel != "stable" {
 		return rep, fmt.Errorf("%w: update: --channel must be edge or stable", state.ErrInvalid)
 	}
-	tmp, err := os.MkdirTemp("", "hand-update-")
+	tmp, err := os.MkdirTemp(filepath.Dir(o.Target), ".hand-update-")
 	if err != nil {
-		return rep, err
+		return rep, fmt.Errorf("update: cannot replace %s: %w", o.Target, err)
 	}
 	defer os.RemoveAll(tmp)
 	if rep.To, err = FetchHand(ctx, o.HandBase, o.Channel, o.Arch, tmp, o.Env); err != nil {
@@ -73,7 +76,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.PinFrom = pin.Version
 	}
 	rep.PinTo = rep.PinFrom
-	repin := Newer(rep.To.Luvus, pin.Version) || (!pinned && rep.To.Luvus != "")
+	repin := Newer(rep.To.Luvus, pin.Version)
 	if repin {
 		rep.PinTo = rep.To.Luvus
 	}
@@ -89,7 +92,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	matches := func(e fleet.Entry) bool {
 		srv, known := server(ctx, fleet.LuvusUnit(e.ID))
-		return !known || (pinned && srv.SHA256 == pin.SHA256)
+		return !known || !pinned || srv.SHA256 == pin.SHA256
 	}
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
 	if current && !repin && !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && !matches(e) }) {
@@ -97,8 +100,23 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, nil
 	}
 	if o.Check {
+		for _, e := range fleets {
+			fr := FleetResult{Name: e.Name, Init: "would run", Luvus: "kept"}
+			if e.State != "ok" {
+				fr.Name, fr.Init = e.ID, "skipped: "+e.State
+			} else if repin || !matches(e) {
+				fr.Luvus = "would stay pending"
+				if _, ok, err := o.switchable(ctx, e); err == nil && ok {
+					fr.Luvus = "would switch"
+				}
+			}
+			rep.Fleets = append(rep.Fleets, fr)
+		}
 		rep.Status = "checked"
 		return rep, nil
+	}
+	if o.Hold != nil {
+		o.Hold()
 	}
 	if repin {
 		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.Arch, tmp)
@@ -117,9 +135,16 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		if err := swap(rep.To.Path, o.Target); err != nil {
 			return rep, err
 		}
+		if err := Prune(o.Root, fleets); err != nil {
+			rep.Help = append(rep.Help, fmt.Sprintf("could not remove old backups (%v)", err))
+		}
 	}
 	units, err := Units(ctx, o.Env, o.Target)
-	if err != nil {
+	listed := err == nil
+	switch {
+	case errors.Is(err, ErrNoSystemctl):
+		rep.Help = append(rep.Help, fmt.Sprintf("systemctl was not found; restart the board and watch units that run %s by hand", o.Target))
+	case err != nil:
 		rep.fail(fmt.Sprintf("could not list Hand's units (%v); restart the board and watch units with `systemctl --user restart`", err))
 	}
 	for _, e := range fleets {
@@ -135,11 +160,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				watches = append(watches, u)
 			}
 		}
+		stopped := listed
 		for _, u := range watches {
-			rep.unit(ctx, o, u.Name, "stop")
+			stopped = rep.unit(ctx, o, u.Name, "stop") && stopped
 		}
 		if !matches(e) {
-			fr.Luvus = rep.switchLuvus(ctx, o, e)
+			if stopped {
+				fr.Luvus = rep.switchLuvus(ctx, o, e)
+			} else {
+				fr.Luvus = "pending"
+				rep.Help = append(rep.Help, pendingLine(e))
+			}
 		}
 		for _, u := range watches {
 			rep.unit(ctx, o, u.Name, "start")
@@ -164,25 +195,58 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	return rep, nil
 }
 
-func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
-	unit := fleet.LuvusUnit(e.ID) + ".service"
-	pending := "At a quiet time: `systemctl --user stop " + unit + "`, then `hand supervisor resume` in " + e.Home
+func (r *Report) fail(help string) {
+	r.Failed = true
+	r.Help = append(r.Help, help)
+}
+
+func (r *Report) unit(ctx context.Context, o Options, name, action string) bool {
+	res := UnitResult{Name: name, Action: action, Result: "ok"}
+	err := Systemctl(ctx, o.Env, action, name)
+	if err != nil {
+		res.Result = "failed: " + err.Error()
+		r.fail(fmt.Sprintf("`systemctl --user %s %s` failed (%v); run it again", action, name, err))
+	}
+	r.Units = append(r.Units, res)
+	return err == nil
+}
+
+func pendingLine(e fleet.Entry) string {
+	return "At a quiet time: `systemctl --user stop " + fleet.LuvusUnit(e.ID) + ".service`, then `hand supervisor resume` in " + e.Home
+}
+
+func (o Options) inside(e fleet.Entry) bool {
+	return strings.Contains(o.Cgroup, "/"+fleet.LuvusUnit(e.ID)+".service")
+}
+
+func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, err error) {
+	if o.inside(e) {
+		return false, false, nil
+	}
 	st, err := state.Open(filepath.Join(e.Home, "hand.db"), o.Now)
 	if err != nil {
-		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pending))
-		return "failed: " + err.Error()
+		return false, false, err
 	}
-	_, live, err := st.LiveSupervisor(ctx)
-	q := false
-	if err == nil {
-		q, err = quiet(ctx, st, luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))})
+	defer st.Close()
+	if _, live, err = st.LiveSupervisor(ctx); err != nil {
+		return false, false, err
 	}
-	_ = st.Close()
+	ok, err = quiet(ctx, st, luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))})
+	return live, ok, err
+}
+
+func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
+	unit := fleet.LuvusUnit(e.ID) + ".service"
+	pending := pendingLine(e)
+	live, ok, err := o.switchable(ctx, e)
 	switch {
 	case err != nil:
 		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pending))
 		return "failed: " + err.Error()
-	case !q:
+	case o.inside(e):
+		r.Help = append(r.Help, "This hand update runs inside "+fleet.LuvusUnit(e.ID)+", so it leaves that server alone; run it from outside the fleet's Luvus panes. "+pending)
+		return "pending"
+	case !ok:
 		r.Help = append(r.Help, pending)
 		return "pending"
 	}
@@ -192,17 +256,23 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 			return "failed: " + err.Error()
 		}
 	}
-	if err := Systemctl(ctx, o.Env, "stop", unit); err != nil {
-		r.Units = append(r.Units, UnitResult{Name: unit, Action: "stop", Result: "failed: " + err.Error()})
-		r.fail(fmt.Sprintf("`systemctl --user stop %s` failed (%v). %s", unit, err, pending))
-		return "failed: " + err.Error()
+	stopErr := Systemctl(ctx, o.Env, "stop", unit)
+	res := UnitResult{Name: unit, Action: "stop", Result: "ok"}
+	if stopErr != nil {
+		res.Result = "failed: " + stopErr.Error()
+		r.fail(fmt.Sprintf("`systemctl --user stop %s` failed (%v). %s", unit, stopErr, pending))
 	}
-	r.Units = append(r.Units, UnitResult{Name: unit, Action: "stop", Result: "ok"})
+	r.Units = append(r.Units, res)
 	if live {
 		if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {
 			r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", e.Home, err))
-			return "switched; resume failed"
+			if stopErr == nil {
+				return "switched; resume failed"
+			}
 		}
+	}
+	if stopErr != nil {
+		return "failed: " + stopErr.Error()
 	}
 	return "switched"
 }
@@ -225,20 +295,6 @@ func quiet(ctx context.Context, st *state.Store, c luvus.Client) (bool, error) {
 		return false, nil
 	}
 	return ag.Status == "idle" || ag.Status == "done", nil
-}
-
-func (r *Report) fail(help string) {
-	r.Failed = true
-	r.Help = append(r.Help, help)
-}
-
-func (r *Report) unit(ctx context.Context, o Options, name, action string) {
-	res := UnitResult{Name: name, Action: action, Result: "ok"}
-	if err := Systemctl(ctx, o.Env, action, name); err != nil {
-		res.Result = "failed: " + err.Error()
-		r.fail(fmt.Sprintf("`systemctl --user %s %s` failed (%v); run it again", action, name, err))
-	}
-	r.Units = append(r.Units, res)
 }
 
 func child(ctx context.Context, o Options, home string, args ...string) error {
@@ -266,6 +322,9 @@ func swap(src, target string) error {
 	_, err = io.Copy(tmp, in)
 	if err == nil {
 		err = tmp.Chmod(0o755)
+	}
+	if err == nil {
+		err = tmp.Sync()
 	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr

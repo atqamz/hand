@@ -27,4 +27,7 @@ func TestStoreBackupMakesAReadableCopy(t *testing.T) {
 	if err := s.Backup(ctx, path); err == nil {
 		t.Fatal("a second backup to the same path succeeded")
 	}
+	if _, err := Open(path, clock); err != nil {
+		t.Fatalf("a refused backup removed the earlier one: %v", err)
+	}
 }

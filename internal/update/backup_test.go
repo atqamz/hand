@@ -97,6 +97,12 @@ func TestBackupKeepsTheTwoNewestSets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if got := names(t, filepath.Join(root, "backups", id)); len(got) != 3 {
+		t.Fatalf("Backup pruned before the swap: %q", got)
+	}
+	if err := Prune(root, entries(t, root)); err != nil {
+		t.Fatal(err)
+	}
 	if got := names(t, filepath.Join(root, "backups", id)); !slices.Equal(got, []string{"hand.db.20261002T010204", "hand.db.20261002T010205"}) {
 		t.Fatalf("fleet backups = %q", got)
 	}

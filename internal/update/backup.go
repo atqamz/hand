@@ -31,9 +31,6 @@ func Backup(ctx context.Context, root, target string, fleets []fleet.Entry, now 
 			return out, err
 		}
 		out = append(out, path)
-		if err := prune(dir, "hand.db."); err != nil {
-			return out, err
-		}
 	}
 	dir := filepath.Join(root, "backups")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -43,8 +40,19 @@ func Backup(ctx context.Context, root, target string, fleets []fleet.Entry, now 
 	if err := copyFile(target, path, 0o755); err != nil {
 		return out, err
 	}
-	out = append(out, path)
-	return out, prune(dir, "hand.")
+	return append(out, path), nil
+}
+
+func Prune(root string, fleets []fleet.Entry) error {
+	for _, e := range fleets {
+		if e.State != "ok" {
+			continue
+		}
+		if err := prune(filepath.Join(root, "backups", e.ID), "hand.db."); err != nil {
+			return err
+		}
+	}
+	return prune(filepath.Join(root, "backups"), "hand.")
 }
 
 func backupStore(ctx context.Context, home, path string, now time.Time) error {

@@ -68,6 +68,8 @@ What `hand update` does, in order:
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
+A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy the backup over `hand.db`.
+
 ### Secondhand
 
 The family and storage name around Hand: the shared folder `~/.secondhand`, the `secondhand` skill, and the `secondhand-*` Luvus sessions and systemd units.

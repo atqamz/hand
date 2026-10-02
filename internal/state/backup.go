@@ -3,12 +3,18 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 )
 
 func (s *Store) Backup(ctx context.Context, path string) error {
+	_, statErr := os.Lstat(path)
 	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		if errors.Is(statErr, fs.ErrNotExist) {
+			_ = os.Remove(path)
+		}
 		return fmt.Errorf("state: backup %s: %w", path, err)
 	}
 	err := check(ctx, path)
