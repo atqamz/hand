@@ -47,7 +47,7 @@ type runner struct {
 	homeErr error
 	root    string
 	fleet   state.Fleet
-	exits   map[string]string
+	exits   *exitLog
 }
 
 type usageError struct{ msg string }
