@@ -65,7 +65,7 @@ func BinaryVersion(ctx context.Context, bin string, env []string) (string, error
 }
 
 func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (Pin, error) {
-	if fi, err := os.Stat(bin); err != nil || !fi.Mode().IsRegular() || fi.Mode()&0o111 == 0 {
+	if fi, err := os.Stat(bin); err != nil || !executable(fi) {
 		return Pin{}, fmt.Errorf("%w: %s is not an executable file", ErrNotLuvus, bin)
 	}
 	store := filepath.Join(root, "luvus")
