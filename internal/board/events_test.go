@@ -249,8 +249,10 @@ func TestRegionFragmentsMatchTheFullPage(t *testing.T) {
 	seed(t, fx.st)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("hello board")})
+	fx.options.Now = func() time.Time { return time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC) }
 	h := quick(fx.st, fx.options)
 	page := get(t, h, "/")
+	contains(t, "page", page, `<time datetime="2026-09-26T00:00:00Z" data-since>144h 0m</time>`)
 	base, _ := serve(t, h)
 	ch, _ := stream(t, base+"/events")
 	for _, e := range first(t, ch, 5) {

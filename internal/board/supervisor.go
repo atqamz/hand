@@ -253,7 +253,7 @@ func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, err
 			w.On, w.From, w.FromLabel, w.Input = "on your message from", in.CreatedAt, parse(in.CreatedAt).UTC().Format("15:04"), in.ID
 		}
 	}
-	w.Label = elapsed(time.Since(parse(w.Since)))
+	w.Label = elapsed(b.now().Sub(parse(w.Since)))
 	return w, nil
 }
 
@@ -356,7 +356,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 		}
 		for i := len(entries) - 1; i >= 0; i-- {
 			if entries[i].Role == "supervisor" {
-				w.Last, w.LastLabel = entries[i].At, elapsed(time.Since(parse(entries[i].At)))
+				w.Last, w.LastLabel = entries[i].At, elapsed(b.now().Sub(parse(entries[i].At)))
 				break
 			}
 		}
