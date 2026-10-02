@@ -47,6 +47,9 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
 
   edge:
     needs: [test, test-macos, test-windows]
