@@ -104,7 +104,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("branch", running.Branch)
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
-		fields, more, err := afterLaunch(ctx, c, launched{
+		fields, more, err := afterLaunch(r.ctx(), c, launched{
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
 			marker: reportMarker, thing: "briefing", who: "agent",
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,

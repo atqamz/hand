@@ -424,10 +424,10 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("session", running.Session)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
 	if prompted {
-		fields, more, err := afterLaunch(ctx, c, launched{
+		fields, more, err := afterLaunch(r.ctx(), c, launched{
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: r.home,
 			marker: supervisorMarker, thing: "launch prompt", who: "supervisor",
-			look: "hand supervisor show", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
+			look: "hand attach supervisor", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
 		}, func(kind, detail string) error { return st.NoteSupervisor(ctx, running.ID, kind, detail) })
 		if err != nil {
 			return err
