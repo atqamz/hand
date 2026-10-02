@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -32,9 +31,6 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 }
 
 func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
-	}
 	fx := newAttemptFixture(t)
 	inner := filepath.Join(fx.h.home, "projects", "inner")
 	if err := os.MkdirAll(filepath.Dir(inner), 0o755); err != nil {

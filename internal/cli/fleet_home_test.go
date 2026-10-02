@@ -82,9 +82,6 @@ func TestInitNamesAndRenamesTheFleet(t *testing.T) {
 }
 
 func TestAMovedHomeIsRefusedUntilInitAdoptsIt(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
-	}
 	h := newHarness(t)
 	h.ok("init")
 	old := h.home
@@ -246,9 +243,6 @@ func TestAFailedAdoptionLeavesTheMoveUnadopted(t *testing.T) {
 }
 
 func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
-	}
 	h := newHarness(t)
 	h.ok("init")
 	repo := filepath.Join(h.home, "projects", "app")
