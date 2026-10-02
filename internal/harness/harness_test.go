@@ -202,6 +202,19 @@ func TestAgyModelsFailureIsListedOnceWithItsReason(t *testing.T) {
 	}
 }
 
+func TestAgyModelsDoNotWaitForAChildHoldingStdout(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 5 &\nprintf '%s' '" + agyList + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	m, err := Models("agy", Env{Path: dir})
+	if took := time.Since(start); err != nil || len(m) != 2 || took > 3*time.Second {
+		t.Fatalf("agy models = %v, %v after %v", m, err, took)
+	}
+}
+
 func TestAgyModelsAreListedOnce(t *testing.T) {
 	path, count := fakeAgy(t, agyList, false)
 	for range 2 {
