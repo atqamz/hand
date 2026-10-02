@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -78,6 +79,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	r.exits = map[string]string{}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
@@ -176,12 +178,34 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	switch ev.Event {
 	case "pane.agent_status_changed":
 		return w.agentStatus(ctx, c, caps, ev.Data)
-	case "terminal.exited", "pane.closed":
+	case "terminal.exited":
+		w.noteExit(ev.Data)
+		return w.reconcile(ctx, c, caps)
+	case "pane.closed":
 		return w.reconcile(ctx, c, caps)
 	case "events.resync_required":
 		return errors.New("event stream overflowed; reconnecting")
 	}
 	return nil
+}
+
+func (w *watcher) noteExit(data json.RawMessage) {
+	var ev struct {
+		TerminalID string `json:"terminal_id"`
+		Detail     struct {
+			ExitCode *int    `json:"exit_code"`
+			Signal   *string `json:"signal"`
+		} `json:"detail"`
+	}
+	if json.Unmarshal(data, &ev) != nil || ev.TerminalID == "" {
+		return
+	}
+	switch {
+	case ev.Detail.Signal != nil && *ev.Detail.Signal != "":
+		w.r.exits[ev.TerminalID] = "terminal exited (signal " + *ev.Detail.Signal + ")"
+	case ev.Detail.ExitCode != nil:
+		w.r.exits[ev.TerminalID] = "terminal exited (code " + strconv.Itoa(*ev.Detail.ExitCode) + ")"
+	}
 }
 
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
