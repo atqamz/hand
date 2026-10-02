@@ -39,7 +39,7 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 
 Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. When the attempt's newest event is already `attempt.quiet` or `attempt.idle`, or is a `done` or `stuck` report, the supervisor already knows, so the watcher records that turn as `attempt.idle` instead. A turn that ends after a `progress` report stays `attempt.quiet`: it is the likely false done. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
 
-A worker that hits its harness's usage limit does not exit: it goes idle at its prompt. When a turn ends with a limit line on the screen, the watcher records `attempt.limited` with that line instead of `attempt.quiet`, unless the attempt's last event already recorded that same line, which then belongs to an earlier turn. The lines are claude's `You've hit your … limit · resets …`, codex's `You've hit your usage limit … try again at …`, and agy's `Individual quota reached … Resets in DURATION`, to which Hand adds the reset time in UTC. opencode has none yet. Claude Code continues by itself at the reset.
+A worker that hits its harness's usage limit does not exit: it goes idle at its prompt. When a turn ends with a limit line on the screen, the watcher records `attempt.limited` with that line instead of `attempt.quiet`, unless the attempt's last event already recorded that same line, which then belongs to an earlier turn. `attempt.limited` always wakes the supervisor and is never recorded as `attempt.idle`, even right after a `done` report, because the limit is new. A turn that ends after it is `attempt.quiet`. The lines are claude's `You've hit your … limit · resets …`, codex's `You've hit your usage limit … try again at …`, and agy's `Individual quota reached … Resets in DURATION`, to which Hand adds the reset time in UTC. opencode has none yet. Claude Code continues by itself at the reset.
 
 ## Fleets and files
 
@@ -252,7 +252,7 @@ The wake kinds are:
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
 
-`attempt.idle` and a `progress` report never wake the supervisor on their own. They ride in the next wake with the event that does, or go out once 50 of them wait.
+`attempt.idle` and a `progress` report never wake the supervisor on their own; `attempt.limited` always does. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
 

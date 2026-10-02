@@ -613,3 +613,18 @@ func TestWatchRecordsAQuietTurnAfterTheLimitClears(t *testing.T) {
 		t.Fatalf("attempt.limited recorded %d times, want 1", n)
 	}
 }
+
+func TestALimitedTurnAfterADoneReportStillWakes(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	cursor := field(fx.h.ok("orient"), "cursor")
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	got := fx.h.ok("wait", "--after", cursor, "--timeout", "5s")
+	if !strings.Contains(got, ",attempt.limited,") || strings.Contains(got, ",attempt.idle,") {
+		t.Fatalf("wait after a done report = %q", got)
+	}
+}
