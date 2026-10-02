@@ -3,6 +3,7 @@ package cli_test
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,5 +185,24 @@ func TestReportBodyFromAFileOutsideTheWorktree(t *testing.T) {
 	}
 	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--file", file+".missing"); code != 2 || !strings.Contains(errOut, "no such file") {
 		t.Fatalf("missing file: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestGitIgnoresStderrWarnings(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	real, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	wrapper := "#!/bin/sh\necho 'warning: noisy' >&2\nexec " + real + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	fx.h.cwd = fx.h.worktree("t1-a1")
+	if out := fx.h.ok("report", "add", "--status", "done", "--text", "ok"); !strings.Contains(out, "attempt: a1") {
+		t.Fatalf("report add = %q", out)
 	}
 }
