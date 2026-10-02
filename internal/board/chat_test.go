@@ -145,3 +145,20 @@ func TestDayDividers(t *testing.T) {
 		t.Fatalf("no single divider between the days (%d %d %d):\n%s", today, divider, yesterday, tl)
 	}
 }
+
+func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	for range 2 {
+		in, err := fx.st.AddSupervisorInput(ctx, "ok")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := fx.st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeLog(t, fx, []string{userRecord("ok"), userRecord("ok")})
+	contains(t, "delivery", region(get(t, fx.handler(), "/"), "timeline"), `id="msg-i1"`, `id="msg-i2"`)
+}

@@ -16,7 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-([a-z0-9]*)"( open)?[^>]*>`)
+var waitItem = regexp.MustCompile(`<details class="wait" data-kind="([a-z]+)" id="wait-[a-z]+-([a-z0-9]*)"( open)?[^>]*>`)
 
 func waits(body string) (kinds, refs []string, open []bool) {
 	for _, m := range waitItem.FindAllStringSubmatch(region(body, "queue"), -1) {
