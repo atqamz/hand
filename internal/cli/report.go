@@ -39,7 +39,11 @@ func reportFooter(exe string) string {
 		"YOUR REPORT\n" +
 		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal."
+		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal.\n" +
+		"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch` or an `until ...; do sleep 30; done` loop in a single shell call. " +
+		"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
+		"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
+		"Apart from a milestone, write a report only when the work is done or you are stuck."
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
