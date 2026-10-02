@@ -841,11 +841,13 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if len(pending) > 0 || (ag.Status != "idle" && ag.Status != "done") {
 		return "", nil
 	}
-	if s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil {
-		if line, ok := harness.Limit(sup.Harness, s.Text); ok {
-			line, _, _ = strings.Cut(line, " (~")
-			return supervisorLimited + line, nil
-		}
+	s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines)
+	if err != nil {
+		return "cannot read the supervisor's screen: " + err.Error(), nil
+	}
+	if line, ok := harness.Limit(sup.Harness, s.Text); ok {
+		line, _, _ = strings.Cut(line, " (~")
+		return supervisorLimited + line, nil
 	}
 	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil || len(events) == 0 {

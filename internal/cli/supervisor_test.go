@@ -1461,3 +1461,18 @@ func TestDeliverResumesAfterLimitClears(t *testing.T) {
 		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[0].Seq))
 	})
 }
+
+func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
+	fx := newAttemptFixture(t)
+	startClaudeSupervisor(fx.h)
+	fx.start()
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.readFail = "idle", "internal" })
+	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "cannot read the supervisor's screen")
+	if got := fx.rt.prompts(); len(got) != 0 {
+		t.Fatalf("wake sent without reading the screen: %q", got)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.readFail = "" })
+	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
+}
