@@ -144,7 +144,9 @@ func TestTheServerRefusesAChangedPin(t *testing.T) {
 func TestInitPinsTheLuvusOnPath(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
-	has(t, "first init", h.ok("init"), "luvus: pinned 0.14.3 ("+filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-"))
+	if out := h.ok("init"); !strings.HasPrefix(field(out, "luvus"), "pinned 0.14.3 ("+filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "0.14.3-")) {
+		t.Fatalf("first init = %q", out)
+	}
 	pinFile := filepath.Join(h.vars["SECONDHAND_HOME"], "luvus", "pin.json")
 	before, err := os.ReadFile(pinFile)
 	if err != nil {
@@ -255,7 +257,11 @@ func TestLuvusShowWithoutAUserManager(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
 	h.ok("init")
-	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 ", "server: unknown", "match: unknown")
+	show := h.ok("luvus", "show")
+	has(t, "show", show, "server: unknown", "match: unknown")
+	if !strings.HasPrefix(field(show, "pin"), "0.14.3 ") {
+		t.Fatalf("show = %q", show)
+	}
 }
 
 func TestLuvusShowRefusesAnUnreadablePin(t *testing.T) {

@@ -33,7 +33,7 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	if call.CWD != wt || call.Label != "hand-a1" || !strings.HasPrefix(call.Command[len(call.Command)-1], "Fix the login bug, commit, then stop.") {
 		t.Fatalf("create = %+v", call)
 	}
-	if !strings.HasSuffix(call.Command[0], "/claude") || call.Command[1] != "--dangerously-skip-permissions" {
+	if filepath.Base(call.Command[0]) != exe("", "claude") || call.Command[1] != "--dangerously-skip-permissions" {
 		t.Fatalf("argv = %q", call.Command)
 	}
 	if _, err := os.Stat(filepath.Join(wt, ".git")); err != nil {
@@ -87,7 +87,7 @@ func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
 	}
 	call := fx.rt.lastCreate()
-	if !strings.HasSuffix(call.Command[0], "/opencode") || !slices.Equal(call.Command[1:4], []string{"--standalone", "--auto", "--prompt"}) {
+	if filepath.Base(call.Command[0]) != exe("", "opencode") || !slices.Equal(call.Command[1:4], []string{"--standalone", "--auto", "--prompt"}) {
 		t.Fatalf("argv = %q", call.Command)
 	}
 	if recent := fx.h.ok("orient"); !strings.Contains(recent, ",attempt.keys,t1") {
@@ -379,7 +379,7 @@ func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
 	fx := agyFixture(t)
 	out := fx.startAgy()
 	call := fx.rt.lastCreate()
-	want := []string{filepath.Join(fx.h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
+	want := []string{exe(fx.h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
 	if !slices.Equal(call.Command[:5], want) || len(call.Command) != 6 || !strings.HasPrefix(call.Command[5], "Fix the login bug, commit, then stop.") {
 		t.Fatalf("argv = %q", call.Command)
 	}

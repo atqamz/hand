@@ -62,7 +62,7 @@ func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
 		t.Fatalf("create = %+v", call)
 	}
 	argv := call.Command
-	if len(argv) != 9 || !strings.HasSuffix(argv[0], "/claude") || !slices.Equal(argv[1:3], []string{"--dangerously-skip-permissions", "--session-id"}) || !slices.Equal(argv[4:8], []string{"--model", "sonnet", "--effort", "low"}) {
+	if len(argv) != 9 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:3], []string{"--dangerously-skip-permissions", "--session-id"}) || !slices.Equal(argv[4:8], []string{"--model", "sonnet", "--effort", "low"}) {
 		t.Fatalf("argv = %q", argv)
 	}
 	if m := launchPrompt.FindStringSubmatch(argv[8]); m == nil || m[1] != "s1" {
@@ -1018,7 +1018,7 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", startAgySupervisor(t, h, rt), "harness: agy", "trust: accepted")
 	argv := rt.lastCreate().Command
-	want := []string{filepath.Join(h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
+	want := []string{exe(h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
 	if len(argv) != 6 || !slices.Equal(argv[:5], want) || !strings.HasPrefix(argv[5], "You are supervisor s1 of the Hand fleet ") {
 		t.Fatalf("argv = %q", argv)
 	}
@@ -1040,7 +1040,7 @@ func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	out := startClaudeSupervisor(h)
 	has(t, "start", out, "harness: claude", "trust: accepted")
 	argv := rt.lastCreate().Command
-	if len(argv) != 9 || !strings.HasSuffix(argv[0], "/claude") || !strings.HasPrefix(argv[8], "You are supervisor s1 of the Hand fleet ") {
+	if len(argv) != 9 || filepath.Base(argv[0]) != exe("", "claude") || !strings.HasPrefix(argv[8], "You are supervisor s1 of the Hand fleet ") {
 		t.Fatalf("argv = %q", argv)
 	}
 	if !slices.Equal(rt.keysSent(), []string{"down", "enter"}) {
