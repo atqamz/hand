@@ -340,7 +340,7 @@ The new Hand does not read 0.7 data. Its supervisor rebuilds what still matters,
 
 ## Development
 
-Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. The only dependency is `modernc.org/sqlite`. Before committing, run:
+Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` for macOS process start times. Before committing, run:
 
 ```sh
 gofmt -l .

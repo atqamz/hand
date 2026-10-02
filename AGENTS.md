@@ -3,7 +3,7 @@
 Personal supervisor layer for coding agents. Read `docs/spec.md` before changing anything.
 
 - Terms follow `docs/vocabulary.md`; update it when a term, state, wake kind or ref changes.
-- Standard library first; the only dependency is `modernc.org/sqlite`.
+- Standard library first. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` (already one of its own) for macOS process start times.
 - No code comments unless a hidden constraint needs one (≤3 lines).
 - Every state change goes through `internal/state` in one transaction that also appends an event.
 - Output is TOON via `internal/toon`; keep `hand orient` within its byte budget.

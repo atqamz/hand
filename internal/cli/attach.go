@@ -86,6 +86,6 @@ func (r *runner) terminal() bool {
 		return r.env.Terminal()
 	}
 	var t syscall.Termios
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&t)))
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, os.Stdin.Fd(), uintptr(getTermios), uintptr(unsafe.Pointer(&t)))
 	return errno == 0
 }

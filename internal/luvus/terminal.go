@@ -1,12 +1,6 @@
 package luvus
 
-import (
-	"context"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
-)
+import "context"
 
 type Root struct {
 	PID         int    `json:"pid"`
@@ -113,21 +107,4 @@ func (c Client) Read(ctx context.Context, pane string, lines int) (Screen, error
 
 func (c Client) Keys(ctx context.Context, pane string, keys []string, revision int64, terminalID string) error {
 	return c.Call(ctx, "agent.keys", map[string]any{"target": pane, "keys": keys, "if_content_revision": revision, "terminal_id": terminalID}, nil)
-}
-
-func ProcStartMarker(pid int) (string, error) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return "", err
-	}
-	s := string(b)
-	i := strings.LastIndex(s, ") ")
-	if i < 0 {
-		return "", fmt.Errorf("malformed /proc/%d/stat", pid)
-	}
-	f := strings.Fields(s[i+2:])
-	if len(f) < 20 {
-		return "", fmt.Errorf("short /proc/%d/stat", pid)
-	}
-	return f[19], nil
 }
