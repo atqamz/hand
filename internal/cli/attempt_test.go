@@ -499,3 +499,13 @@ func TestAgyNeedsItsModelList(t *testing.T) {
 		t.Fatalf("list = %q", list)
 	}
 }
+
+func TestAttemptStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
+	out, errOut, code := fx.h.run("attempt", "stop", "a1")
+	if code != 0 || !strings.Contains(out, "status: stopped") || !strings.Contains(out, "did not close") {
+		t.Fatalf("stop: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+}

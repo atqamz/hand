@@ -199,7 +199,7 @@ func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Termin
 		if !match(t) {
 			continue
 		}
-		if err := stopWorker(ctx, c, t); err != nil {
+		if _, err := stopWorker(ctx, c, t); err != nil {
 			return err
 		}
 	}

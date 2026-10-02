@@ -51,6 +51,8 @@ type fakeRuntime struct {
 	keysFail    string
 	afterKeys   string
 	explainFail string
+	onPrompt    func()
+	closeFail   string
 	closeDelay  time.Duration
 	sessions    map[string]string
 	blankPane   bool
@@ -174,9 +176,15 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 	}
 	<-term.done
 	rt.mu.Lock()
-	term.closed = true
+	fail := rt.closeFail
+	if fail == "" {
+		term.closed = true
+	}
 	delay := rt.closeDelay
 	rt.mu.Unlock()
+	if fail != "" {
+		return nil, fakeuhp.Fail{Code: fail, Message: "the backend could not close the terminal"}
+	}
 	rt.srv.Publish("pane.closed", map[string]any{"pane": term.pane})
 	time.Sleep(delay)
 	return map[string]any{"state": "succeeded"}, nil
@@ -239,6 +247,9 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "no prompt input was queued"}
 	}
 	rt.sent = append(rt.sent, p.Text)
+	if rt.onPrompt != nil {
+		rt.onPrompt()
+	}
 	return map[string]any{"submitted": true}, nil
 }
 

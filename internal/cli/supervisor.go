@@ -138,8 +138,12 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 		return fmt.Errorf("%w: %s is %s; answer its screen or wait until it is idle, then switch harness", state.ErrConflict, ref, ag.Status)
 	}
 	if rootAlive(sup.PID, sup.StartMarker) {
-		if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
+		note, err := stopWorker(ctx, c, terminal(sup.Terminal))
+		if err != nil {
 			return err
+		}
+		if note != "" {
+			_, _ = fmt.Fprintln(r.env.Stderr, ref+": "+note)
 		}
 	}
 	_ = r.findSession(ctx, st, &sup)
@@ -235,7 +239,7 @@ func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Clien
 	}
 	to := state.AttemptExited
 	if rootAlive(sup.PID, sup.StartMarker) {
-		if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
+		if _, err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
 			return sup, err
 		}
 		to = state.AttemptStopped
@@ -406,7 +410,7 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 	}
 	running, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 	if err != nil {
-		return sup, errors.Join(err, stopWorker(ctx, c, term))
+		return sup, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
 	}
 	return running, nil
 }
@@ -478,9 +482,9 @@ func cmdSupervisorStop(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		to, reason := state.AttemptExited, "root process already gone"
+		to, reason, note := state.AttemptExited, "root process already gone", ""
 		if rootAlive(sup.PID, sup.StartMarker) {
-			if err := stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
+			if note, err = stopWorker(ctx, c, terminal(sup.Terminal)); err != nil {
 				return err
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
@@ -494,7 +498,7 @@ func cmdSupervisorStop(r *runner, args []string) error {
 		d.Field("supervisor", state.SupervisorRef(ended.ID))
 		d.Field("status", ended.Status)
 		d.Field("reason", ended.Reason)
-		d.Help("Continue it later: `hand supervisor resume`")
+		d.Help(withNote(note, "Continue it later: `hand supervisor resume`")...)
 		return r.print(&d)
 	})
 }
@@ -752,6 +756,14 @@ func cmdSupervisorSend(r *runner, args []string) error {
 	})
 }
 
+const deliveryTimeout = time.Minute
+
+func detached(ctx context.Context, fn func(context.Context) error) error {
+	ctx, done := context.WithTimeout(context.WithoutCancel(ctx), deliveryTimeout)
+	defer done()
+	return fn(ctx)
+}
+
 func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities, wait bool) (string, error) {
 	unlock, ok, err := r.supervisorLock(wait)
 	if err != nil {
@@ -818,7 +830,10 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "", err
 	}
 	for _, in := range pending {
-		if err := c.Prompt(ctx, sup.PaneID, in.Body); err != nil {
+		if ctx.Err() != nil {
+			return "", nil
+		}
+		if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, in.Body) }); err != nil {
 			switch luvus.Code(err) {
 			case "":
 				return "", runtimeErr(err)
@@ -827,7 +842,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			}
 			return "luvus refused the message: " + err.Error(), nil
 		}
-		if err := st.DeliverSupervisorInput(ctx, in.ID, false); err != nil {
+		if err := detached(ctx, func(ctx context.Context) error { return st.DeliverSupervisorInput(ctx, in.ID, false) }); err != nil {
 			return "", err
 		}
 	}
@@ -839,13 +854,16 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "", err
 	}
 	digest, last := wakeDigest(events, taskTitles(ctx, st))
-	if err := c.Prompt(ctx, sup.PaneID, digest); err != nil {
+	if ctx.Err() != nil {
+		return "", nil
+	}
+	if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, digest) }); err != nil {
 		if luvus.Code(err) == "" {
 			return "", runtimeErr(err)
 		}
 		return "", nil
 	}
-	return "", st.AdvanceWakeCursor(ctx, sup.ID, last)
+	return "", detached(ctx, func(ctx context.Context) error { return st.AdvanceWakeCursor(ctx, sup.ID, last) })
 }
 
 func wakeDigest(events []state.Event, title func(taskID int64) string) (string, int64) {

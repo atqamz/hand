@@ -316,7 +316,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if err == nil {
 		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 		if err != nil {
-			return a, errors.Join(err, stopWorker(ctx, c, term))
+			return a, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
 		}
 		return running, nil
 	}

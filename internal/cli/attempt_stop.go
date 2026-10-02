@@ -61,14 +61,14 @@ func stopRoot(pid int, marker string) error {
 	return fmt.Errorf("%w: root process %d is still alive after SIGKILL", state.ErrConflict, pid)
 }
 
-func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal) error {
+func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal) (string, error) {
 	if err := stopRoot(t.Root.PID, t.Root.StartMarker); err != nil {
-		return err
+		return "", err
 	}
 	if err := c.Close(ctx, t); err != nil && !alreadyClosed(err) {
-		return runtimeErr(err)
+		return "Its process is gone, but its terminal did not close (" + runtimeErr(err).Error() + "); it closes when the Luvus server restarts", nil
 	}
-	return nil
+	return "", nil
 }
 
 func alreadyClosed(err error) bool {
@@ -98,9 +98,9 @@ func cmdAttemptStop(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		to, reason := state.AttemptExited, "root process already gone"
+		to, reason, note := state.AttemptExited, "root process already gone", ""
 		if rootAlive(a.PID, a.StartMarker) {
-			if err := stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
+			if note, err = stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
 				return err
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
@@ -114,7 +114,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 		d.Field("attempt", ref)
 		d.Field("status", ended.Status)
 		d.Field("reason", ended.Reason)
-		d.Help("Remove its worktree when done with it: `hand attempt clean " + ref + "`")
+		d.Help(withNote(note, "Remove its worktree when done with it: `hand attempt clean "+ref+"`")...)
 		return r.print(&d)
 	})
 }
@@ -211,4 +211,13 @@ func closeTerminalsUnder(ctx context.Context, c luvus.Client, dir string) error 
 		}
 	}
 	return nil
+}
+
+func stopErr(_ string, err error) error { return err }
+
+func withNote(note string, lines ...string) []string {
+	if note == "" {
+		return lines
+	}
+	return append([]string{note}, lines...)
 }
