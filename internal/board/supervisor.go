@@ -284,7 +284,7 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 	if ag.Status == "idle" || ag.Status == "done" {
 		if s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == sup.TerminalID {
 			if line, ok := harness.Limit(sup.Harness, s.Text); ok {
-				data["Limited"] = line
+				data["Limited"], _, _ = strings.Cut(line, " (~")
 			}
 		}
 	}

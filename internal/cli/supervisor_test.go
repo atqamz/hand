@@ -1414,9 +1414,9 @@ func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
 	stop := startWatch(t, fx, "--every", "1h")
 	eventually(t, func() bool { return explains(fx.rt) > 0 })
-	for range 2 {
+	for _, status := range []string{"idle", "working", "idle"} {
 		n := explains(fx.rt)
-		publishStatus(fx, pane, "idle")
+		publishStatus(fx, pane, status)
 		eventually(t, func() bool { return explains(fx.rt) > n })
 	}
 	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "why: \"supervisor limited: You've hit your session limit · resets 6:10am (Asia/Jakarta)\"")

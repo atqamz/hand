@@ -843,6 +843,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	if s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil {
 		if line, ok := harness.Limit(sup.Harness, s.Text); ok {
+			line, _, _ = strings.Cut(line, " (~")
 			return supervisorLimited + line, nil
 		}
 	}
