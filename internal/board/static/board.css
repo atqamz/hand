@@ -251,6 +251,7 @@ kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-ra
 .menu>summary:hover{background:var(--hover)}
 .menu[open]>summary .icon{transform:rotate(180deg)}
 .tabs{position:sticky;top:0;z-index:3;display:flex;background:var(--bg);border-bottom:1px solid var(--line)}
+#needs,#chat{scroll-margin-top:48px}
 .tabs a{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px;font-weight:600}
 .tabs .n{padding:0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-size:12px;line-height:18px}
 .tabs .n[data-worst=blocked],.tabs .n[data-worst=worker],.tabs .n[data-worst=failure],.tabs .n[data-worst=resume]{background:var(--fail-bg);color:var(--fail)}

@@ -155,3 +155,30 @@ func TestTasksGroupUnderActiveAndInbox(t *testing.T) {
 	contains(t, "tasks", tasks, `<h3 class="group">Active <span class="n">2</span></h3>`, `<h3 class="group">Inbox <span class="n">1</span></h3>`, `<span class="check-title">Fix login</span><span class="meta">a1 claude sonnet · blocked</span>`)
 	lacks(t, "tasks", tasks, "A1 CLAUDE")
 }
+
+var summaries = regexp.MustCompile(`<summary>[\s\S]*?</summary>`)
+
+func TestANeedsItemKeepsLinksOutOfItsSummary(t *testing.T) {
+	fx := newFixture(t)
+	fx.panes = map[string]string{"3": "blocked"}
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Esc to cancel · Tab to amend"); err != nil {
+		t.Fatal(err)
+	}
+	attempt(t, fx.st, active(t, fx.st, "Flaky test").ID, state.AttemptFailed, "launch did not finish")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	found := summaries.FindAllString(q, -1)
+	for _, s := range found {
+		if strings.Contains(s, "<a ") {
+			t.Fatalf("a summary holds a link: %s", s)
+		}
+	}
+	if len(found) < 2 {
+		t.Fatalf("summaries = %q", found)
+	}
+	contains(t, "worker item", q, `a1 on <a class="ref" href="/task/t1">t1</a>`)
+}
+
+func TestTabTargetsClearTheStickyTabs(t *testing.T) {
+	contains(t, "board.css", asset(t, "board.css"), "#needs,#chat{scroll-margin-top:48px}")
+}
