@@ -869,4 +869,7 @@ func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
 	if err := r.record(Options{Root: filepath.Join(t.TempDir(), "missing")}, func(j *journal) { j.Watch = []string{"w"} }); err == nil {
 		t.Fatal("record wrote into a missing folder")
 	}
+	if len(r.journal.Watch) != 0 {
+		t.Fatalf("a failed record kept %q in memory", r.journal.Watch)
+	}
 }

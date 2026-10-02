@@ -77,8 +77,13 @@ func (j journal) empty() bool {
 }
 
 func (r *Report) record(o Options, edit func(*journal)) error {
-	edit(&r.journal)
-	return r.journal.save(o.Root)
+	next := journal{Watch: slices.Clone(r.journal.Watch), Supervisor: slices.Clone(r.journal.Supervisor), Board: slices.Clone(r.journal.Board), Init: slices.Clone(r.journal.Init)}
+	edit(&next)
+	if err := next.save(o.Root); err != nil {
+		return err
+	}
+	r.journal = next
+	return nil
 }
 
 func (r *Report) unrecord(o Options, edit func(*journal)) {
