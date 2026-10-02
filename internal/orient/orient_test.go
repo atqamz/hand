@@ -285,8 +285,8 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	if _, err := st.SupervisorRunning(ctx, resumed.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t2", PaneID: "3", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude running\n") {
-		t.Fatalf("resumed = %q, want the ref the session's launch prompt named", out)
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s2 claude running (resumes s1)\n") {
+		t.Fatalf("resumed = %q, want the live ref and the ref the session's launch prompt named", out)
 	}
 }
 
