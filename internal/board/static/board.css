@@ -70,7 +70,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .ctx[data-level=fail]{color:var(--fail);font-weight:600}
 .needs-count{display:none;align-items:center;gap:4px;padding:0 8px;border-radius:999px;background:var(--wait-bg);color:var(--wait);font-weight:600;line-height:20px}
 .needs-count[data-worst=blocked],.needs-count[data-worst=worker],.needs-count[data-worst=failure],.needs-count[data-worst=resume]{background:var(--fail-bg);color:var(--fail)}
-.needs-count[data-worst=decision],.needs-count[data-worst=nosup]{background:var(--wait-bg);color:var(--wait)}
+.needs-count[data-worst=decision],.needs-count[data-worst=nosup],.needs-count[data-worst=limited]{background:var(--wait-bg);color:var(--wait)}
 .needs-count[data-worst=report],.needs-count[data-worst=quiet]{background:var(--neutral-bg);color:var(--neutral)}
 .needs-count:hover{text-decoration:none}
 .strip{display:flex;align-items:center;gap:10px}
@@ -89,7 +89,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .queue-head h2,.checks-head h2{font-size:16px;line-height:24px}
 .count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg);color:var(--fg);font-size:12px;font-weight:600;line-height:20px;text-align:center}
 .queue-head[data-worst=blocked] .count,.queue-head[data-worst=worker] .count,.queue-head[data-worst=failure] .count,.queue-head[data-worst=resume] .count{background:var(--fail-bg);color:var(--fail)}
-.queue-head[data-worst=decision] .count,.queue-head[data-worst=nosup] .count{background:var(--wait-bg);color:var(--wait)}
+.queue-head[data-worst=decision] .count,.queue-head[data-worst=nosup] .count,.queue-head[data-worst=limited] .count{background:var(--wait-bg);color:var(--wait)}
 .wait{overflow-wrap:anywhere;margin:0 0 8px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--bg)}
 .wait>summary{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:2px;padding:8px 12px;cursor:pointer;list-style:none;background:var(--neutral-bg)}
 .wait>summary>.icon{grid-column:1;grid-row:1}
@@ -255,7 +255,7 @@ kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-ra
 .tabs a{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted);font-size:14px;font-weight:600}
 .tabs .n{padding:0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-size:12px;line-height:18px}
 .tabs .n[data-worst=blocked],.tabs .n[data-worst=worker],.tabs .n[data-worst=failure],.tabs .n[data-worst=resume]{background:var(--fail-bg);color:var(--fail)}
-.tabs .n[data-worst=decision],.tabs .n[data-worst=nosup]{background:var(--wait-bg);color:var(--wait)}
+.tabs .n[data-worst=decision],.tabs .n[data-worst=nosup],.tabs .n[data-worst=limited]{background:var(--wait-bg);color:var(--wait)}
 .tabs a:hover{text-decoration:none;color:var(--fg)}
 @media (min-width:600px){.tabs a{flex:0 0 auto;padding:10px 14px}}
 .tabs a[aria-current=true]{border-bottom-color:var(--fg);color:var(--fg)}

@@ -157,11 +157,12 @@ var severity = map[string]struct {
 	"blocked":  {0, "fail", "BLOCKED"},
 	"worker":   {1, "fail", "BLOCKED"},
 	"failure":  {2, "fail", "FAILED"},
-	"nosup":    {3, "wait", "NO SUPERVISOR"},
-	"resume":   {4, "fail", "INTERRUPTED"},
-	"decision": {5, "wait", "DECISION"},
-	"report":   {6, "neutral", "REPORT"},
-	"quiet":    {7, "neutral", "QUIET"},
+	"limited":  {3, "wait", "LIMITED"},
+	"nosup":    {4, "wait", "NO SUPERVISOR"},
+	"resume":   {5, "fail", "INTERRUPTED"},
+	"decision": {6, "wait", "DECISION"},
+	"report":   {7, "neutral", "REPORT"},
+	"quiet":    {8, "neutral", "QUIET"},
 }
 
 func (w waiting) Rank() int { return severity[w.Kind].rank }
@@ -358,10 +359,12 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			kind = "worker"
 		case (e.Kind == "attempt.quiet" || e.Kind == "attempt.idle") && strings.HasSuffix(e.Detail, "without a new report"):
 			kind = "quiet"
+		case e.Kind == "attempt.limited":
+			kind = "limited"
 		default:
 			continue
 		}
-		if supervised && now.Sub(parse(e.At)) < workerGrace {
+		if supervised && kind != "limited" && now.Sub(parse(e.At)) < workerGrace {
 			continue
 		}
 		t, err := b.st.Task(ctx, a.TaskID)
@@ -369,8 +372,10 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			return nil, err
 		}
 		w := waiting{Kind: kind, Ref: state.AttemptRef(a.ID), Task: t, Attempt: &a, Title: "Its turn ended without a report"}
-		if kind == "worker" {
+		if kind != "quiet" {
 			w.Title = strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": ")
+		}
+		if kind == "worker" {
 			if w.Title == "" {
 				w.Title = "Its screen needs a key"
 			}
@@ -519,6 +524,8 @@ func (f facts) check(t state.Task) check {
 				c.Agent = "blocked"
 			case "attempt.quiet", "attempt.idle":
 				c.Agent = "quiet"
+			case "attempt.limited":
+				c.Agent = "limited"
 			}
 		}
 		done = done || f.done[a.ID]

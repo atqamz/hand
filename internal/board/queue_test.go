@@ -577,3 +577,16 @@ func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
 		t.Fatalf("a worker quiet for two turns left Needs: %q", kinds)
 	}
 }
+
+func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "limited", "You've hit your session limit · resets 6:10am (Asia/Jakarta)"); err != nil {
+		t.Fatal(err)
+	}
+	fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 1, 0, 0, time.UTC) }
+	body := get(t, fx.handler(), "/")
+	contains(t, "limited item", region(body, "queue"), `data-kind="limited"`, "LIMITED", "You&#39;ve hit your session limit · resets 6:10am (Asia/Jakarta)", "a1 on t1 “Fix login” stopped at a usage limit.")
+	contains(t, "tasks row", region(body, "tasks"), "a1 claude sonnet · limited")
+}
