@@ -950,19 +950,21 @@ func TestRunStopsPIDFileProcessesInsteadOfUnits(t *testing.T) {
 	absent(t, filepath.Join(f.alpha, "watch.pid"))
 }
 
-func TestRunDoesNotAskToRestartAWatchItFailedToStop(t *testing.T) {
+func TestRunDoesNotAskToRestartWhatItFailedToStop(t *testing.T) {
 	f := newRun(t, nil)
 	marker, err := luvus.ProcStartMarker(os.Getpid())
 	if err != nil {
 		t.Skip(err)
 	}
-	if err := os.WriteFile(filepath.Join(f.alpha, "watch.pid"), []byte(strconv.Itoa(os.Getpid())+" "+marker+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	for _, p := range []string{filepath.Join(f.alpha, "watch.pid"), filepath.Join(f.root, "board.pid")} {
+		if err := os.WriteFile(p, []byte(strconv.Itoa(os.Getpid())+" "+marker+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.o.Stop = func(int, string) error { return errors.New("denied") }
 	rep, _ := Run(context.Background(), f.o)
 	for _, h := range rep.Help {
-		if strings.HasPrefix(h, "Start the watch again") {
+		if strings.HasPrefix(h, "Start the watch again") || strings.HasPrefix(h, "Start the board again") {
 			t.Fatalf("help = %q", rep.Help)
 		}
 	}

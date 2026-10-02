@@ -240,7 +240,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if o.Stop != nil {
-		if _, did := rep.stopPID(o, "board", filepath.Join(o.Root, "board.pid")); did {
+		if stopped, did := rep.stopPID(o, "board", filepath.Join(o.Root, "board.pid")); did && stopped {
 			rep.Help = append(rep.Help, "Start the board again: `hand board`")
 		}
 	}
