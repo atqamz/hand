@@ -18,7 +18,7 @@ var ErrNoSystemctl = errors.New("systemctl was not found")
 
 type Unit struct {
 	Name, Command, Home string
-	Active              bool
+	Active, Transient   bool
 }
 
 func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
@@ -38,7 +38,7 @@ func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 	if len(names) == 0 {
 		return nil, nil
 	}
-	out, err = systemctlOutput(ctx, env, append(append([]string{"show"}, names...), "-p", "Id,ActiveState,ExecStart,Environment")...)
+	out, err = systemctlOutput(ctx, env, append(append([]string{"show"}, names...), "-p", "Id,ActiveState,ExecStart,Environment,Transient")...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func Units(ctx context.Context, env []string, target string) ([]Unit, error) {
 		} else if fields := strings.Fields(argv); len(fields) > 1 {
 			command = fields[1]
 		}
-		units = append(units, Unit{Name: props["Id"], Command: command, Home: envValue(props["Environment"], "HAND_HOME"), Active: props["ActiveState"] == "active" || props["ActiveState"] == "activating" || props["ActiveState"] == "reloading"})
+		units = append(units, Unit{Name: props["Id"], Command: command, Home: envValue(props["Environment"], "HAND_HOME"), Active: props["ActiveState"] == "active" || props["ActiveState"] == "activating" || props["ActiveState"] == "reloading", Transient: props["Transient"] == "yes"})
 	}
 	return units, nil
 }

@@ -59,7 +59,7 @@ func TestUnitsFindThisBinarysUnits(t *testing.T) {
 	show := strings.Join([]string{
 		unitBlock("secondhand-board.service", "active", "/t/hand", "/t/hand board --addr 127.0.0.1:7777", ""),
 		unitBlock("secondhand-luvus-f1.service", "active", "/r/luvus/0.14.3-89507302/luvus", "/r/luvus/0.14.3-89507302/luvus server", ""),
-		unitBlock("secondhand-watch-alpha.service", "active", "/t/hand", "/t/hand watch", "HAND_HOME=/f/alpha"),
+		unitBlock("secondhand-watch-alpha.service", "active", "/t/hand", "/t/hand watch", "HAND_HOME=/f/alpha") + "Transient=yes\n",
 		unitBlock("secondhand-watch-other.service", "active", "/other/hand", "/other/hand watch", "HAND_HOME=/f/other"),
 	}, "\n")
 	dir, calls := fakeSystemctl(t, listing("secondhand-board.service", "secondhand-luvus-f1.service", "secondhand-watch-alpha.service", "secondhand-watch-other.service"), show, nil)
@@ -67,12 +67,12 @@ func TestUnitsFindThisBinarysUnits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Unit{{"secondhand-board.service", "board", "", true}, {"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}
+	want := []Unit{{"secondhand-board.service", "board", "", true, false}, {"secondhand-watch-alpha.service", "watch", "/f/alpha", true, true}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("units = %+v", got)
 	}
 	log, _ := os.ReadFile(calls)
-	if !strings.Contains(string(log), "systemctl --user list-units --all --plain --no-legend secondhand-*\n") || !strings.Contains(string(log), "-p Id,ActiveState,ExecStart,Environment") {
+	if !strings.Contains(string(log), "systemctl --user list-units --all --plain --no-legend secondhand-*\n") || !strings.Contains(string(log), "-p Id,ActiveState,ExecStart,Environment,Transient") {
 		t.Fatalf("calls:\n%s", log)
 	}
 }
@@ -80,7 +80,7 @@ func TestUnitsFindThisBinarysUnits(t *testing.T) {
 func TestUnitsReadAQuotedHome(t *testing.T) {
 	dir, _ := fakeSystemctl(t, listing("secondhand-watch-mine.service"), unitBlock("secondhand-watch-mine.service", "inactive", "/t/hand", "/t/hand watch", `"HAND_HOME=/f/my fleet" SECONDHAND_HOME=/r`), nil)
 	got, err := Units(context.Background(), pathEnv(dir), "/t/hand")
-	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-mine.service", "watch", "/f/my fleet", false}}) {
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-mine.service", "watch", "/f/my fleet", false, false}}) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }
@@ -95,7 +95,7 @@ func TestUnitsWithoutSystemctl(t *testing.T) {
 func TestUnitsCountAnActivatingUnitAsActive(t *testing.T) {
 	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "activating", "/t/hand", "/t/hand watch", "HAND_HOME=/f/alpha"), nil)
 	got, err := Units(context.Background(), pathEnv(dir), "/t/hand")
-	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true, false}}) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }
@@ -119,7 +119,7 @@ func TestUnitsMatchASymlinkedExecStart(t *testing.T) {
 	}
 	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "active", link, link+" watch", "HAND_HOME=/f/alpha"), nil)
 	got, err := Units(context.Background(), pathEnv(dir), target)
-	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true, false}}) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }
@@ -127,7 +127,7 @@ func TestUnitsMatchASymlinkedExecStart(t *testing.T) {
 func TestUnitsReadTheCommandBehindAnArgv0Override(t *testing.T) {
 	dir, _ := fakeSystemctl(t, listing("secondhand-watch-alpha.service"), unitBlock("secondhand-watch-alpha.service", "active", "/t/hand", "hand-watch watch", "HAND_HOME=/f/alpha"), nil)
 	got, err := Units(context.Background(), pathEnv(dir), "/t/hand")
-	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true}}) {
+	if err != nil || !slices.Equal(got, []Unit{{"secondhand-watch-alpha.service", "watch", "/f/alpha", true, false}}) {
 		t.Fatalf("units = %+v, %v", got, err)
 	}
 }
