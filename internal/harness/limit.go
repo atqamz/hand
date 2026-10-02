@@ -20,10 +20,11 @@ func Limit(name, screen string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	m := re.FindStringSubmatch(screen)
-	if m == nil {
+	all := re.FindAllStringSubmatch(screen, -1)
+	if all == nil {
 		return "", false
 	}
+	m := all[len(all)-1]
 	line := wrapped.ReplaceAllString(strings.TrimSpace(m[1]), " ")
 	if len(m) > 2 {
 		if d, err := time.ParseDuration(m[2]); err == nil {

@@ -79,9 +79,9 @@ func (s *Store) LatestEvent(ctx context.Context, kind string) (Event, bool, erro
 	return e, err == nil, err
 }
 
-func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (Event, error) {
+func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, error) {
 	e, _, err := lastAttemptEvent(ctx, s.db, attemptID)
-	return e, err
+	return e.Kind, err
 }
 
 func (s *Store) AttemptSignals(ctx context.Context) (map[int64]Event, error) {

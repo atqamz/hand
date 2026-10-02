@@ -21,6 +21,13 @@ func TestLimitMatchesTheLinesEachHarnessShows(t *testing.T) {
 	}
 }
 
+func TestLimitTakesTheNewestLine(t *testing.T) {
+	screen := "  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n● Continuing\n  ⎿  You've hit your weekly limit · resets Sep 27, 5pm (Asia/Jakarta)\n> "
+	if got, ok := Limit("claude", screen); !ok || got != "You've hit your weekly limit · resets Sep 27, 5pm (Asia/Jakarta)" {
+		t.Fatalf("Limit = %q, %v", got, ok)
+	}
+}
+
 func TestLimitJoinsAgyWrappedQuotaLineAndAddsTheResetTime(t *testing.T) {
 	before := time.Now()
 	for _, screen := range []string{

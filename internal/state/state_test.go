@@ -214,19 +214,19 @@ func TestLatestEventAndInput(t *testing.T) {
 func TestLastAttemptEventMatchesTheExactRef(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
-	if e, err := s.LastAttemptEvent(ctx, 1); err != nil || e.Kind != "" {
-		t.Fatalf("no events: kind %q, err %v", e.Kind, err)
+	if kind, err := s.LastAttemptEvent(ctx, 1); err != nil || kind != "" {
+		t.Fatalf("no events: kind %q, err %v", kind, err)
 	}
 	for _, e := range [][2]string{{"attempt.launching", "a1"}, {"attempt.keys", "a1: Down Enter"}, {"attempt.quiet", "a10: turn ended without a new report"}, {"report.acked", "a1: r1"}} {
 		if err := s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), e[0], 0, e[1]) }); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if e, err := s.LastAttemptEvent(ctx, 1); err != nil || e.Kind != "attempt.keys" || e.Detail != "a1: Down Enter" {
-		t.Fatalf("a1: %+v, err %v; want attempt.keys", e, err)
+	if kind, err := s.LastAttemptEvent(ctx, 1); err != nil || kind != "attempt.keys" {
+		t.Fatalf("a1: kind %q, err %v; want attempt.keys", kind, err)
 	}
-	if e, err := s.LastAttemptEvent(ctx, 10); err != nil || e.Kind != "attempt.quiet" {
-		t.Fatalf("a10: kind %q, err %v; want attempt.quiet", e.Kind, err)
+	if kind, err := s.LastAttemptEvent(ctx, 10); err != nil || kind != "attempt.quiet" {
+		t.Fatalf("a10: kind %q, err %v; want attempt.quiet", kind, err)
 	}
 }
 
