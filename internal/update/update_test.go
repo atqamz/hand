@@ -79,12 +79,9 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 	f.status = "idle"
 	uhp := fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
 	uhp.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
+		f.note("explain")
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		if file, err := os.OpenFile(f.calls, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			_, _ = file.WriteString("explain\n")
-			_ = file.Close()
-		}
 		if f.status == "error" {
 			return nil, errors.New("no such pane")
 		}
@@ -112,8 +109,34 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 		Server: func(context.Context, string) (luvus.Server, bool) {
 			return luvus.Server{Exe: f.pin.Path, SHA256: f.pin.SHA256}, true
 		},
+		Watch: func(_ context.Context, home string) error {
+			f.note("watcher @ " + home)
+			return nil
+		},
 	}
 	return f
+}
+
+func (f *fixture) note(line string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if file, err := os.OpenFile(f.calls, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		_, _ = file.WriteString(line + "\n")
+		_ = file.Close()
+	}
+}
+
+func (f *fixture) watchTransient(t *testing.T, value string) {
+	t.Helper()
+	path := filepath.Join(f.sysdir, "show.txt")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "Id=secondhand-watch-alpha.service\n"
+	if err := os.WriteFile(path, []byte(strings.Replace(string(b), id, id+"Transient="+value+"\n", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (f *fixture) log(t *testing.T, keep ...string) []string {
@@ -814,6 +837,73 @@ func TestRunFinishesAnInterruptedUpdate(t *testing.T) {
 	absent(t, filepath.Join(f.root, "update.json"))
 	if b, _ := os.ReadFile(f.target); string(b) != oldHand {
 		t.Fatal("a repair replaced the binary")
+	}
+}
+
+func TestUpdateRestartsATransientWatcherThroughEnsure(t *testing.T) {
+	f := newRun(t, nil)
+	f.watchTransient(t, "yes")
+	var journaled []string
+	f.o.Watch = func(_ context.Context, home string) error {
+		f.note("watcher @ " + home)
+		j, _, err := loadJournal(f.root)
+		if err != nil {
+			t.Error(err)
+		}
+		journaled = j.Watcher
+		return nil
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	want := []string{"systemctl --user stop secondhand-watch-alpha.service", "watcher @ " + f.alpha, "systemctl --user restart secondhand-board.service", "hand init @ " + f.alpha}
+	if got := f.log(t, append(changes, "watcher @ ")...); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q", got)
+	}
+	if !slices.Equal(journaled, []string{f.alpha}) {
+		t.Fatalf("journal at the hook = %q", journaled)
+	}
+}
+
+func TestUpdateKeepsInstalledWatchUnits(t *testing.T) {
+	f := newRun(t, nil)
+	f.watchTransient(t, "no")
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"systemctl --user stop secondhand-watch-alpha.service", "systemctl --user start secondhand-watch-alpha.service", "systemctl --user restart secondhand-board.service", "hand init @ " + f.alpha}
+	if got := f.log(t, append(changes, "watcher @ ")...); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestRepairRestartsATransientWatcherThroughEnsure(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	b, _ := json.Marshal(map[string][]string{"watcher": {f.alpha}, "init": {f.alpha}})
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "repaired" || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got := f.log(t, append(changes, "watcher @ ")...); !slices.Equal(got, []string{"watcher @ " + f.alpha, "hand init @ " + f.alpha}) {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestRepairKeepsInstalledWatchUnits(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.leaveJournal(t, false)
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"systemctl --user start secondhand-watch-alpha.service", "systemctl --user restart secondhand-board.service", "hand init @ " + f.alpha}
+	if got := f.log(t, append(changes, "watcher @ ")...); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q", got)
 	}
 }
 

@@ -31,6 +31,7 @@ type Options struct {
 	Now                                 func() time.Time
 	Server                              func(ctx context.Context, unit string) (luvus.Server, bool)
 	Hold                                func()
+	Watch                               func(ctx context.Context, home string) error
 	Cgroup                              string
 	Stop                                func(pid int, marker string) error
 }
@@ -198,9 +199,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 				watches = append(watches, u)
 			}
 		}
-		var names []string
+		var names, installed, transient []string
 		for _, u := range watches {
 			names = append(names, u.Name)
+			if u.Transient {
+				transient = []string{e.Home}
+			} else {
+				installed = append(installed, u.Name)
+			}
 		}
 		stopped := listed
 		if o.Stop != nil {
@@ -210,7 +216,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 		}
 		if len(names) > 0 {
-			if err := rep.record(o, func(j *journal) { j.Watch = append(j.Watch, names...) }); err != nil {
+			if err := rep.record(o, func(j *journal) { j.Watch, j.Watcher = append(j.Watch, installed...), append(j.Watcher, transient...) }); err != nil {
 				rep.fail(fmt.Sprintf("could not write %s (%v), so %s keeps running and its Luvus server is left alone", journalPath(o.Root), err, strings.Join(names, ", ")))
 				watches, stopped = nil, false
 			}
@@ -227,10 +233,14 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			}
 		}
 		for _, u := range watches {
-			rep.unit(ctx, o, u.Name, "start")
+			if u.Transient {
+				rep.watcher(ctx, o, e.Home)
+			} else {
+				rep.unit(ctx, o, u.Name, "start")
+			}
 		}
 		if len(watches) > 0 {
-			rep.unrecord(o, func(j *journal) { j.Watch = without(j.Watch, names...) })
+			rep.unrecord(o, func(j *journal) { j.Watch, j.Watcher = without(j.Watch, names...), without(j.Watcher, transient...) })
 		}
 		rep.Fleets = append(rep.Fleets, fr)
 	}
@@ -276,6 +286,15 @@ func (r *Report) unit(ctx context.Context, o Options, name, action string) bool 
 	}
 	r.Units = append(r.Units, res)
 	return err == nil
+}
+
+func (r *Report) watcher(ctx context.Context, o Options, home string) {
+	res := UnitResult{Name: "watch " + home, Action: "start", Result: "ok"}
+	if err := o.Watch(ctx, home); err != nil {
+		res.Result = "failed: " + err.Error()
+		r.fail(fmt.Sprintf("could not start the watcher in %s (%v); start it there: `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it", home, err))
+	}
+	r.Units = append(r.Units, res)
 }
 
 func (r *Report) stopPID(o Options, name, path string) (stopped, did bool) {
