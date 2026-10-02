@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestInstallRefusesForeignFilesAndWritesNothing(t *testing.T) {
 		home := t.TempDir()
 		write(t, filepath.Join(home, rel), "mine\n")
 		err := fleet.Install(home, "hand")
-		if !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), rel) {
+		if !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), filepath.FromSlash(rel)) {
 			t.Fatalf("%s: install = %v", rel, err)
 		}
 		if read(t, filepath.Join(home, rel)) != "mine\n" {
@@ -177,6 +178,9 @@ func TestADirectoryIsNotThe07Marker(t *testing.T) {
 func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any folder")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file modes: Windows has no unreadable folder")
 	}
 	home := t.TempDir()
 	write(t, filepath.Join(home, "state", "hand.db"), "0.7")

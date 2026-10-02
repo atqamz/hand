@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -67,6 +68,9 @@ func TestCheckRegistersAHomeAndAcceptsItAgain(t *testing.T) {
 }
 
 func TestACopyIsRefusedAndAMoveNeedsRegister(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
+	}
 	root, dir := t.TempDir(), t.TempDir()
 	f := home(t, dir, "alpha")
 	if err := fleet.Check(root, f.ID, dir); err != nil {
@@ -101,6 +105,9 @@ func TestACopyIsRefusedAndAMoveNeedsRegister(t *testing.T) {
 }
 
 func TestAMovedHomeWithASymlinkBackIsTheSameFleet(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinked fleet link; atqamz/hand#766 PR D1")
+	}
 	root, parent := t.TempDir(), t.TempDir()
 	old := filepath.Join(parent, "old")
 	if err := os.Mkdir(old, 0o755); err != nil {
