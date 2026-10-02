@@ -115,8 +115,12 @@ func TestUnitFilesKeepTheCallersPath(t *testing.T) {
 			t.Fatalf("%s unit does not keep PATH:\n%s", unit, out)
 		}
 	}
+	h.vars["PATH"] = "/opt/100%/bin"
+	if out := h.ok("unit", "board"); !strings.Contains(out, `Environment="PATH=/opt/100%%/bin"`+"\n") {
+		t.Fatalf("board unit does not escape %% in PATH:\n%s", out)
+	}
 	h.vars["PATH"] = `/opt/a"b`
-	if _, errOut, code := h.run("unit", "board"); code != 2 || !strings.Contains(errOut, "systemd unit") {
+	if _, errOut, code := h.run("unit", "board"); code != 2 || !strings.Contains(errOut, "PATH holds a quote, backslash or control character") {
 		t.Fatalf("quoted PATH: code=%d stderr=%q", code, errOut)
 	}
 }
