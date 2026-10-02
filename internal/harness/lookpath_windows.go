@@ -18,7 +18,7 @@ func LookPath(name, path string) (string, error) {
 	}
 	for _, ext := range strings.Split(pathext, ";") {
 		if ext != "" {
-			exts = append(exts, ext)
+			exts = append(exts, "."+strings.TrimPrefix(ext, "."))
 		}
 	}
 	if slices.ContainsFunc(exts, func(e string) bool { return strings.EqualFold(filepath.Ext(name), e) }) {

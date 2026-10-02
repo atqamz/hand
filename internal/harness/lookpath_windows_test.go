@@ -15,7 +15,7 @@ func TestLookPathPathext(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "foo"), []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATHEXT", ".EXE;.CMD")
+	t.Setenv("PATHEXT", "EXE;.CMD")
 	got, err := LookPath("foo", dir)
 	if err != nil || got != want {
 		t.Fatalf("LookPath = %q, %v; want %q", got, err, want)

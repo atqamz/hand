@@ -2,6 +2,7 @@ package luvus
 
 import (
 	"strconv"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -12,6 +13,13 @@ func ProcStartMarker(pid int) (string, error) {
 		return "", err
 	}
 	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return "", err
+	}
+	if code != syscall.STILL_ACTIVE {
+		return "", windows.ERROR_INVALID_PARAMETER
+	}
 	var created, exited, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
 		return "", err
