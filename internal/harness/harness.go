@@ -105,7 +105,10 @@ type agyListing struct {
 	at     time.Time
 }
 
-var agyRetry = 60 * time.Second
+var (
+	agyRetry   = 60 * time.Second
+	agyTimeout = 30 * time.Second
+)
 
 var agyLists = struct {
 	sync.Mutex
@@ -122,7 +125,7 @@ func agyModels(env Env) ([]Model, error) {
 	if l, ok := agyLists.byBin[bin]; ok && (l.err == nil || time.Since(l.at) < agyRetry) {
 		return slices.Clone(l.models), l.err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), agyTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "models")
 	cmd.WaitDelay = time.Second
@@ -137,14 +140,18 @@ func agyModels(env Env) ([]Model, error) {
 		}
 	}
 	var exit *exec.ExitError
+	const hint = "could not list agy models: %v; check that agy is logged in"
 	switch {
+	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		err = fmt.Errorf("%w: agy models timed out after %v", state.ErrInvalid, agyTimeout)
 	case errors.As(err, &exit) && len(bytes.TrimSpace(exit.Stderr)) > 0:
-		err = fmt.Errorf("%v: %s", err, bytes.TrimSpace(exit.Stderr))
-	case err == nil && len(models) == 0:
-		err = fmt.Errorf("it listed no models")
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, fmt.Sprintf("%v: %s", err, bytes.TrimSpace(exit.Stderr)))
+	case err != nil:
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, err)
+	case len(models) == 0:
+		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, "it listed no models")
 	}
 	if err != nil {
-		err = fmt.Errorf("%w: could not list agy models: %v; check that agy is logged in", state.ErrInvalid, err)
 		models = nil
 	}
 	agyLists.byBin[bin] = agyListing{models, err, time.Now()}
