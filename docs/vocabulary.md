@@ -163,7 +163,7 @@ A task keeps all its attempts. At most one is live, that is `launching` or `runn
 
 `launching` becomes `running` or `failed`, and `running` becomes `exited`, `interrupted` or `stopped`. The watcher and every `hand attempt`, `hand supervisor` and `hand attach` command first check the live attempts against Luvus.
 
-`hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes unless `--discard` is given.
+`hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes, and commits on no branch, tag or remote, unless `--discard` is given.
 
 ### Report
 
