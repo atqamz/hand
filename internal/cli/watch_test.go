@@ -521,6 +521,7 @@ func TestWatchReconcilesOnATerminalExitOrPaneClose(t *testing.T) {
 			fx.start()
 			stop := startWatch(t, fx)
 			t.Cleanup(func() { stop() })
+			eventually(t, func() bool { return explains(fx.rt) > 0 })
 			fx.rt.exitAll()
 			fx.rt.srv.Publish(event, data)
 			eventually(t, func() bool { return woken(fx, "attempt.exited") })
