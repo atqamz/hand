@@ -39,6 +39,8 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 
 Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. When the attempt's newest event is already `attempt.quiet` or `attempt.idle`, or is a `done` or `stuck` report, the supervisor already knows, so the watcher records that turn as `attempt.idle` instead. A turn that ends after a `progress` report stays `attempt.quiet`: it is the likely false done. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
 
+A worker that hits its harness's usage limit does not exit: it goes idle at its prompt. When a turn ends with a limit line on the screen, the watcher records `attempt.limited` with that line instead of `attempt.quiet`. The lines are claude's `You've hit your … limit · resets …`, codex's `You've hit your usage limit … try again at …`, and agy's `Individual quota reached … Resets in DURATION`, to which Hand adds the reset time in UTC. opencode has none yet. Claude Code continues by itself at the reset.
+
 ## Fleets and files
 
 ### Hand
@@ -216,7 +218,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 `hand watch`, one per fleet. It:
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
-- records the `attempt.blocked`, `attempt.quiet` and `attempt.idle` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
+- records the `attempt.blocked`, `attempt.quiet`, `attempt.idle` and `attempt.limited` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
@@ -243,6 +245,7 @@ The wake kinds are:
 | `attempt.reported` | a worker added a report |
 | `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn |
 | `attempt.idle` | the worker's turn ended again, or after its `done` or `stuck` report |
+| `attempt.limited` | the worker's turn ended at its harness's usage limit; the detail is the limit line |
 | `attempt.blocked` | the worker waits at a screen that needs an answer |
 | `attempt.exited` | the attempt ended by itself |
 | `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |

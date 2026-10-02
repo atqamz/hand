@@ -280,7 +280,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case last == "attempt.quiet" && ag.Status != "blocked":
+		case (last == "attempt.quiet" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
@@ -315,6 +315,15 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
+		}
+		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
+			if line, ok := harness.Limit(a.Harness, s.Text); ok {
+				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+					return err
+				}
+				w.alert(ctx, ref+" limited: "+line)
+				return nil
+			}
 		}
 		detail, err := w.st.RecordQuiet(ctx, a.ID)
 		if err != nil {

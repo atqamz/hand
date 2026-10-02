@@ -539,3 +539,60 @@ func TestWatchReconnectsOnResyncRequired(t *testing.T) {
 	fx.rt.srv.Publish("events.resync_required", map[string]any{})
 	eventually(t, func() bool { return len(fx.rt.srv.Calls("events.subscribe")) == 2 })
 }
+
+const claudeLimit = "● Fixing login\n  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n\n> "
+
+func TestWatchRecordsALimitedTurnInsteadOfQuiet(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if !strings.Contains(got, `,attempt.limited,t1,"a1: You've hit your session limit · resets 6:10am (Asia/Jakarta)"`) || strings.Contains(got, ",attempt.quiet,") {
+		t.Fatalf("wait = %q", got)
+	}
+	eventually(t, func() bool {
+		log, _ := os.ReadFile(notes)
+		return strings.Contains(string(log), "a1 limited: You've hit your session limit")
+	})
+}
+
+func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	stop = startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if n := strings.Count(got, ",attempt.limited,"); n != 1 || strings.Contains(got, ",attempt.quiet,") {
+		t.Fatalf("attempt.limited recorded %d times across a restart: %q", n, got)
+	}
+}
+
+func TestWatchRecordsAQuietTurnAfterTheLimitClears(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Fixed login\n\n> " })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.limited,"); n != 1 {
+		t.Fatalf("attempt.limited recorded %d times, want 1", n)
+	}
+}
