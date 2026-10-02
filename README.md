@@ -55,6 +55,19 @@ You can choose another version:
 
 `HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
 
+To update an installed Hand, run `hand update` from anywhere. It does the following:
+- downloads the newest build of the channel the running `hand` came from, and checks it;
+- backs up every fleet's `hand.db` and the old binary under `~/.secondhand/backups/`;
+- replaces the binary and restarts the board and watch units that run it;
+- runs `hand init` in every fleet.
+
+It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when no worker attempt is live and the supervisor is idle, and otherwise prints the command to run at a quiet time.
+
+The options:
+- `hand update --check` shows what would change and changes nothing;
+- `hand update --channel edge` (or `stable`) moves to the other channel;
+- a `hand` built from source needs `--channel`.
+
 To build from source instead:
 
 ```sh
@@ -302,6 +315,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. A `SECONDHAND_HOME` set when you run it goes into the unit. |
+| `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart Hand's units, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 
 ## Upgrading from 0.7
