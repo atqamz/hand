@@ -17,6 +17,7 @@ import (
 var (
 	watchExecutable  = os.Executable
 	watcherStartWait = 3 * time.Second
+	systemdRunWait   = 10 * time.Second
 )
 
 func (r *runner) watchHeld() (bool, error) {
@@ -45,10 +46,12 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 				args = append(args, "--setenv="+name+"="+v)
 			}
 		}
-		cmd := exec.CommandContext(ctx, run, append(args, exe, "watch")...)
-		cmd.Env = env
+		runCtx, cancel := context.WithTimeout(ctx, systemdRunWait)
+		defer cancel()
+		cmd := exec.CommandContext(runCtx, run, append(args, exe, "watch")...)
+		cmd.Env, cmd.WaitDelay = env, time.Second
 		if cmd.Run() == nil {
-			return true, r.awaitWatcher(ctx)
+			return true, r.awaitWatcher(ctx, "run `journalctl --user -u "+fleet.WatchUnit(r.fleet.ID)+"`")
 		}
 		if held, err := r.watchHeld(); held || err != nil {
 			return false, err
@@ -69,17 +72,17 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 	if err := cmd.Process.Release(); err != nil {
 		return false, err
 	}
-	return true, r.awaitWatcher(ctx)
+	return true, r.awaitWatcher(ctx, "read "+filepath.Join(r.home, "watch.log"))
 }
 
-func (r *runner) awaitWatcher(ctx context.Context) error {
+func (r *runner) awaitWatcher(ctx context.Context, look string) error {
 	deadline := time.Now().Add(watcherStartWait)
 	for {
 		if held, err := r.watchHeld(); held || err != nil {
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("the watcher did not take watch.lock within %s; read %s", watcherStartWait, filepath.Join(r.home, "watch.log"))
+			return fmt.Errorf("the watcher did not take watch.lock within %s; %s", watcherStartWait, look)
 		}
 		select {
 		case <-ctx.Done():
