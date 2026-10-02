@@ -6,4 +6,5 @@ var (
 	TrustWait    = &trustWait
 	TrustConfirm = &trustConfirm
 	ServerMatch  = serverMatch
+	NotifyArgv   = notifyArgv
 )

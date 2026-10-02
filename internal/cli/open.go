@@ -176,15 +176,15 @@ func boardAddr(ctx context.Context, root, id, token string) (string, error) {
 }
 
 func (r *runner) launch(url, shown, yourself string) error {
-	bin, err := harness.LookPath("xdg-open", r.env.Getenv("PATH"))
+	bin, err := harness.LookPath(opener, r.env.Getenv("PATH"))
 	if err != nil {
-		return fmt.Errorf("%w: no xdg-open on PATH; %s", state.ErrNotFound, yourself)
+		return fmt.Errorf("%w: no %s on PATH; %s", state.ErrNotFound, opener, yourself)
 	}
 	cmd := exec.Command(bin, url)
 	cmd.Env = r.env.Environ()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("xdg-open could not start; %s", yourself)
+		return fmt.Errorf("%s could not start; %s", opener, yourself)
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -192,10 +192,10 @@ func (r *runner) launch(url, shown, yourself string) error {
 	case err := <-done:
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
-			return fmt.Errorf("xdg-open could not open %s (exit %d); %s", shown, exit.ExitCode(), yourself)
+			return fmt.Errorf("%s could not open %s (exit %d); %s", opener, shown, exit.ExitCode(), yourself)
 		}
 		if err != nil {
-			return fmt.Errorf("xdg-open could not open %s; %s", shown, yourself)
+			return fmt.Errorf("%s could not open %s; %s", opener, shown, yourself)
 		}
 	case <-time.After(launchWait):
 	}
