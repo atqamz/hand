@@ -52,6 +52,7 @@ func cmdUpdate(r *runner, args []string) error {
 		Root:      root,
 		HandBase:  r.base("HAND_INSTALL_BASE", "https://github.com/atqamz/hand/releases"),
 		LuvusBase: r.base("HAND_LUVUS_BASE", "https://github.com/RizRiyz/luvus/releases"),
+		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 		Env:       r.env.Environ(),
 		Getenv:    r.env.Getenv,

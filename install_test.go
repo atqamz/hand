@@ -46,11 +46,13 @@ func fakeRelease(t *testing.T, version string, mutate func(files map[string][]by
 	_ = tw.Close()
 	_ = gz.Close()
 	sum := sha256.Sum256(archive.Bytes())
-	files := map[string][]byte{
-		"hand-linux-amd64.tar.gz": archive.Bytes(),
-		"hand-linux-arm64.tar.gz": archive.Bytes(),
-		"checksums.txt":           []byte(hex.EncodeToString(sum[:]) + "  hand-linux-amd64.tar.gz\n" + hex.EncodeToString(sum[:]) + "  hand-linux-arm64.tar.gz\n"),
+	files := map[string][]byte{}
+	var sums strings.Builder
+	for _, name := range []string{"hand-linux-amd64.tar.gz", "hand-linux-arm64.tar.gz", "hand-darwin-amd64.tar.gz", "hand-darwin-arm64.tar.gz"} {
+		files[name] = archive.Bytes()
+		sums.WriteString(hex.EncodeToString(sum[:]) + "  " + name + "\n")
 	}
+	files["checksums.txt"] = []byte(sums.String())
 	if mutate != nil {
 		mutate(files)
 	}
@@ -186,10 +188,58 @@ func TestInstallScriptWorksWithBusyboxSha256sum(t *testing.T) {
 
 func TestInstallScriptRefusesOtherPlatforms(t *testing.T) {
 	srv := fakeRelease(t, "9.9.9", nil)
-	if _, _, errOut, code := runInstall(t, srv, nil, "Darwin", "arm64"); code == 0 || !strings.Contains(errOut, "install.sh: Hand runs on Linux only") {
-		t.Fatalf("darwin: code %d %q", code, errOut)
+	if _, _, errOut, code := runInstall(t, srv, nil, "FreeBSD", "amd64"); code == 0 || !strings.Contains(errOut, "install.sh: Hand runs on Linux and macOS only") {
+		t.Fatalf("freebsd: code %d %q", code, errOut)
 	}
 	if _, _, errOut, code := runInstall(t, srv, nil, "Linux", "s390x"); code == 0 || !strings.Contains(errOut, "install.sh: unsupported architecture s390x") {
 		t.Fatalf("s390x: code %d %q", code, errOut)
+	}
+}
+
+func TestInstallScriptInstallsForMacOS(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", nil)
+	dir, _, errOut, code := runInstall(t, srv, nil, "Darwin", "arm64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) || !slices.Contains(srv.asked(), "/latest/download/hand-darwin-arm64.tar.gz") {
+		t.Fatalf("code %d %q, asked %q", code, errOut, srv.asked())
+	}
+}
+
+func bsdTools(t *testing.T, shasum bool) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, tool := range []string{"curl", "tar", "gzip", "mktemp", "grep", "cp", "chmod", "mv", "mkdir", "rm", "head"} {
+		p, err := exec.LookPath(tool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(p, filepath.Join(dir, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if shasum {
+		real, err := exec.LookPath("sha256sum")
+		if err != nil {
+			t.Fatal(err)
+		}
+		stub := "#!/bin/sh\nif [ \"$1\" = -a ] && [ \"$2\" = 256 ]; then shift 2; fi\nexec " + real + " \"$@\"\n"
+		if err := os.WriteFile(filepath.Join(dir, "shasum"), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func TestInstallScriptUsesShasum(t *testing.T) {
+	dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), map[string]string{"PATH": bsdTools(t, true)}, "Darwin", "arm64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) {
+		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
+	}
+}
+
+func TestInstallScriptNeedsAChecksumTool(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", nil)
+	dir, _, errOut, code := runInstall(t, srv, map[string]string{"PATH": bsdTools(t, false)}, "Darwin", "arm64")
+	if code == 0 || !strings.Contains(errOut, "install.sh: sha256sum or shasum is required") || len(srv.asked()) != 0 || len(installed(t, dir)) != 0 {
+		t.Fatalf("code %d %q, asked %q", code, errOut, srv.asked())
 	}
 }

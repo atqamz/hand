@@ -25,18 +25,23 @@ type Build struct {
 	Luvus                          string
 }
 
-var luvusTriples = map[string]string{"amd64": "x86_64-unknown-linux-musl", "arm64": "aarch64-unknown-linux-musl"}
+var luvusTriples = map[string]string{
+	"linux/amd64":  "x86_64-unknown-linux-musl",
+	"linux/arm64":  "aarch64-unknown-linux-musl",
+	"darwin/amd64": "x86_64-apple-darwin",
+	"darwin/arm64": "aarch64-apple-darwin",
+}
 
 var client = &http.Client{Timeout: 5 * time.Minute}
 
 const maxBinary = 512 << 20
 
-func FetchHand(ctx context.Context, base, channel, arch, dir string, env []string) (Build, error) {
+func FetchHand(ctx context.Context, base, channel, goos, arch, dir string, env []string) (Build, error) {
 	url := strings.TrimRight(base, "/") + "/download/edge"
 	if channel == "stable" {
 		url = strings.TrimRight(base, "/") + "/latest/download"
 	}
-	asset := "hand-linux-" + arch + ".tar.gz"
+	asset := "hand-" + goos + "-" + arch + ".tar.gz"
 	if err := fetchChecked(ctx, url, dir, asset, "checksums.txt"); err != nil {
 		return Build{}, err
 	}
@@ -57,10 +62,10 @@ func FetchHand(ctx context.Context, base, channel, arch, dir string, env []strin
 	return b, nil
 }
 
-func FetchLuvus(ctx context.Context, base, version, arch, dir string) (string, error) {
-	triple, ok := luvusTriples[arch]
+func FetchLuvus(ctx context.Context, base, version, goos, arch, dir string) (string, error) {
+	triple, ok := luvusTriples[goos+"/"+arch]
 	if !ok {
-		return "", fmt.Errorf("update: no Luvus build for %s", arch)
+		return "", fmt.Errorf("update: no Luvus build for %s/%s", goos, arch)
 	}
 	name := "luvus-v" + version + "-" + triple
 	if err := fetchChecked(ctx, strings.TrimRight(base, "/")+"/download/v"+version, dir, name+".tar.gz", name+".sha256"); err != nil {

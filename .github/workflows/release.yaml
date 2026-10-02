@@ -42,12 +42,14 @@ jobs:
           set -eu
           pkg=github.com/atqamz/hand/internal/cli
           commit=$(git rev-parse HEAD)
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand .
-            tar -czf "hand-linux-$arch.tar.gz" hand
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}
+            arch=${target#*/}
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand .
+            tar -czf "hand-$os-$arch.tar.gz" hand
             rm hand
           done
-          sha256sum hand-linux-*.tar.gz > checksums.txt
+          sha256sum hand-*.tar.gz > checksums.txt
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,4 +58,4 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --title "Hand ${TAG#v}" --notes "Draft: write the notes, then publish." --verify-tag
           fi
-          gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz checksums.txt --clobber
+          gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt --clobber

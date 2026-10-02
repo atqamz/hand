@@ -10,23 +10,34 @@ die() {
 	exit 1
 }
 
-[ "$(uname -s)" = Linux ] || die "Hand runs on Linux only"
+case "$(uname -s)" in
+Linux) os=linux ;;
+Darwin) os=darwin ;;
+*) die "Hand runs on Linux and macOS only" ;;
+esac
 machine=$(uname -m)
 case "$machine" in
 x86_64 | amd64) arch=amd64 ;;
 aarch64 | arm64) arch=arm64 ;;
 *) die "unsupported architecture $machine" ;;
 esac
-for tool in curl tar sha256sum; do
+for tool in curl tar; do
 	command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
+if command -v sha256sum >/dev/null 2>&1; then
+	check="sha256sum -c want"
+elif command -v shasum >/dev/null 2>&1; then
+	check="shasum -a 256 -c want"
+else
+	die "sha256sum or shasum is required"
+fi
 
 if [ "$version" = latest ]; then
 	url="$base/latest/download"
 else
 	url="$base/download/$version"
 fi
-asset="hand-linux-$arch.tar.gz"
+asset="hand-$os-$arch.tar.gz"
 tmp=$(mktemp -d)
 part=""
 trap 'rm -rf "$tmp"; if [ -n "$part" ]; then rm -f "$part"; fi' EXIT
@@ -35,7 +46,7 @@ trap 'exit 1' HUP INT TERM
 curl -fsSL -o "$tmp/$asset" "$url/$asset"
 curl -fsSL -o "$tmp/checksums.txt" "$url/checksums.txt"
 grep " $asset\$" "$tmp/checksums.txt" >"$tmp/want" || die "checksum mismatch for $asset"
-(cd "$tmp" && sha256sum -c want >/dev/null 2>&1) || die "checksum mismatch for $asset"
+(cd "$tmp" && $check >/dev/null 2>&1) || die "checksum mismatch for $asset"
 tar -xzf "$tmp/$asset" -C "$tmp" hand
 
 mkdir -p "$dir"

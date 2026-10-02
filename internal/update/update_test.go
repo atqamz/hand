@@ -97,6 +97,7 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 		Root:      f.root,
 		HandBase:  f.srv.URL,
 		LuvusBase: f.srv.URL,
+		OS:        "linux",
 		Arch:      "amd64",
 		Env:       env,
 		Getenv:    lookup(env),
