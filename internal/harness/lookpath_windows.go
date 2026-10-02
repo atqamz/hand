@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 )
 
 func LookPath(name, path string) (string, error) {
-	exts := []string{""}
+	var exts []string
 	pathext := os.Getenv("PATHEXT")
 	if pathext == "" {
 		pathext = ".COM;.EXE;.BAT;.CMD"
@@ -19,6 +20,9 @@ func LookPath(name, path string) (string, error) {
 		if ext != "" {
 			exts = append(exts, ext)
 		}
+	}
+	if slices.ContainsFunc(exts, func(e string) bool { return strings.EqualFold(filepath.Ext(name), e) }) {
+		exts = append([]string{""}, exts...)
 	}
 	for _, dir := range filepath.SplitList(path) {
 		if !filepath.IsAbs(dir) {

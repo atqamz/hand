@@ -1,6 +1,7 @@
 package flock
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +65,7 @@ func TestLockReleasedOnExit(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	if n, _ := out.Read(make([]byte, 5)); n != 5 {
+	if _, err := io.ReadFull(out, make([]byte, 5)); err != nil {
 		t.Fatal("child did not take the lock")
 	}
 	f := open(t, path)
