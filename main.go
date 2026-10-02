@@ -9,5 +9,5 @@ import (
 
 func main() {
 	exe, _ := os.Executable()
-	os.Exit(cli.Run(os.Args[1:], cli.Env{Name: cli.CommandName(exe), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd}))
+	os.Exit(cli.Run(os.Args[1:], cli.Env{Name: cli.CommandName(exe), Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: cli.HostGetenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd}))
 }
