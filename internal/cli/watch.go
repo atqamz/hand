@@ -64,11 +64,7 @@ func cmdWatch(r *runner, args []string) error {
 	if ok, err := flock.Lock(lock, false); !ok || err != nil {
 		return fmt.Errorf("%w: another hand watch is running for %s", state.ErrConflict, r.home)
 	}
-	forget, err := update.WritePID(filepath.Join(r.home, "watch.pid"))
-	if err != nil {
-		return err
-	}
-	defer forget()
+	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	w := &watcher{r: r, st: st, notify: *notify, every: *every}
@@ -90,6 +86,15 @@ func cmdWatch(r *runner, args []string) error {
 		}
 	}
 	return nil
+}
+
+func (r *runner) writePID(path string) func() {
+	forget, err := update.WritePID(path)
+	if err != nil {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v; hand update on Windows will not stop this process\n", path, err)
+		return func() {}
+	}
+	return forget
 }
 
 func (w *watcher) session(ctx context.Context) error {
