@@ -507,7 +507,7 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 	fx := claudeFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
-		rt.screen, rt.revision, rt.afterScreen = claudeTrustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, "> \n"
+		rt.screen, rt.revision, rt.keyScreens = claudeTrustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, []string{claudeTrustScreenYes(wt), "> \n"}
 	})
 	out := fx.start()
 	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
@@ -557,12 +557,29 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 	}
 }
 
-func TestClaudeTrustScreenThatStaysIsNoted(t *testing.T) {
+func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
 	fx := claudeFixture(t)
 	screen := claudeTrustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.start()
-	if !strings.Contains(out, "trust: accepted") || !strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+	if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || !slices.Equal(fx.rt.keysSent(), []string{"down"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude trust screen was not pressed; check the screen"`) {
+		t.Fatalf("wait = %q", woke)
+	}
+	events, err := openStore(t, fx.h).RecentEventsOf(context.Background(), []string{"attempt.keys"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "a1: down" {
+		t.Fatalf("events = %+v, err %v", events, err)
+	}
+}
+
+func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
+	fx := claudeFixture(t)
+	screen := claudeTrustScreenYes(fx.h.worktree("t1-a1"))
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
 	}
 	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude trust screen did not clear; check the screen"`) {

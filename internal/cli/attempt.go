@@ -238,47 +238,53 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 		s, err := c.Read(wait, pane, 60)
 		asked := err == nil && strings.Contains(s.Text, screen.question)
 		seen = seen || asked
+		onYes := asked && strings.Contains(s.Text, screen.yesCursor)
+		onNo := asked && !onYes && screen.noCursor != "" && strings.Contains(s.Text, screen.noCursor)
 		switch {
 		case luvus.Code(err) != "":
-			return missed(harness, seen)
-		case asked && (strings.Contains(s.Text, screen.yesCursor) || (screen.noCursor != "" && strings.Contains(s.Text, screen.noCursor))):
+			return missed(harness, seen, pressed)
+		case onYes || (onNo && !slices.Contains(pressed, "down")):
 			if !strings.Contains(unwrap(s.Text), own) {
-				return "not pressed", harness + " asks to trust a folder that is not its worktree; check the screen", nil
+				return "not pressed", harness + " asks to trust a folder that is not its worktree; check the screen", pressed
 			}
-			keys := []string{"enter"}
-			if screen.noCursor != "" && strings.Contains(s.Text, screen.noCursor) {
-				keys = []string{"down", "enter"}
+			key := "enter"
+			if onNo {
+				key = "down"
 			}
-			err := c.Keys(wait, pane, keys, s.ContentRevision, terminalID)
+			err := c.Keys(wait, pane, []string{key}, s.ContentRevision, terminalID)
 			switch {
+			case err == nil && key == "down":
+				pressed = append(pressed, key)
+				retried = false
+				continue
 			case err == nil && trustCleared(ctx, c, pane, screen.question, tick.C):
-				return "accepted", "", keys
+				return "accepted", "", append(pressed, key)
 			case err == nil:
-				return "accepted", harness + " trust screen did not clear; check the screen", keys
+				return "accepted", harness + " trust screen did not clear; check the screen", append(pressed, key)
 			case luvus.Code(err) != "content_revision_conflict" || retried:
-				return "not pressed", trustUnpressed(harness), nil
+				return "not pressed", trustUnpressed(harness), pressed
 			}
 			retried = true
 			continue
 		}
 		if !asked {
 			if ag, err := c.Explain(wait, pane); err == nil && ag.Status == "working" {
-				return missed(harness, seen)
+				return missed(harness, seen, pressed)
 			}
 		}
 		select {
 		case <-wait.Done():
-			return missed(harness, seen)
+			return missed(harness, seen, pressed)
 		case <-tick.C:
 		}
 	}
 }
 
-func missed(harness string, seen bool) (trust, note string, pressed []string) {
+func missed(harness string, seen bool, pressed []string) (trust, note string, keys []string) {
 	if seen {
-		return "not pressed", trustUnpressed(harness), nil
+		return "not pressed", trustUnpressed(harness), pressed
 	}
-	return "not asked", "", nil
+	return "not asked", "", pressed
 }
 
 func trustUnpressed(harness string) string {

@@ -45,6 +45,7 @@ type fakeRuntime struct {
 	screen      string
 	screens     []string
 	afterScreen string
+	keyScreens  []string
 	afterStall  time.Duration
 	stall       time.Duration
 	readFail    string
@@ -295,6 +296,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	}
 	if rt.afterScreen != "" {
 		rt.screen = rt.afterScreen
+	}
+	if len(rt.keyScreens) > 0 {
+		rt.screen, rt.keyScreens = rt.keyScreens[0], rt.keyScreens[1:]
 	}
 	rt.stall = rt.afterStall
 	return map[string]any{"type": "ok"}, nil
