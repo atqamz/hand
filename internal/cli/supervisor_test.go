@@ -1476,3 +1476,25 @@ func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.readFail = "" })
 	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
 }
+
+func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	alerts := func() int {
+		log, _ := os.ReadFile(notes)
+		return strings.Count(string(log), "supervisor limited: You've hit your session limit")
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return alerts() == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Back after the reset\n\n> " })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return alerts() == 2 })
+}

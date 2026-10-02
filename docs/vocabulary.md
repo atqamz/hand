@@ -219,7 +219,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle` and `attempt.limited` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
-- delivers queued messages and wakes to the managed supervisor, and alerts once for each usage-limit line the supervisor sits at;
+- delivers queued messages and wakes to the managed supervisor, and alerts once each time the supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 

@@ -211,6 +211,9 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 }
 
 func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
+	if w.limited != "" && w.limitCleared(ctx, c) {
+		w.limited = ""
+	}
 	why, err := w.r.deliver(ctx, w.st, c, caps, false)
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
@@ -219,6 +222,15 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		w.limited = why
 		w.alert(ctx, why)
 	}
+}
+
+func (w *watcher) limitCleared(ctx context.Context, c luvus.Client) bool {
+	sup, ok, err := w.st.LiveSupervisor(ctx)
+	if err != nil || !ok {
+		return err == nil
+	}
+	line, err := supervisorLimit(ctx, c, sup)
+	return err == nil && line == ""
 }
 
 func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
