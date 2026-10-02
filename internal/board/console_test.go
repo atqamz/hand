@@ -324,3 +324,13 @@ func TestStartRowPostsHarnessModelAndEffort(t *testing.T) {
 		t.Fatalf("ran %q", got)
 	}
 }
+
+func TestStartRowDefaultsPostNoModelOrEffort(t *testing.T) {
+	fx := newFixture(t)
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "claude")
+	contains(t, "row", row, `<select name="model" aria-label="claude model"><option value="">default</option>`, `<select name="effort" aria-label="claude effort"><option value="">default</option>`)
+	post(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "model": {""}, "effort": {""}})
+	if got := strings.Join(fx.called()[0], " "); got != "supervisor start --harness claude" {
+		t.Fatalf("ran %q", got)
+	}
+}
