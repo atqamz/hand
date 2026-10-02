@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -54,17 +55,26 @@ func cmdUnit(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	vals = append(vals, exe)
+	root := ""
+	if r.env.Getenv("SECONDHAND_HOME") != "" {
+		if root, err = fleet.Root(r.env.Getenv); err != nil {
+			return err
+		}
+	}
+	vals = append(vals, exe, root)
 	for i, v := range vals {
 		if vals[i], err = unitValue(v); err != nil {
 			return err
 		}
 	}
-	name, home, command, exe := vals[0], vals[1], vals[2], vals[3]
+	name, home, command, exe, root := vals[0], vals[1], vals[2], vals[3], vals[4]
 	service := ""
 	if home != "" {
 		description += " for " + name + " (" + home + ")"
 		service = `Environment="HAND_HOME=` + home + "\"\n"
+	}
+	if root != "" {
+		service += `Environment="SECONDHAND_HOME=` + root + "\"\n"
 	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
 		"Description="+description+"\n\n"+
