@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -46,7 +47,7 @@ func startedAt(pid uint32, cache map[uint32]int64) (int64, bool) {
 		return t, t != 0
 	}
 	if m, err := luvus.ProcStartMarker(int(pid)); err == nil {
-		cache[pid], _ = strconv.ParseInt(m, 10, 64)
+		cache[pid], _ = strconv.ParseInt(strings.TrimPrefix(m, "windows:"), 10, 64)
 	} else {
 		cache[pid] = 0
 	}

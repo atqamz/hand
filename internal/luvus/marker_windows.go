@@ -9,10 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const stillActive = 259
-
 func ProcStartMarker(pid int) (string, error) {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) || errors.Is(err, windows.ERROR_NOT_FOUND) {
 		return "", fmt.Errorf("%w: %w", fs.ErrNotExist, err)
 	}
@@ -20,16 +18,16 @@ func ProcStartMarker(pid int) (string, error) {
 		return "", err
 	}
 	defer windows.CloseHandle(h)
-	var code uint32
-	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+	ev, err := windows.WaitForSingleObject(h, 0)
+	if err != nil {
 		return "", err
 	}
-	if code != stillActive {
-		return "", fmt.Errorf("%w: %w", fs.ErrNotExist, windows.ERROR_INVALID_PARAMETER)
+	if ev != uint32(windows.WAIT_TIMEOUT) {
+		return "", fmt.Errorf("%w: process %d has exited", fs.ErrNotExist, pid)
 	}
 	var created, exited, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
 		return "", err
 	}
-	return strconv.FormatInt(created.Nanoseconds(), 10), nil
+	return "windows:" + strconv.FormatUint(uint64(created.HighDateTime)<<32|uint64(created.LowDateTime), 10), nil
 }
