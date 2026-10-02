@@ -745,7 +745,10 @@ func cmdSupervisorSend(r *runner, args []string) error {
 	})
 }
 
-const deliveryTimeout = time.Minute
+const (
+	deliveryTimeout   = time.Minute
+	supervisorLimited = "supervisor limited: "
+)
 
 func detached(ctx context.Context, fn func(context.Context) error) error {
 	ctx, done := context.WithTimeout(context.WithoutCancel(ctx), deliveryTimeout)
@@ -837,6 +840,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	if len(pending) > 0 || (ag.Status != "idle" && ag.Status != "done") {
 		return "", nil
+	}
+	if s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil {
+		if line, ok := harness.Limit(sup.Harness, s.Text); ok {
+			return supervisorLimited + line, nil
+		}
 	}
 	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil || len(events) == 0 {

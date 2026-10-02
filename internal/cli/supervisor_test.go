@@ -1403,3 +1403,61 @@ func TestSupervisorForceDeliversNormallyWhenNotBlocked(t *testing.T) {
 		t.Fatalf("prompts = %q, keys = %q", got, rt.keysSent())
 	}
 }
+
+func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	eventually(t, func() bool { return explains(fx.rt) > 0 })
+	for range 2 {
+		n := explains(fx.rt)
+		publishStatus(fx, pane, "idle")
+		eventually(t, func() bool { return explains(fx.rt) > n })
+	}
+	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "why: \"supervisor limited: You've hit your session limit · resets 6:10am (Asia/Jakarta)\"")
+	has(t, "send", fx.h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
+	out, _ := stop()
+	if got := fx.rt.prompts(); !slices.Equal(got, []string{"hello"}) {
+		t.Fatalf("prompts while limited = %q", got)
+	}
+	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
+	log, _ := os.ReadFile(notes)
+	if n := strings.Count(string(log), "supervisor limited: You've hit your session limit"); n != 1 {
+		t.Fatalf("limited alerts = %d, want 1: %q (watch out %q)", n, log, out)
+	}
+}
+
+func TestDeliverResumesAfterLimitClears(t *testing.T) {
+	fx := newAttemptFixture(t)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return explains(fx.rt) > 0 })
+	n := explains(fx.rt)
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return explains(fx.rt) > n })
+	if got := fx.rt.prompts(); len(got) != 0 {
+		t.Fatalf("wake sent while limited: %q", got)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Back after the reset\n\n> " })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	if wake := fx.rt.prompts()[0]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "\nattempt.reported a1: r1 done") {
+		t.Fatalf("wake = %q", wake)
+	}
+	events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"attempt.reported"}, 1)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events = %v, %v", events, err)
+	}
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[0].Seq))
+	})
+}

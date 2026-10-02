@@ -219,7 +219,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle` and `attempt.limited` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
-- delivers queued messages and wakes to the managed supervisor;
+- delivers queued messages and wakes to the managed supervisor, and alerts once when the supervisor sits at a usage limit;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
@@ -235,7 +235,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
 
-- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
+- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out. While the supervisor's screen shows its harness's usage-limit line, Hand holds wakes and leaves the cursor where it is, because the harness would answer them with the limit error. The hold lifts once the line leaves the screen. Operator messages still go out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
 
 The wake kinds are:
