@@ -63,7 +63,7 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 - replaces the binary and restarts the board and watch units that run it;
 - runs `hand init` in every fleet.
 
-It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, and no message waits for it. Otherwise it prints the command to run at a quiet time. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
+It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, and no message waits for it. Otherwise it prints the command to run at a quiet time. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
 
 To restore a backup:
 1. stop the fleet's watch unit and the board;

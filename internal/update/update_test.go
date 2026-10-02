@@ -692,3 +692,184 @@ func TestRunTriesAResumeWhenTheSupervisorStopFails(t *testing.T) {
 		t.Fatalf("report = %+v", rep)
 	}
 }
+
+func (f *fixture) stoppedSupervisor(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	st := f.store(t)
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Session: "0f8fad5b-d9cb-469f-a165-70867728950e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "stopped by operator"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fixture) leaveJournal(t *testing.T, supervisor bool) {
+	t.Helper()
+	j := map[string][]string{"watch": {"secondhand-watch-alpha.service"}, "board": {"secondhand-board.service"}, "init": {f.alpha}}
+	if supervisor {
+		j["supervisor"] = []string{f.alpha}
+	}
+	b, _ := json.Marshal(j)
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunLeavesNoJournal(t *testing.T) {
+	f := newRun(t, nil)
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunJournalsItsStepsBeforeTakingThem(t *testing.T) {
+	f := newRun(t, nil)
+	copyAt := filepath.Join(t.TempDir(), "journal-at-stop")
+	script, err := os.ReadFile(filepath.Join(f.sysdir, "systemctl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := "#!/bin/sh\nif [ \"$2\" = stop ]; then cp " + filepath.Join(f.root, "update.json") + " " + copyAt + "; fi\n"
+	if err := os.WriteFile(filepath.Join(f.sysdir, "systemctl"), append([]byte(hook), script[len("#!/bin/sh\n"):]...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(copyAt)
+	if err != nil {
+		t.Fatalf("no journal when the watcher stopped: %v", err)
+	}
+	var j map[string][]string
+	if err := json.Unmarshal(b, &j); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(j["watch"], []string{"secondhand-watch-alpha.service"}) || !slices.Equal(j["board"], []string{"secondhand-board.service"}) || !slices.Equal(j["init"], []string{f.alpha}) {
+		t.Fatalf("journal at the stop = %s", b)
+	}
+}
+
+func TestRunFinishesAnInterruptedUpdate(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.stoppedSupervisor(t)
+	f.leaveJournal(t, true)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "repaired" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	want := []string{
+		"systemctl --user start secondhand-watch-alpha.service",
+		"hand supervisor resume @ " + f.alpha,
+		"systemctl --user restart secondhand-board.service",
+		"hand init @ " + f.alpha,
+	}
+	if got := f.log(t, " start ", "supervisor", " restart ", "hand init"); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q", got)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+	if b, _ := os.ReadFile(f.target); string(b) != oldHand {
+		t.Fatal("a repair replaced the binary")
+	}
+}
+
+func TestRepairLeavesALiveSupervisorAlone(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.supervisor(t)
+	f.leaveJournal(t, true)
+	if _, err := Run(context.Background(), f.o); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.log(t, "supervisor"); len(got) != 0 {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestCheckReportsAnInterruptedUpdate(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	f.leaveJournal(t, false)
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "stopped part way") }) {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got := f.log(t, changes...); len(got) != 0 {
+		t.Fatalf("calls = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, "update.json")); err != nil {
+		t.Fatalf("check removed the journal: %v", err)
+	}
+}
+
+func TestRunRepairsBeforeFetching(t *testing.T) {
+	f := newRun(t, nil)
+	f.leaveJournal(t, false)
+	f.srv.set("hand-linux-amd64.tar.gz", nil)
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a failed download succeeded")
+	}
+	if got := f.log(t, " start ", " restart ", "hand init"); !slices.Equal(got, []string{"systemctl --user start secondhand-watch-alpha.service", "systemctl --user restart secondhand-board.service", "hand init @ " + f.alpha}) {
+		t.Fatalf("calls = %q", got)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunSetsAsideAnUnreadableJournal(t *testing.T) {
+	f := newRun(t, nil)
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "updated" || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "could not read") }) {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunTreatsAnEmptyJournalAsDone(t *testing.T) {
+	f := newRun(t, nil)
+	f.current()
+	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRunLeavesNoJournalWhenTheBackupFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes into a 0555 folder")
+	}
+	f := newRun(t, nil)
+	backups := filepath.Join(f.root, "backups")
+	if err := os.MkdirAll(backups, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(backups, 0o755) })
+	if _, err := Run(context.Background(), f.o); err == nil {
+		t.Fatal("a failed backup succeeded")
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
+
+func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
+	var r Report
+	if err := r.record(Options{Root: filepath.Join(t.TempDir(), "missing")}, func(j *journal) { j.Watch = []string{"w"} }); err == nil {
+		t.Fatal("record wrote into a missing folder")
+	}
+	if len(r.journal.Watch) != 0 {
+		t.Fatalf("a failed record kept %q in memory", r.journal.Watch)
+	}
+}
