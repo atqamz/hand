@@ -115,6 +115,21 @@ func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
 	}
 }
 
+func TestExitedEventCarriesExitCode(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.exitAll()
+	fx.rt.srv.Publish("terminal.exited", map[string]any{"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1", "detail": map[string]any{"exit_code": 3, "signal": nil}})
+	eventually(t, func() bool { return woken(fx, "attempt.exited") })
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(out, "terminal exited (code 3)") {
+		t.Fatalf("wake = %q", out)
+	}
+}
+
 func TestSecondWatcherIsRefused(t *testing.T) {
 	fx := newAttemptFixture(t)
 	stop := startWatch(t, fx)
