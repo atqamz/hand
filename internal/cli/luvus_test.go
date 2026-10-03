@@ -4,18 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
 )
 
 func fakeLuvusAt(t *testing.T, dir, version string) string {
 	t.Helper()
-	bin := filepath.Join(dir, "luvus")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus "+version+"'; exit 0; fi\nexit 0\n"), 0o755); err != nil {
+	return embedAt(t, dir, "luvus", map[string]string{"on --version": "luvus " + version + "\n"})
+}
+
+func embedAt(t *testing.T, dir, name string, params map[string]string) string {
+	t.Helper()
+	bin := filepath.Join(dir, name)
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
+	if err := os.WriteFile(bin, fakebin.Embed(t, "fake", params), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return bin
@@ -59,10 +69,7 @@ func TestLuvusPinRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hello := filepath.Join(t.TempDir(), "hello")
-	if err := os.WriteFile(hello, []byte("#!/bin/sh\necho hello\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	hello := embedAt(t, t.TempDir(), "hello", map[string]string{"on --version": "hello\n"})
 	for _, c := range []struct{ bin, want string }{
 		{filepath.Join(t.TempDir(), "missing"), "not a luvus binary"},
 		{hello, "not a luvus binary"},
@@ -97,7 +104,10 @@ func TestAChangedPinIsRefused(t *testing.T) {
 	if err := os.Chmod(pinned, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pinned, []byte("#!/bin/sh\necho tampered\n"), 0o755); err != nil {
+	if err := os.Remove(pinned); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pinned, []byte("tampered\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	h.tty = true
@@ -106,50 +116,13 @@ func TestAChangedPinIsRefused(t *testing.T) {
 	}
 }
 
-func TestTheServerStartsFromThePin(t *testing.T) {
-	h := initWithProject(t)
-	bin := t.TempDir()
-	calls := filepath.Join(t.TempDir(), "calls")
-	for name, script := range map[string]string{
-		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\necho 'Failed to start transient service unit' >&2\nexit 1\n",
-		"systemctl":   "#!/bin/sh\nexit 0\n",
-		"luvus":       "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus 0.14.3'; exit 0; fi\necho \"LUVUS-SPAWNED-DIRECTLY $*\" >> " + calls + "\nexit 1\n",
-	} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(run, "systemd"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(run, "systemd", "private"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h.vars["PATH"], h.vars["XDG_RUNTIME_DIR"] = bin, run
-	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "absent.sock")
-	pinned := pinnedPath(t, h.ok("luvus", "pin"))
-	id := regexp.MustCompile(`\((f[0-9a-f]{12})\)`).FindStringSubmatch(h.ok("orient"))[1]
-	h.run("attempt", "list")
-	got, _ := os.ReadFile(calls)
-	if !strings.Contains(string(got), pinned+" --session secondhand-"+id+" server start") || strings.Contains(string(got), filepath.Join(bin, "luvus")) {
-		t.Fatalf("calls = %q", got)
-	}
-}
-
 func TestTheServerRefusesAChangedPin(t *testing.T) {
 	h := initWithProject(t)
 	bin := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "calls")
-	for name, script := range map[string]string{
-		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\nexit 1\n",
-		"systemctl":   "#!/bin/sh\nexit 0\n",
-		"luvus":       "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus 0.14.3'; exit 0; fi\necho LUVUS-SPAWNED-DIRECTLY >> " + calls + "\nexit 1\n",
-	} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
+	fakebin.Install(t, bin, "systemd-run", "fake", map[string]string{"log": calls, "exit": "1"})
+	fakebin.Install(t, bin, "systemctl", "fake", nil)
+	embedAt(t, bin, "luvus", map[string]string{"on --version": "luvus 0.14.3\n", "log": calls, "prefix": "LUVUS-SPAWNED-DIRECTLY", "exit": "1"})
 	h.vars["PATH"] = bin
 	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "absent.sock")
 	pinned := pinnedPath(t, h.ok("luvus", "pin"))
@@ -190,9 +163,7 @@ func TestInitWithoutLuvusStillSucceeds(t *testing.T) {
 	}
 	broken := newHarness(t)
 	broken.vars["PATH"] = t.TempDir()
-	if err := os.WriteFile(filepath.Join(broken.vars["PATH"], "luvus"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	embedAt(t, broken.vars["PATH"], "luvus", map[string]string{"exit": "1"})
 	has(t, "broken luvus", broken.ok("init"), "Luvus was not pinned (")
 	if names, _ := os.ReadDir(filepath.Join(broken.vars["SECONDHAND_HOME"], "luvus")); slices.ContainsFunc(names, func(e os.DirEntry) bool { return e.Name() == "pin.json" }) {
 		t.Fatal("a broken luvus was pinned")

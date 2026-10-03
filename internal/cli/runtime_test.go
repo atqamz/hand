@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/proc"
@@ -397,14 +398,9 @@ func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range []string{"claude", "codex", "opencode"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		fakebin.Install(t, dir, name, "fake", map[string]string{"sleep": "300s"})
 	}
-	agy := "#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; exit 0; fi\nexec sleep 300\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(agy), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
 	return dir
 }
 

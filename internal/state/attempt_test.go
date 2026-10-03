@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"testing"
 )
@@ -58,7 +59,7 @@ func TestAttemptLifecycle(t *testing.T) {
 	if err != nil || a.ID != 1 || a.Status != AttemptLaunching {
 		t.Fatalf("add = %+v, %v", a, err)
 	}
-	if a.Worktree != "/home/me/.hand/worktrees/t1-a1" || a.Branch != "hand/"+f.ID+"/t1-a1" {
+	if a.Worktree != filepath.Join("/home/me/.hand/worktrees", "t1-a1") || a.Branch != "hand/"+f.ID+"/t1-a1" {
 		t.Fatalf("layout = %s %s", a.Worktree, a.Branch)
 	}
 	term := Terminal{ServerGeneration: "g1", TerminalID: "tid", PaneID: "2", PID: 42, StartMarker: "900"}
@@ -198,7 +199,7 @@ func TestAttemptListsAndLatest(t *testing.T) {
 	if _, err := s.Project(ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing project err = %v", err)
 	}
-	if p, err := s.Project(ctx, "hand"); err != nil || p.Repo != "/home/me/hand" {
+	if p, err := s.Project(ctx, "hand"); err != nil || p.Repo != handRepo {
 		t.Fatalf("project = %+v, %v", p, err)
 	}
 }

@@ -9,7 +9,7 @@ func initWithProject(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	h.ok("init")
-	h.ok("project", "add", "hand", "/home/me/hand")
+	h.ok("project", "add", "hand", handRepo)
 	return h
 }
 

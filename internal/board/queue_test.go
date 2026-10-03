@@ -49,7 +49,7 @@ func active(t *testing.T, st *state.Store, title string) state.Task {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := st.Project(ctx, "hand"); err != nil {
-		if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+		if _, err := st.AddProject(ctx, "hand", handRepo); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/agydb/agytest"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -99,20 +100,18 @@ func TestCodexSessionFindsTheFirstRolloutForTheFolderSinceLaunch(t *testing.T) {
 
 func TestOpencodeSessionParsesTheList(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(t.TempDir(), "opencode")
 	fixture, err := filepath.Abs(filepath.Join("testdata", "opencode-session-list.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\ncase \"$*\" in\n" +
-		"'session list --standalone --format json') sleep 5 & sed \"s#/fleets/demo#$(pwd)#\" " + fixture + " ;;\n" +
-		"'session export --standalone ses_newer000000000000000000001') echo '{\"messages\":[{\"type\":\"user\",\"text\":\"\\\"" + marker + "demo.\\\"\"}]}' ;;\n" +
-		"'session export --standalone ses_older000000000000000000003') echo '{\"messages\":[{\"type\":\"user\",\"text\":\"quote: " + marker + "demo.\"},{\"type\":\"assistant\",\"text\":\"" + marker + "demo.\"}]}' ;;\n" +
-		"'session export --standalone '*) echo '{\"messages\":[{\"type\":\"user\",\"text\":\"hello\"}]}' ;;\n" +
-		"*) echo \"bad args: $*\" >&2; exit 1 ;;\nesac\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	exports := map[string]string{
+		"list":                           fixture,
+		"holders":                        holders(t),
+		"ses_newer000000000000000000001": `{"messages":[{"type":"user","text":"\"` + marker + `demo.\""}]}`,
+		"ses_older000000000000000000003": `{"messages":[{"type":"user","text":"quote: ` + marker + `demo."},{"type":"assistant","text":"` + marker + `demo."}]}`,
+		"other":                          `{"messages":[{"type":"user","text":"hello"}]}`,
 	}
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
 	began := time.Now()
 	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("session = %q, %v", id, err)
@@ -120,14 +119,8 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	if took := time.Since(began); took > 4*time.Second {
 		t.Fatalf("a child holding stdout kept the lookup waiting %s", took)
 	}
-	parts := filepath.Join(t.TempDir(), "opencode")
-	partsScript := strings.Replace(script, `{"messages":[{"type":"user","text":"\"`+marker+`demo.\""}]}`, `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"`+marker+`demo."}]}]}`, 1)
-	if partsScript == script {
-		t.Fatal("parts fixture not substituted")
-	}
-	if err := os.WriteFile(parts, []byte(partsScript), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	exports["ses_newer000000000000000000001"] = `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"` + marker + `demo."}]}]}`
+	parts := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
 	if id, err := OpencodeSession(parts, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("parts-shaped export: session = %q, %v", id, err)
 	}

@@ -104,7 +104,8 @@ func TestRebaseProjectsMakesPathsUnderTheOldHomeRelative(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTest(t)
 	old := filepath.Join(t.TempDir(), "old")
-	for name, repo := range map[string]string{"inner": filepath.Join(old, "projects", "inner"), "outer": "/srv/outer"} {
+	outer, _ := filepath.Abs("/srv/outer")
+	for name, repo := range map[string]string{"inner": filepath.Join(old, "projects", "inner"), "outer": outer} {
 		if _, err := s.db.Exec(`INSERT INTO project(name, repo, created_at) VALUES (?, ?, 'x')`, name, repo); err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +116,7 @@ func TestRebaseProjectsMakesPathsUnderTheOldHomeRelative(t *testing.T) {
 	if p, err := s.Project(ctx, "inner"); err != nil || p.Repo != filepath.Join(s.home, "projects", "inner") {
 		t.Fatalf("inner = %+v, %v", p, err)
 	}
-	if p, err := s.Project(ctx, "outer"); err != nil || p.Repo != "/srv/outer" {
+	if p, err := s.Project(ctx, "outer"); err != nil || p.Repo != outer {
 		t.Fatalf("outer = %+v, %v", p, err)
 	}
 	events, err := s.RecentEvents(ctx, 1)

@@ -1,16 +1,107 @@
 package harness
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
+
+func TestMain(m *testing.M) {
+	fakebin.Main(map[string]func([]string) int{"agy": fakeAgyMain, "opencode": fakeOpencodeMain})
+	os.Exit(m.Run())
+}
+
+func fakeAgyMain(args []string) int {
+	p := fakebin.Params()
+	if held(args) || len(args) == 0 || args[0] != "models" {
+		return 0
+	}
+	if p["count"] != "" {
+		fakebin.Append(p["count"], "x")
+	}
+	d, _ := time.ParseDuration(p["sleep"])
+	time.Sleep(d)
+	if p["hold"] != "" {
+		hold()
+	}
+	fmt.Fprint(os.Stderr, p["stderr"])
+	fmt.Print(p["models"])
+	code, _ := strconv.Atoi(p["exit"])
+	return code
+}
+
+func fakeOpencodeMain(args []string) int {
+	p := fakebin.Params()
+	switch a := strings.Join(args, " "); {
+	case held(args):
+	case a == "session list --standalone --format json":
+		hold()
+		b, err := os.ReadFile(p["list"])
+		if err != nil {
+			return 1
+		}
+		wd, _ := os.Getwd()
+		q, _ := json.Marshal(wd)
+		fmt.Print(strings.ReplaceAll(string(b), "/fleets/demo", string(q[1:len(q)-1])))
+	case strings.HasPrefix(a, "session export --standalone "):
+		out, ok := p[strings.TrimPrefix(a, "session export --standalone ")]
+		if !ok {
+			out = p["other"]
+		}
+		fmt.Println(out)
+	default:
+		fmt.Fprintln(os.Stderr, "bad args:", a)
+		return 1
+	}
+	return 0
+}
+
+func hold() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(exe, "hold")
+	cmd.Stdout = os.Stdout
+	if cmd.Start() == nil {
+		fakebin.Append(fakebin.Params()["holders"], strconv.Itoa(cmd.Process.Pid))
+	}
+}
+
+func held(args []string) bool {
+	if len(args) != 1 || args[0] != "hold" {
+		return false
+	}
+	time.Sleep(5 * time.Second)
+	return true
+}
+
+func holders(t *testing.T) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "holders")
+	t.Cleanup(func() {
+		b, _ := os.ReadFile(file)
+		for _, f := range strings.Fields(string(b)) {
+			pid, _ := strconv.Atoi(f)
+			if p, err := os.FindProcess(pid); err == nil {
+				_ = p.Kill()
+				_, _ = p.Wait()
+			}
+		}
+	})
+	return file
+}
 
 func TestValidateClaude(t *testing.T) {
 	for _, ok := range []Spec{{"claude", "sonnet", "low"}, {"claude", "opus[1m]", "max"}, {"claude", "claude-opus-5-5", "xhigh"}} {
@@ -48,7 +139,7 @@ func TestValidateCodexAgainstTheModelCache(t *testing.T) {
 func TestCodexHome(t *testing.T) {
 	env := map[string]string{"HOME": "/home/me"}
 	getenv := func(k string) string { return env[k] }
-	if got := CodexHome(getenv); got != "/home/me/.codex" {
+	if got := CodexHome(getenv); got != filepath.Join("/home/me", ".codex") {
 		t.Fatalf("default = %s", got)
 	}
 	env["CODEX_HOME"] = "/c"
@@ -128,10 +219,7 @@ func fakeAgy(t *testing.T, models string, fail bool) (dir, count string) {
 	if fail {
 		code = "1"
 	}
-	script := "#!/bin/sh\nif [ \"$1\" = models ]; then echo x >> " + count + "; printf '%s' '" + models + "'; exit " + code + "; fi\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"count": count, "models": models, "exit": code})
 	return dir, count
 }
 
@@ -171,10 +259,7 @@ func TestAgyModelsAreListed(t *testing.T) {
 func TestAgyModelsFailureIsListedOnceWithItsReason(t *testing.T) {
 	dir := t.TempDir()
 	count := filepath.Join(dir, "count")
-	script := "#!/bin/sh\necho x >> " + count + "\necho 'not signed in' >&2\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"count": count, "stderr": "not signed in\n", "exit": "1"})
 	for range 2 {
 		if _, err := Models("agy", Env{Path: dir}); err == nil || !strings.Contains(err.Error(), "not signed in") || !strings.Contains(err.Error(), "check that agy is logged in") {
 			t.Fatalf("err = %v", err)
@@ -187,10 +272,7 @@ func TestAgyModelsFailureIsListedOnceWithItsReason(t *testing.T) {
 
 func TestAgyModelsDoNotWaitForAChildHoldingStdout(t *testing.T) {
 	dir := t.TempDir()
-	script := "#!/bin/sh\nsleep 5 &\nprintf '%s' '" + agyList + "'\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"models": agyList, "hold": "1", "holders": holders(t)})
 	start := time.Now()
 	m, err := Models("agy", Env{Path: dir})
 	if took := time.Since(start); err != nil || len(m) != 2 || took > 3*time.Second {
@@ -215,10 +297,7 @@ func TestAgyModelsFailureIsRetriedAfterAWhile(t *testing.T) {
 	if _, err := Models("agy", Env{Path: path}); err == nil {
 		t.Fatal("a failing listing succeeded")
 	}
-	fixed := "#!/bin/sh\nif [ \"$1\" = models ]; then echo x >> " + count + "; printf '%s' '" + agyList + "'; exit 0; fi\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(path, "agy"), []byte(fixed), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, path, "agy", "agy", map[string]string{"count": count, "models": agyList, "exit": "0"})
 	if _, err := Models("agy", Env{Path: path}); err == nil {
 		t.Fatal("a cached failure was not kept within agyRetry")
 	}
@@ -236,9 +315,7 @@ func TestAgyModelsTimeoutSaysTimedOut(t *testing.T) {
 	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
 	agyTimeout = 200 * time.Millisecond
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte("#!/bin/sh\nexec sleep 5\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "5s"})
 	_, err := Models("agy", Env{Path: dir})
 	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "agy models timed out after 200ms") || strings.Contains(err.Error(), "logged in") {
 		t.Fatalf("err = %v", err)
@@ -249,10 +326,7 @@ func TestAgyModelsSlowListingWithinTimeoutSucceeds(t *testing.T) {
 	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
 	agyTimeout = 3 * time.Second
 	dir := t.TempDir()
-	script := "#!/bin/sh\nsleep 1\nprintf '%s' '" + agyList + "'\n"
-	if err := os.WriteFile(filepath.Join(dir, "agy"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "1s", "models": agyList})
 	if err := Validate(Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: dir}); err != nil {
 		t.Fatalf("slow listing = %v", err)
 	}

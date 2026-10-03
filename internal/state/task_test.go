@@ -3,13 +3,16 @@ package state
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 )
 
+var handRepo, _ = filepath.Abs("/home/me/hand")
+
 func seedProject(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.AddProject(context.Background(), "hand", "/home/me/hand"); err != nil {
+	if _, err := s.AddProject(context.Background(), "hand", handRepo); err != nil {
 		t.Fatal(err)
 	}
 }

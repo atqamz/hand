@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -11,8 +12,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
+
+func TestMain(m *testing.M) {
+	fakebin.Main(map[string]func([]string) int{"agy": func(args []string) int {
+		if len(args) > 0 && args[0] == "models" {
+			fmt.Print(fakebin.Params()["models"])
+		}
+		return 0
+	}})
+	os.Exit(m.Run())
+}
+
+const agyModels = "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
 
 func usageRecord(cacheRead int) string {
 	return `{"type":"assistant","timestamp":"2026-09-28T01:00:05Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":170,"cache_read_input_tokens":` + strconv.Itoa(cacheRead) + `},"content":[{"type":"text","text":"Done."}]}}`
@@ -229,9 +243,7 @@ func TestStartIsPrimaryAndFetches(t *testing.T) {
 
 func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; fi\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, bin, "agy", "agy", map[string]string{"models": agyModels})
 	policy := `{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
 	none := newFixture(t)
 	running := newFixture(t)
@@ -251,9 +263,7 @@ func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 
 func TestTheAgyModelMenuHasNoEffortSelect(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "agy"), []byte("#!/bin/sh\nif [ \"$1\" = models ]; then printf 'gemini-3.8-flash-low\\tGemini 3.8 Flash (Low)\\n'; fi\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	fakebin.Install(t, bin, "agy", "agy", map[string]string{"models": agyModels})
 	fx := newFixture(t)
 	fx.options.Harness.Path = bin
 	fx.status = "idle"

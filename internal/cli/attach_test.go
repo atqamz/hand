@@ -1,20 +1,17 @@
 package cli_test
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func withLuvus(t *testing.T, h *harness) string {
 	t.Helper()
-	bin := filepath.Join(h.vars["PATH"], "luvus")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin := fakebin.Install(t, h.vars["PATH"], "luvus", "fake", nil)
 	h.tty = true
 	return bin
 }

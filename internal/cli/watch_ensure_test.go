@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
 )
 
 func TestMain(m *testing.M) {
+	fakebin.Main(fakeBehaviors())
 	if len(os.Args) > 1 && os.Args[1] == "watch" && os.Getenv("HAND_HOME") != "" {
 		fakeWatch(os.Getenv("HAND_HOME"))
 	}

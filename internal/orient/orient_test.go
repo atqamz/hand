@@ -12,7 +12,10 @@ import (
 
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toon"
 )
+
+var handRepo, _ = filepath.Abs("/home/me/hand")
 
 func setup(t *testing.T) (*state.Store, string) {
 	t.Helper()
@@ -41,7 +44,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "home: " + home + "\n" +
+	want := "home: " + toon.Value(home) + "\n" +
 		"fleet: test (" + f.ID + ")\n" +
 		"supervisor: none\n" +
 		"watch: running\n" +
@@ -68,7 +71,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
 	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
@@ -93,7 +96,7 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	for i := range 500 {
 		task, err := st.AddTask(ctx, "hand", strings.Repeat("x", 150)+string(rune('a'+i%26)), "")
 		if err != nil {
@@ -130,7 +133,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
 	project := strings.Repeat("p", 64)
-	if _, err := st.AddProject(ctx, project, "/home/me/p"); err != nil {
+	if _, err := st.AddProject(ctx, project, handRepo); err != nil {
 		t.Fatal(err)
 	}
 	titles := []string{strings.Repeat(`"`, 200), strings.Repeat("🙂", 200), strings.Repeat("漢,", 100)}
@@ -165,7 +168,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
@@ -183,7 +186,7 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 func TestOrientShowsReportsWithinBudget(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	for i := range 40 {
 		task, _ := st.AddTask(ctx, "hand", "Task", "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
@@ -217,7 +220,7 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	spec := state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
@@ -294,7 +297,7 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+	if _, err := st.AddProject(ctx, "hand", handRepo); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 200 {

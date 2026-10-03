@@ -3,6 +3,7 @@ package transcript
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,23 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/fakebin"
 )
+
+func TestMain(m *testing.M) {
+	fakebin.Main(map[string]func([]string) int{"opencode": func(args []string) int {
+		p := fakebin.Params()
+		if a := strings.Join(args, " "); p["args"] != "" && a != p["args"] {
+			fmt.Fprintln(os.Stderr, "bad args:", a)
+			return 1
+		}
+		fakebin.Append(p["count"], "run")
+		fmt.Println(p["export"])
+		return 0
+	}})
+	os.Exit(m.Run())
+}
 
 func rollout(t *testing.T, home, name, body string) string {
 	t.Helper()
@@ -132,12 +149,7 @@ const opencodeExport = `{"info":{"id":"ses_1"},"messages":[` +
 
 func fakeOpencode(t *testing.T, count string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "opencode")
-	script := "#!/bin/sh\n[ \"$*\" = \"session export --standalone ses_1\" ] || { echo \"bad args: $*\" >&2; exit 1; }\necho run >> " + count + "\ncat <<'JSON'\n" + opencodeExport + "\nJSON\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return bin
+	return fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "session export --standalone ses_1", "count": count, "export": opencodeExport})
 }
 
 func runs(t *testing.T, count string) int {
@@ -164,14 +176,10 @@ func TestOpencodeTranscriptIsCalm(t *testing.T) {
 
 func TestOpencodeReadsTheInfoAndPartsShape(t *testing.T) {
 	count := filepath.Join(t.TempDir(), "count")
-	bin := filepath.Join(t.TempDir(), "opencode")
 	parts := `{"messages":[` +
 		`{"info":{"role":"user","time":{"created":1790570000000}},"parts":[{"type":"text","text":"hello"}]},` +
 		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570001000}},"parts":[{"type":"reasoning","text":"hmm"},{"type":"text","text":"Hi there."}]}]}`
-	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + parts + "\nJSON\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"count": count, "export": parts})
 	got, err := (&Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}).Read(context.Background(), "opencode", "ses_1", t.TempDir())
 	if err != nil || !slices.Equal(texts(got), []string{"operator: hello", "supervisor: Hi there."}) || got[1].At != "2026-09-28T04:33:21.000Z" {
 		t.Fatalf("entries = %q, %v", texts(got), err)
@@ -244,15 +252,11 @@ func TestCodexStatusReadsTokenCount(t *testing.T) {
 
 func TestOpencodeStatusReadsMessageTokens(t *testing.T) {
 	count := filepath.Join(t.TempDir(), "count")
-	bin := filepath.Join(t.TempDir(), "opencode")
 	export := `{"messages":[` +
 		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570001000},"tokens":{"input":10,"output":5,"cache":{"read":1,"write":1}}},"parts":[{"type":"text","text":"first"}]},` +
 		`{"info":{"role":"user","time":{"created":1790570002000}},"parts":[{"type":"compaction"}]},` +
 		`{"info":{"role":"assistant","finish":"stop","time":{"created":1790570003000},"tokens":{"input":1000,"output":9,"cache":{"read":5000,"write":200}}},"parts":[{"type":"text","text":"second"}]}]}`
-	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + export + "\nJSON\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"count": count, "export": export})
 	r := &Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}
 	if _, err := r.Read(context.Background(), "opencode", "ses_1", t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -270,15 +274,11 @@ func TestStatusOfAnUnknownSessionIsZero(t *testing.T) {
 
 func TestOpencodeStatusReadsTheFlatShape(t *testing.T) {
 	count := filepath.Join(t.TempDir(), "count")
-	bin := filepath.Join(t.TempDir(), "opencode")
 	export := `{"info":{},"messages":[` +
 		`{"type":"assistant","time":{"created":1790570001000},"tokens":{"input":175,"output":5,"reasoning":24,"cache":{"read":17024,"write":0}},"content":[{"type":"text","text":"hi"}]},` +
 		`{"type":"compaction","time":{"created":1790570002000}},` +
 		`{"type":"idle","time":{"created":1790570003000}}]}`
-	script := "#!/bin/sh\necho run >> " + count + "\ncat <<'JSON'\n" + export + "\nJSON\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"count": count, "export": export})
 	r := &Reader{Paths: Paths{Opencode: bin, OpencodeData: t.TempDir()}}
 	if _, err := r.Read(context.Background(), "opencode", "ses_1", t.TempDir()); err != nil {
 		t.Fatal(err)

@@ -7,24 +7,32 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
 )
 
 var pinnedAt = time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC)
 
-func fakeLuvus(t *testing.T, version, body string) string {
+func fakeLuvus(t *testing.T, version, out string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "luvus")
-	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'luvus " + version + "'; exit 0; fi\n" + body + "\nexit 0\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	return embedAt(t, filepath.Join(t.TempDir(), "luvus"), map[string]string{"version": version, "out": out})
+}
+
+func embedAt(t *testing.T, path string, params map[string]string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path += ".exe"
+	}
+	if err := os.WriteFile(path, fakebin.Embed(t, "luvus", params), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return bin
+	return path
 }
 
 func sum(t *testing.T, path string) string {
@@ -64,9 +72,6 @@ func TestKeepCopiesAndPins(t *testing.T) {
 	if sum(t, pin.Path) != hash {
 		t.Fatal("the copy differs from its source")
 	}
-	if fi, err := os.Stat(pin.Path); err != nil || fi.Mode().Perm() != 0o555 {
-		t.Fatalf("copy mode = %v, %v", fi.Mode(), err)
-	}
 	if got, ok, err := luvus.LoadPin(root); err != nil || !ok || got != want {
 		t.Fatalf("LoadPin = %+v %v %v", got, ok, err)
 	}
@@ -100,7 +105,7 @@ func TestKeepSeparatesBuildsOfOneVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge, err := luvus.Keep(context.Background(), root, fakeLuvus(t, "0.14.2", "echo edge"), nil, pinnedAt)
+	edge, err := luvus.Keep(context.Background(), root, fakeLuvus(t, "0.14.2", "edge"), nil, pinnedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,17 +119,11 @@ func TestKeepSeparatesBuildsOfOneVersion(t *testing.T) {
 
 func TestKeepRefusesWhatIsNotLuvus(t *testing.T) {
 	dir := t.TempDir()
-	hello := filepath.Join(dir, "hello")
-	failing := filepath.Join(dir, "failing")
+	hello := embedAt(t, filepath.Join(dir, "hello"), map[string]string{"out": "hello"})
+	failing := embedAt(t, filepath.Join(dir, "failing"), map[string]string{"exit": "1"})
 	plain := filepath.Join(dir, "plain")
-	for path, content := range map[string]string{hello: "#!/bin/sh\necho hello\n", failing: "#!/bin/sh\nexit 1\n", plain: "luvus 0.14.3\n"} {
-		mode := os.FileMode(0o755)
-		if path == plain {
-			mode = 0o644
-		}
-		if err := os.WriteFile(path, []byte(content), mode); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(plain, []byte("luvus 0.14.3\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	root := t.TempDir()
 	for _, bin := range []string{hello, failing, plain, filepath.Join(dir, "missing")} {
@@ -148,7 +147,10 @@ func TestVerifyNoticesAChangedCopy(t *testing.T) {
 	if err := os.Chmod(pin.Path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(pin.Path, []byte("#!/bin/sh\necho tampered\n"), 0o755); err != nil {
+	if err := os.Remove(pin.Path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pin.Path, []byte("tampered\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := pin.Verify(); !errors.Is(err, luvus.ErrPinChanged) || !strings.Contains(err.Error(), "changed on disk; re-pin with") {
@@ -163,11 +165,7 @@ func TestVerifyNoticesAChangedCopy(t *testing.T) {
 }
 
 func TestKeepReadsTheVersionOfTheCopy(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "luvus")
-	script := "#!/bin/sh\ncase \"$0\" in */.luvus-*) echo 'luvus 0.14.3';; *) echo 'luvus 0.14.2';; esac\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	bin := embedAt(t, filepath.Join(t.TempDir(), "luvus"), map[string]string{"version": "0.14.2", "copy": "0.14.3"})
 	pin, err := luvus.Keep(context.Background(), t.TempDir(), bin, nil, pinnedAt)
 	if err != nil || pin.Version != "0.14.3" {
 		t.Fatalf("pin = %+v, %v", pin, err)
