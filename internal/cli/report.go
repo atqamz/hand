@@ -57,7 +57,7 @@ func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	if err != nil {
 		return 0, "", fmt.Errorf("%w: %s is not inside a Hand worktree; pass --attempt", state.ErrInvalid, wd)
 	}
-	top := strings.TrimSpace(out)
+	top := filepath.FromSlash(strings.TrimSpace(out))
 	m := worktreeName.FindStringSubmatch(filepath.Base(top))
 	id := filepath.Base(filepath.Dir(top))
 	worktrees := filepath.Dir(filepath.Dir(top))

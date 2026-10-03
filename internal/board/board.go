@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -359,12 +358,13 @@ func tint(id any) int {
 
 func PRLinks(text string) []string { return prLink.FindAllString(text, -1) }
 
-var absPath = regexp.MustCompile(`(^|[\s"'(=])/[^\s"'():,]+`)
+var absPath = regexp.MustCompile(`(^|[\s"'(=])(?:/|[A-Za-z]:[\\/]|\\\\[?]\\[A-Za-z]:[\\/]|\\\\)(?:[^\s"'():,/\\]+(?: [^\s"'():,/\\]+)*[/\\])*[^\s"'():,]+`)
 
 func Scrub(msg string) string {
 	return absPath.ReplaceAllStringFunc(msg, func(m string) string {
-		i := strings.IndexByte(m, '/')
-		return m[:i] + filepath.Base(m[i:])
+		lead := absPath.FindStringSubmatch(m)[1]
+		p := strings.TrimRight(m[len(lead):], `/\`)
+		return lead + p[strings.LastIndexAny(p, `/\`)+1:]
 	})
 }
 

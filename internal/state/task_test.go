@@ -26,7 +26,8 @@ func TestAddProjectValidatesNameRepoAndDuplicates(t *testing.T) {
 		}
 	}
 	seedProject(t, s)
-	if _, err := s.AddProject(ctx, "hand", "/other"); !errors.Is(err, ErrConflict) {
+	other, _ := filepath.Abs("/other")
+	if _, err := s.AddProject(ctx, "hand", other); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate err = %v, want ErrConflict", err)
 	}
 }

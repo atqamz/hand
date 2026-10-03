@@ -7,11 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/toon"
 	_ "modernc.org/sqlite"
 )
 
@@ -265,7 +267,7 @@ func TestInitRebasesAnAbsoluteProjectPathFromTheOldHome(t *testing.T) {
 	}
 	h.home = moved
 	h.ok("init")
-	if list := h.ok("project", "list"); !strings.Contains(list, "app,"+filepath.Join(moved, "projects", "app")) {
+	if list := h.ok("project", "list"); !strings.Contains(list, "app,"+toon.Value(filepath.Join(moved, "projects", "app"))) {
 		t.Fatalf("project list = %q", list)
 	}
 }
@@ -313,6 +315,9 @@ func TestA07FleetNamedByHandHomeGetsTheMigrationHint(t *testing.T) {
 func TestAnUnreadable07MarkerIsReported(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any folder")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix file modes: Windows has no unreadable folder")
 	}
 	h := newHarness(t)
 	old := t.TempDir()

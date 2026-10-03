@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
@@ -21,7 +23,7 @@ func TestFleetListShowsEveryRegisteredFleet(t *testing.T) {
 	h.cwd = t.TempDir()
 	h.vars["HAND_HOME"] = ""
 	out := h.ok("fleet", "list")
-	for _, want := range []string{"fleets[3]{id,name,home,state}:", alpha + ",alpha," + h.home + ",ok", beta + ",beta," + other + ",ok", dead + `,"",` + gone + ",missing"} {
+	for _, want := range []string{"fleets[3]{id,name,home,state}:", alpha + ",alpha," + toon.Value(h.home) + ",ok", beta + ",beta," + toon.Value(other) + ",ok", dead + `,"",` + toon.Value(gone) + ",missing"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("fleet list missing %q:\n%s", want, out)
 		}
@@ -54,7 +56,7 @@ func TestInitAfterAMoveRepairsWorktreesOfProjectsInsideTheHome(t *testing.T) {
 	if out, err := exec.Command("git", "-C", wt, "status", "--short").CombinedOutput(); err != nil {
 		t.Fatalf("worktree broken after init: %v: %s", err, out)
 	}
-	if list := fx.h.ok("project", "list"); !strings.Contains(list, "inner,"+filepath.Join(moved, "projects", "inner")) {
+	if list := fx.h.ok("project", "list"); !strings.Contains(list, "inner,"+toon.Value(filepath.Join(moved, "projects", "inner"))) {
 		t.Fatalf("project list = %q", list)
 	}
 }

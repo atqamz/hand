@@ -16,7 +16,7 @@ func LookPath(name, path string) (string, error) {
 	if pathext == "" {
 		pathext = ".COM;.EXE;.BAT;.CMD"
 	}
-	for _, ext := range strings.Split(pathext, ";") {
+	for _, ext := range strings.Split(strings.ToLower(pathext), ";") {
 		if ext != "" {
 			exts = append(exts, "."+strings.TrimPrefix(ext, "."))
 		}

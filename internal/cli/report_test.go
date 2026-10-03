@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
@@ -189,7 +190,7 @@ func TestReportBodyFromAFileOutsideTheWorktree(t *testing.T) {
 	if show := fx.h.ok("report", "show", "r1"); !strings.Contains(show, `body: "Done from a file\n"`) {
 		t.Fatalf("show = %q", show)
 	}
-	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--file", file+".missing"); code != 2 || !strings.Contains(errOut, "no such file") {
+	if _, errOut, code := fx.h.run("report", "add", "--status", "done", "--file", file+".missing"); code != 2 || !strings.Contains(errOut, syscall.ENOENT.Error()) {
 		t.Fatalf("missing file: code=%d stderr=%q", code, errOut)
 	}
 }

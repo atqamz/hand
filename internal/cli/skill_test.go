@@ -140,7 +140,7 @@ func TestInitWarnsAboutLive07Wiring(t *testing.T) {
 		}
 	}
 	out := h.ok("init")
-	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", ".pi/extensions/hand-supervisor-wake.ts", ".opencode/plugins/hand-custom.js"} {
+	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", filepath.FromSlash(".pi/extensions/hand-supervisor-wake.ts"), filepath.FromSlash(".opencode/plugins/hand-custom.js")} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("init does not warn about %q:\n%s", want, out)
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,9 @@ func TestFleetIdentityIsCreatedOnceAndCanBeRenamed(t *testing.T) {
 }
 
 func TestOpenEscapesURIMetacharactersInThePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a ? in a file name is Unix-only")
+	}
 	dir := filepath.Join(t.TempDir(), "c%41d?b#e")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

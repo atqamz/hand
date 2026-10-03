@@ -360,7 +360,7 @@ func TestOrientWatchLine(t *testing.T) {
 func TestOrientShowsWorkerSignal(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", "/home/me/hand")
+	_, _ = st.AddProject(ctx, "hand", handRepo)
 	spec := state.AttemptSpec{Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
 	for i, title := range []string{"Fix login", "Ship it", "Write docs"} {
 		task, _ := st.AddTask(ctx, "hand", title, "")

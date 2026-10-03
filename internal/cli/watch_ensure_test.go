@@ -38,6 +38,7 @@ func fakeWatch(home string) {
 		os.Exit(1)
 	}
 	_, _ = started.WriteString("started\n")
+	_ = started.Close()
 	lock, err := os.OpenFile(filepath.Join(home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		os.Exit(1)

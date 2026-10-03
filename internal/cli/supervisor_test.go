@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,7 +27,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `(/[^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
+var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `([^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
 
 func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	t.Helper()
@@ -63,7 +62,7 @@ func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
 		t.Fatalf("create = %+v", call)
 	}
 	argv := call.Command
-	if len(argv) != 9 || !strings.HasSuffix(argv[0], "/claude") || !slices.Equal(argv[1:3], []string{"--dangerously-skip-permissions", "--session-id"}) || !slices.Equal(argv[4:8], []string{"--model", "sonnet", "--effort", "low"}) {
+	if len(argv) != 9 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:3], []string{"--dangerously-skip-permissions", "--session-id"}) || !slices.Equal(argv[4:8], []string{"--model", "sonnet", "--effort", "low"}) {
 		t.Fatalf("argv = %q", argv)
 	}
 	if m := launchPrompt.FindStringSubmatch(argv[8]); m == nil || m[1] != "s1" {
@@ -183,7 +182,7 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + cwd + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n" +
+	meta := `{"type":"session_meta","payload":{"id":"codex-session-1","cwd":"` + strings.ReplaceAll(cwd, `\`, `\\`) + `","timestamp":"` + now.UTC().Format(time.RFC3339Nano) + `"}}` + "\n" +
 		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"You are supervisor s1 of the Hand fleet x."}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
@@ -936,7 +935,7 @@ func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T
 	codexCache(t, h)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	if err := os.Remove(filepath.Join(h.vars["PATH"], "codex")); err != nil {
+	if err := os.Remove(exe(h.vars["PATH"], "codex")); err != nil {
 		t.Fatal(err)
 	}
 	if _, errOut, code := h.run("supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); code == 0 || !strings.Contains(errOut, "codex") {
@@ -987,10 +986,7 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	codexCache(t, h)
 	startClaudeSupervisor(h)
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	codex := filepath.Join(h.vars["PATH"], "codex")
-	if runtime.GOOS == "windows" {
-		codex += ".exe"
-	}
+	codex := exe(h.vars["PATH"], "codex")
 	if err := os.Remove(codex); err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1018,7 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", startAgySupervisor(t, h, rt), "harness: agy", "trust: accepted")
 	argv := rt.lastCreate().Command
-	want := []string{filepath.Join(h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
+	want := []string{exe(h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
 	if len(argv) != 6 || !slices.Equal(argv[:5], want) || !strings.HasPrefix(argv[5], "You are supervisor s1 of the Hand fleet ") {
 		t.Fatalf("argv = %q", argv)
 	}
@@ -1044,7 +1040,7 @@ func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	out := startClaudeSupervisor(h)
 	has(t, "start", out, "harness: claude", "trust: accepted")
 	argv := rt.lastCreate().Command
-	if len(argv) != 9 || !strings.HasSuffix(argv[0], "/claude") || !strings.HasPrefix(argv[8], "You are supervisor s1 of the Hand fleet ") {
+	if len(argv) != 9 || filepath.Base(argv[0]) != exe("", "claude") || !strings.HasPrefix(argv[8], "You are supervisor s1 of the Hand fleet ") {
 		t.Fatalf("argv = %q", argv)
 	}
 	if !slices.Equal(rt.keysSent(), []string{"down", "enter"}) {

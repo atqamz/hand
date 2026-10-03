@@ -193,11 +193,14 @@ func point(root, id, home string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, link(root, id)); err != nil {
-		_ = os.Remove(tmp)
-		return err
+	err = os.Rename(tmp, link(root, id))
+	if errors.Is(err, fs.ErrPermission) && isSymlink(root, id) && os.Remove(link(root, id)) == nil {
+		err = os.Rename(tmp, link(root, id))
 	}
-	return nil
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 func sameDir(a, b string) bool {
