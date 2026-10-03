@@ -555,6 +555,9 @@ func TestWatchRecordsALimitedTurnInsteadOfQuiet(t *testing.T) {
 	if !strings.Contains(got, `,attempt.limited,t1,"a1: You've hit your session limit · resets 6:10am (Asia/Jakarta)"`) || strings.Contains(got, ",attempt.quiet,") {
 		t.Fatalf("wait = %q", got)
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	eventually(t, func() bool {
 		log, _ := os.ReadFile(notes)
 		return strings.Contains(string(log), "a1 limited: You've hit your session limit")
