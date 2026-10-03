@@ -863,8 +863,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "", nil
 	}
 	if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, digest) }); err != nil {
-		if luvus.Code(err) == "" {
+		switch luvus.Code(err) {
+		case "":
 			return "", runtimeErr(err)
+		case "content_revision_conflict":
+			return "supervisor terminal changed", nil
 		}
 		return "", nil
 	}
