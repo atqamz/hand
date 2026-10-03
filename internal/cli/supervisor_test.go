@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1402,4 +1403,150 @@ func TestSupervisorForceDeliversNormallyWhenNotBlocked(t *testing.T) {
 	if got := rt.prompts(); !slices.Equal(got, []string{"hello"}) || len(rt.keysSent()) != 0 {
 		t.Fatalf("prompts = %q, keys = %q", got, rt.keysSent())
 	}
+}
+
+func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	eventually(t, func() bool { return explains(fx.rt) > 0 })
+	for _, status := range []string{"idle", "working", "idle"} {
+		n := explains(fx.rt)
+		publishStatus(fx, pane, status)
+		eventually(t, func() bool { return explains(fx.rt) > n })
+	}
+	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "why: \"supervisor limited: You've hit your session limit · resets 6:10am (Asia/Jakarta)\"")
+	has(t, "send", fx.h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
+	out, _ := stop()
+	if got := fx.rt.prompts(); !slices.Equal(got, []string{"hello"}) {
+		t.Fatalf("prompts while limited = %q", got)
+	}
+	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
+	log, _ := os.ReadFile(notes)
+	if n := strings.Count(string(log), "supervisor limited: You've hit your session limit"); n != 1 {
+		t.Fatalf("limited alerts = %d, want 1: %q (watch out %q)", n, log, out)
+	}
+}
+
+func TestDeliverResumesAfterLimitClears(t *testing.T) {
+	fx := newAttemptFixture(t)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return explains(fx.rt) > 0 })
+	n := explains(fx.rt)
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return explains(fx.rt) > n })
+	if got := fx.rt.prompts(); len(got) != 0 {
+		t.Fatalf("wake sent while limited: %q", got)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Back after the reset\n\n> " })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	if wake := fx.rt.prompts()[0]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "\nattempt.reported a1: r1 done") {
+		t.Fatalf("wake = %q", wake)
+	}
+	events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"attempt.reported"}, 1)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events = %v, %v", events, err)
+	}
+	eventually(t, func() bool {
+		return strings.Contains(fx.h.ok("supervisor", "show"), fmt.Sprintf("wake_cursor: %d\n", events[0].Seq))
+	})
+}
+
+func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
+	fx := newAttemptFixture(t)
+	startClaudeSupervisor(fx.h)
+	fx.start()
+	cursor := regexp.MustCompile(`wake_cursor: [0-9]+`).FindString(fx.h.ok("supervisor", "show"))
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.readFail = "idle", "internal" })
+	has(t, "force", fx.h.ok("supervisor", "force"), "typed: 0", "cannot read the supervisor's screen")
+	if got := fx.rt.prompts(); len(got) != 0 {
+		t.Fatalf("wake sent without reading the screen: %q", got)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.readFail = "" })
+	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
+}
+
+func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Back after the reset\n\n> " })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
+}
+
+func supervisorLimitAlerts(notes string) int {
+	log, _ := os.ReadFile(notes)
+	return strings.Count(string(log), "supervisor limited: ")
+}
+
+func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = strings.TrimSuffix(claudeLimit, "> ") + "  ⎿  You've hit your weekly limit · resets Sep 27, 5pm (Asia/Jakarta)\n\n> "
+	})
+	for range 2 {
+		n := explains(fx.rt)
+		publishStatus(fx, pane, "idle")
+		eventually(t, func() bool { return explains(fx.rt) > n })
+	}
+	out, _ := stop()
+	if n := supervisorLimitAlerts(notes); n != 1 {
+		t.Fatalf("limited alerts = %d, want 1 (watch out %q)", n, out)
+	}
+}
+
+func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	startClaudeSupervisor(fx.h)
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s2", "switch: applied")
+	publishStatus(fx, supervisorPane(t, fx.h.ok("supervisor", "show")), "idle")
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
 }

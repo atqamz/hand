@@ -203,6 +203,9 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		}
 		add(w)
 	}
+	if line, _ := data["Limited"].(string); line != "" && live {
+		add(waiting{Kind: "limited", Ref: state.SupervisorRef(sup.ID), Title: line, Sup: &sup})
+	}
 	supervised := live && sup.Status == state.AttemptRunning
 	liveAttempts, err := b.st.LiveAttempts(ctx)
 	if err != nil {

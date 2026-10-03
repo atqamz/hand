@@ -745,7 +745,10 @@ func cmdSupervisorSend(r *runner, args []string) error {
 	})
 }
 
-const deliveryTimeout = time.Minute
+const (
+	deliveryTimeout   = time.Minute
+	supervisorLimited = "supervisor limited: "
+)
 
 func detached(ctx context.Context, fn func(context.Context) error) error {
 	ctx, done := context.WithTimeout(context.WithoutCancel(ctx), deliveryTimeout)
@@ -838,6 +841,13 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if len(pending) > 0 || (ag.Status != "idle" && ag.Status != "done") {
 		return "", nil
 	}
+	line, err := supervisorLimit(ctx, c, sup)
+	if err != nil {
+		return "cannot read the supervisor's screen: " + err.Error(), nil
+	}
+	if line != "" {
+		return supervisorLimited + line, nil
+	}
 	events, err := wakeEvents(ctx, st, sup.WakeCursor)
 	if err != nil || len(events) == 0 {
 		return "", err
@@ -853,6 +863,15 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		return "", nil
 	}
 	return "", detached(ctx, func(ctx context.Context) error { return st.AdvanceWakeCursor(ctx, sup.ID, last) })
+}
+
+func supervisorLimit(ctx context.Context, c luvus.Client, sup state.Supervisor) (string, error) {
+	s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines)
+	if err != nil {
+		return "", err
+	}
+	line, _ := harness.Limit(sup.Harness, s.Text)
+	return shown(line), nil
 }
 
 func wakeDigest(events []state.Event, title func(taskID int64) string) (string, int64) {

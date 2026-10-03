@@ -603,3 +603,33 @@ func TestALimitedWorkerJoinsNeedsAtOnce(t *testing.T) {
 		t.Fatalf("a worker that reported after its limit stayed limited in Needs: %q", kinds)
 	}
 }
+
+func TestALimitedSupervisorJoinsNeeds(t *testing.T) {
+	fx := newFixture(t)
+	fx.status = "idle"
+	fx.screen = "● Read the wake\n  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n\n> "
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "limited supervisor", q, `id="wait-limited-s1"`, "LIMITED", "You&#39;ve hit your session limit · resets 6:10am (Asia/Jakarta)", "Hand holds wakes until the limit line leaves its screen")
+	fx.mu.Lock()
+	fx.screen = "● Back after the reset\n\n> "
+	fx.mu.Unlock()
+	lacks(t, "limit cleared", region(get(t, fx.handler(), "/"), "queue"), `data-kind="limited"`)
+}
+
+func TestALimitedAgySupervisorKeepsOneTitle(t *testing.T) {
+	fx := newFixture(t)
+	fx.status = "idle"
+	fx.screen = "⚠ Individual quota reached. Please upgrade your subscription to increase your\n  limits. Resets in 118h19m26s.\n\n> "
+	ctx := context.Background()
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "agy limit", q, `id="wait-limited-s1"`, "Resets in 118h19m26s.</span>")
+	lacks(t, "agy limit", q, "(~")
+}
