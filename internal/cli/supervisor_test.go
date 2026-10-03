@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1426,6 +1427,9 @@ func TestDeliverHoldsWakesWhileSupervisorLimited(t *testing.T) {
 		t.Fatalf("prompts while limited = %q", got)
 	}
 	has(t, "held", fx.h.ok("supervisor", "show"), cursor+"\n")
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	log, _ := os.ReadFile(notes)
 	if n := strings.Count(string(log), "supervisor limited: You've hit your session limit"); n != 1 {
 		t.Fatalf("limited alerts = %d, want 1: %q (watch out %q)", n, log, out)
@@ -1478,6 +1482,9 @@ func TestDeliverHoldsWakesWhenItCannotReadTheSupervisorScreen(t *testing.T) {
 }
 
 func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
@@ -1501,6 +1508,9 @@ func supervisorLimitAlerts(notes string) int {
 }
 
 func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
@@ -1524,6 +1534,9 @@ func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
 }
 
 func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("desktop notifications are Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
 	startClaudeSupervisor(fx.h)
