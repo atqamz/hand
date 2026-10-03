@@ -39,6 +39,8 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 
 Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. When the attempt's newest event is already `attempt.quiet` or `attempt.idle`, or is a `done` or `stuck` report, the supervisor already knows, so the watcher records that turn as `attempt.idle` instead. A turn that ends after a `progress` report stays `attempt.quiet`: it is the likely false done. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
 
+A worker that hits its harness's usage limit does not exit: it goes idle at its prompt. When a turn ends with a limit line on the screen, the watcher records `attempt.limited` with that line instead of `attempt.quiet`, unless that line, without the time Hand adds, is the one the attempt's latest `attempt.limited` recorded. That line then belongs to an earlier turn. A turn end whose screen Hand cannot read is retried when the watcher reconnects, and is not recorded as quiet. `attempt.limited` always wakes the supervisor and is never recorded as `attempt.idle`, even right after a `done` report, because the limit is new. A turn that ends after it is `attempt.quiet`. The lines are claude's `You've hit your … limit · resets …`, codex's `You've hit your usage limit … try again at …`, and agy's `Individual quota reached … Resets in DURATION`, to which Hand adds the reset time in UTC. opencode has none yet. Claude Code continues by itself at the reset.
+
 ## Fleets and files
 
 ### Hand
@@ -216,7 +218,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 `hand watch`, one per fleet. It:
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
-- records the `attempt.blocked`, `attempt.quiet` and `attempt.idle` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
+- records the `attempt.blocked`, `attempt.quiet`, `attempt.idle` and `attempt.limited` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
@@ -243,13 +245,14 @@ The wake kinds are:
 | `attempt.reported` | a worker added a report |
 | `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn |
 | `attempt.idle` | the worker's turn ended again, or after its `done` or `stuck` report |
+| `attempt.limited` | the worker's turn ended at its harness's usage limit; the detail is the limit line |
 | `attempt.blocked` | the worker waits at a screen that needs an answer |
 | `attempt.exited` | the attempt ended by itself |
 | `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
 
-`attempt.idle` and a `progress` report never wake the supervisor on their own. They ride in the next wake with the event that does, or go out once 50 of them wait.
+`attempt.idle` and a `progress` report never wake the supervisor on their own; `attempt.limited` always does. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
 
@@ -281,7 +284,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 A fleet's page has two parts. At 1280px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
 
-- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
+- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
 - **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, as a thread of cards (the supervisor on the left, the operator on the right), plus the message box and the supervisor controls.
 
 Each task and each decision also has its own page. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.

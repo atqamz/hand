@@ -211,6 +211,21 @@ func TestLatestEventAndInput(t *testing.T) {
 	}
 }
 
+func TestLastLimitReadsTheAttemptsNewestLimitLine(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	for _, e := range [][2]string{{"attempt.limited", "a1: first limit"}, {"attempt.limited", "a1: second limit"}, {"attempt.quiet", "a1: turn ended without a new report"}, {"attempt.limited", "a10: other limit"}} {
+		if err := s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), e[0], 0, e[1]) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, want := range map[int64]string{1: "second limit", 10: "other limit", 2: ""} {
+		if got, err := s.LastLimit(ctx, id); err != nil || got != want {
+			t.Fatalf("a%d: %q, %v; want %q", id, got, err, want)
+		}
+	}
+}
+
 func TestLastAttemptEventMatchesTheExactRef(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

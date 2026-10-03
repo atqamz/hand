@@ -84,6 +84,16 @@ func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, 
 	return e.Kind, err
 }
 
+func (s *Store) LastLimit(ctx context.Context, attemptID int64) (string, error) {
+	prefix := AttemptRef(attemptID) + ": "
+	var detail string
+	err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'attempt.limited' AND detail LIKE ? ORDER BY seq DESC LIMIT 1`, prefix+"%").Scan(&detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return strings.TrimPrefix(detail, prefix), err
+}
+
 func (s *Store) AttemptSignals(ctx context.Context) (map[int64]Event, error) {
 	live, err := s.LiveAttempts(ctx)
 	if err != nil {

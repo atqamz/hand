@@ -424,7 +424,7 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 
 ### Signals
 - **Fail Red** (`fail`, pale `fail-bg`): blocked screens, failed attempts and an interrupted supervisor in Needs; the failing pill (blocked, unreachable, exited, interrupted, failed); failing task icons; blocked and failed report headers; the auto-deny countdown; the context bar and its figure from 90%; error toasts and error pages; and the two controls that end a turn, Interrupt, and Stop on hover or armed.
-- **Wait Amber** (`wait`, pale `wait-bg`): decisions and "no supervisor" items in Needs; a pending model switch; the context bar and its figure from 80%; a stale-server note; waiting task icons.
+- **Wait Amber** (`wait`, pale `wait-bg`): decisions, limited attempts and "no supervisor" items in Needs; a pending model switch; the context bar and its figure from 80%; a stale-server note; waiting task icons.
 - **Pass Green** (`pass`, pale `pass-bg`): the ready pill, running and passing task icons, done report headers, the All clear icon, and done states.
 - **Neutral** (`neutral`, pale `neutral-bg`): reports and quiet attempts in Needs; the starting, stopped and no-supervisor pills; idle task icons; counts at rest.
 
@@ -455,7 +455,7 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 - **Label** (600, 12px, 18px): chips, the tab's count, the task groups' heads and labels in menus.
 - **Meta** (400, 12px, 1.5, tabular): times, meta, card header strips, Hand lines, the working line, hints and notes.
 - **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
-- **Severity code** (700, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, NO SUPERVISOR, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
+- **Severity code** (700, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, LIMITED, NO SUPERVISOR, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
 - **Code block** (400, 12px, 1.45, mono): terminal excerpts and preformatted blocks.
 
 ### Named Rules
@@ -548,11 +548,12 @@ The signature component. Each open item is a `details` element with a 1px hairli
 | a blocked supervisor screen | 1 | fail | BLOCKED |
 | a blocked worker screen | 2 | fail | BLOCKED |
 | a failed attempt | 3 | fail | FAILED |
-| work waiting with no supervisor | 4 | wait | NO SUPERVISOR |
-| an interrupted supervisor | 5 | fail | INTERRUPTED |
-| a decision | 6 | wait | DECISION |
-| an unread report | 7 | neutral | REPORT |
-| an attempt that stopped without a report | 8 | neutral | QUIET |
+| an attempt stopped at a usage limit | 4 | wait | LIMITED |
+| work waiting with no supervisor | 5 | wait | NO SUPERVISOR |
+| an interrupted supervisor | 6 | fail | INTERRUPTED |
+| a decision | 7 | wait | DECISION |
+| an unread report | 8 | neutral | REPORT |
+| an attempt that stopped without a report | 9 | neutral | QUIET |
 
 - **Header:** a grid of a 16px state icon, a slug line and a right-hand cell, over the headline on its own row, padded 8px by 12px on the tone's pale fill (`fail-bg`, `wait-bg` or `neutral-bg`). The icon takes the tone: failure for fail, waiting for wait, idle for neutral.
 - **Slug line:** the severity code in the tone's colour, then the refs, harness and model, status and time, separated by faded middle dots. Refs in the slug lose their chip, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink.
@@ -564,6 +565,7 @@ The signature component. Each open item is a `details` element with a 1px hairli
   - a failure shows its reason in muted ink and a "View aN" link;
   - a report shows its excerpt, Mark read and an open link;
   - a quiet attempt says it stopped without a report and links to it;
+  - a limited attempt's headline is its limit line, and its body says it stopped at a usage limit and links to it;
   - a no-supervisor item shows Resume or Start, and an interrupted supervisor shows the primary Resume and New session.
 - **Countdown:** Claude Code's auto-deny countdown sits in the header's right-hand cell as a live timer ("0:42", then "denying…") in red tabular mono on a ground pill.
 - **Opening and closing** animate the body's height over .24s where the browser supports `interpolate-size`.

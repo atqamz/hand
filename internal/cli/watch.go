@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -280,7 +281,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
-		case last == "attempt.quiet" && ag.Status != "blocked":
+		case (last == "attempt.quiet" || last == "attempt.idle" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
@@ -316,6 +317,23 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
 		}
+		s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
+		if err != nil {
+			return err
+		}
+		if line, ok := harness.Limit(a.Harness, s.Text); ok {
+			seen, err := w.st.LastLimit(ctx, a.ID)
+			if err != nil {
+				return err
+			}
+			if shown(seen) != shown(line) {
+				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+					return err
+				}
+				w.alert(ctx, ref+" limited: "+line)
+				return nil
+			}
+		}
 		detail, err := w.st.RecordQuiet(ctx, a.ID)
 		if err != nil {
 			return err
@@ -323,6 +341,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.alert(ctx, ref+" quiet: "+detail)
 	}
 	return nil
+}
+
+func shown(line string) string {
+	line, _, _ = strings.Cut(line, " (~")
+	return line
 }
 
 func (w *watcher) alert(ctx context.Context, text string) {
