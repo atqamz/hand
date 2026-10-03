@@ -229,7 +229,7 @@ func (l *exitLog) wait(ctx context.Context, id string) string {
 		rec, ok := l.m[id]
 		deadline := l.deadline
 		l.mu.Unlock()
-		if ok {
+		if ok && time.Since(rec.at) <= exitKeep {
 			return rec.reason
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
