@@ -39,7 +39,7 @@ type watcher struct {
 	notify  bool
 	every   time.Duration
 	seen    map[int64]string
-	limited string
+	limited int64
 	pending sync.WaitGroup
 }
 
@@ -211,15 +211,18 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 }
 
 func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabilities) {
-	if w.limited != "" && w.limitCleared(ctx, c) {
-		w.limited = ""
+	if w.limited != 0 && w.limitCleared(ctx, c) {
+		w.limited = 0
 	}
 	why, err := w.r.deliver(ctx, w.st, c, caps, false)
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
 	}
-	if strings.HasPrefix(why, supervisorLimited) && why != w.limited {
-		w.limited = why
+	if !strings.HasPrefix(why, supervisorLimited) {
+		return
+	}
+	if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.limited {
+		w.limited = sup.ID
 		w.alert(ctx, why)
 	}
 }

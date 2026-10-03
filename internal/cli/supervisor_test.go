@@ -1483,18 +1483,57 @@ func TestSupervisorLimitAlertsAgainAfterItClears(t *testing.T) {
 	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
 	fx.start()
 	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
-	alerts := func() int {
-		log, _ := os.ReadFile(notes)
-		return strings.Count(string(log), "supervisor limited: You've hit your session limit")
-	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
 	stop := startWatch(t, fx, "--every", "1h")
 	defer stop()
-	eventually(t, func() bool { return alerts() == 1 })
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "● Back after the reset\n\n> " })
 	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
 	publishStatus(fx, pane, "idle")
-	eventually(t, func() bool { return alerts() == 2 })
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
+}
+
+func supervisorLimitAlerts(notes string) int {
+	log, _ := os.ReadFile(notes)
+	return strings.Count(string(log), "supervisor limited: ")
+}
+
+func TestSupervisorLimitAlertsOncePerEpisode(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	pane := supervisorPane(t, startClaudeSupervisor(fx.h))
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = strings.TrimSuffix(claudeLimit, "> ") + "  ⎿  You've hit your weekly limit · resets Sep 27, 5pm (Asia/Jakarta)\n\n> "
+	})
+	for range 2 {
+		n := explains(fx.rt)
+		publishStatus(fx, pane, "idle")
+		eventually(t, func() bool { return explains(fx.rt) > n })
+	}
+	out, _ := stop()
+	if n := supervisorLimitAlerts(notes); n != 1 {
+		t.Fatalf("limited alerts = %d, want 1 (watch out %q)", n, out)
+	}
+}
+
+func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	startClaudeSupervisor(fx.h)
+	fx.start()
+	fx.h.ok("report", "add", "--attempt", "a1", "--status", "done", "--text", "Fixed login")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", claudeLimit })
+	stop := startWatch(t, fx, "--every", "1h")
+	defer stop()
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 1 })
+	has(t, "switch", fx.h.ok("supervisor", "switch", "--model", "opus", "--effort", "high"), "supervisor: s2", "switch: applied")
+	publishStatus(fx, supervisorPane(t, fx.h.ok("supervisor", "show")), "idle")
+	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
 }
