@@ -219,7 +219,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle` and `attempt.limited` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
-- delivers queued messages and wakes to the managed supervisor;
+- delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
 
@@ -235,7 +235,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
 
-- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out.
+- **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out. While the supervisor's screen shows its harness's usage-limit line, Hand holds wakes and leaves the cursor where it is, because the harness would answer them with the limit error. It holds them too when it cannot read that screen. The hold lifts once the line leaves the screen. Operator messages still go out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
 
 The wake kinds are:
@@ -284,7 +284,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 A fleet's page has two parts. At 1280px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
 
-- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
+- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again, and the supervisor while its screen shows a limit line; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
 - **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, as a thread of cards (the supervisor on the left, the operator on the right), plus the message box and the supervisor controls.
 
 Each task and each decision also has its own page. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
