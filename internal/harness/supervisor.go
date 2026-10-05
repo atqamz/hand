@@ -67,7 +67,7 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 		if resume {
 			argv = append(argv, "resume")
 		}
-		argv = append(argv, "--dangerously-bypass-approvals-and-sandbox")
+		argv = append(argv, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks")
 		if s.Model != "" {
 			argv = append(argv, "-m", s.Model)
 		}

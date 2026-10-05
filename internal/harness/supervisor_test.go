@@ -30,8 +30,8 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		{"claude new", "/bin/claude", Spec{"claude", "sonnet", "medium"}, uuid, "go", false, []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", uuid, "--model", "sonnet", "--effort", "medium", "go"}},
 		{"claude resume", "/bin/claude", Spec{"claude", "sonnet", "medium"}, uuid, "", true, []string{"/bin/claude", "--dangerously-skip-permissions", "--resume", uuid, "--model", "sonnet", "--effort", "medium"}},
 		{"claude bare", "/bin/claude", Spec{Harness: "claude"}, uuid, "go", false, []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", uuid, "go"}},
-		{"codex new", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "", "go", false, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "go"}},
-		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
+		{"codex new", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "", "go", false, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "go"}},
+		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
 		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, "", "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--prompt", "go"}},
 		{"opencode resume", "/bin/opencode", Spec{Harness: "opencode"}, "ses_1", "", true, []string{"/bin/opencode", "--standalone", "--auto", "--session", "ses_1"}},
 	}

@@ -154,7 +154,7 @@ func TestArgvIsExact(t *testing.T) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
 	x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it")
-	if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
+	if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
 		t.Fatalf("codex argv = %q, %v", x, err)
 	}
 	for _, bad := range []string{"", "  ", "-p trick", "a\x00b", strings.Repeat("x", MaxPromptBytes+1)} {
