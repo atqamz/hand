@@ -407,6 +407,7 @@ func fakeBin(t *testing.T) string {
 func newAttemptFixture(t *testing.T) *attemptFixture {
 	t.Helper()
 	fx := &attemptFixture{h: newHarness(t), repo: gitRepo(t)}
+	fx.h.now = time.Now()
 	fx.rt = startRuntime(t, filepath.Join(t.TempDir(), "uhp.sock"))
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
 	fx.h.vars["PATH"] = fakeBin(t)

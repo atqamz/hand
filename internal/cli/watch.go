@@ -323,6 +323,16 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 			prev = "idle"
 		}
 		w.seen[a.ID] = prev
+		if ag.Status == "working" && w.turns[a.ID] == nil {
+			since, long, err := w.st.TurnStart(ctx, a.ID)
+			if err != nil {
+				return err
+			}
+			if since.IsZero() {
+				since = time.Now()
+			}
+			w.turns[a.ID] = &turn{since: since, long: long}
+		}
 		if err := w.observe(ctx, c, a, ag.Status); err != nil {
 			return err
 		}
