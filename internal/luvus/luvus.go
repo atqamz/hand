@@ -22,6 +22,7 @@ import (
 var (
 	ErrUnreachable  = errors.New("luvus server unreachable")
 	ErrIncompatible = errors.New("luvus is incompatible")
+	ErrForeignOwner = errors.New("luvus server belongs to another user")
 )
 
 var Required = []string{
@@ -56,6 +57,25 @@ const DefaultTimeout = 30 * time.Second
 type Client struct {
 	Socket  string
 	Timeout time.Duration
+	Relist  func(ctx context.Context, stale string) (string, error)
+}
+
+func (c Client) dial(ctx context.Context) (net.Conn, error) {
+	addr := c.Socket
+	conn, err := dial(ctx, addr)
+	if err != nil && c.Relist != nil && !errors.Is(err, ErrForeignOwner) {
+		if fresh, listErr := c.Relist(ctx, addr); listErr == nil {
+			addr = fresh
+			conn, err = dial(ctx, addr)
+		}
+	}
+	switch {
+	case err == nil:
+		return conn, nil
+	case errors.Is(err, ErrForeignOwner):
+		return nil, fmt.Errorf("%w: refusing %s", err, addr)
+	}
+	return nil, fmt.Errorf("%w at %s: %w", ErrUnreachable, addr, err)
 }
 
 func SocketPath(getenv func(string) string, session string) string {
@@ -95,10 +115,9 @@ func (c Client) Call(ctx context.Context, method string, params, out any) error 
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", c.Socket)
+	conn, err := c.dial(ctx)
 	if err != nil {
-		return fmt.Errorf("%w at %s: %w", ErrUnreachable, c.Socket, err)
+		return err
 	}
 	defer conn.Close()
 	if dl, ok := ctx.Deadline(); ok {
