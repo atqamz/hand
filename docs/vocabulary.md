@@ -35,6 +35,8 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 | `opencode` | `--standalone --auto` | none; opencode uses the model from its own configuration |
 | `agy` | `--dangerously-skip-permissions`, with `-i BRIEF` for a new session or `--conversation ID` to resume | a model id from `agy models`, which names the effort level (`gemini-3.8-flash-low`); no effort |
 
+`--disable hooks` turns off every Codex hook in managed sessions, including hooks the user set up on purpose, so anyone relying on hooks for auditing or policy checks loses them.
+
 ### Agent state
 
 Luvus's reading of the agent in a pane: `idle`, `working`, `done` or `blocked`. Hand's messages go through Luvus's fenced input, which refuses them while the agent is not ready for input, for example at a permission prompt. For a worker, the watcher turns `blocked` into the `attempt.blocked` wake, and `done`, or `idle` after the worker worked or blocked, into `attempt.quiet`. When the attempt's newest event is already `attempt.quiet` or `attempt.idle`, or is a `done` or `stuck` report, the supervisor already knows, so the watcher records that turn as `attempt.idle` instead. A turn that ends after a `progress` report stays `attempt.quiet`: it is the likely false done. Declining a permission prompt, or Claude Code's own two-minute auto-deny, ends the worker's turn this way.
