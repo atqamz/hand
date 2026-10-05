@@ -232,10 +232,17 @@ func (l *exitLog) wait(ctx context.Context, id string) string {
 		if ok && time.Since(rec.at) <= exitKeep {
 			return rec.reason
 		}
-		if time.Now().After(deadline) || ctx.Err() != nil {
+		left := time.Until(deadline)
+		if left <= 0 {
 			return "terminal exited"
 		}
-		time.Sleep(10 * time.Millisecond)
+		timer := time.NewTimer(min(left, 10*time.Millisecond))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "terminal exited"
+		case <-timer.C:
+		}
 	}
 }
 
