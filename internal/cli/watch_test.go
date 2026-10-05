@@ -759,30 +759,41 @@ func TestWatchCatchesUpOnATurnThatEndedAfterALongTurn(t *testing.T) {
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
 }
 
+func waitTicks(t *testing.T, fx *attemptFixture) {
+	t.Helper()
+	count := func() (n int) {
+		fx.rt.set(func(rt *fakeRuntime) { n = rt.validations })
+		return n
+	}
+	want := count() + 3
+	eventually(t, func() bool { return count() >= want })
+}
+
 func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
 	shortLongTurn(t, time.Hour)
 	fx := newAttemptFixture(t)
-	fx.h.now = time.Now().Add(-time.Hour + 300*time.Millisecond)
+	fx.h.now = time.Now().Add(-2 * time.Hour)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
 	eventually(t, func() bool { return longEvents(fx) == 1 })
-	time.Sleep(300 * time.Millisecond)
+	waitTicks(t, fx)
 	if n := longEvents(fx); n != 1 {
 		t.Fatalf("a turn begun before the watcher started recorded attempt.long %d times", n)
 	}
 }
 
 func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
-	shortLongTurn(t, 150*time.Millisecond)
+	shortLongTurn(t, time.Hour)
 	fx := newAttemptFixture(t)
+	fx.h.now = time.Now().Add(-2 * time.Hour)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
 	eventually(t, func() bool { return longEvents(fx) == 1 })
 	stop()
 	stop = startWatch(t, fx, "--every", "30ms")
 	defer stop()
-	time.Sleep(500 * time.Millisecond)
+	waitTicks(t, fx)
 	if n := longEvents(fx); n != 1 {
 		t.Fatalf("a restart after attempt.long recorded %d of them", n)
 	}
