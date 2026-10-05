@@ -30,6 +30,8 @@ You are the operator's single supervisor for the fleet in this folder. Workers w
 
 ## Wait with zero tokens
 
+While `hand orient` shows a running supervisor and prints no `you: sN` line for you (either `you: not the supervisor` or no `you:` line at all), you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.
+
 As the managed supervisor (`hand orient` prints `you: sN`), never run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line per event. Handle each line as below.
 
 Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
