@@ -33,7 +33,7 @@ type section struct {
 	cmd    string
 }
 
-func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budget) (*toon.Doc, error) {
+func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, b Budget) (*toon.Doc, error) {
 	f, err := st.Fleet(ctx)
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budg
 	if err != nil {
 		return nil, err
 	}
-	supervisor, resumable := "none", false
+	supervisor, you, resumable := "none", "", false
 	if hasSup {
 		origin, err := st.SupervisorOrigin(ctx, sup)
 		if err != nil {
@@ -59,6 +59,12 @@ func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budg
 		supervisor = state.SupervisorRef(sup.ID) + " " + sup.Harness + " " + sup.Status
 		if origin != sup.ID {
 			supervisor += " (resumes " + state.SupervisorRef(origin) + ")"
+		}
+		if pane != "" && sup.Status == state.AttemptRunning {
+			you = "not the supervisor"
+			if pane == sup.PaneID {
+				you = state.SupervisorRef(sup.ID)
+			}
 		}
 		resumable = sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited
 	}
@@ -178,7 +184,7 @@ func Build(ctx context.Context, st *state.Store, home string, watch bool, b Budg
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, watch, resumable, counts, cursor, sections, memLines, truncated)
+		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -202,11 +208,14 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor string, watch, resumable bool, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
 	d.Field("supervisor", supervisor)
+	if you != "" {
+		d.Field("you", you)
+	}
 	watchState := "missing"
 	if watch {
 		watchState = "running"

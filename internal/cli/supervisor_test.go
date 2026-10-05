@@ -115,6 +115,9 @@ func TestSupervisorResumeContinuesTheSession(t *testing.T) {
 		t.Fatalf("argv = %q", argv)
 	}
 	has(t, "show", h.ok("supervisor", "show"), cursor)
+	if got := rt.prompts(); !slices.Equal(got, []string{"[hand v1 resume] you are now s2 (resumes s1)"}) {
+		t.Fatalf("prompts = %q", got)
+	}
 	if _, _, code := h.run("supervisor", "resume"); code != 3 {
 		t.Fatalf("resume while live code=%d", code)
 	}
@@ -411,20 +414,20 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	fx.rt.srv.SetGeneration("gen-2")
 	has(t, "show", fx.h.ok("supervisor", "show"), "status: interrupted", "pending: 2")
 	pane := supervisorPane(t, fx.h.ok("supervisor", "resume"))
-	if got := fx.rt.prompts(); len(got) != 0 {
+	if got := fx.rt.prompts(); len(got) != 1 {
 		t.Fatalf("delivered before resume: %q", got)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	stop := startWatch(t, fx, "--every", "1h")
-	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
-	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return len(fx.rt.prompts()) == 3 })
+	publishStatus(fx, pane, "idle")
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 4 })
 	n := explains(fx.rt)
 	publishStatus(fx, pane, "idle")
 	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
-	if len(got) != 3 || got[0] != "first" || got[1] != "second" || !strings.HasPrefix(got[2], "[hand v1 wake]\n") || !strings.Contains(got[2], "attempt.blocked a1: its screen waits for a key") {
+	if len(got) != 4 || got[1] != "first" || got[2] != "second" || !strings.HasPrefix(got[3], "[hand v1 wake]\n") || !strings.Contains(got[3], "attempt.blocked a1: its screen waits for a key") {
 		t.Fatalf("prompts = %q", got)
 	}
 }
@@ -632,7 +635,9 @@ func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
 	}
 	stop := startWatch(t, fx, "--every", "1h")
 	publishStatus(fx, pane, "idle")
-	eventually(t, func() bool { return slices.Equal(rt.prompts(), []string{"one", "two"}) })
+	eventually(t, func() bool {
+		return slices.Equal(rt.prompts(), []string{"[hand v1 resume] you are now s2 (resumes s1)", "one", "two"})
+	})
 	stop()
 	resumedArgv(t, rt, session, "opus", "high")
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "pending: 0")
@@ -1305,10 +1310,10 @@ func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
 	}
 	has(t, "held", fx.h.ok("supervisor", "show"), "switch: opus high", cursor)
 	publishStatus(fx, pane, "idle")
-	eventually(t, func() bool { return len(fx.rt.prompts()) == 1 })
+	eventually(t, func() bool { return len(fx.rt.prompts()) == 2 })
 	stop()
 	resumedArgv(t, fx.rt, session, "opus", "high")
-	if wake := fx.rt.prompts()[0]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "\nattempt.reported a1: r1 done") {
+	if wake := fx.rt.prompts()[1]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "\nattempt.reported a1: r1 done") {
 		t.Fatalf("wake = %q", wake)
 	}
 	if out := fx.h.ok("supervisor", "show"); strings.Contains(out, "switch:") || strings.Contains(out, cursor) {

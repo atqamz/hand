@@ -228,6 +228,14 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
 	if err == nil {
 		waitSettled(ctx, c, sup.PaneID)
+		origin, oerr := st.SupervisorOrigin(ctx, sup)
+		if oerr != nil {
+			return sup, oerr
+		}
+		note := "[hand v1 resume] you are now " + state.SupervisorRef(sup.ID) + " (resumes " + state.SupervisorRef(origin) + ")"
+		if perr := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, note) }); perr != nil && luvus.Code(perr) == "" {
+			return sup, runtimeErr(perr)
+		}
 	}
 	return sup, err
 }

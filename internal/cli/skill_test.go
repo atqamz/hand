@@ -19,7 +19,7 @@ func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Run `hand orient` at the start of every turn",
-		"If `hand orient` shows a running supervisor sN and your launch message did not name you sN, you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.",
+		"If `hand orient` prints `you: not the supervisor`, you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.",
 		"As the managed supervisor, do not run `hand wait`. Wakes arrive as messages whose first line is `[hand v1 wake]`.",
 	} {
 		if !strings.Contains(string(agents), want) {
