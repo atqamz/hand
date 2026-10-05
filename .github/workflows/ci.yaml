@@ -100,6 +100,7 @@ jobs:
             foreach ($i in 1..30) {
               try { Invoke-WebRequest -UseBasicParsing -Uri "$base/latest/download/hand-windows-amd64.sha256" | Out-Null; break } catch { Start-Sleep -Seconds 1 }
             }
+            if ($server.HasExited) { throw 'the local release server did not start' }
             $dir = Join-Path $env:RUNNER_TEMP 'Hand Smoke\bin'
             foreach ($i in 1..2) {
               powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Base $base
@@ -112,6 +113,8 @@ jobs:
             powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base $base
             if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a wrong checksum' }
             if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a checksum mismatch' }
+            powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://example.com/releases'
+            if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a remote http base' }
           }
           finally {
             Stop-Process -Id $server.Id -Force

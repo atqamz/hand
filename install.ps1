@@ -17,6 +17,9 @@ if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -and $env:PROCESSOR_ARCHITEW6432 -ne
 
 if ($Edge) { $Version = 'edge' }
 $Base = $Base.TrimEnd('/')
+if ($Base -notmatch '^https://' -and $Base -notmatch '^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?(/|$)') {
+    throw "install.ps1: the base URL must use https, or http on this machine: $Base"
+}
 if ($Version -eq 'latest') { $url = "$Base/latest/download" } else { $url = "$Base/download/$Version" }
 $stem = 'hand-windows-amd64'
 
@@ -26,8 +29,8 @@ $part = $null
 try {
     $zip = Join-Path $tmp "$stem.zip"
     $sums = Join-Path $tmp "$stem.sha256"
-    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.zip" -OutFile $zip
-    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.sha256" -OutFile $sums
+    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.zip" -OutFile $zip -TimeoutSec 300
+    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.sha256" -OutFile $sums -TimeoutSec 300
 
     $want = $null
     foreach ($line in Get-Content -LiteralPath $sums) {
@@ -48,12 +51,20 @@ try {
     $target = Join-Path $Dir 'hand.exe'
     $part = Join-Path $Dir '.hand.exe.part'
     Copy-Item -LiteralPath $built -Destination $part -Force
+    $old = $null
     if (Test-Path -LiteralPath $target) {
         $old = "$target.old"
         Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $old) { $old = "$target.old-" + [guid]::NewGuid().ToString('N') }
         Move-Item -LiteralPath $target -Destination $old -Force
     }
-    Move-Item -LiteralPath $part -Destination $target -Force
+    try {
+        Move-Item -LiteralPath $part -Destination $target -Force
+    }
+    catch {
+        if ($old) { Move-Item -LiteralPath $old -Destination $target -Force }
+        throw
+    }
 }
 finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
