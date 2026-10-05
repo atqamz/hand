@@ -46,8 +46,25 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+      - name: Install Luvus
+        shell: bash
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          name=luvus-v$version-x86_64-pc-windows-msvc
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$(cygpath -u "$RUNNER_TEMP")/luvus
+          mkdir "$dir"
+          cd "$dir"
+          curl -fsSLO "$base/$name.zip"
+          curl -fsSLO "$base/$name.sha256"
+          sha256sum -c "$name.sha256"
+          unzip -q "$name.zip"
+          cygpath -w "$dir" >> "$GITHUB_PATH"
       - run: go test -race ./...
         env:
+          HAND_LUVUS_IT: "1"
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
 

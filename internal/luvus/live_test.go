@@ -5,13 +5,22 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
 )
+
+func liveClient(bin, session string, env []string, getenv func(string) string) luvus.Client {
+	if runtime.GOOS != "windows" {
+		return luvus.Client{Socket: luvus.SocketPath(getenv, session)}
+	}
+	return luvus.Client{Relist: func(ctx context.Context, _ string) (string, error) { return luvus.Address(ctx, bin, session, env) }}
+}
 
 func TestLiveLuvusRoundTrip(t *testing.T) {
 	if os.Getenv("HAND_LUVUS_IT") != "1" {
@@ -33,7 +42,7 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 		return ""
 	}
 	const session = "hand-it"
-	c := luvus.Client{Socket: luvus.SocketPath(getenv, session)}
+	c := liveClient(bin, session, env, getenv)
 	t.Cleanup(func() {
 		stop := exec.Command(bin, "--session", session, "server", "stop")
 		stop.Env = env
@@ -51,11 +60,8 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer stream.Close()
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
-	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep, "300"})
+	sleep := fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil)
+	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +110,7 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 		t.Fatal(err)
 	}
 	script, err := exec.LookPath("script")
-	if err != nil {
+	if err != nil || runtime.GOOS == "windows" {
 		t.Skip("attach needs a terminal; install util-linux script to run this")
 	}
 	root := t.TempDir()
@@ -119,7 +125,7 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 		return ""
 	}
 	const session = "hand-it-attach"
-	c := luvus.Client{Socket: luvus.SocketPath(getenv, session)}
+	c := liveClient(bin, session, env, getenv)
 	t.Cleanup(func() {
 		stop := exec.Command(bin, "--session", session, "server", "stop")
 		stop.Env = env
@@ -129,11 +135,8 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) }); err != nil {
 		t.Fatal(err)
 	}
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Fatal(err)
-	}
-	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep, "300"})
+	sleep := fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil)
+	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep})
 	if err != nil {
 		t.Fatal(err)
 	}

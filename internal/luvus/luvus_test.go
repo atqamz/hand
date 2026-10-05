@@ -27,6 +27,9 @@ func TestMain(m *testing.M) {
 		}
 		fakebin.Append(p["calls"], line)
 		return 0
+	}, "sleep": func([]string) int {
+		time.Sleep(5 * time.Minute)
+		return 0
 	}, "luvus": func(args []string) int {
 		p := fakebin.Params()
 		v := p["version"]
