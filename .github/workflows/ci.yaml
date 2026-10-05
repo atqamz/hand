@@ -107,6 +107,19 @@ jobs:
                       super().do_GET()
           http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(Handler, directory=sys.argv[3])).serve_forever()
           '@
+          $staller = Join-Path $env:RUNNER_TEMP 'stall.py'
+          Set-Content -Path $staller -Encoding ascii -Value @'
+          import http.server, sys, time
+          class Handler(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  self.send_response(200)
+                  self.send_header('Content-Length', '1000000')
+                  self.end_headers()
+                  self.wfile.write(b'x' * 1000)
+                  self.wfile.flush()
+                  time.sleep(600)
+          http.server.ThreadingHTTPServer(('127.0.0.1', int(sys.argv[1])), Handler).serve_forever()
+          '@
           $server = Start-Process python -ArgumentList '-m', 'http.server', '8787', '--bind', '127.0.0.1', '--directory', $root -PassThru -WindowStyle Hidden
           try {
             $base = 'http://127.0.0.1:8787'
@@ -118,18 +131,18 @@ jobs:
               $dir = Join-Path $env:RUNNER_TEMP "Hand Smoke $shell\bin"
               foreach ($i in 1..2) {
                 & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Base $base
-                if ($LASTEXITCODE) { exit $LASTEXITCODE }
+                if ($LASTEXITCODE) { throw "$shell: install.ps1 exited with $LASTEXITCODE" }
               }
-              if (Get-ChildItem -LiteralPath $dir -Filter '.hand.exe.*.part' -Force) { throw 'install.ps1 left a temporary file behind' }
+              if (Get-ChildItem -LiteralPath $dir -Filter '.hand.exe.*.part' -Force) { throw "$shell: install.ps1 left a temporary file behind" }
               $user = [Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -eq $dir }
-              if (@($user).Count -ne 1) { throw "user PATH holds $(@($user).Count) entries for $dir" }
+              if (@($user).Count -ne 1) { throw "$shell: user PATH holds $(@($user).Count) entries for $dir" }
               Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
               $bad = Join-Path $env:RUNNER_TEMP 'Hand Bad\bin'
               & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base $base
-              if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a wrong checksum' }
-              if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a checksum mismatch' }
+              if (-not $LASTEXITCODE) { throw "$shell: install.ps1 accepted a wrong checksum" }
+              if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "$shell: install.ps1 installed after a checksum mismatch" }
               & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://example.com/releases'
-              if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a remote http base' }
+              if (-not $LASTEXITCODE) { throw "$shell: install.ps1 accepted a remote http base" }
               Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
               foreach ($case in @(@('8788', '.zip'), @('8789', '.sha256'))) {
                 $redirecting = Start-Process python -ArgumentList $redirector, $case[0], $case[1], $root -PassThru -WindowStyle Hidden
@@ -138,13 +151,28 @@ jobs:
                     try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$($case[0])/latest/download/hand-windows-amd64.sha256" -MaximumRedirection 0 | Out-Null; break } catch { if ($_.Exception.Response) { break }; Start-Sleep -Seconds 1 }
                   }
                   $refused = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base "http://127.0.0.1:$($case[0])" 2>&1 | Out-String
-                  if (-not $LASTEXITCODE) { throw "install.ps1 followed a redirect to http for $($case[1])" }
-                  if ($refused -notmatch 'refusing a redirect to a non-https URL') { throw "install.ps1 failed for another reason on $($case[1]): $refused" }
-                  if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a refused redirect' }
+                  if (-not $LASTEXITCODE) { throw "$shell: install.ps1 followed a redirect to http for $($case[1])" }
+                  if ($refused -notmatch 'refusing a redirect to a non-https URL') { throw "$shell: install.ps1 failed for another reason on $($case[1]): $refused" }
+                  if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "$shell: install.ps1 installed after a refused redirect" }
                 }
                 finally {
                   Stop-Process -Id $redirecting.Id -Force
                 }
+              }
+              $stalling = Start-Process python -ArgumentList $staller, '8790' -PassThru -WindowStyle Hidden
+              try {
+                foreach ($i in 1..30) {
+                  try { [Net.Sockets.TcpClient]::new('127.0.0.1', 8790).Close(); break } catch { Start-Sleep -Seconds 1 }
+                }
+                $clock = [Diagnostics.Stopwatch]::StartNew()
+                $stalled = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://127.0.0.1:8790' -TimeoutSec 5 2>&1 | Out-String
+                if (-not $LASTEXITCODE) { throw "$shell: install.ps1 finished a stalled download" }
+                if ($stalled -notmatch 'timed out after 5 seconds') { throw "$shell: install.ps1 failed for another reason on a stalled download: $stalled" }
+                if ($clock.Elapsed.TotalSeconds -gt 60) { throw "$shell: install.ps1 took $([int]$clock.Elapsed.TotalSeconds) seconds to give up on a stalled download" }
+                if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "$shell: install.ps1 installed after a stalled download" }
+              }
+              finally {
+                Stop-Process -Id $stalling.Id -Force
               }
             }
           }

@@ -3,7 +3,8 @@ param(
     [string]$Version = $(if ($env:HAND_INSTALL_VERSION) { $env:HAND_INSTALL_VERSION } else { 'latest' }),
     [switch]$Edge,
     [string]$Dir = $(if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'hand\bin' }),
-    [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' })
+    [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' }),
+    [ValidateRange(1, 86400)][int]$TimeoutSec = 300
 )
 
 Set-StrictMode -Version 2.0
@@ -25,6 +26,7 @@ if ($Version -eq 'latest') { $url = "$Base/latest/download" } else { $url = "$Ba
 $stem = 'hand-windows-amd64'
 
 function Get-Download([string]$Uri, [string]$OutFile) {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
     foreach ($hop in 0..5) {
         $request = [Net.HttpWebRequest]::Create($Uri)
         $request.AllowAutoRedirect = $false
@@ -43,7 +45,20 @@ function Get-Download([string]$Uri, [string]$OutFile) {
             }
             if ($status -ne 200) { throw "install.ps1: HTTP $status fetching $Uri" }
             $file = [IO.File]::Create($OutFile)
-            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
+            try {
+                $stream = $response.GetResponseStream()
+                $buffer = [byte[]]::new(81920)
+                while ($true) {
+                    $read = $stream.ReadAsync($buffer, 0, $buffer.Length)
+                    if (-not $read.Wait([int][Math]::Max(0, $TimeoutSec * 1000 - $clock.ElapsedMilliseconds))) {
+                        $request.Abort()
+                        throw "install.ps1: timed out after $TimeoutSec seconds fetching $Uri"
+                    }
+                    if ($read.Result -eq 0) { break }
+                    $file.Write($buffer, 0, $read.Result)
+                }
+            }
+            finally { $file.Dispose() }
             return
         }
         finally {
