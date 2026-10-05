@@ -24,6 +24,7 @@ if ($Base -notmatch '^https://' -and $Base -notmatch $loopback) {
 }
 if ($Version -eq 'latest') { $url = "$Base/latest/download" } else { $url = "$Base/download/$Version" }
 $stem = 'hand-windows-amd64'
+$limitMs = $TimeoutSec * 1000
 
 function Get-Download([string]$Uri, [string]$OutFile) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -50,7 +51,7 @@ function Get-Download([string]$Uri, [string]$OutFile) {
                 $buffer = [byte[]]::new(81920)
                 while ($true) {
                     $read = $stream.ReadAsync($buffer, 0, $buffer.Length)
-                    if (-not $read.Wait([int][Math]::Max(0, $TimeoutSec * 1000 - $clock.ElapsedMilliseconds))) {
+                    if (-not $read.Wait([int][Math]::Max(0, $limitMs - $clock.ElapsedMilliseconds))) {
                         $request.Abort()
                         throw "install.ps1: timed out after $TimeoutSec seconds fetching $Uri"
                     }
