@@ -26,17 +26,27 @@ $stem = 'hand-windows-amd64'
 
 function Get-Download([string]$Uri, [string]$OutFile) {
     foreach ($hop in 0..5) {
+        $request = [Net.HttpWebRequest]::Create($Uri)
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 300000
+        $request.UserAgent = 'install.ps1'
+        $response = $request.GetResponse()
         try {
-            Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec 300 -MaximumRedirection 0
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400 -and $response.Headers['Location']) {
+                $Uri = [Uri]::new([Uri]$Uri, $response.Headers['Location']).AbsoluteUri
+                if ($Uri -notmatch '^https://' -and ($Base -match '^https://' -or $Uri -notmatch $loopback)) {
+                    throw "install.ps1: refusing a redirect to a non-https URL: $Uri"
+                }
+                continue
+            }
+            if ($status -ne 200) { throw "install.ps1: HTTP $status fetching $Uri" }
+            $file = [IO.File]::Create($OutFile)
+            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
             return
         }
-        catch {
-            $response = if ($_.Exception -is [Net.WebException]) { $_.Exception.Response } else { $null }
-            if (-not $response -or [int]$response.StatusCode -lt 300 -or [int]$response.StatusCode -ge 400 -or -not $response.Headers['Location']) { throw }
-            $Uri = [Uri]::new([Uri]$Uri, $response.Headers['Location']).AbsoluteUri
-            if ($Uri -notmatch '^https://' -and ($Base -match '^https://' -or $Uri -notmatch $loopback)) {
-                throw "install.ps1: refusing a redirect to a non-https URL: $Uri"
-            }
+        finally {
+            $response.Close()
         }
     }
     throw "install.ps1: too many redirects fetching $OutFile"
