@@ -58,6 +58,7 @@ type fakeRuntime struct {
 	closeDelay  time.Duration
 	sessions    map[string]string
 	blankPane   bool
+	validations int
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -158,6 +159,9 @@ func (rt *fakeRuntime) locate(params json.RawMessage) (*fakeTerm, error) {
 }
 
 func (rt *fakeRuntime) validate(params json.RawMessage) (any, error) {
+	rt.mu.Lock()
+	rt.validations++
+	rt.mu.Unlock()
 	term, err := rt.locate(params)
 	if err != nil {
 		return nil, err

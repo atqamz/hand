@@ -329,7 +329,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 				return err
 			}
 			if since.IsZero() {
-				since = time.Now()
+				since = w.r.env.Now()
 			}
 			w.turns[a.ID] = &turn{since: since, long: long}
 		}
