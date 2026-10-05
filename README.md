@@ -103,6 +103,7 @@ The options go after the command, as in `... -Edge`:
 - `-Edge`: the rolling build of `main` that passed CI;
 - `-Version v0.9.0`: a pinned release;
 - `-Dir PATH`: the folder, which may contain spaces.
+- `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300).
 
 `HAND_INSTALL_VERSION`, `HAND_INSTALL_DIR` and `HAND_INSTALL_BASE` set the same defaults as in `install.sh`.
 

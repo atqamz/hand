@@ -3,7 +3,8 @@ param(
     [string]$Version = $(if ($env:HAND_INSTALL_VERSION) { $env:HAND_INSTALL_VERSION } else { 'latest' }),
     [switch]$Edge,
     [string]$Dir = $(if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'hand\bin' }),
-    [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' })
+    [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' }),
+    [ValidateRange(1, 86400)][int]$TimeoutSec = 300
 )
 
 Set-StrictMode -Version 2.0
@@ -23,15 +24,21 @@ if ($Base -notmatch '^https://' -and $Base -notmatch $loopback) {
 }
 if ($Version -eq 'latest') { $url = "$Base/latest/download" } else { $url = "$Base/download/$Version" }
 $stem = 'hand-windows-amd64'
+$limitMs = $TimeoutSec * 1000
 
 function Get-Download([string]$Uri, [string]$OutFile) {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
     foreach ($hop in 0..5) {
         $request = [Net.HttpWebRequest]::Create($Uri)
         $request.AllowAutoRedirect = $false
-        $request.Timeout = 300000
+        $request.Timeout = [int][Math]::Min(300000, [Math]::Max(1, $limitMs - $clock.ElapsedMilliseconds))
         $request.ReadWriteTimeout = 300000
         $request.UserAgent = 'install.ps1'
-        $response = $request.GetResponse()
+        try { $response = $request.GetResponse() }
+        catch [Net.WebException] {
+            if ($_.Exception.Status -eq [Net.WebExceptionStatus]::Timeout) { throw "install.ps1: timed out after $TimeoutSec seconds fetching $Uri" }
+            throw
+        }
         try {
             $status = [int]$response.StatusCode
             if ($status -ge 300 -and $status -lt 400 -and $response.Headers['Location']) {
@@ -43,7 +50,20 @@ function Get-Download([string]$Uri, [string]$OutFile) {
             }
             if ($status -ne 200) { throw "install.ps1: HTTP $status fetching $Uri" }
             $file = [IO.File]::Create($OutFile)
-            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
+            try {
+                $stream = $response.GetResponseStream()
+                $buffer = [byte[]]::new(81920)
+                while ($true) {
+                    $read = $stream.ReadAsync($buffer, 0, $buffer.Length)
+                    if (-not $read.Wait([int][Math]::Max(0, $limitMs - $clock.ElapsedMilliseconds))) {
+                        $request.Abort()
+                        throw "install.ps1: timed out after $TimeoutSec seconds fetching $Uri"
+                    }
+                    if ($read.Result -eq 0) { break }
+                    $file.Write($buffer, 0, $read.Result)
+                }
+            }
+            finally { $file.Dispose() }
             return
         }
         finally {
