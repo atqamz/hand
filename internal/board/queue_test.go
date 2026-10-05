@@ -633,3 +633,16 @@ func TestALimitedAgySupervisorKeepsOneTitle(t *testing.T) {
 	contains(t, "agy limit", q, `id="wait-limited-s1"`, "Resets in 118h19m26s.</span>")
 	lacks(t, "agy limit", q, "(~")
 }
+
+func TestALongTurnJoinsNeedsAsInformation(t *testing.T) {
+	fx := newFixture(t)
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if err := fx.st.NoteAttempt(context.Background(), a.ID, "long", "working for 60m"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/")
+	contains(t, "long item", region(body, "queue"), `data-kind="long"`, "LONG TURN", "working for 60m", "a1 on t1 “Fix login” has been working for a long time.")
+	if kinds, _, _ := waits(body); !slices.Contains(kinds, "long") {
+		t.Fatalf("a long turn left Needs: %q", kinds)
+	}
+}

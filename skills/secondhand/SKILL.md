@@ -44,6 +44,7 @@ Hand hands over board messages and wakes by pasting them, so they may arrive wra
 - `attempt.limited`: the worker stopped at its harness's usage limit; the detail is the limit line and its reset time.
   - A claude worker whose reset is within about an hour: leave it. The line gives the reset in the time zone it names, so compare it with `TZ=<that zone> date`, for example `TZ=Asia/Jakarta date`. Claude Code continues by itself at the reset, and a message could cancel that.
   - Otherwise hand the work over to another harness. `hand attempt stop aN`, then pick a profile on another harness from `hand route list` and start it from aN's branch (`hand/<fleet>/tN-aN`, shown by `hand attempt show aN`): `hand attempt start --profile P --base hand/<fleet>/tN-aN --prompt-file BRIEF.md tN`. The brief carries the goal, what `hand report show rN` says is done, the PR URL, and "push to the PR branch with `git push origin HEAD:hand/<fleet>/tN-aN`".
+- `attempt.long`: the worker's turn has run 60 minutes. Look once with `hand attempt read aN`. A healthy long wait, such as a CI or review poll, needs nothing. Otherwise steer it with `hand attempt send --text "..." aN` or `hand attempt stop aN`.
 - `attempt.blocked`: `hand attempt read aN`. Answer a trust or permission screen the task needs with `hand attempt keys --revision N aN KEY...`; anything else is a question for the operator. Declining a permission prompt ends the worker's turn, and it waits for input, so follow it with `hand attempt send --text "..." aN` saying what to do instead.
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.
 - `decision.answered`: `hand decision show dN` prints the answer; continue the task with it.
@@ -67,5 +68,5 @@ Never end a chat reply with a question for the operator; ask every question with
 - After any gap, run `hand orient` again instead of recalling.
 - Keep chat short. The board shows everything, so point the operator to it.
 - Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.
-- Read a worker's terminal only when it is blocked, or quiet without a report.
+- Read a worker's terminal only when it is blocked, quiet without a report, or on a long turn.
 - Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.
