@@ -22,7 +22,6 @@ import (
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/transcript"
@@ -125,7 +124,7 @@ func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcri
 		Controls:   loopback,
 		Control:    control(r.env, home),
 		Harness:    harness.EnvOf(r.env.Getenv),
-		Luvus:      luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, fleet.Session(id))},
+		Luvus:      r.client(fleet.Session(id)),
 		Transcript: transcripts,
 		Home:       home,
 		Base:       "/" + id,

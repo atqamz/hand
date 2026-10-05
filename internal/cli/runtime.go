@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,7 +26,7 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 		return luvus.Client{}, luvus.Capabilities{}, errors.New("hand reached luvus before claiming its fleet")
 	}
 	session := fleet.Session(r.fleet.ID)
-	c := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
+	c := r.client(session)
 	caps, err := luvus.Ensure(ctx, c, func() error {
 		bin, err := r.luvusBin()
 		if err != nil {
@@ -38,6 +39,28 @@ func (r *runner) luvus(ctx context.Context) (luvus.Client, luvus.Capabilities, e
 		return luvus.StartServer(ctx, bin, session, fleet.LuvusUnit(r.fleet.ID), dir, r.env.Environ())
 	})
 	return c, caps, runtimeErr(err)
+}
+
+func (r *runner) client(session string) luvus.Client {
+	if runtime.GOOS != "windows" || r.env.Getenv("HAND_LUVUS_SOCKET") != "" {
+		return luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
+	}
+	known, _ := r.addrs.Load(session)
+	socket, _ := known.(string)
+	return luvus.Client{Socket: socket, Relist: func(ctx context.Context, stale string) (string, error) {
+		if now, ok := r.addrs.Load(session); ok && now != stale {
+			return now.(string), nil
+		}
+		bin, err := r.luvusBin()
+		if err != nil {
+			return "", err
+		}
+		addr, err := luvus.Address(ctx, bin, session, r.env.Environ())
+		if err == nil {
+			r.addrs.Store(session, addr)
+		}
+		return addr, err
+	}}
 }
 
 func runtimeErr(err error) error {
