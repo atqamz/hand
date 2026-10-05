@@ -7,6 +7,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func Release(f *os.File) error {
+	_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, new(windows.Overlapped))
+	return f.Close()
+}
+
 func Lock(f *os.File, wait bool) (bool, error) {
 	flags := uint32(windows.LOCKFILE_EXCLUSIVE_LOCK)
 	if !wait {

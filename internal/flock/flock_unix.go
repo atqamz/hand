@@ -8,6 +8,8 @@ import (
 	"syscall"
 )
 
+func Release(f *os.File) error { return f.Close() }
+
 func Lock(f *os.File, wait bool) (bool, error) {
 	how := syscall.LOCK_EX
 	if !wait {

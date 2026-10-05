@@ -142,7 +142,7 @@ func (r *runner) lock(name string, wait bool) (func(), bool, error) {
 		_ = f.Close()
 		return nil, false, err
 	}
-	return func() { _ = f.Close() }, true, nil
+	return func() { _ = flock.Release(f) }, true, nil
 }
 
 func (r *runner) observeTerminal(ctx context.Context, c luvus.Client, caps luvus.Capabilities, status, createdAt string, t state.Terminal) (string, string, error) {

@@ -227,7 +227,7 @@ func lockPath(path string) (func(), error) {
 		_ = lock.Close()
 		return nil, err
 	}
-	return func() { _ = lock.Close() }, nil
+	return func() { _ = flock.Release(lock) }, nil
 }
 
 func writeFile(dir, path, body string) error {
