@@ -112,6 +112,10 @@ func TestDialRelistsOnce(t *testing.T) {
 	if _, err := c.Check(context.Background()); !errors.Is(err, luvus.ErrUnreachable) || len(stale) != 1 {
 		t.Fatalf("check = %v after relisting %q", err, stale)
 	}
+	c.Relist = func(context.Context, string) (string, error) { return "", errors.New("no such session") }
+	if _, err := c.Check(context.Background()); !errors.Is(err, luvus.ErrUnreachable) || !strings.Contains(err.Error(), "no such session") {
+		t.Fatalf("check with a failing relist = %v", err)
+	}
 }
 
 func TestCheckPinsProtocolAndMethods(t *testing.T) {

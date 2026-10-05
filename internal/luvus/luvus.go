@@ -64,7 +64,9 @@ func (c Client) dial(ctx context.Context) (net.Conn, error) {
 	addr := c.Socket
 	conn, err := dial(ctx, addr)
 	if err != nil && c.Relist != nil && !errors.Is(err, ErrForeignOwner) {
-		if fresh, listErr := c.Relist(ctx, addr); listErr == nil {
+		if fresh, listErr := c.Relist(ctx, addr); listErr != nil {
+			err = errors.Join(err, listErr)
+		} else {
 			addr = fresh
 			conn, err = dial(ctx, addr)
 		}
