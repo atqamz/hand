@@ -31,9 +31,11 @@ The coding-agent CLI that Hand launches as a supervisor or a worker. There are f
 | Harness | Launch flags | Model and effort |
 |---|---|---|
 | `claude` | `--dangerously-skip-permissions` | an alias (`opus`, `sonnet`, `haiku`, `fable`) or a `claude-*` name; effort `low`, `medium`, `high`, `xhigh` or `max` |
-| `codex` | `--dangerously-bypass-approvals-and-sandbox` | checked against Codex's model cache, `$CODEX_HOME/models_cache.json` |
+| `codex` | `--dangerously-bypass-approvals-and-sandbox --disable hooks` | checked against Codex's model cache, `$CODEX_HOME/models_cache.json` |
 | `opencode` | `--standalone --auto` | none; opencode uses the model from its own configuration |
 | `agy` | `--dangerously-skip-permissions`, with `-i BRIEF` for a new session or `--conversation ID` to resume | a model id from `agy models`, which names the effort level (`gemini-3.8-flash-low`); no effort |
+
+`--disable hooks` turns off every Codex hook in managed sessions, including hooks the user set up on purpose, so anyone relying on hooks for auditing or policy checks loses them.
 
 ### Agent state
 

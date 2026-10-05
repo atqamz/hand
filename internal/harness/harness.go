@@ -237,7 +237,7 @@ func Argv(bin string, s Spec, prompt string) ([]string, error) {
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
 	case "codex":
-		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }

@@ -258,7 +258,7 @@ The board is where you start, chat with and resume the supervisor. Those control
 Hand runs the supervisor in the background in the fleet's Luvus session, in full-auto mode:
 
 - `claude --dangerously-skip-permissions`;
-- `codex --dangerously-bypass-approvals-and-sandbox`;
+- `codex --dangerously-bypass-approvals-and-sandbox --disable hooks`;
 - `opencode --standalone --auto`;
 - `agy --model ID --dangerously-skip-permissions`.
 
