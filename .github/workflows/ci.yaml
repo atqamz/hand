@@ -106,6 +106,7 @@ jobs:
               powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Base $base
               if ($LASTEXITCODE) { exit $LASTEXITCODE }
             }
+            if (Get-ChildItem -LiteralPath $dir -Filter '.hand.exe.*.part' -Force) { throw 'install.ps1 left a temporary file behind' }
             $user = [Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -eq $dir }
             if (@($user).Count -ne 1) { throw "user PATH holds $(@($user).Count) entries for $dir" }
             Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
@@ -115,6 +116,35 @@ jobs:
             if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a checksum mismatch' }
             powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://example.com/releases'
             if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a remote http base' }
+            Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
+            $redirector = Join-Path $env:RUNNER_TEMP 'redirect.py'
+            Set-Content -Path $redirector -Encoding ascii -Value @'
+          import functools, http.server, sys
+          class Handler(http.server.SimpleHTTPRequestHandler):
+              def do_GET(self):
+                  if self.path.endswith(sys.argv[2]):
+                      self.send_response(302)
+                      self.send_header('Location', 'http://downloads.invalid' + self.path)
+                      self.end_headers()
+                  else:
+                      super().do_GET()
+          http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), functools.partial(Handler, directory=sys.argv[3])).serve_forever()
+          '@
+            foreach ($case in @(@('8788', '.zip'), @('8789', '.sha256'))) {
+              $redirecting = Start-Process python -ArgumentList $redirector, $case[0], $case[1], $root -PassThru -WindowStyle Hidden
+              try {
+                foreach ($i in 1..30) {
+                  try { Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$($case[0])/latest/download/hand-windows-amd64.sha256" -MaximumRedirection 0 | Out-Null; break } catch { if ($_.Exception.Response) { break }; Start-Sleep -Seconds 1 }
+                }
+                $refused = powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base "http://127.0.0.1:$($case[0])" 2>&1 | Out-String
+                if (-not $LASTEXITCODE) { throw "install.ps1 followed a redirect to http for $($case[1])" }
+                if ($refused -notmatch 'refusing a redirect to a non-https URL') { throw "install.ps1 failed for another reason on $($case[1]): $refused" }
+                if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a refused redirect' }
+              }
+              finally {
+                Stop-Process -Id $redirecting.Id -Force
+              }
+            }
           }
           finally {
             Stop-Process -Id $server.Id -Force
