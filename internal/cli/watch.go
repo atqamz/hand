@@ -318,6 +318,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
+		case last == "attempt.long":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
@@ -346,10 +347,10 @@ func (w *watcher) longTurns(ctx context.Context) error {
 		if t.long || time.Since(t.since) < longTurn {
 			continue
 		}
-		t.long = true
 		if err := w.st.NoteAttempt(ctx, id, "long", longDetail); err != nil {
 			return err
 		}
+		t.long = true
 		w.alert(ctx, state.AttemptRef(id)+" long: "+longDetail)
 	}
 	return nil

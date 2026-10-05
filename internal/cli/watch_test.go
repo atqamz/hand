@@ -745,3 +745,16 @@ func TestShortTurnDoesNotWake(t *testing.T) {
 		t.Fatal("a turn shorter than the threshold woke the supervisor")
 	}
 }
+
+func TestWatchCatchesUpOnATurnThatEndedAfterALongTurn(t *testing.T) {
+	shortLongTurn(t, 150*time.Millisecond)
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop = startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
+}

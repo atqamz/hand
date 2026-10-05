@@ -340,14 +340,14 @@ func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]st
 	}
 	for _, a := range live {
 		kind := out[a.ID].Kind
-		if kind != "attempt.blocked" && kind != "attempt.limited" {
+		if kind != "attempt.blocked" && kind != "attempt.limited" && kind != "attempt.long" {
 			continue
 		}
 		ag, err := b.o.Luvus.Explain(ctx, a.PaneID)
 		if err != nil {
 			continue
 		}
-		if (kind == "attempt.blocked" && ag.Status != "blocked" && ag.Status != "idle") || (kind == "attempt.limited" && ag.Status == "working") {
+		if (kind == "attempt.blocked" && ag.Status != "blocked" && ag.Status != "idle") || (kind == "attempt.limited" && ag.Status == "working") || (kind == "attempt.long" && ag.Status != "working") {
 			delete(out, a.ID)
 		}
 	}
@@ -375,7 +375,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 		default:
 			continue
 		}
-		if supervised && kind != "limited" && now.Sub(parse(e.At)) < workerGrace {
+		if supervised && kind != "limited" && kind != "long" && now.Sub(parse(e.At)) < workerGrace {
 			continue
 		}
 		t, err := b.st.Task(ctx, a.TaskID)
