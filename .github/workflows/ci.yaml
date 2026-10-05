@@ -64,6 +64,10 @@ jobs:
           cygpath -w "$dir" >> "$GITHUB_PATH"
       - run: go test -race ./...
         env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        env:
           HAND_LUVUS_IT: "1"
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
