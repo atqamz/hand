@@ -17,11 +17,40 @@ if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64' -and $env:PROCESSOR_ARCHITEW6432 -ne
 
 if ($Edge) { $Version = 'edge' }
 $Base = $Base.TrimEnd('/')
-if ($Base -notmatch '^https://' -and $Base -notmatch '^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?(/|$)') {
+$loopback = '^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?(/|$)'
+if ($Base -notmatch '^https://' -and $Base -notmatch $loopback) {
     throw "install.ps1: the base URL must use https, or http on this machine: $Base"
 }
 if ($Version -eq 'latest') { $url = "$Base/latest/download" } else { $url = "$Base/download/$Version" }
 $stem = 'hand-windows-amd64'
+
+function Get-Download([string]$Uri, [string]$OutFile) {
+    foreach ($hop in 0..5) {
+        $request = [Net.HttpWebRequest]::Create($Uri)
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 300000
+        $request.UserAgent = 'install.ps1'
+        $response = $request.GetResponse()
+        try {
+            $status = [int]$response.StatusCode
+            if ($status -ge 300 -and $status -lt 400 -and $response.Headers['Location']) {
+                $Uri = [Uri]::new([Uri]$Uri, $response.Headers['Location']).AbsoluteUri
+                if ($Uri -notmatch '^https://' -and ($Base -match '^https://' -or $Uri -notmatch $loopback)) {
+                    throw "install.ps1: refusing a redirect to a non-https URL: $Uri"
+                }
+                continue
+            }
+            if ($status -ne 200) { throw "install.ps1: HTTP $status fetching $Uri" }
+            $file = [IO.File]::Create($OutFile)
+            try { $response.GetResponseStream().CopyTo($file) } finally { $file.Dispose() }
+            return
+        }
+        finally {
+            $response.Close()
+        }
+    }
+    throw "install.ps1: too many redirects fetching $OutFile"
+}
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("hand-install-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -29,8 +58,8 @@ $part = $null
 try {
     $zip = Join-Path $tmp "$stem.zip"
     $sums = Join-Path $tmp "$stem.sha256"
-    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.zip" -OutFile $zip -TimeoutSec 300
-    Invoke-WebRequest -UseBasicParsing -Uri "$url/$stem.sha256" -OutFile $sums -TimeoutSec 300
+    Get-Download "$url/$stem.zip" $zip
+    Get-Download "$url/$stem.sha256" $sums
 
     $want = $null
     foreach ($line in Get-Content -LiteralPath $sums) {
@@ -49,7 +78,7 @@ try {
     New-Item -ItemType Directory -Path $Dir -Force | Out-Null
     $Dir = (Resolve-Path -LiteralPath $Dir).ProviderPath
     $target = Join-Path $Dir 'hand.exe'
-    $part = Join-Path $Dir '.hand.exe.part'
+    $part = Join-Path $Dir (".hand.exe." + [guid]::NewGuid().ToString('N') + '.part')
     Copy-Item -LiteralPath $built -Destination $part -Force
     $old = $null
     if (Test-Path -LiteralPath $target) {
