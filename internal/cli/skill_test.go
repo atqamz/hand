@@ -30,7 +30,7 @@ func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
 	if err != nil || !strings.HasPrefix(string(skill), "---\nname: secondhand\n") {
 		t.Fatalf("skill = %q, %v", skill, err)
 	}
-	for _, want := range []string{"hand orient", "hand wait --after", "hand report ack", "hand decision ask", "hand attempt start --profile", "[hand v1 wake]", "opened by hand", "Review-to-head rule", "`headRefOid`", "Never open at `max`", "A capability failure is a `stuck` report", "wait for the reset"} {
+	for _, want := range []string{"hand orient", "hand wait --after", "hand report ack", "hand decision ask", "hand attempt start --profile", "[hand v1 wake]", "`[hand v1 resume]` message is not a wake", "from its `you:` line", "opened by hand", "Review-to-head rule", "`headRefOid`", "Never open at `max`", "A capability failure is a `stuck` report", "wait for the reset"} {
 		if !strings.Contains(string(skill), want) {
 			t.Fatalf("skill missing %q", want)
 		}
