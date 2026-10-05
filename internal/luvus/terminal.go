@@ -91,7 +91,11 @@ func (c Client) Explain(ctx context.Context, pane string) (Agent, error) {
 }
 
 func (c Client) Prompt(ctx context.Context, pane, terminalID, text string) error {
-	return c.Call(ctx, "agent.prompt", map[string]any{"target": pane, "terminal_id": terminalID, "text": text, "wait": false}, nil)
+	params := map[string]any{"target": pane, "text": text, "wait": false}
+	if terminalID != "" {
+		params["terminal_id"] = terminalID
+	}
+	return c.Call(ctx, "agent.prompt", params, nil)
 }
 
 type Screen struct {

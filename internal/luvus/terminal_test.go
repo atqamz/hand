@@ -136,3 +136,20 @@ func TestPromptCarriesTerminalID(t *testing.T) {
 		t.Fatalf("mismatch err = %v", err)
 	}
 }
+
+func TestPromptOmitsAnEmptyTerminalID(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("agent.prompt", func(json.RawMessage) (any, error) { return map[string]any{"type": "ok"}, nil })
+	c := luvus.Client{Socket: srv.Socket}
+	for _, id := range []string{"", "tid"} {
+		if err := c.Prompt(context.Background(), "5", id, "hi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{`{"target":"5","text":"hi","wait":false}`, `{"target":"5","terminal_id":"tid","text":"hi","wait":false}`}
+	for i, call := range srv.Calls("agent.prompt") {
+		if string(call) != want[i] {
+			t.Fatalf("call %d = %s, want %s", i, call, want[i])
+		}
+	}
+}
