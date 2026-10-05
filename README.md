@@ -162,7 +162,7 @@ What the supervisor does, following the `secondhand` skill:
 6. Ask you with `hand decision ask tN "QUESTION"`.
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.
 
-Routing profiles live in `<home>/routing.json`, and `hand route list` shows them. The starter has `quick`, `default` and `deep`.
+Routing profiles live in `<home>/routing.json`, and `hand route list` shows them. The starter has `quick`, `default`, `high`, `deep` and `max`: `claude` `sonnet` at rising effort.
 
 ## Fleets
 

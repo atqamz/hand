@@ -26,9 +26,11 @@ type Policy struct {
 }
 
 var StarterPolicy = Policy{Profiles: map[string]Spec{
-	"quick":   {Harness: "codex", Model: "gpt-6-luna", Effort: "low"},
+	"quick":   {Harness: "claude", Model: "sonnet", Effort: "low"},
 	"default": {Harness: "claude", Model: "sonnet", Effort: "medium"},
-	"deep":    {Harness: "claude", Model: "opus", Effort: "xhigh"},
+	"high":    {Harness: "claude", Model: "sonnet", Effort: "high"},
+	"deep":    {Harness: "claude", Model: "sonnet", Effort: "xhigh"},
+	"max":     {Harness: "claude", Model: "sonnet", Effort: "max"},
 }}
 
 var profileName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
