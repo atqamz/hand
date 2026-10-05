@@ -24,6 +24,10 @@ import (
 	"github.com/atqamz/hand/internal/update"
 )
 
+var longTurn = 60 * time.Minute
+
+const longDetail = "working for 60m"
+
 const (
 	reconnectDelay = 500 * time.Millisecond
 	notifyTimeout  = 10 * time.Second
@@ -40,7 +44,13 @@ type watcher struct {
 	every   time.Duration
 	seen    map[int64]string
 	limited int64
+	turns   map[int64]*turn
 	pending sync.WaitGroup
+}
+
+type turn struct {
+	since time.Time
+	long  bool
 }
 
 func cmdWatch(r *runner, args []string) error {
@@ -79,7 +89,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	w := &watcher{r: r, st: st, notify: *notify, every: *every}
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
@@ -160,7 +170,9 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 			return err
 		case <-tick.C:
-			err = w.reconcile(sctx, c, caps)
+			if err = w.reconcile(sctx, c, caps); err == nil {
+				err = w.longTurns(sctx)
+			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
 		}
@@ -317,7 +329,39 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	return nil
 }
 
+func (w *watcher) longTurns(ctx context.Context) error {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	running := map[int64]bool{}
+	for _, a := range live {
+		running[a.ID] = a.Status == state.AttemptRunning
+	}
+	for id, t := range w.turns {
+		if !running[id] {
+			delete(w.turns, id)
+			continue
+		}
+		if t.long || time.Since(t.since) < longTurn {
+			continue
+		}
+		t.long = true
+		if err := w.st.NoteAttempt(ctx, id, "long", longDetail); err != nil {
+			return err
+		}
+		w.alert(ctx, state.AttemptRef(id)+" long: "+longDetail)
+	}
+	return nil
+}
+
 func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, status string) error {
+	switch {
+	case status != "working":
+		delete(w.turns, a.ID)
+	case w.turns[a.ID] == nil:
+		w.turns[a.ID] = &turn{since: time.Now()}
+	}
 	prev := w.seen[a.ID]
 	if prev == status {
 		return nil

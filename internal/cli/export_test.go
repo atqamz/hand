@@ -10,4 +10,5 @@ var (
 	NotifyArgv    = notifyArgv
 	WatchExe      = &watchExecutable
 	Git           = git
+	LongTurn      = &longTurn
 )

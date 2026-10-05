@@ -163,6 +163,7 @@ var severity = map[string]struct {
 	"decision": {6, "wait", "DECISION"},
 	"report":   {7, "neutral", "REPORT"},
 	"quiet":    {8, "neutral", "QUIET"},
+	"long":     {9, "neutral", "LONG TURN"},
 }
 
 func (w waiting) Rank() int { return severity[w.Kind].rank }
@@ -369,6 +370,8 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 			kind = "quiet"
 		case e.Kind == "attempt.limited":
 			kind = "limited"
+		case e.Kind == "attempt.long":
+			kind = "long"
 		default:
 			continue
 		}
