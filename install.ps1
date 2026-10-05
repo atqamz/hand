@@ -29,6 +29,7 @@ function Get-Download([string]$Uri, [string]$OutFile) {
         $request = [Net.HttpWebRequest]::Create($Uri)
         $request.AllowAutoRedirect = $false
         $request.Timeout = 300000
+        $request.ReadWriteTimeout = 300000
         $request.UserAgent = 'install.ps1'
         $response = $request.GetResponse()
         try {
