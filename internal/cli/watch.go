@@ -24,7 +24,7 @@ import (
 	"github.com/atqamz/hand/internal/update"
 )
 
-var longTurn = 60 * time.Minute
+const longTurn = 60 * time.Minute
 
 const longDetail = "working for 60m"
 
@@ -354,7 +354,7 @@ func (w *watcher) longTurns(ctx context.Context) error {
 			delete(w.turns, id)
 			continue
 		}
-		if t.long || time.Since(t.since) < longTurn {
+		if t.long || w.r.env.Now().Sub(t.since) < longTurn {
 			continue
 		}
 		if err := w.st.NoteAttempt(ctx, id, "long", longDetail); err != nil {
@@ -371,7 +371,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	case status != "working":
 		delete(w.turns, a.ID)
 	case w.turns[a.ID] == nil:
-		w.turns[a.ID] = &turn{since: time.Now()}
+		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
 	prev := w.seen[a.ID]
 	if prev == status {
