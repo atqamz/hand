@@ -15,7 +15,7 @@ func TestInitWritesAStarterRoutingPolicy(t *testing.T) {
 		t.Fatalf("init = %q", out)
 	}
 	list := h.ok("route", "list")
-	for _, want := range []string{"profiles[3]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "deep,claude,opus,xhigh,yes", "harnesses: claude codex opencode"} {
+	for _, want := range []string{"profiles[5]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "quick,claude,sonnet,low,yes", "high,claude,sonnet,high,yes", "deep,claude,sonnet,xhigh,yes", "max,claude,sonnet,max,yes", "harnesses: claude codex opencode"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("route list = %q, missing %q", list, want)
 		}
@@ -26,7 +26,7 @@ func TestAttemptStartWithAProfile(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.h.ok("attempt", "start", "--profile", "deep", "--prompt-file", fx.brief, "t1")
 	call := fx.rt.lastCreate()
-	if !strings.Contains(strings.Join(call.Command, " "), "--model opus --effort xhigh") {
+	if !strings.Contains(strings.Join(call.Command, " "), "--model sonnet --effort xhigh") {
 		t.Fatalf("argv = %q", call.Command)
 	}
 	if _, errOut, code := fx.h.run("attempt", "start", "--profile", "deep", "--model", "haiku", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "either --profile or --harness") {

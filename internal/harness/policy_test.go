@@ -61,7 +61,7 @@ func TestStarterPolicyIsWrittenOnce(t *testing.T) {
 		t.Fatalf("first write = %v, %v", created, err)
 	}
 	p, err := LoadPolicy(home)
-	if err != nil || !slices.Equal(p.Names(), []string{"deep", "default", "quick"}) {
+	if err != nil || !slices.Equal(p.Names(), []string{"deep", "default", "high", "max", "quick"}) {
 		t.Fatalf("starter = %+v, %v", p, err)
 	}
 	edited := `{"profiles":{"mine":{"harness":"claude","model":"haiku","effort":"low"}}}`
