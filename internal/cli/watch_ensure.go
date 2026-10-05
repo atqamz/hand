@@ -30,7 +30,7 @@ func (r *runner) watchHeld() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer flock.Release(f)
 	ok, err := flock.Lock(f, false)
 	return !ok && err == nil, err
 }

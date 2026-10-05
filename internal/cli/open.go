@@ -25,10 +25,7 @@ import (
 
 const launchWait = 2 * time.Second
 
-const (
-	openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--pr]"
-	boardHint = "start it with `hand board`, or `systemctl --user start secondhand-board`"
-)
+const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--pr]"
 
 func init() {
 	commands["open"] = cmdOpen

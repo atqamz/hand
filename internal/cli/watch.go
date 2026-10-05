@@ -72,7 +72,7 @@ func cmdWatch(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer flock.Release(lock)
 	for try := 1; ; try++ {
 		ok, err := flock.Lock(lock, false)
 		if err != nil {

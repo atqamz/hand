@@ -44,7 +44,7 @@ func TestLockExclusive(t *testing.T) {
 	if ok, err := Lock(second, false); ok || err != nil {
 		t.Fatalf("second lock = %v, %v; want false, nil", ok, err)
 	}
-	_ = first.Close()
+	_ = Release(first)
 	if ok, err := Lock(second, false); !ok || err != nil {
 		t.Fatalf("lock after release = %v, %v", ok, err)
 	}

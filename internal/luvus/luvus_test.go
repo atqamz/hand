@@ -27,6 +27,9 @@ func TestMain(m *testing.M) {
 		}
 		fakebin.Append(p["calls"], line)
 		return 0
+	}, "sleep": func([]string) int {
+		time.Sleep(5 * time.Minute)
+		return 0
 	}, "luvus": func(args []string) int {
 		p := fakebin.Params()
 		v := p["version"]
@@ -87,6 +90,31 @@ func TestCallSendsOneEnvelopeAndDecodesReplies(t *testing.T) {
 	}
 	if err := (luvus.Client{Socket: sock(t)}).Call(context.Background(), "ping", nil, nil); !errors.Is(err, luvus.ErrUnreachable) {
 		t.Fatalf("no server err = %v", err)
+	}
+}
+
+func TestDialRelistsOnce(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	var stale []string
+	c := luvus.Client{Socket: sock(t), Relist: func(_ context.Context, old string) (string, error) {
+		stale = append(stale, old)
+		return srv.Socket, nil
+	}}
+	if _, err := c.Check(context.Background()); err != nil || len(stale) != 1 || stale[0] != c.Socket {
+		t.Fatalf("check = %v after relisting %q", err, stale)
+	}
+	stale = nil
+	dead := sock(t)
+	c.Relist = func(_ context.Context, old string) (string, error) {
+		stale = append(stale, old)
+		return dead, nil
+	}
+	if _, err := c.Check(context.Background()); !errors.Is(err, luvus.ErrUnreachable) || len(stale) != 1 {
+		t.Fatalf("check = %v after relisting %q", err, stale)
+	}
+	c.Relist = func(context.Context, string) (string, error) { return "", errors.New("no such session") }
+	if _, err := c.Check(context.Background()); !errors.Is(err, luvus.ErrUnreachable) || !strings.Contains(err.Error(), "no such session") {
+		t.Fatalf("check with a failing relist = %v", err)
 	}
 }
 

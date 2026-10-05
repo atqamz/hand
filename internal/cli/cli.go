@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
@@ -47,6 +48,7 @@ type runner struct {
 	homeErr error
 	root    string
 	fleet   state.Fleet
+	addrs   sync.Map
 }
 
 type usageError struct{ msg string }

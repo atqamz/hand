@@ -32,10 +32,9 @@ func (c Client) Subscribe(ctx context.Context) (*Stream, error) {
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	var d net.Dialer
-	conn, err := d.DialContext(dialCtx, "unix", c.Socket)
+	conn, err := c.dial(dialCtx)
 	if err != nil {
-		return nil, fmt.Errorf("%w at %s: %w", ErrUnreachable, c.Socket, err)
+		return nil, err
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	s, err := subscribe(conn, timeout)

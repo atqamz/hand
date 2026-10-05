@@ -30,7 +30,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "reporter": reporterMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}

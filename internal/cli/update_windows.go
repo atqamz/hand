@@ -12,7 +12,7 @@ func stopOne(pid int, marker string) error {
 	if !rootAlive(pid, marker) {
 		return nil
 	}
-	terminate(uint32(pid))
+	terminate(uint32(pid), marker)
 	if waitGone(pid, marker, killGrace) {
 		return nil
 	}

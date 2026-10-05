@@ -64,7 +64,7 @@ func Open(path string, now func() time.Time) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Close()
+	defer flock.Release(lock)
 	if _, err := flock.Lock(lock, true); err != nil {
 		return nil, err
 	}
