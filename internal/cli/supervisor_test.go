@@ -415,7 +415,7 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	has(t, "show", fx.h.ok("supervisor", "show"), "status: interrupted", "pending: 2")
 	pane := supervisorPane(t, fx.h.ok("supervisor", "resume"))
 	if got := fx.rt.prompts(); len(got) != 1 {
-		t.Fatalf("delivered before resume: %q", got)
+		t.Fatalf("prompts after resume = %q, want only the resume note", got)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	stop := startWatch(t, fx, "--every", "1h")
