@@ -6,13 +6,40 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-func servePipe(t *testing.T) string {
+var impersonateNamedPipeClient = windows.NewLazySystemDLL("advapi32.dll").NewProc("ImpersonateNamedPipeClient")
+
+func clientLevel(pipe windows.Handle) (uint32, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if r, _, err := impersonateNamedPipeClient.Call(uintptr(pipe)); r == 0 {
+		return 0, err
+	}
+	defer windows.RevertToSelf()
+	thread, err := windows.GetCurrentThread()
+	if err != nil {
+		return 0, err
+	}
+	var token windows.Token
+	if err := windows.OpenThreadToken(thread, windows.TOKEN_QUERY, true, &token); err != nil {
+		return 0, err
+	}
+	defer token.Close()
+	var level, n uint32
+	if err := windows.GetTokenInformation(token, windows.TokenImpersonationLevel, (*byte)(unsafe.Pointer(&level)), 4, &n); err != nil {
+		return 0, err
+	}
+	return level, nil
+}
+
+func servePipe(t *testing.T) (string, <-chan uint32) {
 	t.Helper()
 	name := fmt.Sprintf(`\\.\pipe\hand-test-%d-%d`, os.Getpid(), time.Now().UnixNano())
 	path, err := windows.UTF16PtrFromString(name)
@@ -23,7 +50,7 @@ func servePipe(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan struct{})
+	done, levels := make(chan struct{}), make(chan uint32, 1)
 	go func() {
 		defer close(done)
 		if err := windows.ConnectNamedPipe(h, nil); err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
@@ -32,6 +59,11 @@ func servePipe(t *testing.T) string {
 		buf := make([]byte, 64)
 		var n uint32
 		if windows.ReadFile(h, buf, &n, nil) == nil {
+			level, err := clientLevel(h)
+			if err != nil {
+				level = 0xffffffff
+			}
+			levels <- level
 			_ = windows.WriteFile(h, buf[:n], &n, nil)
 		}
 	}()
@@ -40,11 +72,11 @@ func servePipe(t *testing.T) string {
 		_ = windows.CloseHandle(h)
 		<-done
 	})
-	return name
+	return name, levels
 }
 
 func TestPipeDialEcho(t *testing.T) {
-	name := servePipe(t)
+	name, _ := servePipe(t)
 	conn, err := dial(context.Background(), name)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +109,7 @@ func TestPipeDialEcho(t *testing.T) {
 }
 
 func TestPipeOwnerMismatch(t *testing.T) {
-	name := servePipe(t)
+	name, _ := servePipe(t)
 	system, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
 	if err != nil {
 		t.Fatal(err)
@@ -85,5 +117,23 @@ func TestPipeOwnerMismatch(t *testing.T) {
 	other := func(uint32) (*windows.SID, error) { return system, nil }
 	if _, err := dialPipe(context.Background(), name, other); !errors.Is(err, ErrForeignOwner) {
 		t.Fatalf("dial as another user = %v, want ErrForeignOwner", err)
+	}
+}
+
+func TestPipeServerCannotImpersonateTheClient(t *testing.T) {
+	name, levels := servePipe(t)
+	conn, err := dial(context.Background(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte("hello\n")); err != nil {
+		t.Fatal(err)
+	}
+	if level := <-levels; level != windows.SecurityIdentification {
+		t.Fatalf("server saw impersonation level %d, want %d (identification)", level, windows.SecurityIdentification)
 	}
 }
