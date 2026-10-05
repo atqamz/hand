@@ -23,7 +23,7 @@ func cmdOrient(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	doc, err := orient.Build(context.Background(), st, r.home, watch, orient.DefaultBudget)
+	doc, err := orient.Build(context.Background(), st, r.home, r.env.Getenv("LUVUS_PANE_ID"), watch, orient.DefaultBudget)
 	if err != nil {
 		return err
 	}

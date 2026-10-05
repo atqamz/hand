@@ -12,9 +12,9 @@ The one person Hand is built for. The operator owns intent and every irreversibl
 
 The single agent the operator talks to in a fleet. It captures each request as a task, writes plans and briefs, starts attempts, reads reports, and asks the operator through decisions. It does not write the code itself; workers do.
 
-Normally Hand runs it: the managed supervisor lives in the background in the fleet's Luvus session, started from the fleet home in full-auto mode, and the operator reaches it from the board. Each launch gets a ref `sN`, and its launch message begins `You are supervisor sN of the Hand fleet NAME`. At most one supervisor is live at a time.
+Normally Hand runs it: the managed supervisor lives in the background in the fleet's Luvus session, started from the fleet home in full-auto mode, and the operator reaches it from the board. Each launch gets a ref `sN`, and a new session's launch message begins `You are supervisor sN of the Hand fleet NAME`; a resumed one gets no launch message, so `hand orient` prints `you: sN` for the running supervisor's own pane (from `$LUVUS_PANE_ID`) and `you: not the supervisor` for any other pane. It prints no `you:` line when the variable is unset. A session that sees a running supervisor and no `you: sN` line is not the supervisor. At most one supervisor is live at a time.
 
-Resuming continues the same harness session under a new `sN`. `hand orient` names the current `sN` and adds the first one of that session, as in `s6 claude running (resumes s1)`. `hand supervisor show` names the current one and adds a `resumes:` line with the first.
+Resuming continues the same harness session under a new `sN`. `hand orient` names the current `sN` and adds the first one of that session, as in `s6 claude running (resumes s1)`. `hand supervisor show` names the current one and adds a `resumes:` line with the first. After the relaunch settles, Hand types one message into the pane: `[hand v1 resume] you are now s6 (resumes s1)`.
 
 A supervisor has the same six states as an attempt. It is `stopped` after `hand supervisor stop` or a model switch, and `interrupted` after a reboot or a Luvus server restart.
 
