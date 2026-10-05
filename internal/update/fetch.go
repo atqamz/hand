@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"compress/gzip"
 	"context"
@@ -30,6 +31,8 @@ var luvusTriples = map[string]string{
 	"linux/arm64":  "aarch64-unknown-linux-musl",
 	"darwin/amd64": "x86_64-apple-darwin",
 	"darwin/arm64": "aarch64-apple-darwin",
+
+	"windows/amd64": "x86_64-pc-windows-msvc",
 }
 
 var client = &http.Client{Timeout: 5 * time.Minute}
@@ -41,12 +44,17 @@ func FetchHand(ctx context.Context, base, channel, goos, arch, dir string, env [
 	if channel == "stable" {
 		url = strings.TrimRight(base, "/") + "/latest/download"
 	}
-	asset := "hand-" + goos + "-" + arch + ".tar.gz"
-	if err := fetchChecked(ctx, url, dir, asset, "checksums.txt"); err != nil {
+	stem := "hand-" + goos + "-" + arch
+	ext, exe := packaging(goos)
+	sums := "checksums.txt"
+	if goos == "windows" {
+		sums = stem + ".sha256"
+	}
+	if err := fetchChecked(ctx, url, dir, stem+ext, sums); err != nil {
 		return Build{}, err
 	}
-	bin := filepath.Join(dir, "hand")
-	if err := extract(filepath.Join(dir, asset), "hand", bin); err != nil {
+	bin := filepath.Join(dir, "hand"+exe)
+	if err := extract(filepath.Join(dir, stem+ext), "hand"+exe, bin); err != nil {
 		return Build{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -68,11 +76,19 @@ func FetchLuvus(ctx context.Context, base, version, goos, arch, dir string) (str
 		return "", fmt.Errorf("update: no Luvus build for %s/%s", goos, arch)
 	}
 	name := "luvus-v" + version + "-" + triple
-	if err := fetchChecked(ctx, strings.TrimRight(base, "/")+"/download/v"+version, dir, name+".tar.gz", name+".sha256"); err != nil {
+	ext, exe := packaging(goos)
+	if err := fetchChecked(ctx, strings.TrimRight(base, "/")+"/download/v"+version, dir, name+ext, name+".sha256"); err != nil {
 		return "", err
 	}
-	bin := filepath.Join(dir, "luvus")
-	return bin, extract(filepath.Join(dir, name+".tar.gz"), "luvus", bin)
+	bin := filepath.Join(dir, "luvus"+exe)
+	return bin, extract(filepath.Join(dir, name+ext), "luvus"+exe, bin)
+}
+
+func packaging(goos string) (ext, exe string) {
+	if goos == "windows" {
+		return ".zip", ".exe"
+	}
+	return ".tar.gz", ""
 }
 
 func Newer(a, b string) bool {
@@ -193,6 +209,9 @@ func download(ctx context.Context, url, path string) error {
 }
 
 func extract(archive, name, dest string) error {
+	if strings.HasSuffix(archive, ".zip") {
+		return unzip(archive, name, dest)
+	}
 	f, err := os.Open(archive)
 	if err != nil {
 		return err
@@ -228,4 +247,36 @@ func extract(archive, name, dest string) error {
 		}
 		return out.Close()
 	}
+}
+
+func unzip(archive, name, dest string) error {
+	zr, err := zip.OpenReader(archive)
+	if err != nil {
+		return fmt.Errorf("update: %s: %w", archive, err)
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		if f.UncompressedSize64 > maxBinary {
+			return fmt.Errorf("update: %s in %s is %d bytes, more than %d", name, filepath.Base(archive), f.UncompressedSize64, maxBinary)
+		}
+		in, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("update: %s: %w", archive, err)
+		}
+		defer in.Close()
+		out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, io.LimitReader(in, maxBinary)); err != nil {
+			_ = out.Close()
+			_ = os.Remove(dest)
+			return fmt.Errorf("update: %s: %w", archive, err)
+		}
+		return out.Close()
+	}
+	return fmt.Errorf("update: %s holds no %s", filepath.Base(archive), name)
 }

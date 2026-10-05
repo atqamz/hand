@@ -68,6 +68,7 @@ func newFetch(t *testing.T) *fixture {
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
 	env := []string{"HAND_CALLS=" + f.calls}
+	goos, arch := hostTarget()
 	f.o = Options{
 		Target:    f.target,
 		From:      Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 7, Luvus: "0.14.3"},
@@ -75,8 +76,8 @@ func newFetch(t *testing.T) *fixture {
 		Root:      f.root,
 		HandBase:  f.srv.URL,
 		LuvusBase: f.srv.URL,
-		OS:        "linux",
-		Arch:      "amd64",
+		OS:        goos,
+		Arch:      arch,
 		Env:       env,
 		Getenv:    lookup(env),
 		Now:       func() time.Time { return stamp },
@@ -114,7 +115,6 @@ func (f *fixture) unchanged(t *testing.T) {
 var changes = []string{" stop ", " start ", " restart ", "hand "}
 
 func TestRunCheckChangesNothing(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	f.o.Check = true
 	rep, err := Run(context.Background(), f.o)
@@ -128,7 +128,6 @@ func TestRunCheckChangesNothing(t *testing.T) {
 }
 
 func TestRunUpToDateChangesNothing(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 7, Luvus: "0.14.4"}
 	rep, err := Run(context.Background(), f.o)
@@ -142,7 +141,6 @@ func TestRunUpToDateChangesNothing(t *testing.T) {
 }
 
 func TestRunRefusesAnOlderSchema(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "6", "0.14.4") {
 		f.srv.set(name, body)
@@ -155,7 +153,7 @@ func TestRunRefusesAnOlderSchema(t *testing.T) {
 
 func TestRunChangesNothingOnABadChecksum(t *testing.T) {
 	f := newFetch(t)
-	f.srv.set("checksums.txt", []byte(strings.Repeat("0", 64)+"  hand-linux-amd64.tar.gz\n"))
+	f.srv.set(handSums(), []byte(strings.Repeat("0", 64)+"  "+handAsset()+"\n"))
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("err = %v", err)
 	}
@@ -163,7 +161,6 @@ func TestRunChangesNothingOnABadChecksum(t *testing.T) {
 }
 
 func TestTargetResolvesASymlink(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	link := filepath.Join(t.TempDir(), "hand-next")
 	if err := os.Symlink(f.target, link); err != nil {
@@ -222,7 +219,6 @@ func TestRenderPrintsTheReport(t *testing.T) {
 }
 
 func TestRunPinsTheTestedLuvus(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.14.3")
 	rep, err := Run(context.Background(), f.o)
@@ -238,7 +234,6 @@ func TestRunPinsTheTestedLuvus(t *testing.T) {
 }
 
 func TestRunNeverLowersThePin(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.15.0")
 	if _, err := Run(context.Background(), f.o); err != nil {
@@ -253,7 +248,6 @@ func TestRunNeverLowersThePin(t *testing.T) {
 }
 
 func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "7", "0.14.4") {
 		f.srv.set(name, body)
@@ -265,10 +259,9 @@ func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
 }
 
 func TestRunDoesNotHoldWhileDownloading(t *testing.T) {
-	runsTheDownload(t)
 	f := newFetch(t)
 	f.pin = keepLuvus(t, f.root, "0.14.3")
-	f.srv.set("luvus-v0.14.4-x86_64-unknown-linux-musl.tar.gz", nil)
+	f.srv.set(luvusAsset("0.14.4"), nil)
 	held := 0
 	f.o.Hold = func() { held++ }
 	if _, err := Run(context.Background(), f.o); err == nil || held != 0 {

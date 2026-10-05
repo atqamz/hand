@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -49,11 +50,30 @@ func fakeHandMain(args []string) int {
 	return code
 }
 
-func runsTheDownload(t *testing.T) {
-	t.Helper()
+func hostTarget() (goos, arch string) {
 	if runtime.GOOS == "windows" {
-		t.Skip("extension-less hand binary; atqamz/hand#766 PR D2")
+		return "windows", "amd64"
 	}
+	return "linux", "amd64"
+}
+
+func handAsset() string {
+	goos, arch := hostTarget()
+	ext, _ := packaging(goos)
+	return "hand-" + goos + "-" + arch + ext
+}
+
+func handSums() string {
+	if runtime.GOOS == "windows" {
+		return "hand-windows-amd64.sha256"
+	}
+	return "checksums.txt"
+}
+
+func luvusAsset(version string) string {
+	goos, _ := hostTarget()
+	ext, _ := packaging(goos)
+	return "luvus-v" + version + "-" + luvusTriples[goos+"/amd64"] + ext
 }
 
 type server struct {
@@ -123,6 +143,23 @@ func tarball(t *testing.T, name, body string) []byte {
 	return buf.Bytes()
 }
 
+func zipball(t *testing.T, name, body string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
 func sum(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
@@ -140,19 +177,28 @@ func handScript(t *testing.T, version, channel, commit, schema, luvus string) st
 
 func fakeHand(t *testing.T, version, channel, commit, schema, luvus string) map[string][]byte {
 	t.Helper()
-	archive := tarball(t, "hand", handScript(t, version, channel, commit, schema, luvus))
+	script := handScript(t, version, channel, commit, schema, luvus)
+	archive := tarball(t, "hand", script)
+	archiveZip := zipball(t, "hand.exe", script)
 	s := sum(archive)
 	return map[string][]byte{
-		"hand-linux-amd64.tar.gz":  archive,
-		"hand-darwin-arm64.tar.gz": archive,
-		"checksums.txt":            []byte(s + "  hand-linux-amd64.tar.gz\n" + s + "  hand-linux-arm64.tar.gz\n" + s + "  hand-darwin-arm64.tar.gz\n"),
+		"hand-linux-amd64.tar.gz":   archive,
+		"hand-darwin-arm64.tar.gz":  archive,
+		"checksums.txt":             []byte(s + "  hand-linux-amd64.tar.gz\n" + s + "  hand-linux-arm64.tar.gz\n" + s + "  hand-darwin-arm64.tar.gz\n"),
+		"hand-windows-amd64.zip":    archiveZip,
+		"hand-windows-amd64.sha256": []byte(sum(archiveZip) + "  hand-windows-amd64.zip\n"),
 	}
 }
 
 func fakeLuvus(t *testing.T, version string) map[string][]byte {
 	t.Helper()
-	archive := tarball(t, "luvus", string(fakebin.Embed(t, "luvus", map[string]string{"version": version})))
+	script := string(fakebin.Embed(t, "luvus", map[string]string{"version": version}))
+	archive := tarball(t, "luvus", script)
 	files := map[string][]byte{}
+	winZip := zipball(t, "luvus.exe", script)
+	winName := "luvus-v" + version + "-x86_64-pc-windows-msvc"
+	files[winName+".zip"] = winZip
+	files[winName+".sha256"] = []byte(sum(winZip) + "  " + winName + ".zip\n")
 	for _, triple := range []string{"x86_64-unknown-linux-musl", "aarch64-apple-darwin"} {
 		name := "luvus-v" + version + "-" + triple
 		files[name+".tar.gz"] = archive
@@ -169,24 +215,41 @@ func absent(t *testing.T, path string) {
 }
 
 func TestFetchHandReadsTheBuild(t *testing.T) {
-	runsTheDownload(t)
 	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4"))
-	if _, err := FetchHand(context.Background(), srv.URL, "edge", "darwin", "arm64", t.TempDir(), os.Environ()); err != nil || !slices.Contains(srv.asked(), "/download/edge/hand-darwin-arm64.tar.gz") {
-		t.Fatalf("darwin: %v, asked %q", err, srv.asked())
-	}
-	for channel, want := range map[string]string{"stable": "/latest/download/hand-linux-amd64.tar.gz", "edge": "/download/edge/hand-linux-amd64.tar.gz"} {
+	goos, arch := hostTarget()
+	_, exe := packaging(goos)
+	for channel, prefix := range map[string]string{"stable": "/latest/download/", "edge": "/download/edge/"} {
 		dir := t.TempDir()
-		b, err := FetchHand(context.Background(), srv.URL, channel, "linux", "amd64", dir, os.Environ())
+		b, err := FetchHand(context.Background(), srv.URL, channel, goos, arch, dir, os.Environ())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b != (Build{Path: filepath.Join(dir, "hand"), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 7, Luvus: "0.14.4"}) {
+		if b != (Build{Path: filepath.Join(dir, "hand"+exe), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 7, Luvus: "0.14.4"}) {
 			t.Fatalf("%s build = %+v", channel, b)
 		}
-		if !slices.Contains(srv.asked(), want) {
+		if !slices.Contains(srv.asked(), prefix+handAsset()) || !slices.Contains(srv.asked(), prefix+handSums()) {
 			t.Fatalf("%s asked %q", channel, srv.asked())
 		}
 	}
+}
+
+func TestFetchHandReadsAWindowsZip(t *testing.T) {
+	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4"))
+	dir := t.TempDir()
+	b, err := FetchHand(context.Background(), srv.URL, "edge", "windows", "amd64", dir, os.Environ())
+	if err != nil || b.Path != filepath.Join(dir, "hand.exe") || b.Version != "0.9.0" {
+		t.Fatalf("build = %+v, %v", b, err)
+	}
+	if !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.zip") || !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.sha256") {
+		t.Fatalf("asked %q", srv.asked())
+	}
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4")
+	files["hand-windows-amd64.sha256"] = []byte(strings.Repeat("0", 64) + "  hand-windows-amd64.zip\n")
+	other := t.TempDir()
+	if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "windows", "amd64", other, os.Environ()); err == nil || !strings.Contains(err.Error(), "checksum mismatch for hand-windows-amd64.zip") {
+		t.Fatalf("wrong sha256: err = %v", err)
+	}
+	absent(t, filepath.Join(other, "hand.exe"))
 }
 
 func TestFetchHandRefusesABadChecksum(t *testing.T) {
@@ -232,6 +295,10 @@ func TestFetchLuvusChecksItsSha256(t *testing.T) {
 	}
 	if _, err := FetchLuvus(context.Background(), srv.URL, "0.14.4", "darwin", "arm64", t.TempDir()); err != nil || !slices.Contains(srv.asked(), "/download/v0.14.4/luvus-v0.14.4-aarch64-apple-darwin.tar.gz") {
 		t.Fatalf("darwin: err = %v, asked %q", err, srv.asked())
+	}
+	win := t.TempDir()
+	if bin, err := FetchLuvus(context.Background(), srv.URL, "0.14.4", "windows", "amd64", win); err != nil || bin != filepath.Join(win, "luvus.exe") || !slices.Contains(srv.asked(), "/download/v0.14.4/luvus-v0.14.4-x86_64-pc-windows-msvc.zip") {
+		t.Fatalf("windows: %q, %v, asked %q", bin, err, srv.asked())
 	}
 }
 
