@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -74,6 +75,7 @@ type harness struct {
 	name string
 	t    *testing.T
 	home string
+	mu   *sync.Mutex
 	now  time.Time
 	vars map[string]string
 	cwd  string
@@ -83,7 +85,19 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
-	return &harness{t: t, home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir()}}
+	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir()}}
+}
+
+func (h *harness) clock() time.Time {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.now
+}
+
+func (h *harness) advance(d time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.now = h.now.Add(d)
 }
 
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
@@ -105,7 +119,7 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			}
 			return kv
 		},
-		Now: func() time.Time { return h.now },
+		Now: h.clock,
 		Exec: func(argv0 string, argv, _ []string) error {
 			h.exec = append(h.exec, append([]string{argv0}, argv...))
 			return nil

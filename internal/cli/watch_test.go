@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
@@ -695,26 +694,19 @@ func TestWatchCatchesUpOnAnIdleTurnOnce(t *testing.T) {
 	}
 }
 
-func shortLongTurn(t *testing.T, d time.Duration) {
-	t.Helper()
-	old := *cli.LongTurn
-	*cli.LongTurn = d
-	t.Cleanup(func() { *cli.LongTurn = old })
-}
-
 func longEvents(fx *attemptFixture) int {
 	out, _, _ := fx.h.run("wait", "--after", "0", "--timeout", "1ms")
 	return strings.Count(out, ",attempt.long,")
 }
 
 func TestLongTurnWakesOnce(t *testing.T) {
-	shortLongTurn(t, 150*time.Millisecond)
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
+	fx.h.advance(61 * time.Minute)
 	eventually(t, func() bool { return woken(fx, "attempt.long") })
-	time.Sleep(500 * time.Millisecond)
+	waitTicks(t, fx)
 	out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
 	if n := strings.Count(out, ",attempt.long,"); n != 1 || !strings.Contains(out, `,attempt.long,t1,"a1: working for 60m"`) {
 		t.Fatalf("a turn that kept working recorded attempt.long %d times: %q", n, out)
@@ -722,35 +714,38 @@ func TestLongTurnWakesOnce(t *testing.T) {
 }
 
 func TestLongTurnResetsPerTurn(t *testing.T) {
-	shortLongTurn(t, 150*time.Millisecond)
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
+	fx.h.advance(61 * time.Minute)
 	eventually(t, func() bool { return longEvents(fx) == 1 })
 	publishStatus(fx, "2", "idle")
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
 	publishStatus(fx, "2", "working")
-	eventually(t, func() bool { return longEvents(fx) == 2 })
+	eventually(t, func() bool {
+		fx.h.advance(61 * time.Minute)
+		return longEvents(fx) == 2
+	})
 }
 
 func TestShortTurnDoesNotWake(t *testing.T) {
-	shortLongTurn(t, 10*time.Second)
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
-	time.Sleep(500 * time.Millisecond)
+	fx.h.advance(59 * time.Minute)
+	waitTicks(t, fx)
 	if woken(fx, "attempt.long") {
 		t.Fatal("a turn shorter than the threshold woke the supervisor")
 	}
 }
 
 func TestWatchCatchesUpOnATurnThatEndedAfterALongTurn(t *testing.T) {
-	shortLongTurn(t, 150*time.Millisecond)
 	fx := newAttemptFixture(t)
 	fx.start()
 	stop := startWatch(t, fx, "--every", "30ms")
+	fx.h.advance(61 * time.Minute)
 	eventually(t, func() bool { return longEvents(fx) == 1 })
 	stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -770,10 +765,9 @@ func waitTicks(t *testing.T, fx *attemptFixture) {
 }
 
 func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
-	shortLongTurn(t, time.Hour)
 	fx := newAttemptFixture(t)
-	fx.h.now = time.Now().Add(-2 * time.Hour)
 	fx.start()
+	fx.h.advance(2 * time.Hour)
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
 	eventually(t, func() bool { return longEvents(fx) == 1 })
@@ -784,10 +778,9 @@ func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
 }
 
 func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
-	shortLongTurn(t, time.Hour)
 	fx := newAttemptFixture(t)
-	fx.h.now = time.Now().Add(-2 * time.Hour)
 	fx.start()
+	fx.h.advance(2 * time.Hour)
 	stop := startWatch(t, fx, "--every", "30ms")
 	eventually(t, func() bool { return longEvents(fx) == 1 })
 	stop()
