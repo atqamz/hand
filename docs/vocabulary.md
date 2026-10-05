@@ -58,7 +58,7 @@ Where a `hand` binary comes from. `hand version` prints it next to the version a
 - `edge`: the rolling build of `main` that passed CI, published as the `edge` pre-release;
 - `stable`: the binaries attached to a `vX.Y.Z` release.
 
-`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`. `hand update` stays on the channel of the running binary, and `hand update --channel edge|stable` moves to the other one.
+`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`. On Windows, `install.ps1` does the same with `-Edge` or `-Version`, from `hand-windows-amd64.zip` and its `.sha256`. `hand update` stays on the channel of the running binary, and `hand update --channel edge|stable` moves to the other one.
 
 ### Update
 
@@ -225,7 +225,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle`, `attempt.limited` and `attempt.long` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
-- sends desktop notifications through `notify-send` (on macOS, `osascript`) unless `--notify=false`.
+- sends desktop notifications through `notify-send` (on macOS, `osascript`; on Windows, none) unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
 

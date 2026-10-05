@@ -18,6 +18,7 @@
 !/go.sum
 !/main.go
 !/install.sh
+!/install.ps1
 !/install_test.go
 !/internal/
 !/internal/**
