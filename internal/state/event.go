@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Event struct {
@@ -128,6 +129,41 @@ func lastAttemptEvent(ctx context.Context, q interface {
 		return Event{}, false, nil
 	}
 	return e, err == nil, err
+}
+
+func (s *Store) TurnStart(ctx context.Context, attemptID int64) (time.Time, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT at, kind FROM event WHERE kind IN ('attempt.running', 'attempt.quiet', 'attempt.idle', 'attempt.blocked', 'attempt.limited', 'attempt.sent', 'attempt.keys', 'attempt.long') AND detail LIKE ? ORDER BY seq DESC`, AttemptRef(attemptID)+": %")
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer rows.Close()
+	var start string
+	var long bool
+scan:
+	for rows.Next() {
+		var at, kind string
+		if err := rows.Scan(&at, &kind); err != nil {
+			return time.Time{}, false, err
+		}
+		switch kind {
+		case "attempt.long":
+			long = true
+		case "attempt.sent", "attempt.keys":
+			start = at
+		case "attempt.running":
+			if start == "" {
+				start = at
+			}
+			break scan
+		default:
+			break scan
+		}
+	}
+	if err := rows.Err(); err != nil || start == "" {
+		return time.Time{}, long, err
+	}
+	t, err := time.Parse(time.RFC3339Nano, start)
+	return t, long, err
 }
 
 func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {

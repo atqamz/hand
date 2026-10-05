@@ -758,3 +758,32 @@ func TestWatchCatchesUpOnATurnThatEndedAfterALongTurn(t *testing.T) {
 	defer stop()
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
 }
+
+func TestRestartedWatchKeepsTheTurnClock(t *testing.T) {
+	shortLongTurn(t, time.Hour)
+	fx := newAttemptFixture(t)
+	fx.h.now = time.Now().Add(-time.Hour + 300*time.Millisecond)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if n := longEvents(fx); n != 1 {
+		t.Fatalf("a turn begun before the watcher started recorded attempt.long %d times", n)
+	}
+}
+
+func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
+	shortLongTurn(t, 150*time.Millisecond)
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	stop()
+	stop = startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	time.Sleep(500 * time.Millisecond)
+	if n := longEvents(fx); n != 1 {
+		t.Fatalf("a restart after attempt.long recorded %d of them", n)
+	}
+}
