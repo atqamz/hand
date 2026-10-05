@@ -53,12 +53,20 @@ func TestPipeDialEcho(t *testing.T) {
 	if conn.RemoteAddr().String() != name {
 		t.Fatalf("remote = %s", conn.RemoteAddr())
 	}
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := conn.Write([]byte("hello\n")); err != nil {
 		t.Fatal(err)
 	}
 	if line, err := bufio.NewReader(conn).ReadString('\n'); err != nil || line != "hello\n" {
 		t.Fatalf("echo = %q, %v", line, err)
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Read(make([]byte, 1)); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("idle read = %v, want a deadline error", err)
 	}
 	past, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
