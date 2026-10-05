@@ -51,7 +51,12 @@ func dialPipe(ctx context.Context, name string, owner func(pid uint32) (*windows
 		_ = windows.CloseHandle(h)
 		return nil, fmt.Errorf("%w: %s: %v", ErrForeignOwner, name, err)
 	}
-	return pipeConn{os.NewFile(uintptr(h), name), name}, nil
+	conn := pipeConn{os.NewFile(uintptr(h), name), name}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 func checkOwner(pipe windows.Handle, owner func(pid uint32) (*windows.SID, error)) error {
