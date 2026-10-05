@@ -2,8 +2,10 @@ package cli_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -35,23 +37,39 @@ func enableWatcher(t *testing.T, home string) {
 func fakeWatch(home string) {
 	started, err := os.OpenFile(filepath.Join(home, "watch.started"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		os.Exit(1)
+		fakeExit(1, err.Error())
 	}
 	_, _ = started.WriteString("started\n")
 	_ = started.Close()
 	lock, err := os.OpenFile(filepath.Join(home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		os.Exit(1)
+		fakeExit(1, err.Error())
 	}
-	if ok, err := flock.Lock(lock, false); !ok || err != nil {
-		os.Exit(1)
+	for try := 1; ; try++ {
+		ok, err := flock.Lock(lock, false)
+		if err != nil {
+			fakeExit(1, err.Error())
+		}
+		if ok {
+			break
+		}
+		if try == 5 {
+			fakeExit(1, "watch.lock is held")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	for {
+		runtime.KeepAlive(lock)
 		if _, err := os.Stat(filepath.Join(home, "watch.started")); err != nil {
-			os.Exit(0)
+			fakeExit(0, err.Error())
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+func fakeExit(code int, why string) {
+	fmt.Fprintln(os.Stderr, "fake watcher exits:", why)
+	os.Exit(code)
 }
 
 func holdWatchLock(t *testing.T, home string) {
@@ -82,7 +100,8 @@ func TestEnsureWatcherStartsOnce(t *testing.T) {
 	h.ok("supervisor", "stop")
 	has(t, "restart", h.ok("supervisor", "start"), "status: running")
 	if n := watchSpawns(h.home); n != 1 {
-		t.Fatalf("watchers started = %d, want 1", n)
+		log, _ := os.ReadFile(filepath.Join(h.home, "watch.log"))
+		t.Fatalf("watchers started = %d, want 1; watch.log:\n%s", n, log)
 	}
 }
 
