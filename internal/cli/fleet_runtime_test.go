@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -37,6 +38,9 @@ func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
 		sock := luvus.SocketPath(func(k string) string { return h.vars[k] }, fleet.Session(id))
 		if err := os.MkdirAll(filepath.Dir(sock), 0o700); err != nil {
 			t.Fatal(err)
+		}
+		if runtime.GOOS == "windows" {
+			h.vars["HAND_LUVUS_SOCKET"] = sock
 		}
 		rt := startRuntime(t, sock)
 		h.ok("project", "add", "app", repo)
