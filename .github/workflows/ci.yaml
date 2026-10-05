@@ -112,6 +112,8 @@ jobs:
           import http.server, sys, time
           class Handler(http.server.BaseHTTPRequestHandler):
               def do_GET(self):
+                  if sys.argv[2] == 'headers':
+                      time.sleep(600)
                   self.send_response(200)
                   self.send_header('Content-Length', '1000000')
                   self.end_headers()
@@ -159,20 +161,22 @@ jobs:
                   Stop-Process -Id $redirecting.Id -Force
                 }
               }
-              $stalling = Start-Process python -ArgumentList $staller, '8790' -PassThru -WindowStyle Hidden
-              try {
-                foreach ($i in 1..30) {
-                  try { [Net.Sockets.TcpClient]::new('127.0.0.1', 8790).Close(); break } catch { Start-Sleep -Seconds 1 }
+              foreach ($case in @(@('8790', 'body'), @('8791', 'headers'))) {
+                $stalling = Start-Process python -ArgumentList $staller, $case[0], $case[1] -PassThru -WindowStyle Hidden
+                try {
+                  foreach ($i in 1..30) {
+                    try { [Net.Sockets.TcpClient]::new('127.0.0.1', [int]$case[0]).Close(); break } catch { Start-Sleep -Seconds 1 }
+                  }
+                  $clock = [Diagnostics.Stopwatch]::StartNew()
+                  $stalled = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base "http://127.0.0.1:$($case[0])" -TimeoutSec 5 2>&1 | Out-String
+                  if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 finished a download that stalled in the $($case[1])" }
+                  if ($stalled -notmatch 'timed out after 5 seconds') { throw "${shell}: install.ps1 failed for another reason on a download that stalled in the $($case[1]): $stalled" }
+                  if ($clock.Elapsed.TotalSeconds -gt 60) { throw "${shell}: install.ps1 took $([int]$clock.Elapsed.TotalSeconds) seconds to give up on a download that stalled in the $($case[1])" }
+                  if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a download that stalled in the $($case[1])" }
                 }
-                $clock = [Diagnostics.Stopwatch]::StartNew()
-                $stalled = & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://127.0.0.1:8790' -TimeoutSec 5 2>&1 | Out-String
-                if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 finished a stalled download" }
-                if ($stalled -notmatch 'timed out after 5 seconds') { throw "${shell}: install.ps1 failed for another reason on a stalled download: $stalled" }
-                if ($clock.Elapsed.TotalSeconds -gt 60) { throw "${shell}: install.ps1 took $([int]$clock.Elapsed.TotalSeconds) seconds to give up on a stalled download" }
-                if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a stalled download" }
-              }
-              finally {
-                Stop-Process -Id $stalling.Id -Force
+                finally {
+                  Stop-Process -Id $stalling.Id -Force
+                }
               }
             }
           }

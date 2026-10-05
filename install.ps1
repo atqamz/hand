@@ -31,10 +31,14 @@ function Get-Download([string]$Uri, [string]$OutFile) {
     foreach ($hop in 0..5) {
         $request = [Net.HttpWebRequest]::Create($Uri)
         $request.AllowAutoRedirect = $false
-        $request.Timeout = 300000
+        $request.Timeout = [int][Math]::Min(300000, [Math]::Max(1, $limitMs - $clock.ElapsedMilliseconds))
         $request.ReadWriteTimeout = 300000
         $request.UserAgent = 'install.ps1'
-        $response = $request.GetResponse()
+        try { $response = $request.GetResponse() }
+        catch [Net.WebException] {
+            if ($_.Exception.Status -eq [Net.WebExceptionStatus]::Timeout) { throw "install.ps1: timed out after $TimeoutSec seconds fetching $Uri" }
+            throw
+        }
         try {
             $status = [int]$response.StatusCode
             if ($status -ge 300 -and $status -lt 400 -and $response.Headers['Location']) {
