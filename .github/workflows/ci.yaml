@@ -46,6 +46,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
+      - name: Lint install.ps1
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $found = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error, Warning
+          $found | Format-Table -AutoSize | Out-String | Write-Output
+          if ($found) { exit 1 }
       - name: Install Luvus
         shell: bash
         run: |
@@ -71,6 +78,55 @@ jobs:
           HAND_LUVUS_IT: "1"
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
+      - name: Smoke the installer
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'release'
+          $rel = Join-Path $root 'latest\download'
+          New-Item -ItemType Directory -Path $rel | Out-Null
+          go build -trimpath -o hand.exe .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $zip = Join-Path $rel 'hand-windows-amd64.zip'
+          Compress-Archive -LiteralPath hand.exe -DestinationPath $zip
+          Remove-Item hand.exe
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
+          $server = Start-Process python -ArgumentList '-m', 'http.server', '8787', '--bind', '127.0.0.1', '--directory', $root -PassThru -WindowStyle Hidden
+          try {
+            $base = 'http://127.0.0.1:8787'
+            foreach ($i in 1..30) {
+              try { Invoke-WebRequest -UseBasicParsing -Uri "$base/latest/download/hand-windows-amd64.sha256" | Out-Null; break } catch { Start-Sleep -Seconds 1 }
+            }
+            $dir = Join-Path $env:RUNNER_TEMP 'Hand Smoke\bin'
+            foreach ($i in 1..2) {
+              powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $dir -Base $base
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            }
+            $user = [Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -eq $dir }
+            if (@($user).Count -ne 1) { throw "user PATH holds $(@($user).Count) entries for $dir" }
+            Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
+            $bad = Join-Path $env:RUNNER_TEMP 'Hand Bad\bin'
+            powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base $base
+            if (-not $LASTEXITCODE) { throw 'install.ps1 accepted a wrong checksum' }
+            if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw 'install.ps1 installed after a checksum mismatch' }
+          }
+          finally {
+            Stop-Process -Id $server.Id -Force
+          }
+          Set-Location $dir
+          .\hand.exe version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:SECONDHAND_HOME = Join-Path $env:RUNNER_TEMP 'smoke home'
+          $fleet = Join-Path $env:RUNNER_TEMP 'smoke fleet'
+          New-Item -ItemType Directory -Path $fleet | Out-Null
+          Set-Location $fleet
+          & "$dir\hand.exe" init
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$dir\hand.exe" orient
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
   edge:
     needs: [test, test-macos, test-windows]
@@ -102,6 +158,10 @@ jobs:
             rm hand
           done
           sha256sum hand-*.tar.gz > checksums.txt
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X $pkg.Version=$base -X $pkg.Channel=edge -X $pkg.Commit=$GITHUB_SHA" -o hand.exe .
+          zip -X hand-windows-amd64.zip hand.exe
+          rm hand.exe
+          sha256sum hand-windows-amd64.zip > hand-windows-amd64.sha256
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -117,10 +177,10 @@ jobs:
             git push --force origin "$GITHUB_SHA:refs/tags/edge"
             gh release create edge --prerelease --title Edge --notes "$notes" --verify-tag
           fi
-          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt --clobber
+          gh release upload edge hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 --clobber
           for name in $(gh release view edge --json assets --jq '.assets[].name'); do
             case "$name" in
-              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt) ;;
+              hand-linux-amd64.tar.gz | hand-linux-arm64.tar.gz | hand-darwin-amd64.tar.gz | hand-darwin-arm64.tar.gz | checksums.txt | hand-windows-amd64.zip | hand-windows-amd64.sha256) ;;
               *) gh release delete-asset edge "$name" -y ;;
             esac
           done

@@ -50,6 +50,10 @@ jobs:
             rm hand
           done
           sha256sum hand-*.tar.gz > checksums.txt
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand.exe .
+          zip -X hand-windows-amd64.zip hand.exe
+          rm hand.exe
+          sha256sum hand-windows-amd64.zip > hand-windows-amd64.sha256
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,4 +62,4 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --title "$TAG" --notes "Draft: write the notes, then publish." --verify-tag
           fi
-          gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt --clobber
+          gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 --clobber
