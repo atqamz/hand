@@ -317,17 +317,22 @@ func (w *watcher) decisions(ctx context.Context) error {
 		return err
 	}
 	for _, e := range events {
-		w.asked = e.Seq
 		id, err := parseID("d", e.Detail)
 		if err != nil {
+			w.asked = e.Seq
 			w.say("decision alert: " + err.Error())
 			continue
 		}
 		d, err := w.st.Decision(ctx, id)
-		if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			w.asked = e.Seq
 			w.say("decision alert: " + err.Error())
 			continue
 		}
+		if err != nil {
+			return err
+		}
+		w.asked = e.Seq
 		w.alert(ctx, e.Kind, e.Detail, state.TaskRef(e.TaskID)+" decision: "+d.Headline())
 	}
 	return nil
