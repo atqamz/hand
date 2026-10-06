@@ -191,7 +191,7 @@ func TestAStaleGenerationShowsNoKeys(t *testing.T) {
 	fx.status = "blocked"
 	fx.supervisor(t, state.AttemptRunning, "gen-0")
 	body := get(t, fx.handler(), "/")
-	contains(t, "stale", body, "luvus restarted")
+	contains(t, "stale", body, "Luvus restarted")
 	lacks(t, "stale", body, `action="/supervisor/keys"`, "Trust this folder?")
 	if n := len(fx.srv.Calls("agent.read")) + len(fx.srv.Calls("agent.explain")); n != 0 {
 		t.Fatalf("read the pane of an earlier server %d times", n)

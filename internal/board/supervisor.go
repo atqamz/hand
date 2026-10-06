@@ -22,7 +22,7 @@ import (
 
 const (
 	pageSize    = 50
-	staleServer = "luvus restarted; hand watch settles this"
+	staleServer = "Luvus restarted; hand watch settles this"
 	staleScreen = "the screen changed, try again"
 	controlsOff = "supervisor controls work only on a board that listens on loopback"
 )
@@ -98,7 +98,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	}
 	data["Pending"], data["Profiles"], data["Keys"] = len(pending), b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
-	data["Pill"], data["PillLabel"] = "neutral", "No supervisor yet"
+	data["Pill"], data["PillLabel"] = "neutral", "No supervisor"
 	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits until one starts."
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
@@ -130,8 +130,6 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 
 func lineWord(label string) string {
 	switch label {
-	case "No supervisor yet":
-		return "NO SUPERVISOR"
 	case "launching":
 		return "STARTING"
 	}
@@ -549,7 +547,7 @@ func refAt(sups []state.Supervisor, at string) string {
 func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []state.Supervisor, error) {
 	sups, err := b.st.Supervisors(ctx)
 	if err != nil || len(sups) == 0 {
-		return nil, "no supervisor yet", nil, err
+		return nil, "No supervisor", nil, err
 	}
 	latest := sups[len(sups)-1]
 	var all []transcript.Entry
@@ -576,7 +574,7 @@ func (b *Board) sessions(ctx context.Context) ([]transcript.Entry, string, []sta
 func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool) ([]transcript.Entry, string) {
 	switch {
 	case !ok:
-		return nil, "no supervisor yet"
+		return nil, "No supervisor"
 	case b.o.Transcript == nil:
 		return nil, transcript.ErrUnreadable.Error()
 	}

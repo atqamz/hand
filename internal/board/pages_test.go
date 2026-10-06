@@ -73,7 +73,8 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 
 func TestTheFirstRunState(t *testing.T) {
 	body := get(t, board.New(open(t), token, board.Options{Controls: true, Control: func(context.Context, ...string) error { return nil }}), "/")
-	contains(t, "first run", body, "All clear", `action="/supervisor/start"`, `name="harness"`, "No tasks yet", `<span class="word">no supervisor</span>`)
+	contains(t, "first run", body, "All clear", `action="/supervisor/start"`, `name="harness"`, "No tasks yet. They appear here when you ask the supervisor for something.", `<span class="word">no supervisor</span>`)
+	lacks(t, "first run", body, "hand task add")
 }
 
 func TestTheReadOnlyBoard(t *testing.T) {
@@ -242,6 +243,14 @@ func TestTheFleetPageHasASkipLinkAndALinkState(t *testing.T) {
 	if n := strings.Index(page, `class="skip"`); n < 0 || n > strings.Index(page, `<header class="masthead">`) {
 		t.Fatal("the skip link must come before the masthead")
 	}
+}
+
+func TestALostLinkDimsTheStatusAndQuietsTheIcon(t *testing.T) {
+	js, css := asset(t, "app.js"), asset(t, "board.css")
+	if !strings.Contains(js, `document.body.dataset.link = "lost";`) || !strings.Contains(js, "delete document.body.dataset.link;") || !strings.Contains(js, `document.body.dataset.link === "lost" ? plain`) {
+		t.Fatal("app.js does not mark a lost link on the body, clear it, and quiet the icon")
+	}
+	contains(t, "css", css, "body[data-link=lost] .strip .status-line{opacity:.45}")
 }
 
 func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {

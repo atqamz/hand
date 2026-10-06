@@ -76,7 +76,7 @@
 			n.dataset.worst = w.worst || "";
 		}
 		if (!icon || !icons) return;
-		const href = blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
+		const href = document.body.dataset.link === "lost" ? plain : blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
 		if (href && icon.getAttribute("href") !== href) icon.setAttribute("href", href);
 	};
 
@@ -399,10 +399,14 @@
 		if (ok) {
 			lost = 0;
 			link.hidden = true;
+			delete document.body.dataset.link;
+			title();
 			return;
 		}
 		lost ||= Date.now();
 		link.hidden = false;
+		document.body.dataset.link = "lost";
+		title();
 		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Board offline since ${at}` : "Reconnecting…";
 	};

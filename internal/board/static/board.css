@@ -396,4 +396,5 @@ button.chip{font:inherit;cursor:pointer}
 .skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:6px}
 .skip:focus{left:16px}
 .link-state{margin:0;font-size:12px;color:var(--muted)}
+body[data-link=lost] .strip .status-line{opacity:.45}
 #toast[data-kind=receipt]{border-color:var(--line)}
