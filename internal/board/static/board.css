@@ -185,8 +185,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .wakes>summary::-webkit-details-marker{display:none}
 .wakes>.hand-line{grid-column:1/-1;padding:4px 0 0 16px}
 .card .copy{font-size:15px;line-height:1.6}
-.card .copy>:not(.table):not(pre){max-width:72ch}
-.thread>.card[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width:72ch}
+.timeline .card .copy>:not(.table):not(pre){max-width:72ch}
 
 .from-you .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
 .hand-line{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:start;column-gap:8px;padding:2px 0;color:var(--muted);font-size:12px;line-height:18px}

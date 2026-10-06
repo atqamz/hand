@@ -409,7 +409,8 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"[data-send-key]{display:none}\nbutton,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,a.chip{min-height:44px}",
 		".attach{width:44px}\n.key{min-width:44px}\n.keys{gap:12px}\n.console{flex-wrap:wrap}",
-		"max-width:72ch",
+		".timeline .card .copy>:not(.table):not(pre){max-width:72ch}",
+		".from-you .copy{max-width:72ch;",
 		".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
@@ -420,7 +421,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 			t.Errorf("board.css lacks %q", rule)
 		}
 	}
-	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before"} {
+	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before", "\n.card .copy>:not(.table)", "[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width"} {
 		if strings.Contains(css, gone) {
 			t.Errorf("board.css still has %q", gone)
 		}
