@@ -143,3 +143,24 @@ func TestBackupMovesPastAnExistingStamp(t *testing.T) {
 		t.Fatalf("backups = %q, %v", got, err)
 	}
 }
+
+func TestPruneLeavesTheWatcherSnapshots(t *testing.T) {
+	root := t.TempDir()
+	id, _ := newFleet(t, root, "alpha")
+	dir := filepath.Join(root, "backups", id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hand-20261001.db", "hand-20261002.db", "hand-20261003.db"}
+	for _, n := range want {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Prune(root, entries(t, root)); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(t, dir); !slices.Equal(got, want) {
+		t.Fatalf("Prune left %q, want %q", got, want)
+	}
+}

@@ -896,3 +896,42 @@ func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
 		t.Fatalf("a restart after attempt.long recorded %d of them", n)
 	}
 }
+
+func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	update := filepath.Join(dir, "hand.db.20200101T000000")
+	if err := os.WriteFile(update, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	day := fx.h.clock()
+	for i := range 10 {
+		if i > 0 {
+			fx.h.advance(24 * time.Hour)
+		}
+		path := filepath.Join(dir, "hand-"+day.AddDate(0, 0, i).Format("20060102")+".db")
+		eventually(t, func() bool { _, err := os.Stat(path); return err == nil })
+	}
+	want := []string{"hand-20260929.db", "hand-20260930.db", "hand-20261001.db", "hand-20261002.db", "hand-20261003.db", "hand-20261004.db", "hand-20261005.db", "hand.db.20200101T000000"}
+	eventually(t, func() bool {
+		var got []string
+		des, _ := os.ReadDir(dir)
+		for _, de := range des {
+			got = append(got, de.Name())
+		}
+		return slices.Equal(got, want)
+	})
+	if _, err := os.Stat(update); err != nil {
+		t.Fatal(err)
+	}
+}
