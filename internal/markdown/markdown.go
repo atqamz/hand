@@ -5,20 +5,21 @@ import (
 	"html/template"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 func Render(text string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
-	blocks(&b, lines, true, "")
+	blocks(&b, lines, true, "", 0)
 	return template.HTML(b.String())
 }
 
 func RenderRefs(text, base string, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
-	blocks(&b, lines, true, base+"/ref/")
+	blocks(&b, lines, true, base+"/ref/", 0)
 	return template.HTML(titled(b.String(), title))
 }
 
@@ -47,7 +48,9 @@ func titled(out string, title func(ref string) string) string {
 	})
 }
 
-func blocks(b *strings.Builder, lines []string, quotes bool, refs string) {
+const maxListDepth = 6
+
+func blocks(b *strings.Builder, lines []string, quotes bool, refs string, depth int) {
 	for i := 0; i < len(lines); {
 		line := lines[i]
 		switch {
@@ -76,14 +79,14 @@ func blocks(b *strings.Builder, lines []string, quotes bool, refs string) {
 				inner = append(inner, strings.TrimPrefix(lines[i][1:], " "))
 			}
 			b.WriteString("<blockquote>")
-			blocks(b, inner, false, refs)
+			blocks(b, inner, false, refs, depth)
 			b.WriteString("</blockquote>")
 		case tableAt(lines, i):
 			i = table(b, lines, i, refs)
 		case item(line, false) != "":
-			i = list(b, lines, i, "ul", false, refs)
+			i = list(b, lines, i, "ul", false, refs, depth)
 		case item(line, true) != "":
-			i = list(b, lines, i, "ol", true, refs)
+			i = list(b, lines, i, "ol", true, refs, depth)
 		default:
 			var parts []string
 			for ; i < len(lines) && strings.TrimSpace(lines[i]) != "" && (len(parts) == 0 || !starts(lines, i, quotes)); i++ {
@@ -231,13 +234,60 @@ func heading(line string) int {
 
 func fence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "```") }
 
-func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs string) int {
-	b.WriteString("<" + tag + ">")
-	for ; i < len(lines) && item(lines[i], ordered) != ""; i++ {
-		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs) + "</li>")
+func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs string, depth int) int {
+	open := "<" + tag + ">"
+	if ordered {
+		if n, err := strconv.ParseInt(lines[i][:strings.IndexByte(lines[i], '.')], 10, 32); err == nil && n != 1 {
+			open = `<ol start="` + strconv.FormatInt(n, 10) + `">`
+		}
+	}
+	b.WriteString(open)
+	for i < len(lines) && item(lines[i], ordered) != "" {
+		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs))
+		j := i + 1
+		for j < len(lines) && (strings.TrimSpace(lines[j]) == "" || lines[j][0] == ' ' || lines[j][0] == '\t') {
+			j++
+		}
+		if inner := dedent(lines[i+1 : j]); depth+1 < maxListDepth {
+			blocks(b, inner, false, refs, depth+1)
+		} else {
+			flat(b, inner, refs)
+		}
+		b.WriteString("</li>")
+		i = j
 	}
 	b.WriteString("</" + tag + ">")
 	return i
+}
+
+func flat(b *strings.Builder, lines []string, refs string) {
+	var parts []string
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			parts = append(parts, inline(l, true, refs))
+		}
+	}
+	if len(parts) > 0 {
+		b.WriteString("<p>" + strings.Join(parts, "<br>") + "</p>")
+	}
+}
+
+func dedent(lines []string) []string {
+	cut := -1
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			if n := len(l) - len(strings.TrimLeft(l, " \t")); cut < 0 || n < cut {
+				cut = n
+			}
+		}
+	}
+	out := make([]string, len(lines))
+	for k, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			out[k] = l[cut:]
+		}
+	}
+	return out
 }
 
 func item(line string, ordered bool) string {
