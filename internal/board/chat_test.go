@@ -147,6 +147,15 @@ func TestDayDividers(t *testing.T) {
 	contains(t, "date on the oldest day", tl, `>Sep 26 00:00 UTC</time>`)
 }
 
+func TestWakesUnderADividerShowTheClock(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
+	claudeLog(t, fx, []string{at(reply("old"), "2026-09-27T10:00:00Z"), at(wake, "2026-09-28T12:28:00Z"), at(wake, "2026-09-28T12:29:00Z")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "wake lines", tl, `<span class="hand-text">`, `>12:28</time></p>`, `>12:29</time></p>`)
+}
+
 func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

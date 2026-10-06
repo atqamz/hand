@@ -450,6 +450,9 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 			under = true
 		}
 		page[i].Clock = under
+		for j := range page[i].Wakes {
+			page[i].Wakes[j].Clock = under
+		}
 	}
 	data["Entries"], data["Older"] = page, start
 	return nil

@@ -41,7 +41,7 @@
 		if (!tl) return;
 		for (const p of tl.querySelectorAll(":scope > .day")) p.remove();
 		const items = [...tl.children].filter((c) => c.matches(".card, .hand-line"));
-		const at = (c) => new Date(c.querySelector("time[datetime]")?.dateTime);
+		const at = (c) => new Date(c.querySelector(c.matches(".wakes") ? "summary time:last-of-type" : "time[datetime]")?.dateTime);
 		let under = false;
 		for (let i = items.length - 1; i >= 0; i--) {
 			const d = at(items[i]);
@@ -54,7 +54,8 @@
 				items[i].after(p);
 				under = true;
 			}
-			if (!items[i].matches(".wakes")) items[i].querySelector("time[datetime]")?.toggleAttribute("data-clock", under);
+			const stamps = items[i].matches(".wakes") ? items[i].querySelectorAll(":scope > p > time") : [items[i].querySelector("time[datetime]")];
+			for (const t of stamps) t?.toggleAttribute("data-clock", under);
 		}
 	};
 
