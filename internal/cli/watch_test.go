@@ -942,3 +942,36 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	day := fx.h.clock()
+	for i := range 9 {
+		name := "hand-" + day.AddDate(0, 0, -i).Format("20060102") + ".db"
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := filepath.Join(dir, "hand-20250101.db.tmp")
+	if err := os.WriteFile(stale, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	eventually(t, func() bool {
+		des, _ := os.ReadDir(dir)
+		return len(des) == 7
+	})
+	if _, err := os.Stat(stale); err == nil {
+		t.Fatal("a stale .tmp survived")
+	}
+}
