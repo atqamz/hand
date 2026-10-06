@@ -306,7 +306,7 @@ func (b *Board) valid(t string) bool {
 }
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
-	data["Base"] = b.o.Base
+	data["Base"], data["Controls"] = b.o.Base, b.o.Controls
 	if _, ok := data["Titles"]; !ok {
 		data["Titles"] = b.refTitle(context.Background())
 	}
@@ -329,8 +329,26 @@ func renderPage(w http.ResponseWriter, status int, name string, data map[string]
 }
 
 func (b *Board) fail(w http.ResponseWriter, status int, msg string) {
+	b.failWith(w, status, msg, nil)
+}
+
+func (b *Board) failWith(w http.ResponseWriter, status int, msg string, strip map[string]any) {
 	w.Header().Set("X-Hand-Error", url.PathEscape(strings.Join(strings.Fields(msg), " ")))
-	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": msg})
+	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": sentence(msg), "StripData": strip})
+}
+
+func sentence(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if rest, ok := strings.CutPrefix(msg, "not found: "); ok {
+		msg = rest + " was not found"
+	}
+	if msg == "" {
+		return msg
+	}
+	if !strings.HasSuffix(msg, ".") {
+		msg += "."
+	}
+	return strings.ToUpper(msg[:1]) + msg[1:]
 }
 
 func (b *Board) failErr(w http.ResponseWriter, err error) {
@@ -343,7 +361,7 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, state.ErrInvalid):
 		status = http.StatusBadRequest
 	}
-	b.fail(w, status, Scrub(err.Error()))
+	b.failWith(w, status, Scrub(err.Error()), b.stripData(context.Background()))
 }
 
 func tint(id any) int {

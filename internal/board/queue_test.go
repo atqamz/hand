@@ -319,7 +319,7 @@ func TestReportTitlesDropMarkdownMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
-	contains(t, "report title", q, `<span class="wait-title">Done. The renderer escapes first</span>`)
+	contains(t, "report title", q, `<span class="wait-title" title="Done. The renderer escapes first">Done. The renderer escapes first</span>`)
 }
 
 func TestResumeSurvivesAFullQueue(t *testing.T) {
@@ -476,7 +476,7 @@ func TestAReportItemSplitsItsSummaryFromItsBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
-	contains(t, "report item", q, `<span class="wait-title">Cookie fixed</span>`, "The redirect now keeps the session.")
+	contains(t, "report item", q, `<span class="wait-title" title="Cookie fixed">Cookie fixed</span>`, "The redirect now keeps the session.")
 	if strings.Count(q, ">Cookie fixed<") != 1 {
 		t.Fatalf("the summary repeats in the body:\n%s", q)
 	}

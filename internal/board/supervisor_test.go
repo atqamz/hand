@@ -311,7 +311,7 @@ func TestAStaleKeyPressIsRefused(t *testing.T) {
 	fx := newFixture(t)
 	fx.fail = fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/supervisor/keys", url.Values{"csrf": {token}, "revision": {"7"}, "key": {"enter"}}, true)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "the screen changed, try again") {
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "The screen changed, try again") {
 		t.Fatalf("stale key = %d:\n%s", rec.Code, rec.Body.String())
 	}
 	fx.fail = errors.New("start failed at /home/me/.codex/models_cache.json")

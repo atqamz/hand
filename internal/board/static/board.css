@@ -325,7 +325,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 .masthead .tabs a{padding:6px 10px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
+@media (max-width:599px){.thread>.card>header.slug>*::after{content:none!important}.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
 .masthead .spacer{display:none}
 .masthead .strip{flex:none;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}
@@ -381,7 +381,8 @@ form.inline{display:inline}
 .fleet .fleet-name{flex:1;min-width:0;color:var(--fg)}
 .fleet .fleet-name:hover{color:var(--tint);text-decoration:none}
 .card.error .copy{margin:6px 0 10px}
-.thread-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.card.error .back{margin:0;padding:0 12px 12px}
+.thread-title{overflow-wrap:anywhere;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
 .fleet .mark{align-self:center;color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
 .slug .status[data-state=running],.slug .status[data-state=passing]{color:var(--pass)}

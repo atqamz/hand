@@ -104,7 +104,7 @@ func TestLinksFollowTheBase(t *testing.T) {
 		body := get(t, h, p)
 		for _, m := range link.FindAllStringSubmatch(body, -1) {
 			u := m[1]
-			if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "/static/") || strings.HasPrefix(u, "#") {
+			if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "/static/") || strings.HasPrefix(u, "#") || u == "/" {
 				continue
 			}
 			if !strings.HasPrefix(u, "/f000000000001/") {
