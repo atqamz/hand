@@ -405,7 +405,7 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 		}
 	}
 	for range 2 {
-		if _, err := st.RecordQuiet(ctx, 1); err != nil {
+		if _, _, err := st.RecordQuiet(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -301,7 +301,7 @@ The board is where you start, chat with and resume the supervisor. Those control
 
 ## Alerts on your phone
 
-The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet, and when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
+The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet (a repeated turn end, `attempt.idle`, does not alert), and when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
 
 ```json
 "notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]

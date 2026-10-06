@@ -77,7 +77,7 @@ func TestRecordQuietLabelsTheTurnInOneTransaction(t *testing.T) {
 	ctx := context.Background()
 	check := func(want string) {
 		t.Helper()
-		if got, err := s.RecordQuiet(ctx, a.ID); err != nil || got != want {
+		if _, got, err := s.RecordQuiet(ctx, a.ID); err != nil || got != want {
 			t.Fatalf("RecordQuiet = %q, %v; want %q", got, err, want)
 		}
 	}

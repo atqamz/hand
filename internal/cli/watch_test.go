@@ -161,12 +161,32 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 		t.Fatalf("notify call = %q", b)
 	}
 	write(`["no-such-notifier"]`)
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
-	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if !strings.Contains(out, "notify: ") {
 		t.Fatalf("watch out = %q", out)
+	}
+}
+
+func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	log := fakeNotify(t, fx)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 2 })
+	if events := turnEvents(t, fx); events[1].Kind != "attempt.idle" {
+		t.Fatalf("second turn = %+v", events)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
+		t.Fatalf("an idle turn notified: %q", b)
 	}
 }
 
@@ -179,9 +199,9 @@ func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *tes
 	stop := startWatch(t, fx)
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
-	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if n := strings.Count(out, "routing.json unreadable, using the desktop notifier: "); n != 1 {
 		t.Fatalf("warned %d times, want 1; out %q", n, out)

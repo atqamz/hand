@@ -418,7 +418,7 @@ func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	ctx := context.Background()
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
-	if _, err := fx.st.RecordQuiet(ctx, a.ID); err != nil {
+	if _, _, err := fx.st.RecordQuiet(ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
@@ -434,7 +434,7 @@ func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
 	if _, err := fx.st.AddReport(ctx, b.ID, state.ReportDone, "Shipped"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fx.st.RecordQuiet(ctx, b.ID); err != nil {
+	if _, _, err := fx.st.RecordQuiet(ctx, b.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, refs, _ := waits(get(t, fx.handler(), "/"))
@@ -540,7 +540,7 @@ func TestBlockedWorkersComeBeforeQuietOnes(t *testing.T) {
 	fx.panes = map[string]string{"3": "blocked"}
 	ctx := context.Background()
 	quiet := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
-	if _, err := fx.st.RecordQuiet(ctx, quiet.ID); err != nil {
+	if _, _, err := fx.st.RecordQuiet(ctx, quiet.ID); err != nil {
 		t.Fatal(err)
 	}
 	blocked := workerAttempt(t, fx.st, active(t, fx.st, "Ship it").ID)
@@ -573,7 +573,7 @@ func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
 	fx := newFixture(t)
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	for range 2 {
-		if _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
+		if _, _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
