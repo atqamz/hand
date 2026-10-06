@@ -384,7 +384,7 @@ The fleet is an on-call desk. Everything that needs the operator is an open item
 
 The material is a quiet review palette: a near-white ground, pale grey cards on hairline rules and near-black ink, with a GitHub-dark night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1280px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.
+The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1024px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.
 
 **Key Characteristics:**
 - A near-white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#0d1117` with cards raised to `#161b22` at night.
@@ -465,8 +465,8 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 
 ## Layout
 
-- **Fleet page below 1280px:** one column held to 760px and centred, with the masthead's inner row aligned to it. Two tabs switch between Needs (the open items, then Tasks) and Chat (the timeline, then the composer). The tab comes from the URL hash; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript both panels show and the tabs are anchors.
-- **Fleet page at 1280px and wider:** a grid of Chat (`minmax(0,760px)`) and the Needs rail (`minmax(360px,400px)`) with a 32px gap, centred. The rail has a hairline on its left, 24px of padding inside it, and scrolls on its own; the tabs are hidden and the Needs head shows. The masthead's inner row aligns to the 1192px pair.
+- **Fleet page below 1024px:** one column held to 760px and centred, with the masthead's inner row aligned to it. Two tabs switch between Needs (the open items, then Tasks) and Chat (the timeline, then the composer). The tab comes from the URL hash; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript both panels show and the tabs are anchors.
+- **Fleet page at 1024px and wider:** a grid of Chat (`minmax(0,760px)`) and the Needs rail (`minmax(360px,400px)`) with a 32px gap, centred. The rail has a hairline on its left, 24px of padding inside it, and scrolls on its own; the tabs are hidden and the Needs head shows. The masthead's inner row aligns to the 1192px pair.
 - **App shell (at least 600px tall):** the body fills `100dvh` and never scrolls. Needs and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
 - **Short screens (under 600px tall):** the page flows as one scroll. The masthead shrinks to 36px, sticks to the top and merges the tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer.
 - **Phone (under 600px wide):** 12px board padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The composer moves the hint to its own row above the controls, the Interrupt key drops its label, and the tabs split the width in halves. On a phone that is also short, the fleet name hides too.
@@ -475,7 +475,7 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, 20px between the sections of a panel, and a 24px board gap (32px between Chat and the rail). Rows in lists pad 6px by 4px between hairlines.
 
 ### Named Rules
-**The Rail At Desk Width Rule.** Needs is a rail only from 1280px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.
+**The Rail At Desk Width Rule.** Needs is a rail only from 1024px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.
 
 **The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft.
 
@@ -534,14 +534,14 @@ A 20px pill with a 12px icon and a lower-case word.
 A native `meter`, 48 by 6px on a hairline track, followed by the figure in tabular mono ("510K / 1M"). The fill is accent below 80% and amber from 80%, where the figure turns amber too; from 90% both turn red, the figure at 600 with "· compact soon" added. The figure alone shows when the window is unknown, and nothing shows before there is context data.
 
 ### Tabs
-Below 1280px, a bar under the masthead row with a hairline between.
+Below 1024px, a bar under the masthead row with a hairline between.
 - **Labels:** "Needs" with its count and "Chat", in Nav type and muted ink, 10px by 12px (10px by 14px and content width from 600px wide), turning to ink on hover.
 - **Current tab:** ink text and a 2px ink underline.
 - **Needs count:** a neutral pill that takes the worst open item's tone, red or amber.
 - **Chat:** a 6px accent dot while the supervisor works.
 
 ### Needs items
-The signature component. Each open item is a `details` element with a 1px hairline border and 8px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest.
+The signature component. Each open item is a `details` element with a 1px hairline border and 8px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest. A muted chevron at the right of every summary turns 180° when the item opens, so a collapsed item reads as something to open. The keyboard focus ring sits inside the item (`outline-offset:-2px`), because the item clips anything drawn outside it. In the rail, `#needs` keeps its scrollbar gutter so the width never jumps, and the Needs head sticks to the top of the rail.
 
 | Kind | Order | Tone | Code |
 |---|---|---|---|
@@ -660,5 +660,5 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 6px 
 - **Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.
 - **Don't** load web fonts or images from the stylesheet.
 - **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
-- **Don't** show the Needs rail below 1280px, and don't switch tabs for the operator.
+- **Don't** show the Needs rail below 1024px, and don't switch tabs for the operator.
 - **Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt.

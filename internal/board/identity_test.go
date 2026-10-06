@@ -216,19 +216,19 @@ func TestTheAppShellNeedsHeight(t *testing.T) {
 
 func TestNeedsIsARailAtDeskWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	i := strings.Index(css, "@media (min-width:1280px){")
+	i := strings.Index(css, "@media (min-width:1024px){")
 	if i < 0 {
 		t.Fatal("board.css has no desk-width query")
 	}
 	desk := css[i:]
 	desk = desk[:strings.Index(desk, "}}")+2]
 	contains(t, "desk width", desk, "grid-template-columns:minmax(0,760px) minmax(360px,400px)", "#needs{grid-column:2;grid-row:1;", "overflow-y:auto", "#chat{grid-column:1;grid-row:1", ".tabs{display:none}")
-	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:1280px)")`)
+	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:1024px)")`)
 }
 
 func TestTabsBelowDeskWidth(t *testing.T) {
 	css := asset(t, "board.css")
-	if strings.Contains(css[:strings.Index(css, "@media (min-width:1280px){")], ".tabs{display:none}") {
+	if strings.Contains(css[:strings.Index(css, "@media (min-width:1024px){")], ".tabs{display:none}") {
 		t.Fatal("the tabs are hidden below desk width")
 	}
 	if !strings.Contains(css, "#needs,#chat{") || !strings.Contains(css, "max-width:760px") {
