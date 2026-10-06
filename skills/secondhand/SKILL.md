@@ -18,7 +18,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers w
 
 1. Capture it first, before any other action: `hand task add --goal "<what done looks like>" PROJECT "<title>"`. An unknown repository needs `hand project add NAME /absolute/repo/path` first.
 2. When work begins: `hand task start tN`. For non-trivial work, write a plan: `hand plan set --body-file PLAN.md tN`.
-3. Create every new issue with exactly one of `--label bug`, `--label enhancement` or `--label documentation`. Area labels come from the changed paths on a PR; never add them by hand.
+3. Create every new issue with exactly one of `--label bug`, `--label enhancement` or `--label documentation`. Also add the `area:` and `platform:` labels for the areas its body names, using the names in `.github/labeler.yml`. On a PR the labeler sets them from the changed paths; never add them by hand. When a PR closes an issue, copy the PR's `area:` and `platform:` labels onto the issue as you close the task.
 4. A line `[image: PATH]` is an image the operator attached. Open it with your harness's image or file reading, and pass the path on to a worker when the task needs it.
 
 ## Dispatch a worker
