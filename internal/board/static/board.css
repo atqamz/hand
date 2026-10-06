@@ -225,7 +225,23 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .console-box.dropping{border-color:var(--accent);outline:2px dashed var(--accent);outline-offset:3px}
 @media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
-@media (min-width:800px){.console-box:has(.console .start){grid-template-areas:"text text text" "hint hint hint" "console console send"}}
+.console-box:has(.starter){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint send" "console console"}
+.console:has(.starter){flex-wrap:wrap;align-items:flex-start;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.starter{flex:1 1 100%;display:grid;gap:8px;min-width:0}
+form.start{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+form.start select,form.start input{flex:1 1 8em;min-width:0}
+.starter>form.start select{flex-basis:14em}
+.others>summary{display:inline-flex;align-items:center;gap:4px;padding:2px 0;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;list-style:none}
+.others>summary::-webkit-details-marker{display:none}
+.others>summary:hover{color:var(--fg)}
+.others[open]>summary .icon{transform:rotate(180deg)}
+.others-body{display:grid;gap:8px;margin-top:8px}
+.others-body form.start{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 10em}
+.others-body form.start button{grid-column:3;width:100%;white-space:nowrap}
+.console-box:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--card);border-color:var(--line);color:var(--fg)}
+.timeline>.quiet:only-child{text-align:center}
+#chat:has(.timeline>.quiet:only-child){justify-content:center}
+#chat:has(.timeline>.quiet:only-child) .timeline{flex:none;min-height:0}
 .console{grid-area:console;display:flex;align-items:center;gap:4px;min-width:0}
 .console .model,.console .pending{font-size:14px;font-weight:600;padding:0 6px}
 .console .pending{color:var(--wait)}
@@ -302,7 +318,8 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .masthead .spacer{display:none}
 .masthead .strip{flex:none;display:flex;justify-content:flex-end;overflow:hidden}
 .needs-count{display:inline-flex}
-.strip .who,.strip .queued,.strip .compactions,.ctx{display:none}}
+.strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
+.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
 [data-send-key]{display:none}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}

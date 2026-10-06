@@ -220,7 +220,7 @@ func TestASymlinkInTheInboxIsNotFollowed(t *testing.T) {
 
 func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, "@media (min-width:800px){.console-box:has(.console .start)", `@media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`, ".attach:has(input:focus-visible)", "grid-template-columns:auto minmax(0,1fr) auto")
+	contains(t, "board.css", css, ".console-box:has(.starter){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:\"text text\" \"hint send\" \"console console\"}", `@media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`, ".attach:has(input:focus-visible)", "grid-template-columns:auto minmax(0,1fr) auto")
 	lacks(t, "board.css", css, ".attach:focus-within", ".shots:first-child", "minmax(10em,1fr)")
 }
 

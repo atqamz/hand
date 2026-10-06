@@ -1573,3 +1573,12 @@ func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
 		t.Fatalf("force = %q", out)
 	}
 }
+
+func TestSupervisorStartWithAProfileNeedsNoEarlierSupervisor(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "start", h.ok("supervisor", "start", "--profile", "default"), "supervisor: s1", "harness: claude", "status: running")
+}
