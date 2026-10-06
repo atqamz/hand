@@ -35,6 +35,7 @@ func (c Client) Create(ctx context.Context, cwd, label string, argv []string) (T
 		"focus":     false,
 		"label":     label,
 		"command":   argv,
+		"restore":   false,
 	}, &t)
 	return t, err
 }
@@ -89,8 +90,12 @@ func (c Client) Explain(ctx context.Context, pane string) (Agent, error) {
 	return Agent{Pane: r.Pane, Agent: r.Agent, Status: r.Status, Hint: r.StateEvidence.BlockedHint, Session: r.Session.ID}, err
 }
 
-func (c Client) Prompt(ctx context.Context, pane, text string) error {
-	return c.Call(ctx, "agent.prompt", map[string]any{"target": pane, "text": text, "wait": false}, nil)
+func (c Client) Prompt(ctx context.Context, pane, terminalID, text string) error {
+	params := map[string]any{"target": pane, "text": text, "wait": false}
+	if terminalID != "" {
+		params["terminal_id"] = terminalID
+	}
+	return c.Call(ctx, "agent.prompt", params, nil)
 }
 
 type Screen struct {

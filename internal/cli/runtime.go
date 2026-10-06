@@ -190,14 +190,21 @@ func (r *runner) observeTerminal(ctx context.Context, c luvus.Client, caps luvus
 		case "process_mismatch":
 			return state.AttemptInterrupted, "terminal root process changed", nil
 		case "stale_terminal", "stale_route", "terminal_gone":
-			return state.AttemptExited, "terminal exited", nil
+			return state.AttemptExited, r.exitReason(ctx, t.TerminalID), nil
 		}
 		return "", "", runtimeErr(err)
 	}
 	if health == "gone" {
-		return state.AttemptExited, "terminal exited", nil
+		return state.AttemptExited, r.exitReason(ctx, t.TerminalID), nil
 	}
 	return "", "", nil
+}
+
+func (r *runner) exitReason(ctx context.Context, terminalID string) string {
+	if r.exits == nil {
+		return "terminal exited"
+	}
+	return r.exits.wait(ctx, terminalID)
 }
 
 func closeLabelled(ctx context.Context, c luvus.Client, label, terminalID string) error {

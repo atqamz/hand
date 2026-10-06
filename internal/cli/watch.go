@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -89,6 +90,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	r.exits = &exitLog{m: map[string]exitRecord{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
@@ -134,15 +136,7 @@ func (w *watcher) session(ctx context.Context) error {
 		return runtimeErr(err)
 	}
 	defer stream.Close()
-	w.seen = map[int64]string{}
-	if err := w.reconcile(sctx, c, caps); err != nil {
-		return err
-	}
-	if err := w.catchUp(sctx, c, caps); err != nil {
-		return err
-	}
-	w.autoresume(sctx, c, caps)
-	events := make(chan luvus.Event)
+	events := make(chan luvus.Event, 64)
 	failed := make(chan error, 1)
 	go func() {
 		for {
@@ -151,6 +145,9 @@ func (w *watcher) session(ctx context.Context) error {
 				failed <- err
 				return
 			}
+			if ev.Event == "terminal.exited" {
+				w.r.exits.note(ev.Data)
+			}
 			select {
 			case events <- ev:
 			case <-sctx.Done():
@@ -158,6 +155,14 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		}
 	}()
+	w.seen = map[int64]string{}
+	if err := w.reconcile(sctx, c, caps); err != nil {
+		return err
+	}
+	if err := w.catchUp(sctx, c, caps); err != nil {
+		return err
+	}
+	w.autoresume(sctx, c, caps)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -197,10 +202,86 @@ func (w *watcher) handle(ctx context.Context, c luvus.Client, caps luvus.Capabil
 	return nil
 }
 
+type exitRecord struct {
+	reason string
+	at     time.Time
+}
+
+const exitKeep = 10 * time.Minute
+
+type exitLog struct {
+	mu       sync.Mutex
+	m        map[string]exitRecord
+	deadline time.Time
+}
+
+const exitWait = time.Second
+
+func (l *exitLog) budget() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.deadline = time.Now().Add(exitWait)
+}
+
+func (l *exitLog) wait(ctx context.Context, id string) string {
+	for {
+		l.mu.Lock()
+		rec, ok := l.m[id]
+		deadline := l.deadline
+		l.mu.Unlock()
+		if ok && time.Since(rec.at) <= exitKeep {
+			return rec.reason
+		}
+		left := time.Until(deadline)
+		if left <= 0 {
+			return "terminal exited"
+		}
+		timer := time.NewTimer(min(left, 10*time.Millisecond))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "terminal exited"
+		case <-timer.C:
+		}
+	}
+}
+
+func (l *exitLog) note(data json.RawMessage) {
+	var ev struct {
+		TerminalID string `json:"terminal_id"`
+		Detail     struct {
+			ExitCode *int    `json:"exit_code"`
+			Signal   *string `json:"signal"`
+		} `json:"detail"`
+	}
+	if json.Unmarshal(data, &ev) != nil || ev.TerminalID == "" {
+		return
+	}
+	var reason string
+	switch {
+	case ev.Detail.Signal != nil && *ev.Detail.Signal != "":
+		reason = "terminal exited (signal " + *ev.Detail.Signal + ")"
+	case ev.Detail.ExitCode != nil:
+		reason = "terminal exited (code " + strconv.Itoa(*ev.Detail.ExitCode) + ")"
+	default:
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	for id, rec := range l.m {
+		if now.Sub(rec.at) > exitKeep {
+			delete(l.m, id)
+		}
+	}
+	l.m[ev.TerminalID] = exitRecord{reason, now}
+}
+
 func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
 	if err := w.r.stillHome(); err != nil {
 		return err
 	}
+	w.r.exits.budget()
 	before, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err

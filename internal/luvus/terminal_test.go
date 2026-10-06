@@ -21,7 +21,7 @@ func TestCreateSendsExactArgvUnfocusedWithoutEnv(t *testing.T) {
 		t.Fatalf("create = %+v, %v", term, err)
 	}
 	got := string(srv.Calls("terminal.backend.create")[0])
-	if got != `{"command":["/bin/claude","--model","sonnet","fix it"],"cwd":"/w","focus":false,"label":"hand-a1","placement":{"kind":"workspace"}}` {
+	if got != `{"command":["/bin/claude","--model","sonnet","fix it"],"cwd":"/w","focus":false,"label":"hand-a1","placement":{"kind":"workspace"},"restore":false}` {
 		t.Fatalf("create params = %s", got)
 	}
 }
@@ -77,7 +77,7 @@ func TestAgentCalls(t *testing.T) {
 	if err != nil || a != (luvus.Agent{Pane: "5", Agent: "codex", Status: "blocked", Hint: "Press enter to continue"}) {
 		t.Fatalf("explain = %+v, %v", a, err)
 	}
-	if err := c.Prompt(ctx, "5", "hello"); luvus.Code(err) != "agent_not_ready" {
+	if err := c.Prompt(ctx, "5", "tid", "hello"); luvus.Code(err) != "agent_not_ready" {
 		t.Fatalf("prompt err = %v", err)
 	}
 	s, err := c.Read(ctx, "5", 60)
@@ -89,13 +89,67 @@ func TestAgentCalls(t *testing.T) {
 	}
 	checks := map[string]string{
 		"agent.explain": `{"pane":"5"}`,
-		"agent.prompt":  `{"target":"5","text":"hello","wait":false}`,
+		"agent.prompt":  `{"target":"5","terminal_id":"tid","text":"hello","wait":false}`,
 		"agent.read":    `{"lines":60,"source":"visible","target":"5"}`,
 		"agent.keys":    `{"if_content_revision":7,"keys":["enter"],"target":"5","terminal_id":"tid"}`,
 	}
 	for m, want := range checks {
 		if got := string(srv.Calls(m)[0]); got != want {
 			t.Fatalf("%s params = %s, want %s", m, got, want)
+		}
+	}
+}
+
+func TestCreatePassesRestoreFalse(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return map[string]any{"type": "terminal_backend_created", "server_generation": "g", "terminal_id": "tid", "pane_id": "2", "cwd": "/w", "root_process": map[string]any{"pid": 7, "start_marker": "88"}}, nil
+	})
+	if _, err := (luvus.Client{Socket: srv.Socket}).Create(context.Background(), "/w", "hand-a1", []string{"/bin/claude"}); err != nil {
+		t.Fatal(err)
+	}
+	var p struct {
+		Restore *bool `json:"restore"`
+	}
+	if err := json.Unmarshal(srv.Calls("terminal.backend.create")[0], &p); err != nil || p.Restore == nil || *p.Restore {
+		t.Fatalf("restore = %v, %v", p.Restore, err)
+	}
+}
+
+func TestPromptCarriesTerminalID(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("agent.prompt", func(params json.RawMessage) (any, error) {
+		var p struct {
+			TerminalID string `json:"terminal_id"`
+		}
+		_ = json.Unmarshal(params, &p)
+		if p.TerminalID != "tid" {
+			return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "terminal changed"}
+		}
+		return map[string]any{"type": "ok"}, nil
+	})
+	c := luvus.Client{Socket: srv.Socket}
+	if err := c.Prompt(context.Background(), "5", "tid", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Prompt(context.Background(), "5", "other", "hi"); luvus.Code(err) != "content_revision_conflict" {
+		t.Fatalf("mismatch err = %v", err)
+	}
+}
+
+func TestPromptOmitsAnEmptyTerminalID(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	srv.Handle("agent.prompt", func(json.RawMessage) (any, error) { return map[string]any{"type": "ok"}, nil })
+	c := luvus.Client{Socket: srv.Socket}
+	for _, id := range []string{"", "tid"} {
+		if err := c.Prompt(context.Background(), "5", id, "hi"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{`{"target":"5","text":"hi","wait":false}`, `{"target":"5","terminal_id":"tid","text":"hi","wait":false}`}
+	for i, call := range srv.Calls("agent.prompt") {
+		if string(call) != want[i] {
+			t.Fatalf("call %d = %s, want %s", i, call, want[i])
 		}
 	}
 }

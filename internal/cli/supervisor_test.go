@@ -1555,3 +1555,21 @@ func TestReplacementSupervisorAlertsOnSameLine(t *testing.T) {
 	publishStatus(fx, supervisorPane(t, fx.h.ok("supervisor", "show")), "idle")
 	eventually(t, func() bool { return supervisorLimitAlerts(notes) == 2 })
 }
+
+func TestSupervisorForceReportsAWakeDigestConflict(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("project", "add", "hand", handRepo)
+	h.ok("task", "add", "hand", "Fix login")
+	h.ok("decision", "ask", "t1", "Keep it?")
+	h.ok("decision", "answer", "d1", "yes")
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "idle", true })
+	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "moved"}
+	})
+	out := h.ok("supervisor", "force")
+	has(t, "force", out, "supervisor terminal changed")
+	if strings.Contains(out, "delivered normally") {
+		t.Fatalf("force = %q", out)
+	}
+}

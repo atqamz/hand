@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 )
 
 func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
@@ -35,6 +37,18 @@ func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
 	}
 	if _, _, code := fx.h.run("attempt", "send", "a1"); code != 2 {
 		t.Fatalf("no message code = %d, want 2", code)
+	}
+}
+
+func TestSendReportsAChangedTerminalAsNothingSent(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "terminal changed"}
+	})
+	_, errOut, code := fx.h.run("attempt", "send", "--text", "keep going", "a1")
+	if code != 3 || !strings.Contains(errOut, "terminal changed; nothing was sent") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
 

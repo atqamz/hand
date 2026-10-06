@@ -252,7 +252,7 @@ The wake kinds are:
 | `attempt.limited` | the worker's turn ended at its harness's usage limit; the detail is the limit line |
 | `attempt.long` | the worker's turn has run 60 minutes without a break; the detail is `working for 60m` |
 | `attempt.blocked` | the worker waits at a screen that needs an answer |
-| `attempt.exited` | the attempt ended by itself |
+| `attempt.exited` | the attempt ended by itself; the reason reads `terminal exited (code N)` or `terminal exited (signal NAME)` when the watcher saw Luvus's `terminal.exited` event within 1 second of noticing the terminal gone, else `terminal exited`; a `hand` command that notices the exit first records the bare reason |
 | `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
