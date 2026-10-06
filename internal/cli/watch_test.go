@@ -912,6 +912,9 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 	if err := os.WriteFile(update, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dir, "hand-20260926.db.tmp"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	stop := startWatch(t, fx, "--every", "30ms")
 	defer stop()
 	day := fx.h.clock()
@@ -922,7 +925,11 @@ func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
 		path := filepath.Join(dir, "hand-"+day.AddDate(0, 0, i).Format("20060102")+".db")
 		eventually(t, func() bool { _, err := os.Stat(path); return err == nil })
 	}
-	want := []string{"hand-20260929.db", "hand-20260930.db", "hand-20261001.db", "hand-20261002.db", "hand-20261003.db", "hand-20261004.db", "hand-20261005.db", "hand.db.20200101T000000"}
+	var want []string
+	for i := 3; i < 10; i++ {
+		want = append(want, "hand-"+day.AddDate(0, 0, i).Format("20060102")+".db")
+	}
+	want = append(want, "hand.db.20200101T000000")
 	eventually(t, func() bool {
 		var got []string
 		des, _ := os.ReadDir(dir)

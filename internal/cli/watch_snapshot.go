@@ -27,7 +27,11 @@ func (w *watcher) snapshot(ctx context.Context) {
 	}
 	err := os.MkdirAll(dir, 0o700)
 	if err == nil {
-		err = w.st.Backup(ctx, path)
+		tmp := path + ".tmp"
+		_ = os.Remove(tmp)
+		if err = w.st.Backup(ctx, tmp); err == nil {
+			err = os.Rename(tmp, path)
+		}
 	}
 	if err == nil {
 		err = pruneSnapshots(dir)
