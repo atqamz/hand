@@ -49,7 +49,7 @@ func TestTasksAreOneLinePerTask(t *testing.T) {
 	if n := strings.Count(tasks, `<li class="check task-row"`); n != 2 {
 		t.Fatalf("task rows = %d:\n%s", n, tasks)
 	}
-	contains(t, "tasks", tasks, `<a class="ref" tabindex="-1" href="/task/t1">t1</a><span class="check-body"><a class="check-title" href="/task/t1">Fix login</a><span class="meta">a1 codex gpt-6-luna · running</span></span>`)
+	contains(t, "tasks", tasks, `<a class="ref" tabindex="-1" href="/task/t1">t1</a><span class="check-body"><a class="check-title" title="Fix login" href="/task/t1">Fix login</a><span class="meta">a1 codex gpt-6-luna · running</span></span>`)
 }
 
 var newsroom = regexp.MustCompile(`(?i)\b(wire|flash|bulletin|urgent|routine|service|dispatch|dispatches|news budget|tray)\b|NO\. \d`)
@@ -98,7 +98,7 @@ func TestNeedsItemsCarryTheirTone(t *testing.T) {
 	q := region(get(t, fx.handler(), "/"), "queue")
 	contains(t, "tones", q, `data-kind="blocked" id="wait-blocked-s1" open data-tone="fail">`, `data-kind="decision" id="wait-decision-d1" data-tone="wait">`, `data-kind="report" id="wait-report-r1" data-tone="neutral">`)
 	blocked := q[:strings.Index(q, `id="wait-decision-d1"`)]
-	contains(t, "blocked item", blocked, `<svg class="icon"`, `<span class="wait-title">Bash: rm -f $r/$f · Do you want to proceed?</span>`, `<span class="countdown live" data-countdown="1:59">1:59</span>`, `>2 No</button>`, `>Esc</button>`, `>1 Yes</button>`)
+	contains(t, "blocked item", blocked, `<svg class="icon"`, `<span class="wait-title" title="Bash: rm -f $r/$f · Do you want to proceed?">Bash: rm -f $r/$f · Do you want to proceed?</span>`, `<span class="countdown live" data-countdown="1:59">1:59</span>`, `>2 No</button>`, `>Esc</button>`, `>1 Yes</button>`)
 	if strings.Index(blocked, ">2 No</button>") > strings.Index(blocked, ">1 Yes</button>") {
 		t.Fatal("No comes after Yes")
 	}
@@ -152,7 +152,7 @@ func TestTasksGroupUnderActiveAndInbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	tasks := region(get(t, fx.handler(), "/"), "tasks")
-	contains(t, "tasks", tasks, `<h3 class="group">Active <span class="n">2</span></h3>`, `<h3 class="group">Inbox <span class="n">1</span></h3>`, `<a class="check-title" href="/task/t1">Fix login</a><span class="meta">a1 claude sonnet · blocked</span>`)
+	contains(t, "tasks", tasks, `<h3 class="group">Active <span class="n">2</span></h3>`, `<h3 class="group">Inbox <span class="n">1</span></h3>`, `<a class="check-title" title="Fix login" href="/task/t1">Fix login</a><span class="meta">a1 claude sonnet · blocked</span>`)
 	lacks(t, "tasks", tasks, "A1 CLAUDE")
 }
 

@@ -145,7 +145,7 @@ func TestAnswerChipsReadAsOptions(t *testing.T) {
 func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "brand", get(t, fx.handler(), "/"), `<h1 class="fleet-name">test</h1><span class="ref fleet-id">`)
+	contains(t, "brand", get(t, fx.handler(), "/"), `<h1 class="fleet-name" title="test">test</h1><span class="ref fleet-id">`)
 	contains(t, "css", asset(t, "board.css"), ".brand{display:flex;align-items:baseline;", ".brand>.mark{align-self:center}")
 }
 

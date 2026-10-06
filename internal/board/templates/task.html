@@ -1,6 +1,6 @@
 {{define "task.html"}}{{template "head" .}}{{template "top" .}}<main class="thread" data-region="task">
 <header class="thread-head">
-<p class="crumbs"><a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
 <h2 class="thread-title">{{.Card.Task.Title}}</h2>
 <p class="slug"><span class="status pill" data-state="{{.Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time>{{range .Card.PRs}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</p>
 </header>

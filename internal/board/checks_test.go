@@ -62,7 +62,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 		}
 	}
 	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
-	contains(t, "running row", rows["t1"], `<a class="check-title" href="/task/t1">Running work</a>`, `<span class="check-body">`)
+	contains(t, "running row", rows["t1"], `<a class="check-title" title="Running work" href="/task/t1">Running work</a>`, `<span class="check-body">`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}

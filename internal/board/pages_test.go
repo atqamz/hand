@@ -58,7 +58,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 		for _, r := range row {
 			if strings.Contains(r, `href="/`+l.ID+`/"`) {
 				found = true
-				contains(t, "fleet row", r, l.Name, `<span class="ref">`+l.ID+`</span>`, `class="fleet-name"`)
+				contains(t, "fleet row", r, l.Name, `title="`+l.Name+`"`, `<span class="ref">`+l.ID+`</span>`, `class="fleet-name"`)
 			}
 		}
 		if !found {
@@ -112,6 +112,9 @@ func TestErrorPagesKeepNoPaths(t *testing.T) {
 	if missing.Code != http.StatusNotFound || strings.Contains(missing.Body.String(), "/home/") {
 		t.Fatalf("missing task = %d:\n%s", missing.Code, missing.Body.String())
 	}
+	contains(t, "missing task", missing.Body.String(), "Task t99 was not found.", `<div class="strip">`, `<p class="back">`)
+	lacks(t, "missing task", missing.Body.String(), "not found: task")
+	contains(t, "css", asset(t, "board.css"), `.card.error .back{margin:0;padding:0 12px 12px}`)
 }
 
 func TestRefRouteRedirects(t *testing.T) {
@@ -149,7 +152,7 @@ func TestThreadPagesUseTheDispatchModule(t *testing.T) {
 	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
 	}})
-	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="fleet-name" href="/f6b63e98d4af2/">hand</a>`)
+	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="fleet-name" title="hand" href="/f6b63e98d4af2/">hand</a>`)
 	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-tone="fail">404</span>`)
 }
 
@@ -162,6 +165,11 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 		contains(t, path, body, `<div class="strip"><div class="status-line"`, `<span class="word">no supervisor</span>`)
 		lacks(t, path, body, `data-region="status"`)
 	}
+	for _, path := range []string{"/task/t1", "/decision/d1", "/supervisor/log"} {
+		lacks(t, path+" read-only", get(t, h, path), `<a href="/">Fleets</a>`)
+		contains(t, path+" loopback", get(t, board.New(st, token, board.Options{Controls: true}), path), `<p class="crumbs"><a href="/">Fleets</a> / `)
+	}
+	contains(t, "dots", asset(t, "board.css"), `.thread>.card>header.slug>*::after{content:none!important}`)
 	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status pill" data-state="waiting">open</span>`)
 }
 
@@ -177,7 +185,7 @@ func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
 	}
 	h := fx.handler()
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "needs", q, `<span class="wait-title">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
+	contains(t, "needs", q, `<span class="wait-title" title="Pick how to publish the docs">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
 	page := get(t, h, "/decision/d1")
 	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, "<ol>", `data-fill="From a wiki"`, `data-fetch`)
 	lacks(t, "one-line page", get(t, h, "/decision/d2"), `data-fill=`, `<div class="question md">`)
@@ -295,6 +303,9 @@ func TestTheTaskPageHead(t *testing.T) {
 	body := get(t, fx.handler(), "/task/t1")
 	contains(t, "head", body, `<p class="crumbs">`, `<h2 class="thread-title">Fix login</h2>`, `<span class="status pill" data-state="`, `<hr class="rule">`)
 	_ = task
+	css := asset(t, "board.css")
+	contains(t, "title", css, `.thread-title{overflow-wrap:anywhere;`)
+	lacks(t, "title", css, `.thread-title{display:-webkit-box`)
 }
 
 func TestTheTaskPageListsDecisions(t *testing.T) {

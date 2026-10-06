@@ -167,10 +167,10 @@ func TestOneBoardServesTwoFleets(t *testing.T) {
 	if tokenA == tokenB {
 		t.Fatal("two fleets share one token")
 	}
-	if code, body := login(t, urlA, tokenA); code != http.StatusOK || !strings.Contains(body, `<h1 class="fleet-name">alpha</h1>`) {
+	if code, body := login(t, urlA, tokenA); code != http.StatusOK || !strings.Contains(body, `<h1 class="fleet-name" title="alpha">alpha</h1>`) {
 		t.Fatalf("alpha = %d\n%s", code, body)
 	}
-	if code, body := login(t, urlB, tokenB); code != http.StatusOK || !strings.Contains(body, `<h1 class="fleet-name">beta</h1>`) {
+	if code, body := login(t, urlB, tokenB); code != http.StatusOK || !strings.Contains(body, `<h1 class="fleet-name" title="beta">beta</h1>`) {
 		t.Fatalf("beta = %d\n%s", code, body)
 	}
 	if code, _ := login(t, urlB, tokenA); code != http.StatusForbidden {

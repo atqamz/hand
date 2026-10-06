@@ -1,4 +1,4 @@
 {{define "error.html"}}{{template "head" .}}{{template "top" .}}<main class="thread">
-<article class="card error"><header class="slug"><span class="code" data-tone="fail">{{.Status}}</span><span class="kind">error</span></header><p class="copy">{{inline .Message}}</p><p><a href="{{.Base}}/">Back to the board</a></p></article>
+<article class="card error"><header class="slug"><span class="code" data-tone="fail">{{.Status}}</span><span class="kind">error</span></header><p class="copy">{{inline .Message}}</p><p class="back"><a href="{{.Base}}/">Back to the board</a></p></article>
 </main>
 {{template "foot"}}{{end}}
