@@ -317,15 +317,17 @@ func (w *watcher) decisions(ctx context.Context) error {
 		return err
 	}
 	for _, e := range events {
+		w.asked = e.Seq
 		id, err := parseID("d", e.Detail)
 		if err != nil {
-			return err
+			w.say("decision alert: " + err.Error())
+			continue
 		}
 		d, err := w.st.Decision(ctx, id)
 		if err != nil {
-			return err
+			w.say("decision alert: " + err.Error())
+			continue
 		}
-		w.asked = e.Seq
 		w.alert(ctx, e.Kind, e.Detail, state.TaskRef(e.TaskID)+" decision: "+d.Headline())
 	}
 	return nil
@@ -541,6 +543,9 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	name, args, extra := w.notifier(ctx, kind, ref, text)
 	bin, err := harness.LookPath(name, w.r.env.Getenv("PATH"))
 	if err != nil {
+		if extra != nil {
+			w.say("notify: " + err.Error())
+		}
 		return
 	}
 	env := append(w.r.env.Environ(), extra...)
@@ -568,11 +573,11 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 	if err != nil {
 		return ""
 	}
-	path, _, err := boardPage(ctx, w.st, ref)
+	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
 		return ""
 	}
-	return "http://" + strings.TrimSpace(string(addr)) + "/" + w.r.fleet.ID + path
+	return "http://" + strings.TrimSpace(string(addr)) + "/" + w.r.fleet.ID + path + fragment
 }
 
 func (w *watcher) say(text string) {

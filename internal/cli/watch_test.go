@@ -135,6 +135,41 @@ func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
 	}
 }
 
+func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
+	fx := newAttemptFixture(t)
+	log := filepath.Join(t.TempDir(), "notify.log")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
+	write := func(argv string) {
+		policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":` + argv + `}`
+		if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`["hand-notify"]`)
+	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"), []byte("127.0.0.1:7777\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(log)
+		return strings.Contains(string(b), "attempt.quiet|a1|")
+	})
+	b, _ := os.ReadFile(log)
+	if !strings.HasSuffix(strings.TrimSpace(string(b)), "/task/t1#a1") {
+		t.Fatalf("notify call = %q", b)
+	}
+	write(`["no-such-notifier"]`)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	out, _ := stop()
+	if !strings.Contains(out, "notify: ") {
+		t.Fatalf("watch out = %q", out)
+	}
+}
+
 func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
