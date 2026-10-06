@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -289,9 +290,53 @@ func TestRenderNumberedListsKeepTheirNumbers(t *testing.T) {
 		{"3. a\n4. b", `<ol start="3"><li>a</li><li>b</li></ol>`},
 		{"1. a\n\ntext\n\n2. b", `<ol><li>a</li></ol><p>text</p><ol start="2"><li>b</li></ol>`},
 		{"1. a\n   1. x\n   2. y\n2. b", `<ol><li>a<ol><li>x</li><li>y</li></ol></li><li>b</li></ol>`},
+		{"0. a\n1. b", `<ol start="0"><li>a</li><li>b</li></ol>`},
+		{"2147483647. a", `<ol start="2147483647"><li>a</li></ol>`},
+		{"2147483648. a", `<ol><li>a</li></ol>`},
+		{"99999999999999999999. a\n2. b", `<ol><li>a</li><li>b</li></ol>`},
+		{"1. a\n   ```\n   <x>\n\n   y\n   ```\n2. b", `<ol><li>a<pre><code>&lt;x&gt;` + "\n\n" + `y</code></pre></li><li>b</li></ol>`},
 	} {
 		if got := string(markdown.Render(c.in)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
+	}
+}
+
+func TestRenderFourNumberedItemsWithBulletsStayOneList(t *testing.T) {
+	var in, want strings.Builder
+	want.WriteString("<ol>")
+	for n := 1; n <= 4; n++ {
+		if n > 1 {
+			in.WriteString("\n\n")
+		}
+		fmt.Fprintf(&in, "%d. **Step %d**\n   - first note %d\n   - second note %d\n   - third note %d", n, n, n, n, n)
+		fmt.Fprintf(&want, "<li><strong>Step %d</strong><ul><li>first note %d</li><li>second note %d</li><li>third note %d</li></ul></li>", n, n, n, n)
+	}
+	want.WriteString("</ol>")
+	if got := string(markdown.Render(in.String())); got != want.String() {
+		t.Errorf("Render(%q)\n got %s\nwant %s", in.String(), got, want.String())
+	}
+}
+
+func TestRenderCapsListNestingKeepingText(t *testing.T) {
+	var in strings.Builder
+	for n := 0; n < 600; n++ {
+		fmt.Fprintf(&in, "%s1. item%d\n", strings.Repeat(" ", n), n)
+	}
+	start := time.Now()
+	got := string(markdown.Render(in.String()))
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Errorf("Render of 600 nested items took %v", d)
+	}
+	if n := strings.Count(got, "<ol>"); n != 6 {
+		t.Errorf("got %d nested lists, want 6", n)
+	}
+	for n := 0; n < 600; n++ {
+		if !strings.Contains(got, fmt.Sprintf("item%d<", n)) {
+			t.Fatalf("item%d missing from %.200s", n, got)
+		}
+	}
+	if msg := active(got); msg != "" {
+		t.Error(msg)
 	}
 }
