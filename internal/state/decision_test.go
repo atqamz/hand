@@ -141,6 +141,19 @@ func TestAskKeepsTheHeadlineShort(t *testing.T) {
 	}
 }
 
+func TestAskTakesUpToTheQuestionLimit(t *testing.T) {
+	s, _ := openTest(t)
+	task := activeTask(t, s)
+	ctx := context.Background()
+	long := "Pick one\n\n" + strings.Repeat("問", MaxQuestion-10)
+	if _, err := s.Ask(ctx, task.ID, long); err != nil {
+		t.Fatalf("a question of %d characters = %v", MaxQuestion, err)
+	}
+	if _, err := s.Ask(ctx, task.ID, long+"問問"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "1-8000") {
+		t.Fatalf("a question over the limit = %v", err)
+	}
+}
+
 func TestALongOldQuestionKeepsItsWholeTextInTheBody(t *testing.T) {
 	old := strings.Repeat("word ", 60) + "end?"
 	d := Decision{Question: old + "\nmore"}

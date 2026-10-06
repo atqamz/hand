@@ -272,6 +272,12 @@ func TestLongWaitingContentIsBounded(t *testing.T) {
 		}
 	}
 	contains(t, "long question", q, `<div class="question md"><p>why why`, "really?")
+	huge := active(t, st, "A huge question")
+	if _, err := st.Ask(context.Background(), huge.ID, "Which way?\n\n"+strings.Repeat("detail ", 1100)+"the very end?"); err != nil {
+		t.Fatal(err)
+	}
+	q = region(get(t, board.New(st, token, board.Options{}), "/"), "queue")
+	contains(t, "8000-character question", q, "the very end?")
 	css := asset(t, "board.css")
 	for _, want := range []string{".wait{", "overflow-wrap:anywhere", "pre{", "overflow-x:auto", "grid-template-columns:minmax(0,1fr)"} {
 		if !strings.Contains(css, want) {

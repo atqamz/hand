@@ -43,7 +43,7 @@ func cmdDecisionAsk(r *runner, args []string) error {
 	}
 	question := fs.Arg(1)
 	if *file != "" {
-		if question, err = r.readText(*file, 8193); err != nil {
+		if question, err = r.readText(*file, 4*state.MaxQuestion+1); err != nil {
 			return err
 		}
 	}
