@@ -95,7 +95,7 @@ func TestRunUpdatesTheFleet(t *testing.T) {
 	if rep.Status != "updated" || rep.Failed || len(rep.Backups) != 2 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4") {
+	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "9", "0.14.4") {
 		t.Fatalf("target = %q", b)
 	}
 	for _, p := range rep.Backups {
@@ -222,7 +222,7 @@ func (f *fixture) stale() {
 }
 
 func (f *fixture) current() {
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 8, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 9, Luvus: "0.14.4"}
 }
 
 func alphaLuvus(t *testing.T, rep Report) string {
@@ -408,7 +408,7 @@ func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "dev") {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "9", "dev") {
 		f.srv.set(name, body)
 	}
 	f.current()

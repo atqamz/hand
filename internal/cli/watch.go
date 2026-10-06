@@ -96,6 +96,7 @@ func cmdWatch(r *runner, args []string) error {
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
+	r.screens = &screenLog{m: map[int64]string{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
@@ -227,6 +228,31 @@ type exitLog struct {
 	deadline time.Time
 }
 
+type screenLog struct {
+	mu sync.Mutex
+	m  map[int64]string
+}
+
+func (l *screenLog) put(id int64, text string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.m[id] = text
+}
+
+func (l *screenLog) take(id int64) string {
+	if l == nil {
+		return ""
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	text := l.m[id]
+	delete(l.m, id)
+	return text
+}
+
 const exitWait = time.Second
 
 func (l *exitLog) budget() {
@@ -308,6 +334,7 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
+			w.r.screens.take(a.ID)
 			ref := state.AttemptRef(a.ID)
 			w.alert(ctx, "attempt."+now.Status, ref, ref+" "+now.Status+": "+now.Reason)
 		}
@@ -521,6 +548,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if err != nil {
 			return err
 		}
+		w.r.screens.put(a.ID, s.Text)
 		if line, ok := harness.Limit(a.Harness, s.Text); ok {
 			seen, err := w.st.LastLimit(ctx, a.ID)
 			if err != nil {

@@ -1026,3 +1026,53 @@ func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
 		t.Fatalf("watch out = %q", out)
 	}
 }
+
+func TestAttemptShowKeepsTheLastScreenOfAnAttemptThatExited(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "\x1b[31mfixture failure\x1b[0m\x07 in step 3\r\n" + strings.Repeat("filler line\n", 400) + "last fixture line\x00"
+	})
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	fx.rt.exitAll()
+	fx.rt.srv.Publish("terminal.exited", map[string]any{"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"})
+	eventually(t, func() bool { return woken(fx, "attempt.exited") })
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	show := fx.h.ok("attempt", "show", "a1")
+	line := ""
+	for _, l := range strings.Split(show, "\n") {
+		if strings.Contains(l, "last_screen:") {
+			line = l
+		}
+	}
+	if !strings.Contains(line, "last fixture line") || strings.Contains(line, "fixture failure") || strings.ContainsAny(show, "\x1b\x00\x07") || len(line) > 2400 {
+		t.Fatalf("attempt show = %q", show)
+	}
+	for _, cmd := range [][]string{{"wait", "--after", "0", "--timeout", "1ms"}, {"orient"}, {"events"}} {
+		if out, _, _ := fx.h.run(cmd...); strings.Contains(out, "last fixture line") {
+			t.Fatalf("hand %s leaks the screen: %q", cmd[0], out)
+		}
+	}
+}
+
+func TestAttemptShowHasNoScreenWhenNoReadSucceeded(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.readFail = "fixture screen", "internal" })
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return len(fx.rt.srv.Calls("agent.read")) >= 1 })
+	fx.rt.exitAll()
+	fx.rt.srv.Publish("terminal.exited", map[string]any{"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"})
+	eventually(t, func() bool { return woken(fx, "attempt.exited") })
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: exited") || strings.Contains(show, "last_screen") {
+		t.Fatalf("attempt show = %q", show)
+	}
+}

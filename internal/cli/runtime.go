@@ -142,7 +142,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
-	if _, err := st.EndAttempt(ctx, a.ID, to, reason); err != nil && !errors.Is(err, state.ErrConflict) {
+	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, reason, r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAVersion4HomeLearnsNewHarnesses(t *testing.T) {
@@ -102,7 +103,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 8 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 9 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -180,5 +181,61 @@ func TestAVersion7HomeLearnsWhichAttemptContinues(t *testing.T) {
 	}
 	if got, err := s.Attempt(ctx, next.ID); err != nil || got.Continues != 1 {
 		t.Fatalf("stored attempt = %+v, %v", got, err)
+	}
+}
+
+func TestAVersion8HomeLearnsTheLastScreenOfAnAttempt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:8] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 8`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
+		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'b', 'running', 'x')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "" {
+		t.Fatalf("old attempt screen = %q, %v", screen, err)
+	}
+	if _, err := s.EndAttemptWithScreen(ctx, 1, AttemptExited, "terminal exited", "fixture tail"); err != nil {
+		t.Fatal(err)
+	}
+	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "fixture tail" {
+		t.Fatalf("stored screen = %q, %v", screen, err)
+	}
+}
+
+func TestAScreenIsTrimmedToItsEndAndMadeSafe(t *testing.T) {
+	long := strings.Repeat("é", 3000) + "\x1b[31mend\x1b]0;title\x07 of\tscreen\x00\n"
+	got := screenTail(long)
+	if len(got) > screenMax || !utf8.ValidString(got) || !strings.HasSuffix(got, "end of screen") || strings.ContainsAny(got, "\x1b\x00\x07\r") {
+		t.Fatalf("tail = %q", got)
+	}
+	if got := screenTail("\x1b[2J \n\t\x00"); got != "" {
+		t.Fatalf("blank screen kept as %q", got)
+	}
+	if got := screenTail("a\r\nb\xffc"); got != "a\nbc" {
+		t.Fatalf("tail = %q", got)
 	}
 }
