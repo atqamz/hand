@@ -24,6 +24,16 @@ func TestRenderFieldsRowsListsAndHelp(t *testing.T) {
 	}
 }
 
+func TestTextRendersAnIndentedBlock(t *testing.T) {
+	var d Doc
+	d.Text("screen", "one, \"two\"\n\n  three\n\n")
+	d.Text("none", "\n")
+	want := "screen: |\n  one, \"two\"\n\n    three\nnone: \"\"\n"
+	if got := d.String(); got != want {
+		t.Fatalf("render = %q, want %q", got, want)
+	}
+}
+
 func TestEmptyRowsStillRenderHeader(t *testing.T) {
 	var d Doc
 	d.Rows("active", []string{"id"}, nil)

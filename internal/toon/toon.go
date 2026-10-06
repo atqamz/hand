@@ -13,6 +13,7 @@ const (
 	blockField blockKind = iota
 	blockRows
 	blockList
+	blockText
 )
 
 type block struct {
@@ -30,6 +31,10 @@ type Doc struct {
 
 func (d *Doc) Field(key, value string) {
 	d.blocks = append(d.blocks, block{kind: blockField, name: key, value: value})
+}
+
+func (d *Doc) Text(key, value string) {
+	d.blocks = append(d.blocks, block{kind: blockText, name: key, value: value})
 }
 
 func (d *Doc) Bool(key string, v bool) {
@@ -70,6 +75,20 @@ func (d *Doc) Render(w io.Writer) error {
 		switch blk.kind {
 		case blockField:
 			fmt.Fprintf(&b, "%s: %s\n", blk.name, Value(blk.value))
+		case blockText:
+			text := strings.TrimRight(blk.value, "\n")
+			if text == "" {
+				fmt.Fprintf(&b, "%s: \"\"\n", blk.name)
+				break
+			}
+			fmt.Fprintf(&b, "%s: |\n", blk.name)
+			for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+				if line == "" {
+					b.WriteString("\n")
+					continue
+				}
+				fmt.Fprintf(&b, "  %s\n", line)
+			}
 		case blockRows:
 			fmt.Fprintf(&b, "%s[%d]{%s}:\n", blk.name, len(blk.rows), strings.Join(blk.fields, ","))
 			for _, row := range blk.rows {

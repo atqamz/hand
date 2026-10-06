@@ -114,7 +114,7 @@ func cmdAttemptRead(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("revision", rev)
-		d.Field("screen", s.Text)
+		d.Text("screen", s.Text)
 		d.Help("Answer exactly what the screen asks: `hand attempt keys --revision " + rev + " " + ref + " KEY...`")
 		return r.print(&d)
 	})

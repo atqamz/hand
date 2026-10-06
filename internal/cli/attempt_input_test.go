@@ -57,7 +57,7 @@ func TestKeysNeedTheRevisionTheOperatorRead(t *testing.T) {
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision = 7 })
 	read := fx.h.ok("attempt", "read", "a1")
-	if !strings.Contains(read, "revision: 7") || !strings.Contains(read, `screen: "Do you want to proceed?\n❯ 1. Yes"`) {
+	if !strings.Contains(read, "revision: 7") || !strings.Contains(read, "screen: |\n  Do you want to proceed?\n  ❯ 1. Yes\n") {
 		t.Fatalf("read = %q", read)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision = 8 })
