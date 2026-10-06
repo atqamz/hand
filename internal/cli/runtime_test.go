@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -395,7 +396,26 @@ func gitRepo(t *testing.T) string {
 			t.Fatalf("git %q: %v: %s", args, err, out)
 		}
 	}
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	for _, args := range [][]string{
+		{"clone", "-q", "--bare", dir, origin},
+		{"-C", dir, "remote", "add", "origin", origin},
+		{"-C", dir, "fetch", "-q", "origin"},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %q: %v: %s", args, err, out)
+		}
+	}
 	return dir
+}
+
+func gitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %q: %v: %s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func fakeBin(t *testing.T) string {

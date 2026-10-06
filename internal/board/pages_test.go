@@ -373,3 +373,19 @@ func TestAnAnsweredDecisionShowsYourCard(t *testing.T) {
 	}
 	contains(t, "answered", get(t, fx.handler(), "/decision/d1"), `<article class="card from-you" data-role="operator"><header class="slug"><span class="who">you</span>`, "yes")
 }
+
+func TestTheTaskPageNamesTheAttemptAnAttemptContinues(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	ctx := context.Background()
+	if _, err := st.EndAttempt(ctx, 1, state.AttemptStopped, "limit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CleanAttempt(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Continues: 1}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "continuing attempt", get(t, board.New(st, token, board.Options{}), "/task/t1"), `id="a2"`, "continues a1")
+}

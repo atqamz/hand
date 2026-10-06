@@ -41,6 +41,8 @@ type AttemptSpec struct {
 	Model   string
 	Effort  string
 	Argv    []string
+
+	Continues int64
 }
 
 type Attempt struct {
@@ -55,6 +57,7 @@ type Attempt struct {
 	Status   string
 	Terminal
 	Reason    string
+	Continues int64
 	CreatedAt string
 	EndedAt   string
 	CleanedAt string
@@ -62,13 +65,13 @@ type Attempt struct {
 
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, created_at, ended_at, cleaned_at FROM attempt`
+const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at FROM attempt`
 
 func scanAttempt(row scanner) (Attempt, error) {
 	var a Attempt
 	var argv string
 	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &argv, &a.Worktree, &a.Branch, &a.Status,
-		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.CreatedAt, &a.EndedAt, &a.CleanedAt)
+		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt)
 	if err != nil {
 		return a, err
 	}
@@ -116,6 +119,23 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 		if status != StatusActive {
 			return fmt.Errorf("%w: task %s is %s; start it first", ErrConflict, TaskRef(spec.TaskID), status)
 		}
+		var branch string
+		if spec.Continues != 0 {
+			prev, err := getAttempt(tx, spec.Continues)
+			if err != nil {
+				return err
+			}
+			switch {
+			case prev.TaskID != spec.TaskID:
+				return fmt.Errorf("%w: attempt %s belongs to task %s, not %s; continue one of %s's own attempts", ErrInvalid, AttemptRef(prev.ID), TaskRef(prev.TaskID), TaskRef(spec.TaskID), TaskRef(spec.TaskID))
+			case prev.Live():
+				return fmt.Errorf("%w: attempt %s is %s; stop it first with `hand attempt stop %s`", ErrConflict, AttemptRef(prev.ID), prev.Status, AttemptRef(prev.ID))
+			case prev.CleanedAt == "":
+				return fmt.Errorf("%w: attempt %s is not cleaned; run `hand attempt clean %s` first", ErrConflict, AttemptRef(prev.ID), AttemptRef(prev.ID))
+			}
+			branch = prev.Branch
+			a.Continues = prev.ID
+		}
 		live, err := liveAttempt(tx, spec.TaskID)
 		if err != nil {
 			return err
@@ -133,9 +153,12 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 			return err
 		}
 		name := TaskRef(spec.TaskID) + "-" + AttemptRef(a.ID)
-		a.Worktree, a.Branch = filepath.Join(worktreeRoot, name), "hand/"+fleet+"/"+name
-		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.CreatedAt); err != nil {
+		if branch == "" {
+			branch = "hand/" + fleet + "/" + name
+		}
+		a.Worktree, a.Branch = filepath.Join(worktreeRoot, name), branch
+		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, continues, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt); err != nil {
 			return err
 		}
 		return emit(tx, a.CreatedAt, "attempt."+AttemptLaunching, a.TaskID, AttemptRef(a.ID))

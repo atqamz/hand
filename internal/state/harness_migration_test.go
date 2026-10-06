@@ -102,7 +102,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 7 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 8 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -137,5 +137,48 @@ func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Fatalf("open left %d entries beside the database", len(entries))
+	}
+}
+
+func TestAVersion7HomeLearnsWhichAttemptContinues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:7] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 7`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
+		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, cleaned_at, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'hand/f0123456789ab/t1-a1', 'stopped', 'x', 'x')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if old, err := s.Attempt(ctx, 1); err != nil || old.Continues != 0 || old.Branch != "hand/f0123456789ab/t1-a1" {
+		t.Fatalf("old attempt = %+v, %v", old, err)
+	}
+	next, err := s.AddAttempt(ctx, AttemptSpec{TaskID: 1, Harness: "claude", Argv: []string{"/bin/claude", "x"}, Continues: 1}, t.TempDir())
+	if err != nil || next.Continues != 1 || next.Branch != "hand/f0123456789ab/t1-a1" {
+		t.Fatalf("continuing attempt = %+v, %v", next, err)
+	}
+	if got, err := s.Attempt(ctx, next.ID); err != nil || got.Continues != 1 {
+		t.Fatalf("stored attempt = %+v, %v", got, err)
 	}
 }
