@@ -212,7 +212,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .md blockquote{margin:0 0 8px;padding:0 0 0 12px;border-left:1px solid var(--line);color:var(--muted)}
 .md del{color:var(--muted)}
 .md .table{width:fit-content;max-width:100%;margin:0 0 8px;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--line);border-radius:6px}
-.md table{border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
+.md table{width:max-content;border-collapse:separate;border-spacing:0;font-variant-numeric:tabular-nums}
 .md th,.md td{min-width:10ch;padding:6px 10px;border-top:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal}
 .md thead th{border-top:0;background:var(--card);color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
 .md th.r,.md td.r{text-align:right;white-space:nowrap}
@@ -234,6 +234,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .console-box.dropping{border-color:var(--accent);outline:2px dashed var(--accent);outline-offset:3px}
 @media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
+@media (min-width:600px) and (max-width:799px){.console{flex-wrap:wrap}}
 .console-box:has(.starter){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint send" "console console"}
 .console:has(.starter){flex-wrap:wrap;align-items:flex-start;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
 .starter{flex:1 1 100%;display:grid;gap:8px;min-width:0}
@@ -255,7 +256,7 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .console .model,.console .pending{font-size:14px;font-weight:600;padding:0 6px}
 .console .pending{color:var(--wait)}
 .console form.inline{display:inline-flex}
-.menu-body{position:absolute;bottom:calc(100% + 6px);left:0;z-index:4;display:grid;gap:8px;min-width:230px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);box-shadow:0 8px 24px var(--shadow)}
+.menu-body{position:absolute;bottom:calc(100% + 6px);left:0;z-index:4;display:grid;gap:8px;min-width:230px;max-height:calc(100dvh - 120px);overflow-y:auto;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--bg);box-shadow:0 8px 24px var(--shadow)}
 #more-menu .menu-body{min-width:0;gap:0;padding:4px}
 #more-menu .menu-body button,#more-menu .menu-body a{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
@@ -271,7 +272,7 @@ form[data-armed] .key.stop{border-color:var(--fail);background:var(--fail-bg);co
 kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap}
 .hint{color:var(--muted);font-size:12px}
 .menu{position:relative}
-.menu>summary{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;cursor:pointer;list-style:none;font-size:14px;font-weight:600;color:var(--fg)}
+.menu>summary{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;white-space:nowrap;border-radius:6px;cursor:pointer;list-style:none;font-size:14px;font-weight:600;color:var(--fg)}
 .menu>summary::-webkit-details-marker{display:none}
 .menu>summary:hover{background:var(--hover)}
 .menu[open]>summary .icon{transform:rotate(180deg)}
@@ -331,7 +332,13 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
-[data-send-key]{display:none}}
+[data-send-key]{display:none}
+button,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,a.chip{min-height:44px}
+.attach{width:44px}
+.key{min-width:44px}
+.keys{gap:12px}
+.console{flex-wrap:wrap}
+.actions a,.finished a,a.chip{display:inline-flex;align-items:center}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px}

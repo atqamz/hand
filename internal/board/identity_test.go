@@ -312,6 +312,10 @@ func TestTheFinishFixesHold(t *testing.T) {
 		"scrollbar-gutter:stable both-edges",
 		".tabs .dot{",
 		".menu[open]>summary .icon{transform:rotate(180deg)}",
+		".md table{width:max-content;",
+		"max-height:calc(100dvh - 120px);overflow-y:auto;",
+		"padding:4px 8px;white-space:nowrap;",
+		"@media (min-width:600px) and (max-width:799px){.console{flex-wrap:wrap}}",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
@@ -393,6 +397,8 @@ func TestTheDeskFinishFixes(t *testing.T) {
 	for _, rule := range []string{
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
+		"[data-send-key]{display:none}\nbutton,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,a.chip{min-height:44px}",
+		".attach{width:44px}\n.key{min-width:44px}\n.keys{gap:12px}\n.console{flex-wrap:wrap}",
 		"max-width:72ch",
 		".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{",
 		".masthead{position:sticky;top:0;",
