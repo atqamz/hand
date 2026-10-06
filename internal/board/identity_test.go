@@ -107,6 +107,11 @@ func TestColoursMeetContrast(t *testing.T) {
 				t.Errorf("%s: --%s on --%s = %.2f", c.name, p[0], p[1], r)
 			}
 		}
+		for _, ground := range []string{"bg", "card"} {
+			if r := contrast(tokens["line-strong"], tokens[ground]); r < 3 {
+				t.Errorf("%s: --line-strong on --%s = %.2f", c.name, ground, r)
+			}
+		}
 		tints := tintToken.FindAllStringSubmatch(c.block, -1)
 		if len(tints) != 12 {
 			t.Fatalf("%s theme defines %d tints", c.name, len(tints))
@@ -338,7 +343,7 @@ func TestTheOnCallPalette(t *testing.T) {
 	light, dark := themes(t)
 	want := map[string][2]string{
 		"bg": {"#fcfcfd", "#0d1117"}, "card": {"#f4f6f8", "#161b22"}, "fg": {"#1b1f24", "#e6ebf1"}, "muted": {"#59616c", "#9aa3ae"},
-		"line": {"#d5dbe2", "#2e353e"}, "hover": {"#eaeef2", "#1c232c"}, "fail": {"#c4262e", "#ff6a63"}, "wait": {"#8f5e00", "#e3a73b"},
+		"line": {"#d5dbe2", "#2e353e"}, "line-strong": {"#848d99", "#5f6975"}, "hover": {"#eaeef2", "#1c232c"}, "fail": {"#c4262e", "#ff6a63"}, "wait": {"#8f5e00", "#e3a73b"},
 		"pass": {"#19793b", "#4fc46c"}, "neutral": {"#59616c", "#9aa3ae"}, "accent": {"#1d5fc2", "#6ea6ff"}, "fail-bg": {"#fdecec", "#3a1a1c"},
 		"wait-bg": {"#fcf3d9", "#352912"}, "pass-bg": {"#e3f5e8", "#15301d"}, "neutral-bg": {"#eceff3", "#20262e"}, "accent-bg": {"#e8f0fc", "#17263d"},
 		"screen": {"#11151a", "#07090c"}, "screen-fg": {"#d7dde4", "#d7dde4"}, "primary": {"#19793b", "#1f7f3e"}, "on-primary": {"#ffffff", "#ffffff"},
@@ -350,6 +355,11 @@ func TestTheOnCallPalette(t *testing.T) {
 		}
 	}
 	css := asset(t, "board.css")
+	contains(t, "control edges", css,
+		"textarea,input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong)",
+		"padding:4px 12px;border:1px solid var(--line-strong)",
+		"padding:10px;border:1px solid var(--line-strong)",
+		"width:30px;height:30px;border:1px solid var(--line-strong)")
 	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")

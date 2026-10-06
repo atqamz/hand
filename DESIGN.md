@@ -7,6 +7,7 @@ colors:
   fg: "#1b1f24"
   muted: "#59616c"
   line: "#d5dbe2"
+  line-strong: "#848d99"
   hover: "#eaeef2"
   fail: "#c4262e"
   wait: "#8f5e00"
@@ -28,6 +29,7 @@ colors:
   fg-dark: "#e6ebf1"
   muted-dark: "#9aa3ae"
   line-dark: "#2e353e"
+  line-strong-dark: "#5f6975"
   hover-dark: "#1c232c"
   fail-dark: "#ff6a63"
   wait-dark: "#e3a73b"
@@ -417,7 +419,8 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 - **Card Grey** (`card`): chat and thread card header strips, the composer box, default buttons, ref chips, and code in replies.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
-- **Hairline** (`line`): every rule and border, the context bar's track, and scrollbar thumbs.
+- **Hairline** (`line`): every rule and decorative border (card edges, dividers), the context bar's track, and scrollbar thumbs.
+- **Control Edge** (`line-strong`): the outline of what the operator operates, where the border is the affordance: select, input, textarea, the composer box, default buttons and the paperclip. `#848d99` by day (3.28:1 on `bg`, 3.10:1 on `card`) and `#5f6975` at night (3.39:1 and 3.10:1), so it meets the 3:1 of WCAG 1.4.11; `TestColoursMeetContrast` pins both.
 - **Hover Wash** (`hover`): the hover fill of buttons, menu rows and the model menu's summary.
 - **Terminal** (`screen`, `screen-fg`): a blocked screen's excerpt, dark in both themes.
 - **Shadow** (`shadow`): the colour of the one lift shadow, under open menus and the toast.
