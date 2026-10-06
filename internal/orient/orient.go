@@ -253,9 +253,16 @@ func clip(s string, n int) string {
 		return string(r)
 	}
 	for k := min(len(r), n); k > 0; k-- {
-		if out := string(r[:k]) + "…"; len(toon.Value(out)) <= n {
-			return out
+		cut := string(r[:k])
+		if len(toon.Value(cut+"…")) > n {
+			continue
 		}
+		if k < len(r) && r[k] != ' ' {
+			if i := strings.LastIndexByte(cut, ' '); i > 0 {
+				cut = cut[:i]
+			}
+		}
+		return cut + "…"
 	}
 	return "…"
 }
