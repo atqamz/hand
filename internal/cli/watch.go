@@ -21,6 +21,7 @@ import (
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/update"
@@ -563,6 +564,7 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 		defer cancel()
 		cmd := exec.CommandContext(nctx, bin, args...)
 		cmd.Env = env
+		proc.KillGroupOnCancel(cmd)
 		_ = cmd.Run()
 	}()
 }
