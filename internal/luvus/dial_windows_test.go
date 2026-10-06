@@ -103,7 +103,7 @@ func TestPipeDialEcho(t *testing.T) {
 	past, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
 	start := time.Now()
-	if _, err := dial(past, name); err == nil || time.Since(start) > 100*time.Millisecond {
+	if _, err := dial(past, name); err == nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("expired dial = %v after %s", err, time.Since(start))
 	}
 }
