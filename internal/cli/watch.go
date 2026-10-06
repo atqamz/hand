@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -48,6 +49,7 @@ type watcher struct {
 	turns   map[int64]*turn
 	asked   int64
 	pending sync.WaitGroup
+	warned  atomic.Bool
 }
 
 type turn struct {
@@ -566,8 +568,12 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 }
 
 func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string, []string, []string) {
-	if p, err := harness.LoadPolicy(w.r.home); err == nil && len(p.Notify) > 0 {
+	p, err := harness.LoadPolicy(w.r.home)
+	if err == nil && len(p.Notify) > 0 {
 		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + w.boardURL(ctx, ref)}
+	}
+	if _, serr := os.Stat(filepath.Join(w.r.home, harness.PolicyFile)); err != nil && serr == nil && w.warned.CompareAndSwap(false, true) {
+		w.say(harness.PolicyFile + " unreadable, using the desktop notifier: " + err.Error())
 	}
 	name, args := notifyArgv(w.r.fleet.Name, text)
 	return name, args, nil

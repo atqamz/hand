@@ -170,6 +170,24 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 	}
 }
 
+func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *testing.T) {
+	fx := newAttemptFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"notify":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	stop := startWatch(t, fx)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	out, _ := stop()
+	if n := strings.Count(out, "routing.json unreadable, using the desktop notifier: "); n != 1 {
+		t.Fatalf("warned %d times, want 1; out %q", n, out)
+	}
+}
+
 func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
