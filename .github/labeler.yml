@@ -1,0 +1,27 @@
+'area: board':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/board/**', 'internal/markdown/**']
+'area: cli':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/cli/**', 'internal/orient/**', 'internal/toon/**', 'internal/fleet/**', 'internal/memory/**', 'main.go']
+'area: update':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/update/**', 'install.sh', 'install_test.go']
+'area: luvus':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/luvus/**']
+'area: harness':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/harness/**', 'internal/transcript/**', 'internal/agydb/**', 'internal/fakebin/**']
+'area: state':
+  - changed-files:
+      - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']
+'area: docs':
+  - changed-files:
+      - any-glob-to-all-files: ['{docs/**,skills/**,*.md}']
+'area: ci':
+  - changed-files:
+      - any-glob-to-any-file: ['.github/**']
+'platform: windows':
+  - changed-files:
+      - any-glob-to-any-file: ['**/*_windows*.go', '**/*.ps1']
