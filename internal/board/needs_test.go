@@ -46,7 +46,7 @@ func TestTasksAreOneLinePerTask(t *testing.T) {
 	attempt(t, fx.st, one.ID, state.AttemptRunning, "")
 	active(t, fx.st, "Write docs")
 	tasks := region(get(t, fx.handler(), "/"), "tasks")
-	if n := strings.Count(tasks, `<li class="check"`); n != 2 {
+	if n := strings.Count(tasks, `<li class="check task-row"`); n != 2 {
 		t.Fatalf("task rows = %d:\n%s", n, tasks)
 	}
 	contains(t, "tasks", tasks, `<a class="ref" tabindex="-1" href="/task/t1">t1</a><span class="check-body"><a class="check-title" href="/task/t1">Fix login</a><span class="meta">a1 codex gpt-6-luna · running</span></span>`)
