@@ -547,6 +547,9 @@ func cmdAttemptShow(r *runner, args []string) error {
 		if a.CleanedAt != "" {
 			d.Field("cleaned_at", a.CleanedAt)
 		}
+		if screen, err := st.AttemptScreen(ctx, a.ID); err == nil && screen != "" {
+			d.Field("last_screen", screen)
+		}
 		return r.print(&d)
 	})
 }

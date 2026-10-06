@@ -41,9 +41,12 @@ var switchSchema string
 //go:embed continues.sql
 var continuesSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema}
+//go:embed screen.sql
+var screenSchema string
 
-const SchemaVersion = 8
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema}
+
+const SchemaVersion = 9
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 

@@ -7,9 +7,39 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
+
+const screenMax = 2048
+
+var terminalEscape = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[ -/]*[0-~]?`)
+
+func screenTail(s string) string {
+	s = terminalEscape.ReplaceAllString(strings.ToValidUTF8(s, ""), "")
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n':
+			return r
+		case r == '\t':
+			return ' '
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if cut := len(s) - screenMax; cut > 0 {
+		for !utf8.RuneStart(s[cut]) {
+			cut++
+		}
+		s = strings.TrimSpace(s[cut:])
+	}
+	return s
+}
 
 const (
 	AttemptLaunching   = "launching"
@@ -187,7 +217,15 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 }
 
 func (s *Store) EndAttempt(ctx context.Context, id int64, to, reason string) (Attempt, error) {
+	return s.EndAttemptWithScreen(ctx, id, to, reason, "")
+}
+
+func (s *Store) EndAttemptWithScreen(ctx context.Context, id int64, to, reason, screen string) (Attempt, error) {
 	var out Attempt
+	var tail any
+	if t := screenTail(screen); t != "" {
+		tail = t
+	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
 		if err != nil {
@@ -197,7 +235,7 @@ func (s *Store) EndAttempt(ctx context.Context, id int64, to, reason string) (At
 			return fmt.Errorf("%w: attempt %s is %s and cannot become %s", ErrConflict, AttemptRef(id), a.Status, to)
 		}
 		now := s.stamp()
-		if _, err := tx.Exec(`UPDATE attempt SET status = ?, reason = ?, ended_at = ? WHERE id = ?`, to, reason, now, id); err != nil {
+		if _, err := tx.Exec(`UPDATE attempt SET status = ?, reason = ?, ended_at = ?, screen = ? WHERE id = ?`, to, reason, now, tail, id); err != nil {
 			return err
 		}
 		a.Status, a.Reason, a.EndedAt = to, reason, now
@@ -247,6 +285,12 @@ func (s *Store) Attempt(ctx context.Context, id int64) (Attempt, error) {
 		return Attempt{}, fmt.Errorf("%w: attempt %s", ErrNotFound, AttemptRef(id))
 	}
 	return a, err
+}
+
+func (s *Store) AttemptScreen(ctx context.Context, id int64) (string, error) {
+	var screen sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT screen FROM attempt WHERE id = ?`, id).Scan(&screen)
+	return screen.String, err
 }
 
 func (s *Store) Attempts(ctx context.Context, taskID int64, limit int) ([]Attempt, error) {

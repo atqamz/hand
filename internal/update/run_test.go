@@ -61,9 +61,9 @@ func keepLuvus(t *testing.T, root, version string) luvus.Pin {
 func newFetch(t *testing.T) *fixture {
 	t.Helper()
 	f := &fixture{root: t.TempDir(), calls: filepath.Join(t.TempDir(), "calls")}
-	f.old = handScript(t, "0.8.0", "source", "unknown", "8", "0.14.3")
+	f.old = handScript(t, "0.8.0", "source", "unknown", "9", "0.14.3")
 	f.target = binary(t, f.old)
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "9", "0.14.4")
 	maps.Copy(files, fakeLuvus(t, "0.14.4"))
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
@@ -71,7 +71,7 @@ func newFetch(t *testing.T) *fixture {
 	goos, arch := hostTarget()
 	f.o = Options{
 		Target:    f.target,
-		From:      Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 8, Luvus: "0.14.3"},
+		From:      Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 9, Luvus: "0.14.3"},
 		Channel:   "edge",
 		Root:      f.root,
 		HandBase:  f.srv.URL,
@@ -129,7 +129,7 @@ func TestRunCheckChangesNothing(t *testing.T) {
 
 func TestRunUpToDateChangesNothing(t *testing.T) {
 	f := newFetch(t)
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 8, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 9, Luvus: "0.14.4"}
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || rep.Status != "up to date" {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -145,7 +145,7 @@ func TestRunRefusesAnOlderSchema(t *testing.T) {
 	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "6", "0.14.4") {
 		f.srv.set(name, body)
 	}
-	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: 0.9.0 reads state schema 6, older than this fleet's 8") {
+	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: 0.9.0 reads state schema 6, older than this fleet's 9") {
 		t.Fatalf("err = %v", err)
 	}
 	f.unchanged(t)
@@ -177,7 +177,7 @@ func TestTargetResolvesASymlink(t *testing.T) {
 	if dest, err := os.Readlink(link); err != nil || dest != f.target {
 		t.Fatalf("link = %q, %v", dest, err)
 	}
-	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4") {
+	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "9", "0.14.4") {
 		t.Fatal("the link does not reach the new binary")
 	}
 }
@@ -249,7 +249,7 @@ func TestRunNeverLowersThePin(t *testing.T) {
 
 func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
 	f := newFetch(t)
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "8", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "9", "0.14.4") {
 		f.srv.set(name, body)
 	}
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: the download is a stable build, not edge") {

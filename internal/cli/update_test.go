@@ -42,7 +42,7 @@ func TestUpdateTakesNoArguments(t *testing.T) {
 }
 
 func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
-	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 8\nluvus: 0.14.4\n"}))
+	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 9\nluvus: 0.14.4\n"}))
 	files := map[string][]byte{}
 	if runtime.GOOS == "windows" {
 		var archive bytes.Buffer

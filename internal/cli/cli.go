@@ -50,6 +50,7 @@ type runner struct {
 	fleet   state.Fleet
 	addrs   sync.Map
 	exits   *exitLog
+	screens *screenLog
 }
 
 type usageError struct{ msg string }
