@@ -301,10 +301,10 @@ The board is where you start, chat with and resume the supervisor. Those control
 
 ## Alerts on your phone
 
-The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet, and when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`:
+The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet, and when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
 
 ```json
-"notify": ["sh", "-c", "curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
+"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
 Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use, and the watcher says so once. `--notify=false` turns all alerts off.
