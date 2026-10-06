@@ -101,12 +101,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 				return fmt.Errorf("%w: branch %s of attempt %s no longer exists; start a fresh attempt with --base REF", state.ErrConflict, prev.Branch, state.AttemptRef(prev.ID))
 			}
 		}
-		start := *base
+		start, warning := *base, ""
 		if start == "" && continues == 0 {
-			if err := fetchMain(ctx, project.Repo); err != nil {
-				return err
-			}
-			start = "origin/main"
+			start, warning = defaultBase(ctx, project.Repo)
 		}
 		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
@@ -131,6 +128,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("branch", running.Branch)
 		if running.Continues != 0 {
 			d.Field("continues", state.AttemptRef(running.Continues))
+		}
+		if warning != "" {
+			d.Field("warning", warning)
 		}
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
@@ -169,6 +169,7 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 }
 
 const (
+	fetchWait   = 20 * time.Second
 	prefillWait = 30 * time.Second
 	submitTries = 3
 )
@@ -400,13 +401,39 @@ func makePrivate(fleetDir string) error {
 	return nil
 }
 
-func fetchMain(ctx context.Context, repo string) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
-	if _, err := git(ctx, repo, "fetch", "origin", "main"); err != nil {
-		return fmt.Errorf("%w; a new worktree starts from origin/main, so fix the remote or pass --base REF", err)
+func defaultBase(ctx context.Context, repo string) (base, warning string) {
+	if _, err := git(ctx, repo, "remote", "get-url", "origin"); err != nil {
+		return "HEAD", ""
 	}
-	return nil
+	fctx, cancel := context.WithTimeout(ctx, fetchWait)
+	_, err := git(fctx, repo, "fetch", "origin")
+	cancel()
+	remote := remoteDefault(ctx, repo)
+	switch {
+	case err == nil && remote == "":
+		return "HEAD", ""
+	case err == nil:
+		return remote, ""
+	}
+	cause := strings.Join(strings.Fields(err.Error()), " ")
+	if remote == "" {
+		return "HEAD", "fetch failed (" + cause + "); no remote-tracking branch to start from, using the local HEAD"
+	}
+	tip, _ := git(ctx, repo, "log", "-1", "--format=%h, committed %cs", remote)
+	return remote, "fetch failed (" + cause + "); using " + remote + " at " + strings.TrimSpace(tip)
+}
+
+func remoteDefault(ctx context.Context, repo string) string {
+	candidates := []string{"origin/main", "origin/master"}
+	if head, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		candidates = slices.Insert(candidates, 0, strings.TrimSpace(head))
+	}
+	for _, ref := range candidates {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/remotes/"+ref); err == nil {
+			return ref
+		}
+	}
+	return ""
 }
 
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
