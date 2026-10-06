@@ -346,7 +346,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	}
 	if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.limited {
 		w.limited = sup.ID
-		w.alert(ctx, why)
+		w.alert(ctx, "supervisor.limited", "supervisor", why)
 	}
 }
 
@@ -472,7 +472,7 @@ func (w *watcher) longTurns(ctx context.Context) error {
 			return err
 		}
 		t.long = true
-		w.alert(ctx, state.AttemptRef(id)+" long: "+longDetail)
+		w.alert(ctx, "attempt.long", state.AttemptRef(id), state.AttemptRef(id)+" long: "+longDetail)
 	}
 	return nil
 }

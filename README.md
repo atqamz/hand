@@ -307,7 +307,7 @@ The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes 
 "notify": ["sh", "-c", "curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" -d \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`), `HAND_NOTIFY_REF` (`d3`, `a7`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. `--notify=false` turns all alerts off.
+Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. `--notify=false` turns all alerts off.
 
 ## The supervisor
 
