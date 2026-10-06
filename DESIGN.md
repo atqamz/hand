@@ -449,7 +449,7 @@ Every colour is a custom property on `:root` in `internal/board/static/board.css
 - **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
 - **Headline** (600, 16px, 24px, -0.01em): the fleet name in the masthead, the Needs and Tasks heads, and `###` headings in replies.
 - **Title** (600, 16px, 22px): the headline of an open Needs item. A collapsed item sets it at 500 on one line with an ellipsis.
-- **Copy** (400, 15px, 1.6): the body of chat and thread cards, held to a 72ch measure; tables and code blocks in replies may run wider.
+- **Copy** (400, 15px, 1.6): the body of chat and thread cards; chat cards are held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
 - **Body** (400, 14px, 1.5): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 22px, -0.01em): `h2` heads and `####` headings in replies; report titles in a report header use 14px at 600.
 - **Nav** (600, 14px, 1.5): the tabs, the model menu's summary and the model name in the composer.
@@ -631,7 +631,7 @@ Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a
 
 ### Thread pages
 - **Head:** crumbs in muted 14px with ref chips, the title in Display type, a slug line with the status pill, refs, time and PR chips, then one hairline rule.
-- **Task page:** waiting rows for its open decisions and unread reports, each with a filled severity code; the goal and plan as cards with Copy at 72ch; attempts as task rows; reports as bordered cards whose header strip is neutral-bg, fail-bg when blocked or failed, or pass-bg when done, holding the ref, the summary, "from aN", the state word, the time and Mark read or "read by"; decisions with their answers; events as a grid of time, kind in plain words and detail.
+- **Task page:** waiting rows for its open decisions and unread reports, each with a filled severity code; the goal and plan as cards with Copy filling the card; attempts as task rows; reports as bordered cards whose header strip is neutral-bg, fail-bg when blocked or failed, or pass-bg when done, holding the ref, the summary, "from aN", the state word, the time and Mark read or "read by"; decisions with their answers; events as a grid of time, kind in plain words and detail.
 - **Decision page:** the headline, the question as markdown, option chips, the answer box and the primary Answer. Once answered, the answer shows as an operator card.
 - **Error page:** one card with the status code as a red severity code, the message and a link back. It never shows a path.
 - **Fleet list:** one row per fleet with its mark in its tint, its name and its id.

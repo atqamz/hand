@@ -1327,7 +1327,7 @@
       },
       "copy": {
         "displayName": "Copy",
-        "purpose": "Chat and thread card bodies at a 72ch measure."
+        "purpose": "Chat card bodies at a 72ch measure; thread card bodies fill the card."
       },
       "body": {
         "displayName": "Body",
@@ -1487,7 +1487,7 @@
       {
         "name": "measure",
         "value": "72ch",
-        "purpose": "Chat and thread card copy."
+        "purpose": "Chat card copy."
       },
       {
         "name": "operator-card",
