@@ -18,7 +18,7 @@
       - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']
 'area: docs':
   - changed-files:
-      - any-glob-to-all-files: ['docs/**', 'skills/**', '*.md']
+      - any-glob-to-all-files: ['{docs/**,skills/**,*.md}']
 'area: ci':
   - changed-files:
       - any-glob-to-any-file: ['.github/**']
