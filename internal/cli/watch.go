@@ -14,12 +14,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/update"
@@ -46,7 +48,9 @@ type watcher struct {
 	seen    map[int64]string
 	limited int64
 	turns   map[int64]*turn
+	asked   int64
 	pending sync.WaitGroup
+	warned  atomic.Bool
 }
 
 type turn struct {
@@ -56,7 +60,7 @@ type turn struct {
 
 func cmdWatch(r *runner, args []string) error {
 	fs := flags("watch")
-	notify := fs.Bool("notify", true, "send desktop notifications (notify-send on Linux, osascript on macOS)")
+	notify := fs.Bool("notify", true, "send notifications: the routing.json notify command, else notify-send on Linux or osascript on macOS")
 	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -92,6 +96,9 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
+	if w.asked, err = st.LastEventSeq(ctx); err != nil {
+		return err
+	}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
@@ -296,10 +303,41 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
-			w.alert(ctx, state.AttemptRef(a.ID)+" "+now.Status+": "+now.Reason)
+			ref := state.AttemptRef(a.ID)
+			w.alert(ctx, "attempt."+now.Status, ref, ref+" "+now.Status+": "+now.Reason)
 		}
 	}
+	if err := w.decisions(ctx); err != nil {
+		return err
+	}
 	w.deliver(ctx, c, caps)
+	return nil
+}
+
+func (w *watcher) decisions(ctx context.Context) error {
+	events, err := w.st.EventsAfter(ctx, w.asked, []string{"decision.asked"}, wakeBatch)
+	if err != nil {
+		return err
+	}
+	for _, e := range events {
+		id, err := parseID("d", e.Detail)
+		if err != nil {
+			w.asked = e.Seq
+			w.say("decision alert: " + err.Error())
+			continue
+		}
+		d, err := w.st.Decision(ctx, id)
+		if errors.Is(err, state.ErrNotFound) {
+			w.asked = e.Seq
+			w.say("decision alert: " + err.Error())
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		w.asked = e.Seq
+		w.alert(ctx, e.Kind, e.Detail, state.TaskRef(e.TaskID)+" decision: "+d.Headline())
+	}
 	return nil
 }
 
@@ -316,7 +354,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	}
 	if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.limited {
 		w.limited = sup.ID
-		w.alert(ctx, why)
+		w.alert(ctx, "supervisor.limited", "supervisor", why)
 	}
 }
 
@@ -442,7 +480,7 @@ func (w *watcher) longTurns(ctx context.Context) error {
 			return err
 		}
 		t.long = true
-		w.alert(ctx, state.AttemptRef(id)+" long: "+longDetail)
+		w.alert(ctx, "attempt.long", state.AttemptRef(id), state.AttemptRef(id)+" long: "+longDetail)
 	}
 	return nil
 }
@@ -469,7 +507,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
 			return err
 		}
-		w.alert(ctx, ref+" blocked: "+detail)
+		w.alert(ctx, "attempt.blocked", ref, ref+" blocked: "+detail)
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
@@ -487,7 +525,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
 					return err
 				}
-				w.alert(ctx, ref+" limited: "+line)
+				w.alert(ctx, "attempt.limited", ref, ref+" limited: "+line)
 				return nil
 			}
 		}
@@ -495,7 +533,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if err != nil {
 			return err
 		}
-		w.alert(ctx, ref+" quiet: "+detail)
+		w.alert(ctx, "attempt.quiet", ref, ref+" quiet: "+detail)
 	}
 	return nil
 }
@@ -505,23 +543,54 @@ func shown(line string) string {
 	return line
 }
 
-func (w *watcher) alert(ctx context.Context, text string) {
+func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.say(text)
 	if !w.notify {
 		return
 	}
-	name, args := notifyArgv(w.r.fleet.Name, text)
+	name, args, extra := w.notifier(ctx, kind, ref, text)
 	bin, err := harness.LookPath(name, w.r.env.Getenv("PATH"))
 	if err != nil {
+		if extra != nil {
+			w.say("notify: " + err.Error())
+		}
 		return
 	}
+	env := append(w.r.env.Environ(), extra...)
 	w.pending.Add(1)
 	go func() {
 		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
-		_ = exec.CommandContext(nctx, bin, args...).Run()
+		cmd := exec.CommandContext(nctx, bin, args...)
+		cmd.Env = env
+		proc.KillGroupOnCancel(cmd)
+		_ = cmd.Run()
 	}()
+}
+
+func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string, []string, []string) {
+	p, err := harness.LoadPolicy(w.r.home)
+	if err == nil && len(p.Notify) > 0 {
+		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + w.boardURL(ctx, ref)}
+	}
+	if _, serr := os.Stat(filepath.Join(w.r.home, harness.PolicyFile)); err != nil && serr == nil && w.warned.CompareAndSwap(false, true) {
+		w.say(harness.PolicyFile + " unreadable, using the desktop notifier: " + err.Error())
+	}
+	name, args := notifyArgv(w.r.fleet.Name, text)
+	return name, args, nil
+}
+
+func (w *watcher) boardURL(ctx context.Context, ref string) string {
+	addr, err := os.ReadFile(filepath.Join(w.r.root, "board.addr"))
+	if err != nil {
+		return ""
+	}
+	path, fragment, err := boardPage(ctx, w.st, ref)
+	if err != nil {
+		return ""
+	}
+	return "http://" + strings.TrimSpace(string(addr)) + "/" + w.r.fleet.ID + path + fragment
 }
 
 func (w *watcher) say(text string) {
