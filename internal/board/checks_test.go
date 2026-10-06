@@ -10,7 +10,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var checkRow = regexp.MustCompile(`<li class="check" data-state="([a-z]+)">([\s\S]*?)</li>`)
+var checkRow = regexp.MustCompile(`<li class="check task-row" data-state="([a-z]+)">([\s\S]*?)</li>`)
 
 func checks(body string) map[string]string {
 	out := map[string]string{}
@@ -62,6 +62,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 		}
 	}
 	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
+	contains(t, "running row", rows["t1"], `<a class="check-title" href="/task/t1">Running work</a>`, `<span class="check-body">`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}
@@ -89,4 +90,18 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 		`<p class="hand-line" data-no=`, `wake: <a class="ref" href="/ref/r3">r3</a> from <a class="ref" tabindex="-1" href="/ref/a2">a2</a> done`,
 		"queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
+}
+
+func TestTheWholeTaskRowIsTheLink(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, ".task-row{position:relative;grid-template-columns:16px auto minmax(0,1fr) auto;min-height:48px}", `.task-row .check-title::after{content:"";position:absolute;inset:0}`, ".task-row .ref,.task-row .chip{position:relative;z-index:1}", ".check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto auto;")
+}
+
+func TestAttemptRowsKeepTheirOwnLayout(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	page := get(t, fx.handler(), "/task/t1")
+	contains(t, "task page", page, `<li class="check" data-state="running" id="a1">`)
+	lacks(t, "task page", page, "task-row")
 }
