@@ -53,7 +53,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return strings.TrimSpace(rest)
 	},
 	"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
-	"hm":    func(at string) string { return parse(at).UTC().Format("15:04") },
+	"hm":    hm,
 	"tint":  tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
@@ -646,3 +646,5 @@ func (b *Board) ack(w http.ResponseWriter, r *http.Request) {
 	}
 	b.done(w, r, b.o.Base+"/task/"+state.TaskRef(rep.TaskID), state.ReportRef(id)+" marked read")
 }
+
+func hm(at string) string { return parse(at).UTC().Format("15:04") }

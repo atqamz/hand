@@ -443,9 +443,15 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	start := max(0, end-pageSize)
 	page := slices.Clone(all[start:end])
 	slices.Reverse(page)
-	for i := 0; i+1 < len(page); i++ {
-		if day := parse(page[i].At).Local(); day.Format(time.DateOnly) != parse(page[i+1].At).Local().Format(time.DateOnly) {
-			page[i].Day = day.Format("Mon 2 Jan")
+	under := false
+	for i := len(page) - 2; i >= 0; i-- {
+		if day := parse(page[i].At).UTC(); day.Format(time.DateOnly) != parse(page[i+1].At).UTC().Format(time.DateOnly) {
+			page[i].Day = day.Format("Mon 2 Jan") + " UTC"
+			under = true
+		}
+		page[i].Clock = under
+		for j := range page[i].Wakes {
+			page[i].Wakes[j].Clock = under
 		}
 	}
 	data["Entries"], data["Older"] = page, start
@@ -495,11 +501,19 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	return out, nil
 }
 
+func (c chatItem) When() string {
+	if c.Clock {
+		return hm(c.At)
+	}
+	return when(c.At)
+}
+
 type chatItem struct {
 	transcript.Entry
 	No                  int
 	Ref, Model, Day     string
 	Delivered, Delivery string
+	Clock               bool
 	Input               int64
 	Wakes               []chatItem
 	Shots               []string
@@ -517,7 +531,7 @@ func groupWakes(all []chatItem) []chatItem {
 	out := make([]chatItem, 0, len(all))
 	for i := 0; i < len(all); {
 		j := i
-		for j < len(all) && wake(all[j]) {
+		for j < len(all) && wake(all[j]) && (j == i || parse(all[j].At).UTC().Format(time.DateOnly) == parse(all[i].At).UTC().Format(time.DateOnly)) {
 			j++
 		}
 		if j-i < 2 {

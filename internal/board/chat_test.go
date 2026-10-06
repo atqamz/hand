@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -139,11 +138,34 @@ func TestDayDividers(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{at(userRecord("go"), "2026-09-27T10:00:00Z"), at(reply("yesterday"), "2026-09-27T10:00:05Z"), at(reply("today"), "2026-09-28T10:00:00Z")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	day := `<p class="day"><span>` + time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC).Local().Format("Mon 2 Jan") + `</span></p>`
+	day := `<p class="day"><span>Mon 28 Sep UTC</span></p>`
 	today, divider, yesterday := strings.Index(tl, "today"), strings.Index(tl, day), strings.Index(tl, "yesterday")
 	if strings.Count(tl, day) != 1 || !(today < divider && divider < yesterday) {
 		t.Fatalf("no single divider between the days (%d %d %d):\n%s", today, divider, yesterday, tl)
 	}
+	contains(t, "clock under the divider", tl, `>10:00</time>`)
+	contains(t, "date on the oldest day", tl, `>Sep 26 00:00 UTC</time>`)
+}
+
+func TestWakesUnderADividerShowTheClock(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
+	claudeLog(t, fx, []string{at(reply("old"), "2026-09-27T10:00:00Z"), at(wake, "2026-09-28T12:28:00Z"), at(wake, "2026-09-28T12:29:00Z")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "wake lines", tl, `<span class="hand-text">`, `>12:28</time></p>`, `>12:29</time></p>`)
+}
+
+func TestWakesSplitAtMidnight(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
+	claudeLog(t, fx, []string{at(wake, "2026-09-27T23:58:00Z"), at(wake, "2026-09-27T23:59:00Z"), at(wake, "2026-09-28T00:01:00Z"), at(wake, "2026-09-28T00:02:00Z")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	if n := strings.Count(tl, `<details class="hand-line wakes"`); n != 2 {
+		t.Fatalf("%d wake groups across midnight, want 2:\n%s", n, tl)
+	}
+	contains(t, "divider", tl, `<span>Mon 28 Sep UTC</span>`)
 }
 
 func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
