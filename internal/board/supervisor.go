@@ -531,7 +531,7 @@ func groupWakes(all []chatItem) []chatItem {
 	out := make([]chatItem, 0, len(all))
 	for i := 0; i < len(all); {
 		j := i
-		for j < len(all) && wake(all[j]) {
+		for j < len(all) && wake(all[j]) && (j == i || parse(all[j].At).UTC().Format(time.DateOnly) == parse(all[i].At).UTC().Format(time.DateOnly)) {
 			j++
 		}
 		if j-i < 2 {

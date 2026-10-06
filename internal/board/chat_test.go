@@ -156,6 +156,18 @@ func TestWakesUnderADividerShowTheClock(t *testing.T) {
 	contains(t, "wake lines", tl, `<span class="hand-text">`, `>12:28</time></p>`, `>12:29</time></p>`)
 }
 
+func TestWakesSplitAtMidnight(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
+	claudeLog(t, fx, []string{at(wake, "2026-09-27T23:58:00Z"), at(wake, "2026-09-27T23:59:00Z"), at(wake, "2026-09-28T00:01:00Z"), at(wake, "2026-09-28T00:02:00Z")})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	if n := strings.Count(tl, `<details class="hand-line wakes"`); n != 2 {
+		t.Fatalf("%d wake groups across midnight, want 2:\n%s", n, tl)
+	}
+	contains(t, "divider", tl, `<span>Mon 28 Sep UTC</span>`)
+}
+
 func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
