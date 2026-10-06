@@ -332,6 +332,18 @@ You can still open an agent in the fleet folder by hand (`cd ~/fleets/demo && cl
 
 The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
 
+## Safe use
+
+Every worker runs with its permission prompts skipped (see [The supervisor](#the-supervisor)), as the operator's own OS user. It can read whatever that account can: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`. A worktree is not a fence, and Hand builds no sandbox. A worker that obeys text planted in an issue, a PR or a review can use all of it. The protection is the setup around Hand:
+
+- **Own account.** Run Hand as a dedicated OS user, or in a VM, with its own `~/.ssh` and `gh` login and none of your other directories.
+- **Narrow token.** Log that account in to GitHub with a fine-grained personal access token limited to the repositories in use, with the Contents and Pull requests permissions and an expiry date. GitHub does not require an expiry, so set one. Do not use a broad `gh auth login`.
+- **Own signing key.** Sign with a key used only by that account, ideally a FIDO key (`ssh-keygen -t ed25519-sk`) that needs a touch for each signature. An unlocked signing agent signs whatever a process that can reach it asks.
+- **Protected default branch.** Require a pull request and refuse force-pushes, so a hijacked worker can propose a change but not land one. GitHub exempts repository admins from these rules unless "Do not allow bypassing the above settings" is on, so give the account write access rather than admin, or turn that setting on. Keep the account, and any role, team or app it belongs to, off every bypass list in branch protection and rulesets.
+- **Clean environment.** Start fleets from a shell with no cloud or API secrets. Hand drops only `HAND_HOME` and the Claude, Codex and Luvus variables when it starts the Luvus server, and its panes inherit the rest of the environment.
+- **Review and rotate.** Keep production credentials off the machine, read worker PRs before you merge them, and rotate tokens after a suspicious run.
+- **Private board.** Keep the board on loopback and reach it with `ssh -L` instead of exposing it.
+
 ## Commands
 
 Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--pr` after the ref. `--home DIR`, given before the command, picks the fleet.
