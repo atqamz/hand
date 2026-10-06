@@ -29,6 +29,8 @@ type Doc struct {
 	blocks []block
 }
 
+var lineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 func (d *Doc) Field(key, value string) {
 	d.blocks = append(d.blocks, block{kind: blockField, name: key, value: value})
 }
@@ -76,13 +78,13 @@ func (d *Doc) Render(w io.Writer) error {
 		case blockField:
 			fmt.Fprintf(&b, "%s: %s\n", blk.name, Value(blk.value))
 		case blockText:
-			text := strings.TrimRight(blk.value, "\n")
+			text := strings.TrimRight(lineEnds.Replace(blk.value), "\n")
 			if text == "" {
 				fmt.Fprintf(&b, "%s: \"\"\n", blk.name)
 				break
 			}
 			fmt.Fprintf(&b, "%s: |\n", blk.name)
-			for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+			for _, line := range strings.Split(text, "\n") {
 				if line == "" {
 					b.WriteString("\n")
 					continue

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -11,6 +10,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
+
+const maxSendBytes = 1 << 20
 
 func init() {
 	attemptCommands["send"] = cmdAttemptSend
@@ -42,8 +43,11 @@ func cmdAttemptSend(r *runner, args []string) error {
 	}
 	if *file != "" {
 		var err error
-		if *text, err = r.readText(*file, math.MaxInt64); err != nil {
+		if *text, err = r.readText(*file, maxSendBytes+1); err != nil {
 			return err
+		}
+		if len(*text) > maxSendBytes {
+			return fmt.Errorf("%w: message is over %d bytes", state.ErrInvalid, maxSendBytes)
 		}
 	}
 	if strings.TrimSpace(*text) == "" {
