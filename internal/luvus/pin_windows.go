@@ -1,9 +1,12 @@
 package luvus
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 func executable(fi os.FileInfo) bool {
@@ -20,5 +23,9 @@ func executable(fi os.FileInfo) bool {
 }
 
 func exeExt(bin string) string { return strings.ToLower(filepath.Ext(bin)) }
+
+func held(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}
 
 func syncDir(string) error { return nil }
