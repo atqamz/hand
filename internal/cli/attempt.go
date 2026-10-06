@@ -92,6 +92,15 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		if continues != 0 {
+			prev, err := st.Attempt(ctx, continues)
+			if err != nil {
+				return err
+			}
+			if _, err := git(ctx, project.Repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+prev.Branch); err != nil {
+				return fmt.Errorf("%w: branch %s of attempt %s no longer exists; start a fresh attempt with --base REF", state.ErrConflict, prev.Branch, state.AttemptRef(prev.ID))
+			}
+		}
 		start := *base
 		if start == "" && continues == 0 {
 			if err := fetchMain(ctx, project.Repo); err != nil {

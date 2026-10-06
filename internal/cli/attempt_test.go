@@ -786,3 +786,38 @@ func TestAttemptStartFailsWhenTheDefaultBaseCannotBeFetched(t *testing.T) {
 	}
 	fx.h.ok("attempt", "start", "--base", "main", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
 }
+
+func TestAttemptStartContinueKeepsTheBranchWhenTheWorktreeCannotBeMade(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	branch := fx.h.branch("t1-a1")
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	blocker := fx.h.worktree("t1-a2")
+	if err := os.MkdirAll(blocker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blocker, "x"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code == 0 {
+		t.Fatal("start succeeded into an occupied worktree path")
+	}
+	gitIn(t, fx.repo, "rev-parse", "--verify", "refs/heads/"+branch)
+}
+
+func TestAttemptStartContinueRefusesAMissingBranchBeforeRecordingAnAttempt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	gitIn(t, fx.repo, "branch", "-D", fx.h.branch("t1-a1"))
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code != 3 || !strings.Contains(errOut, "no longer exists") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a2") {
+		t.Fatalf("refused start left an attempt: %q", list)
+	}
+}

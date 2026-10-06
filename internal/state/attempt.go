@@ -36,12 +36,11 @@ type Terminal struct {
 }
 
 type AttemptSpec struct {
-	TaskID  int64
-	Harness string
-	Model   string
-	Effort  string
-	Argv    []string
-
+	TaskID    int64
+	Harness   string
+	Model     string
+	Effort    string
+	Argv      []string
 	Continues int64
 }
 
