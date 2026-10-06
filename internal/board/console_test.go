@@ -98,7 +98,7 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	console = region(get(t, pending.handler(), "/"), "console")
-	contains(t, "pending", console, "next turn: opus · high", `name="cancel" value="1"`)
+	contains(t, "pending", console, "next turn: opus · high", `name="cancel" value="1"`, "<button>Cancel switch</button>")
 	lacks(t, "pending", console, `id="model-menu"`)
 	lan := newFixture(t)
 	lan.options.Controls = false
