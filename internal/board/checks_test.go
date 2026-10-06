@@ -62,6 +62,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 		}
 	}
 	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
+	contains(t, "running row", rows["t1"], `<a class="check-title" href="/task/t1">Running work</a>`, `<span class="check-body">`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}
@@ -89,4 +90,9 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 		`<p class="hand-line" data-no=`, `wake: <a class="ref" href="/ref/r3">r3</a> from <a class="ref" tabindex="-1" href="/ref/a2">a2</a> done`,
 		"queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
+}
+
+func TestTheWholeTaskRowIsTheLink(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, ".check{position:relative;", "min-height:48px", ".check-title::after{content:\"\";position:absolute;inset:0}", ".check .chip{position:relative}", ".check-body{display:grid;min-width:0}")
 }

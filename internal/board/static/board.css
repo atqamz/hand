@@ -141,9 +141,12 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .group{display:flex;align-items:center;gap:6px;margin:14px 0 4px;font-size:12px;font-weight:600;line-height:18px;color:var(--muted)}
 .group .n{padding:0 6px;border-radius:999px;background:var(--neutral-bg)}
 .checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto auto;align-items:center;gap:8px;min-width:0;padding:6px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
-.check-title{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.check .meta{justify-self:end;overflow:hidden;text-overflow:ellipsis}
+.check{position:relative;display:grid;grid-template-columns:16px auto minmax(0,1fr) auto;align-items:center;gap:8px;min-width:0;min-height:48px;padding:6px 4px;border-bottom:1px solid var(--line);white-space:nowrap}
+.check-body{display:grid;min-width:0}
+.check-title,.check .meta{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.check-title{color:var(--fg)}
+.check-title::after{content:"";position:absolute;inset:0}
+.check .chip{position:relative}
 .all-clear{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:12px 0;color:var(--muted)}
 .all-clear .icon{color:var(--pass)}
 .all-clear>span{color:var(--fg);font-weight:600}
