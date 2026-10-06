@@ -8,6 +8,8 @@ func executable(fi os.FileInfo) bool { return fi.Mode().IsRegular() && fi.Mode()
 
 func exeExt(string) string { return "" }
 
+func held(error) bool { return false }
+
 func syncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
