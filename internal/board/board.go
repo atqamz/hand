@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
@@ -345,10 +347,11 @@ func sentence(msg string) string {
 	if msg == "" {
 		return msg
 	}
-	if !strings.HasSuffix(msg, ".") {
+	if !strings.HasSuffix(msg, ".") && !strings.HasSuffix(msg, "?") && !strings.HasSuffix(msg, "!") {
 		msg += "."
 	}
-	return strings.ToUpper(msg[:1]) + msg[1:]
+	r, n := utf8.DecodeRuneInString(msg)
+	return string(unicode.ToUpper(r)) + msg[n:]
 }
 
 func (b *Board) failErr(w http.ResponseWriter, err error) {

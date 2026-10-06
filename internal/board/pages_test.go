@@ -169,7 +169,7 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 		lacks(t, path+" read-only", get(t, h, path), `<a href="/">Fleets</a>`)
 		contains(t, path+" loopback", get(t, board.New(st, token, board.Options{Controls: true}), path), `<p class="crumbs"><a href="/">Fleets</a> / `)
 	}
-	contains(t, "menu", asset(t, "board.css"), `.thread>.card>header.slug>*::after{content:none!important}`)
+	contains(t, "dots", asset(t, "board.css"), `.thread>.card>header.slug>*::after{content:none!important}`)
 	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status pill" data-state="waiting">open</span>`)
 }
 
