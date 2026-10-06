@@ -73,6 +73,12 @@ jobs:
         env:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
+      - name: Temporary stress of the unreadable pin test
+        if: always()
+        run: go test -race -count=100 -run '^TestAnUnreadablePinCanBeReplaced$' ./internal/cli
+        env:
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
       - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
         env:
           HAND_LUVUS_IT: "1"
