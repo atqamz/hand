@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -51,6 +52,34 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	if code != 3 || !strings.Contains(errOut, "already has live attempt a1") {
 		t.Fatalf("second start code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T) {
+	fx := newAttemptFixture(t)
+	hook := filepath.Join(fx.repo, ".git", "hooks", "post-checkout")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch hook-ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	wt := fx.h.worktree("t1-a1")
+	if _, err := os.Stat(filepath.Join(wt, ".git")); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "hook-ran")); err == nil {
+		t.Fatal("post-checkout hook ran under hand's git call")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	for _, dir := range []string{filepath.Dir(wt), filepath.Dir(filepath.Dir(wt))} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %v, want 0700", dir, info.Mode().Perm())
+		}
 	}
 }
 

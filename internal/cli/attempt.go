@@ -356,7 +356,7 @@ func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time
 }
 
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
-	if err := os.MkdirAll(filepath.Dir(a.Worktree), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(a.Worktree), 0o700); err != nil {
 		return a, err
 	}
 	if _, err := git(ctx, repo, "worktree", "add", "-b", a.Branch, a.Worktree, base); err != nil {
