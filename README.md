@@ -371,7 +371,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand attempt list [--task tN] [--limit N]`, `hand attempt show aN` | List attempts, or show one with its live agent state, or the last screen the watcher read from one that ended. |
 | `hand attempt read [--lines N] aN` | Print a running worker's screen, as an indented multi-line block, and its revision. |
 | `hand attempt keys --revision N aN KEY...` | Answer a worker's screen, only if it is still at that revision. |
-| `hand attempt send --text TEXT aN` | Send a worker a message (or `--file PATH`), only while it is at its prompt. |
+| `hand attempt send --text TEXT aN` | Send a worker a message (or `--file PATH`, or `--file -` for stdin), only while it is at its prompt. |
 | `hand attempt stop aN`, `hand attempt clean [--discard] aN` | Stop a worker, and remove an ended attempt's worktree while keeping its branch. |
 | `hand report add --status STATUS --file -` | Report from inside a worker's worktree: `progress`, `done` or `stuck`, from stdin, a file, or `--text`. |
 | `hand report list [--task tN] [--attempt aN] [--unacked]`, `hand report show rN` | List and read reports. |
@@ -387,7 +387,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand watch [--every DURATION] [--notify=false]` | Run the fleet's watcher. |
 | `hand supervisor start [--profile NAME]` | Start the managed supervisor; `--harness`, `--model` and `--effort` replace `--profile`, and with no flags it copies the last one. |
 | `hand supervisor resume`, `hand supervisor stop`, `hand supervisor show` | Continue the last session, stop it, or show its state, screen revision and number of queued messages. |
-| `hand supervisor send --text TEXT` | Queue a message for the supervisor (or `--file PATH`). |
+| `hand supervisor send --text TEXT` | Queue a message for the supervisor (or `--file PATH`, or `--file -` for stdin). |
 | `hand supervisor keys --revision N KEY...` | Answer the supervisor's blocked screen with `enter`, `esc`, `up`, `down`, `1`, `2` or `3`. |
 | `hand supervisor interrupt` | Press Escape in the supervisor's terminal. |
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |

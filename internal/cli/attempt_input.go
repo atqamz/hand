@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
+	"math"
 	"strconv"
 	"strings"
 
@@ -32,7 +32,7 @@ func runningAttempt(ctx context.Context, st *state.Store, id int64) (state.Attem
 func cmdAttemptSend(r *runner, args []string) error {
 	fs := flags("attempt send")
 	text := fs.String("text", "", "message for the worker")
-	file := fs.String("file", "", "file holding the message")
+	file := fs.String("file", "", "file holding the message, or - for stdin")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
@@ -41,11 +41,10 @@ func cmdAttemptSend(r *runner, args []string) error {
 		return usageError{"attempt send: give exactly one of --text or --file"}
 	}
 	if *file != "" {
-		b, err := os.ReadFile(*file)
-		if err != nil {
-			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+		var err error
+		if *text, err = r.readText(*file, math.MaxInt64); err != nil {
+			return err
 		}
-		*text = string(b)
 	}
 	if strings.TrimSpace(*text) == "" {
 		return fmt.Errorf("%w: message must not be empty", state.ErrInvalid)

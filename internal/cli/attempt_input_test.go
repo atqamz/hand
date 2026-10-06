@@ -32,7 +32,9 @@ func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	fx.h.ok("attempt", "send", "--file", file, "a1")
-	if got := fx.rt.prompts(); !slices.Equal(got, []string{"keep going", "also run the tests"}) {
+	fx.h.in = strings.NewReader("and the linter")
+	fx.h.ok("attempt", "send", "--file", "-", "a1")
+	if got := fx.rt.prompts(); !slices.Equal(got, []string{"keep going", "also run the tests", "and the linter"}) {
 		t.Fatalf("delivered = %q", got)
 	}
 	if _, _, code := fx.h.run("attempt", "send", "a1"); code != 2 {

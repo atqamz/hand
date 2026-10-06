@@ -318,6 +318,16 @@ func TestSendDeliversAtOnceEvenWhileWorking(t *testing.T) {
 	has(t, "show", h.ok("supervisor", "show"), "pending: 0")
 }
 
+func TestSendReadsStdin(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.in = strings.NewReader("Plan the login fix\nthen the logout fix\n")
+	has(t, "send", h.ok("supervisor", "send", "--file", "-"), "delivered: yes")
+	if got := rt.prompts(); !slices.Equal(got, []string{"Plan the login fix\nthen the logout fix\n"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+}
+
 func TestSendWaitsWhileBlocked(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}
