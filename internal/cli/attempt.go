@@ -440,7 +440,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
-	add := []string{"worktree", "add", "-b", a.Branch, a.Worktree, base}
+	add := []string{"worktree", "add", "--no-track", "-b", a.Branch, a.Worktree, base}
 	if a.Continues != 0 {
 		add = []string{"worktree", "add", a.Worktree, a.Branch}
 	}

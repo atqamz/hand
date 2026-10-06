@@ -795,6 +795,9 @@ func TestAttemptStartFollowsTheBranchOriginHeadPointsTo(t *testing.T) {
 	if got, want := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"), gitIn(t, other, "rev-parse", "HEAD"); got != want {
 		t.Fatalf("worktree tip = %q, want origin/master %q", got, want)
 	}
+	if out, err := exec.Command("git", "-C", fx.repo, "config", "--get", "branch."+fx.h.branch("t1-a1")+".remote").CombinedOutput(); err == nil {
+		t.Fatalf("new branch tracks %q", out)
+	}
 }
 
 func TestAttemptStartWithoutAnOriginUsesTheLocalBranch(t *testing.T) {
