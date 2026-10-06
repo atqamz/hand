@@ -35,6 +35,15 @@ func TestTextRendersAnIndentedBlock(t *testing.T) {
 	}
 }
 
+func TestTextDropsEscapeSequencesAndControlBytes(t *testing.T) {
+	var d Doc
+	d.Text("screen", "\x1b]0;owned\x07\x1b[2J\x1b[1;31mred\x1b[0m\x1b[H ok\x00\x07\x7f\u009b\x1b]8;;http://x\x1b\\link\tend\nnext")
+	want := "screen: |\n  red ok" + "link\tend\n  next\n"
+	if got := d.String(); got != want {
+		t.Fatalf("render = %q, want %q", got, want)
+	}
+}
+
 func TestEmptyRowsStillRenderHeader(t *testing.T) {
 	var d Doc
 	d.Rows("active", []string{"id"}, nil)

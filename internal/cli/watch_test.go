@@ -172,12 +172,21 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 
 func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
 	fx := newAttemptFixture(t)
-	log := fakeNotify(t, fx)
+	log := filepath.Join(t.TempDir(), "notify.log")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify"]}`
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	fx.start()
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(log)
+		return strings.Contains(string(b), "attempt.quiet|a1|")
+	})
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 2 })
@@ -185,7 +194,7 @@ func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
 		t.Fatalf("second turn = %+v", events)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 || strings.Contains(string(b), "attempt.idle") {
 		t.Fatalf("an idle turn notified: %q", b)
 	}
 }

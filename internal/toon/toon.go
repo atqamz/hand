@@ -3,8 +3,10 @@ package toon
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type blockKind int
@@ -29,7 +31,19 @@ type Doc struct {
 	blocks []block
 }
 
-var lineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+var (
+	lineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+	escapes  = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?")
+)
+
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, escapes.ReplaceAllString(lineEnds.Replace(s), ""))
+}
 
 func (d *Doc) Field(key, value string) {
 	d.blocks = append(d.blocks, block{kind: blockField, name: key, value: value})
@@ -78,7 +92,7 @@ func (d *Doc) Render(w io.Writer) error {
 		case blockField:
 			fmt.Fprintf(&b, "%s: %s\n", blk.name, Value(blk.value))
 		case blockText:
-			text := strings.TrimRight(lineEnds.Replace(blk.value), "\n")
+			text := strings.TrimRight(plain(blk.value), "\n")
 			if text == "" {
 				fmt.Fprintf(&b, "%s: \"\"\n", blk.name)
 				break
