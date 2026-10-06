@@ -160,7 +160,7 @@ var corpus = []string{
 	"<script>alert(1)</script>", "<img src=x onerror=y>", "[x](javascript:alert(1))", "[x](JaVaScRiPt:alert(1))",
 	"[x](data:text/html,<b>)", `[x](https://a.io/"onmouseover="y)`, `[x"](https://a.io)`, "**[x](javascript:y)**",
 	"*<b>*", "`<b>`", "```\n<script>\n```", "- <i>\n- [a](vbscript:x)", "1. **x\n2. _y", "https://a.io/<b>", `https://a.io/"x`,
-	"[a](https://b.io)[c](https://d.io)", "**a *b _c `d` e_ f* g**", "\x00<\x00script>", "&lt;script&gt;", "[`x`](https://a.io)",
+	"3. a\n   - <b>\n\n4. [x](javascript:y)", "[a](https://b.io)[c](https://d.io)", "**a *b _c `d` e_ f* g**", "\x00<\x00script>", "&lt;script&gt;", "[`x`](https://a.io)",
 }
 
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
@@ -194,11 +194,12 @@ func FuzzRender(f *testing.F) {
 }
 
 var (
-	tagPattern  = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z-]+="[^"<>]*")*)>`)
-	attrPattern = regexp.MustCompile(` ([a-z-]+)="([^"]*)"`)
-	allowed     = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
-	fixed       = map[string]string{"div class": "table", "div role": "region", "div aria-label": "Table", "div tabindex": "0"}
-	aligns      = map[string]bool{"l": true, "r": true, "c": true}
+	tagPattern   = regexp.MustCompile(`^<(/?)([a-z][a-z0-9]*)((?: [a-z-]+="[^"<>]*")*)>`)
+	attrPattern  = regexp.MustCompile(` ([a-z-]+)="([^"]*)"`)
+	allowed      = map[string]bool{"p": true, "br": true, "ul": true, "ol": true, "li": true, "pre": true, "code": true, "strong": true, "em": true, "a": true, "h3": true, "h4": true, "hr": true, "blockquote": true, "del": true, "div": true, "table": true, "thead": true, "tbody": true, "tr": true, "th": true, "td": true}
+	startPattern = regexp.MustCompile(`^[0-9]+$`)
+	fixed        = map[string]string{"div class": "table", "div role": "region", "div aria-label": "Table", "div tabindex": "0"}
+	aligns       = map[string]bool{"l": true, "r": true, "c": true}
 )
 
 func active(out string) string {
@@ -218,6 +219,9 @@ func active(out string) string {
 				if a[2] != want {
 					return "value " + a[2] + " for " + a[1] + " on " + m[2]
 				}
+				continue
+			}
+			if m[2] == "ol" && a[1] == "start" && startPattern.MatchString(a[2]) {
 				continue
 			}
 			if m[2] == "a" && a[1] == "class" && a[2] == "ref" {
@@ -271,5 +275,23 @@ func TestRefsLinksOneLineWithoutBlocks(t *testing.T) {
 	got := string(markdown.Refs("wake: attempt.quiet a7: <turn> ended", "", nil))
 	if got != `wake: attempt.quiet <a class="ref" href="/ref/a7">a7</a>: &lt;turn&gt; ended` {
 		t.Fatalf("Refs = %s", got)
+	}
+}
+
+func TestRenderNumberedListsKeepTheirNumbers(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"1. a\n- x\n- y\n\n2. b\n- z", `<ol><li>a</li></ol><ul><li>x</li><li>y</li></ul><ol start="2"><li>b</li></ol><ul><li>z</li></ul>`},
+		{"1. **a**\n   - x\n   - y\n\n2. **b**\n   - z\n\n3. c", `<ol><li><strong>a</strong><ul><li>x</li><li>y</li></ul></li><li><strong>b</strong><ul><li>z</li></ul></li><li>c</li></ol>`},
+		{"1. a\n  - x\n2. b", `<ol><li>a<ul><li>x</li></ul></li><li>b</li></ol>`},
+		{"1. a\n    note\n2. b", `<ol><li>a<p>note</p></li><li>b</li></ol>`},
+		{"1. a\n\n2. b", `<ol><li>a</li><li>b</li></ol>`},
+		{"- a\n\n- b", `<ul><li>a</li><li>b</li></ul>`},
+		{"3. a\n4. b", `<ol start="3"><li>a</li><li>b</li></ol>`},
+		{"1. a\n\ntext\n\n2. b", `<ol><li>a</li></ol><p>text</p><ol start="2"><li>b</li></ol>`},
+		{"1. a\n   1. x\n   2. y\n2. b", `<ol><li>a<ol><li>x</li><li>y</li></ol></li><li>b</li></ol>`},
+	} {
+		if got := string(markdown.Render(c.in)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
 	}
 }

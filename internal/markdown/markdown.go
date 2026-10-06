@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -232,12 +233,43 @@ func heading(line string) int {
 func fence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "```") }
 
 func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs string) int {
-	b.WriteString("<" + tag + ">")
-	for ; i < len(lines) && item(lines[i], ordered) != ""; i++ {
-		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs) + "</li>")
+	open := "<" + tag + ">"
+	if ordered {
+		if n, err := strconv.Atoi(lines[i][:strings.IndexByte(lines[i], '.')]); err == nil && n != 1 {
+			open = `<ol start="` + strconv.Itoa(n) + `">`
+		}
+	}
+	b.WriteString(open)
+	for i < len(lines) && item(lines[i], ordered) != "" {
+		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs))
+		j := i + 1
+		for j < len(lines) && (strings.TrimSpace(lines[j]) == "" || lines[j][0] == ' ' || lines[j][0] == '\t') {
+			j++
+		}
+		blocks(b, dedent(lines[i+1:j]), false, refs)
+		b.WriteString("</li>")
+		i = j
 	}
 	b.WriteString("</" + tag + ">")
 	return i
+}
+
+func dedent(lines []string) []string {
+	cut := -1
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			if n := len(l) - len(strings.TrimLeft(l, " \t")); cut < 0 || n < cut {
+				cut = n
+			}
+		}
+	}
+	out := make([]string, len(lines))
+	for k, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			out[k] = l[cut:]
+		}
+	}
+	return out
 }
 
 func item(line string, ordered bool) string {
