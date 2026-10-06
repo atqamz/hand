@@ -68,7 +68,7 @@ It also pins the Luvus version that build was tested with when that is newer tha
 To restore a backup:
 1. stop the fleet's watch unit and the board;
 2. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
-3. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `~/.secondhand/backups/<fleet id>/`;
+3. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
 4. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
 5. start the units again.
 
