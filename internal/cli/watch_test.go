@@ -896,3 +896,133 @@ func TestRestartedWatchDoesNotRepeatALongTurn(t *testing.T) {
 		t.Fatalf("a restart after attempt.long recorded %d of them", n)
 	}
 }
+
+func TestWatchSnapshotsOncePerDayAndKeepsSeven(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	update := filepath.Join(dir, "hand.db.20200101T000000")
+	if err := os.WriteFile(update, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hand-20260926.db.tmp"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	day := fx.h.clock()
+	for i := range 10 {
+		if i > 0 {
+			fx.h.advance(24 * time.Hour)
+		}
+		path := filepath.Join(dir, "hand-"+day.AddDate(0, 0, i).Format("20060102")+".db")
+		eventually(t, func() bool { _, err := os.Stat(path); return err == nil })
+	}
+	var want []string
+	for i := 3; i < 10; i++ {
+		want = append(want, "hand-"+day.AddDate(0, 0, i).Format("20060102")+".db")
+	}
+	want = append(want, "hand.db.20200101T000000")
+	eventually(t, func() bool {
+		var got []string
+		des, _ := os.ReadDir(dir)
+		for _, de := range des {
+			got = append(got, de.Name())
+		}
+		return slices.Equal(got, want)
+	})
+	if _, err := os.Stat(update); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	day := fx.h.clock()
+	for i := range 9 {
+		name := "hand-" + day.AddDate(0, 0, -i).Format("20060102") + ".db"
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := filepath.Join(dir, "hand-20250101.db.tmp")
+	if err := os.WriteFile(stale, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	eventually(t, func() bool {
+		des, _ := os.ReadDir(dir)
+		return len(des) == 7
+	})
+	if _, err := os.Stat(stale); err == nil {
+		t.Fatal("a stale .tmp survived")
+	}
+}
+
+func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.validateFail = true })
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan string, 1)
+	go func() {
+		out, _, _ := fx.h.runCtx(ctx, "watch", "--every", "30ms")
+		done <- out
+	}()
+	eventually(t, func() bool {
+		m, _ := filepath.Glob(filepath.Join(root, "backups", "*", "hand-*.db"))
+		return len(m) == 1
+	})
+	cancel()
+	if out := <-done; !strings.Contains(out, "validate down") {
+		t.Fatalf("reconcile did not fail: %q", out)
+	}
+}
+
+func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	stuck := filepath.Join(dir, "hand-20240101.db.tmp")
+	if err := os.MkdirAll(filepath.Join(stuck, "child"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	day := fx.h.clock()
+	for i := range 9 {
+		name := "hand-" + day.AddDate(0, 0, -i).Format("20060102") + ".db"
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	eventually(t, func() bool {
+		m, _ := filepath.Glob(filepath.Join(dir, "hand-*.db"))
+		return len(m) == 7
+	})
+	out, _ := stop()
+	if !strings.Contains(out, "snapshot prune: ") || strings.Contains(out, "observed: \"snapshot: ") {
+		t.Fatalf("watch out = %q", out)
+	}
+}

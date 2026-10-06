@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,33 +34,34 @@ type fakeTerm struct {
 }
 
 type fakeRuntime struct {
-	srv         *fakeuhp.Server
-	mu          sync.Mutex
-	terms       []*fakeTerm
-	creates     []createCall
-	status      string
-	hint        string
-	ready       bool
-	revision    int64
-	marker      string
-	sent        []string
-	keyed       []string
-	screen      string
-	screens     []string
-	afterScreen string
-	keyScreens  []string
-	afterStall  time.Duration
-	stall       time.Duration
-	readFail    string
-	keysFail    string
-	afterKeys   string
-	explainFail string
-	onPrompt    func()
-	closeFail   string
-	closeDelay  time.Duration
-	sessions    map[string]string
-	blankPane   bool
-	validations int
+	srv          *fakeuhp.Server
+	mu           sync.Mutex
+	terms        []*fakeTerm
+	creates      []createCall
+	status       string
+	hint         string
+	ready        bool
+	revision     int64
+	marker       string
+	sent         []string
+	keyed        []string
+	screen       string
+	screens      []string
+	afterScreen  string
+	keyScreens   []string
+	afterStall   time.Duration
+	stall        time.Duration
+	readFail     string
+	keysFail     string
+	afterKeys    string
+	explainFail  string
+	onPrompt     func()
+	closeFail    string
+	closeDelay   time.Duration
+	sessions     map[string]string
+	blankPane    bool
+	validations  int
+	validateFail bool
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -162,7 +164,11 @@ func (rt *fakeRuntime) locate(params json.RawMessage) (*fakeTerm, error) {
 func (rt *fakeRuntime) validate(params json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	rt.validations++
+	fail := rt.validateFail
 	rt.mu.Unlock()
+	if fail {
+		return nil, errors.New("validate down")
+	}
 	term, err := rt.locate(params)
 	if err != nil {
 		return nil, err

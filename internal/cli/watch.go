@@ -51,6 +51,7 @@ type watcher struct {
 	asked   int64
 	pending sync.WaitGroup
 	warned  atomic.Bool
+	snapped string
 }
 
 type turn struct {
@@ -111,6 +112,7 @@ func cmdWatch(r *runner, args []string) error {
 		if err != nil && ctx.Err() == nil {
 			w.say("luvus: " + err.Error())
 		}
+		w.snapshot(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):
@@ -184,6 +186,9 @@ func (w *watcher) session(ctx context.Context) error {
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
 				err = w.longTurns(sctx)
+			}
+			if err == nil {
+				w.snapshot(sctx)
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
