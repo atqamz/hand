@@ -690,3 +690,187 @@ func TestAttemptStopEndsTheRowWhenItsTerminalWillNotClose(t *testing.T) {
 		t.Fatalf("stop: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 }
+
+func TestAttemptStartContinueChecksOutTheEarlierBranch(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	branch := fx.h.branch("t1-a1")
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code != 3 || !strings.Contains(errOut, "stop it first with `hand attempt stop a1`") {
+		t.Fatalf("live a1 code=%d stderr=%q", code, errOut)
+	}
+	fx.h.ok("attempt", "stop", "a1")
+	_, errOut, code = fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code != 3 || !strings.Contains(errOut, "run `hand attempt clean a1` first") {
+		t.Fatalf("uncleaned a1 code=%d stderr=%q", code, errOut)
+	}
+	wt1 := fx.h.worktree("t1-a1")
+	gitIn(t, wt1, "commit", "-q", "--allow-empty", "-m", "first attempt")
+	tip := gitIn(t, wt1, "rev-parse", "HEAD")
+	fx.h.ok("attempt", "clean", "a1")
+	out := fx.h.ok("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	for _, want := range []string{"attempt: a2", "branch: " + branch, "continues: a1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("start = %q, missing %q", out, want)
+		}
+	}
+	wt2 := fx.h.worktree("t1-a2")
+	if got := gitIn(t, wt2, "rev-parse", "--abbrev-ref", "HEAD"); got != branch {
+		t.Fatalf("worktree branch = %q, want %q", got, branch)
+	}
+	if got := gitIn(t, wt2, "rev-parse", "HEAD"); got != tip {
+		t.Fatalf("worktree tip = %q, want %q", got, tip)
+	}
+	if show := fx.h.ok("attempt", "show", "a2"); !strings.Contains(show, "continues: a1") {
+		t.Fatalf("show = %q", show)
+	}
+	fx.h.ok("attempt", "stop", "a2")
+	fx.h.ok("attempt", "clean", "a2")
+	if got := gitIn(t, fx.repo, "rev-parse", "--verify", "refs/heads/"+branch); got != tip {
+		t.Fatalf("branch after clean = %q, want %q", got, tip)
+	}
+}
+
+func TestAttemptStartContinueRefusesAnotherTasksAttemptAndBase(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	fx.h.ok("task", "add", "app", "Other")
+	fx.h.ok("task", "start", "t2")
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t2")
+	if code != 2 || !strings.Contains(errOut, "attempt a1 belongs to task t1, not t2") {
+		t.Fatalf("other task code=%d stderr=%q", code, errOut)
+	}
+	_, errOut, code = fx.h.run("attempt", "start", "--continue", "a1", "--base", "main", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code != 2 || !strings.Contains(errOut, "--base does not apply") {
+		t.Fatalf("base code=%d stderr=%q", code, errOut)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a2") {
+		t.Fatalf("refused starts left an attempt: %q", list)
+	}
+}
+
+func TestAttemptStartBasesTheWorktreeOnAFetchedOriginMain(t *testing.T) {
+	fx := newAttemptFixture(t)
+	origin := gitIn(t, fx.repo, "remote", "get-url", "origin")
+	other := t.TempDir()
+	gitIn(t, other, "clone", "-q", origin, ".")
+	gitIn(t, other, "commit", "-q", "--allow-empty", "-m", "ahead")
+	gitIn(t, other, "push", "-q", "origin", "main")
+	ahead := gitIn(t, other, "rev-parse", "HEAD")
+	if gitIn(t, fx.repo, "rev-parse", "main") == ahead {
+		t.Fatal("fixture main is not behind origin")
+	}
+	fx.start()
+	if got := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"); got != ahead {
+		t.Fatalf("worktree tip = %q, want origin's %q", got, ahead)
+	}
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	fx.h.ok("attempt", "start", "--base", "main", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if got := gitIn(t, fx.h.worktree("t1-a2"), "rev-parse", "HEAD"); got == ahead {
+		t.Fatalf("explicit --base main started from origin's %q", got)
+	}
+}
+
+func (fx *attemptFixture) startDefault() string {
+	fx.h.t.Helper()
+	return fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+}
+
+func TestAttemptStartFollowsTheBranchOriginHeadPointsTo(t *testing.T) {
+	fx := newAttemptFixture(t)
+	other := t.TempDir()
+	gitIn(t, other, "clone", "-q", gitIn(t, fx.repo, "remote", "get-url", "origin"), ".")
+	gitIn(t, other, "checkout", "-q", "-b", "master")
+	gitIn(t, other, "commit", "-q", "--allow-empty", "-m", "on master")
+	gitIn(t, other, "push", "-q", "origin", "master")
+	gitIn(t, fx.repo, "fetch", "-q", "origin")
+	gitIn(t, fx.repo, "remote", "set-head", "origin", "master")
+	out := fx.startDefault()
+	if strings.Contains(out, "warning") {
+		t.Fatalf("start = %q", out)
+	}
+	if got, want := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"), gitIn(t, other, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("worktree tip = %q, want origin/master %q", got, want)
+	}
+	if out, err := exec.Command("git", "-C", fx.repo, "config", "--get", "branch."+fx.h.branch("t1-a1")+".remote").CombinedOutput(); err == nil {
+		t.Fatalf("new branch tracks %q", out)
+	}
+}
+
+func TestAttemptStartWithoutAnOriginUsesTheLocalBranch(t *testing.T) {
+	fx := newAttemptFixture(t)
+	gitIn(t, fx.repo, "remote", "remove", "origin")
+	gitIn(t, fx.repo, "commit", "-q", "--allow-empty", "-m", "local only")
+	out := fx.startDefault()
+	if strings.Contains(out, "warning") {
+		t.Fatalf("start = %q", out)
+	}
+	if got, want := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"), gitIn(t, fx.repo, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("worktree tip = %q, want local HEAD %q", got, want)
+	}
+}
+
+func TestAttemptStartWarnsAndUsesTheLastFetchedRefWhenTheFetchFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	known := gitIn(t, fx.repo, "rev-parse", "origin/main")
+	gitIn(t, fx.repo, "commit", "-q", "--allow-empty", "-m", "local only")
+	gitIn(t, fx.repo, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git"))
+	out := fx.startDefault()
+	if want := "warning: \"fetch failed ("; !strings.Contains(out, want) || !strings.Contains(out, "using origin/main at "+known[:7]) {
+		t.Fatalf("start = %q", out)
+	}
+	if got := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"); got != known {
+		t.Fatalf("worktree tip = %q, want last fetched %q", got, known)
+	}
+}
+
+func TestAttemptStartWarnsAndUsesTheLocalBranchWhenTheFetchFailsWithNothingFetched(t *testing.T) {
+	fx := newAttemptFixture(t)
+	gitIn(t, fx.repo, "remote", "remove", "origin")
+	gitIn(t, fx.repo, "remote", "add", "origin", filepath.Join(t.TempDir(), "missing.git"))
+	out := fx.startDefault()
+	if !strings.Contains(out, "warning: \"fetch failed (") || !strings.Contains(out, "using the local HEAD") {
+		t.Fatalf("start = %q", out)
+	}
+	if got, want := gitIn(t, fx.h.worktree("t1-a1"), "rev-parse", "HEAD"), gitIn(t, fx.repo, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("worktree tip = %q, want local HEAD %q", got, want)
+	}
+}
+
+func TestAttemptStartContinueKeepsTheBranchWhenTheWorktreeCannotBeMade(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	branch := fx.h.branch("t1-a1")
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	blocker := fx.h.worktree("t1-a2")
+	if err := os.MkdirAll(blocker, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blocker, "x"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code == 0 {
+		t.Fatal("start succeeded into an occupied worktree path")
+	}
+	gitIn(t, fx.repo, "rev-parse", "--verify", "refs/heads/"+branch)
+}
+
+func TestAttemptStartContinueRefusesAMissingBranchBeforeRecordingAnAttempt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	gitIn(t, fx.repo, "branch", "-D", fx.h.branch("t1-a1"))
+	_, errOut, code := fx.h.run("attempt", "start", "--continue", "a1", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	if code != 3 || !strings.Contains(errOut, "no longer exists") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a2") {
+		t.Fatalf("refused start left an attempt: %q", list)
+	}
+}

@@ -215,7 +215,7 @@ func absent(t *testing.T, path string) {
 }
 
 func TestFetchHandReadsTheBuild(t *testing.T) {
-	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4"))
+	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4"))
 	goos, arch := hostTarget()
 	_, exe := packaging(goos)
 	for channel, prefix := range map[string]string{"stable": "/latest/download/", "edge": "/download/edge/"} {
@@ -224,7 +224,7 @@ func TestFetchHandReadsTheBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b != (Build{Path: filepath.Join(dir, "hand"+exe), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 7, Luvus: "0.14.4"}) {
+		if b != (Build{Path: filepath.Join(dir, "hand"+exe), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 8, Luvus: "0.14.4"}) {
 			t.Fatalf("%s build = %+v", channel, b)
 		}
 		if !slices.Contains(srv.asked(), prefix+handAsset()) || !slices.Contains(srv.asked(), prefix+handSums()) {
@@ -234,7 +234,7 @@ func TestFetchHandReadsTheBuild(t *testing.T) {
 }
 
 func TestFetchHandReadsAWindowsZip(t *testing.T) {
-	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4"))
+	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4"))
 	dir := t.TempDir()
 	b, err := FetchHand(context.Background(), srv.URL, "edge", "windows", "amd64", dir, os.Environ())
 	if err != nil || b.Path != filepath.Join(dir, "hand.exe") || b.Version != "0.9.0" {
@@ -243,7 +243,7 @@ func TestFetchHandReadsAWindowsZip(t *testing.T) {
 	if !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.zip") || !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.sha256") {
 		t.Fatalf("asked %q", srv.asked())
 	}
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4")
 	files["hand-windows-amd64.sha256"] = []byte(strings.Repeat("0", 64) + "  hand-windows-amd64.zip\n")
 	other := t.TempDir()
 	if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "windows", "amd64", other, os.Environ()); err == nil || !strings.Contains(err.Error(), "checksum mismatch for hand-windows-amd64.zip") {
@@ -254,7 +254,7 @@ func TestFetchHandReadsAWindowsZip(t *testing.T) {
 
 func TestFetchHandRefusesABadChecksum(t *testing.T) {
 	for name, line := range map[string]string{"corrupt": strings.Repeat("0", 64) + "  hand-linux-amd64.tar.gz\n", "missing": strings.Repeat("0", 64) + "  other.tar.gz\n"} {
-		files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4")
+		files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4")
 		files["checksums.txt"] = []byte(line)
 		dir := t.TempDir()
 		if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "linux", "amd64", dir, os.Environ()); err == nil || !strings.Contains(err.Error(), "checksum mismatch for hand-linux-amd64.tar.gz") {
@@ -265,7 +265,7 @@ func TestFetchHandRefusesABadChecksum(t *testing.T) {
 }
 
 func TestFetchHandRefusesAFailedDownload(t *testing.T) {
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "7", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "8", "0.14.4")
 	files["hand-linux-amd64.tar.gz"] = nil
 	dir := t.TempDir()
 	if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "linux", "amd64", dir, os.Environ()); err == nil || !strings.Contains(err.Error(), ": 500") {

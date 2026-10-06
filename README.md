@@ -367,7 +367,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand task start tN`, `hand task done tN`, `hand task abandon tN` | Move a task to `active`, `done` or `abandoned`. |
 | `hand task list [--status LIST] [--limit N]`, `hand task show tN` | List tasks (default `inbox,active`), or show one with its plan, attempt, report and decisions. |
 | `hand plan set --body-file PATH tN`, `hand plan show tN` | Add a plan revision (or `--body TEXT`), and show the current one. |
-| `hand attempt start --profile NAME --prompt-file PATH tN` | Start a worker in a new worktree; `--harness`, `--model` and `--effort` replace `--profile`, and `--base REF` picks the start point. |
+| `hand attempt start --profile NAME --prompt-file PATH tN` | Start a worker in a new worktree from the repository's fetched default branch (`origin/HEAD`, else `origin/main`, else `origin/master`, else its current branch; from a remote ref, unpushed local commits are left out, so pass `--base HEAD` to keep them); `--harness`, `--model` and `--effort` replace `--profile`, `--base REF` picks another start point, and `--continue aN` checks out the branch of `aN`, an ended and cleaned attempt of the same task, so pushes reach its PR. |
 | `hand attempt list [--task tN] [--limit N]`, `hand attempt show aN` | List attempts, or show one with its live agent state. |
 | `hand attempt read [--lines N] aN` | Print a running worker's screen and its revision. |
 | `hand attempt keys --revision N aN KEY...` | Answer a worker's screen, only if it is still at that revision. |

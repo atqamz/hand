@@ -37,7 +37,8 @@ func cmdAttemptStart(r *runner, args []string) error {
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
-	base := fs.String("base", "HEAD", "git ref the worktree starts from")
+	base := fs.String("base", "", "git ref the worktree starts from (default origin/main, fetched first)")
+	cont := fs.String("continue", "", "ended, cleaned attempt whose branch the worktree checks out")
 	profile := fs.String("profile", "", "routing profile from routing.json")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
@@ -49,6 +50,15 @@ func cmdAttemptStart(r *runner, args []string) error {
 	}
 	if *promptFile == "" {
 		return usageError{"attempt start: --prompt-file is required"}
+	}
+	var continues int64
+	if *cont != "" {
+		if *base != "" {
+			return usageError{"attempt start: --continue checks out an existing branch, so --base does not apply"}
+		}
+		if continues, err = parseID("a", *cont); err != nil {
+			return err
+		}
 	}
 	prompt, err := os.ReadFile(*promptFile)
 	if err != nil {
@@ -82,11 +92,24 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv}, fleet.Worktrees(r.root, r.fleet.ID))
+		if continues != 0 {
+			prev, err := st.Attempt(ctx, continues)
+			if err != nil {
+				return err
+			}
+			if _, err := git(ctx, project.Repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+prev.Branch); err != nil {
+				return fmt.Errorf("%w: branch %s of attempt %s no longer exists; start a fresh attempt with --base REF", state.ErrConflict, prev.Branch, state.AttemptRef(prev.ID))
+			}
+		}
+		start, warning := *base, ""
+		if start == "" && continues == 0 {
+			start, warning = defaultBase(ctx, project.Repo)
+		}
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, project.Repo, *base)
+		running, err := launch(ctx, st, c, a, project.Repo, start)
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -103,6 +126,12 @@ func cmdAttemptStart(r *runner, args []string) error {
 		d.Field("status", running.Status)
 		d.Field("worktree", running.Worktree)
 		d.Field("branch", running.Branch)
+		if running.Continues != 0 {
+			d.Field("continues", state.AttemptRef(running.Continues))
+		}
+		if warning != "" {
+			d.Field("warning", warning)
+		}
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
 		fields, more, err := afterLaunch(r.ctx(), c, launched{
@@ -140,6 +169,7 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 }
 
 const (
+	fetchWait   = 20 * time.Second
 	prefillWait = 30 * time.Second
 	submitTries = 3
 )
@@ -371,11 +401,50 @@ func makePrivate(fleetDir string) error {
 	return nil
 }
 
+func defaultBase(ctx context.Context, repo string) (base, warning string) {
+	if _, err := git(ctx, repo, "remote", "get-url", "origin"); err != nil {
+		return "HEAD", ""
+	}
+	fctx, cancel := context.WithTimeout(ctx, fetchWait)
+	_, err := git(fctx, repo, "fetch", "origin")
+	cancel()
+	remote := remoteDefault(ctx, repo)
+	switch {
+	case err == nil && remote == "":
+		return "HEAD", ""
+	case err == nil:
+		return remote, ""
+	}
+	cause := strings.Join(strings.Fields(err.Error()), " ")
+	if remote == "" {
+		return "HEAD", "fetch failed (" + cause + "); no remote-tracking branch to start from, using the local HEAD"
+	}
+	tip, _ := git(ctx, repo, "log", "-1", "--format=%h, committed %cs", remote)
+	return remote, "fetch failed (" + cause + "); using " + remote + " at " + strings.TrimSpace(tip)
+}
+
+func remoteDefault(ctx context.Context, repo string) string {
+	candidates := []string{"origin/main", "origin/master"}
+	if head, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		candidates = slices.Insert(candidates, 0, strings.TrimSpace(head))
+	}
+	for _, ref := range candidates {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/remotes/"+ref); err == nil {
+			return ref
+		}
+	}
+	return ""
+}
+
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
-	if _, err := git(ctx, repo, "worktree", "add", "-b", a.Branch, a.Worktree, base); err != nil {
+	add := []string{"worktree", "add", "--no-track", "-b", a.Branch, a.Worktree, base}
+	if a.Continues != 0 {
+		add = []string{"worktree", "add", a.Worktree, a.Branch}
+	}
+	if _, err := git(ctx, repo, add...); err != nil {
 		return a, err
 	}
 	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
@@ -393,6 +462,9 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	err = runtimeErr(err)
 	if _, rmErr := git(ctx, repo, "worktree", "remove", "--force", a.Worktree); rmErr != nil {
 		return a, errors.Join(err, rmErr)
+	}
+	if a.Continues != 0 {
+		return a, err
 	}
 	if _, brErr := git(ctx, repo, "branch", "-D", a.Branch); brErr != nil {
 		return a, errors.Join(err, brErr)
@@ -455,6 +527,9 @@ func cmdAttemptShow(r *runner, args []string) error {
 		}
 		d.Field("worktree", a.Worktree)
 		d.Field("branch", a.Branch)
+		if a.Continues != 0 {
+			d.Field("continues", state.AttemptRef(a.Continues))
+		}
 		d.Field("launch", strings.Join(a.Argv[:len(a.Argv)-1], " "))
 		d.Field("prompt_bytes", strconv.Itoa(len(a.Argv[len(a.Argv)-1])))
 		if a.Status == state.AttemptRunning {
