@@ -344,3 +344,50 @@ func TestStartRowDefaultsPostNoModelOrEffort(t *testing.T) {
 		t.Fatalf("ran %q", got)
 	}
 }
+
+func TestTheStartStripHasItsOwnRow(t *testing.T) {
+	fresh := newFixture(t)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
+	if err := os.WriteFile(filepath.Join(fresh.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	console := region(get(t, fresh.handler(), "/"), "console")
+	contains(t, "first run", console, `<div class="starter">`, `<select name="profile" aria-label="Profile" required>`, `<option value="default" selected>`, `<details class="others" id="start-others">`)
+	lacks(t, "first run", console, "or pick a harness")
+	others := strings.Index(console, `id="start-others"`)
+	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
+		if i := strings.Index(console, `name="harness" value="`+name+`"`); i < others {
+			t.Errorf("the %s row is outside the other-harness details", name)
+		}
+	}
+	contains(t, "no policy", region(get(t, newFixture(t).handler(), "/"), "console"), `<details class="others" id="start-others" open>`)
+	ended := newFixture(t)
+	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
+	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
+	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
+	lacks(t, "after a supervisor", picked, " required>", " selected>")
+	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){flex-wrap:wrap", ".starter{flex:1 1 100%")
+}
+
+func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {
+	fx := newFixture(t)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`
+	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	picked := regexp.MustCompile(`<option value="([^"]+)" selected>`).FindStringSubmatch(region(get(t, fx.handler(), "/"), "console"))
+	if picked == nil {
+		t.Fatal("the profile select preselects nothing")
+	}
+	post(fx.handler(), "/supervisor/start", url.Values{"profile": {picked[1]}})
+	if got := strings.Join(fx.called()[0], " "); got != "supervisor start --profile default" {
+		t.Fatalf("ran %q", got)
+	}
+	noDefault := newFixture(t)
+	if err := os.WriteFile(filepath.Join(noDefault.options.Home, "routing.json"), []byte(`{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	console := region(get(t, noDefault.handler(), "/"), "console")
+	contains(t, "no default profile", console, `<select name="profile" aria-label="Profile" required><option value="">profile…</option>`)
+	lacks(t, "no default profile", console, " selected>")
+}
