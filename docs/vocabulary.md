@@ -74,7 +74,7 @@ What `hand update` does, in order:
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
-`hand update --check` runs steps 5 and 6 without changing anything: it fills the same `units` rows, each marked `would run`, and runs no `systemctl` command, no supervisor stop and no `hand init`.
+`hand update --check` runs steps 5 and 6 without changing anything: it fills the same `units` rows, each marked `would run`, and changes nothing: it only lists the units with `systemctl`, and stops no supervisor and runs no `hand init`.
 
 Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units and watchers, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
 

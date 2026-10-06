@@ -44,6 +44,16 @@ func TestTextDropsEscapeSequencesAndControlBytes(t *testing.T) {
 	}
 }
 
+func TestTextDropsEveryStringControl(t *testing.T) {
+	for _, intro := range []string{"P", "]", "X", "^", "_"} {
+		var d Doc
+		d.Text("screen", "a\x1b"+intro+"payload;1\x1b\\b\x1b"+intro+"more\x07c")
+		if got, want := d.String(), "screen: |\n  abc\n"; got != want {
+			t.Fatalf("ESC %s: render = %q, want %q", intro, got, want)
+		}
+	}
+}
+
 func TestEmptyRowsStillRenderHeader(t *testing.T) {
 	var d Doc
 	d.Rows("active", []string{"id"}, nil)

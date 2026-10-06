@@ -33,7 +33,7 @@ type Doc struct {
 
 var (
 	lineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
-	escapes  = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)?")
+	escapes  = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b[P\\]X^_][^\x07\x1b]*(?:\x07|\x1b\\\\)?")
 )
 
 func plain(s string) string {
