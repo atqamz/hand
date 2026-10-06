@@ -8,8 +8,8 @@ import (
 )
 
 func TestRenameWaitsForAHandleToClose(t *testing.T) {
-	for _, held := range []string{"source", "target"} {
-		t.Run(held, func(t *testing.T) {
+	for _, open := range []string{"source", "target"} {
+		t.Run(open, func(t *testing.T) {
 			dir := t.TempDir()
 			paths := map[string]string{"source": filepath.Join(dir, "src"), "target": filepath.Join(dir, "dst")}
 			for _, p := range paths {
@@ -17,11 +17,10 @@ func TestRenameWaitsForAHandleToClose(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			f, err := os.Open(paths[held])
+			f, err := os.Open(paths[open])
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer f.Close()
 			if err := os.Rename(paths["source"], paths["target"]); err == nil {
 				t.Fatal("os.Rename succeeded over an open handle, so this test holds nothing")
 			}

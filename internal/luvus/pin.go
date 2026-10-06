@@ -182,6 +182,6 @@ func rename(oldpath, newpath string) error {
 		if err == nil || !held(err) || time.Now().After(deadline) {
 			return err
 		}
-		time.Sleep(delay)
+		time.Sleep(min(delay, 100*time.Millisecond))
 	}
 }
