@@ -251,6 +251,7 @@ func TestALostLinkDimsTheStatusAndQuietsTheIcon(t *testing.T) {
 		t.Fatal("app.js does not mark a lost link on the body, clear it, and quiet the icon")
 	}
 	contains(t, "css", css, "body[data-link=lost] .strip .status-line{opacity:.45}")
+	contains(t, "app.js", js, `.querySelector(".pill .word")`, `now.dataset.was = now.textContent;`, `now.textContent = "unknown";`, `back.textContent = back.dataset.was;`)
 }
 
 func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
