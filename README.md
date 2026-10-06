@@ -340,7 +340,7 @@ Every worker runs with its permission prompts skipped (see [The supervisor](#the
 - **Narrow token.** Log that account in to GitHub with a fine-grained personal access token limited to the repositories in use, with the Contents and Pull requests permissions and an expiry date. GitHub does not require an expiry, so set one. Do not use a broad `gh auth login`.
 - **Own signing key.** Sign with a key used only by that account, ideally a FIDO key (`ssh-keygen -t ed25519-sk`) that needs a touch for each signature. An unlocked signing agent signs whatever a process that can reach it asks.
 - **Protected default branch.** Require a pull request and refuse force-pushes, so a hijacked worker can propose a change but not land one. GitHub exempts repository admins from these rules unless "Do not allow bypassing the above settings" is on, so give the account write access rather than admin, or turn that setting on.
-- **Clean environment.** Start fleets from a shell with no cloud or API secrets. Hand drops only Claude, Codex and Luvus variables when it starts the Luvus server, and its panes inherit the rest of the environment.
+- **Clean environment.** Start fleets from a shell with no cloud or API secrets. Hand drops only `HAND_HOME` and the Claude, Codex and Luvus variables when it starts the Luvus server, and its panes inherit the rest of the environment.
 - **Review and rotate.** Keep production credentials off the machine, read worker PRs before you merge them, and rotate tokens after a suspicious run.
 - **Private board.** Keep the board on loopback and reach it with `ssh -L` instead of exposing it.
 
