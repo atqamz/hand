@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -51,6 +52,83 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	if code != 3 || !strings.Contains(errOut, "already has live attempt a1") {
 		t.Fatalf("second start code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T) {
+	fx := newAttemptFixture(t)
+	hook := filepath.Join(fx.repo, ".git", "hooks", "post-checkout")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ntouch hook-ran\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	wt := fx.h.worktree("t1-a1")
+	if _, err := os.Stat(filepath.Join(wt, ".git")); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "hook-ran")); err == nil {
+		t.Fatal("post-checkout hook ran under hand's git call")
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	for _, dir := range []string{filepath.Dir(wt), filepath.Dir(filepath.Dir(wt))} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %v, want 0700", dir, info.Mode().Perm())
+		}
+	}
+}
+
+func TestAttemptStartTightensExistingWorktreeFoldersOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("modes are not enforced on Windows")
+	}
+	fx := newAttemptFixture(t)
+	fleetDir := filepath.Dir(fx.h.worktree("t1-a1"))
+	root := filepath.Dir(fleetDir)
+	home := filepath.Dir(root)
+	if err := os.MkdirAll(fleetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{home, root, fleetDir} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fx.start()
+	for dir, want := range map[string]os.FileMode{home: 0o755, root: 0o700, fleetDir: 0o700} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode = %v, want %v", dir, info.Mode().Perm(), want)
+		}
+	}
+}
+
+func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fsmonitor script is a shell script")
+	}
+	fx := newAttemptFixture(t)
+	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
+	script := filepath.Join(t.TempDir(), "fsmonitor.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", fx.repo, "config", "core.fsmonitor", script).CombinedOutput(); err != nil {
+		t.Fatalf("git config: %s", out)
+	}
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("core.fsmonitor ran under hand's git call")
 	}
 }
 

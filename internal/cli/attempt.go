@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -355,8 +356,23 @@ func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time
 	}
 }
 
+func makePrivate(fleetDir string) error {
+	if err := os.MkdirAll(fleetDir, 0o700); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	for _, dir := range []string{fleetDir, filepath.Dir(fleetDir)} {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
-	if err := os.MkdirAll(filepath.Dir(a.Worktree), 0o755); err != nil {
+	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
 	if _, err := git(ctx, repo, "worktree", "add", "-b", a.Branch, a.Worktree, base); err != nil {

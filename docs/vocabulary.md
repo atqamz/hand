@@ -153,7 +153,7 @@ The text the supervisor gives a worker with `hand attempt start --prompt-file BR
 
 `aN`. One worker's run on one task. `hand attempt start` needs an `active` task with no live attempt. Hand then:
 
-1. makes a worktree at `worktrees/<fleet id>/tN-aN` in the shared folder, on the new branch `hand/<fleet id>/tN-aN`, from `--base` (default `HEAD`) of the project's repository;
+1. makes a worktree at `worktrees/<fleet id>/tN-aN` in the shared folder, on the new branch `hand/<fleet id>/tN-aN`, from `--base` (default `HEAD`) of the project's repository (the `worktrees/` folders are created with mode `0700`, and Hand's own git calls run no repository hooks and no `core.fsmonitor` command, so a hook a worker plants never runs inside Hand; other repository-config commands such as `diff.external`, filter smudge and `core.sshCommand` are not neutralised, and the real boundary is the Safe use guidance in the README);
 2. starts the harness there in a Luvus terminal, with the brief as its prompt.
 
 A task keeps all its attempts. At most one is live, that is `launching` or `running`.
