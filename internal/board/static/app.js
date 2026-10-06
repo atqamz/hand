@@ -36,7 +36,30 @@
 		else page().scrollTop = page().scrollHeight;
 	};
 
+	const days = () => {
+		const tl = regions.get("timeline");
+		if (!tl) return;
+		for (const p of tl.querySelectorAll(":scope > .day")) p.remove();
+		const items = [...tl.children].filter((c) => c.matches(".card, .hand-line"));
+		const at = (c) => new Date(c.querySelector("time[datetime]")?.dateTime);
+		let under = false;
+		for (let i = items.length - 1; i >= 0; i--) {
+			const d = at(items[i]);
+			if (i < items.length - 1 && !Number.isNaN(d.getTime()) && d.toDateString() !== at(items[i + 1]).toDateString()) {
+				const p = document.createElement("p");
+				p.className = "day";
+				const label = document.createElement("span");
+				label.textContent = d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+				p.append(label);
+				items[i].after(p);
+				under = true;
+			}
+			if (!items[i].matches(".wakes")) items[i].querySelector("time[datetime]")?.toggleAttribute("data-clock", under);
+		}
+	};
+
 	const local = (root) => {
+		days();
 		for (const b of root.querySelectorAll("#notify")) b.hidden = !("Notification" in window) || Notification.permission !== "default";
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);

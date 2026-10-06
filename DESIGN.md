@@ -597,7 +597,7 @@ Under a "Tasks" head, grouped by status (Active and Inbox, plus Done and Abandon
 - **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
 
 ### Hand lines
-Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in muted ink, the text clamped to one line with refs inline, and the time on the right. Consecutive wakes fold into one line, "3 wakes · 12:28–12:29", that expands to the individual lines indented 16px. Day dividers are centred muted meta between two hairlines. While the supervisor works, a working line reads "s1 working · 4m · last output 12s ago · on your 07:19 message", with the message part linking to that card.
+Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in muted ink, the text clamped to one line with refs inline, and the time on the right. Consecutive wakes fold into one line, "3 wakes · 12:28–12:29", that expands to the individual lines indented 16px. Day dividers are centred muted meta between two hairlines. Cards under a divider show the clock time only; the divider and the times use the browser's zone, and without JavaScript both use UTC and the divider says so. While the supervisor works, a working line reads "s1 working · 4m · last output 12s ago · on your 07:19 message", with the message part linking to that card.
 
 ### Composer
 One box on `card` with a hairline border and 6px corners, padded 10px, pinned under the timeline. Its focus frame is an accent border plus a 1px accent ring.
