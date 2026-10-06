@@ -83,8 +83,18 @@ func TestTheReadOnlyBoard(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	seed(t, fx.st)
 	body := get(t, fx.handler(), "/")
-	lacks(t, "read-only board", body, `id="composer"`, `action="/supervisor/keys"`, `action="/supervisor/resume"`, `action="/supervisor/stop"`, `action="/supervisor/interrupt"`, `action="/supervisor/start"`)
-	contains(t, "read-only board", body, `action="/decision/d1/answer"`, `action="/report/r1/ack"`)
+	lacks(t, "read-only board", body, `id="composer"`, `action="/supervisor/keys"`, `action="/supervisor/resume"`, `action="/supervisor/stop"`, `action="/supervisor/interrupt"`, `action="/supervisor/start"`, `class="skip"`, `#composer-text`)
+	contains(t, "read-only board", body, `action="/decision/d1/answer"`, `action="/report/r1/ack"`, "This board is read-only", "from a board on loopback")
+}
+
+func TestTheReadOnlyBoardSaysWhyWithoutASupervisor(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Controls = false
+	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	body := get(t, fx.handler(), "/")
+	contains(t, "network board", region(body, "queue"), `data-kind="nosup"`, "Start it from a board on loopback.")
+	contains(t, "network board", body, "This board is read-only")
+	lacks(t, "network board", body, "Start one in Chat", `class="skip"`, `id="composer-text"`)
 }
 
 func TestErrorPagesKeepNoPaths(t *testing.T) {
@@ -227,6 +237,8 @@ func TestTheFleetPageHasASkipLinkAndALinkState(t *testing.T) {
 	fx := newFixture(t)
 	page := get(t, fx.handler(), "/")
 	contains(t, "fleet page", page, `<a class="skip" href="#composer-text">Skip to the message box</a>`, `id="composer-text"`, `<p id="link" class="link-state" role="status" hidden></p>`)
+	fx.options.Controls = false
+	lacks(t, "network page", get(t, fx.handler(), "/"), `class="skip"`)
 	if n := strings.Index(page, `class="skip"`); n < 0 || n > strings.Index(page, `<header class="masthead">`) {
 		t.Fatal("the skip link must come before the masthead")
 	}
