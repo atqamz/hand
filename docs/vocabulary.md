@@ -225,7 +225,8 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle`, `attempt.limited` and `attempt.long` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
-- sends desktop notifications through `notify-send` (on macOS, `osascript`; on Windows, none) unless `--notify=false`.
+- alerts when an attempt ends, blocks, hits a usage limit or goes quiet, and when a decision is asked while it runs;
+- sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
 
@@ -275,7 +276,7 @@ A pending change of the supervisor's model or effort that keeps its harness and 
 
 ### Routing profile
 
-A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter of five `claude` `sonnet` profiles that differ only in effort (`quick` low, `default` medium, `high` high, `deep` xhigh, `max` max) when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume`. `hand route list` also prints a track record per harness, model and effort over ended attempts: how many, and the rates of first-try finish, re-attempt, stuck reports, interventions and wakes per attempt, and the median minutes to the first `done` report.
+A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter of five `claude` `sonnet` profiles that differ only in effort (`quick` low, `default` medium, `high` high, `deep` xhigh, `max` max) when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume` and the watcher's `notify` command. `hand route list` also prints a track record per harness, model and effort over ended attempts: how many, and the rates of first-try finish, re-attempt, stuck reports, interventions and wakes per attempt, and the median minutes to the first `done` report.
 
 ## Surfaces
 

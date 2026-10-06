@@ -98,6 +98,43 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 	}
 }
 
+func TestWatchRunsTheNotifyCommandForADecision(t *testing.T) {
+	fx := newAttemptFixture(t)
+	desktop := fakeNotify(t, fx)
+	log := filepath.Join(t.TempDir(), "notify.log")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify","--title","a b; $(x)"]}`
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"), []byte("127.0.0.1:7777\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "50ms")
+	defer stop()
+	fx.h.ok("decision", "ask", "t1", "Keep the old cookie name?\nIt breaks old sessions.")
+	var got string
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(log)
+		got = string(b)
+		return got != ""
+	})
+	fields := strings.Split(strings.TrimSpace(got), "|")
+	if len(fields) != 6 || strings.Join(fields[:5], "|") != "--title|a b; $(x)|decision.asked|d1|t1 decision: Keep the old cookie name?" {
+		t.Fatalf("notify call = %q", got)
+	}
+	if !strings.HasPrefix(fields[5], "http://127.0.0.1:7777/") || !strings.HasSuffix(fields[5], "/decision/d1") {
+		t.Fatalf("board url = %q", fields[5])
+	}
+	time.Sleep(200 * time.Millisecond)
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 {
+		t.Fatalf("notify ran more than once: %q", b)
+	}
+	if b, _ := os.ReadFile(desktop); len(b) != 0 {
+		t.Fatalf("desktop notifier ran: %q", b)
+	}
+}
+
 func TestWatchReconnectsAfterARestartAndRecordsExits(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()

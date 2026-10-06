@@ -88,3 +88,16 @@ func TestPolicyAcceptsTheSupervisorBlock(t *testing.T) {
 		t.Fatalf("unknown supervisor field err = %v", err)
 	}
 }
+
+func TestPolicyAcceptsANotifyCommand(t *testing.T) {
+	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
+	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"notify":["ntfy","publish","topic"]}`)); err != nil || !slices.Equal(p.Notify, []string{"ntfy", "publish", "topic"}) {
+		t.Fatalf("policy = %+v, %v", p, err)
+	}
+	if p, err := LoadPolicy(writePolicy(t, `{`+profiles+`}`)); err != nil || p.Notify != nil {
+		t.Fatalf("default policy = %+v, %v", p, err)
+	}
+	if _, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"notify":"ntfy publish topic"}`)); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("string notify err = %v", err)
+	}
+}

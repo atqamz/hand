@@ -46,6 +46,7 @@ type watcher struct {
 	seen    map[int64]string
 	limited int64
 	turns   map[int64]*turn
+	asked   int64
 	pending sync.WaitGroup
 }
 
@@ -56,7 +57,7 @@ type turn struct {
 
 func cmdWatch(r *runner, args []string) error {
 	fs := flags("watch")
-	notify := fs.Bool("notify", true, "send desktop notifications (notify-send on Linux, osascript on macOS)")
+	notify := fs.Bool("notify", true, "send notifications: the routing.json notify command, else notify-send on Linux or osascript on macOS")
 	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -92,6 +93,9 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
+	if w.asked, err = st.LastEventSeq(ctx); err != nil {
+		return err
+	}
 	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
@@ -296,10 +300,34 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
-			w.alert(ctx, state.AttemptRef(a.ID)+" "+now.Status+": "+now.Reason)
+			ref := state.AttemptRef(a.ID)
+			w.alert(ctx, "attempt."+now.Status, ref, ref+" "+now.Status+": "+now.Reason)
 		}
 	}
+	if err := w.decisions(ctx); err != nil {
+		return err
+	}
 	w.deliver(ctx, c, caps)
+	return nil
+}
+
+func (w *watcher) decisions(ctx context.Context) error {
+	events, err := w.st.EventsAfter(ctx, w.asked, []string{"decision.asked"}, wakeBatch)
+	if err != nil {
+		return err
+	}
+	for _, e := range events {
+		id, err := parseID("d", e.Detail)
+		if err != nil {
+			return err
+		}
+		d, err := w.st.Decision(ctx, id)
+		if err != nil {
+			return err
+		}
+		w.asked = e.Seq
+		w.alert(ctx, e.Kind, e.Detail, state.TaskRef(e.TaskID)+" decision: "+d.Headline())
+	}
 	return nil
 }
 
@@ -469,7 +497,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
 			return err
 		}
-		w.alert(ctx, ref+" blocked: "+detail)
+		w.alert(ctx, "attempt.blocked", ref, ref+" blocked: "+detail)
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
@@ -487,7 +515,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
 					return err
 				}
-				w.alert(ctx, ref+" limited: "+line)
+				w.alert(ctx, "attempt.limited", ref, ref+" limited: "+line)
 				return nil
 			}
 		}
@@ -495,7 +523,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if err != nil {
 			return err
 		}
-		w.alert(ctx, ref+" quiet: "+detail)
+		w.alert(ctx, "attempt.quiet", ref, ref+" quiet: "+detail)
 	}
 	return nil
 }
@@ -505,23 +533,46 @@ func shown(line string) string {
 	return line
 }
 
-func (w *watcher) alert(ctx context.Context, text string) {
+func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.say(text)
 	if !w.notify {
 		return
 	}
-	name, args := notifyArgv(w.r.fleet.Name, text)
+	name, args, extra := w.notifier(ctx, kind, ref, text)
 	bin, err := harness.LookPath(name, w.r.env.Getenv("PATH"))
 	if err != nil {
 		return
 	}
+	env := append(w.r.env.Environ(), extra...)
 	w.pending.Add(1)
 	go func() {
 		defer w.pending.Done()
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
-		_ = exec.CommandContext(nctx, bin, args...).Run()
+		cmd := exec.CommandContext(nctx, bin, args...)
+		cmd.Env = env
+		_ = cmd.Run()
 	}()
+}
+
+func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string, []string, []string) {
+	if p, err := harness.LoadPolicy(w.r.home); err == nil && len(p.Notify) > 0 {
+		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + w.boardURL(ctx, ref)}
+	}
+	name, args := notifyArgv(w.r.fleet.Name, text)
+	return name, args, nil
+}
+
+func (w *watcher) boardURL(ctx context.Context, ref string) string {
+	addr, err := os.ReadFile(filepath.Join(w.r.root, "board.addr"))
+	if err != nil {
+		return ""
+	}
+	path, _, err := boardPage(ctx, w.st, ref)
+	if err != nil {
+		return ""
+	}
+	return "http://" + strings.TrimSpace(string(addr)) + "/" + w.r.fleet.ID + path
 }
 
 func (w *watcher) say(text string) {

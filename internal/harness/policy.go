@@ -20,6 +20,7 @@ const PolicyFile = "routing.json"
 
 type Policy struct {
 	Profiles   map[string]Spec `json:"profiles"`
+	Notify     []string        `json:"notify,omitzero"`
 	Supervisor struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`

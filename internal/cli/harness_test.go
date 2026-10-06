@@ -31,10 +31,16 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "reporter": reporterMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"fake": fakeMain, "wrap": wrapMain, "reporter": reporterMain, "notifyenv": notifyEnvMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
+}
+
+func notifyEnvMain(args []string) int {
+	line := strings.Join(append(args, os.Getenv("HAND_NOTIFY_KIND"), os.Getenv("HAND_NOTIFY_REF"), os.Getenv("HAND_NOTIFY_TEXT"), os.Getenv("HAND_NOTIFY_URL")), "|")
+	fakebin.Append(fakebin.Params()["log"], line)
+	return 0
 }
 
 func wrapMain(args []string) int {
