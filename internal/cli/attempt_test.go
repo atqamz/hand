@@ -83,6 +83,55 @@ func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T
 	}
 }
 
+func TestAttemptStartTightensExistingWorktreeFoldersOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("modes are not enforced on Windows")
+	}
+	fx := newAttemptFixture(t)
+	fleetDir := filepath.Dir(fx.h.worktree("t1-a1"))
+	root := filepath.Dir(fleetDir)
+	home := filepath.Dir(root)
+	if err := os.MkdirAll(fleetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{home, root, fleetDir} {
+		if err := os.Chmod(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fx.start()
+	for dir, want := range map[string]os.FileMode{home: 0o755, root: 0o700, fleetDir: 0o700} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != want {
+			t.Fatalf("%s mode = %v, want %v", dir, info.Mode().Perm(), want)
+		}
+	}
+}
+
+func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fsmonitor script is a shell script")
+	}
+	fx := newAttemptFixture(t)
+	marker := filepath.Join(t.TempDir(), "fsmonitor-ran")
+	script := filepath.Join(t.TempDir(), "fsmonitor.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", fx.repo, "config", "core.fsmonitor", script).CombinedOutput(); err != nil {
+		t.Fatalf("git config: %s", out)
+	}
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	fx.h.ok("attempt", "clean", "a1")
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("core.fsmonitor ran under hand's git call")
+	}
+}
+
 func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
 	fx := newAttemptFixture(t)
 	_, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "gpt-5.5", "--effort", "low", "--prompt-file", fx.brief, "t1")
