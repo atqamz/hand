@@ -73,7 +73,7 @@ To restore a backup:
 5. start the units again.
 
 The options:
-- `hand update --check` shows what would change and changes nothing;
+- `hand update --check` shows what would change and changes nothing; its `units` rows list the stop, start and restart steps a real run would take, each marked `would run`;
 - `hand update --channel edge` (or `stable`) moves to the other channel;
 - a `hand` built from source needs `--channel`.
 

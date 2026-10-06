@@ -481,6 +481,53 @@ func TestRunCheckShowsTheFleetPlan(t *testing.T) {
 	}
 }
 
+func TestRunCheckListsTheUnitActionsTheRealRunTakes(t *testing.T) {
+	for name, setup := range map[string]func(*fixture){
+		"installed": func(*fixture) {},
+		"transient": func(f *fixture) { f.watchTransient(t, "yes") },
+		"stale":     func(f *fixture) { f.stale() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			check := newRun(t, nil)
+			setup(check)
+			check.o.Check = true
+			previewed, err := Run(context.Background(), check.o)
+			if err != nil || previewed.Failed {
+				t.Fatalf("check = %+v, %v", previewed, err)
+			}
+			check.unchanged(t)
+			if got := check.log(t, append(changes, "watcher @ ")...); len(got) != 0 {
+				t.Fatalf("check calls = %q", got)
+			}
+			real := newRun(t, nil)
+			setup(real)
+			ran, err := Run(context.Background(), real.o)
+			if err != nil || ran.Failed {
+				t.Fatalf("run = %+v, %v", ran, err)
+			}
+			if len(previewed.Units) < 3 {
+				t.Fatalf("check units = %+v", previewed.Units)
+			}
+			rows := func(f *fixture, units []UnitResult) []string {
+				var out []string
+				for _, u := range units {
+					name := strings.NewReplacer(f.alpha, "ALPHA", f.alphaID, "ID").Replace(u.Name)
+					out = append(out, name+" "+u.Action)
+				}
+				return out
+			}
+			for _, u := range previewed.Units {
+				if u.Result != "would run" {
+					t.Fatalf("check unit = %+v", u)
+				}
+			}
+			if got, want := rows(check, previewed.Units), rows(real, ran.Units); !slices.Equal(got, want) {
+				t.Fatalf("check units\n%q\nrun units\n%q", got, want)
+			}
+		})
+	}
+}
+
 func TestRunTreatsAnUnreadableSupervisorAsBusy(t *testing.T) {
 	f := newRun(t, nil)
 	f.stale()

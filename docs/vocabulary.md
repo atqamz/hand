@@ -74,6 +74,8 @@ What `hand update` does, in order:
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
+`hand update --check` runs steps 5 and 6 without changing anything: it fills the same `units` rows, each marked `would run`, and runs no `systemctl` command, no supervisor stop and no `hand init`.
+
 Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units and watchers, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
 
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy a backup over `hand.db`: the newest `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/`.
