@@ -26,7 +26,7 @@ func screenTail(s string) string {
 			return r
 		case r == '\t':
 			return ' '
-		case unicode.IsControl(r):
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r):
 			return -1
 		}
 		return r

@@ -227,9 +227,9 @@ func TestAVersion8HomeLearnsTheLastScreenOfAnAttempt(t *testing.T) {
 }
 
 func TestAScreenIsTrimmedToItsEndAndMadeSafe(t *testing.T) {
-	long := strings.Repeat("é", 3000) + "\x1b[31mend\x1b]0;title\x07 of\tscreen\x00\n"
+	long := strings.Repeat("é", 3000) + "\x1b[31mend\x1b]0;title\x07 of\tscreen\u202e\u200b\x00\n"
 	got := screenTail(long)
-	if len(got) > screenMax || !utf8.ValidString(got) || !strings.HasSuffix(got, "end of screen") || strings.ContainsAny(got, "\x1b\x00\x07\r") {
+	if len(got) > screenMax || !utf8.ValidString(got) || !strings.HasSuffix(got, "end of screen") || strings.ContainsAny(got, "\x1b\x00\x07\r\u202e\u200b") {
 		t.Fatalf("tail = %q", got)
 	}
 	if got := screenTail("\x1b[2J \n\t\x00"); got != "" {
