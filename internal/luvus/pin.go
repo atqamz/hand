@@ -90,7 +90,7 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return Pin{}, err
 		}
-		if err := os.Rename(tmp, dest); err != nil {
+		if err := rename(tmp, dest); err != nil {
 			return Pin{}, err
 		}
 		if err := syncDir(filepath.Dir(dest)); err != nil {
@@ -169,8 +169,10 @@ func writePin(store string, p Pin) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), filepath.Join(store, "pin.json")); err != nil {
+	if err := rename(tmp.Name(), filepath.Join(store, "pin.json")); err != nil {
 		return err
 	}
 	return syncDir(store)
 }
+
+func rename(oldpath, newpath string) error { return os.Rename(oldpath, newpath) }
