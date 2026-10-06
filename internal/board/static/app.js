@@ -316,7 +316,7 @@
 	const tabs = [...document.querySelectorAll("[data-tab]")];
 	const hashed = location.hash.slice(1);
 	let current = tabs.some((t) => t.dataset.tab === hashed) ? hashed : waiting > 0 ? "needs" : "chat";
-	const desk = matchMedia("(min-width:1280px)");
+	const desk = matchMedia("(min-width:1024px)");
 	const select = () => {
 		for (const t of tabs) {
 			const on = t.dataset.tab === current;

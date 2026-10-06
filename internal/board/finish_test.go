@@ -41,7 +41,7 @@ func TestAPressClosesTheItemInPlace(t *testing.T) {
 func TestTheMastheadAlignsWithItsColumn(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "masthead", css, "body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 760px)/2))}", "body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% - 848px)/2))}")
-	contains(t, "desk", block(t, css, "@media (min-width:1280px){"), "body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 1192px)/2))}")
+	contains(t, "desk", block(t, css, "@media (min-width:1024px){"), "body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 1192px)/2))}")
 }
 
 func TestNoSupervisorWaitsInAmber(t *testing.T) {
@@ -152,4 +152,16 @@ func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
 func TestReportHeadersCentreTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "report head", css, ".thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;", ".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{")
+}
+
+func TestNeedsAffordances(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		".wait>summary:focus-visible{outline-offset:-2px}",
+		"grid-template-columns:16px minmax(0,1fr) auto 16px",
+		".wait>summary>.icon:last-child{grid-column:4;grid-row:1;",
+		".wait[open]>summary>.icon:last-child{transform:rotate(180deg)}",
+		"#needs{scrollbar-gutter:stable}")
+	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".wait>summary>.icon:last-child{transition:none}")
+	contains(t, "desk", block(t, css, "@media (min-width:1024px){"), "body[data-page=fleet] .queue-head{display:flex;position:sticky;top:0;")
 }

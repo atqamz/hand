@@ -1386,7 +1386,7 @@
     "breakpoints": [
       {
         "name": "desk",
-        "value": "(min-width:1280px)",
+        "value": "(min-width:1024px)",
         "purpose": "Chat 760px and the Needs rail 360 to 400px side by side, 32px apart; tabs hidden; the Needs head shown; masthead aligned to 1192px."
       },
       {
@@ -1429,7 +1429,7 @@
       {
         "name": "fleet-column",
         "value": "760px",
-        "purpose": "Chat, and each tabbed panel below 1280px."
+        "purpose": "Chat, and each tabbed panel below 1024px."
       },
       {
         "name": "needs-rail",
@@ -1665,7 +1665,7 @@
       "name": "Tabs",
       "kind": "nav",
       "refersTo": "tab",
-      "description": "Below 1280px: Needs with its worst-toned count, and Chat with the working dot.",
+      "description": "Below 1024px: Needs with its worst-toned count, and Chat with the working dot.",
       "html": "<nav class=\"ds-tabs\"><a href=\"#\" aria-current=\"true\">Needs <span class=\"ds-n\" data-worst=\"fail\">1</span></a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
       "css": ".ds-tabs{display:flex;background:var(--bg,#fcfcfd);border-bottom:1px solid var(--line,#d5dbe2);font:600 14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{display:flex;align-items:center;gap:6px;margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted,#59616c);text-decoration:none}.ds-tabs a:hover{color:var(--fg,#1b1f24)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#1b1f24);color:var(--fg,#1b1f24)}.ds-n{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}.ds-n[data-worst=fail]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}.ds-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#1d5fc2)}"
     },
@@ -1712,7 +1712,7 @@
   ],
   "narrative": {
     "northStar": "The On-Call Desk",
-    "overview": "The fleet is an on-call desk. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order, acknowledged in place, and resolved into the timeline. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press \"2 No\", answer d5, mark r7 read), watch it collapse to its receipt while a Hand line lands in Chat, and then read s1's cards and steer it from the composer.\n\nThe material is a quiet review palette: a near-white ground, pale grey cards on hairline rules and near-black ink, with a GitHub-dark night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.\n\nThe desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1280px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.",
+    "overview": "The fleet is an on-call desk. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order, acknowledged in place, and resolved into the timeline. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press \"2 No\", answer d5, mark r7 read), watch it collapse to its receipt while a Hand line lands in Chat, and then read s1's cards and steer it from the composer.\n\nThe material is a quiet review palette: a near-white ground, pale grey cards on hairline rules and near-black ink, with a GitHub-dark night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.\n\nThe desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1024px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.",
     "keyCharacteristics": [
       "A near-white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#0d1117` with cards raised to `#161b22` at night.",
       "One severity ramp orders Needs, fills each item's header, and colours the Needs counts.",
@@ -1750,7 +1750,7 @@
       },
       {
         "name": "The Rail At Desk Width Rule",
-        "body": "Needs is a rail only from 1280px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.",
+        "body": "Needs is a rail only from 1024px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.",
         "section": "layout"
       },
       {
@@ -1781,7 +1781,7 @@
       "**Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.",
       "**Don't** load web fonts or images from the stylesheet.",
       "**Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.",
-      "**Don't** show the Needs rail below 1280px, and don't switch tabs for the operator.",
+      "**Don't** show the Needs rail below 1024px, and don't switch tabs for the operator.",
       "**Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt."
     ]
   }

@@ -207,3 +207,18 @@ func TestNeedsListsTheOldestUnreadReports(t *testing.T) {
 	contains(t, "queue", queue, `<span class="ref">r1</span>`, `<span class="ref">r2</span>`)
 	lacks(t, "queue", queue, `<span class="ref">r51</span>`)
 }
+
+func TestEveryNeedsSummaryEndsInAChevron(t *testing.T) {
+	fx := newFixture(t)
+	attempt(t, fx.st, active(t, fx.st, "Flaky test").ID, state.AttemptFailed, "launch did not finish")
+	attempt(t, fx.st, active(t, fx.st, "Fix login").ID, state.AttemptFailed, "launch did not finish")
+	found := summaries.FindAllString(region(get(t, fx.handler(), "/"), "queue"), -1)
+	if len(found) < 2 {
+		t.Fatalf("summaries = %q", found)
+	}
+	for _, s := range found {
+		if !strings.HasSuffix(s, `<path d="M4.5 6.25L8 9.75l3.5-3.5"/></svg></summary>`) {
+			t.Fatalf("a summary does not end in the chevron: %s", s)
+		}
+	}
+}
