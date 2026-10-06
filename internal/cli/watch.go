@@ -112,6 +112,7 @@ func cmdWatch(r *runner, args []string) error {
 		if err != nil && ctx.Err() == nil {
 			w.say("luvus: " + err.Error())
 		}
+		w.snapshot(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):

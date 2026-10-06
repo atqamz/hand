@@ -975,3 +975,54 @@ func TestWatchPrunesSnapshotsWhenTodaysExists(t *testing.T) {
 		t.Fatal("a stale .tmp survived")
 	}
 }
+
+func TestWatchSnapshotsWhileReconcileFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.validateFail = true })
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan string, 1)
+	go func() {
+		out, _, _ := fx.h.runCtx(ctx, "watch", "--every", "30ms")
+		done <- out
+	}()
+	eventually(t, func() bool {
+		m, _ := filepath.Glob(filepath.Join(root, "backups", "*", "hand-*.db"))
+		return len(m) == 1
+	})
+	cancel()
+	if out := <-done; !strings.Contains(out, "validate down") {
+		t.Fatalf("reconcile did not fail: %q", out)
+	}
+}
+
+func TestWatchPruneKeepsGoingAfterAFailedRemovalAndNamesIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	ids, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("fleets = %v, %v", ids, err)
+	}
+	dir := filepath.Join(root, "backups", ids[0].Name())
+	stuck := filepath.Join(dir, "hand-20240101.db.tmp")
+	if err := os.MkdirAll(filepath.Join(stuck, "child"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	day := fx.h.clock()
+	for i := range 9 {
+		name := "hand-" + day.AddDate(0, 0, -i).Format("20060102") + ".db"
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	eventually(t, func() bool {
+		m, _ := filepath.Glob(filepath.Join(dir, "hand-*.db"))
+		return len(m) == 7
+	})
+	out, _ := stop()
+	if !strings.Contains(out, "snapshot prune: ") || strings.Contains(out, "observed: \"snapshot: ") {
+		t.Fatalf("watch out = %q", out)
+	}
+}

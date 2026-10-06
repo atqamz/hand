@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,11 +31,12 @@ func (w *watcher) snapshot(ctx context.Context) {
 			err = os.Rename(tmp, path)
 		}
 	}
-	if err == nil {
-		err = pruneSnapshots(dir)
-	}
 	if err != nil {
 		w.say("snapshot: " + err.Error())
+		return
+	}
+	if err = pruneSnapshots(dir); err != nil {
+		w.say("snapshot prune: " + err.Error())
 	}
 }
 
@@ -43,12 +45,11 @@ func pruneSnapshots(dir string) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	var kept []string
 	for _, de := range des {
 		if strings.HasPrefix(de.Name(), "hand-") && strings.HasSuffix(de.Name(), ".db.tmp") {
-			if err := os.Remove(filepath.Join(dir, de.Name())); err != nil {
-				return err
-			}
+			errs = append(errs, os.Remove(filepath.Join(dir, de.Name())))
 			continue
 		}
 		if day, ok := strings.CutPrefix(de.Name(), "hand-"); ok {
@@ -61,10 +62,8 @@ func pruneSnapshots(dir string) error {
 	}
 	slices.Sort(kept)
 	for len(kept) > snapshotKeep {
-		if err := os.Remove(filepath.Join(dir, kept[0])); err != nil {
-			return err
-		}
+		errs = append(errs, os.Remove(filepath.Join(dir, kept[0])))
 		kept = kept[1:]
 	}
-	return nil
+	return errors.Join(errs...)
 }
