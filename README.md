@@ -216,7 +216,7 @@ Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's reposi
 
 ## Keep the watcher and the board running
 
-`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session and does not restart after a crash. To keep it across logins and restarts, install a unit:
+`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash. To start it with your graphical session after every login and restart, install a unit:
 
 Each fleet has its own watcher, so give each fleet's unit its own name. From inside the fleet folder:
 
@@ -235,6 +235,8 @@ hand unit board > ~/.config/systemd/user/secondhand-board.service
 systemctl --user daemon-reload
 systemctl --user enable --now secondhand-board
 ```
+
+Each unit starts with your graphical session: it is `After=` and `WantedBy=` `graphical-session.target`, which systemd reaches once the session manager has imported `WAYLAND_DISPLAY`, `DISPLAY` and the rest of the session environment. The Luvus server and every pane inherit that environment, so pinentry can prompt. It has no `PartOf=`, so logging out does not stop the units or the agents. A host without a graphical session, for example a headless server, never reaches that target, so the unit never starts there; edit `WantedBy=graphical-session.target` back to `WantedBy=default.target` and delete the `After=` line.
 
 Each unit keeps the `PATH` of the shell you ran `hand unit` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board, the watcher and the Luvus server they start need it to find `claude`, `hand` and your tools. Run `hand unit` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
 
@@ -364,7 +366,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
-| `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
+| `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart Hand's units, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 

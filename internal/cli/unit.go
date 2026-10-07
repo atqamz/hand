@@ -85,14 +85,15 @@ func cmdUnit(r *runner, args []string) error {
 		service += `Environment="PATH=` + path + "\"\n"
 	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
-		"Description="+description+"\n\n"+
+		"Description="+description+"\n"+
+		"After=graphical-session.target\n\n"+
 		"[Service]\n"+
 		service+
 		`ExecStart="`+exe+`" `+command+"\n"+
 		"Restart=on-failure\n"+
 		"RestartSec=5\n\n"+
 		"[Install]\n"+
-		"WantedBy=default.target\n")
+		"WantedBy=graphical-session.target\n")
 	return err
 }
 

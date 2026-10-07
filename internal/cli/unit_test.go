@@ -18,7 +18,7 @@ func TestUnitFilesRunTheWatcherAndTheBoard(t *testing.T) {
 	h.ok("init")
 	exe, _ := os.Executable()
 	watch := h.ok("unit", "watch")
-	for _, want := range []string{"[Service]", `Environment="HAND_HOME=` + h.home + `"`, `ExecStart="` + exe + `" watch`, "Restart=on-failure", "WantedBy=default.target"} {
+	for _, want := range []string{"[Service]", `Environment="HAND_HOME=` + h.home + `"`, `ExecStart="` + exe + `" watch`, "Restart=on-failure", "After=graphical-session.target\n", "WantedBy=graphical-session.target\n"} {
 		if !strings.Contains(watch, want) {
 			t.Fatalf("watch unit missing %q:\n%s", want, watch)
 		}
@@ -77,7 +77,7 @@ func TestBoardUnitIsGlobal(t *testing.T) {
 	h.vars["HAND_HOME"] = ""
 	exe, _ := os.Executable()
 	board := h.ok("unit", "board")
-	for _, want := range []string{"Description=Hand board\n", `ExecStart="` + exe + `" board --addr 127.0.0.1:7777` + "\n", "Restart=on-failure", "WantedBy=default.target"} {
+	for _, want := range []string{"Description=Hand board\n", `ExecStart="` + exe + `" board --addr 127.0.0.1:7777` + "\n", "Restart=on-failure", "After=graphical-session.target\n", "WantedBy=graphical-session.target\n"} {
 		if !strings.Contains(board, want) {
 			t.Fatalf("board unit missing %q:\n%s", want, board)
 		}
