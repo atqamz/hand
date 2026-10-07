@@ -137,7 +137,7 @@ $link.Save()
 
 ## Getting started
 
-Install Hand as described above. You use two commands, then the browser. The other `hand` commands are for the supervisor, the agent that runs your fleet.
+Install Hand as described above. You use two commands, then the browser, with the board running (`hand init` does not start it). The other `hand` commands are for the supervisor, the agent that runs your fleet.
 
 1. **Make a fleet.** In a folder of its own:
 
