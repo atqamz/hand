@@ -129,8 +129,10 @@ func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 			t.Fatalf("index missing %q:\n%s", want, body)
 		}
 	}
-	if strings.Contains(body, "Old chore") {
-		t.Fatal("abandoned task shown without ?all=1")
+	for _, want := range []string{"Old chore", "Finished", `href="/tasks">Browse finished tasks (1)`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("rail lacks %q", want)
+		}
 	}
 	if all := request(h, "GET", "/?all=1", nil, true).Body.String(); !strings.Contains(all, "Old chore") {
 		t.Fatal("?all=1 hides the abandoned task")

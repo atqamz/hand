@@ -586,10 +586,10 @@ The signature interaction. Pressing a key on a blocked screen marks the item sen
 With nothing open, Needs shows the passing icon in green, "All clear" in ink at 600, and in muted ink the time it was last cleared and a summary: "All clear since 12:41 · 1 running · 6 inbox".
 
 ### Tasks
-Under a "Tasks" head, grouped by status (Active and Inbox, plus Done and Abandoned when finished tasks show), each group with a muted label head and a count pill.
+Under a "Tasks" head, grouped by status (Active and Inbox, then a Finished group holding the five most recent finished tasks), each group with a muted label head and a count pill. The Finished count is every finished task, not the five shown.
 - **Row:** a grid of the state icon, the task ref chip, the title (one line, ellipsis), a right-aligned muted meta ("a9 claude opus · blocked") and a PR chip, padded 6px by 4px between hairlines.
 - **Icon colour:** failing red, waiting amber, running and passing green, idle neutral.
-- A "Show finished tasks" link sits under the list.
+- A "Browse finished tasks (N)" link, 12px, sits under the list and opens the finished-tasks page. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
 ### Chat cards
 - **Supervisor card:** on the left, fit to its content between 16em and 90% of the column, with a hairline border and 8px corners on the ground. Its header strip, on `card` with a hairline under it, holds "s1" in ink at 600, the model when it changed, and the time, all in Meta type. The body is the reply's markdown in Copy type, padded 10px by 12px.
@@ -632,6 +632,7 @@ Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a
 ### Thread pages
 - **Head:** crumbs in muted 14px with ref chips, the title in Display type, a slug line with the status pill, refs, time and PR chips, then one hairline rule.
 - **Task page:** waiting rows for its open decisions and unread reports, each with a filled severity code; the goal and plan as cards with Copy filling the card; attempts as task rows; reports as bordered cards whose header strip is neutral-bg, fail-bg when blocked or failed, or pass-bg when done, holding the ref, the summary, "from aN", the state word, the time and Mark read or "read by"; decisions with their answers; events as a grid of time, kind in plain words and detail.
+- **Finished-tasks page** (`/<fleet>/tasks`): the head, then a GET form on a grid of 150px-minimum columns: Search across the full width, then Status, Project (only when the fleet has several), Since and Until as native date inputs (labelled UTC) and the primary Search button with a Clear link while a filter is set. Inputs and selects are 32px high. A muted 12px count line ("46 tasks") sits above the results. Results are task rows in the Tasks region's markup, grouped by day under group heads with count pills ("Tue 6 Oct UTC 5"), each row carrying the finish time in muted tabular meta before its PR chip; the server groups in UTC and JavaScript regroups in the browser's zone, as the timeline does, dropping "UTC". An empty result reads "No tasks match." in muted ink. Previous and Next links sit under the list at the left and right edges, keep every filter, and grow to 44px on touch. The page works without JavaScript, claims none of the five fleet-page regions and carries no composer.
 - **Decision page:** the headline, the question as markdown, option chips, the answer box and the primary Answer. Once answered, the answer shows as an operator card.
 - **Error page:** one card with the status code as a red severity code, the message and a link back. It never shows a path.
 - **Fleet list:** one row per fleet with its mark in its tint, its name and its id.

@@ -520,6 +520,7 @@ type check struct {
 	State   string
 	Agent   string
 	Attempt *state.Attempt
+	At      string
 	PR      string
 }
 

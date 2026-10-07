@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 var handRepo, _ = filepath.Abs("/home/me/hand")
@@ -149,5 +151,90 @@ func TestTransitionRecordsEvent(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Kind != "task.active" || last.TaskID != task.ID || last.Detail != "inbox->active" {
 		t.Fatalf("last event = %+v", last)
+	}
+}
+
+func TestSearchTasks(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	seedProject(t, s)
+	other, _ := filepath.Abs("/other")
+	if _, err := s.AddProject(ctx, "docs", other); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	finish := func(project, title, goal, to string) Task {
+		task, err := s.AddTask(ctx, project, title, goal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Transition(ctx, task.ID, StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		s.now = func() time.Time { return day }
+		if _, err := s.Transition(ctx, task.ID, to); err != nil {
+			t.Fatal(err)
+		}
+		day = day.Add(24 * time.Hour)
+		return task
+	}
+	finish("hand", "Fix Login cookie", "", StatusDone)
+	finish("hand", "Write docs", "mention the login page", StatusDone)
+	finish("docs", "Drop chore", "", StatusAbandoned)
+	finish("hand", "Fix search", "", StatusDone)
+	open, err := s.AddTask(ctx, "hand", "Fix inbox", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	refs := func(q TaskQuery) (string, int) {
+		t.Helper()
+		if q.Limit == 0 {
+			q.Limit = 50
+		}
+		tasks, total, err := s.SearchTasks(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, task := range tasks {
+			out = append(out, TaskRef(task.ID))
+		}
+		return strings.Join(out, " "), total
+	}
+	done := []string{StatusDone, StatusAbandoned}
+	for _, tc := range []struct {
+		name  string
+		q     TaskQuery
+		want  string
+		total int
+	}{
+		{"newest first", TaskQuery{Statuses: done}, "t4 t3 t2 t1", 4},
+		{"every word, any case", TaskQuery{Q: "LOGIN fix", Statuses: done}, "t1", 1},
+		{"goal", TaskQuery{Q: "login page", Statuses: done}, "t2", 1},
+		{"ref", TaskQuery{Q: "t3", Statuses: done}, "t3", 1},
+		{"a bare number is not a ref", TaskQuery{Q: "3", Statuses: done}, "", 0},
+		{"status", TaskQuery{Statuses: []string{StatusAbandoned}}, "t3", 1},
+		{"project", TaskQuery{Project: "hand", Statuses: done}, "t4 t2 t1", 3},
+		{"since", TaskQuery{Since: "2026-10-02", Statuses: done}, "t4 t3 t2", 3},
+		{"until", TaskQuery{Until: "2026-10-02", Statuses: done}, "t2 t1", 2},
+		{"both dates", TaskQuery{Since: "2026-10-02", Until: "2026-10-03", Statuses: done}, "t3 t2", 2},
+		{"empty", TaskQuery{Q: "nothing here", Statuses: done}, "", 0},
+		{"unfinished fall back to the update", TaskQuery{Statuses: []string{StatusInbox}}, TaskRef(open.ID), 1},
+		{"page", TaskQuery{Statuses: done, Limit: 2, Offset: 2}, "t2 t1", 4},
+		{"past the end", TaskQuery{Statuses: done, Limit: 2, Offset: 8}, "", 4},
+	} {
+		if got, total := refs(tc.q); got != tc.want || total != tc.total {
+			t.Errorf("%s: got %q of %d, want %q of %d", tc.name, got, total, tc.want, tc.total)
+		}
+	}
+	tasks, _, _ := s.SearchTasks(ctx, TaskQuery{Statuses: done, Limit: 1})
+	if tasks[0].FinishedAt != "2026-10-04T12:00:00Z" {
+		t.Errorf("finished at = %q", tasks[0].FinishedAt)
+	}
+	for _, q := range []TaskQuery{{Limit: 0}, {Limit: 1, Statuses: []string{"later"}}, {Limit: 1, Since: "yesterday"}, {Limit: 1, Until: "2026-13-01"}} {
+		if _, _, err := s.SearchTasks(ctx, q); !errors.Is(err, ErrInvalid) {
+			t.Errorf("SearchTasks(%+v) err = %v, want ErrInvalid", q, err)
+		}
 	}
 }

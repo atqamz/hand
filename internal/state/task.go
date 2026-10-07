@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -25,13 +26,14 @@ var transitions = map[string][]string{
 }
 
 type Task struct {
-	ID        int64
-	Project   string
-	Title     string
-	Goal      string
-	Status    string
-	CreatedAt string
-	UpdatedAt string
+	ID         int64
+	Project    string
+	Title      string
+	Goal       string
+	Status     string
+	CreatedAt  string
+	UpdatedAt  string
+	FinishedAt string
 }
 
 const taskSelect = `SELECT id, project, title, goal, status, created_at, updated_at FROM task`
@@ -112,6 +114,78 @@ func (s *Store) Tasks(ctx context.Context, want []string, limit int) ([]Task, er
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+type TaskQuery struct {
+	Q        string
+	Statuses []string
+	Project  string
+	Since    string
+	Until    string
+	Limit    int
+	Offset   int
+}
+
+const finishedAt = `COALESCE(f.at, t.updated_at)`
+
+func (s *Store) SearchTasks(ctx context.Context, q TaskQuery) ([]Task, int, error) {
+	if q.Limit < 1 {
+		return nil, 0, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	for _, st := range q.Statuses {
+		if !slices.Contains(statuses, st) {
+			return nil, 0, fmt.Errorf("%w: unknown task status %q; want one of %s", ErrInvalid, st, strings.Join(statuses, ", "))
+		}
+	}
+	var where []string
+	var args []any
+	if len(q.Statuses) > 0 {
+		where = append(where, `t.status IN (`+strings.TrimSuffix(strings.Repeat("?,", len(q.Statuses)), ",")+`)`)
+		for _, st := range q.Statuses {
+			args = append(args, st)
+		}
+	}
+	if q.Project != "" {
+		where = append(where, `t.project = ?`)
+		args = append(args, q.Project)
+	}
+	for _, d := range []struct{ name, value, op string }{{"since", q.Since, ">="}, {"until", q.Until, "<="}} {
+		if d.value == "" {
+			continue
+		}
+		if _, err := time.Parse(time.DateOnly, d.value); err != nil {
+			return nil, 0, fmt.Errorf("%w: %s %q is not a date; want YYYY-MM-DD", ErrInvalid, d.name, d.value)
+		}
+		where = append(where, `substr(`+finishedAt+`, 1, 10) `+d.op+` ?`)
+		args = append(args, d.value)
+	}
+	for _, w := range strings.Fields(strings.ToLower(q.Q)) {
+		where = append(where, `(instr(lower(t.title), ?) > 0 OR instr(lower(t.goal), ?) > 0 OR 't' || t.id = ?)`)
+		args = append(args, w, w, w)
+	}
+	from := ` FROM task t LEFT JOIN (SELECT task_id, max(at) AS at FROM event WHERE kind IN ('task.done', 'task.abandoned') GROUP BY task_id) f ON f.task_id = t.id`
+	if len(where) > 0 {
+		from += ` WHERE ` + strings.Join(where, ` AND `)
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*)`+from, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, `+finishedAt+from+` ORDER BY `+finishedAt+` DESC, t.id DESC LIMIT ? OFFSET ?`,
+		append(args, q.Limit, max(q.Offset, 0))...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []Task
+	for rows.Next() {
+		var t Task
+		if err := rows.Scan(&t.ID, &t.Project, &t.Title, &t.Goal, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.FinishedAt); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, t)
+	}
+	return out, total, rows.Err()
 }
 
 func (s *Store) CountTasks(ctx context.Context) (map[string]int, error) {

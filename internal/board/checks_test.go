@@ -52,7 +52,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 	}
 	h := board.New(st, token, board.Options{})
 	rows := checks(get(t, h, "/"))
-	want := map[string]string{"t1": "running", "t2": "waiting", "t3": "failing", "t5": "idle"}
+	want := map[string]string{"t1": "running", "t2": "waiting", "t3": "failing", "t4": "passing", "t5": "idle"}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %v", rows)
 	}

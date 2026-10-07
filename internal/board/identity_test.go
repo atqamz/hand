@@ -334,8 +334,15 @@ func TestTheFinishFixesHold(t *testing.T) {
 func TestFleetLinksKeepTheirTab(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptStopped, "gen-1")
+	old := active(t, fx.st, "Old chore")
+	if _, err := fx.st.Transition(context.Background(), old.ID, state.StatusDone); err != nil {
+		t.Fatal(err)
+	}
 	body := get(t, fx.handler(), "/")
-	contains(t, "fleet page", body, `href="/?all=1#needs"`, `href="/?pick=1#chat"`)
+	contains(t, "fleet page", body, `href="/tasks">Browse finished tasks (1)`, `href="/?pick=1#chat"`)
+	if strings.Contains(body, "Show finished tasks") {
+		t.Fatal("the rail still offers Show finished tasks")
+	}
 	contains(t, "all page", get(t, fx.handler(), "/?all=1"), `href="/#needs">Hide finished tasks`)
 }
 

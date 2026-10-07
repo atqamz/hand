@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -125,6 +126,9 @@ func taskFields(d *toon.Doc, t state.Task) {
 func cmdTaskList(r *runner, args []string) error {
 	fs := flags("task list")
 	status := fs.String("status", "inbox,active", "comma-separated statuses")
+	q := fs.String("q", "", "words that must each appear in the title or goal, or be the task ref")
+	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
+	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	limit := fs.Int("limit", 50, "maximum rows")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -134,16 +138,30 @@ func cmdTaskList(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
-	tasks, err := st.Tasks(context.Background(), strings.Split(*status, ","), *limit)
+	want := strings.Split(*status, ",")
+	tasks, _, err := st.SearchTasks(context.Background(), state.TaskQuery{Q: *q, Statuses: want, Since: *since, Until: *until, Limit: *limit})
 	if err != nil {
 		return err
 	}
+	dated := slices.Contains(want, state.StatusDone) || slices.Contains(want, state.StatusAbandoned)
+	header := []string{"id", "project", "status", "title"}
+	if dated {
+		header = append(header, "finished")
+	}
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
-		rows = append(rows, []string{state.TaskRef(t.ID), t.Project, t.Status, t.Title})
+		row := []string{state.TaskRef(t.ID), t.Project, t.Status, t.Title}
+		if dated {
+			day := ""
+			if t.Status == state.StatusDone || t.Status == state.StatusAbandoned {
+				day = t.FinishedAt[:10]
+			}
+			row = append(row, day)
+		}
+		rows = append(rows, row)
 	}
 	var d toon.Doc
-	d.Rows("tasks", []string{"id", "project", "status", "title"}, rows)
+	d.Rows("tasks", header, rows)
 	if len(tasks) == *limit {
 		d.Help("More may exist: rerun with `--limit " + strconv.Itoa(*limit*2) + "`")
 	}

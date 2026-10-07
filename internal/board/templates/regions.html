@@ -48,6 +48,9 @@
 {{end}}{{end}}
 
 {{define "region-tasks"}}<header class="checks-head"><h2>Tasks</h2></header>
-{{range .Groups}}<h3 class="group">{{.Name}} <span class="n">{{.Count}}</span></h3><ol class="checks">{{range .Checks}}{{$c := .}}<li class="check task-row" data-state="{{.State}}">{{template "check-icon" .State}}<a class="ref" tabindex="-1" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a><span class="check-body"><a class="check-title" title="{{.Task.Title}}" href="{{$.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a>{{with .Attempt}}<span class="meta">{{attempt .ID}} {{.Harness}} {{.Model}} · {{or $c.Agent .Status}}</span>{{end}}</span>{{with .PR}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</li>{{end}}</ol>
-{{else}}<p class="quiet">No tasks yet. They appear here when you ask the supervisor for something.</p>
-{{end}}{{if gt .Hidden 0}}<p class="more">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}{{end}}
+{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks yet. They appear here when you ask the supervisor for something.</p>
+{{end}}{{if gt .Hidden 0}}<p class="more">{{.Hidden}} more {{if eq .Hidden 1}}task is{{else}}tasks are{{end}} not shown; use <code>hand task list{{if .All}} --status inbox,active,done,abandoned{{end}} --limit 1000</code>.</p>{{end}}
+{{if .All}}<p class="finished"><a href="{{.Base}}/#needs">Hide finished tasks</a></p>{{else if gt .FinishedCount 0}}<p class="finished"><a href="{{.Base}}/tasks">Browse finished tasks ({{.FinishedCount}})</a></p>{{end}}{{end}}
+
+{{define "task-groups"}}{{range .Groups}}<h3 class="group">{{.Name}} <span class="n">{{.Count}}</span></h3><ol class="checks">{{range .Checks}}{{$c := .}}<li class="check task-row" data-state="{{.State}}">{{template "check-icon" .State}}<a class="ref" tabindex="-1" href="{{$.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a><span class="check-body"><a class="check-title" title="{{.Task.Title}}" href="{{$.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a>{{with .Attempt}}<span class="meta">{{attempt .ID}} {{.Harness}} {{.Model}} · {{or $c.Agent .Status}}</span>{{end}}</span>{{with .At}}<time class="when" datetime="{{.}}" data-clock>{{hm .}}</time>{{end}}{{with .PR}}<a class="chip" href="{{.}}" rel="noopener noreferrer">PR</a>{{end}}</li>{{end}}</ol>
+{{end}}{{end}}
