@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
 
 You can choose another version:
 - **Edge:** `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`. Edge is the rolling build of `main` that passed CI.
-- **A pinned release:** `HAND_INSTALL_VERSION=v0.9.0`.
+- **A pinned release:** `HAND_INSTALL_VERSION=v0.10.0`.
 
 `HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
 
@@ -103,7 +103,7 @@ The script downloads `hand-windows-amd64.zip`, checks it against the release's `
 
 The options go after the command, as in `... -Edge`:
 - `-Edge`: the rolling build of `main` that passed CI;
-- `-Version v0.9.0`: a pinned release;
+- `-Version v0.10.0`: a pinned release;
 - `-Dir PATH`: the folder, which may contain spaces.
 - `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300).
 
