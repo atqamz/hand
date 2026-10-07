@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
@@ -764,10 +765,15 @@ func TestWatchRecordsNoTurnWhileItCannotReadTheScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.screen, rt.readFail = "done", claudeLimit, "internal" })
+	defer func(d time.Duration) { *cli.Reconnect = d }(*cli.Reconnect)
+	*cli.Reconnect = time.Millisecond
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
-	eventually(t, func() bool { return len(fx.rt.srv.Calls("agent.read")) >= 2 })
+	eventually(t, func() (n bool) {
+		fx.rt.set(func(rt *fakeRuntime) { n = rt.readFailed >= 2 })
+		return n
+	})
 	if events := turnEvents(t, fx); len(events) != 0 {
 		t.Fatalf("a turn was recorded without its screen: %+v", events)
 	}

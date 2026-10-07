@@ -52,6 +52,7 @@ type fakeRuntime struct {
 	afterStall   time.Duration
 	stall        time.Duration
 	readFail     string
+	readFailed   int
 	keysFail     string
 	afterKeys    string
 	explainFail  string
@@ -274,6 +275,7 @@ func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	if rt.readFail != "" {
+		rt.readFailed++
 		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
 	}
 	text := "Do you want to proceed?\n❯ 1. Yes"

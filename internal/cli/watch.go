@@ -31,10 +31,9 @@ const longTurn = 60 * time.Minute
 
 const longDetail = "working for 60m"
 
-const (
-	reconnectDelay = 500 * time.Millisecond
-	notifyTimeout  = 10 * time.Second
-)
+const notifyTimeout = 10 * time.Second
+
+var reconnectDelay = 500 * time.Millisecond
 
 func init() {
 	commands["watch"] = cmdWatch
