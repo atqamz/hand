@@ -1072,13 +1072,9 @@ func TestAttemptShowKeepsTheLastScreenOfAnAttemptThatExited(t *testing.T) {
 		t.Fatalf("watch exit = %d", code)
 	}
 	show := fx.h.ok("attempt", "show", "a1")
-	line := ""
-	for _, l := range strings.Split(show, "\n") {
-		if strings.Contains(l, "last_screen:") {
-			line = l
-		}
-	}
-	if !strings.Contains(line, "last fixture line") || strings.Contains(line, "fixture failure") || strings.ContainsAny(show, "\x1b\x00\x07") || len(line) > 2400 {
+	_, block, _ := strings.Cut(show, "last_screen: |\n")
+	line := block
+	if !strings.HasSuffix(strings.TrimRight(line, "\n"), "  last fixture line") || strings.Contains(line, "fixture failure") || strings.Contains(line, `\n`) || strings.ContainsAny(show, "\x1b\x00\x07") || len(line) > 2400 {
 		t.Fatalf("attempt show = %q", show)
 	}
 	for _, cmd := range [][]string{{"wait", "--after", "0", "--timeout", "1ms"}, {"orient"}, {"events"}} {
