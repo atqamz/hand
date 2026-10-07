@@ -32,7 +32,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers w
    5. `quick`: only if all hold: at most two steps, input and output named, the brief states the check, easy to review.
    6. Otherwise `default`.
 
-   A capability failure is a `stuck` report, or no `done` report after twice the profile's median minutes (`hand route list`; with no median yet, only a `stuck` report counts) with no limit or restart event. Escalate one profile: `hand attempt stop aN`, then start the next profile up.
+   A capability failure is a `stuck` report, or an `attempt.long` wake after which you look at the worker and find it not progressing. Escalate one profile: `hand attempt stop aN`, then start the next profile up.
    To carry on an earlier attempt's branch and PR, stop and clean it (`hand attempt clean aN`), then add `--continue aN` to `hand attempt start`; the brief needs no push rule. `--continue` and `--base` exclude each other.
 3. For a task that waits on PR reviews, put this recipe in the brief: poll in the foreground, at most 3 polls per command, 150 s apart, under 9 minutes per call; never end a turn to wait.
 4. Review-to-head rule: for bots that submit PR reviews, keep only reviews whose `commit.oid` equals the PR's `headRefOid` (`gh pr view N --json headRefOid,reviews`). For a reviewer that answers as an issue comment, such as `@claude review`, take the first matching comment whose id is higher than the latest trigger comment; ids only increase, so no clock is needed. A green check with no review on the head is not a clean review.
