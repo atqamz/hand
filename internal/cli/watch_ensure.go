@@ -45,7 +45,7 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 	}
 	env := luvus.Scrub(r.env.Environ())
 	if run, ok := luvus.UserManager(env); ok {
-		args := []string{"--user", "--unit=" + fleet.WatchUnit(r.fleet.ID), "--collect", "-p", "Restart=on-failure", "-p", "RestartSec=5", "--setenv=HAND_HOME=" + r.home, "--setenv=PATH=" + r.env.Getenv("PATH")}
+		args := []string{"--user", "--unit=" + fleet.WatchUnit(r.fleet.ID), "--collect", "-p", "Restart=on-failure", "-p", "RestartSec=5", "-p", "RestartPreventExitStatus=3", "--setenv=HAND_HOME=" + r.home, "--setenv=PATH=" + r.env.Getenv("PATH")}
 		for _, name := range []string{"SECONDHAND_HOME", "LUVUS_HOME", "HAND_LUVUS_SOCKET", "HOME"} {
 			if v := r.env.Getenv(name); v != "" {
 				args = append(args, "--setenv="+name+"="+v)

@@ -216,7 +216,7 @@ Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's reposi
 
 ## Keep the watcher and the board running
 
-`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash. To start it with your graphical session after every login and restart, install a unit:
+`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash, except when it exits with status 3 because another watcher already holds `watch.lock`. To start it with your graphical session after every login and restart, install a unit:
 
 Each fleet has its own watcher, so give each fleet's unit its own name. From inside the fleet folder:
 

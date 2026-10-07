@@ -36,7 +36,7 @@ func TestEnsureWatcherUsesTheUserManagerThenFallsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(log)
-	want := "--user --unit=secondhand-watch-" + field(h.ok("init", h.home), "id") + " --collect -p Restart=on-failure -p RestartSec=5 --setenv=HAND_HOME=" + h.home + " --setenv=PATH=" + path +
+	want := "--user --unit=secondhand-watch-" + field(h.ok("init", h.home), "id") + " --collect -p Restart=on-failure -p RestartSec=5 -p RestartPreventExitStatus=3 --setenv=HAND_HOME=" + h.home + " --setenv=PATH=" + path +
 		" --setenv=SECONDHAND_HOME=" + h.vars["SECONDHAND_HOME"] + " --setenv=HAND_LUVUS_SOCKET=" + h.vars["HAND_LUVUS_SOCKET"] + " --setenv=HOME=" + h.vars["HOME"] + " " + exe + " watch"
 	if !strings.Contains(string(got), want) {
 		t.Fatalf("systemd-run got %q, want %q", got, want)

@@ -91,7 +91,8 @@ func cmdUnit(r *runner, args []string) error {
 		service+
 		`ExecStart="`+exe+`" `+command+"\n"+
 		"Restart=on-failure\n"+
-		"RestartSec=5\n\n"+
+		"RestartSec=5\n"+
+		"RestartPreventExitStatus=3\n\n"+
 		"[Install]\n"+
 		"WantedBy=graphical-session.target\n")
 	return err
