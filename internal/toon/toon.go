@@ -3,8 +3,10 @@ package toon
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type blockKind int
@@ -13,6 +15,7 @@ const (
 	blockField blockKind = iota
 	blockRows
 	blockList
+	blockText
 )
 
 type block struct {
@@ -28,8 +31,26 @@ type Doc struct {
 	blocks []block
 }
 
+var (
+	lineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+	escapes  = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b[P\\]X^_][^\x07\x1b]*(?:\x07|\x1b\\\\)?")
+)
+
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, escapes.ReplaceAllString(lineEnds.Replace(s), ""))
+}
+
 func (d *Doc) Field(key, value string) {
 	d.blocks = append(d.blocks, block{kind: blockField, name: key, value: value})
+}
+
+func (d *Doc) Text(key, value string) {
+	d.blocks = append(d.blocks, block{kind: blockText, name: key, value: value})
 }
 
 func (d *Doc) Bool(key string, v bool) {
@@ -70,6 +91,20 @@ func (d *Doc) Render(w io.Writer) error {
 		switch blk.kind {
 		case blockField:
 			fmt.Fprintf(&b, "%s: %s\n", blk.name, Value(blk.value))
+		case blockText:
+			text := strings.TrimRight(plain(blk.value), "\n")
+			if text == "" {
+				fmt.Fprintf(&b, "%s: \"\"\n", blk.name)
+				break
+			}
+			fmt.Fprintf(&b, "%s: |\n", blk.name)
+			for _, line := range strings.Split(text, "\n") {
+				if line == "" {
+					b.WriteString("\n")
+					continue
+				}
+				fmt.Fprintf(&b, "  %s\n", line)
+			}
 		case blockRows:
 			fmt.Fprintf(&b, "%s[%d]{%s}:\n", blk.name, len(blk.rows), strings.Join(blk.fields, ","))
 			for _, row := range blk.rows {

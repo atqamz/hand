@@ -32,7 +32,13 @@ func TestSendIsRefusedAtAPermissionPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	fx.h.ok("attempt", "send", "--file", file, "a1")
-	if got := fx.rt.prompts(); !slices.Equal(got, []string{"keep going", "also run the tests"}) {
+	fx.h.in = strings.NewReader("and the linter")
+	fx.h.ok("attempt", "send", "--file", "-", "a1")
+	fx.h.in = strings.NewReader(strings.Repeat("x", 1<<20+1))
+	if _, errOut, code := fx.h.run("attempt", "send", "--file", "-", "a1"); code != 2 || !strings.Contains(errOut, "message is over") {
+		t.Fatalf("an endless message code=%d stderr=%q", code, errOut)
+	}
+	if got := fx.rt.prompts(); !slices.Equal(got, []string{"keep going", "also run the tests", "and the linter"}) {
 		t.Fatalf("delivered = %q", got)
 	}
 	if _, _, code := fx.h.run("attempt", "send", "a1"); code != 2 {
@@ -57,7 +63,7 @@ func TestKeysNeedTheRevisionTheOperatorRead(t *testing.T) {
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision = 7 })
 	read := fx.h.ok("attempt", "read", "a1")
-	if !strings.Contains(read, "revision: 7") || !strings.Contains(read, `screen: "Do you want to proceed?\n❯ 1. Yes"`) {
+	if !strings.Contains(read, "revision: 7") || !strings.Contains(read, "screen: |\n  Do you want to proceed?\n  ❯ 1. Yes\n") {
 		t.Fatalf("read = %q", read)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision = 8 })

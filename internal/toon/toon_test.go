@@ -24,6 +24,36 @@ func TestRenderFieldsRowsListsAndHelp(t *testing.T) {
 	}
 }
 
+func TestTextRendersAnIndentedBlock(t *testing.T) {
+	var d Doc
+	d.Text("screen", "one, \"two\"\n\n  three\n\n")
+	d.Text("crlf", "a\r\nb\rc\r\n")
+	d.Text("none", "\n")
+	want := "screen: |\n  one, \"two\"\n\n    three\ncrlf: |\n  a\n  b\n  c\nnone: \"\"\n"
+	if got := d.String(); got != want {
+		t.Fatalf("render = %q, want %q", got, want)
+	}
+}
+
+func TestTextDropsEscapeSequencesAndControlBytes(t *testing.T) {
+	var d Doc
+	d.Text("screen", "\x1b]0;owned\x07\x1b[2J\x1b[1;31mred\x1b[0m\x1b[H ok\x00\x07\x7f\u009b\x1b]8;;http://x\x1b\\link\tend\nnext")
+	want := "screen: |\n  red ok" + "link\tend\n  next\n"
+	if got := d.String(); got != want {
+		t.Fatalf("render = %q, want %q", got, want)
+	}
+}
+
+func TestTextDropsEveryStringControl(t *testing.T) {
+	for _, intro := range []string{"P", "]", "X", "^", "_"} {
+		var d Doc
+		d.Text("screen", "a\x1b"+intro+"payload;1\x1b\\b\x1b"+intro+"more\x07c")
+		if got, want := d.String(), "screen: |\n  abc\n"; got != want {
+			t.Fatalf("ESC %s: render = %q, want %q", intro, got, want)
+		}
+	}
+}
+
 func TestEmptyRowsStillRenderHeader(t *testing.T) {
 	var d Doc
 	d.Rows("active", []string{"id"}, nil)

@@ -74,6 +74,8 @@ What `hand update` does, in order:
 6. restarts the board unit;
 7. runs `hand init` in each fleet.
 
+`hand update --check` runs steps 5 and 6 without changing anything: it fills the same `units` rows, each marked `would run`, and changes nothing: it only lists the units with `systemctl`, and stops no supervisor and runs no `hand init`.
+
 Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watch units and watchers, resumes a supervisor it stopped, restarts the board and runs `hand init`. That report reads `status: repaired`.
 
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy a backup over `hand.db`: the newest `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/`.
@@ -187,7 +189,7 @@ A report stays unread until someone acknowledges it: the supervisor with `hand r
 
 ### Decision
 
-`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`, or `hand decision ask --file - tN` with a longer question on stdin. The question's first line is its headline, at most 120 characters; the lines after it are the body, shown with the board's markdown, and a numbered option in the body becomes a button that fills the answer. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
+`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`, or `hand decision ask --file - tN` with a longer question on stdin; a question holds at most 8000 characters. The question's first line is its headline, at most 120 characters; the lines after it are the body, shown with the board's markdown, and a numbered option in the body becomes a button that fills the answer. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
 
 | Status | Meaning |
 |---|---|
@@ -217,7 +219,7 @@ The Luvus view of one terminal. The running supervisor and every running attempt
 
 ### Blocked screen and screen revision
 
-A screen that waits for an answer, such as a trust or permission prompt, puts the agent in the `blocked` state. `hand attempt read aN` prints the screen and its revision. `hand attempt keys --revision N aN KEY...` sends keys only if the screen is still at that revision, so a stale answer is never typed. The supervisor's own screen works the same way, through `hand supervisor show` and `hand supervisor keys --revision N KEY...`, with the keys `enter`, `esc`, `up`, `down`, `1`, `2` and `3`. Claude Code's auto-deny countdown moves the revision every second, so the board also sends `--screen DIGEST`, a digest of the screen with the countdown taken out: when the revision moved but the digest still matches, the keys go out once at the new revision. A key press on the supervisor's screen is recorded as a `supervisor.keys` event.
+A screen that waits for an answer, such as a trust or permission prompt, puts the agent in the `blocked` state. `hand attempt read aN` prints the screen as an indented multi-line block (`screen: |`, then the lines, with escape sequences and control characters other than newline and tab removed) and its revision. `hand attempt keys --revision N aN KEY...` sends keys only if the screen is still at that revision, so a stale answer is never typed. The supervisor's own screen works the same way, through `hand supervisor show` and `hand supervisor keys --revision N KEY...`, with the keys `enter`, `esc`, `up`, `down`, `1`, `2` and `3`. Claude Code's auto-deny countdown moves the revision every second, so the board also sends `--screen DIGEST`, a digest of the screen with the countdown taken out: when the revision moved but the digest still matches, the keys go out once at the new revision. A key press on the supervisor's screen is recorded as a `supervisor.keys` event.
 
 ### Watcher
 
@@ -228,7 +230,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
 - snapshots the fleet's `hand.db` once a day (UTC) with `integrity_check` to `$SECONDHAND_HOME/backups/<fleet id>/hand-YYYYMMDD.db`, and keeps the newest 7, retrying a failed snapshot only after the next UTC day starts or the watcher restarts; `hand update` keeps its own `hand.db.<stamp>` files in that folder, and neither removes the other's;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
-- alerts when an attempt ends, blocks, hits a usage limit or goes quiet, and when a decision is asked while it runs;
+- alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), and when a decision is asked while it runs;
 - sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`.
 
 `hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
@@ -261,7 +263,7 @@ The wake kinds are:
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
 
-`attempt.idle` and a `progress` report never wake the supervisor on their own; `attempt.limited` and `attempt.long` always do. They ride in the next wake with the event that does, or go out once 50 of them wait.
+`attempt.idle` and a `progress` report never wake the supervisor on their own, and `attempt.idle` sends no desktop or notify-command alert either; `attempt.limited` and `attempt.long` always do. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
 
@@ -285,7 +287,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 

@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -11,6 +10,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
+
+const maxSendBytes = 1 << 20
 
 func init() {
 	attemptCommands["send"] = cmdAttemptSend
@@ -32,7 +33,7 @@ func runningAttempt(ctx context.Context, st *state.Store, id int64) (state.Attem
 func cmdAttemptSend(r *runner, args []string) error {
 	fs := flags("attempt send")
 	text := fs.String("text", "", "message for the worker")
-	file := fs.String("file", "", "file holding the message")
+	file := fs.String("file", "", "file holding the message, or - for stdin")
 	pos, err := parse(fs, args, 1)
 	if err != nil {
 		return err
@@ -41,11 +42,13 @@ func cmdAttemptSend(r *runner, args []string) error {
 		return usageError{"attempt send: give exactly one of --text or --file"}
 	}
 	if *file != "" {
-		b, err := os.ReadFile(*file)
-		if err != nil {
-			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+		var err error
+		if *text, err = r.readText(*file, maxSendBytes+1); err != nil {
+			return err
 		}
-		*text = string(b)
+		if len(*text) > maxSendBytes {
+			return fmt.Errorf("%w: message is over %d bytes", state.ErrInvalid, maxSendBytes)
+		}
 	}
 	if strings.TrimSpace(*text) == "" {
 		return fmt.Errorf("%w: message must not be empty", state.ErrInvalid)
@@ -114,7 +117,7 @@ func cmdAttemptRead(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("revision", rev)
-		d.Field("screen", s.Text)
+		d.Text("screen", s.Text)
 		d.Help("Answer exactly what the screen asks: `hand attempt keys --revision " + rev + " " + ref + " KEY...`")
 		return r.print(&d)
 	})

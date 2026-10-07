@@ -226,9 +226,9 @@ func (s *Store) UnackedReportCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
-func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (string, error) {
-	detail := "turn ended without a new report"
-	err := s.tx(ctx, func(tx *sql.Tx) error {
+func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (kind, detail string, err error) {
+	detail = "turn ended without a new report"
+	err = s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, attemptID)
 		if err != nil {
 			return err
@@ -250,11 +250,11 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64) (string, error
 		if err != nil {
 			return err
 		}
-		kind := "attempt.quiet"
+		kind = "attempt.quiet"
 		if last.Kind == "attempt.quiet" || last.Kind == "attempt.idle" || last.Kind == "attempt.reported" && !strings.HasSuffix(last.Detail, " "+ReportProgress) {
 			kind = "attempt.idle"
 		}
 		return emit(tx, s.stamp(), kind, a.TaskID, AttemptRef(attemptID)+": "+detail)
 	})
-	return detail, err
+	return kind, detail, err
 }

@@ -161,12 +161,41 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 		t.Fatalf("notify call = %q", b)
 	}
 	write(`["no-such-notifier"]`)
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
-	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if !strings.Contains(out, "notify: ") {
 		t.Fatalf("watch out = %q", out)
+	}
+}
+
+func TestWatchDoesNotAlertForAnIdleTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	log := filepath.Join(t.TempDir(), "notify.log")
+	fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify"]}`
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(log)
+		return strings.Contains(string(b), "attempt.quiet|a1|")
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return len(turnEvents(t, fx)) == 2 })
+	if events := turnEvents(t, fx); events[1].Kind != "attempt.idle" {
+		t.Fatalf("second turn = %+v", events)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if b, _ := os.ReadFile(log); strings.Count(string(b), "\n") != 1 || strings.Contains(string(b), "attempt.idle") {
+		t.Fatalf("an idle turn notified: %q", b)
 	}
 }
 
@@ -179,9 +208,9 @@ func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *tes
 	stop := startWatch(t, fx)
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
-	eventually(t, func() bool { return woken(fx, "attempt.idle") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if n := strings.Count(out, "routing.json unreadable, using the desktop notifier: "); n != 1 {
 		t.Fatalf("warned %d times, want 1; out %q", n, out)
@@ -1043,13 +1072,9 @@ func TestAttemptShowKeepsTheLastScreenOfAnAttemptThatExited(t *testing.T) {
 		t.Fatalf("watch exit = %d", code)
 	}
 	show := fx.h.ok("attempt", "show", "a1")
-	line := ""
-	for _, l := range strings.Split(show, "\n") {
-		if strings.Contains(l, "last_screen:") {
-			line = l
-		}
-	}
-	if !strings.Contains(line, "last fixture line") || strings.Contains(line, "fixture failure") || strings.ContainsAny(show, "\x1b\x00\x07") || len(line) > 2400 {
+	_, block, _ := strings.Cut(show, "last_screen: |\n")
+	line := block
+	if !strings.HasSuffix(strings.TrimRight(line, "\n"), "  last fixture line") || strings.Contains(line, "fixture failure") || strings.Contains(line, `\n`) || strings.ContainsAny(show, "\x1b\x00\x07") || len(line) > 2400 {
 		t.Fatalf("attempt show = %q", show)
 	}
 	for _, cmd := range [][]string{{"wait", "--after", "0", "--timeout", "1ms"}, {"orient"}, {"events"}} {

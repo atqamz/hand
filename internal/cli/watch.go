@@ -562,11 +562,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				return nil
 			}
 		}
-		detail, err := w.st.RecordQuiet(ctx, a.ID)
+		kind, detail, err := w.st.RecordQuiet(ctx, a.ID)
 		if err != nil {
 			return err
 		}
-		w.alert(ctx, "attempt.quiet", ref, ref+" quiet: "+detail)
+		w.alert(ctx, kind, ref, ref+" quiet: "+detail)
 	}
 	return nil
 }
@@ -578,7 +578,7 @@ func shown(line string) string {
 
 func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.say(text)
-	if !w.notify {
+	if !w.notify || kind == "attempt.idle" {
 		return
 	}
 	name, args, extra := w.notifier(ctx, kind, ref, text)

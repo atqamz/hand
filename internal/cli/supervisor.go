@@ -703,7 +703,7 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 func cmdSupervisorSend(r *runner, args []string) error {
 	fs := flags("supervisor send")
 	text := fs.String("text", "", "message for the supervisor")
-	file := fs.String("file", "", "file holding the message")
+	file := fs.String("file", "", "file holding the message, or - for stdin")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -711,11 +711,10 @@ func cmdSupervisorSend(r *runner, args []string) error {
 		return usageError{"supervisor send: give exactly one of --text or --file"}
 	}
 	if *file != "" {
-		b, err := os.ReadFile(*file)
-		if err != nil {
-			return fmt.Errorf("%w: %v", state.ErrInvalid, err)
+		var err error
+		if *text, err = r.readText(*file, state.MaxMessageBytes+1); err != nil {
+			return err
 		}
-		*text = string(b)
 	}
 	if err := state.CheckMessage(*text); err != nil {
 		return err

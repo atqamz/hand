@@ -16,7 +16,10 @@ const (
 	DecisionWithdrawn = "withdrawn"
 )
 
-const MaxHeadline = 120
+const (
+	MaxHeadline = 120
+	MaxQuestion = 8000
+)
 
 func (d Decision) Headline() string {
 	line := []rune(d.firstLine())
@@ -60,8 +63,8 @@ func scanDecision(row scanner) (Decision, error) {
 
 func (s *Store) Ask(ctx context.Context, taskID int64, question string) (Decision, error) {
 	question = strings.TrimSpace(question)
-	if question == "" || utf8.RuneCountInString(question) > 2000 {
-		return Decision{}, fmt.Errorf("%w: question must be 1-2000 characters", ErrInvalid)
+	if question == "" || utf8.RuneCountInString(question) > MaxQuestion {
+		return Decision{}, fmt.Errorf("%w: question must be 1-%d characters", ErrInvalid, MaxQuestion)
 	}
 	if utf8.RuneCountInString(Decision{Question: question}.firstLine()) > MaxHeadline {
 		return Decision{}, fmt.Errorf("%w: the question's first line is its headline; keep it within %d characters and put the details below it", ErrInvalid, MaxHeadline)

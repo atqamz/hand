@@ -316,7 +316,7 @@ func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
-	if _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
+	if _, _, err := fx.st.RecordQuiet(context.Background(), a.ID); err != nil {
 		t.Fatal(err)
 	}
 	var mu sync.Mutex

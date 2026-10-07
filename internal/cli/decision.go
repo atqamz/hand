@@ -28,6 +28,8 @@ func decisionDoc(d state.Decision) *toon.Doc {
 	return &doc
 }
 
+const maxQuestionBytes = 4 * state.MaxQuestion
+
 func cmdDecisionAsk(r *runner, args []string) error {
 	fs := flags("decision ask")
 	file := fs.String("file", "", "file holding the question, or - for stdin")
@@ -43,8 +45,11 @@ func cmdDecisionAsk(r *runner, args []string) error {
 	}
 	question := fs.Arg(1)
 	if *file != "" {
-		if question, err = r.readText(*file, 8193); err != nil {
+		if question, err = r.readText(*file, maxQuestionBytes+1); err != nil {
 			return err
+		}
+		if len(question) > maxQuestionBytes {
+			return fmt.Errorf("%w: question must be 1-%d characters", state.ErrInvalid, state.MaxQuestion)
 		}
 	}
 	st, err := r.store()

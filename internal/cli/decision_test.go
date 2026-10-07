@@ -84,6 +84,15 @@ func TestDecisionAskReadsAFileOrStdin(t *testing.T) {
 	if out := h.ok("decision", "show", "d1"); !strings.Contains(out, `Pick one\n\n1. A\n2. B`) {
 		t.Fatalf("show = %q", out)
 	}
+	h.in = strings.NewReader("Long one\n\n" + strings.Repeat("問", 7900))
+	h.ok("decision", "ask", "--file", "-", "t1")
+	if out := h.ok("decision", "show", "d2"); !strings.Contains(out, strings.Repeat("問", 7900)) {
+		t.Fatal("a long multibyte question from stdin was cut")
+	}
+	h.in = strings.NewReader(strings.Repeat(" ", 4*8000) + "late question?")
+	if _, errOut, code := h.run("decision", "ask", "--file", "-", "t1"); code != 2 || !strings.Contains(errOut, "1-8000 characters") {
+		t.Fatalf("a question cut by the read limit: code=%d stderr=%q", code, errOut)
+	}
 	if _, errOut, code := h.run("decision", "ask", "--file", "-", "t1", "also this"); code != 2 || !strings.Contains(errOut, "exactly one") {
 		t.Fatalf("both a file and a question: code=%d stderr=%q", code, errOut)
 	}

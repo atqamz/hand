@@ -217,6 +217,36 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 	}
 }
 
+func TestOrientCutsAReportSummaryAtAWordBoundary(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	task, _ := st.AddTask(ctx, "hand", "Task", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, summary := range []string{"PR https://github.com/atqamz/hand/pull/801 opened and green", "PR number nine: https://github.com/atqamz/hand/pull/801 opened"} {
+		if _, err := st.AddReport(ctx, a.ID, state.ReportDone, summary); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	for _, want := range []string{`r1,a1,done,"PR https://github.com/atqamz/hand/pull/801…"`, `r2,a1,done,"PR number nine:…"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
@@ -375,7 +405,7 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 		}
 	}
 	for range 2 {
-		if _, err := st.RecordQuiet(ctx, 1); err != nil {
+		if _, _, err := st.RecordQuiet(ctx, 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -387,7 +417,7 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := doc.String()
-	for _, want := range []string{"t1,hand,Fix login,none,a1 running quiet,none,0", `t2,hand,Ship it,none,"a2 running blocked: Do you want to proceed? xxxxxxxxxxxxx…",none,0`, "t3,hand,Write docs,none,a3 running,none,0"} {
+	for _, want := range []string{"t1,hand,Fix login,none,a1 running quiet,none,0", `t2,hand,Ship it,none,"a2 running blocked: Do you want to proceed?…",none,0`, "t3,hand,Write docs,none,a3 running,none,0"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
