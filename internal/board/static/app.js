@@ -36,6 +36,8 @@
 		else page().scrollTop = page().scrollHeight;
 	};
 
+	const dayName = (d) => d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+
 	const days = () => {
 		const tl = regions.get("timeline");
 		if (!tl) return;
@@ -49,7 +51,7 @@
 				const p = document.createElement("p");
 				p.className = "day";
 				const label = document.createElement("span");
-				label.textContent = d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+				label.textContent = dayName(d);
 				p.append(label);
 				items[i].after(p);
 				under = true;
@@ -59,8 +61,34 @@
 		}
 	};
 
+	const archive = () => {
+		const list = document.querySelector("[data-days]");
+		const rows = list ? [...list.querySelectorAll("li.task-row")] : [];
+		const at = rows.map((li) => new Date(li.querySelector("time[datetime]")?.dateTime));
+		if (rows.length === 0 || at.some((d) => Number.isNaN(d.getTime()))) return;
+		list.replaceChildren();
+		let key, head, count, ol;
+		rows.forEach((li, i) => {
+			if (at[i].toDateString() !== key) {
+				key = at[i].toDateString();
+				head = document.createElement("h3");
+				head.className = "group";
+				count = document.createElement("span");
+				count.className = "n";
+				count.textContent = "0";
+				head.append(dayName(at[i]), " ", count);
+				ol = document.createElement("ol");
+				ol.className = "checks";
+				list.append(head, ol);
+			}
+			ol.append(li);
+			count.textContent = Number(count.textContent) + 1;
+		});
+	};
+
 	const local = (root) => {
 		days();
+		archive();
 		for (const b of root.querySelectorAll("#notify")) b.hidden = !("Notification" in window) || Notification.permission !== "default";
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);

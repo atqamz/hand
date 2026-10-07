@@ -1,0 +1,19 @@
+{{define "tasks.html"}}{{template "head" .}}{{template "top" .}}<main class="thread archive">
+<header class="thread-head">
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / finished tasks</p>
+<h2 class="thread-title">Finished tasks</h2>
+</header>
+<form class="filters" method="get" action="{{.Base}}/tasks">
+<label class="search">Search<input type="search" name="q" value="{{.Q}}" placeholder="Title, goal or ref" autocomplete="off"></label>
+<label>Status<select name="status"><option value=""{{if eq .Status ""}} selected{{end}}>Done and abandoned</option><option value="done"{{if eq .Status "done"}} selected{{end}}>Done</option><option value="abandoned"{{if eq .Status "abandoned"}} selected{{end}}>Abandoned</option></select></label>
+{{if gt (len .Projects) 1}}<label>Project<select name="project"><option value="">All projects</option>{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $.Project}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
+{{end}}<label>Since (UTC)<input type="date" name="since" value="{{.Since}}"></label>
+<label>Until (UTC)<input type="date" name="until" value="{{.Until}}"></label>
+<span class="actions"><button class="primary">Search</button>{{if .Filtered}} <a href="{{.Base}}/tasks">Clear</a>{{end}}</span>
+</form>
+<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p>
+<div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match.</p>
+{{end}}</div>
+{{if or .Prev .Next}}<nav class="pager" aria-label="Pages">{{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}{{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}</nav>
+{{end}}</main>
+{{template "foot"}}{{end}}

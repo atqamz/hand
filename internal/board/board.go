@@ -79,6 +79,8 @@ func tabOnce(h template.HTML) template.HTML {
 	}))
 }
 
+var finished = []string{state.StatusDone, state.StatusAbandoned}
+
 var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
 
 var (
@@ -89,6 +91,8 @@ var (
 const (
 	maxCards     = 500
 	historyLimit = 50
+	railFinished = 5
+	archivePage  = 50
 )
 
 type Options struct {
@@ -139,6 +143,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("GET /inbox/{name}", b.inbox)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
+	b.mux.HandleFunc("GET /tasks", b.archive)
 	b.mux.HandleFunc("GET /ref/{ref}", b.ref)
 	b.mux.HandleFunc("GET /decision/{id}", b.decision)
 	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
@@ -481,6 +486,14 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		}
 		tasks = append(tasks, part...)
 	}
+	shown := len(tasks)
+	if !all {
+		recent, _, err := b.st.SearchTasks(ctx, state.TaskQuery{Statuses: finished, Limit: railFinished})
+		if err != nil {
+			return err
+		}
+		tasks = append(tasks, recent...)
+	}
 	f, _ := data["facts"].(facts)
 	prs, err := b.prLinks(ctx, tasks)
 	if err != nil {
@@ -502,7 +515,7 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 	var sections []taskGroup
 	for _, status := range groups {
 		g := taskGroup{Name: strings.ToUpper(status[:1]) + status[1:], Count: counts[status]}
-		for _, c := range checks {
+		for _, c := range checks[:shown] {
 			if c.Task.Status == status {
 				g.Checks = append(g.Checks, c)
 			}
@@ -511,7 +524,11 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 			sections = append(sections, g)
 		}
 	}
-	data["Checks"], data["Groups"], data["All"], data["Hidden"] = checks, sections, all, total-len(checks)
+	if recent := checks[shown:]; len(recent) > 0 {
+		sections = append(sections, taskGroup{Name: "Finished", Count: counts[state.StatusDone] + counts[state.StatusAbandoned], Checks: recent})
+	}
+	data["Groups"], data["All"], data["Hidden"] = sections, all, total-shown
+	data["FinishedCount"] = counts[state.StatusDone] + counts[state.StatusAbandoned]
 	return nil
 }
 
