@@ -135,60 +135,25 @@ $link.Save()
 
 `shell:startup` in the Run dialog opens the same folder, to move or delete the shortcut.
 
-## Quick start
+## Getting started
 
-### 1. Make a fleet
+Install Hand as described above. You use two commands, then the browser, with the board running (`hand init` does not start it). The other `hand` commands are for the supervisor, the agent that runs your fleet.
 
-```sh
-mkdir -p ~/fleets/demo && cd ~/fleets/demo
-hand init                                      # or: hand init --name demo DIR
-```
+1. **Make a fleet.** In a folder of its own:
 
-`hand init` creates `hand.db`, writes the folder's `AGENTS.md` and `CLAUDE.md`, installs the `secondhand` skill, and writes a starter `routing.json` and `memory/operator.md`. Running it again is safe: it rewrites only the files Hand owns.
+   ```sh
+   mkdir -p ~/fleets/demo && cd ~/fleets/demo
+   hand init
+   ```
 
-### 2. Register a project
+   This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus. It starts nothing. Running it again is safe.
+2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. `hand open` needs a running board and fails with `no board is running` otherwise. Run `hand board` in a terminal, or keep it running as a unit ([Keep the watcher and the board running](#keep-the-watcher-and-the-board-running)).
+3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** and pick a routing profile (`default` is a good first one). That starts the supervisor in the fleet's Luvus session and its watcher. Then:
+   - write to the supervisor in the **Chat** tab, and name the repositories it should work on by absolute path;
+   - answer its decisions on the **Needs you** tab;
+   - read its reports, and press **Mark read**.
 
-```sh
-hand project add api /absolute/path/to/api
-```
-
-A project is a name for a git repository on this machine. Hand does not clone it: each worker gets its own worktree of that repository, on its own branch.
-
-Claude asks once to trust a folder. Trust the worktrees folder once for every fleet:
-
-```sh
-w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude
-```
-
-### 3. Capture a task
-
-The supervisor normally does this for you, but the command is the same:
-
-```sh
-hand task add --goal "sign-in redirects to /home" api "Fix the login redirect"
-```
-
-It prints the task's ref, `t1`, in the `inbox` state.
-
-### 4. Run the watcher and the board
-
-The watcher delivers wakes and messages to the supervisor, and the board is your interface. For a first try, run each in its own terminal, from inside the fleet folder:
-
-```sh
-hand watch
-hand board
-```
-
-To keep them running, install them as systemd user units, as described in [Keep the watcher and the board running](#keep-the-watcher-and-the-board-running).
-
-### 5. Start the supervisor and open the board
-
-```sh
-hand supervisor start --profile default
-hand open
-```
-
-`hand open` opens the fleet's page and logs your browser in. You can also start the supervisor from that page instead: press **Start** and pick a routing profile, or a harness with its model and effort. The supervisor runs `hand orient` and sees `t1` in its inbox. Write your requests in the **Chat** tab.
+The other commands (`hand task`, `hand attempt`, `hand decision`, `hand report`, `hand orient`, `hand wait` and the rest) are what the supervisor and its workers run. You rarely need them, and the [command table](#commands) is a reference.
 
 ## The daily loop
 
@@ -414,7 +379,7 @@ The new Hand does not read 0.7 data. Its supervisor rebuilds what still matters,
 5. Run `hand init` there with the new binary. The old `AGENTS.md` and skill are replaced. Everything else (`data/`, `state/`, `config/`, `projects/`) is left alone, and the folder gets a `secondhand-migrate` skill.
 6. Open the supervisor there and ask it to migrate the fleet. It lists what it would create (projects, open tasks, queue items, decisions, routing and memory), then waits for your approval before it changes anything.
 7. Afterwards it can remove the 0.7 pool worktrees and shared files, and then archive the old data into `legacy-0.7/`. Each of those steps waits for your approval. Its last step runs `hand init`, which removes the migrate skill.
-8. Trust the worktrees folder once, as described in [Register a project](#2-register-a-project).
+8. Trust the worktrees folder once, so Claude does not ask in every worktree: `w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude`.
 
 ## Development
 
