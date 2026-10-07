@@ -89,10 +89,11 @@ var (
 )
 
 const (
-	maxCards     = 500
-	historyLimit = 50
-	railFinished = 5
-	archivePage  = 50
+	maxCards       = 500
+	historyLimit   = 50
+	railFinished   = 5
+	archivePage    = 50
+	maxArchivePage = 1_000_000
 )
 
 type Options struct {

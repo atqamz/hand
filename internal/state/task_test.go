@@ -213,6 +213,7 @@ func TestSearchTasks(t *testing.T) {
 		{"every word, any case", TaskQuery{Q: "LOGIN fix", Statuses: done}, "t1", 1},
 		{"goal", TaskQuery{Q: "login page", Statuses: done}, "t2", 1},
 		{"ref", TaskQuery{Q: "t3", Statuses: done}, "t3", 1},
+		{"a bare number is not a ref", TaskQuery{Q: "3", Statuses: done}, "", 0},
 		{"status", TaskQuery{Statuses: []string{StatusAbandoned}}, "t3", 1},
 		{"project", TaskQuery{Project: "hand", Statuses: done}, "t4 t2 t1", 3},
 		{"since", TaskQuery{Since: "2026-10-02", Statuses: done}, "t4 t3 t2", 3},

@@ -160,7 +160,7 @@ func (s *Store) SearchTasks(ctx context.Context, q TaskQuery) ([]Task, int, erro
 		args = append(args, d.value)
 	}
 	for _, w := range strings.Fields(strings.ToLower(q.Q)) {
-		where = append(where, `(instr(lower(t.title), ?) > 0 OR instr(lower(t.goal), ?) > 0 OR instr('t' || t.id, ?) > 0)`)
+		where = append(where, `(instr(lower(t.title), ?) > 0 OR instr(lower(t.goal), ?) > 0 OR 't' || t.id = ?)`)
 		args = append(args, w, w, w)
 	}
 	from := ` FROM task t LEFT JOIN (SELECT task_id, max(at) AS at FROM event WHERE kind IN ('task.done', 'task.abandoned') GROUP BY task_id) f ON f.task_id = t.id`

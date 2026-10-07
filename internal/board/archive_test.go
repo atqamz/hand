@@ -158,6 +158,9 @@ func TestArchivePagesKeepTheQuery(t *testing.T) {
 	if n := len(titles(third)); n != 20 || strings.Contains(third, "Next") || !strings.Contains(third, "Previous") {
 		t.Fatalf("page 3 has %d tasks, body:\n%s", n, third)
 	}
+	if body := get(t, h, "/tasks?page=9223372036854775807"); !strings.Contains(body, ">121 tasks</p>") || strings.Contains(body, "Previous") || len(titles(body)) != 50 {
+		t.Fatal("a huge page number does not fall back to page 1")
+	}
 	if body := get(t, h, "/tasks?page=junk"); !strings.Contains(body, ">121 tasks</p>") || strings.Contains(body, "Previous") {
 		t.Fatal("a bad page number does not fall back to page 1")
 	}

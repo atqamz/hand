@@ -17,7 +17,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		statuses = []string{s}
 	}
 	page := 1
-	if n, err := strconv.Atoi(v.Get("page")); err == nil && n > 1 {
+	if n, err := strconv.Atoi(v.Get("page")); err == nil && n > 1 && n <= maxArchivePage {
 		page = n
 	}
 	query := state.TaskQuery{Q: strings.TrimSpace(v.Get("q")), Statuses: statuses, Project: v.Get("project"), Since: v.Get("since"), Until: v.Get("until"), Limit: archivePage, Offset: (page - 1) * archivePage}

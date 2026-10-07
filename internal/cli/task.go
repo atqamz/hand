@@ -126,9 +126,9 @@ func taskFields(d *toon.Doc, t state.Task) {
 func cmdTaskList(r *runner, args []string) error {
 	fs := flags("task list")
 	status := fs.String("status", "inbox,active", "comma-separated statuses")
-	q := fs.String("q", "", "words that must all appear in the title, goal or ref")
-	since := fs.String("since", "", "finished on or after this UTC date, YYYY-MM-DD")
-	until := fs.String("until", "", "finished on or before this UTC date, YYYY-MM-DD")
+	q := fs.String("q", "", "words that must each appear in the title or goal, or be the task ref")
+	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
+	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	limit := fs.Int("limit", 50, "maximum rows")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
