@@ -75,3 +75,32 @@ func TestTransitionUsageNamesTheCommand(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestTaskListSearchesFinishedTasks(t *testing.T) {
+	h := initWithProject(t)
+	for _, title := range []string{"Fix login", "Write docs", "Fix search"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "t1")
+	h.ok("task", "abandon", "t2")
+	list := h.ok("task", "list", "--status", "done,abandoned")
+	if !strings.Contains(list, "tasks[2]{id,project,status,title,finished}:") || !strings.Contains(list, "t1,hand,done,Fix login,20") || !strings.Contains(list, "t2,hand,abandoned,Write docs,20") {
+		t.Fatalf("finished list = %q", list)
+	}
+	if out := h.ok("task", "list", "--status", "done,abandoned", "--q", "FIX login"); !strings.Contains(out, "tasks[1]") || !strings.Contains(out, "t1,") {
+		t.Fatalf("--q = %q", out)
+	}
+	if out := h.ok("task", "list", "--status", "done", "--since", "2999-01-01"); !strings.Contains(out, "tasks[0]") {
+		t.Fatalf("--since = %q", out)
+	}
+	if out := h.ok("task", "list", "--status", "done", "--until", "2000-01-01"); !strings.Contains(out, "tasks[0]") {
+		t.Fatalf("--until = %q", out)
+	}
+	if out := h.ok("task", "list"); !strings.Contains(out, "{id,project,status,title}:") || !strings.Contains(out, "t3,hand,inbox,Fix search") {
+		t.Fatalf("default list = %q", out)
+	}
+	if _, _, code := h.run("task", "list", "--since", "yesterday"); code != 2 {
+		t.Fatalf("bad --since code = %d, want 2", code)
+	}
+}
