@@ -4,6 +4,8 @@ Hand is a personal supervisor layer for coding agents. You talk to one superviso
 
 Hand is built for one operator on Linux or macOS, not as a product for other users. Native Windows is **experimental**: see [Windows](#windows-experimental). The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
+Wiki: [deepwiki.com/atqamz/hand](https://deepwiki.com/atqamz/hand), a generated overview for browsing the code.
+
 ```mermaid
 flowchart LR
     operator["Operator"] -- "messages, answers" --> board["hand board"]
