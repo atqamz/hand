@@ -355,6 +355,7 @@ Every worker runs with its permission prompts skipped (see [The supervisor](#the
 - **Clean environment.** Start fleets from a shell with no cloud or API secrets. Hand drops only `HAND_HOME` and the Claude, Codex and Luvus variables when it starts the Luvus server, and its panes inherit the rest of the environment.
 - **Review and rotate.** Keep production credentials off the machine, read worker PRs before you merge them, and rotate tokens after a suspicious run.
 - **Private board.** Keep the board on loopback and reach it with `ssh -L` instead of exposing it.
+- **Worker reach.** Every pane's environment carries `LUVUS_SOCKET_PATH` and `LUVUS_API_ADDRESS`, so a worker can reach the fleet's Luvus socket, list the panes and send keys or prompts to the others, the supervisor's included. Hand does not prevent this, so the worker boundary is the account separation above, not a Hand control.
 
 ## Commands
 
