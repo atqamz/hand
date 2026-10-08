@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/update"
 )
 
 func eventually(t *testing.T, ok func() bool) {
@@ -501,12 +502,16 @@ func wantPID(t *testing.T, path string) {
 	var f []string
 	eventually(t, func() bool {
 		b, err := os.ReadFile(path)
-		f = strings.Fields(string(b))
-		return err == nil && len(f) == 2
+		f = strings.SplitN(strings.TrimSuffix(string(b), "\n"), " ", 3)
+		return err == nil && len(f) == 3
 	})
 	m, err := luvus.ProcStartMarker(os.Getpid())
-	if err != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m {
-		t.Fatalf("%s = %q, want %d %s (%v)", path, f, os.Getpid(), m, err)
+	exe, xerr := os.Executable()
+	if xerr == nil {
+		exe, xerr = update.Target(exe)
+	}
+	if err != nil || xerr != nil || f[0] != strconv.Itoa(os.Getpid()) || f[1] != m || f[2] != exe {
+		t.Fatalf("%s = %q, want %d %s %s (%v, %v)", path, f, os.Getpid(), m, exe, err, xerr)
 	}
 }
 
@@ -548,7 +553,7 @@ func TestWatchRunsWhenItsPidFileIsUnwritable(t *testing.T) {
 	}
 	cancel()
 	r := <-done
-	if r.code != 0 || !strings.Contains(r.errOut, "warning: cannot write "+pid+": ") || !strings.Contains(r.errOut, "; hand update on Windows will not stop this process\n") {
+	if r.code != 0 || !strings.Contains(r.errOut, "warning: cannot write "+pid+": ") || !strings.Contains(r.errOut, "; hand update will not stop this process\n") {
 		t.Fatalf("watch = %d %q", r.code, r.errOut)
 	}
 }

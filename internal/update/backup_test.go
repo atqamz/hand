@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -44,7 +45,11 @@ func entries(t *testing.T, root string) []fleet.Entry {
 
 func binary(t *testing.T, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "hand")
+	name := "hand"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

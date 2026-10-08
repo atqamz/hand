@@ -124,7 +124,7 @@ func cmdWatch(r *runner, args []string) error {
 func (r *runner) writePID(path string) func() {
 	forget, err := update.WritePID(path)
 	if err != nil {
-		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v; hand update on Windows will not stop this process\n", path, err)
+		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v; hand update will not stop this process\n", path, err)
 		return func() {}
 	}
 	return forget

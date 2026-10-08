@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/atqamz/hand/internal/luvus"
@@ -14,13 +15,61 @@ func TestAPIDFileRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := luvus.ProcStartMarker(os.Getpid())
+	marker, err := luvus.ProcStartMarker(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pid, marker, live := livePID(path); pid != os.Getpid() || marker != want || !live {
-		t.Fatalf("livePID = %d %q %v, want %d %q true", pid, marker, live, os.Getpid(), want)
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = Target(exe)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, live := livePID(path); got != (pidEntry{os.Getpid(), marker, exe}) || !live {
+		t.Fatalf("livePID = %+v %v, want %d %q %q true", got, live, os.Getpid(), marker, exe)
 	}
 	forget()
 	absent(t, path)
+}
+
+func TestAPIDFileKeepsASpaceInTheBinaryPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.pid")
+	marker, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := []byte(strconv.Itoa(os.Getpid()) + " " + marker + " /opt/my tools/hand\n")
+	if err := os.WriteFile(path, line, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, live := livePID(path); !live || got.exe != "/opt/my tools/hand" {
+		t.Fatalf("livePID = %+v %v", got, live)
+	}
+}
+
+func TestAPIDFileFromAnOlderBuildHasNoBinary(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.pid")
+	marker, err := luvus.ProcStartMarker(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())+" "+marker+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, live := livePID(path); !live || got.exe != "" || got.pid != os.Getpid() {
+		t.Fatalf("livePID = %+v %v", got, live)
+	}
+}
+
+func TestAPIDFileNeverNamesAProcessGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.pid")
+	for _, pid := range []string{"0", "-1"} {
+		if err := os.WriteFile(path, []byte(pid+" marker /bin/hand\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, live := livePID(path); live {
+			t.Fatalf("pid %s counted as live", pid)
+		}
+	}
 }
