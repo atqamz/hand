@@ -73,6 +73,9 @@ func cmdOpen(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := r.ensureBoard(ctx, token); err != nil {
+		return err
+	}
 	addr, err := boardAddr(ctx, r.root, r.fleet.ID, token)
 	if err != nil {
 		return err

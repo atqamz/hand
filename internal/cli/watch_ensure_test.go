@@ -20,6 +20,9 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "watch" && os.Getenv("HAND_HOME") != "" {
 		fakeWatch(os.Getenv("HAND_HOME"))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "board" && os.Getenv("SECONDHAND_HOME") != "" {
+		fakeBoard(os.Getenv("SECONDHAND_HOME"))
+	}
 	*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
 	os.Exit(m.Run())
 }
