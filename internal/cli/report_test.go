@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -74,7 +75,11 @@ func TestBriefingTellsTheWorkerHowToReport(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	prompt := fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1]
-	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, "' report add --status done --file - <<'") || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
+	reportAdd := "' report add --status done --file - <<'"
+	if runtime.GOOS == "windows" {
+		reportAdd = " report add --status done --file PATH"
+	}
+	if !strings.HasPrefix(prompt, "Fix the login bug, commit, then stop.") || !strings.Contains(prompt, reportAdd) || strings.Contains(prompt, "SUMMARY.md") || strings.Contains(prompt, "done|stuck") {
 		t.Fatalf("prompt = %q", prompt)
 	}
 	for _, want := range []string{"one blocking foreground command", "gh pr checks URL --watch", "about 9 minutes", "never wait in a background shell", "write a report only when the work is done or you are stuck"} {
@@ -98,6 +103,9 @@ func heredocDelimiter(t *testing.T, prompt string) string {
 }
 
 func TestEachBriefingClosesItsReportWithAnUnguessableDelimiter(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the Windows footer has no heredoc")
+	}
 	fx := newAttemptFixture(t)
 	fx.start()
 	first := heredocDelimiter(t, fx.rt.lastCreate().Command[len(fx.rt.lastCreate().Command)-1])
