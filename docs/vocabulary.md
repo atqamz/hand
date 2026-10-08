@@ -235,7 +235,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), and when a decision is asked while it runs;
 - sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`.
 
-`hand unit watch` prints a systemd user unit for it, with the caller's `PATH`.
+The running board keeps it alive. `hand unit board` prints the board's systemd user unit.
 
 `hand supervisor start`, `resume` and `switch` start it when its `watch.lock` is free: as the transient user unit `secondhand-watch-<fleet id>` (`Restart=on-failure`, `RestartSec=5`, `RestartPreventExitStatus=3`) in a systemd user session, otherwise detached with its output in `watch.log`. `hand orient` reports `watch: running` or `watch: missing` from the same lock, without creating it. The running board starts it the same way, at startup and every 30 seconds, for each fleet that has a live supervisor or that has `autoresume` in `routing.json` and an ended supervisor to resume (the last one that started is `interrupted` or `exited`), so a crashed or killed watcher comes back on macOS and Windows too and after a reboot once the board is up. A fleet with neither gets none, a fleet whose home is gone or whose `hand.db` will not open is skipped, and a failed start is written to the board's log once per change of error. That probe holds the lock for an instant, so a starting watcher tries it five times, 20 ms apart, before it gives up.
 

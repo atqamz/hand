@@ -9,73 +9,7 @@ import (
 	"testing"
 )
 
-func TestUnitFilesRunTheWatcherAndTheBoard(t *testing.T) {
-	h := newHarness(t)
-	h.home = filepath.Join(t.TempDir(), "my fleet")
-	if err := os.MkdirAll(h.home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	h.ok("init")
-	exe, _ := os.Executable()
-	watch := h.ok("unit", "watch")
-	for _, want := range []string{"[Service]", `Environment="HAND_HOME=` + h.home + `"`, `ExecStart="` + exe + `" watch`, "Restart=on-failure", "RestartPreventExitStatus=3\n", "After=graphical-session.target\n", "WantedBy=graphical-session.target\n"} {
-		if !strings.Contains(watch, want) {
-			t.Fatalf("watch unit missing %q:\n%s", want, watch)
-		}
-	}
-	if !strings.Contains(watch, "Description=Hand watcher for my fleet ("+h.home+")\n") {
-		t.Fatalf("watch unit does not name the fleet:\n%s", watch)
-	}
-	if strings.Contains(watch, "PartOf=") {
-		t.Fatalf("watch unit has PartOf=, which would stop the agents with the session:\n%s", watch)
-	}
-	if board := h.ok("unit", "board"); !strings.Contains(board, `ExecStart="`+exe+`" board --addr 127.0.0.1:7777`) {
-		t.Fatalf("board unit:\n%s", board)
-	}
-	if board := h.ok("unit", "--addr", "127.0.0.1:7778", "board"); !strings.Contains(board, `ExecStart="`+exe+`" board --addr 127.0.0.1:7778`) {
-		t.Fatalf("board unit with --addr:\n%s", board)
-	}
-	for _, args := range [][]string{{"unit", "--addr", "127.0.0.1:7778", "watch"}, {"unit", "--addr", "127.0.0.1:7778 --x", "board"}} {
-		if _, _, code := h.run(args...); code != 2 {
-			t.Fatalf("%q code = %d, want 2", args, code)
-		}
-	}
-	h.ok("init", "--name", `say "hi"`)
-	if out, errOut, code := h.run("unit", "watch"); code != 2 || out != "" || !strings.Contains(errOut, "systemd unit") {
-		t.Fatalf("quoted fleet name: code=%d stdout=%q stderr=%q", code, out, errOut)
-	}
-	if _, _, code := h.run("unit", "luvus"); code != 2 {
-		t.Fatalf("unknown unit code = %d, want 2", code)
-	}
-}
-
-func TestUnitFilesEscapeSpecifiersAndRefuseUnquotablePaths(t *testing.T) {
-	h := newHarness(t)
-	h.home = filepath.Join(t.TempDir(), "100%h fleet")
-	if err := os.MkdirAll(h.home, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	h.ok("init")
-	escaped := strings.ReplaceAll(h.home, "%", "%%")
-	watch := h.ok("unit", "watch")
-	for _, want := range []string{"Description=Hand watcher for 100%%h fleet (" + escaped + ")\n", `Environment="HAND_HOME=` + escaped + `"`} {
-		if !strings.Contains(watch, want) {
-			t.Fatalf("watch unit missing %q:\n%s", want, watch)
-		}
-	}
-	for _, name := range []string{`say "hi"`, `back\slash`, "line\nExecStartPre=/bin/false"} {
-		h.home = filepath.Join(t.TempDir(), name)
-		if err := os.MkdirAll(h.home, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		h.ok("init")
-		if out, errOut, code := h.run("unit", "watch"); code != 2 || out != "" || !strings.Contains(errOut, "systemd unit") {
-			t.Fatalf("home %q: code=%d stdout=%q stderr=%q", name, code, out, errOut)
-		}
-	}
-}
-
-func TestBoardUnitIsGlobal(t *testing.T) {
+func TestBoardUnitRunsTheBoard(t *testing.T) {
 	h := newHarness(t)
 	h.vars["HAND_HOME"] = ""
 	exe, _ := os.Executable()
@@ -91,22 +25,35 @@ func TestBoardUnitIsGlobal(t *testing.T) {
 	if strings.Contains(board, `Environment="HAND_HOME=`) {
 		t.Fatalf("board unit names a fleet home:\n%s", board)
 	}
-	if _, errOut, code := h.run("unit", "watch"); code != 3 || !strings.Contains(errOut, "not inside a fleet home") {
-		t.Fatalf("watch unit outside a fleet: code=%d stderr=%q", code, errOut)
+	if board := h.ok("unit", "--addr", "127.0.0.1:7778", "board"); !strings.Contains(board, `ExecStart="`+exe+`" board --addr 127.0.0.1:7778`) {
+		t.Fatalf("board unit with --addr:\n%s", board)
+	}
+	if _, _, code := h.run("unit", "--addr", "127.0.0.1:7778 --x", "board"); code != 2 {
+		t.Fatalf("spaced --addr code = %d, want 2", code)
+	}
+	if _, _, code := h.run("unit", "luvus"); code != 2 {
+		t.Fatalf("unknown unit code = %d, want 2", code)
 	}
 }
 
-func TestUnitFilesKeepACustomSecondhandHome(t *testing.T) {
+func TestUnitWatchWasRemoved(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	out, errOut, code := h.run("unit", "watch")
+	if code != 2 || out != "" || !strings.Contains(errOut, "unit watch was removed") || !strings.Contains(errOut, "Autostart") {
+		t.Fatalf("unit watch: code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+}
+
+func TestBoardUnitKeepsACustomSecondhandHome(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, unit := range []string{"watch", "board"} {
-		if out := h.ok("unit", unit); !strings.Contains(out, `Environment="SECONDHAND_HOME=`+root+"\"\n") {
-			t.Fatalf("%s unit does not keep the root:\n%s", unit, out)
-		}
+	if out := h.ok("unit", "board"); !strings.Contains(out, `Environment="SECONDHAND_HOME=`+root+"\"\n") {
+		t.Fatalf("board unit does not keep the root:\n%s", out)
 	}
 	delete(h.vars, "SECONDHAND_HOME")
 	if out := h.ok("unit", "board"); strings.Contains(out, "SECONDHAND_HOME") {
@@ -114,14 +61,12 @@ func TestUnitFilesKeepACustomSecondhandHome(t *testing.T) {
 	}
 }
 
-func TestUnitFilesKeepTheCallersPath(t *testing.T) {
+func TestBoardUnitKeepsTheCallersPath(t *testing.T) {
 	h := newHarness(t)
 	h.ok("init")
 	h.vars["PATH"] = "/opt/tools/bin:/usr/bin"
-	for _, unit := range []string{"watch", "board"} {
-		if out := h.ok("unit", unit); !strings.Contains(out, `Environment="PATH=/opt/tools/bin:/usr/bin"`+"\n") {
-			t.Fatalf("%s unit does not keep PATH:\n%s", unit, out)
-		}
+	if out := h.ok("unit", "board"); !strings.Contains(out, `Environment="PATH=/opt/tools/bin:/usr/bin"`+"\n") {
+		t.Fatalf("board unit does not keep PATH:\n%s", out)
 	}
 	h.vars["PATH"] = "/opt/100%/bin"
 	if out := h.ok("unit", "board"); !strings.Contains(out, `Environment="PATH=/opt/100%%/bin"`+"\n") {

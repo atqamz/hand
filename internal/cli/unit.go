@@ -11,11 +11,6 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var units = map[string]string{
-	"watch": "Hand watcher",
-	"board": "Hand board",
-}
-
 func init() {
 	commands["unit"] = cmdUnit
 }
@@ -27,29 +22,13 @@ func cmdUnit(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	description, ok := units[pos[0]]
-	if !ok {
-		return usageError{"unit: want watch or board, got " + pos[0]}
-	}
-	command := pos[0]
 	switch {
-	case pos[0] == "board" && strings.ContainsFunc(*addr, unicode.IsSpace):
+	case pos[0] == "watch":
+		return usageError{"unit watch was removed: the board keeps watchers alive; run `hand unit board` and see Autostart in the README to migrate"}
+	case pos[0] != "board":
+		return usageError{"unit: want board, got " + pos[0]}
+	case strings.ContainsFunc(*addr, unicode.IsSpace):
 		return usageError{"unit: --addr must not contain spaces"}
-	case pos[0] == "board":
-		command += " --addr " + *addr
-	case *addr != set.Lookup("addr").DefValue:
-		return usageError{"unit: --addr is only for the board"}
-	}
-	vals := []string{"", "", command}
-	if pos[0] == "watch" {
-		st, err := r.store()
-		if err != nil {
-			return err
-		}
-		if err := st.Close(); err != nil {
-			return err
-		}
-		vals[0], vals[1] = r.fleet.Name, r.home
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -65,19 +44,14 @@ func cmdUnit(r *runner, args []string) error {
 	if _, err := unitValue(path); err != nil {
 		return fmt.Errorf("%w: PATH holds a quote, backslash or control character, which a systemd unit cannot hold; fix PATH, then run `hand unit` again", state.ErrInvalid)
 	}
-	vals = append(vals, exe, root, path)
+	vals := []string{exe, root, path}
 	for i, v := range vals {
 		if vals[i], err = unitValue(v); err != nil {
 			return err
 		}
 	}
-	name, home, command, exe, root := vals[0], vals[1], vals[2], vals[3], vals[4]
-	path = vals[5]
+	exe, root, path = vals[0], vals[1], vals[2]
 	service := ""
-	if home != "" {
-		description += " for " + name + " (" + home + ")"
-		service = `Environment="HAND_HOME=` + home + "\"\n"
-	}
 	if root != "" {
 		service += `Environment="SECONDHAND_HOME=` + root + "\"\n"
 	}
@@ -85,11 +59,11 @@ func cmdUnit(r *runner, args []string) error {
 		service += `Environment="PATH=` + path + "\"\n"
 	}
 	_, err = io.WriteString(r.env.Stdout, "[Unit]\n"+
-		"Description="+description+"\n"+
+		"Description=Hand board\n"+
 		"After=graphical-session.target\n\n"+
 		"[Service]\n"+
 		service+
-		`ExecStart="`+exe+`" `+command+"\n"+
+		`ExecStart="`+exe+`" board --addr `+*addr+"\n"+
 		"Restart=on-failure\n"+
 		"RestartSec=5\n"+
 		"RestartPreventExitStatus=3\n\n"+

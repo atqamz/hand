@@ -37,7 +37,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 ## Requirements
 
 - Linux, or macOS (Apple silicon or Intel).
-  - On macOS, `hand unit` still prints systemd units, so no service keeps the watcher or the board running: `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached. While the board runs, it starts the watcher again within 30 seconds of a crash for every fleet with a live supervisor or autoresume. The Luvus server starts directly, without restart on failure. `hand update` stops and starts them again by their process IDs. launchd support comes later.
+  - On macOS, `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached, and the Luvus server starts directly, without restart on failure. See [Autostart](#autostart) to run the board at login.
   - On Windows 10 or 11 (amd64), Hand runs natively and is **experimental**. See [Windows](#windows-experimental).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
@@ -118,22 +118,12 @@ git config --global core.longpaths true
 Put `luvus.exe` from a Luvus Windows release on your `PATH` before `hand init`, as on Linux.
 
 What differs from Linux and macOS:
-- there are no units: `hand unit` prints systemd units only, and no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, the running board starts the watchers again within 30 seconds of a crash, and Luvus starts directly;
+- there are no units: no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, the running board starts the watchers again within 30 seconds of a crash, and Luvus starts directly;
 - desktop notifications are off: the watcher's notify step does nothing;
 - stopping a worker ends its whole process tree at once, with no graceful phase;
 - `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board by their process IDs, and starts them again. The next `hand` run deletes the old file.
 
-`hand open` starts the board on demand. To have it running at logon without admin rights, put a shortcut in the Startup folder. This creates it from PowerShell:
-
-```powershell
-$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\Hand board.lnk")
-$link.TargetPath = "$env:LOCALAPPDATA\hand\bin\hand.exe"
-$link.Arguments = "board"
-$link.WindowStyle = 7
-$link.Save()
-```
-
-`shell:startup` in the Run dialog opens the same folder, to move or delete the shortcut.
+See [Autostart](#autostart) to run the board at logon.
 
 ## Getting started
 
@@ -216,42 +206,96 @@ Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's reposi
 
 ## Keep the watcher and the board running
 
-`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash, except when it exits with status 3: another watcher already holds `watch.lock`, the fleet is not found, or the pinned Luvus changed. Retrying would not help in any of them. `hand open` starts the board the same way when none answers: `systemctl --user start secondhand-board` when that unit is installed, otherwise the transient unit `secondhand-board`, otherwise detached with its output in `board.log` in `~/.secondhand`. It fails with the log or journal command to read when the board does not answer within 10 seconds. On every OS, the running board also keeps the watchers alive: at startup and every 30 seconds it starts the watcher of each fleet that has a live supervisor, or that has `autoresume` set in `routing.json` and an ended supervisor to resume, when its `watch.lock` is free. A fleet with neither gets no watcher, and a failure to start one is logged once to the board's log and does not stop the board. To start the watcher with your graphical session after every login and restart, install a unit:
+`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash, except when it exits with status 3: another watcher already holds `watch.lock`, the fleet is not found, or the pinned Luvus changed. Retrying would not help in any of them. `hand open` starts the board the same way when none answers: `systemctl --user start secondhand-board` when that unit is installed, otherwise the transient unit `secondhand-board`, otherwise detached with its output in `board.log` in `~/.secondhand`. It fails with the log or journal command to read when the board does not answer within 10 seconds. On every OS, the running board also keeps the watchers alive: at startup and every 30 seconds it starts the watcher of each fleet that has a live supervisor, or that has `autoresume` set in `routing.json` and an ended supervisor to resume, when its `watch.lock` is free. A fleet with neither gets no watcher, and a failure to start one is logged once to the board's log and does not stop the board. See [Autostart](#autostart) to run the board at login.
 
-Each fleet has its own watcher, so give each fleet's unit its own name. From inside the fleet folder:
+In a systemd user session, Hand runs each fleet's Luvus server in its own user unit, `secondhand-luvus-<fleet id>`. Restarting the watcher or the board therefore never stops the agents, and `systemctl --user stop secondhand-luvus-<fleet id>` stops the server and every agent in that fleet. Without a user session, for example over plain SSH, Hand starts Luvus directly; there is no unit then, so that command does not apply.
+
+## Autostart
+
+One autostart is enough: run `hand board` once at login. The board starts every fleet's watcher that needs one, so there is no per-fleet unit.
+
+### Linux
 
 ```sh
-name=demo
 mkdir -p ~/.config/systemd/user
-hand unit watch > ~/.config/systemd/user/secondhand-watch-$name.service
-systemctl --user daemon-reload
-systemctl --user enable --now secondhand-watch-$name
-```
-
-One board serves every fleet. Install it once, from any folder:
-
-```sh
 hand unit board > ~/.config/systemd/user/secondhand-board.service
 systemctl --user daemon-reload
 systemctl --user enable --now secondhand-board
 ```
 
-Each unit starts with your graphical session: it is `After=` and `WantedBy=` `graphical-session.target`, which systemd reaches once the session manager has imported `WAYLAND_DISPLAY`, `DISPLAY` and the rest of the session environment. The Luvus server and every pane inherit that environment, so pinentry can prompt. It has no `PartOf=`, so ending the session does not stop the units or the agents; they keep running while your user manager does, which after the last logout needs `loginctl enable-linger`. The target is started only by a session manager that integrates with systemd, such as uwsm, GNOME or KDE Plasma. A session that does not start it, and a host without a graphical session such as a headless server, never reaches that target, so the unit never starts there; edit `WantedBy=graphical-session.target` back to `WantedBy=default.target` and delete the `After=` line, then run `systemctl --user daemon-reload` and `systemctl --user reenable` for the unit, since the old link in `graphical-session.target.wants` stays until you do.
+The unit starts with your graphical session: it is `After=` and `WantedBy=` `graphical-session.target`, which systemd reaches once the session manager has imported `WAYLAND_DISPLAY`, `DISPLAY` and the rest of the session environment. The Luvus server and every pane inherit that environment, so pinentry can prompt. It has no `PartOf=`, so ending the session does not stop the unit or the agents; they keep running while your user manager does, which after the last logout needs `loginctl enable-linger`. The target is started only by a session manager that integrates with systemd, such as uwsm, GNOME or KDE Plasma. A session that does not start it, and a host without a graphical session such as a headless server, never reaches that target, so the unit never starts there; edit `WantedBy=graphical-session.target` back to `WantedBy=default.target` and delete the `After=` line, then run `systemctl --user daemon-reload` and `systemctl --user reenable secondhand-board`, since the old link in `graphical-session.target.wants` stays until you do.
 
-Each unit keeps the `PATH` of the shell you ran `hand unit` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board, the watcher and the Luvus server they start need it to find `claude`, `hand` and your tools. Run `hand unit` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
+The unit keeps the `PATH` of the shell you ran `hand unit board` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board and the watchers and Luvus server it starts need it to find `claude`, `hand` and your tools. Run `hand unit board` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
 
-In a systemd user session, Hand runs each fleet's Luvus server in its own user unit, `secondhand-luvus-<fleet id>`. Restarting the watcher or the board therefore never stops the agents, and `systemctl --user stop secondhand-luvus-<fleet id>` stops the server and every agent in that fleet. Without a user session, for example over plain SSH, Hand starts Luvus directly; there is no unit then, so that command does not apply.
-
-To move from one board per fleet, stop and remove each old board unit, then install the one above:
+Migrating from watch units: earlier versions printed a unit per fleet with `hand unit watch`, which no longer exists. The board starts the watchers again within 30 seconds, and no Luvus restart or quiet time is needed. For each installed watch unit:
 
 ```sh
-systemctl --user disable --now secondhand-board-demo
-rm ~/.config/systemd/user/secondhand-board-demo.service
+systemctl --user disable --now secondhand-watch-<name>
+rm ~/.config/systemd/user/secondhand-watch-<name>.service
+systemctl --user daemon-reload
 ```
+
+To move from one board per fleet, remove each old board unit the same way, then install the one above:
+
+```sh
+systemctl --user disable --now secondhand-board-<name>
+rm ~/.config/systemd/user/secondhand-board-<name>.service
+systemctl --user daemon-reload
+```
+
+### macOS
+
+Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary, and a `PATH` that holds `claude`, `git`, `luvus` and your other tools, since launchd gives agents a minimal one:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.secondhand.board</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/hand</string>
+    <string>board</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+```
+
+Load and unload it with:
+
+```sh
+launchctl load ~/Library/LaunchAgents/dev.secondhand.board.plist
+launchctl unload ~/Library/LaunchAgents/dev.secondhand.board.plist
+```
+
+The plist has no `KeepAlive`: a second board exits non-zero when it cannot bind the board's address, and `KeepAlive` would restart it in a loop. launchd therefore does not restart a crashed board; the next `hand open` starts it again.
+
+### Windows
+
+To run the board at logon without admin rights, put a shortcut in the Startup folder. This creates it from PowerShell:
+
+```powershell
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\Hand board.lnk")
+$link.TargetPath = "$env:LOCALAPPDATA\hand\bin\hand.exe"
+$link.Arguments = "board"
+$link.WindowStyle = 7
+$link.Save()
+```
+
+`shell:startup` in the Run dialog opens the same folder, to move or delete the shortcut.
 
 ## The board
 
-The board listens on `127.0.0.1:7777`. Each fleet has its own page at `http://127.0.0.1:7777/<fleet id>/`, and `/` lists the fleets. Each fleet keeps its own token in `board.token` in its folder, so logging in to one fleet never logs you out of another. A fleet you add or move shows up without a restart. The board also keeps each fleet's watcher alive (see above). After a move, generate only its watcher unit again. To reach the board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`.
+The board listens on `127.0.0.1:7777`. Each fleet has its own page at `http://127.0.0.1:7777/<fleet id>/`, and `/` lists the fleets. Each fleet keeps its own token in `board.token` in its folder, so logging in to one fleet never logs you out of another. A fleet you add or move shows up without a restart. The board also keeps each fleet's watcher alive (see above). To reach the board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`.
 
 A fleet's page has two tabs. **Needs you** lists what waits on you, then the task cards. **Chat** shows the conversation without tool calls or thinking, the message box, and the supervisor controls. Each task and each decision also has its own page. The board is a projection of Hand's state, so restarting it loses nothing, and it updates itself as things change.
 
@@ -366,7 +410,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
-| `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
+| `hand unit board` | Print the board's systemd user unit. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 

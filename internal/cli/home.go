@@ -296,7 +296,7 @@ func cmdInit(r *runner, args []string) error {
 		d.Field("luvus", "pinned "+pin.Version+" ("+pin.Path+")")
 	}
 	if movedFrom != "" {
-		help = append(help, "This home moved; regenerate its watcher unit with `hand unit watch`; the board follows the fleet by itself")
+		help = append(help, "This home moved; the board follows the fleet by itself; remove any watch unit that names the old path (README, Autostart)")
 	}
 	if wiring := legacyWiring(r.home); len(wiring) > 0 {
 		help = append(help, "Remove the Hand 0.7 wiring before opening a supervisor here, or it keeps waking the supervisor: "+strings.Join(wiring, ", "))

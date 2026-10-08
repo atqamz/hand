@@ -93,7 +93,7 @@ func TestAMovedHomeIsRefusedUntilInitAdoptsIt(t *testing.T) {
 	if _, errOut, code := h.run("task", "list"); code != 3 || !strings.Contains(errOut, "moved here from "+old) {
 		t.Fatalf("moved home: code=%d stderr=%q", code, errOut)
 	}
-	if out := h.ok("init"); field(out, "moved_from") != old || !strings.Contains(out, "regenerate") {
+	if out := h.ok("init"); field(out, "moved_from") != old || !strings.Contains(out, "remove any watch unit") {
 		t.Fatalf("init after move = %q", out)
 	}
 	h.ok("task", "list")
