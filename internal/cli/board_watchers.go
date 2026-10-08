@@ -26,29 +26,35 @@ func (r *runner) keepWatchers(ctx context.Context, root string) {
 
 func (r *runner) sweepWatchers(ctx context.Context, root string, failed map[string]string) {
 	entries, err := fleet.List(root)
-	if err != nil {
-		return
-	}
+	r.noteWatcher(ctx, failed, "", err)
 	for _, e := range entries {
 		if ctx.Err() != nil {
 			return
 		}
-		if e.State != "ok" {
-			continue
-		}
-		msg := ""
-		if err := r.keepWatcher(ctx, root, e.ID); err != nil {
-			msg = err.Error()
-		}
-		if msg != failed[e.ID] && ctx.Err() == nil {
-			if msg == "" {
-				delete(failed, e.ID)
-			} else {
-				failed[e.ID] = msg
-				fmt.Fprintf(r.env.Stderr, "watcher %s: %s\n", e.ID, msg)
-			}
+		if e.State == "ok" {
+			r.noteWatcher(ctx, failed, e.ID, r.keepWatcher(ctx, root, e.ID))
 		}
 	}
+}
+
+func (r *runner) noteWatcher(ctx context.Context, failed map[string]string, id string, err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	if ctx.Err() != nil || msg == failed[id] {
+		return
+	}
+	if msg == "" {
+		delete(failed, id)
+		return
+	}
+	failed[id] = msg
+	label := "watcher " + id
+	if id == "" {
+		label = "fleet list"
+	}
+	fmt.Fprintf(r.env.Stderr, "%s: %s\n", label, msg)
 }
 
 func (r *runner) keepWatcher(ctx context.Context, root, id string) error {

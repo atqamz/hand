@@ -158,3 +158,21 @@ func TestBoardStopsKeepingWatchersWhenCancelled(t *testing.T) {
 		t.Fatal("board did not stop after cancel")
 	}
 }
+
+func TestBoardLogsAFailedFleetListOnce(t *testing.T) {
+	sweepFast(t)
+	h := newHarness(t)
+	h.ok("init")
+	links := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
+	if err := os.RemoveAll(links); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(links, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stop := startBoard(t, h, "127.0.0.1")
+	settle()
+	if n := strings.Count(stop(), "fleet list: "); n != 1 {
+		t.Fatalf("board logged the fleet list error %d times, want 1", n)
+	}
+}
