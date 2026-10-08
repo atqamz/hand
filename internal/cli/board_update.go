@@ -41,20 +41,20 @@ func recordedEvery(root string) time.Duration {
 	return d
 }
 
-func (r *runner) startUpdate(root string, live *atomic.Bool) error {
+func (r *runner) startUpdate(root string, live *atomic.Bool) (bool, error) {
 	if live.Load() {
-		return nil
+		return false, nil
 	}
 	if held, err := update.Running(root); held || err != nil {
-		return err
+		return false, err
 	}
 	exe, err := watchExecutable()
 	if err != nil {
-		return err
+		return false, err
 	}
 	log, err := os.OpenFile(filepath.Join(root, "update.log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer log.Close()
 	cmd := exec.Command(exe, "update", "--channel", Channel, "--keep-luvus")
@@ -63,12 +63,12 @@ func (r *runner) startUpdate(root string, live *atomic.Bool) error {
 	proc.Detach(cmd)
 	proc.NoWindow(cmd)
 	if err := cmd.Start(); err != nil {
-		return err
+		return false, err
 	}
 	live.Store(true)
 	go func() {
 		_ = cmd.Wait()
 		live.Store(false)
 	}()
-	return nil
+	return true, nil
 }

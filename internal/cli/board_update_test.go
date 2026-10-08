@@ -156,9 +156,7 @@ func TestBoardRecordsItsUpdateIntervalForItsRestart(t *testing.T) {
 	root := enableUpdate(t, h)
 	path := filepath.Join(root, "board.update-every")
 	_, stop := startBoard(t, h, "127.0.0.1", "--update-every", "1h")
-	if b, _ := os.ReadFile(path); string(b) != "1h0m0s\n" {
-		t.Fatalf("recorded %q", b)
-	}
+	eventually(t, func() bool { b, _ := os.ReadFile(path); return string(b) == "1h0m0s\n" })
 	stop()
 	if b, _ := os.ReadFile(path); string(b) != "1h0m0s\n" {
 		t.Fatalf("stopping the board forgot the interval: %q", b)

@@ -24,8 +24,11 @@ func (r *runner) keepWatchers(ctx context.Context, root string, every time.Durat
 	for {
 		r.sweepWatchers(ctx, root, failed)
 		if every > 0 && !time.Now().Before(next) {
-			next = time.Now().Add(every)
-			r.noteWatcher(ctx, failed, "update", r.startUpdate(root, &live))
+			started, err := r.startUpdate(root, &live)
+			if started {
+				next = time.Now().Add(every)
+			}
+			r.noteWatcher(ctx, failed, "update", err)
 		}
 		select {
 		case <-ctx.Done():
