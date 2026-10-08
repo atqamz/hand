@@ -170,8 +170,11 @@ func boardAddr(ctx context.Context, root, id, token string) (string, error) {
 			proof = string(body)
 		}
 	}
-	if err != nil || !hmac.Equal([]byte(proof), []byte(board.Proof(token, nonce))) {
+	if err != nil {
 		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrNotFound, addr, boardHint)
+	}
+	if !hmac.Equal([]byte(proof), []byte(board.Proof(token, nonce))) {
+		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrConflict, addr, boardHint)
 	}
 	return addr, nil
 }

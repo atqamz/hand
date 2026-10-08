@@ -22,6 +22,10 @@ func fakeBoard(root string) {
 	}
 	_, _ = started.WriteString("started\n")
 	_ = started.Close()
+	running := filepath.Join(root, "board.running")
+	if err := os.WriteFile(running, nil, 0o600); err != nil {
+		fakeExit(1, err.Error())
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		for {
@@ -32,7 +36,9 @@ func fakeBoard(root string) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}()
-	os.Exit(cli.Run([]string{"board", "--addr", "127.0.0.1:0"}, cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Getenv: cli.HostGetenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd, Context: ctx}))
+	code := cli.Run([]string{"board", "--addr", "127.0.0.1:0"}, cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Getenv: cli.HostGetenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd, Context: ctx})
+	_ = os.Remove(running)
+	os.Exit(code)
 }
 
 func enableBoard(t *testing.T, h *harness) {
@@ -44,13 +50,17 @@ func enableBoard(t *testing.T, h *harness) {
 		if err := os.Remove(filepath.Join(root, "board.started")); err != nil {
 			return
 		}
-		for range 100 {
-			if _, err := os.Stat(filepath.Join(root, "board.addr")); err != nil {
-				break
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if _, err := os.Stat(filepath.Join(root, "board.running")); errors.Is(err, os.ErrNotExist) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("board did not exit before cleanup deadline")
+				return
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		time.Sleep(300 * time.Millisecond)
 	})
 }
 

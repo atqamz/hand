@@ -225,8 +225,12 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 	if err := os.WriteFile(addrFile(fx.h), []byte(strings.TrimPrefix(impostor.URL, "http://")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	enableBoard(t, fx.h)
 	if _, errOut, code := fx.h.run("open", "t1"); code != 3 || !strings.Contains(errOut, "hand board") {
 		t.Fatalf("open against an impostor: code=%d stderr=%q", code, errOut)
+	}
+	if n := boardSpawns(fx.h); n != 0 {
+		t.Fatalf("boards started against an impostor = %d, want 0", n)
 	}
 	if got := len(fx.opened(t)); got != before {
 		t.Fatalf("xdg-open ran against an impostor")
