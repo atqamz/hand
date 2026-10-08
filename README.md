@@ -227,7 +227,21 @@ The unit starts with your graphical session: it is `After=` and `WantedBy=` `gra
 
 The unit keeps the `PATH` of the shell you ran `hand unit board` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board and the watchers and Luvus server it starts need it to find `claude`, `hand` and your tools. Run `hand unit board` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
 
-Migrating from watch units: earlier versions printed a unit per fleet with `hand unit watch`, which no longer exists. For each installed watch unit, run `systemctl --user disable --now secondhand-watch-<name>`, delete `~/.config/systemd/user/secondhand-watch-<name>.service`, then run `systemctl --user daemon-reload`. The board starts the watchers again within 30 seconds. No Luvus restart and no quiet time is needed. To move from one board per fleet, do the same for each old board unit (`secondhand-board-<name>`), then install the one above.
+Migrating from watch units: earlier versions printed a unit per fleet with `hand unit watch`, which no longer exists. The board starts the watchers again within 30 seconds, and no Luvus restart or quiet time is needed. For each installed watch unit:
+
+```sh
+systemctl --user disable --now secondhand-watch-<name>
+rm ~/.config/systemd/user/secondhand-watch-<name>.service
+systemctl --user daemon-reload
+```
+
+To move from one board per fleet, remove each old board unit the same way, then install the one above:
+
+```sh
+systemctl --user disable --now secondhand-board-<name>
+rm ~/.config/systemd/user/secondhand-board-<name>.service
+systemctl --user daemon-reload
+```
 
 ### macOS
 
@@ -262,6 +276,8 @@ Load and unload it with:
 launchctl load ~/Library/LaunchAgents/dev.secondhand.board.plist
 launchctl unload ~/Library/LaunchAgents/dev.secondhand.board.plist
 ```
+
+The plist has no `KeepAlive`: a second board exits non-zero when it cannot bind the board's address, and `KeepAlive` would restart it in a loop. launchd therefore does not restart a crashed board; the next `hand open` starts it again.
 
 ### Windows
 
