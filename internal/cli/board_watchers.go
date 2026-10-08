@@ -23,7 +23,7 @@ func (r *runner) keepWatchers(ctx context.Context, root string, every time.Durat
 	next := time.Now().Add(every)
 	for {
 		r.sweepWatchers(ctx, root, failed)
-		if every > 0 && !time.Now().Before(next) {
+		if every > 0 && ctx.Err() == nil && !time.Now().Before(next) {
 			started, err := r.startUpdate(root, &live)
 			if started {
 				next = time.Now().Add(every)
