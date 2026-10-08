@@ -211,7 +211,7 @@ Each fleet has its own Luvus session, `secondhand-<fleet id>`. In a systemd user
 
 The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<version>-<sha8>/luvus` (`luvus.exe` on Windows) and chosen by `$SECONDHAND_HOME/luvus/pin.json`. Every fleet under one `SECONDHAND_HOME` uses it, so a system upgrade never changes the Luvus a fleet runs.
 
-- `hand init` pins the `luvus` on `PATH` when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
+- `hand init` pins the `luvus` on `PATH` when there is no pin, and downloads the tested version, checked against its SHA-256, when there is none on `PATH` either. `hand luvus pin` without `BIN` does the same when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
 - The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
 - A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
 

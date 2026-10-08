@@ -52,7 +52,7 @@ func cmdUpdate(r *runner, args []string) error {
 		Check:     *check,
 		Root:      root,
 		HandBase:  r.base("HAND_INSTALL_BASE", "https://github.com/atqamz/hand/releases"),
-		LuvusBase: r.base("HAND_LUVUS_BASE", "https://github.com/RizRiyz/luvus/releases"),
+		LuvusBase: r.luvusBase(),
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 		Env:       r.env.Environ(),
@@ -110,4 +110,8 @@ func (r *runner) base(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func (r *runner) luvusBase() string {
+	return r.base("HAND_LUVUS_BASE", "https://github.com/RizRiyz/luvus/releases")
 }

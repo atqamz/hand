@@ -40,7 +40,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
   - On macOS, `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached, and the Luvus server starts directly, without restart on failure. See [Autostart](#autostart) to run the board at login.
   - On Windows 10 or 11 (amd64), Hand runs natively and is **experimental**. See [Windows](#windows-experimental).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
-- Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
+- Luvus, which Hand needs for its UHP 1.x protocol and was tested with at 0.14. `hand init` pins a copy under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs: the `luvus` on `PATH` when there is one, otherwise the tested version, which it downloads and checks against the release's SHA-256 (nothing is pinned if the check fails). `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
 - Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](#alerts-on-your-phone) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
@@ -115,8 +115,6 @@ Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CON
 git config --global core.longpaths true
 ```
 
-Put `luvus.exe` from a Luvus Windows release on your `PATH` before `hand init`, as on Linux.
-
 Claude asks once per folder whether to trust it, and every worktree is a new folder. Trust the worktrees folder once from PowerShell, so it does not ask in each one:
 
 ```powershell
@@ -148,7 +146,7 @@ Install Hand as described above. You use two commands, then the browser. The oth
    hand init
    ```
 
-   This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus. It starts nothing. Running it again is safe.
+   This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus, downloading the tested version when none is on `PATH`. It starts nothing. Running it again is safe.
 2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. When no board answers, `hand open` starts one first ([Keep the watcher and the board running](#keep-the-watcher-and-the-board-running)).
 3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** and pick a routing profile (`default` is a good first one). That starts the supervisor in the fleet's Luvus session and its watcher. Then:
    - write to the supervisor in the **Chat** tab, and name the repositories it should work on by absolute path;

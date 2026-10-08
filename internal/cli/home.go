@@ -286,7 +286,11 @@ func cmdInit(r *runner, args []string) error {
 	default:
 		bin, err := harness.LookPath("luvus", r.env.Getenv("PATH"))
 		if err != nil {
-			help = append(help, "Install Luvus, then pin it: `hand luvus pin`")
+			if pin, err = r.fetchLuvus(root); err != nil {
+				help = append(help, "Install Luvus, then pin it: `hand luvus pin` (download failed: "+err.Error()+")")
+				break
+			}
+			d.Field("luvus", "downloaded and pinned "+pin.Version+" ("+pin.Path+")")
 			break
 		}
 		if pin, err = r.pinLuvus(root, bin); err != nil {
