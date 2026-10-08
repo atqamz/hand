@@ -77,11 +77,16 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error 
 			return await(ctx, "run `journalctl --user -u "+boardUnit+"`")
 		}
 	}
+	args, props := []string{"board"}, []string(nil)
+	if every := recordedEvery(r.root); every > 0 {
+		args, props = append(args, "--update-every", every.String()), []string{"KillMode=process"}
+	}
 	_, err := r.startService(ctx, spawnSpec{
 		unit:    boardUnit,
 		log:     log,
 		dir:     r.root,
-		args:    []string{"board"},
+		args:    args,
+		props:   props,
 		running: up,
 		await:   await,
 	})

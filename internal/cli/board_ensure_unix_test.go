@@ -75,3 +75,15 @@ func TestOpenStartsATransientBoardUnit(t *testing.T) {
 		t.Fatalf("boards started = %d, want 1", n)
 	}
 }
+
+func TestOpenKeepsTheUpdateIntervalOfTheBoardItRestarts(t *testing.T) {
+	fx, log := userManagerBoard(t, "not-found")
+	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.update-every"), []byte("1h0m0s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.ok("open", "--print")
+	got, _ := os.ReadFile(log)
+	if !strings.Contains(string(got), " -p KillMode=process ") || !strings.Contains(string(got), " board --update-every 1h0m0s\n") {
+		t.Fatalf("calls = %q", got)
+	}
+}

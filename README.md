@@ -77,6 +77,7 @@ To restore a backup:
 The options:
 - `hand update --check` shows what would change and changes nothing; its `units` rows list the stop and start steps a real run would take for each fleet's watcher and the board, each marked `would run`;
 - `hand update --channel edge` (or `stable`) moves to the other channel;
+- `hand update --keep-luvus` never switches a fleet's Luvus server and leaves a pending switch for your own `hand update`; the board's timer passes it ([Autostart](#autostart));
 - a `hand` built from source needs `--channel`.
 
 To build from source instead:
@@ -253,6 +254,17 @@ rm ~/.config/systemd/user/secondhand-board-<name>.service
 systemctl --user daemon-reload
 ```
 
+### Update on a timer
+
+`hand board --update-every 1h` makes the running board start `hand update` every hour, detached, on every OS. It is off by default (`0`), and the least it accepts is `10m`. The automatic run uses the channel the installed binary was built for, so a build from source cannot use it: the board says so once and starts without it. It never switches a fleet's Luvus server, since that stops the server and only you pick a quiet time for that: it leaves a pending switch for your own `hand update`, and returns at once when the binary is already current. A second `hand update` while one runs exits with a message, and the board skips its turn. The last automatic run's output is in `update.log` in `~/.secondhand`. When the update restarts the board, the new board keeps the interval, which the board records in `board.update-every`. On Linux, add the flag to `ExecStart=` in `~/.config/systemd/user/secondhand-board.service` and add `KillMode=process` under `[Service]`, so that systemd does not end the update when the board stops, then run `systemctl --user daemon-reload` and `systemctl --user restart secondhand-board`:
+
+```ini
+ExecStart="/home/you/.local/bin/hand" board --addr 127.0.0.1:7777 --update-every 1h
+KillMode=process
+```
+
+On macOS add `<string>--update-every</string><string>1h</string>` after `<string>board</string>` in the plist, and on Windows add ` --update-every 1h` to the shortcut's `Arguments`.
+
 ### macOS
 
 Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary, and a `PATH` that holds `claude`, `git`, `luvus` and your other tools, since launchd gives agents a minimal one:
@@ -423,11 +435,11 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor interrupt` | Press Escape in the supervisor's terminal. |
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. `--harness H` switches to another harness between turns. |
-| `hand board [--addr ADDR]` | Serve the board for every fleet. |
+| `hand board [--addr ADDR] [--update-every DURATION]` | Serve the board for every fleet. |
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit board` | Print the board's systemd user unit. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
-| `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
+| `hand update [--channel edge\|stable] [--check] [--keep-luvus]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 
 ## Upgrading from 0.7

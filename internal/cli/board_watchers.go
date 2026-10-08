@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -16,10 +17,16 @@ import (
 
 var watcherSweep = 30 * time.Second
 
-func (r *runner) keepWatchers(ctx context.Context, root string) {
+func (r *runner) keepWatchers(ctx context.Context, root string, every time.Duration) {
 	failed := map[string]string{}
+	var live atomic.Bool
+	next := time.Now().Add(every)
 	for {
 		r.sweepWatchers(ctx, root, failed)
+		if every > 0 && !time.Now().Before(next) {
+			next = time.Now().Add(every)
+			r.noteWatcher(ctx, failed, "update", r.startUpdate(root, &live))
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -55,8 +62,11 @@ func (r *runner) noteWatcher(ctx context.Context, failed map[string]string, id s
 	}
 	failed[id] = msg
 	label := "watcher " + id
-	if id == "" {
+	switch id {
+	case "":
 		label = "fleet list"
+	case "update":
+		label = "update"
 	}
 	fmt.Fprintf(r.env.Stderr, "%s: %s\n", label, msg)
 }

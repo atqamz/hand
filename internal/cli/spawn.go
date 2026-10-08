@@ -17,6 +17,7 @@ type spawnSpec struct {
 	log     string
 	dir     string
 	args    []string
+	props   []string
 	env     []string
 	running func() (bool, error)
 	await   func(ctx context.Context, look string) error
@@ -30,6 +31,9 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 	env := luvus.Scrub(r.env.Environ())
 	if run, ok := luvus.UserManager(env); ok {
 		args := []string{"--user", "--unit=" + s.unit, "--collect", "-p", "Restart=on-failure", "-p", "RestartSec=5", "-p", "RestartPreventExitStatus=3"}
+		for _, p := range s.props {
+			args = append(args, "-p", p)
+		}
 		for _, kv := range s.env {
 			args = append(args, "--setenv="+kv)
 		}

@@ -34,8 +34,12 @@ func init() {
 func cmdBoard(r *runner, args []string) error {
 	fs := flags("board")
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
+	every := fs.Duration("update-every", 0, "run `hand update` this often, never switching Luvus; 0 is off, the least is "+updateMin.String())
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
+	}
+	if *every != 0 && *every < updateMin {
+		return usageError{"board: --update-every must be 0 or at least " + updateMin.String()}
 	}
 	root, err := fleet.Root(r.env.Getenv)
 	if err != nil {
@@ -80,6 +84,13 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	defer forget()
 	defer r.writePID(filepath.Join(root, "board.pid"))()
+	if *every > 0 && Channel == "source" {
+		fmt.Fprintln(r.env.Stderr, "board: --update-every is off: this hand was built from source and has no update channel")
+		*every = 0
+	}
+	if err := recordEvery(root, *every); err != nil {
+		return err
+	}
 	var d toon.Doc
 	d.Field("board", "http://"+local+"/")
 	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"
@@ -95,7 +106,7 @@ func cmdBoard(r *runner, args []string) error {
 	kctx, stopKeep := context.WithCancel(ctx)
 	go func() {
 		defer close(keep)
-		r.keepWatchers(kctx, root)
+		r.keepWatchers(kctx, root, *every)
 	}()
 	err = srv.Serve(ln)
 	stopKeep()

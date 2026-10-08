@@ -34,13 +34,13 @@ func runBoard(t *testing.T, h *harness, addr ...string) string {
 
 func addrFile(h *harness) string { return filepath.Join(h.vars["SECONDHAND_HOME"], "board.addr") }
 
-func startBoard(t *testing.T, h *harness, host string) (string, func() string) {
+func startBoard(t *testing.T, h *harness, host string, extra ...string) (string, func() string) {
 	t.Helper()
 	_ = os.Remove(addrFile(h))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan string, 1)
 	go func() {
-		out, errOut, _ := h.runCtx(ctx, "board", "--addr", host+":0")
+		out, errOut, _ := h.runCtx(ctx, append([]string{"board", "--addr", host + ":0"}, extra...)...)
 		done <- out + errOut
 	}()
 	var addr string
