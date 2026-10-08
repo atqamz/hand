@@ -181,7 +181,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 	if o.Check {
 		init = "would run"
 	}
-	boardHome := ""
+	var homes []string
 	for _, e := range fleets {
 		fr := FleetResult{Name: e.Name, Init: init, Luvus: "kept"}
 		if e.State != "ok" {
@@ -189,9 +189,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 			r.Fleets = append(r.Fleets, fr)
 			continue
 		}
-		if boardHome == "" {
-			boardHome = e.Home
-		}
+		homes = append(homes, e.Home)
 		stopped, did := r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"), func(j *journal) { j.Watcher = append(j.Watcher, e.Home) })
 		if !matches(e) || o.Check && repin {
 			if stopped {
@@ -206,18 +204,18 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 		}
 		if did {
 			if stopped {
-				r.start(ctx, o, "watch "+e.Home, e.Home, o.Watch)
+				r.start(ctx, o, "watch "+e.Home, []string{e.Home}, o.Watch)
 			}
 			r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, e.Home) })
 		}
 		r.Fleets = append(r.Fleets, fr)
 	}
-	if boardHome == "" {
+	if len(homes) == 0 {
 		return
 	}
-	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), func(j *journal) { j.Board = []string{boardHome} }); did {
+	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), func(j *journal) { j.Board = append(j.Board, homes...) }); did {
 		if stopped {
-			r.start(ctx, o, "board", boardHome, o.Board)
+			r.start(ctx, o, "board", homes, o.Board)
 		}
 		r.unrecord(o, func(j *journal) { j.Board = nil })
 	}
@@ -228,13 +226,21 @@ func (r *Report) fail(help string) {
 	r.Help = append(r.Help, help)
 }
 
-func (r *Report) start(ctx context.Context, o Options, name, home string, ensure func(context.Context, string) error) {
+func (r *Report) start(ctx context.Context, o Options, name string, homes []string, ensure func(context.Context, string) error) {
 	res := UnitResult{Name: name, Action: "start", Result: "ok"}
 	if o.Check {
 		res.Result = "would run"
-	} else if err := ensure(ctx, home); err != nil {
-		res.Result = "failed: " + err.Error()
-		r.fail(fmt.Sprintf("could not start %s (%v); run `hand %s` for it", name, err, strings.Fields(name)[0]))
+	} else {
+		var err error
+		for _, home := range homes {
+			if err = ensure(ctx, home); err == nil {
+				break
+			}
+		}
+		if err != nil {
+			res.Result = "failed: " + err.Error()
+			r.fail(fmt.Sprintf("could not start %s (%v); run `hand %s` for it", name, err, strings.Fields(name)[0]))
+		}
 	}
 	r.Units = append(r.Units, res)
 }

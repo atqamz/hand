@@ -59,8 +59,8 @@ func (j journal) describe() string {
 	for _, h := range j.Supervisor {
 		steps = append(steps, "resume the supervisor in "+h)
 	}
-	for _, h := range j.Board {
-		steps = append(steps, "start the board (through "+h+")")
+	if len(j.Board) > 0 {
+		steps = append(steps, "start the board through "+strings.Join(j.Board, " or "))
 	}
 	for _, h := range j.Init {
 		steps = append(steps, "run hand init in "+h)
@@ -122,7 +122,7 @@ func (r *Report) finishJournal(ctx context.Context, o Options, hold func()) erro
 
 func (r *Report) repair(ctx context.Context, o Options, j journal) {
 	for _, home := range j.Watcher {
-		r.start(ctx, o, "watch "+home, home, o.Watch)
+		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
 	}
 	for _, home := range j.Supervisor {
 		if live, err := supervisorLive(ctx, home, o.Now); err == nil && live {
@@ -132,8 +132,8 @@ func (r *Report) repair(ctx context.Context, o Options, j journal) {
 			r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", home, err))
 		}
 	}
-	for _, home := range j.Board {
-		r.start(ctx, o, "board", home, o.Board)
+	if len(j.Board) > 0 {
+		r.start(ctx, o, "board", j.Board, o.Board)
 	}
 	for _, home := range j.Init {
 		if err := child(ctx, o, home, "init"); err != nil {

@@ -360,7 +360,7 @@ func TestCheckReportsAnInterruptedUpdate(t *testing.T) {
 	f.o.Check = true
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || !slices.ContainsFunc(rep.Help, func(h string) bool {
-		return strings.Contains(h, "stopped part way") && strings.Contains(h, "start the watcher in "+f.alpha) && strings.Contains(h, "start the board (through "+f.alpha+")")
+		return strings.Contains(h, "stopped part way") && strings.Contains(h, "start the watcher in "+f.alpha) && strings.Contains(h, "start the board through "+f.alpha)
 	}) {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
@@ -402,5 +402,33 @@ func (f *fixture) leaveJournal(t *testing.T, supervisor bool) {
 	b, _ := json.Marshal(j)
 	if err := os.WriteFile(filepath.Join(f.root, "update.json"), b, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUpdateStartsTheBoardThroughTheNextFleetWhenTheFirstFails(t *testing.T) {
+	for name, fails := range map[string]int{"first unusable": 1, "none usable": 2} {
+		t.Run(name, func(t *testing.T) {
+			f := newCycle(t)
+			newFleet(t, f.root, "beta")
+			f.boardRuns(t)
+			var tried []string
+			f.o.Board = func(_ context.Context, home string) error {
+				tried = append(tried, home)
+				if len(tried) <= fails {
+					return errors.New("unusable token")
+				}
+				return nil
+			}
+			rep, err := Run(context.Background(), f.o)
+			if err != nil || rep.Failed != (fails == 2) {
+				t.Fatalf("report = %+v, %v", rep, err)
+			}
+			if len(tried) != 2 || tried[0] == tried[1] {
+				t.Fatalf("tried %q, want each fleet once", tried)
+			}
+			if got := rep.Units[len(rep.Units)-1]; fails == 1 && got != (UnitResult{"board", "start", "ok"}) {
+				t.Fatalf("units = %+v", rep.Units)
+			}
+		})
 	}
 }
