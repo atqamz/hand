@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
@@ -24,7 +25,7 @@ type Options struct {
 	Target                              string
 	From                                Build
 	Channel                             string
-	Check                               bool
+	Check, KeepLuvus                    bool
 	Root, HandBase, LuvusBase, OS, Arch string
 	Env                                 []string
 	Getenv                              func(string) string
@@ -56,10 +57,40 @@ func Target(exe string) (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
+func lockFile(root string) (*os.File, bool, error) {
+	f, err := os.OpenFile(filepath.Join(root, "update.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	ok, err := flock.Lock(f, false)
+	if !ok || err != nil {
+		_ = f.Close()
+	}
+	return f, ok, err
+}
+
+func Running(root string) (bool, error) {
+	f, ok, err := lockFile(root)
+	if ok {
+		_ = flock.Release(f)
+	}
+	return !ok && err == nil, err
+}
+
 func Run(ctx context.Context, o Options) (Report, error) {
 	rep := Report{From: o.From}
 	if o.Channel != "edge" && o.Channel != "stable" {
 		return rep, fmt.Errorf("%w: update: --channel must be edge or stable", state.ErrInvalid)
+	}
+	if !o.Check {
+		lock, ok, err := lockFile(o.Root)
+		if err != nil {
+			return rep, err
+		}
+		if !ok {
+			return rep, fmt.Errorf("%w: update: another hand update is running; wait for it to finish", state.ErrConflict)
+		}
+		defer flock.Release(lock)
 	}
 	held := false
 	hold := func() {
@@ -113,7 +144,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return !known || !pinned || srv.SHA256 == pin.SHA256
 	}
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
-	if current && !repin && !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && !matches(e) }) {
+	if current && !repin && (o.KeepLuvus || !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && !matches(e) })) {
 		if rep.Status != "repaired" {
 			rep.Status = "up to date"
 		}
@@ -192,7 +223,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 		homes = append(homes, e.Home)
 		stopped, did := r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"), func(j *journal) { j.Watcher = append(j.Watcher, e.Home) })
 		if !matches(e) || o.Check && repin {
-			if stopped {
+			if stopped && !o.KeepLuvus {
 				fr.Luvus = r.switchLuvus(ctx, o, e)
 			} else {
 				fr.Luvus = "pending"

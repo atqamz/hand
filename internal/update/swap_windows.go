@@ -43,3 +43,5 @@ func CleanOld(exe string) {
 		}
 	}
 }
+
+func syncDir(string) error { return nil }

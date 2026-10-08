@@ -21,6 +21,7 @@ func cmdUpdate(r *runner, args []string) error {
 	set := flags("update")
 	channel := set.String("channel", "", "edge or stable; required for a source build")
 	check := set.Bool("check", false, "download and compare, but change nothing")
+	keep := set.Bool("keep-luvus", false, "leave every fleet's Luvus server and its pending switch alone")
 	if _, err := parse(set, args, 0); err != nil {
 		return err
 	}
@@ -50,6 +51,7 @@ func cmdUpdate(r *runner, args []string) error {
 		From:      update.Build{Version: Version, Channel: Channel, Commit: commit(), Schema: state.SchemaVersion, Luvus: luvus.Tested},
 		Channel:   *channel,
 		Check:     *check,
+		KeepLuvus: *keep,
 		Root:      root,
 		HandBase:  r.base("HAND_INSTALL_BASE", "https://github.com/atqamz/hand/releases"),
 		LuvusBase: r.luvusBase(),
