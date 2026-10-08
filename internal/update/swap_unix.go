@@ -21,3 +21,12 @@ func swap(src, target string) error {
 }
 
 func CleanOld(string) {}
+
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}

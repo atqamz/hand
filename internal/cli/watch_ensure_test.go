@@ -17,6 +17,12 @@ import (
 
 func TestMain(m *testing.M) {
 	fakebin.Main(fakeBehaviors())
+	if len(os.Args) > 2 && os.Args[1] == "board" && os.Getenv("HAND_TEST_REAL_BOARD") != "" {
+		realBoard()
+	}
+	if len(os.Args) > 1 && os.Args[1] == "update" && os.Getenv("HAND_TEST_FAKE_UPDATE") != "" {
+		fakeUpdate(os.Getenv("SECONDHAND_HOME"))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "watch" && os.Getenv("HAND_HOME") != "" {
 		fakeWatch(os.Getenv("HAND_HOME"))
 	}

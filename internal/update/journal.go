@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/fsx"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -44,11 +45,25 @@ func (j journal) save(root string) error {
 	if err != nil {
 		return err
 	}
-	tmp := journalPath(root) + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	tmp, err := os.CreateTemp(root, ".update.json-")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, journalPath(root))
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(b)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	if err := fsx.Rename(tmp.Name(), journalPath(root)); err != nil {
+		return err
+	}
+	return syncDir(root)
 }
 
 func (j journal) describe() string {

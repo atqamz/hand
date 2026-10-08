@@ -13,4 +13,5 @@ var (
 	BoardWait     = &boardStartWait
 	Reconnect     = &reconnectDelay
 	Git           = git
+	UpdateMin     = &updateMin
 )

@@ -80,6 +80,12 @@ Stopping is the same on every OS: read the pid file (`PID START-MARKER BINARY`),
 
 Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watchers, resumes a supervisor it stopped, starts the board and runs `hand init`. That report reads `status: repaired`.
 
+`hand update --keep-luvus` runs the same steps but never switches a Luvus server: every fleet whose server differs from the pin stays `pending`, and when the binary is already current and no newer Luvus needs pinning it returns `up to date` before it stops anything. A manual `hand update` with a current binary still stops and starts what it needs in order to switch a pending fleet. `hand update` holds a lock on `$SECONDHAND_HOME/update.lock` for the whole run (not `--check`): a second run exits at once with exit code 3. The journal is written to a temporary file, synced and renamed, and its folder is synced on Linux and macOS.
+
+#### Update timer
+
+`hand board --update-every DURATION` (0, the default, is off; 10 minutes at least) makes the board loop that keeps the watchers alive also start `hand update --channel CHANNEL --keep-luvus` as a detached child every DURATION, with its output in `$SECONDHAND_HOME/update.log`. It starts none while the previous child lives or `update.lock` is held, and none from a build whose channel is `source` (the board says why once). The board records DURATION in `board.update-every`, so the board an update restarts keeps it; a board started without the flag removes the file.
+
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy a backup over `hand.db`: the newest `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/`.
 
 ### Secondhand
@@ -116,7 +122,7 @@ A fleet home holds:
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. A fleet home also holds `watch.pid` for its running watcher. `hand update` stops the processes these files name.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. `update.lock` is the lock a `hand update` holds, `update.log` the last automatic update's output, and `board.update-every` the board's `--update-every` for the board `hand update` restarts. A fleet home also holds `watch.pid` for its running watcher. `hand update` stops the processes these files name.
 
 ### Operator memory
 
