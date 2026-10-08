@@ -13,8 +13,14 @@ import (
 
 func TestStartServerGivesTheWorkersGitLongPaths(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "env")
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(kv), "GIT_CONFIG_") {
+			env = append(env, kv)
+		}
+	}
 	bin := fakebin.Install(t, t.TempDir(), "luvus", "env", map[string]string{"out": out})
-	if err := luvus.StartServer(context.Background(), bin, "secondhand-f1", "", t.TempDir(), os.Environ()); err != nil {
+	if err := luvus.StartServer(context.Background(), bin, "secondhand-f1", "", t.TempDir(), env); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(out)

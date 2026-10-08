@@ -13,12 +13,12 @@ func TestReportFooterByOS(t *testing.T) {
 		}
 	}
 	win := reportFooterFor("windows", "C:/Program Files/hand/hand.exe")
-	for _, want := range []string{reportMarker, "hand report add --status done --file PATH", "PowerShell or Git Bash"} {
+	for _, want := range []string{reportMarker, "hand report add --status done --file PATH", "PowerShell or Git Bash", "`\"C:/Program Files/hand/hand.exe\" report add ...`"} {
 		if !strings.Contains(win, want) {
 			t.Errorf("windows footer lacks %q", want)
 		}
 	}
-	for _, bad := range []string{"<<", "until ...", "'"} {
+	for _, bad := range []string{"<<", "until ..."} {
 		if strings.Contains(win, bad) {
 			t.Errorf("windows footer has %q", bad)
 		}

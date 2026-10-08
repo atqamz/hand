@@ -38,8 +38,9 @@ func reportFooter(exe string) string { return reportFooterFor(runtime.GOOS, exe)
 func reportFooterFor(goos, exe string) string {
 	if goos == "windows" {
 		name := strings.TrimSuffix(filepath.Base(exe), ".exe")
+		full := "If `" + name + "` is not on PATH, call it by its full path: `\"" + exe + "\" report add ...`, with `& ` in front in PowerShell.\n"
 		return "\n\n---\n" + reportMarker + ". Write the report to a file outside the worktree, so none is left in it, then run this in PowerShell or Git Bash:\n" +
-			name + " report add --status done --file PATH\n" +
+			name + " report add --status done --file PATH\n" + full +
 			"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
 			"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal.\n" +
 			"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch`. " +
