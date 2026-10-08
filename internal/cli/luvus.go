@@ -3,13 +3,16 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/update"
 )
 
 var luvusCommands = map[string]handler{
@@ -54,6 +57,23 @@ func (r *runner) pinLuvus(root, bin string) (luvus.Pin, error) {
 	return pin, err
 }
 
+func (r *runner) fetchLuvus(root string) (luvus.Pin, error) {
+	store := filepath.Join(root, "luvus")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		return luvus.Pin{}, err
+	}
+	tmp, err := os.MkdirTemp(store, ".fetch-")
+	if err != nil {
+		return luvus.Pin{}, err
+	}
+	defer os.RemoveAll(tmp)
+	bin, err := update.FetchLuvus(r.ctx(), r.luvusBase(), luvus.Tested, runtime.GOOS, runtime.GOARCH, tmp)
+	if err != nil {
+		return luvus.Pin{}, err
+	}
+	return r.pinLuvus(root, bin)
+}
+
 func cmdLuvusPin(r *runner, args []string) error {
 	fs := flags("luvus pin")
 	if err := fs.Parse(args); err != nil {
@@ -66,15 +86,6 @@ func cmdLuvusPin(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	bin := fs.Arg(0)
-	if bin == "" {
-		if bin, err = harness.LookPath("luvus", r.env.Getenv("PATH")); err != nil {
-			return err
-		}
-	}
-	if bin, err = filepath.Abs(bin); err != nil {
-		return err
-	}
 	prev, had, err := luvus.LoadPin(root)
 	previous := pinLabel(prev, had)
 	switch {
@@ -83,6 +94,20 @@ func cmdLuvusPin(r *runner, args []string) error {
 	case err != nil:
 		return err
 	}
+	bin, fetch, lookErr := fs.Arg(0), false, error(nil)
+	if bin == "" {
+		if bin, lookErr = harness.LookPath("luvus", r.env.Getenv("PATH")); lookErr != nil {
+			if had || err != nil {
+				return lookErr
+			}
+			fetch = true
+		}
+	}
+	if !fetch {
+		if bin, err = filepath.Abs(bin); err != nil {
+			return err
+		}
+	}
 	unit, err := r.fleetUnit()
 	if err != nil {
 		return err
@@ -90,8 +115,12 @@ func cmdLuvusPin(r *runner, args []string) error {
 	if had && prev.Path == bin {
 		return fmt.Errorf("%w: %s is already the pinned copy; pin another binary", state.ErrInvalid, bin)
 	}
-	pin, err := r.pinLuvus(root, bin)
-	if err != nil {
+	var pin luvus.Pin
+	if fetch {
+		if pin, err = r.fetchLuvus(root); err != nil {
+			return fmt.Errorf("%w (download failed: %v)", lookErr, err)
+		}
+	} else if pin, err = r.pinLuvus(root, bin); err != nil {
 		return err
 	}
 	var d toon.Doc

@@ -91,7 +91,7 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
-	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir()}}
+	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir(), "HAND_LUVUS_BASE": "http://127.0.0.1:1"}}
 }
 
 func (h *harness) clock() time.Time {
