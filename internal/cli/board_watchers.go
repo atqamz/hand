@@ -2,7 +2,11 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -80,9 +84,13 @@ func watcherWanted(ctx context.Context, st *state.Store, home string) (bool, err
 	if _, live, err := st.LiveSupervisor(ctx); live || err != nil {
 		return live, err
 	}
-	if p, err := harness.LoadPolicy(home); err != nil || !p.Supervisor.Autoresume {
+	last, ok, err := lastStarted(ctx, st)
+	if err != nil || !ok || last.Status != state.AttemptInterrupted && last.Status != state.AttemptExited {
+		return false, err
+	}
+	p, err := harness.LoadPolicy(home)
+	if _, serr := os.Stat(filepath.Join(home, harness.PolicyFile)); errors.Is(serr, fs.ErrNotExist) {
 		return false, nil
 	}
-	last, ok, err := lastStarted(ctx, st)
-	return ok && (last.Status == state.AttemptInterrupted || last.Status == state.AttemptExited), err
+	return err == nil && p.Supervisor.Autoresume, err
 }

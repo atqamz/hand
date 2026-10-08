@@ -163,16 +163,29 @@ func TestBoardLogsAFailedFleetListOnce(t *testing.T) {
 	sweepFast(t)
 	h := newHarness(t)
 	h.ok("init")
-	links := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
-	if err := os.RemoveAll(links); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(links, nil, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", "f000000000000"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, stop := startBoard(t, h, "127.0.0.1")
 	settle()
 	if n := strings.Count(stop(), "fleet list: "); n != 1 {
 		t.Fatalf("board logged the fleet list error %d times, want 1", n)
+	}
+}
+
+func TestBoardLogsAnUnreadablePolicyOfAResumableFleet(t *testing.T) {
+	sweepFast(t)
+	h := newHarness(t)
+	h.ok("init")
+	withSupervisor(t, h, true)
+	if err := os.WriteFile(filepath.Join(h.home, hpolicy.PolicyFile), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	enableWatcher(t, h.home)
+	_, stop := startBoard(t, h, "127.0.0.1")
+	settle()
+	out := stop()
+	if n := strings.Count(out, "watcher "); n != 1 || watchSpawns(h.home) != 0 {
+		t.Fatalf("logged %d times, spawns = %d:\n%s", n, watchSpawns(h.home), out)
 	}
 }
