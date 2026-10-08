@@ -91,7 +91,16 @@ func cmdBoard(r *runner, args []string) error {
 	if err := r.print(&d); err != nil {
 		return err
 	}
-	if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	keep := make(chan struct{})
+	kctx, stopKeep := context.WithCancel(ctx)
+	go func() {
+		defer close(keep)
+		r.keepWatchers(kctx, root)
+	}()
+	err = srv.Serve(ln)
+	stopKeep()
+	<-keep
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil

@@ -9,6 +9,7 @@ var (
 	ServerMatch   = serverMatch
 	NotifyArgv    = notifyArgv
 	WatchExe      = &watchExecutable
+	WatcherSweep  = &watcherSweep
 	BoardWait     = &boardStartWait
 	Reconnect     = &reconnectDelay
 	Git           = git
