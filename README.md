@@ -37,7 +37,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 ## Requirements
 
 - Linux, or macOS (Apple silicon or Intel).
-  - On macOS, `hand unit` still prints systemd units, so run `hand watch` and `hand board` in a terminal or under your own LaunchAgent. The Luvus server starts directly, without restart on failure. launchd support comes later.
+  - On macOS, `hand unit` still prints systemd units, so no service keeps the watcher or the board running: `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached. The Luvus server starts directly, without restart on failure. launchd support comes later.
   - On Windows 10 or 11 (amd64), Hand runs natively and is **experimental**. See [Windows](#windows-experimental).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
@@ -118,12 +118,12 @@ git config --global core.longpaths true
 Put `luvus.exe` from a Luvus Windows release on your `PATH` before `hand init`, as on Linux.
 
 What differs from Linux and macOS:
-- there are no units: `hand unit` prints systemd units only, and no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, and Luvus starts directly;
+- there are no units: `hand unit` prints systemd units only, and no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, and Luvus starts directly;
 - desktop notifications are off: the watcher's notify step does nothing;
 - stopping a worker ends its whole process tree at once, with no graceful phase;
 - `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board, and prints a line to run `hand board` again. The next `hand` run deletes the old file.
 
-To start the board at logon without admin rights, put a shortcut in the Startup folder. This creates it from PowerShell:
+`hand open` starts the board on demand. To have it running at logon without admin rights, put a shortcut in the Startup folder. This creates it from PowerShell:
 
 ```powershell
 $link = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\Hand board.lnk")
@@ -137,7 +137,7 @@ $link.Save()
 
 ## Getting started
 
-Install Hand as described above. You use two commands, then the browser, with the board running (`hand init` does not start it). The other `hand` commands are for the supervisor, the agent that runs your fleet.
+Install Hand as described above. You use two commands, then the browser. The other `hand` commands are for the supervisor, the agent that runs your fleet.
 
 1. **Make a fleet.** In a folder of its own:
 
@@ -147,7 +147,7 @@ Install Hand as described above. You use two commands, then the browser, with th
    ```
 
    This writes `hand.db`, the folder's `AGENTS.md` and `CLAUDE.md`, the `secondhand` skill, a starter `routing.json` and `memory/operator.md`, registers the folder under `~/.secondhand`, and pins Luvus. It starts nothing. Running it again is safe.
-2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. `hand open` needs a running board and fails with `no board is running` otherwise. Run `hand board` in a terminal, or keep it running as a unit ([Keep the watcher and the board running](#keep-the-watcher-and-the-board-running)).
+2. **Open it.** `hand open` opens the fleet's page in your browser and logs you in. `hand open --print` prints the login link for another browser or a phone; keep it private, since it holds the fleet's token. When no board answers, `hand open` starts one first ([Keep the watcher and the board running](#keep-the-watcher-and-the-board-running)).
 3. **Work in the browser.** A new fleet has no supervisor yet: press **Start** and pick a routing profile (`default` is a good first one). That starts the supervisor in the fleet's Luvus session and its watcher. Then:
    - write to the supervisor in the **Chat** tab, and name the repositories it should work on by absolute path;
    - answer its decisions on the **Needs you** tab;
@@ -216,7 +216,7 @@ Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's reposi
 
 ## Keep the watcher and the board running
 
-`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash, except when it exits with status 3: another watcher already holds `watch.lock`, the fleet is not found, or the pinned Luvus changed. Retrying would not help in any of them. To start it with your graphical session after every login and restart, install a unit:
+`hand supervisor start`, `resume` and `switch` start the fleet's watcher when none runs. In a systemd user session it runs as the transient unit `secondhand-watch-<fleet id>`. Otherwise it runs detached, with its output in `watch.log` in the fleet folder. `hand orient` shows `watch: running` or `watch: missing`. That watcher stops with the user session, and systemd restarts it after a crash, except when it exits with status 3: another watcher already holds `watch.lock`, the fleet is not found, or the pinned Luvus changed. Retrying would not help in any of them. `hand open` starts the board the same way when none answers: `systemctl --user start secondhand-board` when that unit is installed, otherwise the transient unit `secondhand-board`, otherwise detached with its output in `board.log` in `~/.secondhand`. It fails with the log or journal command to read when the board does not answer within 10 seconds. To start the watcher with your graphical session after every login and restart, install a unit:
 
 Each fleet has its own watcher, so give each fleet's unit its own name. From inside the fleet folder:
 
@@ -265,7 +265,7 @@ A fleet's page has two tabs. **Needs you** lists what waits on you, then the tas
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
 | `hand open tN --pr` | the task's newest PR, on GitHub |
 
-It logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes.
+It logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes, and starts a board first when none answers.
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 
@@ -364,7 +364,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. `--harness H` switches to another harness between turns. |
 | `hand board [--addr ADDR]` | Serve the board for every fleet. |
-| `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR. `--print` prints the login link instead, for another device or browser. |
+| `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart Hand's units, and pin the tested Luvus. |
