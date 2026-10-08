@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/atqamz/hand/internal/fsx"
 )
 
 func swap(src, target string) error {
@@ -19,13 +21,13 @@ func swap(src, target string) error {
 	if _, err := os.Lstat(old); err == nil {
 		old = target + ".old-" + rand.Text()
 	}
-	if err := os.Rename(target, old); err != nil {
+	if err := fsx.Rename(target, old); err != nil {
 		_ = os.Remove(tmp)
 		return fail(err)
 	}
-	if err := os.Rename(tmp, target); err != nil {
+	if err := fsx.Rename(tmp, target); err != nil {
 		_ = os.Remove(tmp)
-		if rerr := os.Rename(old, target); rerr != nil {
+		if rerr := fsx.Rename(old, target); rerr != nil {
 			return fail(fmt.Errorf("%w; rolling back from %s failed: %v", err, old, rerr))
 		}
 		return fail(err)
