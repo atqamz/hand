@@ -37,7 +37,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 ## Requirements
 
 - Linux, or macOS (Apple silicon or Intel).
-  - On macOS, `hand unit` still prints systemd units, so no service keeps the watcher or the board running: `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached. The Luvus server starts directly, without restart on failure. launchd support comes later.
+  - On macOS, `hand unit` still prints systemd units, so no service keeps the watcher or the board running: `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached. The Luvus server starts directly, without restart on failure. `hand update` stops and starts them again by their process IDs. launchd support comes later.
   - On Windows 10 or 11 (amd64), Hand runs natively and is **experimental**. See [Windows](#windows-experimental).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
@@ -62,10 +62,10 @@ You can choose another version:
 To update an installed Hand, run `hand update` from anywhere. It does the following:
 - downloads the newest build of the channel the running `hand` came from, and checks it;
 - backs up every fleet's `hand.db` and the old binary under `~/.secondhand/backups/`;
-- replaces the binary and restarts the board and watch units that run it;
+- replaces the binary, then stops each fleet's watcher and the board by the process IDs they record (`watch.pid` in the fleet folder, `board.pid` in `~/.secondhand`) and starts them again as `hand supervisor start` and `hand open` do, on every OS;
 - runs `hand init` in every fleet.
 
-It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Otherwise it prints the command to run at a quiet time, and names any other live pane, since stopping the server ends it. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
+It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Otherwise it prints the command to run at a quiet time, and names any other live pane, since stopping the server ends it. It signals only a process whose recorded binary is the one being updated, and only while its recorded start time still matches, and it restarts only what it stopped. It stops a process with SIGTERM (`TerminateProcess` on Windows), which exits cleanly, so systemd does not restart an installed unit itself: an installed board unit is started again, and an installed watch unit stays inactive while the watcher runs as the transient unit `secondhand-watch-<fleet id>` until your next login. If both ever run, the second watcher finds `watch.lock` held and exits with status 3, and a second board fails to bind the board's address. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
 
 To restore a backup:
 1. stop the fleet's watch unit and the board;
@@ -75,7 +75,7 @@ To restore a backup:
 5. start the units again.
 
 The options:
-- `hand update --check` shows what would change and changes nothing; its `units` rows list the stop, start and restart steps a real run would take, each marked `would run`;
+- `hand update --check` shows what would change and changes nothing; its `units` rows list the stop and start steps a real run would take for each fleet's watcher and the board, each marked `would run`;
 - `hand update --channel edge` (or `stable`) moves to the other channel;
 - a `hand` built from source needs `--channel`.
 
@@ -121,7 +121,7 @@ What differs from Linux and macOS:
 - there are no units: `hand unit` prints systemd units only, and no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, and Luvus starts directly;
 - desktop notifications are off: the watcher's notify step does nothing;
 - stopping a worker ends its whole process tree at once, with no graceful phase;
-- `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board, and prints a line to run `hand board` again. The next `hand` run deletes the old file.
+- `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board by their process IDs, and starts them again. The next `hand` run deletes the old file.
 
 `hand open` starts the board on demand. To have it running at logon without admin rights, put a shortcut in the Startup folder. This creates it from PowerShell:
 
@@ -367,7 +367,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit watch`, `hand unit board` | Print a systemd user unit for the watcher or the board. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
-| `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart Hand's units, and pin the tested Luvus. |
+| `hand update [--channel edge\|stable] [--check]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 
 ## Upgrading from 0.7
