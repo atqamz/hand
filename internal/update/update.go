@@ -31,7 +31,7 @@ type Options struct {
 	Now                                 func() time.Time
 	Server                              func(ctx context.Context, unit string) (luvus.Server, bool)
 	Hold                                func()
-	Watch                               func(ctx context.Context, home string) error
+	Watch, Board                        func(ctx context.Context, home string) error
 	Cgroup                              string
 	Stop                                func(pid int, marker string) error
 }
@@ -120,8 +120,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, nil
 	}
 	if o.Check {
-		units, listed := rep.listUnits(ctx, o)
-		rep.cycle(ctx, o, fleets, units, listed, repin, matches)
+		rep.cycle(ctx, o, fleets, repin, matches)
 		rep.Status = "checked"
 		return rep, nil
 	}
@@ -137,12 +136,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		pinned, rep.PinTo = true, pin.Version
 	}
 	hold()
-	units, listed := rep.listUnits(ctx, o)
-	for _, u := range units {
-		if u.Command == "board" && u.Active {
-			rep.journal.Board = append(rep.journal.Board, u.Name)
-		}
-	}
 	for _, e := range fleets {
 		if e.State == "ok" {
 			rep.journal.Init = append(rep.journal.Init, e.Home)
@@ -165,7 +158,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Help = append(rep.Help, fmt.Sprintf("could not remove old backups (%v)", err))
 		}
 	}
-	rep.cycle(ctx, o, fleets, units, listed, repin, matches)
+	rep.cycle(ctx, o, fleets, repin, matches)
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -183,25 +176,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	return rep, nil
 }
 
-func (r *Report) listUnits(ctx context.Context, o Options) ([]Unit, bool) {
-	if o.Stop != nil {
-		return nil, true
-	}
-	units, err := Units(ctx, o.Env, o.Target)
-	switch {
-	case errors.Is(err, ErrNoSystemctl):
-		r.Help = append(r.Help, fmt.Sprintf("systemctl was not found; restart the board and watch units that run %s by hand", o.Target))
-	case err != nil:
-		r.fail(fmt.Sprintf("could not list Hand's units (%v); restart the board and watch units with `systemctl --user restart`", err))
-	}
-	return units, err == nil
-}
-
-func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, units []Unit, listed, repin bool, matches func(fleet.Entry) bool) {
+func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, repin bool, matches func(fleet.Entry) bool) {
 	init := "ok"
 	if o.Check {
 		init = "would run"
 	}
+	boardHome := ""
 	for _, e := range fleets {
 		fr := FleetResult{Name: e.Name, Init: init, Luvus: "kept"}
 		if e.State != "ok" {
@@ -209,37 +189,10 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, uni
 			r.Fleets = append(r.Fleets, fr)
 			continue
 		}
-		var watches []Unit
-		for _, u := range units {
-			if u.Command == "watch" && u.Active && filepath.Clean(u.Home) == filepath.Clean(e.Home) {
-				watches = append(watches, u)
-			}
+		if boardHome == "" {
+			boardHome = e.Home
 		}
-		var names, installed, transient []string
-		for _, u := range watches {
-			names = append(names, u.Name)
-			if u.Transient {
-				transient = []string{e.Home}
-			} else {
-				installed = append(installed, u.Name)
-			}
-		}
-		stopped := listed
-		if o.Stop != nil {
-			var did bool
-			if stopped, did = r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid")); did && stopped {
-				r.Help = append(r.Help, "Start the watch again in "+e.Home+": `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it")
-			}
-		}
-		if len(names) > 0 {
-			if err := r.record(o, func(j *journal) { j.Watch, j.Watcher = append(j.Watch, installed...), append(j.Watcher, transient...) }); err != nil {
-				r.fail(fmt.Sprintf("could not write %s (%v), so %s keeps running and its Luvus server is left alone", journalPath(o.Root), err, strings.Join(names, ", ")))
-				watches, stopped = nil, false
-			}
-		}
-		for _, u := range watches {
-			stopped = r.unit(ctx, o, u.Name, "stop") && stopped
-		}
+		stopped, did := r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"), func(j *journal) { j.Watcher = append(j.Watcher, e.Home) })
 		if !matches(e) || o.Check && repin {
 			if stopped {
 				fr.Luvus = r.switchLuvus(ctx, o, e)
@@ -251,29 +204,23 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, uni
 				fr.Luvus = "would stay pending"
 			}
 		}
-		for _, u := range watches {
-			if u.Transient {
-				r.watcher(ctx, o, e.Home)
-			} else {
-				r.unit(ctx, o, u.Name, "start")
+		if did {
+			if stopped {
+				r.start(ctx, o, "watch "+e.Home, e.Home, o.Watch)
 			}
-		}
-		if len(watches) > 0 {
-			r.unrecord(o, func(j *journal) { j.Watch, j.Watcher = without(j.Watch, names...), without(j.Watcher, transient...) })
+			r.unrecord(o, func(j *journal) { j.Watcher = without(j.Watcher, e.Home) })
 		}
 		r.Fleets = append(r.Fleets, fr)
 	}
-	for _, u := range units {
-		if u.Command == "board" && u.Active {
-			r.unit(ctx, o, u.Name, "restart")
-		}
+	if boardHome == "" {
+		return
 	}
-	if o.Stop != nil {
-		if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid")); did && stopped {
-			r.Help = append(r.Help, "Start the board again: `hand board`")
+	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), func(j *journal) { j.Board = []string{boardHome} }); did {
+		if stopped {
+			r.start(ctx, o, "board", boardHome, o.Board)
 		}
+		r.unrecord(o, func(j *journal) { j.Board = nil })
 	}
-	r.unrecord(o, func(j *journal) { j.Board = nil })
 }
 
 func (r *Report) fail(help string) {
@@ -281,48 +228,42 @@ func (r *Report) fail(help string) {
 	r.Help = append(r.Help, help)
 }
 
-func (r *Report) unit(ctx context.Context, o Options, name, action string) bool {
-	res := UnitResult{Name: name, Action: action, Result: "ok"}
+func (r *Report) start(ctx context.Context, o Options, name, home string, ensure func(context.Context, string) error) {
+	res := UnitResult{Name: name, Action: "start", Result: "ok"}
 	if o.Check {
 		res.Result = "would run"
-		r.Units = append(r.Units, res)
-		return true
-	}
-	err := Systemctl(ctx, o.Env, action, name)
-	if err != nil {
+	} else if err := ensure(ctx, home); err != nil {
 		res.Result = "failed: " + err.Error()
-		r.fail(fmt.Sprintf("`systemctl --user %s %s` failed (%v); run it again", action, name, err))
-	}
-	r.Units = append(r.Units, res)
-	return err == nil
-}
-
-func (r *Report) watcher(ctx context.Context, o Options, home string) {
-	res := UnitResult{Name: "watch " + home, Action: "start", Result: "ok"}
-	if o.Check {
-		res.Result = "would run"
-	} else if err := o.Watch(ctx, home); err != nil {
-		res.Result = "failed: " + err.Error()
-		r.fail(fmt.Sprintf("could not start the watcher in %s (%v); start it there: `hand watch`; the next `hand supervisor start` or `hand supervisor resume` also starts it", home, err))
+		r.fail(fmt.Sprintf("could not start %s (%v); run `hand %s` for it", name, err, strings.Fields(name)[0]))
 	}
 	r.Units = append(r.Units, res)
 }
 
-func (r *Report) stopPID(o Options, name, path string) (stopped, did bool) {
-	pid, marker, live := livePID(path)
+func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (stopped, did bool) {
+	e, live := livePID(path)
 	if !live {
 		return true, false
 	}
 	res := UnitResult{Name: name, Action: "stop", Result: "ok"}
+	if e.exe != "" && e.exe != o.Target {
+		res.Result = "skipped: runs " + e.exe
+		r.Units = append(r.Units, res)
+		r.Help = append(r.Help, fmt.Sprintf("%s runs %s, not %s, so it was left running", name, e.exe, o.Target))
+		return false, false
+	}
 	if o.Check {
 		res.Result = "would run"
 		r.Units = append(r.Units, res)
 		return true, true
 	}
-	err := o.Stop(pid, marker)
+	if err := r.record(o, mark); err != nil {
+		r.fail(fmt.Sprintf("could not write %s (%v), so %s keeps running and its Luvus server is left alone", journalPath(o.Root), err, name))
+		return false, false
+	}
+	err := o.Stop(e.pid, e.marker)
 	if err != nil {
 		res.Result = "failed: " + err.Error()
-		r.fail(fmt.Sprintf("could not stop %s (%v); stop process %d", name, err, pid))
+		r.fail(fmt.Sprintf("could not stop %s (%v); stop process %d", name, err, e.pid))
 	} else {
 		_ = os.Remove(path)
 	}

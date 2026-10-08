@@ -13,8 +13,6 @@ import (
 	"github.com/atqamz/hand/internal/update"
 )
 
-var updateStop func(pid int, marker string) error
-
 func init() {
 	commands["update"] = cmdUpdate
 }
@@ -62,18 +60,25 @@ func cmdUpdate(r *runner, args []string) error {
 		Now:       r.env.Now,
 		Hold:      func() { signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
 		Cgroup:    string(cgroup),
-		Stop:      updateStop,
+		Stop:      stopOne,
 		Watch: func(ctx context.Context, home string) error {
-			w := &runner{env: r.env, home: home, root: root}
-			st, err := w.store()
+			w, err := fleetRunner(r, root, home)
 			if err != nil {
-				return err
-			}
-			if err := st.Close(); err != nil {
 				return err
 			}
 			_, err = w.ensureWatcher(ctx)
 			return err
+		},
+		Board: func(ctx context.Context, home string) error {
+			w, err := fleetRunner(r, root, home)
+			if err != nil {
+				return err
+			}
+			token, err := boardToken(home)
+			if err != nil {
+				return err
+			}
+			return w.ensureBoard(ctx, token)
 		},
 	})
 	if err != nil {
@@ -89,6 +94,15 @@ func cmdUpdate(r *runner, args []string) error {
 		return errors.New("update: some steps failed; run the help lines")
 	}
 	return nil
+}
+
+func fleetRunner(r *runner, root, home string) (*runner, error) {
+	w := &runner{env: r.env, home: home, root: root}
+	st, err := w.store()
+	if err != nil {
+		return nil, err
+	}
+	return w, st.Close()
 }
 
 func (r *runner) base(name, fallback string) string {

@@ -6,8 +6,6 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-func init() { updateStop = stopOne }
-
 func stopOne(pid int, marker string) error {
 	if !rootAlive(pid, marker) {
 		return nil

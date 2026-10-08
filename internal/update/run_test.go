@@ -28,6 +28,7 @@ type fixture struct {
 	status                       string
 	uhp                          *fakeuhp.Server
 	terms                        []luvus.Terminal
+	stopErr                      error
 }
 
 func lookup(env []string) func(string) string {
@@ -112,7 +113,7 @@ func (f *fixture) unchanged(t *testing.T) {
 	absent(t, filepath.Join(f.root, "backups"))
 }
 
-var changes = []string{" stop ", " start ", " restart ", "hand "}
+var changes = []string{" stop ", " start ", " restart ", "hand ", "kill", "watcher @ ", "board @ "}
 
 func TestRunCheckChangesNothing(t *testing.T) {
 	f := newFetch(t)
@@ -272,10 +273,10 @@ func TestRunDoesNotHoldWhileDownloading(t *testing.T) {
 
 func TestRecordReportsAJournalItCannotWrite(t *testing.T) {
 	var r Report
-	if err := r.record(Options{Root: filepath.Join(t.TempDir(), "missing")}, func(j *journal) { j.Watch = []string{"w"} }); err == nil {
+	if err := r.record(Options{Root: filepath.Join(t.TempDir(), "missing")}, func(j *journal) { j.Watcher = []string{"w"} }); err == nil {
 		t.Fatal("record wrote into a missing folder")
 	}
-	if len(r.journal.Watch) != 0 {
-		t.Fatalf("a failed record kept %q in memory", r.journal.Watch)
+	if len(r.journal.Watcher) != 0 {
+		t.Fatalf("a failed record kept %q in memory", r.journal.Watcher)
 	}
 }

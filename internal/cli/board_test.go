@@ -343,3 +343,21 @@ func TestARotatedTokenWorksWithoutARestart(t *testing.T) {
 		t.Fatalf("remade token = %d", code)
 	}
 }
+
+func TestASecondBoardOnTheSameAddressLeavesTheFirstAlone(t *testing.T) {
+	h := newHarness(t)
+	base, stop := startBoard(t, h, "127.0.0.1")
+	if _, _, code := h.run("board", "--addr", strings.TrimPrefix(base, "http://")); code == 0 {
+		t.Fatal("a second board bound the same address")
+	}
+	if b, err := os.ReadFile(addrFile(h)); err != nil || strings.TrimSpace(string(b)) != strings.TrimPrefix(base, "http://") {
+		t.Fatalf("board.addr = %q, %v", b, err)
+	}
+	wantPID(t, filepath.Join(h.vars["SECONDHAND_HOME"], "board.pid"))
+	if res, err := http.Get(base + "/"); err != nil {
+		t.Fatalf("the first board stopped answering: %v", err)
+	} else {
+		_ = res.Body.Close()
+	}
+	stop()
+}
