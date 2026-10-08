@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -197,7 +198,7 @@ func AttachArgv(bin, session, pane string) []string {
 func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
 	ctx, cancel := context.WithTimeout(ctx, startWait)
 	defer cancel()
-	env := Scrub(environ)
+	env := longPaths(runtime.GOOS, Scrub(environ))
 	if run, ok := UserManager(env); ok && unit != "" {
 		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
 			return err
@@ -216,6 +217,13 @@ func StartServer(ctx context.Context, bin, session, unit, dir string, environ []
 		return fmt.Errorf("luvus server start: %w: %s", err, bytes.TrimSpace(out))
 	}
 	return nil
+}
+
+func longPaths(goos string, env []string) []string {
+	if goos != "windows" || slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(strings.ToUpper(kv), "GIT_CONFIG_COUNT=") }) {
+		return env
+	}
+	return append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.longpaths", "GIT_CONFIG_VALUE_0=true")
 }
 
 var errNoManager = errors.New("no systemd user manager")

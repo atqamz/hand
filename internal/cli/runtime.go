@@ -231,7 +231,7 @@ func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Termin
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", dir}, args...)...)
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
 	cmd.WaitDelay = time.Second
 	proc.NoWindow(cmd)
 	var stderr bytes.Buffer
