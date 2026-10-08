@@ -43,7 +43,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 - Luvus, with `luvus` on `PATH` when you first run `hand init`. Hand needs its UHP 1.x protocol, and was tested with Luvus 0.14. `hand init` pins a copy of that binary under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs. `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
-- Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` uses the shell and there are no notifications), and a systemd user session to keep the watcher, the board and Luvus running.
+- Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](#alerts-on-your-phone) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
 
 ## Install
 
@@ -109,13 +109,25 @@ The options go after the command, as in `... -Edge`:
 
 `HAND_INSTALL_VERSION`, `HAND_INSTALL_DIR` and `HAND_INSTALL_BASE` set the same defaults as in `install.sh`.
 
-Before your first worktree, allow long paths in git:
+Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` set to the same, so a worker's git inherits it unless you already set `GIT_CONFIG_COUNT`. A Luvus server you started yourself does not have it. For the git you run and as a fallback, allow long paths once:
 
 ```powershell
 git config --global core.longpaths true
 ```
 
 Put `luvus.exe` from a Luvus Windows release on your `PATH` before `hand init`, as on Linux.
+
+Claude asks once per folder whether to trust it, and every worktree is a new folder. Trust the worktrees folder once from PowerShell, so it does not ask in each one:
+
+```powershell
+$w = if ($env:SECONDHAND_HOME) { "$env:SECONDHAND_HOME\worktrees" } else { "$HOME\.secondhand\worktrees" }; New-Item -ItemType Directory -Force $w | Out-Null; cd $w; claude
+```
+
+Hand tells a Windows worker to write its report to a file outside the worktree and run `hand report add --status done --file PATH`, which works in PowerShell and in Git Bash.
+
+Signing and ssh, from secondary sources that nobody has verified on a Windows machine running Hand: HTTPS with `gh auth login` is the low-ceremony way to push, and needs no agent. Windows' `ssh-agent` service is disabled by default, and Git for Windows' bundled ssh does not talk to it unless you set `git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe`. A worker that signs commits with an ssh key needs both.
+
+Windows user profile folders whose names contain spaces or non-ASCII characters are untested.
 
 What differs from Linux and macOS:
 - there are no units: no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, the running board starts the watchers again within 30 seconds of a crash, and Luvus starts directly;
@@ -321,7 +333,13 @@ The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes 
 "notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use, and the watcher says so once. `--notify=false` turns all alerts off.
+Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use (on Windows there is none, so no alert is sent), and the watcher writes one line about it to its own output, `watch.log` when it runs detached, which no one is shown. `--notify=false` turns all alerts off.
+
+On Windows, this toast recipe uses `powershell.exe` (unverified: it has not been run on a Windows machine). Hand starts it without a console window:
+
+```json
+"notify": ["powershell.exe", "-NoProfile", "-Command", "[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent('ToastText02'); $t = $x.GetElementsByTagName('text'); [void]$t.Item(0).AppendChild($x.CreateTextNode($env:HAND_NOTIFY_REF)); [void]$t.Item(1).AppendChild($x.CreateTextNode($env:HAND_NOTIFY_TEXT)); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Hand').Show([Windows.UI.Notifications.ToastNotification]::new($x))"]
+```
 
 ## The supervisor
 
@@ -425,7 +443,7 @@ The new Hand does not read 0.7 data. Its supervisor rebuilds what still matters,
 5. Run `hand init` there with the new binary. The old `AGENTS.md` and skill are replaced. Everything else (`data/`, `state/`, `config/`, `projects/`) is left alone, and the folder gets a `secondhand-migrate` skill.
 6. Open the supervisor there and ask it to migrate the fleet. It lists what it would create (projects, open tasks, queue items, decisions, routing and memory), then waits for your approval before it changes anything.
 7. Afterwards it can remove the 0.7 pool worktrees and shared files, and then archive the old data into `legacy-0.7/`. Each of those steps waits for your approval. Its last step runs `hand init`, which removes the migrate skill.
-8. Trust the worktrees folder once, so Claude does not ask in every worktree: `w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude`.
+8. Trust the worktrees folder once, so Claude does not ask in every worktree: `w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude`. On Windows, use the PowerShell line under [Windows](#windows-experimental).
 
 ## Development
 
