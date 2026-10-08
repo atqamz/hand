@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/agydb"
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -337,6 +338,7 @@ func Opencode(bin, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	cmd.WaitDelay = time.Second
+	proc.NoWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		var exit *exec.ExitError

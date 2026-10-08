@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/atqamz/hand/internal/proc"
 )
 
 var (
@@ -282,6 +284,7 @@ func UserManager(env []string) (string, bool) {
 func command(ctx context.Context, env []string, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env, cmd.WaitDelay = env, time.Second
+	proc.NoWindow(cmd)
 	return cmd
 }
 

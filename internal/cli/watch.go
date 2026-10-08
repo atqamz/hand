@@ -597,6 +597,7 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 		cmd := exec.CommandContext(nctx, bin, args...)
 		cmd.Env = env
 		proc.KillGroupOnCancel(cmd)
+		proc.NoWindow(cmd)
 		_ = cmd.Run()
 	}()
 }
