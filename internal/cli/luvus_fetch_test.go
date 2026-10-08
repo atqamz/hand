@@ -113,7 +113,9 @@ func TestInitDownloadsTheTestedLuvusWhenNoneIsOnPath(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(root, "luvus", ".fetch-*")); len(left) != 0 {
 		t.Fatalf("left %q", left)
 	}
-	has(t, "show", h.ok("luvus", "show"), "pin: 0.14.3 ")
+	if out := h.ok("luvus", "show"); !strings.HasPrefix(field(out, "pin"), "0.14.3 ") {
+		t.Fatalf("show = %q", out)
+	}
 }
 
 func TestInitRefusesADownloadWithABadChecksum(t *testing.T) {
@@ -133,7 +135,9 @@ func TestInitKeepsTheLuvusOnPathWithoutDownloading(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
 	rel := serveLuvus(t, h, false)
-	has(t, "init", h.ok("init"), "luvus: pinned 0.14.3 (")
+	if out := h.ok("init"); !strings.HasPrefix(field(out, "luvus"), "pinned 0.14.3 (") {
+		t.Fatalf("init = %q", out)
+	}
 	if got := rel.requests(); len(got) != 0 {
 		t.Fatalf("asked %q", got)
 	}
