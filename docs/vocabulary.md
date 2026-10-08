@@ -114,7 +114,7 @@ A fleet home holds:
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, and `board.pid` holds the running board's `PID MARKER`. A fleet home also holds `watch.pid` for its running watcher. `hand update` on Windows stops the processes these files name.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER`. A fleet home also holds `watch.pid` for its running watcher. `hand update` on Windows stops the processes these files name.
 
 ### Operator memory
 
@@ -291,7 +291,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Board
 
-`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`).
+`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`). `hand open` starts a board when none answers its `/<fleet id>/proof` check: `systemctl --user start` of an installed `secondhand-board` unit, else a transient unit of that name, else a detached process (macOS, Windows, no user manager) logging to `board.log`; it waits up to 10 seconds for the proof.
 
 A fleet's page has two parts. At 1024px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
 
