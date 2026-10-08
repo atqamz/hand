@@ -1,4 +1,4 @@
-package luvus
+package fsx
 
 import (
 	"os"
@@ -25,7 +25,7 @@ func TestRenameWaitsForAHandleToClose(t *testing.T) {
 				t.Fatal("os.Rename succeeded over an open handle, so this test holds nothing")
 			}
 			time.AfterFunc(100*time.Millisecond, func() { f.Close() })
-			if err := rename(paths["source"], paths["target"]); err != nil {
+			if err := Rename(paths["source"], paths["target"]); err != nil {
 				t.Fatal(err)
 			}
 			if got, err := os.ReadFile(paths["target"]); err != nil || string(got) != "src" {

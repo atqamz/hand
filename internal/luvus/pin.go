@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/fsx"
 )
 
 var (
@@ -90,7 +92,7 @@ func Keep(ctx context.Context, root, bin string, env []string, now time.Time) (P
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return Pin{}, err
 		}
-		if err := rename(tmp, dest); err != nil {
+		if err := fsx.Rename(tmp, dest); err != nil {
 			return Pin{}, err
 		}
 		if err := syncDir(filepath.Dir(dest)); err != nil {
@@ -169,19 +171,8 @@ func writePin(store string, p Pin) error {
 	if err != nil {
 		return err
 	}
-	if err := rename(tmp.Name(), filepath.Join(store, "pin.json")); err != nil {
+	if err := fsx.Rename(tmp.Name(), filepath.Join(store, "pin.json")); err != nil {
 		return err
 	}
 	return syncDir(store)
-}
-
-func rename(oldpath, newpath string) error {
-	deadline := time.Now().Add(2 * time.Second)
-	for delay := time.Millisecond; ; delay *= 2 {
-		err := os.Rename(oldpath, newpath)
-		if err == nil || !held(err) || time.Now().After(deadline) {
-			return err
-		}
-		time.Sleep(min(delay, 100*time.Millisecond))
-	}
 }

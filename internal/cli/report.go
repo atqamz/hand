@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -32,7 +33,21 @@ const reportMarker = "When you finish, report to Hand"
 
 var worktreeName = regexp.MustCompile(`^t[0-9]+-a([0-9]+)$`)
 
-func reportFooter(exe string) string {
+func reportFooter(exe string) string { return reportFooterFor(runtime.GOOS, exe) }
+
+func reportFooterFor(goos, exe string) string {
+	if goos == "windows" {
+		name := strings.TrimSuffix(filepath.Base(exe), ".exe")
+		full := "If `" + name + "` is not on PATH, call it by its full path: `\"" + exe + "\" report add ...`, with `& ` in front in PowerShell.\n"
+		return "\n\n---\n" + reportMarker + ". Write the report to a file outside the worktree, so none is left in it, then run this in PowerShell or Git Bash:\n" +
+			name + " report add --status done --file PATH\n" + full +
+			"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
+			"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal.\n" +
+			"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch`. " +
+			"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
+			"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
+			"Apart from a milestone, write a report only when the work is done or you are stuck."
+	}
 	end := "HAND_REPORT_" + rand.Text()[:8]
 	return "\n\n---\n" + reportMarker + " from inside this worktree, passing the report on stdin so no file is left in it:\n" +
 		shellQuote(exe) + " report add --status done --file - <<'" + end + "'\n" +

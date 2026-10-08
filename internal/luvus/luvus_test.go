@@ -27,6 +27,16 @@ func TestMain(m *testing.M) {
 		}
 		fakebin.Append(p["calls"], line)
 		return 0
+	}, "env": func([]string) int {
+		p := fakebin.Params()
+		var b strings.Builder
+		for _, k := range []string{"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"} {
+			b.WriteString(k + "=" + os.Getenv(k) + "\n")
+		}
+		if os.WriteFile(p["out"], []byte(b.String()), 0o600) != nil {
+			return 1
+		}
+		return 0
 	}, "sleep": func([]string) int {
 		time.Sleep(5 * time.Minute)
 		return 0

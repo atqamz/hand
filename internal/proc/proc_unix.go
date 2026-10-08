@@ -15,6 +15,8 @@ func Detach(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
+func NoWindow(*exec.Cmd) {}
+
 func KillGroupOnCancel(cmd *exec.Cmd) {
 	NewGroup(cmd)
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }

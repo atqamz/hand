@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -129,6 +130,7 @@ func agyModels(env Env) ([]Model, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "models")
 	cmd.WaitDelay = time.Second
+	proc.NoWindow(cmd)
 	out, err := cmd.Output()
 	if errors.Is(err, exec.ErrWaitDelay) {
 		err = nil
