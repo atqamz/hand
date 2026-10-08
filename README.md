@@ -231,7 +231,7 @@ Migrating from watch units: earlier versions printed a unit per fleet with `hand
 
 ### macOS
 
-Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary:
+Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary, and a `PATH` that holds `claude`, `git`, `luvus` and your other tools, since launchd gives agents a minimal one:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -245,6 +245,11 @@ Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchA
     <string>/usr/local/bin/hand</string>
     <string>board</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
 </dict>
