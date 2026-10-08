@@ -61,3 +61,15 @@ func TestAPIDFileFromAnOlderBuildHasNoBinary(t *testing.T) {
 		t.Fatalf("livePID = %+v %v", got, live)
 	}
 }
+
+func TestAPIDFileNeverNamesAProcessGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "watch.pid")
+	for _, pid := range []string{"0", "-1"} {
+		if err := os.WriteFile(path, []byte(pid+" marker /bin/hand\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, live := livePID(path); live {
+			t.Fatalf("pid %s counted as live", pid)
+		}
+	}
+}

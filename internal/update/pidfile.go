@@ -48,7 +48,7 @@ func livePID(path string) (pidEntry, bool) {
 		return pidEntry{}, false
 	}
 	pid, err := strconv.Atoi(f[0])
-	if err != nil {
+	if err != nil || pid <= 0 {
 		return pidEntry{}, false
 	}
 	e := pidEntry{pid: pid, marker: f[1]}
