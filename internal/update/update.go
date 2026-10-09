@@ -215,6 +215,9 @@ func Run(ctx context.Context, o Options) (Report, error) {
 }
 
 func (r *Report) clearJournal(o Options) {
+	if len(r.journal.Supervisor) > 0 {
+		return
+	}
 	if err := os.Remove(journalPath(o.Root)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		r.Help = append(r.Help, fmt.Sprintf("could not remove %s (%v)", journalPath(o.Root), err))
 	}
@@ -511,6 +514,14 @@ func (r *Report) resume(ctx context.Context, o Options, home string) error {
 	return err
 }
 
+func (r *Report) restore(ctx context.Context, o Options, home string) bool {
+	if r.resume(ctx, o, home) != nil {
+		return false
+	}
+	r.unrecord(o, func(j *journal) { j.Supervisor = without(j.Supervisor, home) })
+	return true
+}
+
 func (r *Report) failSwitch(ctx context.Context, st *state.Store, e fleet.Entry, reason string) string {
 	reason = strings.Join(strings.Fields(reason), " ")
 	r.fail(fmt.Sprintf("the Luvus switch of %s failed (%s); the board's timer will not try again, but `hand update` will", e.Name, reason))
@@ -536,20 +547,19 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 	}
 	from, err := o.running(ctx, e)
 	if err != nil || from == "" {
-		from = "unknown"
+		return "pending: the server no longer reports its version"
 	}
 	if live {
 		if err := r.record(o, func(j *journal) { j.Supervisor = append(j.Supervisor, e.Home) }); err != nil {
 			r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v)", journalPath(o.Root), err))
 			return "pending: cannot write the update journal"
 		}
-		defer r.unrecord(o, func(j *journal) { j.Supervisor = without(j.Supervisor, e.Home) })
 		if err := child(ctx, o, e.Home, "supervisor", "stop"); err != nil {
-			_ = r.resume(ctx, o, e.Home)
+			r.restore(ctx, o, e.Home)
 			return r.failSwitch(ctx, st, e, "`hand supervisor stop` failed: "+err.Error())
 		}
 		if why := quiet(ctx, st, c, e.Home); why != "" {
-			_ = r.resume(ctx, o, e.Home)
+			r.restore(ctx, o, e.Home)
 			return "pending: " + why
 		}
 	}
@@ -562,7 +572,7 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 	if err == nil {
 		err = o.startServer(ctx, e, r.PinTo)
 	}
-	resumed := !live || r.resume(ctx, o, e.Home) == nil
+	resumed := !live || r.restore(ctx, o, e.Home)
 	if err != nil {
 		return r.failSwitch(ctx, st, e, err.Error())
 	}

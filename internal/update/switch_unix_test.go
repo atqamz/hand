@@ -282,3 +282,43 @@ func TestASwitchWhoseResumeFailedIsStillRecorded(t *testing.T) {
 		t.Fatal("a switch that happened recorded a failure")
 	}
 }
+
+func TestAServerThatStopsReportingItsVersionKeepsItPending(t *testing.T) {
+	f := newCycle(t)
+	f.quietStale(t)
+	reads := 0
+	f.o.Version = func(context.Context, fleet.Entry) (string, error) {
+		if reads++; reads <= 2 {
+			return "0.0.1", nil
+		}
+		return "", nil
+	}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || alphaLuvus(t, rep) != "pending: the server no longer reports its version" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got := f.log(t, "kill", "supervisor", "server.stop", "luvus start", "watcher @ "); !slices.Equal(got, []string{"kill", "watcher @ " + f.alpha}) {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestAFailedResumeLeavesTheJournalForTheNextRun(t *testing.T) {
+	f := newCycle(t)
+	f.quietStale(t)
+	f.setenv("HAND_FAIL=supervisor resume")
+	if rep, err := Run(context.Background(), f.o); err != nil || alphaLuvus(t, rep) != "switched; resume failed" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if j, found, err := loadJournal(f.root); err != nil || !found || !slices.Equal(j.Supervisor, []string{f.alpha}) {
+		t.Fatalf("journal = %+v, %v, %v", j, found, err)
+	}
+	f.setenv("HAND_FAIL=")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed || rep.Status != "repaired" {
+		t.Fatalf("second report = %+v, %v", rep, err)
+	}
+	if got := f.log(t, "supervisor"); len(got) != 3 || got[2] != "hand supervisor resume @ "+f.alpha {
+		t.Fatalf("calls = %q", got)
+	}
+	absent(t, filepath.Join(f.root, "update.json"))
+}
