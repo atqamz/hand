@@ -56,7 +56,7 @@ func (r *runner) client(session string) luvus.Client {
 		if err != nil {
 			return "", err
 		}
-		addr, err := luvus.Address(ctx, bin, session, r.env.Environ())
+		addr, _, err := luvus.Address(ctx, bin, session, r.env.Environ())
 		if err == nil {
 			r.addrs.Store(session, addr)
 		}

@@ -13,7 +13,7 @@ import (
 )
 
 func TestRunKeepsItsChildrenOutOfTheTerminalGroup(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	pgid := filepath.Join(t.TempDir(), "pgid")
 	script := "#!/bin/sh\nif [ \"$1\" = version ]; then printf 'version: 0.9.0\\nchannel: edge\\ncommit: 0123456789ab\\nschema: 9\\nluvus: 0.14.4\\n'; exit 0; fi\nps -o pgid= -p $$ | tr -d ' ' >> " + pgid + "\n"
 	archive := tarball(t, "hand", script)
@@ -35,7 +35,7 @@ func TestRunKeepsItsChildrenOutOfTheTerminalGroup(t *testing.T) {
 }
 
 func TestRunUpgradesAFleetLinkedBySymlink(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	path := filepath.Join(f.root, "fleets", f.alphaID)
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)

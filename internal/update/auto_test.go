@@ -83,11 +83,11 @@ func TestKeepLuvusUpdatesAndLeavesTheSwitchPending(t *testing.T) {
 		t.Fatalf("luvus = %q", got)
 	}
 	for _, u := range rep.Units {
-		if strings.Contains(u.Name, "secondhand-luvus-") {
+		if strings.HasPrefix(u.Name, "luvus ") {
 			t.Fatalf("units = %+v", rep.Units)
 		}
 	}
-	if !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.HasPrefix(h, "At a quiet time:") }) {
+	if !slices.ContainsFunc(rep.Help, func(h string) bool { return h == pendingLine }) {
 		t.Fatalf("help = %q", rep.Help)
 	}
 }
