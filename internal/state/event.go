@@ -77,7 +77,8 @@ func (s *Store) NoteLuvus(ctx context.Context, kind, detail string) error {
 
 func (s *Store) SwitchFailed(ctx context.Context, version string) (bool, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event WHERE kind = 'luvus.failed' AND detail LIKE ?`, version+": %").Scan(&n)
+	prefix := version + ": "
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event WHERE kind = 'luvus.failed' AND substr(detail, 1, ?) = ?`, len(prefix), prefix).Scan(&n)
 	return n > 0, err
 }
 

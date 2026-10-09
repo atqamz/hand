@@ -152,7 +152,7 @@ func TestSwitchFailedMatchesOnlyThePinItFailedOn(t *testing.T) {
 	if err := s.NoteLuvus(ctx, "switched", "0.14.3 -> 0.14.4"); err != nil {
 		t.Fatal(err)
 	}
-	for version, want := range map[string]bool{"0.15.0": true, "0.15": false, "0.14.4": false, "0.14.3": false} {
+	for version, want := range map[string]bool{"0.15.0": true, "0.15": false, "0.1_.0": false, "%": false, "0.14.4": false, "0.14.3": false} {
 		if got, err := s.SwitchFailed(ctx, version); err != nil || got != want {
 			t.Fatalf("SwitchFailed(%q) = %v, %v; want %v", version, got, err, want)
 		}
