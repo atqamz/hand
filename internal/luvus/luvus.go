@@ -221,26 +221,34 @@ func (c Client) StopServer(ctx context.Context, sessionDir string, kill func(pid
 		m, err := ProcStartMarker(pid)
 		return err == nil && m == marker
 	}
-	answers := func() bool { return c.ping(ctx, nil) == nil }
+	answers := func(ctx context.Context) bool { return c.ping(ctx, nil) == nil }
 	if !alive() {
-		if answers() {
+		if answers(ctx) {
 			return fmt.Errorf("luvus server answers, but %s names no live process; stop it by hand", file)
 		}
 		return nil
 	}
 	acked := c.Call(ctx, "server.stop", nil, nil) == nil
-	for deadline := time.Now().Add(serverExitBy); time.Now().Before(deadline) && ctx.Err() == nil; time.Sleep(50 * time.Millisecond) {
-		if _, err := os.Stat(file); !alive() && (err != nil || !answers()) {
+	waitCtx, cancel := context.WithTimeout(ctx, serverExitBy)
+	defer cancel()
+	for ; waitCtx.Err() == nil; time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(file); !alive() && (err != nil || !answers(waitCtx)) {
 			return nil
 		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !acked && answers() {
+	if !acked && answers(ctx) {
 		return fmt.Errorf("luvus server %d refused server.stop and still answers; it was left running", pid)
 	}
-	return kill(pid, marker)
+	if err := kill(pid, marker); err != nil {
+		return err
+	}
+	if alive() {
+		return fmt.Errorf("luvus server %d is still alive after the kill", pid)
+	}
+	return nil
 }
 
 func AttachArgv(bin, session, pane string) []string {

@@ -314,6 +314,9 @@ func (o Options) client(e fleet.Entry) luvus.Client {
 }
 
 func (o Options) serverState(ctx context.Context, e fleet.Entry, pin luvus.Pin, pinned bool) string {
+	if o.Getenv("HAND_LUVUS_SOCKET") != "" {
+		return "unknown"
+	}
 	version, err := o.client(e).Version(ctx)
 	switch {
 	case errors.Is(err, luvus.ErrUnreachable):

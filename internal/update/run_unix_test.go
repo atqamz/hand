@@ -572,11 +572,32 @@ func TestUpdateLeavesInstalledUnitsToTheEnsurePath(t *testing.T) {
 
 func TestRunDefaultsTheClientToTheFleetSocket(t *testing.T) {
 	f := newRun(t)
-	f.stale()
 	f.o.Client = nil
-	f.setenv("HAND_LUVUS_SOCKET=" + f.uhp.Socket)
+	home, err := os.MkdirTemp("", "l")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	dir := filepath.Join(home, "sessions", fleet.Session(f.alphaID))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	own := fakeuhp.Start(t, filepath.Join(dir, "luvus.sock"))
+	own.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"version": "0.0.1"}, nil })
+	f.setenv("LUVUS_HOME=" + home)
 	f.o.Check = true
-	if rep, err := Run(context.Background(), f.o); err != nil || alphaLuvus(t, rep) != "would switch" {
+	if rep, err := Run(context.Background(), f.o); err != nil || alphaLuvus(t, rep) != "would stay pending" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
+func TestRunNeverSwitchesThroughASocketOverride(t *testing.T) {
+	f := newRun(t)
+	f.stale()
+	f.serverRuns(t)
+	f.setenv("HAND_LUVUS_SOCKET=" + f.uhp.Socket)
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "unknown" || len(f.log(t, "server.stop", "force")) != 0 {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }

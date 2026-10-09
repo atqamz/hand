@@ -158,6 +158,27 @@ func TestStopServerForcesOnlyAnAcknowledgedOrMuteServer(t *testing.T) {
 	}
 }
 
+func TestStopServerFailsWhenTheProcessSurvivesTheKill(t *testing.T) {
+	s := newFakeServer(t)
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+	if err := s.client().StopServer(context.Background(), s.dir, func(int, string) error { return nil }); err == nil || !s.alive() {
+		t.Fatalf("a kill that left the server alive: err = %v, alive %v", err, s.alive())
+	}
+}
+
+func TestStopServerWaitsAtMostItsBoundWhenPingHangs(t *testing.T) {
+	s := newFakeServer(t)
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) { go s.kill(); return map[string]any{}, nil })
+	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { time.Sleep(3 * time.Second); return map[string]any{}, nil })
+	old := *luvus.PingWait
+	*luvus.PingWait = 2 * time.Second
+	t.Cleanup(func() { *luvus.PingWait = old })
+	began := time.Now()
+	if err := (luvus.Client{Socket: s.uhp.Socket}).StopServer(context.Background(), s.dir, s.forceKill); time.Since(began) > 1500*time.Millisecond {
+		t.Fatalf("err = %v after %s, past the 400ms bound", err, time.Since(began))
+	}
+}
+
 func TestStopServerIgnoresARecycledPID(t *testing.T) {
 	s := newFakeServer(t)
 	s.writePID(t, "another marker")
