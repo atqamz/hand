@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -308,7 +309,16 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 	return err == nil, true
 }
 
+var hostOS = runtime.GOOS
+
 func pendingLine(e fleet.Entry) string {
+	return pendingLineFor(hostOS, e)
+}
+
+func pendingLineFor(goos string, e fleet.Entry) string {
+	if goos != "linux" {
+		return "At a quiet time: stop the fleet's Luvus server (this ends every live pane), then `hand supervisor resume` in " + e.Home
+	}
 	return "At a quiet time: `systemctl --user stop " + fleet.LuvusUnit(e.ID) + ".service`, then `hand supervisor resume` in " + e.Home
 }
 
@@ -335,6 +345,10 @@ func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, 
 func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
 	unit := fleet.LuvusUnit(e.ID) + ".service"
 	pending := pendingLine(e)
+	if hostOS != "linux" {
+		r.Help = append(r.Help, pending)
+		return "pending"
+	}
 	live, ok, other, err := o.switchable(ctx, e)
 	switch {
 	case err != nil:

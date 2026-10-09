@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strings"
 	"unicode"
 
@@ -15,7 +16,12 @@ func init() {
 	commands["unit"] = cmdUnit
 }
 
+var unitOS = runtime.GOOS
+
 func cmdUnit(r *runner, args []string) error {
+	if unitOS != "linux" {
+		return usageError{"unit: units are systemd-only and this OS has none; see Autostart in the README"}
+	}
 	set := flags("unit")
 	addr := set.String("addr", "127.0.0.1:7777", "listen address baked into the board unit")
 	pos, err := parse(set, args, 1)

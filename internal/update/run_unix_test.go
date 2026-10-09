@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -22,6 +23,8 @@ import (
 func newRun(t *testing.T, fail map[string]bool) *fixture {
 	t.Helper()
 	f := newCycle(t)
+	hostOS = "linux"
+	t.Cleanup(func() { hostOS = runtime.GOOS })
 	f.sysdir, f.calls = fakeSystemctl(t, fail)
 	f.status = "idle"
 	uhp := fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
