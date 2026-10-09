@@ -69,22 +69,44 @@ What `hand update` does, in order:
 4. replaces the binary;
 5. for each fleet:
    - stops its watcher by `watch.pid`;
-   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane. On every OS a fleet's server is stale when its UHP `ping` version differs from the pin's. A server that does not answer is `not running` and a server that answers without a version is `unknown`; neither is switched, and `hand update --check` lists such a fleet under that name and plans no switch for it. The switch sends `server.stop`, waits up to 10 seconds for the process in `server.pid` (in the session folder that `luvus session list --json` reports) to exit, and ends it itself (on Windows its whole process tree) only when the stop was acknowledged or `ping` no longer answers; a recycled process ID, whose start marker differs from the one in `server.pid`, is never signalled. A `hand update` whose environment has `LUVUS_SESSION` equal to the fleet's session runs inside that fleet and leaves its server alone;
+   - switches its Luvus server to the pin when the fleet is stale, quiet and settled (see Luvus switch below), otherwise reports `pending: <reason>`;
    - starts that watcher again the way `hand supervisor start` does, when it stopped one;
 6. stops the board by `board.pid` and starts it again the way `hand open` does, when it stopped one;
 7. runs `hand init` in each fleet.
 
 `hand update --check` walks steps 5 and 6 on the same path without changing anything: it fills the same `units` rows, each marked `would run`, and stops no process, no supervisor and no Luvus server and runs no `hand init`.
 
+#### Luvus switch
+
+On every OS a fleet's server is stale when its UHP `ping` version differs from the pin's. A server that does not answer is `not running` and a server that answers without a version is `unknown`; neither is switched, and `hand update --check` lists such a fleet under that name and plans no switch for it. A stale fleet is switched only when it is:
+- quiet (issue #774): no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts;
+- settled: no event in the fleet newer than 15 minutes, and, for `hand update --auto`, no `luvus.failed` event for this pin version;
+- not the fleet this update runs inside: a `hand update` whose environment has `LUVUS_SESSION` equal to the fleet's session stays `pending` for that fleet. The board's timer scrubs that variable, so it may switch the fleet later.
+
+The steps, where any failed check leaves the fleet `pending: <reason>` and changes nothing more than the watcher's stop and start:
+1. check quiet and settled;
+2. stop the fleet's watcher by `watch.pid` and journal it;
+3. read the supervisor pane's screen `content_revision`, wait 30 seconds, read it again, and check quiet again: typing or output keeps the fleet pending;
+4. `hand supervisor stop` (journaled), then check quiet again; a queued input or a new pane resumes the supervisor and keeps the fleet pending;
+5. stop the server: `server.stop`, then wait up to 10 seconds for the process in `server.pid` (in the session folder that `luvus session list --json` reports) to exit, and end it itself (on Windows its whole process tree) only when the stop was acknowledged or `ping` no longer answers; a recycled process ID, whose start marker differs from the one in `server.pid`, is never signalled, and a server that answers `ping` but refuses `server.stop` is never forced;
+6. start the server from the pin (`luvus.Ensure`) and require that `ping` reports the pin's version;
+7. resume the supervisor (a new `sN` on the same session), start the watcher, and append the event `luvus.switched` with the detail `OLD -> NEW`.
+
+A failure at step 4 to 6 (the supervisor's stop, the server's stop or start, a wrong version) appends `luvus.failed` with the detail `PIN: reason` (a server that comes back with another version is one), resumes the supervisor and starts the watcher again as the journal's repair path does, and the update exits non-zero. The board's timer, which passes `--auto`, never tries the same pin again; a manual `hand update` does. Both events show in `hand orient`'s recent events, as one line in the board's chat (`Luvus 0.14.3 → 0.15.0 (switched while quiet)`), in the `fleets` row (`switched`, `pending: <reason>`, `failed: <reason>`) and in `update.log`.
+
+Accepted losses: a `hand attach` viewer is disconnected, and text typed but not sent in the supervisor's pane is lost when the screen stayed still for 30 seconds. No worker loses work, since a switch needs no live attempt and no pane Hand did not start.
+
+While `update.lock` is held, the board starts no watcher, so it cannot start one in the middle of a switch.
+
 Stopping is the same on every OS: read the pid file (`PID START-MARKER BINARY`), skip it when the process no longer matches its start marker, skip it (reported as `skipped: runs BINARY`, and the fleet's Luvus switch stays pending) when it records another binary than the one being updated, then send SIGTERM and wait up to 10 seconds (Windows: `TerminateProcess`); a process that is still alive fails the step and is not started again. A pid file from a build that recorded no binary counts as the updated one. The process exits cleanly, so a systemd unit with `Restart=on-failure` does not bring it back. An installed `secondhand-board` unit is started again by the board's start; an installed watch unit stays inactive while the transient `secondhand-watch-<fleet id>` unit runs the watcher. `watch.lock` and the board's listen address keep a second watcher or board from running: the second exits (status 3 for the watcher, which systemd does not retry).
 
 Before its first change it writes `$SECONDHAND_HOME/update.json`, a journal of the steps still to run, and removes it at the end. If an update dies part way, the next `hand update` finishes those steps first: it starts the watchers, resumes a supervisor it stopped, starts the board and runs `hand init`. That report reads `status: repaired`.
 
-`hand update --keep-luvus` runs the same steps but never switches a Luvus server: every fleet whose server differs from the pin stays `pending`, and when the binary is already current and no newer Luvus needs pinning it returns `up to date` before it stops anything. A manual `hand update` with a current binary still stops and starts what it needs in order to switch a pending fleet. `hand update` holds a lock on `$SECONDHAND_HOME/update.lock` for the whole run (not `--check`): a second run exits at once with exit code 3. The journal is written to a temporary file, synced and renamed, and its folder is synced on Linux and macOS.
+`hand update --keep-luvus` runs the same steps but never switches a Luvus server: every fleet whose server differs from the pin stays `pending: --keep-luvus`, and when the binary is already current and no newer Luvus needs pinning it returns `up to date` before it stops anything. Without `--keep-luvus`, a current binary and no newer Luvus still return `up to date` when no fleet is stale; otherwise `hand update` visits only the stale fleets: it stops no board, runs no `hand init` and leaves every other fleet's watcher alone, and its `fleets` rows show `skipped: current` under `init`. `hand update` holds a lock on `$SECONDHAND_HOME/update.lock` for the whole run (not `--check`): a second run exits at once with exit code 3. The journal is written to a temporary file, synced and renamed, and its folder is synced on Linux and macOS.
 
 #### Update timer
 
-`hand board --update-every DURATION` (0, the default, is off; 10 minutes at least) makes the board loop that keeps the watchers alive also start `hand update --channel CHANNEL --keep-luvus` as a detached child every DURATION, with its output in `$SECONDHAND_HOME/update.log`. It starts none while the previous child lives or `update.lock` is held, and none from a build whose channel is `source` (the board says why once). The board records DURATION in `board.update-every`, so the board an update restarts keeps it; a board started without the flag removes the file.
+`hand board --update-every DURATION` (0, the default, is off; 10 minutes at least) makes the board loop that keeps the watchers alive also start `hand update --channel CHANNEL --auto` as a detached child every DURATION, with its output in `$SECONDHAND_HOME/update.log` and `LUVUS_*` variables other than `LUVUS_HOME` scrubbed from its environment. It starts none while the previous child lives or `update.lock` is held, and none from a build whose channel is `source` (the board says why once). The board records DURATION in `board.update-every`, so the board an update restarts keeps it; a board started without the flag removes the file. With the timer off nothing switches a Luvus server by itself.
 
 A backup restores with the units stopped: remove the stale `hand.db-wal` and `hand.db-shm`, then copy a backup over `hand.db`: the newest `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/`.
 
@@ -219,7 +241,7 @@ The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<v
 
 - `hand init` pins the `luvus` on `PATH` when there is no pin, and downloads the tested version, checked against its SHA-256, when there is none on `PATH` either. `hand luvus pin` without `BIN` does the same when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
 - The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
-- A new pin reaches a running server only when that server restarts. `hand luvus show` prints the server's version (from a UHP `ping`) and whether it is the pinned copy: `yes`, `no`, `not running` or `unknown`. Restarting it ends every live pane, so it happens only at a quiet time: run `hand update`, which switches a quiet fleet, or stop the server yourself, let the next `hand` command start the pinned copy, and resume the supervisor.
+- A new pin reaches a running server only when that server restarts. `hand luvus show` prints the server's version (from a UHP `ping`) and whether it is the pinned copy: `yes`, `no`, `not running` or `unknown`. Restarting it ends every live pane, so Hand does it only for a quiet, settled fleet (Luvus switch, under Update): `hand update` or the board's timer switches such a fleet, or you stop the server yourself, let the next `hand` command start the pinned copy, and resume the supervisor.
 
 ### Pane
 
