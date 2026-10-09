@@ -16,10 +16,12 @@ import (
 
 var stamp = time.Date(2026, 10, 2, 1, 2, 3, 0, time.UTC)
 
+func longAgo() time.Time { return stamp.Add(-time.Hour) }
+
 func newFleet(t *testing.T, root, name string) (string, string) {
 	t.Helper()
 	home := t.TempDir()
-	st, err := state.Open(filepath.Join(home, "hand.db"), time.Now)
+	st, err := state.Open(filepath.Join(home, "hand.db"), longAgo)
 	if err != nil {
 		t.Fatal(err)
 	}

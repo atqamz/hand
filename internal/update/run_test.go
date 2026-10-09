@@ -30,6 +30,9 @@ type fixture struct {
 	uhp                          *fakeuhp.Server
 	terms                        []luvus.Terminal
 	stopErr                      error
+	revision, typed              int64
+	slept                        []time.Duration
+	startsOld                    bool
 }
 
 func lookup(env []string) func(string) string {

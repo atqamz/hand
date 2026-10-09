@@ -57,7 +57,7 @@ func (r *runner) startUpdate(root string, live *atomic.Bool) (bool, error) {
 		return false, err
 	}
 	defer log.Close()
-	cmd := exec.Command(exe, "update", "--channel", Channel, "--keep-luvus")
+	cmd := exec.Command(exe, "update", "--channel", Channel, "--auto")
 	cmd.Dir, cmd.Env = root, luvus.Scrub(r.env.Environ())
 	cmd.Stdout, cmd.Stderr = log, log
 	proc.Detach(cmd)

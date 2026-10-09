@@ -462,7 +462,7 @@ var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
 
 const deliveredLookback = 50
 
-var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch"}
+var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch", "luvus.switched", "luvus.failed"}
 
 func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
@@ -482,6 +482,10 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 		ref, detail, _ := strings.Cut(e.Detail, ": ")
 		text := ""
 		switch kind := strings.TrimPrefix(e.Kind, "supervisor."); kind {
+		case "luvus.switched":
+			ref, text = "", "Luvus "+strings.Replace(e.Detail, " -> ", " → ", 1)+" (switched while quiet)"
+		case "luvus.failed":
+			ref, text = "", "Luvus switch to "+ref+" failed: "+detail
 		case "keys":
 			text = "You pressed " + detail + " on " + ref + "'s screen"
 		case "started":

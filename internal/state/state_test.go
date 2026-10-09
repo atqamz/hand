@@ -143,6 +143,26 @@ func TestOpenMigratesAVersionOneHome(t *testing.T) {
 	}
 }
 
+func TestSwitchFailedMatchesOnlyThePinItFailedOn(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if err := s.NoteLuvus(ctx, "failed", "0.15.0: no server"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.NoteLuvus(ctx, "switched", "0.14.3 -> 0.14.4"); err != nil {
+		t.Fatal(err)
+	}
+	for version, want := range map[string]bool{"0.15.0": true, "0.15": false, "0.1_.0": false, "%": false, "0.14.4": false, "0.14.3": false} {
+		if got, err := s.SwitchFailed(ctx, version); err != nil || got != want {
+			t.Fatalf("SwitchFailed(%q) = %v, %v; want %v", version, got, err, want)
+		}
+	}
+	events, err := s.RecentEvents(ctx, 2)
+	if err != nil || len(events) != 2 || events[0].Kind != "luvus.failed" || events[1].Kind != "luvus.switched" || events[1].Detail != "0.14.3 -> 0.14.4" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+}
+
 func TestEventsAfterFiltersByCursorAndKind(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

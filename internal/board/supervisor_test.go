@@ -489,6 +489,19 @@ func TestKeysAndLifecycleShowInChat(t *testing.T) {
 	}
 }
 
+func TestLuvusSwitchShowsInChat(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	if err := fx.st.NoteLuvus(ctx, "failed", "0.15.0: the server came back as \"0.14.3\""); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.NoteLuvus(ctx, "switched", "0.14.3 -> 0.15.0"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/supervisor/log")
+	contains(t, "log", body, "Luvus 0.14.3 → 0.15.0 (switched while quiet)", "Luvus switch to 0.15.0 failed: the server came back as")
+}
+
 func TestDeliveredMessagesShowTheirTime(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

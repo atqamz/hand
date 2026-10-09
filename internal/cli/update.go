@@ -18,11 +18,14 @@ func init() {
 	commands["update"] = cmdUpdate
 }
 
+var updateHooks update.Options
+
 func cmdUpdate(r *runner, args []string) error {
 	set := flags("update")
 	channel := set.String("channel", "", "edge or stable; required for a source build")
 	check := set.Bool("check", false, "download and compare, but change nothing")
-	keep := set.Bool("keep-luvus", false, "leave every fleet's Luvus server and its pending switch alone")
+	keep := set.Bool("keep-luvus", false, "never switch a fleet's Luvus server; a version change stays pending")
+	auto := set.Bool("auto", false, "set by the board's timer: do not try a Luvus switch again for a pin it failed on")
 	if _, err := parse(set, args, 0); err != nil {
 		return err
 	}
@@ -52,6 +55,7 @@ func cmdUpdate(r *runner, args []string) error {
 		Channel:   *channel,
 		Check:     *check,
 		KeepLuvus: *keep,
+		Auto:      *auto,
 		Root:      root,
 		HandBase:  r.base("HAND_INSTALL_BASE", "https://github.com/atqamz/hand/releases"),
 		LuvusBase: r.luvusBase(),
@@ -63,8 +67,18 @@ func cmdUpdate(r *runner, args []string) error {
 		Hold:      func() { signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP, syscall.SIGTERM) },
 		Stop:      stopOne,
 		Kill:      stopRoot,
+		Version:   updateHooks.Version,
+		Sleep:     updateHooks.Sleep,
 		Client: func(e fleet.Entry) luvus.Client {
 			return (&runner{env: r.env, home: e.Home, root: root}).client(fleet.Session(e.ID))
+		},
+		Start: func(ctx context.Context, home string) error {
+			w, err := fleetRunner(r, root, home)
+			if err != nil {
+				return err
+			}
+			_, _, err = w.luvus(ctx)
+			return err
 		},
 		Watch: func(ctx context.Context, home string) error {
 			w, err := fleetRunner(r, root, home)

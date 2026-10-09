@@ -30,6 +30,7 @@ func fakeUpdate(root string) {
 	}
 	fmt.Fprintf(started, "%d %s\n", os.Getpid(), strings.Join(os.Args[1:], " "))
 	_ = started.Close()
+	_ = os.WriteFile(filepath.Join(root, "update.session"), []byte(os.Getenv("LUVUS_SESSION")), 0o600)
 	for {
 		if _, err := os.Stat(filepath.Join(root, "update.release")); err == nil {
 			os.Exit(0)
@@ -88,11 +89,51 @@ func TestBoardStartsOneUpdatePerIntervalAndNotWhileOneRuns(t *testing.T) {
 	}
 	time.Sleep(5 * every)
 	runs := updateRuns(root)
-	if len(runs) != 1 || !strings.HasSuffix(runs[0], " update --channel edge --keep-luvus") {
+	if len(runs) != 1 || !strings.HasSuffix(runs[0], " update --channel edge --auto") {
 		t.Fatalf("runs while the first lives = %q", runs)
 	}
 	releaseUpdates(root)
 	eventually(t, func() bool { return len(updateRuns(root)) >= 2 })
+}
+
+func TestBoardTimerRunsUpdateWithoutKeepLuvus(t *testing.T) {
+	sweepFast(t)
+	h := newHarness(t)
+	h.ok("init")
+	root := enableUpdate(t, h)
+	h.vars["LUVUS_SESSION"] = "secondhand-the-board-runs-in-a-pane"
+	startBoard(t, h, "127.0.0.1", "--update-every", "100ms")
+	eventually(t, func() bool { return len(updateRuns(root)) == 1 })
+	if run := updateRuns(root)[0]; strings.Contains(run, "--keep-luvus") || !strings.Contains(run, " update --channel edge") {
+		t.Fatalf("the timer ran %q", run)
+	}
+	eventually(t, func() bool { _, err := os.Stat(filepath.Join(root, "update.session")); return err == nil })
+	if b, _ := os.ReadFile(filepath.Join(root, "update.session")); len(b) != 0 {
+		t.Fatalf("the timer's update inherited LUVUS_SESSION=%s, so it would count as running inside a fleet", b)
+	}
+}
+
+func TestBoardLeavesTheWatchersAloneWhileAnUpdateRuns(t *testing.T) {
+	sweepFast(t)
+	h := newHarness(t)
+	h.ok("init")
+	withSupervisor(t, h, false)
+	enableWatcher(t, h.home)
+	lock, err := os.OpenFile(filepath.Join(h.vars["SECONDHAND_HOME"], "update.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := flock.Lock(lock, false); !ok || err != nil {
+		t.Fatalf("lock = %v, %v", ok, err)
+	}
+	_, stop := startBoard(t, h, "127.0.0.1")
+	settle()
+	if n := watchSpawns(h.home); n != 0 {
+		t.Fatalf("the board started a watcher during an update: spawns = %d", n)
+	}
+	_ = flock.Release(lock)
+	eventually(t, func() bool { return watchSpawns(h.home) == 1 })
+	stop()
 }
 
 func TestBoardRefusesAnUpdateIntervalBelowTheMinimum(t *testing.T) {

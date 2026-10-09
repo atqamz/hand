@@ -11,10 +11,12 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestUpdateRefusesASourceBuildWithoutAChannel(t *testing.T) {
@@ -41,8 +43,9 @@ func TestUpdateTakesNoArguments(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
-	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 9\nluvus: 0.14.4\n"}))
+func handRelease(t *testing.T, version, channel, commit, luvusVersion string) string {
+	t.Helper()
+	script := string(fakebin.Embed(t, "fake", map[string]string{"on version": "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\nschema: " + strconv.Itoa(state.SchemaVersion) + "\nluvus: " + luvusVersion + "\n"}))
 	files := map[string][]byte{}
 	if runtime.GOOS == "windows" {
 		var archive bytes.Buffer
@@ -70,15 +73,19 @@ func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
 		files["checksums.txt"] = []byte(sums.String())
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if b, ok := files[filepath.Base(r.URL.Path)]; ok && strings.HasPrefix(r.URL.Path, "/download/edge/") {
+		if b, ok := files[filepath.Base(r.URL.Path)]; ok && strings.HasPrefix(r.URL.Path, "/download/"+channel+"/") {
 			_, _ = w.Write(b)
 			return
 		}
 		http.NotFound(w, r)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestUpdateCheckReportsTheNewBuild(t *testing.T) {
 	h := newHarness(t)
-	h.vars["HAND_INSTALL_BASE"] = srv.URL
+	h.vars["HAND_INSTALL_BASE"] = handRelease(t, "0.9.0", "edge", "0123456789ab", "0.14.4")
 	out, errOut, code := h.run("update", "--channel", "edge", "--check")
 	if code != 0 || !strings.Contains(out, "status: checked\n") || !strings.Contains(out, "to: 0.9.0 edge 0123456789ab\n") || !strings.Contains(out, "luvus: none -> 0.14.4\n") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)

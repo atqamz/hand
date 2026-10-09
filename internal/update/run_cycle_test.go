@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/fleet"
@@ -47,6 +48,27 @@ func newCycle(t *testing.T) *fixture {
 		defer f.mu.Unlock()
 		return map[string]any{"type": "pong", "version": f.version}, nil
 	})
+	f.uhp.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
+		f.note("explain")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.status == "error" {
+			return nil, errors.New("no such pane")
+		}
+		return map[string]any{"pane": "2", "agent": "claude", "status": f.status}, nil
+	})
+	f.uhp.Handle("agent.read", func(json.RawMessage) (any, error) {
+		f.note("read")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return map[string]any{"text": "", "content_revision": f.revision, "terminal_id": "t1"}, nil
+	})
+	f.uhp.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return map[string]any{"server_generation": f.uhp.Generation(), "terminals": f.terms}, nil
+	})
+	f.status = "idle"
 	f.o.Client = func(fleet.Entry) luvus.Client { return luvus.Client{Socket: f.uhp.Socket} }
 	f.setenv("HAND_SESSION="+fleet.Session(f.alphaID), "HAND_SESSION_DIR="+f.sessionDir)
 	f.o.Watch = func(_ context.Context, home string) error {
@@ -55,6 +77,22 @@ func newCycle(t *testing.T) *fixture {
 	}
 	f.o.Board = func(_ context.Context, home string) error {
 		f.note("board @ " + home)
+		return nil
+	}
+	f.o.Start = func(context.Context, string) error {
+		f.note("luvus start")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if !f.startsOld {
+			f.version = f.pin.Version
+		}
+		return nil
+	}
+	f.o.Sleep = func(_ context.Context, d time.Duration) error {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.slept = append(f.slept, d)
+		f.revision += f.typed
 		return nil
 	}
 	return f
@@ -158,7 +196,7 @@ func TestUpdateSkipsAProcessOfAnotherBinary(t *testing.T) {
 			t.Fatalf("unit = %+v", u)
 		}
 	}
-	if len(rep.Units) != 2 || alphaLuvus(t, rep) != "pending" || !slices.Contains(rep.Help, "watch alpha runs "+other+", not "+f.target+", so it was left running") {
+	if len(rep.Units) != 2 || alphaLuvus(t, rep) != "pending: the watcher is still running" || !slices.Contains(rep.Help, "watch alpha runs "+other+", not "+f.target+", so it was left running") {
 		t.Fatalf("report = %+v", rep)
 	}
 	for _, name := range []string{filepath.Join(f.alpha, "watch.pid"), filepath.Join(f.root, "board.pid")} {
@@ -224,7 +262,7 @@ func TestUpdateDoesNotRestartWhatItFailedToStop(t *testing.T) {
 	if got := f.processCalls(t); !slices.Equal(got, []string{"kill", "kill", "hand init @ " + f.alpha}) {
 		t.Fatalf("calls = %q", got)
 	}
-	if alphaLuvus(t, rep) != "pending" || !slices.ContainsFunc(rep.Help, func(h string) bool {
+	if alphaLuvus(t, rep) != "pending: the watcher is still running" || !slices.ContainsFunc(rep.Help, func(h string) bool {
 		return strings.HasPrefix(h, "could not stop watch alpha (still alive after SIGTERM)")
 	}) {
 		t.Fatalf("report = %+v", rep)

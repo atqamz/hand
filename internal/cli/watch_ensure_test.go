@@ -30,6 +30,9 @@ func TestMain(m *testing.M) {
 		fakeBoard(os.Getenv("SECONDHAND_HOME"))
 	}
 	*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
+	if len(os.Args) > 1 && os.Getenv("HAND_TEST_AS_HAND") != "" {
+		os.Exit(cli.Run(os.Args[1:], cli.Env{Name: "hand", Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: cli.HostGetenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd}))
+	}
 	os.Exit(m.Run())
 }
 
