@@ -76,8 +76,9 @@ func newFakeServer(t *testing.T) *fakeServer {
 	}
 	s.writePID(t, s.marker)
 	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"version": "0.14.3"}, nil })
+	old := *luvus.ServerExitBy
 	*luvus.ServerExitBy = 400 * time.Millisecond
-	t.Cleanup(func(d time.Duration) func() { return func() { *luvus.ServerExitBy = d } }(*luvus.ServerExitBy))
+	t.Cleanup(func() { *luvus.ServerExitBy = old })
 	return s
 }
 

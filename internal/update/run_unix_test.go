@@ -597,7 +597,7 @@ func TestRunNeverSwitchesThroughASocketOverride(t *testing.T) {
 	f.serverRuns(t)
 	f.setenv("HAND_LUVUS_SOCKET=" + f.uhp.Socket)
 	rep, err := Run(context.Background(), f.o)
-	if err != nil || alphaLuvus(t, rep) != "unknown" || len(f.log(t, "server.stop", "force")) != 0 {
+	if err != nil || alphaLuvus(t, rep) != "unknown" || len(f.log(t, "server.stop", "force")) != 0 || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "while HAND_LUVUS_SOCKET is set") }) {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }

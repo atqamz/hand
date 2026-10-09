@@ -217,7 +217,11 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 			fr.Luvus = state
 		case state == "unknown":
 			fr.Luvus = state
-			r.Help = append(r.Help, "The Luvus server of "+e.Name+" does not report its version, so `hand update` leaves it alone")
+			why := "does not report its version"
+			if o.Getenv("HAND_LUVUS_SOCKET") != "" {
+				why = "cannot be told apart from the others while HAND_LUVUS_SOCKET is set"
+			}
+			r.Help = append(r.Help, "The Luvus server of "+e.Name+" "+why+", so `hand update` leaves it alone")
 		case state == "stale" || o.Check && repin:
 			if stopped && !o.KeepLuvus {
 				fr.Luvus = r.switchLuvus(ctx, o, e)
