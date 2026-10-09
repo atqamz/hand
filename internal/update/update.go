@@ -146,7 +146,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			hold()
 		}
 		if len(stale) > 0 {
-			rep.cycle(ctx, o, stale, false, repin, server)
+			rep.cycle(ctx, o, stale, false, server)
 		}
 		if len(stale) > 0 && !o.Check {
 			rep.clearJournal(o)
@@ -160,7 +160,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, nil
 	}
 	if o.Check {
-		rep.cycle(ctx, o, fleets, true, repin, server)
+		rep.cycle(ctx, o, fleets, true, server)
 		rep.Status = "checked"
 		return rep, nil
 	}
@@ -198,7 +198,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Help = append(rep.Help, fmt.Sprintf("could not remove old backups (%v)", err))
 		}
 	}
-	rep.cycle(ctx, o, fleets, true, repin, server)
+	rep.cycle(ctx, o, fleets, true, server)
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -220,7 +220,7 @@ func (r *Report) clearJournal(o Options) {
 	}
 }
 
-func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, full, repin bool, server func(fleet.Entry) string) {
+func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, full bool, server func(fleet.Entry) string) {
 	init := "ok"
 	switch {
 	case o.Check:
@@ -238,7 +238,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 		}
 		homes = append(homes, e.Home)
 		sv := server(e)
-		switchable := sv == "stale" || o.Check && repin && sv != "not running" && sv != "unknown"
+		switchable := sv == "stale" || o.Check && r.PinFrom != r.PinTo && sv != "not running" && sv != "unknown"
 		why := ""
 		if switchable && !o.KeepLuvus {
 			why = o.ready(ctx, e, r.PinTo)
@@ -358,7 +358,7 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 }
 
 const (
-	pendingLine = "`hand update` switches a pending fleet once it is quiet and settled; `hand board --update-every` tries again by itself"
+	pendingLine = "`hand update` switches a pending fleet once it is quiet and settled; the board's timer (`hand board --update-every`) runs it for you"
 	settledFor  = 15 * time.Minute
 	stillFor    = 30 * time.Second
 )
@@ -534,7 +534,10 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 	if why := o.still(ctx, st, c, e.Home, sup, live); why != "" {
 		return "pending: " + why
 	}
-	from, _ := o.running(ctx, e)
+	from, err := o.running(ctx, e)
+	if err != nil || from == "" {
+		from = "unknown"
+	}
 	if live {
 		if err := r.record(o, func(j *journal) { j.Supervisor = append(j.Supervisor, e.Home) }); err != nil {
 			r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v)", journalPath(o.Root), err))
@@ -560,14 +563,14 @@ func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) stri
 		err = o.startServer(ctx, e, r.PinTo)
 	}
 	resumed := !live || r.resume(ctx, o, e.Home) == nil
-	switch {
-	case err != nil:
+	if err != nil {
 		return r.failSwitch(ctx, st, e, err.Error())
-	case !resumed:
-		return "switched; resume failed"
 	}
 	if err := st.NoteLuvus(ctx, "switched", from+" -> "+r.PinTo); err != nil {
 		r.Help = append(r.Help, fmt.Sprintf("could not record luvus.switched in %s (%v)", e.Home, err))
+	}
+	if !resumed {
+		return "switched; resume failed"
 	}
 	return "switched"
 }

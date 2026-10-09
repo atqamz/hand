@@ -266,3 +266,19 @@ func TestKeepLuvusNeverSwitches(t *testing.T) {
 		}
 	}
 }
+
+func TestASwitchWhoseResumeFailedIsStillRecorded(t *testing.T) {
+	f := newCycle(t)
+	f.quietStale(t)
+	f.setenv("HAND_FAIL=supervisor resume")
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || !rep.Failed || alphaLuvus(t, rep) != "switched; resume failed" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if e, ok := f.latest(t, "luvus.switched"); !ok || e.Detail != "0.0.1 -> 0.14.4" {
+		t.Fatalf("event = %+v, %v", e, ok)
+	}
+	if _, ok := f.latest(t, "luvus.failed"); ok {
+		t.Fatal("a switch that happened recorded a failure")
+	}
+}

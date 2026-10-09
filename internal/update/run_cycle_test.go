@@ -322,7 +322,7 @@ func TestUpdateKeepsRunningWhenItCannotJournal(t *testing.T) {
 	rep := Report{}
 	o := f.o
 	o.Root = filepath.Join(t.TempDir(), "missing")
-	rep.cycle(context.Background(), o, entries(t, f.root), true, true, func(fleet.Entry) string { return "stale" })
+	rep.cycle(context.Background(), o, entries(t, f.root), true, func(fleet.Entry) string { return "stale" })
 	if got := f.processCalls(t); len(got) != 0 || !rep.Failed {
 		t.Fatalf("calls %q, report %+v", got, rep)
 	}
