@@ -1,6 +1,8 @@
 package cli_test
 
 import (
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +14,7 @@ import (
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -177,24 +180,44 @@ func TestInitWithoutLuvusStillSucceeds(t *testing.T) {
 }
 
 func TestServerMatch(t *testing.T) {
-	pin := luvus.Pin{Path: "/s/luvus/0.14.2-abcdef12/luvus", SHA256: "abcdef12aa"}
+	pin := luvus.Pin{Version: "0.14.3"}
 	for _, c := range []struct {
-		pinned, known bool
-		srv           luvus.Server
-		want          string
+		pinned        bool
+		version       string
+		err           error
+		server, match string
 	}{
-		{false, true, luvus.Server{Exe: pin.Path, SHA256: pin.SHA256}, "unknown"},
-		{true, false, luvus.Server{}, "unknown"},
-		{true, true, luvus.Server{Exe: "/usr/bin/luvus"}, "unknown"},
-		{true, true, luvus.Server{Exe: "/usr/bin/luvus", SHA256: pin.SHA256}, "yes"},
-		{true, true, luvus.Server{Exe: "/usr/bin/luvus (deleted)", SHA256: pin.SHA256}, "yes"},
-		{true, true, luvus.Server{Exe: "/usr/bin/luvus (deleted)", SHA256: "0123"}, "no"},
-		{true, true, luvus.Server{Exe: pin.Path, SHA256: "0123"}, "no"},
+		{true, "0.14.3", nil, "0.14.3", "yes"},
+		{true, "0.14.2", nil, "0.14.2", "no"},
+		{false, "0.14.3", nil, "0.14.3", "unknown"},
+		{true, "", nil, "unknown", "unknown"},
+		{true, "", luvus.ErrUnreachable, "not running", "not running"},
+		{true, "", errors.New("timeout"), "unknown", "unknown"},
 	} {
-		if got := cli.ServerMatch(pin, c.pinned, c.srv, c.known); got != c.want {
-			t.Fatalf("%+v: got %q", c, got)
+		if server, match := cli.ServerMatch(pin, c.pinned, c.version, c.err); server != c.server || match != c.match {
+			t.Fatalf("%+v: got %q %q", c, server, match)
 		}
 	}
+}
+
+func TestLuvusShowPrintsTheServerVersion(t *testing.T) {
+	h := newHarness(t)
+	pinnable(t, h, "0.14.3")
+	h.ok("init")
+	sock := filepath.Join(t.TempDir(), "uhp.sock")
+	h.vars["HAND_LUVUS_SOCKET"] = sock
+	has(t, "not running", h.ok("luvus", "show"), "server: not running", "match: not running")
+	srv := fakeuhp.Start(t, sock)
+	reply := func(version string) {
+		srv.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"type": "pong", "version": version}, nil })
+	}
+	reply("0.14.3")
+	has(t, "match", h.ok("luvus", "show"), "server: 0.14.3", "match: yes")
+	reply("")
+	has(t, "unknown", h.ok("luvus", "show"), "server: unknown", "match: unknown")
+	reply("0.14.2")
+	has(t, "stale", h.ok("luvus", "show"), "server: 0.14.2", "match: no", "run `hand update`")
+	has(t, "pin", h.ok("luvus", "pin", fakeLuvusAt(t, t.TempDir(), "0.14.4")), "server: 0.14.2", "match: no", "`hand attach` refuses a server of another version", "until the server restarts")
 }
 
 func TestLuvusPinInAMovedFleetLeavesThePinAlone(t *testing.T) {
@@ -250,17 +273,6 @@ func TestLuvusShowOutsideAFleet(t *testing.T) {
 	has(t, "outside", out, "pin: none")
 	if strings.Contains(out, "server:") {
 		t.Fatalf("show = %q", out)
-	}
-}
-
-func TestLuvusShowWithoutAUserManager(t *testing.T) {
-	h := newHarness(t)
-	pinnable(t, h, "0.14.3")
-	h.ok("init")
-	show := h.ok("luvus", "show")
-	has(t, "show", show, "server: unknown", "match: unknown")
-	if !strings.HasPrefix(field(show, "pin"), "0.14.3 ") {
-		t.Fatalf("show = %q", show)
 	}
 }
 

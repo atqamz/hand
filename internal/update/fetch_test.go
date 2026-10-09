@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,12 +22,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"hand": fakeHandMain, "luvus": func([]string) int {
+	fakebin.Main(map[string]func([]string) int{"hand": fakeHandMain, "sleep": func([]string) int {
+		time.Sleep(5 * time.Minute)
+		return 0
+	}, "luvus": func(args []string) int {
+		if len(args) > 1 && args[0] == "session" && args[1] == "list" {
+			b, _ := json.Marshal(map[string]any{"sessions": []map[string]any{{"name": os.Getenv("HAND_SESSION"), "session_dir": os.Getenv("HAND_SESSION_DIR"), "endpoint": map[string]string{"address": "x"}}}})
+			fmt.Println(string(b))
+			return 0
+		}
 		fmt.Println("luvus " + fakebin.Params()["version"])
 		return 0
 	}})

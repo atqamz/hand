@@ -108,7 +108,7 @@ func cmdLuvusPin(r *runner, args []string) error {
 			return err
 		}
 	}
-	unit, err := r.fleetUnit()
+	session, err := r.fleetSession()
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func cmdLuvusPin(r *runner, args []string) error {
 	d.Field("source", pin.Source)
 	d.Field("previous", previous)
 	help := []string{"The running server keeps its binary until it restarts, and `hand attach` refuses a server of another version until the server restarts; check it with `hand luvus show`"}
-	d.Help(append(help, r.serverFields(&d, unit, pin, true)...)...)
+	d.Help(append(help, r.serverFields(&d, session, pin, true)...)...)
 	return r.print(&d)
 }
 
@@ -146,17 +146,17 @@ func cmdLuvusShow(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	unit, err := r.fleetUnit()
+	session, err := r.fleetSession()
 	if err != nil {
 		return err
 	}
 	var d toon.Doc
 	d.Field("pin", pinLabel(pin, had))
-	d.Help(r.serverFields(&d, unit, pin, had)...)
+	d.Help(r.serverFields(&d, session, pin, had)...)
 	return r.print(&d)
 }
 
-func (r *runner) fleetUnit() (string, error) {
+func (r *runner) fleetSession() (string, error) {
 	if r.home == "" && r.homeErr == nil {
 		return "", nil
 	}
@@ -165,25 +165,21 @@ func (r *runner) fleetUnit() (string, error) {
 		return "", err
 	}
 	_ = st.Close()
-	return fleet.LuvusUnit(r.fleet.ID), nil
+	return fleet.Session(r.fleet.ID), nil
 }
 
-func (r *runner) serverFields(d *toon.Doc, unit string, pin luvus.Pin, pinned bool) []string {
-	if unit == "" {
+func (r *runner) serverFields(d *toon.Doc, session string, pin luvus.Pin, pinned bool) []string {
+	if session == "" {
 		return nil
 	}
-	srv, known := luvus.RunningServer(r.ctx(), r.env.Environ(), unit)
-	server := srv.Exe
-	if !known {
-		server = "unknown"
-	}
-	match := serverMatch(pin, pinned, srv, known)
+	version, err := r.client(session).Version(r.ctx())
+	server, match := serverMatch(pin, pinned, version, err)
 	d.Field("server", server)
 	d.Field("match", match)
 	if match != "no" {
 		return nil
 	}
-	return []string{"At a quiet time, pin the Luvus you want, then stop the server with `systemctl --user stop " + unit + ".service` (this ends every live pane); the next hand command starts the pinned copy; then resume the supervisor"}
+	return []string{"At a quiet time run `hand update` from a plain terminal; it stops the server of a quiet fleet, and the next hand command starts the pinned copy"}
 }
 
 func pinLabel(p luvus.Pin, ok bool) string {
@@ -193,12 +189,16 @@ func pinLabel(p luvus.Pin, ok bool) string {
 	return p.Version + " " + p.Path
 }
 
-func serverMatch(pin luvus.Pin, pinned bool, srv luvus.Server, known bool) string {
+func serverMatch(pin luvus.Pin, pinned bool, version string, err error) (server, match string) {
 	switch {
-	case !pinned || !known || srv.SHA256 == "":
-		return "unknown"
-	case srv.SHA256 == pin.SHA256:
-		return "yes"
+	case errors.Is(err, luvus.ErrUnreachable):
+		return "not running", "not running"
+	case err != nil || version == "":
+		return "unknown", "unknown"
+	case !pinned:
+		return version, "unknown"
+	case version == pin.Version:
+		return version, "yes"
 	}
-	return "no"
+	return version, "no"
 }

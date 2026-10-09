@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 )
 
 func newCycle(t *testing.T) *fixture {
@@ -27,6 +31,24 @@ func newCycle(t *testing.T) *fixture {
 		f.note("kill")
 		return f.stopErr
 	}
+	f.o.Kill = func(int, string) error {
+		f.note("force")
+		return nil
+	}
+	dir, err := os.MkdirTemp("", "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	f.uhp = fakeuhp.Start(t, filepath.Join(dir, "s"))
+	f.version, f.sessionDir = f.pin.Version, t.TempDir()
+	f.uhp.Handle("ping", func(json.RawMessage) (any, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return map[string]any{"type": "pong", "version": f.version}, nil
+	})
+	f.o.Client = func(fleet.Entry) luvus.Client { return luvus.Client{Socket: f.uhp.Socket} }
+	f.setenv("HAND_SESSION="+fleet.Session(f.alphaID), "HAND_SESSION_DIR="+f.sessionDir)
 	f.o.Watch = func(_ context.Context, home string) error {
 		f.note("watcher @ " + home)
 		return nil
@@ -36,6 +58,11 @@ func newCycle(t *testing.T) *fixture {
 		return nil
 	}
 	return f
+}
+
+func (f *fixture) setenv(kv ...string) {
+	env := append(slices.Clone(f.o.Env), kv...)
+	f.o.Env, f.o.Getenv = env, lookup(env)
 }
 
 func (f *fixture) note(line string) {
@@ -257,7 +284,7 @@ func TestUpdateKeepsRunningWhenItCannotJournal(t *testing.T) {
 	rep := Report{}
 	o := f.o
 	o.Root = filepath.Join(t.TempDir(), "missing")
-	rep.cycle(context.Background(), o, entries(t, f.root), true, func(fleet.Entry) bool { return false })
+	rep.cycle(context.Background(), o, entries(t, f.root), true, func(fleet.Entry) string { return "stale" })
 	if got := f.processCalls(t); len(got) != 0 || !rep.Failed {
 		t.Fatalf("calls %q, report %+v", got, rep)
 	}
@@ -373,9 +400,33 @@ func TestCheckReportsAnInterruptedUpdate(t *testing.T) {
 }
 
 func (f *fixture) stale() {
-	f.o.Server = func(context.Context, string) (luvus.Server, bool) {
-		return luvus.Server{Exe: "/old/luvus", SHA256: "old"}, true
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.version = "0.0.1"
+}
+
+func (f *fixture) serverRuns(t *testing.T) {
+	t.Helper()
+	cmd := exec.Command(fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil))
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
 	}
+	var once sync.Once
+	end := func() { once.Do(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }) }
+	t.Cleanup(end)
+	marker, err := luvus.ProcStartMarker(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(f.sessionDir, "server.pid")
+	if err := os.WriteFile(file, []byte(fmt.Sprintf("%d %s\n", cmd.Process.Pid, marker)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.uhp.Handle("server.stop", func(json.RawMessage) (any, error) {
+		f.note("server.stop")
+		go func() { end(); _ = os.Remove(file) }()
+		return map[string]any{}, nil
+	})
 }
 
 func (f *fixture) current() {

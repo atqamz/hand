@@ -188,6 +188,47 @@ func Ensure(ctx context.Context, c Client, start func() error) (Capabilities, er
 	return c.Check(ctx)
 }
 
+var serverExitBy = 10 * time.Second
+
+func (c Client) Version(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var pong struct {
+		Version string `json:"version"`
+	}
+	err := c.Call(ctx, "ping", nil, &pong)
+	return pong.Version, err
+}
+
+func (c Client) StopServer(ctx context.Context, sessionDir string, kill func(pid int, marker string) error) error {
+	file := filepath.Join(sessionDir, "server.pid")
+	var pid int
+	var marker string
+	b, _ := os.ReadFile(file)
+	_, _ = fmt.Sscanf(string(b), "%d %s", &pid, &marker)
+	alive := func() bool { m, err := ProcStartMarker(pid); return err == nil && m == marker }
+	answers := func() bool { return c.Call(ctx, "ping", nil, nil) == nil }
+	if !alive() {
+		if answers() {
+			return fmt.Errorf("luvus server answers, but %s names no live process; stop it by hand", file)
+		}
+		return nil
+	}
+	acked := c.Call(ctx, "server.stop", nil, nil) == nil
+	for deadline := time.Now().Add(serverExitBy); time.Now().Before(deadline) && ctx.Err() == nil; time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(file); err != nil && !alive() {
+			return nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !acked && answers() {
+		return fmt.Errorf("luvus server %d refused server.stop and still answers; it was left running", pid)
+	}
+	return kill(pid, marker)
+}
+
 func AttachArgv(bin, session, pane string) []string {
 	if pane == "" {
 		return []string{bin, "session", "attach", session}
@@ -228,39 +269,7 @@ func longPaths(goos string, env []string) []string {
 
 var errNoManager = errors.New("no systemd user manager")
 
-var serverProbe = 5 * time.Second
-
 var startWait = time.Minute
-
-type Server struct {
-	Exe    string
-	SHA256 string
-}
-
-func RunningServer(ctx context.Context, env []string, unit string) (Server, bool) {
-	env = Scrub(env)
-	run, ok := UserManager(env)
-	if !ok {
-		return Server{}, false
-	}
-	ctx, cancel := context.WithTimeout(ctx, serverProbe)
-	defer cancel()
-	out, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", "MainPID", "--value").Output()
-	if err != nil {
-		return Server{}, false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil || pid <= 0 {
-		return Server{}, false
-	}
-	link := filepath.Join("/proc", strconv.Itoa(pid), "exe")
-	exe, err := os.Readlink(link)
-	if err != nil {
-		return Server{}, false
-	}
-	sum, _ := fileSum(link)
-	return Server{Exe: exe, SHA256: sum}, true
-}
 
 var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
 

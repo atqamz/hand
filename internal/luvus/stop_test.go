@@ -1,0 +1,172 @@
+package luvus_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+)
+
+func TestVersionReadsPing(t *testing.T) {
+	srv := fakeuhp.Start(t, sock(t))
+	version := "0.14.3"
+	srv.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"type": "pong", "version": version}, nil })
+	c := luvus.Client{Socket: srv.Socket}
+	if got, err := c.Version(context.Background()); err != nil || got != "0.14.3" {
+		t.Fatalf("version = %q, %v", got, err)
+	}
+	version = ""
+	if got, err := c.Version(context.Background()); err != nil || got != "" {
+		t.Fatalf("no version = %q, %v", got, err)
+	}
+	srv.Handle("ping", func(json.RawMessage) (any, error) { return nil, fakeuhp.Fail{Code: "busy", Message: "starting"} })
+	if _, err := c.Version(context.Background()); err == nil || errors.Is(err, luvus.ErrUnreachable) {
+		t.Fatalf("a refusing server err = %v", err)
+	}
+	if _, err := (luvus.Client{Socket: sock(t)}).Version(context.Background()); !errors.Is(err, luvus.ErrUnreachable) {
+		t.Fatalf("absent server err = %v", err)
+	}
+}
+
+type fakeServer struct {
+	uhp    *fakeuhp.Server
+	dir    string
+	cmd    *exec.Cmd
+	marker string
+	forced atomic.Int32
+	once   sync.Once
+}
+
+func (s *fakeServer) kill() {
+	s.once.Do(func() {
+		_ = s.cmd.Process.Kill()
+		_ = s.cmd.Wait()
+	})
+}
+
+func (s *fakeServer) forceKill(int, string) error {
+	s.forced.Add(1)
+	s.kill()
+	return nil
+}
+
+func newFakeServer(t *testing.T) *fakeServer {
+	t.Helper()
+	sleep := fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil)
+	cmd := exec.Command(sleep)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	s := &fakeServer{uhp: fakeuhp.Start(t, sock(t)), dir: t.TempDir(), cmd: cmd}
+	t.Cleanup(s.kill)
+	var err error
+	if s.marker, err = luvus.ProcStartMarker(cmd.Process.Pid); err != nil {
+		t.Fatal(err)
+	}
+	s.writePID(t, s.marker)
+	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"version": "0.14.3"}, nil })
+	*luvus.ServerExitBy = 400 * time.Millisecond
+	t.Cleanup(func(d time.Duration) func() { return func() { *luvus.ServerExitBy = d } }(*luvus.ServerExitBy))
+	return s
+}
+
+func (s *fakeServer) writePID(t *testing.T, marker string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(s.dir, "server.pid"), []byte(fmt.Sprintf("%d %s\n", s.cmd.Process.Pid, marker)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (s *fakeServer) client() luvus.Client {
+	return luvus.Client{Socket: s.uhp.Socket, Timeout: 300 * time.Millisecond}
+}
+
+func (s *fakeServer) alive() bool {
+	m, err := luvus.ProcStartMarker(s.cmd.Process.Pid)
+	return err == nil && m == s.marker
+}
+
+func TestStopServerWaitsForThePIDAndItsMarker(t *testing.T) {
+	s := newFakeServer(t)
+	*luvus.ServerExitBy = 5 * time.Second
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) {
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			s.kill()
+			time.Sleep(300 * time.Millisecond)
+			_ = os.Remove(filepath.Join(s.dir, "server.pid"))
+		}()
+		return map[string]any{"type": "server_stopping"}, nil
+	})
+	began := time.Now()
+	if err := s.client().StopServer(context.Background(), s.dir, s.forceKill); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(began) < 550*time.Millisecond || s.forced.Load() != 0 || s.alive() {
+		t.Fatalf("stopped after %s, forced %d, alive %v", time.Since(began), s.forced.Load(), s.alive())
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "server.pid")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("server.pid err = %v", err)
+	}
+}
+
+func TestStopServerWaitsForTheFileToo(t *testing.T) {
+	s := newFakeServer(t)
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) {
+		go s.kill()
+		return map[string]any{}, nil
+	})
+	if err := s.client().StopServer(context.Background(), s.dir, func(int, string) error { s.forced.Add(1); return nil }); err != nil || s.forced.Load() != 1 {
+		t.Fatalf("err = %v, forced %d", err, s.forced.Load())
+	}
+}
+
+func TestStopServerForcesOnlyAnAcknowledgedOrMuteServer(t *testing.T) {
+	refuse := func(json.RawMessage) (any, error) { return nil, fakeuhp.Fail{Code: "busy", Message: "no"} }
+	drop := func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop }
+	ack := func(json.RawMessage) (any, error) { return map[string]any{}, nil }
+	for name, c := range map[string]struct {
+		stop, ping func(json.RawMessage) (any, error)
+		forced     int32
+	}{
+		"acknowledged and answering": {stop: ack, forced: 1},
+		"mute":                       {stop: drop, ping: drop, forced: 1},
+		"refusing but answering":     {stop: refuse, forced: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newFakeServer(t)
+			s.uhp.Handle("server.stop", c.stop)
+			if c.ping != nil {
+				s.uhp.Handle("ping", c.ping)
+			}
+			err := s.client().StopServer(context.Background(), s.dir, s.forceKill)
+			if s.forced.Load() != c.forced || (err != nil) != (c.forced == 0) || s.alive() == (c.forced == 1) {
+				t.Fatalf("forced %d, err = %v, alive %v", s.forced.Load(), err, s.alive())
+			}
+		})
+	}
+}
+
+func TestStopServerIgnoresARecycledPID(t *testing.T) {
+	s := newFakeServer(t)
+	s.writePID(t, "another marker")
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+	gone := luvus.Client{Socket: sock(t)}
+	if err := gone.StopServer(context.Background(), s.dir, s.forceKill); err != nil || s.forced.Load() != 0 || !s.alive() {
+		t.Fatalf("err = %v, forced %d, alive %v", err, s.forced.Load(), s.alive())
+	}
+	if err := s.client().StopServer(context.Background(), s.dir, s.forceKill); err == nil || s.forced.Load() != 0 || !s.alive() || len(s.uhp.Calls("server.stop")) != 0 {
+		t.Fatalf("an answering server with a recycled pid: err = %v, forced %d, alive %v", err, s.forced.Load(), s.alive())
+	}
+}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -20,14 +19,11 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-func newRun(t *testing.T, fail map[string]bool) *fixture {
+func newRun(t *testing.T) *fixture {
 	t.Helper()
 	f := newCycle(t)
-	hostOS = "linux"
-	t.Cleanup(func() { hostOS = runtime.GOOS })
-	f.sysdir, f.calls = fakeSystemctl(t, fail)
 	f.status = "idle"
-	uhp := fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	uhp := f.uhp
 	uhp.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
 		f.note("explain")
 		f.mu.Lock()
@@ -42,9 +38,6 @@ func newRun(t *testing.T, fail map[string]bool) *fixture {
 		defer f.mu.Unlock()
 		return map[string]any{"server_generation": uhp.Generation(), "terminals": f.terms}, nil
 	})
-	f.uhp = uhp
-	env := append(pathEnv(f.sysdir), "HAND_CALLS="+f.calls, "HAND_LUVUS_SOCKET="+uhp.Socket)
-	f.o.Env, f.o.Getenv = env, lookup(env)
 	return f
 }
 
@@ -55,7 +48,7 @@ func byName(fleets []FleetResult) []FleetResult {
 }
 
 func TestRunUpdatesTheFleet(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	rep, err := Run(context.Background(), f.o)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +76,7 @@ func TestRunNamesTheTargetWhenTheSwapFails(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes into a 0555 folder")
 	}
-	f := newRun(t, nil)
+	f := newRun(t)
 	dir := filepath.Dir(f.target)
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Fatal(err)
@@ -166,8 +159,9 @@ func (f *fixture) worker(t *testing.T) {
 }
 
 func TestRunSwitchesAQuietFleet(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
+	f.serverRuns(t)
 	f.watcherRuns(t)
 	f.supervisor(t)
 	f.terms = append(f.terms, luvus.Terminal{TerminalID: "t7", PaneID: "9", Root: luvus.Root{PID: 1, StartMarker: "gone"}, CWD: f.alpha, Label: "hand-a3"})
@@ -179,11 +173,11 @@ func TestRunSwitchesAQuietFleet(t *testing.T) {
 		"kill",
 		"explain",
 		"hand supervisor stop @ " + f.alpha,
-		"systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service",
+		"server.stop",
 		"hand supervisor resume @ " + f.alpha,
 		"watcher @ " + f.alpha,
 	}
-	if got := f.log(t, "kill", "watcher @ ", "explain", "supervisor", "secondhand-luvus-"); !slices.Equal(got, want) {
+	if got := f.log(t, "kill", "force", "watcher @ ", "explain", "supervisor", "server.stop"); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q", got)
 	}
 	if got := alphaLuvus(t, rep); got != "switched" {
@@ -205,23 +199,23 @@ func TestRunLeavesABusyFleetPending(t *testing.T) {
 			f.uhp.Handle("terminal.backend.inventory", func(json.RawMessage) (any, error) { return nil, errors.New("down") })
 		},
 	} {
-		f := newRun(t, nil)
+		f := newRun(t)
 		f.stale()
 		busy(t, f)
 		rep, err := Run(context.Background(), f.o)
 		if err != nil {
 			t.Fatal(err)
 		}
-		line := "At a quiet time: `systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service`, then `hand supervisor resume` in " + f.alpha
-		if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.Contains(rep.Help, line) {
+		if got := f.log(t, "server.stop", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.Contains(rep.Help, pendingLine) {
 			t.Fatalf("%s: calls %q, report %+v", name, got, rep)
 		}
 	}
 }
 
 func TestRunSwitchesBesideLuvusInitialShell(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
+	f.serverRuns(t)
 	f.terms = []luvus.Terminal{f.initialShell(t)}
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || alphaLuvus(t, rep) != "switched" {
@@ -230,7 +224,7 @@ func TestRunSwitchesBesideLuvusInitialShell(t *testing.T) {
 }
 
 func TestRunNamesAPaneHandDidNotStart(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
 	f.supervisor(t)
 	shell := f.initialShell(t)
@@ -241,38 +235,66 @@ func TestRunNamesAPaneHandDidNotStart(t *testing.T) {
 	if err != nil || alphaLuvus(t, rep) != "pending" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	line := "Pane 13 (" + other.CWD + ") is not Hand's, and stopping the Luvus server ends it. " + pendingLine(fleet.Entry{ID: f.alphaID, Home: f.alpha})
-	if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || !slices.Contains(rep.Help, line) {
+	line := "Pane 13 (" + other.CWD + ") is not Hand's, and stopping the Luvus server ends it. " + pendingLine
+	if got := f.log(t, "server.stop", "supervisor"); len(got) != 0 || !slices.Contains(rep.Help, line) {
 		t.Fatalf("calls %q, help %q", got, rep.Help)
 	}
 }
 
 func TestRunRetriesAPendingSwitch(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
 	f.stale()
+	f.serverRuns(t)
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || rep.Status != "updated" || alphaLuvus(t, rep) != "switched" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	f.unchanged(t)
-	if got := f.log(t, "secondhand-luvus-"); !slices.Equal(got, []string{"systemctl --user stop " + fleet.LuvusUnit(f.alphaID) + ".service"}) {
+	if got := f.log(t, "server.stop", "force"); !slices.Equal(got, []string{"server.stop"}) {
 		t.Fatalf("calls = %q", got)
 	}
 }
 
 func TestRunKeepsAFleetWhoseServerIsNotRunning(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
-	f.o.Server = func(context.Context, string) (luvus.Server, bool) { return luvus.Server{}, false }
+	f.o.Client = func(fleet.Entry) luvus.Client { return luvus.Client{Socket: filepath.Join(t.TempDir(), "absent.sock")} }
+	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "up to date" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 9, Luvus: "0.14.3"}
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "not running" || len(f.log(t, "server.stop")) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
+func TestRunNeverSwitchesAnUnknownServer(t *testing.T) {
+	f := newRun(t)
+	f.serverRuns(t)
+	f.uhp.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{"type": "pong"}, nil })
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "unknown" || len(f.log(t, "server.stop", "force")) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "does not report its version") }) {
+		t.Fatalf("help = %q", rep.Help)
+	}
+	f.current()
 	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "up to date" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }
 
 func TestRunResumesTheSupervisorWhenTheLuvusStopFails(t *testing.T) {
-	f := newRun(t, map[string]bool{"stop secondhand-luvus-": true})
+	f := newRun(t)
 	f.stale()
+	f.serverRuns(t)
+	f.uhp.Handle("server.stop", func(json.RawMessage) (any, error) {
+		f.note("server.stop")
+		return nil, fakeuhp.Fail{Code: "busy", Message: "no"}
+	})
 	f.supervisor(t)
 	rep, err := Run(context.Background(), f.o)
 	if err != nil {
@@ -287,7 +309,7 @@ func TestRunResumesTheSupervisorWhenTheLuvusStopFails(t *testing.T) {
 }
 
 func TestRunHoldsSignalsBeforeChangingAnything(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	held := 0
 	f.o.Hold = func() {
 		held++
@@ -297,7 +319,7 @@ func TestRunHoldsSignalsBeforeChangingAnything(t *testing.T) {
 		t.Fatalf("held %d times, %v", held, err)
 	}
 	for _, set := range []func(*fixture){func(g *fixture) { g.o.Check = true }, (*fixture).current} {
-		g := newRun(t, nil)
+		g := newRun(t)
 		set(g)
 		g.o.Hold = func() { held++ }
 		if _, err := Run(context.Background(), g.o); err != nil || held != 1 {
@@ -307,20 +329,20 @@ func TestRunHoldsSignalsBeforeChangingAnything(t *testing.T) {
 }
 
 func TestRunLeavesTheFleetItRunsInsidePending(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
-	f.o.Cgroup = "0::/user.slice/user-1000.slice/user@1000.service/app.slice/" + fleet.LuvusUnit(f.alphaID) + ".service\n"
+	f.setenv("LUVUS_SESSION=" + fleet.Session(f.alphaID))
 	rep, err := Run(context.Background(), f.o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "runs inside "+fleet.LuvusUnit(f.alphaID)) }) {
+	if got := f.log(t, "server.stop", "supervisor"); len(got) != 0 || alphaLuvus(t, rep) != "pending" || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "runs inside the Luvus session of alpha") }) {
 		t.Fatalf("calls %q, report %+v", got, rep)
 	}
 }
 
 func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +361,7 @@ func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
 }
 
 func TestRunPrunesOnlyAfterTheSwap(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	old := []string{"20200101T000000", "20200102T000000"}
 	for _, st := range old {
 		for _, p := range []string{filepath.Join(f.root, "backups", "hand."+st), filepath.Join(f.root, "backups", f.alphaID, "hand.db."+st)} {
@@ -360,7 +382,7 @@ func TestRunPrunesOnlyAfterTheSwap(t *testing.T) {
 }
 
 func TestRunDoesNotNeedTheSystemTempFolder(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "updated" {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -368,7 +390,7 @@ func TestRunDoesNotNeedTheSystemTempFolder(t *testing.T) {
 }
 
 func TestRunCheckShowsTheFleetPlan(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
 	f.o.Check = true
 	rep, err := Run(context.Background(), f.o)
@@ -376,7 +398,7 @@ func TestRunCheckShowsTheFleetPlan(t *testing.T) {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	f.unchanged(t)
-	busy := newRun(t, nil)
+	busy := newRun(t)
 	busy.stale()
 	busy.worker(t)
 	busy.o.Check = true
@@ -386,7 +408,7 @@ func TestRunCheckShowsTheFleetPlan(t *testing.T) {
 }
 
 func TestRunTreatsAnUnreadableSupervisorAsBusy(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
 	f.supervisor(t)
 	f.status = "error"
@@ -394,13 +416,13 @@ func TestRunTreatsAnUnreadableSupervisorAsBusy(t *testing.T) {
 	if err != nil || alphaLuvus(t, rep) != "pending" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	if got := f.log(t, "secondhand-luvus-", "supervisor"); len(got) != 0 {
+	if got := f.log(t, "server.stop", "supervisor"); len(got) != 0 {
 		t.Fatalf("calls = %q", got)
 	}
 }
 
 func TestRunTriesAResumeWhenTheSupervisorStopFails(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.stale()
 	f.supervisor(t)
 	f.o.Env = append(f.o.Env, "HAND_FAIL=supervisor stop")
@@ -408,7 +430,7 @@ func TestRunTriesAResumeWhenTheSupervisorStopFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := f.log(t, "supervisor", "secondhand-luvus-"); !slices.Equal(got, []string{"hand supervisor stop @ " + f.alpha, "hand supervisor resume @ " + f.alpha}) {
+	if got := f.log(t, "supervisor", "server.stop"); !slices.Equal(got, []string{"hand supervisor stop @ " + f.alpha, "hand supervisor resume @ " + f.alpha}) {
 		t.Fatalf("calls = %q", got)
 	}
 	if !rep.Failed || !strings.HasPrefix(alphaLuvus(t, rep), "failed: ") {
@@ -433,7 +455,7 @@ func (f *fixture) stoppedSupervisor(t *testing.T) {
 }
 
 func TestRunLeavesNoJournal(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	if _, err := Run(context.Background(), f.o); err != nil {
 		t.Fatal(err)
 	}
@@ -441,7 +463,7 @@ func TestRunLeavesNoJournal(t *testing.T) {
 }
 
 func TestRunFinishesAnInterruptedUpdate(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
 	f.stoppedSupervisor(t)
 	f.leaveJournal(t, true)
@@ -465,7 +487,7 @@ func TestRunFinishesAnInterruptedUpdate(t *testing.T) {
 }
 
 func TestRepairRestartsATransientWatcherThroughEnsure(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
 	b, _ := json.Marshal(map[string][]string{"watcher": {f.alpha}, "init": {f.alpha}})
 	if err := os.WriteFile(filepath.Join(f.root, "update.json"), b, 0o600); err != nil {
@@ -481,7 +503,7 @@ func TestRepairRestartsATransientWatcherThroughEnsure(t *testing.T) {
 }
 
 func TestRepairLeavesALiveSupervisorAlone(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
 	f.supervisor(t)
 	f.leaveJournal(t, true)
@@ -494,7 +516,7 @@ func TestRepairLeavesALiveSupervisorAlone(t *testing.T) {
 }
 
 func TestRunSetsAsideAnUnreadableJournal(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +528,7 @@ func TestRunSetsAsideAnUnreadableJournal(t *testing.T) {
 }
 
 func TestRunTreatsAnEmptyJournalAsDone(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.current()
 	if err := os.WriteFile(filepath.Join(f.root, "update.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -522,7 +544,7 @@ func TestRunLeavesNoJournalWhenTheBackupFails(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root writes into a 0555 folder")
 	}
-	f := newRun(t, nil)
+	f := newRun(t)
 	backups := filepath.Join(f.root, "backups")
 	if err := os.MkdirAll(backups, 0o555); err != nil {
 		t.Fatal(err)
@@ -535,15 +557,12 @@ func TestRunLeavesNoJournalWhenTheBackupFails(t *testing.T) {
 }
 
 func TestUpdateLeavesInstalledUnitsToTheEnsurePath(t *testing.T) {
-	f := newRun(t, nil)
+	f := newRun(t)
 	f.watcherRuns(t)
 	f.boardRuns(t)
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || rep.Failed {
 		t.Fatalf("report = %+v, %v", rep, err)
-	}
-	if got := f.log(t, "systemctl"); len(got) != 0 {
-		t.Fatalf("systemctl calls = %q", got)
 	}
 	want := []string{"kill", "watcher @ " + f.alpha, "kill", "board @ " + f.alpha}
 	if got := f.log(t, "kill", "watcher @ ", "board @ "); !slices.Equal(got, want) {

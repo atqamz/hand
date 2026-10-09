@@ -18,7 +18,8 @@ import (
 )
 
 type fixture struct {
-	root, target, calls, sysdir  string
+	root, target, calls          string
+	sessionDir, version          string
 	old                          string
 	alpha, alphaID, goneID, gone string
 	srv                          *server
@@ -82,9 +83,6 @@ func newFetch(t *testing.T) *fixture {
 		Env:       env,
 		Getenv:    lookup(env),
 		Now:       func() time.Time { return stamp },
-		Server: func(context.Context, string) (luvus.Server, bool) {
-			return luvus.Server{Exe: f.pin.Path, SHA256: f.pin.SHA256}, true
-		},
 	}
 	return f
 }

@@ -3,8 +3,11 @@ package luvus_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -19,7 +22,10 @@ func liveClient(bin, session string, env []string, getenv func(string) string) l
 	if runtime.GOOS != "windows" {
 		return luvus.Client{Socket: luvus.SocketPath(getenv, session)}
 	}
-	return luvus.Client{Relist: func(ctx context.Context, _ string) (string, error) { return luvus.Address(ctx, bin, session, env) }}
+	return luvus.Client{Relist: func(ctx context.Context, _ string) (string, error) {
+		addr, _, err := luvus.Address(ctx, bin, session, env)
+		return addr, err
+	}}
 }
 
 func TestLiveLuvusRoundTrip(t *testing.T) {
@@ -156,5 +162,99 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 		if state, err := c.Validate(ctx, term); err != nil || state != "alive" {
 			t.Fatalf("after attach %q: validate = %s, %v", pane, state, err)
 		}
+	}
+}
+
+func startLive(t *testing.T, session string) (bin string, c luvus.Client, dir string) {
+	t.Helper()
+	if os.Getenv("HAND_LUVUS_IT") != "1" {
+		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
+	}
+	bin, err := exec.LookPath("luvus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	env := append(luvus.Scrub(os.Environ()), "LUVUS_HOME="+root)
+	getenv := func(k string) string {
+		switch k {
+		case "LUVUS_HOME":
+			return root
+		case "HOME":
+			return os.Getenv("HOME")
+		}
+		return ""
+	}
+	c = liveClient(bin, session, env, getenv)
+	t.Cleanup(func() {
+		stop := exec.Command(bin, "--session", session, "server", "stop")
+		stop.Env = env
+		_ = stop.Run()
+	})
+	ctx := context.Background()
+	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) }); err != nil {
+		t.Fatal(err)
+	}
+	if _, dir, err = luvus.Address(ctx, bin, session, env); err != nil || dir == "" {
+		t.Fatalf("session dir %q, %v", dir, err)
+	}
+	return bin, c, dir
+}
+
+func serverPID(t *testing.T, dir string) (int, string) {
+	t.Helper()
+	var pid int
+	var marker string
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		b, _ := os.ReadFile(filepath.Join(dir, "server.pid"))
+		if n, _ := fmt.Sscanf(string(b), "%d %s", &pid, &marker); n == 2 {
+			return pid, marker
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no server.pid in %s", dir)
+		}
+	}
+}
+
+func TestLiveServerPIDMarkerMatches(t *testing.T) {
+	_, c, dir := startLive(t, "hand-it-pid")
+	pid, marker := serverPID(t, dir)
+	if got, err := luvus.ProcStartMarker(pid); err != nil || got != marker {
+		t.Fatalf("marker = %q, %v; server.pid says %q", got, err, marker)
+	}
+	if v, err := c.Version(context.Background()); err != nil || v == "" {
+		t.Fatalf("version = %q, %v", v, err)
+	}
+}
+
+func TestLiveStopServer(t *testing.T) {
+	_, c, dir := startLive(t, "hand-it-stop")
+	ctx := context.Background()
+	pid, marker := serverPID(t, dir)
+	sleep := fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil)
+	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{sleep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forced := func(int, string) error { return errors.New("a graceful stop must not need force") }
+	if err := c.StopServer(ctx, dir, forced); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := luvus.ProcStartMarker(pid); err == nil && m == marker {
+		t.Fatalf("server %d is still alive", pid)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "server.pid")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("server.pid err = %v", err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if m, err := luvus.ProcStartMarker(term.Root.PID); err != nil || m != term.Root.StartMarker {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane process %d outlived the server", term.Root.PID)
+		}
+	}
+	if _, err := c.Version(ctx); !errors.Is(err, luvus.ErrUnreachable) {
+		t.Fatalf("version after stop err = %v", err)
 	}
 }
