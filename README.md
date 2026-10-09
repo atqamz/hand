@@ -69,7 +69,7 @@ In the table:
 | Start codex or agy | real | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | A worker reports through the footer | daily | CI, fake | CI, fake |
-| Stop a worker | daily | CI | CI |
+| Stop a worker | daily | CI, fake | CI |
 | `hand attach` | CI, fake | not run | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | CI, fake | CI, fake |
 | `hand update` | daily | CI, fake | CI, fake |
