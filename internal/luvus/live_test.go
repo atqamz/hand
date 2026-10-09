@@ -217,13 +217,17 @@ func serverPID(t *testing.T, dir string) (int, string) {
 }
 
 func TestLiveServerPIDMarkerMatches(t *testing.T) {
-	_, c, dir := startLive(t, "hand-it-pid")
+	bin, c, dir := startLive(t, "hand-it-pid")
 	pid, marker := serverPID(t, dir)
 	if got, err := luvus.ProcStartMarker(pid); err != nil || got != marker {
 		t.Fatalf("marker = %q, %v; server.pid says %q", got, err, marker)
 	}
-	if v, err := c.Version(context.Background()); err != nil || v == "" {
-		t.Fatalf("version = %q, %v", v, err)
+	want, err := luvus.BinaryVersion(context.Background(), bin, os.Environ())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := c.Version(context.Background()); err != nil || v != want {
+		t.Fatalf("ping version = %q, %v; luvus --version says %q", v, err, want)
 	}
 }
 

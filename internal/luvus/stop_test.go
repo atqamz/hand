@@ -170,3 +170,56 @@ func TestStopServerIgnoresARecycledPID(t *testing.T) {
 		t.Fatalf("an answering server with a recycled pid: err = %v, forced %d, alive %v", err, s.forced.Load(), s.alive())
 	}
 }
+
+func TestStopServerDoesNotTrustAnUnusablePIDFile(t *testing.T) {
+	for name, content := range map[string]string{"empty": "", "garbage": "not a pid\n", "no marker": "1\n", "zero pid": "0 marker\n", "negative pid": "-1 marker\n"} {
+		t.Run(name, func(t *testing.T) {
+			s := newFakeServer(t)
+			if err := os.WriteFile(filepath.Join(s.dir, "server.pid"), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+			if err := s.client().StopServer(context.Background(), s.dir, s.forceKill); err == nil || s.forced.Load() != 0 || len(s.uhp.Calls("server.stop")) != 0 {
+				t.Fatalf("an answering server: err = %v, forced %d", err, s.forced.Load())
+			}
+			if err := (luvus.Client{Socket: sock(t)}).StopServer(context.Background(), s.dir, s.forceKill); err != nil || s.forced.Load() != 0 {
+				t.Fatalf("a server that is gone: err = %v, forced %d", err, s.forced.Load())
+			}
+		})
+	}
+}
+
+func TestStopServerReturnsAtOnceForALeftoverPIDFile(t *testing.T) {
+	s := newFakeServer(t)
+	*luvus.ServerExitBy = 5 * time.Second
+	s.kill()
+	gone := luvus.Client{Socket: sock(t)}
+	began := time.Now()
+	if err := gone.StopServer(context.Background(), s.dir, s.forceKill); err != nil || time.Since(began) > time.Second || s.forced.Load() != 0 {
+		t.Fatalf("a crash left server.pid: err = %v after %s, forced %d", err, time.Since(began), s.forced.Load())
+	}
+	s.uhp.Handle("server.stop", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { return nil, fakeuhp.Drop })
+	began = time.Now()
+	if err := s.client().StopServer(context.Background(), s.dir, s.forceKill); err != nil || time.Since(began) > time.Second || s.forced.Load() != 0 {
+		t.Fatalf("the process was gone and ping fails: err = %v after %s, forced %d", err, time.Since(began), s.forced.Load())
+	}
+}
+
+func TestPingIsBounded(t *testing.T) {
+	s := newFakeServer(t)
+	s.uhp.Handle("ping", func(json.RawMessage) (any, error) { time.Sleep(3 * time.Second); return map[string]any{}, nil })
+	old := *luvus.PingWait
+	*luvus.PingWait = 200 * time.Millisecond
+	t.Cleanup(func() { *luvus.PingWait = old })
+	c := luvus.Client{Socket: s.uhp.Socket}
+	began := time.Now()
+	if _, err := c.Version(context.Background()); err == nil || time.Since(began) > 2*time.Second {
+		t.Fatalf("version err = %v after %s", err, time.Since(began))
+	}
+	s.kill()
+	began = time.Now()
+	if err := c.StopServer(context.Background(), s.dir, s.forceKill); err != nil || time.Since(began) > 2*time.Second || s.forced.Load() != 0 {
+		t.Fatalf("a mute server and a dead process: err = %v after %s, forced %d", err, time.Since(began), s.forced.Load())
+	}
+}

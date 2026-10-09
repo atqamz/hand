@@ -569,3 +569,33 @@ func TestUpdateLeavesInstalledUnitsToTheEnsurePath(t *testing.T) {
 		t.Fatalf("calls = %q", got)
 	}
 }
+
+func TestRunDefaultsTheClientToTheFleetSocket(t *testing.T) {
+	f := newRun(t)
+	f.stale()
+	f.o.Client = nil
+	f.setenv("HAND_LUVUS_SOCKET=" + f.uhp.Socket)
+	f.o.Check = true
+	if rep, err := Run(context.Background(), f.o); err != nil || alphaLuvus(t, rep) != "would switch" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
+func TestCheckPlansNothingForAnUnknownOrAbsentServer(t *testing.T) {
+	for want, serve := range map[string]func(*fixture){
+		"unknown": func(f *fixture) {
+			f.uhp.Handle("ping", func(json.RawMessage) (any, error) { return map[string]any{}, nil })
+		},
+		"not running": func(f *fixture) {
+			f.o.Client = func(fleet.Entry) luvus.Client { return luvus.Client{Socket: filepath.Join(t.TempDir(), "absent.sock")} }
+		},
+	} {
+		f := newRun(t)
+		serve(f)
+		f.o.Check = true
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || alphaLuvus(t, rep) != want || slices.ContainsFunc(rep.Units, func(u UnitResult) bool { return strings.HasPrefix(u.Name, "luvus ") }) {
+			t.Fatalf("%s: report = %+v, %v", want, rep, err)
+		}
+	}
+}

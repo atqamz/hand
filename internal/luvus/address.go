@@ -34,9 +34,9 @@ func Address(ctx context.Context, bin, session string, environ []string) (addr, 
 		return "", "", fmt.Errorf("luvus session list: bad output: %w", err)
 	}
 	for _, s := range list.Sessions {
-		if s.Name == session && s.Endpoint.Address != "" {
+		if s.Name == session && s.Endpoint.Address != "" && s.Dir != "" {
 			return s.Endpoint.Address, s.Dir, nil
 		}
 	}
-	return "", "", fmt.Errorf("luvus session list: no address for session %s", session)
+	return "", "", fmt.Errorf("luvus session list: no address and session_dir for session %s", session)
 }

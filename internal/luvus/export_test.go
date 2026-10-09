@@ -1,3 +1,6 @@
 package luvus
 
-var ServerExitBy = &serverExitBy
+var (
+	ServerExitBy = &serverExitBy
+	PingWait     = &pingWait
+)

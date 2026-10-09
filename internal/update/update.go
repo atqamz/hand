@@ -306,8 +306,15 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 
 const pendingLine = "At a quiet time run `hand update` from a plain terminal; it switches only the fleets that need it"
 
+func (o Options) client(e fleet.Entry) luvus.Client {
+	if o.Client != nil {
+		return o.Client(e)
+	}
+	return luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))}
+}
+
 func (o Options) serverState(ctx context.Context, e fleet.Entry, pin luvus.Pin, pinned bool) string {
-	version, err := o.Client(e).Version(ctx)
+	version, err := o.client(e).Version(ctx)
 	switch {
 	case errors.Is(err, luvus.ErrUnreachable):
 		return "not running"
@@ -335,7 +342,7 @@ func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, 
 	if _, live, err = st.LiveSupervisor(ctx); err != nil {
 		return false, false, "", err
 	}
-	ok, other, err = quiet(ctx, st, o.Client(e), e.Home)
+	ok, other, err = quiet(ctx, st, o.client(e), e.Home)
 	return live, ok, other, err
 }
 
@@ -351,7 +358,7 @@ func (o Options) stopServer(ctx context.Context, e fleet.Entry) error {
 	if err != nil {
 		return err
 	}
-	return o.Client(e).StopServer(ctx, dir, o.Kill)
+	return o.client(e).StopServer(ctx, dir, o.Kill)
 }
 
 func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
