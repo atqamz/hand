@@ -49,7 +49,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its checklist below.
 
-CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Only the Windows job runs the real Luvus; the Linux and macOS jobs use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
+CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
 In the table:
 - **daily**: a real Linux machine runs it every day, with the real Luvus and harnesses;
@@ -62,14 +62,14 @@ In the table:
 | What | Linux | macOS | Windows |
 |---|---|---|---|
 | Install script | CI, fake | CI, fake | CI, fake, in PowerShell 5.1 and 7 |
-| `hand init` and the Luvus pin | daily | CI, fake | CI, real Luvus |
-| Download the tested Luvus | CI, fake | CI, fake | CI, fake |
-| Luvus server, panes and events | daily | CI, fake | CI, real Luvus over its named pipe |
+| `hand init` and the Luvus pin | daily | CI, real Luvus | CI, real Luvus |
+| Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
+| Luvus server, panes and events | daily | CI, real Luvus over its Unix socket | CI, real Luvus over its named pipe |
 | Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
 | Start codex or agy | real | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | A worker reports through the footer | daily | CI, fake | CI, fake |
-| Stop a worker | daily | CI, fake | CI |
+| Stop a worker | daily | CI | CI |
 | `hand attach` | CI, fake | not run | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | CI, fake | CI, fake |
 | `hand update` | daily | CI, fake | CI, fake |
@@ -86,10 +86,10 @@ On Linux, the setup without a systemd user session (plain SSH, for example) has 
 
 Check these on a real Mac, Apple silicon then Intel, riskiest first:
 
-1. Hand's process start marker equals the one Luvus reports for a pane: from a checkout, with `luvus` on `PATH`, run `HAND_LUVUS_IT=1 go test -run '^TestLive' ./internal/luvus ./internal/cli`. If they differ, `hand attempt stop aN` takes a live worker for gone and leaves it running.
+1. On Intel (CI covers Apple silicon), Hand's process start marker equals the one Luvus reports for a pane: from a checkout, with `luvus` on `PATH`, run `HAND_LUVUS_IT=1 go test -run '^TestLive' ./internal/luvus ./internal/cli`. If they differ, `hand attempt stop aN` takes a live worker for gone and leaves it running.
 2. Hand reaches the fleet's Luvus socket, and **Start** on the board runs the supervisor.
 3. A real Claude Code worker: Hand accepts its trust screen, and the worker reports through the footer.
-4. With no `luvus` on `PATH`, `hand init` downloads and pins the macOS build, and macOS lets it run.
+4. On Intel (CI covers Apple silicon), with no `luvus` on `PATH`, `hand init` downloads and pins the macOS build, and macOS lets it run.
 5. `hand attach supervisor` opens the supervisor's terminal.
 6. `hand open` starts the board and opens the default browser.
 7. An `osascript` notification appears.
