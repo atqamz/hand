@@ -20,7 +20,7 @@ func TestStartServerGivesTheWorkersGitLongPaths(t *testing.T) {
 		}
 	}
 	bin := fakebin.Install(t, t.TempDir(), "luvus", "env", map[string]string{"out": out})
-	if err := luvus.StartServer(context.Background(), bin, "secondhand-f1", "", t.TempDir(), env); err != nil {
+	if err := luvus.StartServer(context.Background(), bin, "secondhand-f1", t.TempDir(), env); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(out)

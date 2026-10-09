@@ -194,7 +194,7 @@ func TestStartServerWithoutAUserManagerRunsLuvusDirectly(t *testing.T) {
 	fakebin.Install(t, bin, "systemd-run", "tool", map[string]string{"name": "systemd-run", "calls": calls})
 	exe := fakebin.Install(t, bin, "luvus", "tool", map[string]string{"name": "luvus", "calls": calls})
 	env := []string{"PATH=" + bin, "HOME=/h"}
-	if err := luvus.StartServer(context.Background(), exe, "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
+	if err := luvus.StartServer(context.Background(), exe, "secondhand-f1", t.TempDir(), env); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(calls); string(b) != "luvus [--session] [secondhand-f1] [server] [start]\n" {

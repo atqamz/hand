@@ -48,113 +48,53 @@ func userManager(t *testing.T) string {
 	return run
 }
 
-func TestStartServerRunsLuvusInItsOwnUserUnit(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "exit 0", "systemctl": managerEnv, "luvus": "exit 0"})
-	dir := t.TempDir()
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t), "HOME=/h", "CLAUDECODE=1", "INVOCATION_ID=abc", "JOURNAL_STREAM=8:9"}
-	if err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", dir, env); err != nil {
+func TestStartServerUsesAScopeWithAUserManager(t *testing.T) {
+	envTool, err := exec.LookPath("env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(t.TempDir(), "env")
+	bin, calls := fakeTools(t, map[string]string{"systemd-run": envTool + " > " + envFile, "luvus": "exit 1"})
+	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t), "HOME=/h", "KEEP_ME=yes", "CLAUDECODE=1"}
+	pinned := filepath.Join(bin, "luvus")
+	if err := luvus.StartServer(context.Background(), pinned, "secondhand-f1", t.TempDir(), env); err != nil {
+		t.Fatal(err)
+	}
+	want := "systemd-run [--user] [--scope] [--collect] [--quiet] [--description=Luvus server for secondhand-f1] [--] [" + pinned + "] [--session] [secondhand-f1] [server] [start]\n"
+	if b, _ := os.ReadFile(calls); string(b) != want {
+		t.Fatalf("calls = %q, want %q", b, want)
+	}
+	got, _ := os.ReadFile(envFile)
+	for _, line := range []string{"HOME=/h", "KEEP_ME=yes", "XDG_RUNTIME_DIR=" + env[1][len("XDG_RUNTIME_DIR="):]} {
+		if !strings.Contains("\n"+string(got), "\n"+line+"\n") {
+			t.Fatalf("scope environment lacks %s:\n%s", line, got)
+		}
+	}
+	if strings.Contains(string(got), "CLAUDECODE") {
+		t.Fatalf("scope environment keeps CLAUDECODE:\n%s", got)
+	}
+}
+
+func TestStartServerFallsBackWhenTheScopeFails(t *testing.T) {
+	bin, calls := fakeTools(t, map[string]string{"systemd-run": "echo 'Failed to connect to user scope bus' >&2; exit 1", "luvus": "exit 0"})
+	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
+	pinned := filepath.Join(bin, "luvus")
+	if err := luvus.StartServer(context.Background(), pinned, "secondhand-f1", t.TempDir(), env); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(calls)
 	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
-	if len(lines) != 3 || lines[0] != "systemctl [--user] [reset-failed] [secondhand-luvus-f1.service]" || lines[1] != "systemctl [--user] [show-environment]" {
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "systemd-run [--user] [--scope]") || lines[1] != "luvus [--session] [secondhand-f1] [server] [start]" {
 		t.Fatalf("calls = %q", lines)
 	}
-	run := lines[2]
-	for _, want := range []string{"systemd-run [--user] [--unit=secondhand-luvus-f1]", "[-p] [UnsetEnvironment=CLAUDECODE]", "[-p] [UnsetEnvironment=LUVUS_PANE_ID]", "[--working-directory=" + dir + "]", "[-p] [Type=forking]", "[-p] [Restart=on-failure]", "[-E] [HOME]", "[-E] [PATH]",
-		"[" + filepath.Join(bin, "luvus") + "] [--session] [secondhand-f1] [server] [start]"} {
-		if !strings.Contains(run, want) {
-			t.Fatalf("systemd-run call missing %q:\n%s", want, run)
-		}
-	}
-	for _, not := range []string{"[-E] [CLAUDECODE]", "INVOCATION_ID", "JOURNAL_STREAM", "=/h", "PATH=", "UnsetEnvironment=HOME", "UnsetEnvironment=LUVUS_HOME"} {
-		if strings.Contains(run, not) {
-			t.Fatalf("systemd-run call passes %s:\n%s", not, run)
-		}
-	}
-	if !strings.HasSuffix(run, "[server] [start]") {
-		t.Fatalf("luvus must be the command systemd-run starts:\n%s", run)
-	}
 }
 
-const managerEnv = `if [ "$2" = show-environment ]; then printf 'HOME=/h\nCLAUDECODE=1\nLUVUS_PANE_ID=3\nLUVUS_HOME=/l\n'; fi; exit 0`
-
-func TestStartServerRefusesAnUnreadableManagerEnvironment(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "exit 0", "systemctl": `if [ "$2" = show-environment ]; then echo 'Access denied' >&2; exit 1; fi; exit 0`, "luvus": "exit 0"})
+func TestStartServerReportsTheDirectStartWhenBothFail(t *testing.T) {
+	bin, _ := fakeTools(t, map[string]string{"systemd-run": "exit 1", "luvus": "echo 'no luvus here' >&2; exit 1"})
 	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err == nil || !strings.Contains(err.Error(), "Access denied") {
+	err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", t.TempDir(), env)
+	if err == nil || !strings.Contains(err.Error(), "no luvus here") {
 		t.Fatalf("err = %v", err)
-	}
-	if b, _ := os.ReadFile(calls); strings.Contains(string(b), "systemd-run") || strings.Contains(string(b), "luvus [--session]") {
-		t.Fatalf("started without knowing what the manager would pass: %q", b)
-	}
-}
-
-func TestStartServerJoinsAStartAlreadyUnderWay(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "echo 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "systemctl": "exit 0", "luvus": "exit 1"})
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(calls); !strings.HasSuffix(string(b), "systemctl [--user] [start] [secondhand-luvus-f1.service]\n") || strings.Contains(string(b), "luvus [--session]") {
-		t.Fatalf("calls = %q", b)
-	}
-}
-
-func TestStartServerJoinsALoadedUnitOfTheSameBinary(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "echo 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "luvus": "exit 1"})
-	exec := filepath.Join(bin, "luvus")
-	systemctl := "#!/bin/sh\necho \"systemctl $*\" >> " + calls + "\ncase \"$*\" in *ExecStart*) echo '{ path=" + exec + " ; argv[]=" + exec + " --session secondhand-f1 server start ; }';; esac\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), exec, "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(calls); !strings.HasSuffix(string(b), "systemctl --user start secondhand-luvus-f1.service\n") || strings.Contains(string(b), "--user stop") {
-		t.Fatalf("calls = %q", b)
-	}
-}
-
-func TestStartServerReplacesAUnitThatRunsAnotherBinary(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "loaded")
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "if [ -e " + state + " ]; then exit 0; fi\n: > " + state + "\necho 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "luvus": "exit 1"})
-	systemctl := "#!/bin/sh\necho \"systemctl $*\" >> " + calls + "\ncase \"$*\" in *ExecStart*) echo '{ path=/usr/bin/luvus ; argv[]=/usr/bin/luvus --session secondhand-f1 server start ; }';; *LoadState*) echo not-found;; esac\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	pinned := filepath.Join(bin, "luvus")
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), pinned, "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
-		t.Fatal(err)
-	}
-	b, _ := os.ReadFile(calls)
-	got := string(b)
-	if strings.Contains(got, "--user start secondhand-luvus-f1.service") || !strings.Contains(got, "systemctl --user stop secondhand-luvus-f1.service") || strings.Count(got, "systemd-run") != 2 || !strings.Contains(got, "["+pinned+"] [--session] [secondhand-f1] [server] [start]") {
-		t.Fatalf("calls = %q", got)
-	}
-}
-
-func TestStartServerFallsBackWhenTheManagerIsGone(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "exit 0", "systemctl": "echo 'Failed to connect to user scope bus via local transport: No such file or directory' >&2; exit 1", "luvus": "exit 0"})
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(calls); !strings.HasSuffix(string(b), "luvus [--session] [secondhand-f1] [server] [start]\n") {
-		t.Fatalf("calls = %q", b)
-	}
-}
-
-func TestStartServerWithoutAUnitNameRunsLuvusDirectly(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "exit 0", "systemctl": "exit 0", "luvus": "exit 0"})
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	if err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "", t.TempDir(), env); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(calls); string(b) != "luvus [--session] [secondhand-f1] [server] [start]\n" {
-		t.Fatalf("calls = %q", b)
 	}
 }
 
@@ -163,38 +103,15 @@ func TestStartServerStopsWhenItsContextEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bin, _ := fakeTools(t, map[string]string{"systemd-run": sleep + " 30", "systemctl": "exit 0", "luvus": "exit 0"})
+	bin, _ := fakeTools(t, map[string]string{"systemd-run": sleep + " 30", "luvus": sleep + " 30"})
 	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	began := time.Now()
-	if err := luvus.StartServer(ctx, filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env); err == nil || !strings.Contains(err.Error(), "secondhand-luvus-f1") {
-		t.Fatalf("a cancelled start = %v", err)
+	if err := luvus.StartServer(ctx, filepath.Join(bin, "luvus"), "secondhand-f1", t.TempDir(), env); err == nil {
+		t.Fatal("a cancelled start succeeded")
 	}
 	if took := time.Since(began); took > 5*time.Second {
 		t.Fatalf("start ignored its context for %s", took)
-	}
-}
-
-func TestStartServerReportsAFailedUserUnit(t *testing.T) {
-	bin, calls := fakeTools(t, map[string]string{"systemd-run": "echo 'Job for secondhand-luvus-f1.service failed.' >&2; exit 1", "systemctl": "exit 0", "luvus": "exit 0"})
-	defer func() {
-		if b, _ := os.ReadFile(calls); strings.Contains(string(b), "[start]") && strings.Contains(string(b), "systemctl [--user] [start]") {
-			t.Fatalf("started a loaded unit after a failure that was not a start under way: %q", b)
-		}
-	}()
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env)
-	if err == nil || !strings.Contains(err.Error(), "secondhand-luvus-f1") || !strings.Contains(err.Error(), "failed") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestStartServerReportsASystemctlStartFailure(t *testing.T) {
-	bin, _ := fakeTools(t, map[string]string{"systemd-run": "echo 'Unit secondhand-luvus-f1.service was already loaded or has a fragment file.' >&2; exit 1", "systemctl": `if [ "$2" = start ]; then echo 'unit is masked' >&2; exit 1; fi; exit 0`, "luvus": "exit 1"})
-	env := []string{"PATH=" + bin, "XDG_RUNTIME_DIR=" + userManager(t)}
-	err := luvus.StartServer(context.Background(), filepath.Join(bin, "luvus"), "secondhand-f1", "secondhand-luvus-f1", t.TempDir(), env)
-	if err == nil || !strings.Contains(err.Error(), "unit is masked") || strings.Contains(err.Error(), "systemd-run") {
-		t.Fatalf("err = %v", err)
 	}
 }

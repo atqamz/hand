@@ -40,35 +40,3 @@ func TestTheServerStartsFromThePin(t *testing.T) {
 		t.Fatalf("calls = %q", got)
 	}
 }
-
-func TestLuvusStartsInTheFleetsOwnUserUnit(t *testing.T) {
-	h := initWithProject(t)
-	bin := t.TempDir()
-	calls := filepath.Join(t.TempDir(), "calls")
-	for name, script := range map[string]string{
-		"systemd-run": "#!/bin/sh\necho \"$*\" >> " + calls + "\necho 'Failed to start transient service unit' >&2\nexit 1\n",
-		"systemctl":   "#!/bin/sh\nexit 0\n",
-		"luvus":       "#!/bin/sh\necho \"LUVUS-SPAWNED-DIRECTLY $*\" >> " + calls + "\nexit 1\n",
-	} {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(run, "systemd"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(run, "systemd", "private"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h.vars["PATH"], h.vars["XDG_RUNTIME_DIR"] = bin, run
-	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "absent.sock")
-	id := regexp.MustCompile(`\((f[0-9a-f]{12})\)`).FindStringSubmatch(h.ok("orient"))[1]
-	if _, errOut, code := h.run("attempt", "list"); code == 0 || !strings.Contains(errOut, "secondhand-luvus-"+id) {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
-	}
-	got, _ := os.ReadFile(calls)
-	if !strings.Contains(string(got), "--unit=secondhand-luvus-"+id+" ") || strings.Contains(string(got), "LUVUS-SPAWNED-DIRECTLY") {
-		t.Fatalf("calls = %q", got)
-	}
-}
