@@ -7,9 +7,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
+func linuxUnits(t *testing.T) {
+	t.Helper()
+	old := *cli.UnitOS
+	*cli.UnitOS = "linux"
+	t.Cleanup(func() { *cli.UnitOS = old })
+}
+
 func TestBoardUnitRunsTheBoard(t *testing.T) {
+	linuxUnits(t)
 	h := newHarness(t)
 	h.vars["HAND_HOME"] = ""
 	exe, _ := os.Executable()
@@ -37,6 +47,7 @@ func TestBoardUnitRunsTheBoard(t *testing.T) {
 }
 
 func TestUnitWatchWasRemoved(t *testing.T) {
+	linuxUnits(t)
 	h := newHarness(t)
 	h.ok("init")
 	out, errOut, code := h.run("unit", "watch")
@@ -46,6 +57,7 @@ func TestUnitWatchWasRemoved(t *testing.T) {
 }
 
 func TestBoardUnitKeepsACustomSecondhandHome(t *testing.T) {
+	linuxUnits(t)
 	h := newHarness(t)
 	h.ok("init")
 	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
@@ -62,6 +74,7 @@ func TestBoardUnitKeepsACustomSecondhandHome(t *testing.T) {
 }
 
 func TestBoardUnitKeepsTheCallersPath(t *testing.T) {
+	linuxUnits(t)
 	h := newHarness(t)
 	h.ok("init")
 	h.vars["PATH"] = "/opt/tools/bin:/usr/bin"

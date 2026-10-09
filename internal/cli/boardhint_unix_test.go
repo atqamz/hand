@@ -13,7 +13,4 @@ func TestBoardHint(t *testing.T) {
 	if !strings.Contains(cli.BoardHint, "systemctl --user start secondhand-board") {
 		t.Fatalf("hint = %q", cli.BoardHint)
 	}
-	if strings.Contains(cli.BoardHint, "systemctl") != (true) {
-		t.Fatalf("hint = %q", cli.BoardHint)
-	}
 }

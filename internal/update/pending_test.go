@@ -9,9 +9,12 @@ import (
 
 func TestPendingLineNamesSystemctlOnlyOnLinux(t *testing.T) {
 	e := fleet.Entry{ID: "f1", Home: "/h"}
-	for goos, want := range map[string]bool{"linux": true, "darwin": false, "windows": false} {
-		if got := strings.Contains(pendingLineFor(goos, e), "systemctl"); got != want {
-			t.Fatalf("%s: systemctl in pending line = %v, want %v", goos, got, want)
+	if got, want := pendingLineFor("linux", e), "At a quiet time: `systemctl --user stop "+fleet.LuvusUnit("f1")+".service`, then `hand supervisor resume` in /h"; got != want {
+		t.Fatalf("linux: %q", got)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		if got := pendingLineFor(goos, e); strings.Contains(got, "systemctl") {
+			t.Fatalf("%s: %q", goos, got)
 		}
 	}
 }

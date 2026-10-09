@@ -13,7 +13,7 @@ func TestBoardHint(t *testing.T) {
 	if !strings.Contains(cli.BoardHint, "LaunchAgent") {
 		t.Fatalf("hint = %q", cli.BoardHint)
 	}
-	if strings.Contains(cli.BoardHint, "systemctl") != (false) {
+	if strings.Contains(cli.BoardHint, "systemctl") {
 		t.Fatalf("hint = %q", cli.BoardHint)
 	}
 }

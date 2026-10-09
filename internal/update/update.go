@@ -309,8 +309,10 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 	return err == nil, true
 }
 
+var hostOS = runtime.GOOS
+
 func pendingLine(e fleet.Entry) string {
-	return pendingLineFor(runtime.GOOS, e)
+	return pendingLineFor(hostOS, e)
 }
 
 func pendingLineFor(goos string, e fleet.Entry) string {
@@ -343,6 +345,10 @@ func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, 
 func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
 	unit := fleet.LuvusUnit(e.ID) + ".service"
 	pending := pendingLine(e)
+	if hostOS != "linux" {
+		r.Help = append(r.Help, pending)
+		return "pending"
+	}
 	live, ok, other, err := o.switchable(ctx, e)
 	switch {
 	case err != nil:
