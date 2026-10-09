@@ -2,7 +2,7 @@
 
 Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
-Hand is built for one operator on Linux or macOS, not as a product for other users. Native Windows is **experimental**: see [Windows](#windows-experimental). The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
+Hand is built for one operator, not as a product for other users. It runs every day on Linux; macOS and native Windows are **experimental**: see [Platform support](#platform-support). The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
 Wiki: [deepwiki.com/atqamz/hand](https://deepwiki.com/atqamz/hand), a generated overview for browsing the code.
 
@@ -36,14 +36,82 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Requirements
 
-- Linux, or macOS (Apple silicon or Intel).
+- Linux, macOS (Apple silicon or Intel), or Windows 10 or 11 (amd64). macOS and Windows are **experimental**: see [Platform support](#platform-support).
   - On macOS, `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached, and the Luvus server starts directly, without restart on failure. See [Autostart](#autostart) to run the board at login.
-  - On Windows 10 or 11 (amd64), Hand runs natively and is **experimental**. See [Windows](#windows-experimental).
+  - On Windows, Hand runs natively, without WSL. See [Windows](#windows-experimental).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, which Hand needs for its UHP 1.x protocol and was tested with at 0.14. `hand init` pins a copy under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs: the `luvus` on `PATH` when there is one, otherwise the tested version, which it downloads and checks against the release's SHA-256 (nothing is pinned if the check fails). `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
 - Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](#alerts-on-your-phone) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
+
+## Platform support
+
+Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its checklist below.
+
+CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Only the Windows job runs the real Luvus; the Linux and macOS jobs use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
+
+In the table:
+- **daily**: a real Linux machine runs it every day, with the real Luvus and harnesses;
+- **real**: it has run on a real Linux machine, but not every day;
+- **CI**: CI runs it on that OS, with the real system calls;
+- **CI, fake**: CI runs it on that OS, but a fake stands in for the harness, Luvus, the release server, the browser, the notifier or the watcher and board processes;
+- **not run**: the code exists but has never run on that OS;
+- **no**: not supported.
+
+| What | Linux | macOS | Windows |
+|---|---|---|---|
+| Install script | CI, fake | CI, fake | CI, fake, in PowerShell 5.1 and 7 |
+| `hand init` and the Luvus pin | daily | CI, fake | CI, real Luvus |
+| Download the tested Luvus | CI, fake | CI, fake | CI, fake |
+| Luvus server, panes and events | daily | CI, fake | CI, real Luvus over its named pipe |
+| Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
+| Start codex or agy | real | CI, fake | CI, fake |
+| Start opencode | CI, fake | CI, fake | CI, fake |
+| A worker reports through the footer | daily | CI, fake | CI, fake |
+| Stop a worker | daily | CI, fake | CI |
+| `hand attach` | CI, fake | not run | not run |
+| Start the watcher on demand, and the board keeps watchers alive | daily | CI, fake | CI, fake |
+| `hand update` | daily | CI, fake | CI, fake |
+| `hand board --update-every` | CI, fake | CI, fake | CI, fake |
+| Desktop notifications | daily | CI, fake | no |
+| `hand open` starts the board and opens the browser | CI, fake | CI, fake | CI, fake |
+| Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
+| Start the board at login | daily | not run | not run |
+| Luvus server under a service manager, restarted after a crash | daily | no | no |
+
+On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
+
+### Unverified on macOS
+
+Check these on a real Mac, Apple silicon then Intel, riskiest first:
+
+1. Hand's process start marker equals the one Luvus reports for a pane: from a checkout, with `luvus` on `PATH`, run `HAND_LUVUS_IT=1 go test -run '^TestLive' ./internal/luvus ./internal/cli`. If they differ, `hand attempt stop aN` takes a live worker for gone and leaves it running.
+2. Hand reaches the fleet's Luvus socket, and **Start** on the board runs the supervisor.
+3. A real Claude Code worker: Hand accepts its trust screen, and the worker reports through the footer.
+4. With no `luvus` on `PATH`, `hand init` downloads and pins the macOS build, and macOS lets it run.
+5. `hand attach supervisor` opens the supervisor's terminal.
+6. `hand open` starts the board and opens the default browser.
+7. An `osascript` notification appears.
+8. `hand update` from the previous release swaps the binary and starts the watcher and the board again.
+9. The LaunchAgent under [Autostart](#macos) starts the board at login with a `PATH` that finds your tools.
+
+### Unverified on Windows
+
+Check these on Windows 11, in an account without admin rights, once with Git for Windows and once without, riskiest first:
+
+1. Real Claude Code under Windows' pseudo console: Hand accepts its trust screen, and **Start** on the board runs the supervisor.
+2. A worker reports with the Windows footer from PowerShell and from Git Bash, and the supervisor wakes.
+3. codex through its npm `.cmd` shim, agy and opencode start with their exact arguments.
+4. `hand update` from the previous release renames the running `hand.exe`, starts the watcher and the board again, and the next run deletes `hand.exe.old`; SmartScreen and Defender leave the new binary alone.
+5. After `install.ps1`, with no `luvus.exe` on `PATH`, `hand init` downloads and pins Luvus, and its server starts.
+6. `hand open` starts the board, and no console window flashes from the board, the watcher or the commands they run.
+7. `hand attach supervisor` works in Windows Terminal.
+8. `hand attempt stop` and `hand attempt clean` work while a child process of the worker still runs.
+9. A worker commits in a worktree whose paths pass 260 characters.
+10. After a logoff and a logon, the Startup shortcut starts the board, the board starts the watcher, and `hand supervisor resume` continues.
+11. A user profile folder whose name has a space or a non-ASCII character works.
+12. The toast recipe and the ssh notes below hold.
 
 ## Install
 
@@ -65,14 +133,15 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 - replaces the binary, then stops each fleet's watcher and the board by the process IDs they record (`watch.pid` in the fleet folder, `board.pid` in `~/.secondhand`) and starts them again as `hand supervisor start` and `hand open` do, on every OS;
 - runs `hand init` in every fleet.
 
-It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Otherwise it prints the command to run at a quiet time, and names any other live pane, since stopping the server ends it. It signals only a process whose recorded binary is the one being updated, and only while its recorded start time still matches, and it restarts only what it stopped. It stops a process with SIGTERM (`TerminateProcess` on Windows), which exits cleanly, so systemd does not restart an installed unit itself: an installed board unit is started again, and an installed watch unit stays inactive while the watcher runs as the transient unit `secondhand-watch-<fleet id>` until your next login. If both ever run, the second watcher finds `watch.lock` held and exits with status 3, and a second board fails to bind the board's address. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
+It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Otherwise it prints the command to run at a quiet time, and names any other live pane, since stopping the server ends it. Hand can tell which Luvus a running server uses only when the server runs in a systemd user unit; elsewhere (macOS, Windows, Linux without a user session) `hand update` never stops the server, which keeps its Luvus until it next starts. It signals only a process whose recorded binary is the one being updated, and only while its recorded start time still matches, and it restarts only what it stopped. It stops a process with SIGTERM (`TerminateProcess` on Windows), which exits cleanly, so systemd does not restart an installed unit itself: an installed board unit is started again, and an installed watch unit stays inactive while the watcher runs as the transient unit `secondhand-watch-<fleet id>` until your next login. If both ever run, the second watcher finds `watch.lock` held and exits with status 3, and a second board fails to bind the board's address. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
 
 To restore a backup:
-1. stop the fleet's watch unit and the board;
-2. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
-3. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
-4. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
-5. start the units again.
+1. stop the board, then the fleet's watcher, so the board cannot start it again. Their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder. A stale file can name a reused ID, so first check that each ID is still a `hand` process (`ps -p PID`; on Windows, `Get-Process -Id PID`), then `kill PID` (`Stop-Process -Id PID`) and wait until it has exited;
+2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
+3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
+4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
+5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
+6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
 
 The options:
 - `hand update --check` shows what would change and changes nothing; its `units` rows list the stop and start steps a real run would take for each fleet's watcher and the board, each marked `would run`;
@@ -92,7 +161,7 @@ To try it next to an older Hand, build it under another name such as `~/.local/b
 
 ### Windows (experimental)
 
-Native Windows support is **experimental**. It has not yet passed an end-to-end run on a real Windows machine, so expect rough edges and report them.
+Native Windows support is **experimental**. It has not yet passed an end-to-end run on a real Windows machine, so expect rough edges and report them. [Platform support](#platform-support) lists what CI covers and what a Windows machine must still confirm.
 
 Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or newer. No admin rights are needed:
 
@@ -424,7 +493,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand decision list [--all]`, `hand decision show dN` | List open decisions (or all), and read one with its answer. |
 | `hand route list` | Show the routing profiles and the harnesses. |
 | `hand luvus pin [BIN]` | Pin a copy of a Luvus binary (default: `luvus` on `PATH`) for every fleet under this `SECONDHAND_HOME`. |
-| `hand luvus show` | Show the pinned Luvus and whether the fleet's running server is that copy. |
+| `hand luvus show` | Show the pinned Luvus and whether the fleet's running server is that copy, which it can tell only for a server in a systemd user unit. |
 | `hand orient` | Print the bounded fleet summary the supervisor starts every turn with. |
 | `hand wait [--after CURSOR] [--timeout DURATION]` | Block until a wake event arrives, for a supervisor opened by hand. |
 | `hand watch [--every DURATION] [--notify=false]` | Run the fleet's watcher. |
