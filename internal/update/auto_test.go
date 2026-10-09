@@ -79,7 +79,7 @@ func TestKeepLuvusUpdatesAndLeavesTheSwitchPending(t *testing.T) {
 	if got := f.processCalls(t); !slices.Equal(got, want) {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}
-	if got := alphaLuvus(t, rep); got != "pending" {
+	if got := alphaLuvus(t, rep); got != "pending: --keep-luvus" {
 		t.Fatalf("luvus = %q", got)
 	}
 	for _, u := range rep.Units {

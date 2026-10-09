@@ -14,6 +14,7 @@ var (
 	Reconnect     = &reconnectDelay
 	Git           = git
 	UpdateMin     = &updateMin
+	UpdateHooks   = &updateHooks
 	UnitOS        = &unitOS
 	BoardHint     = boardHint
 )

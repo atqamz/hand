@@ -140,12 +140,7 @@ func (r *Report) repair(ctx context.Context, o Options, j journal) {
 		r.start(ctx, o, "watch "+home, []string{home}, o.Watch)
 	}
 	for _, home := range j.Supervisor {
-		if live, err := supervisorLive(ctx, home, o.Now); err == nil && live {
-			continue
-		}
-		if err := child(ctx, o, home, "supervisor", "resume"); err != nil {
-			r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", home, err))
-		}
+		_ = r.resume(ctx, o, home)
 	}
 	if len(j.Board) > 0 {
 		r.start(ctx, o, "board", j.Board, o.Board)

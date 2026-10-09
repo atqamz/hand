@@ -25,7 +25,7 @@ type Options struct {
 	Target                              string
 	From                                Build
 	Channel                             string
-	Check, KeepLuvus                    bool
+	Check, KeepLuvus, Auto              bool
 	Root, HandBase, LuvusBase, OS, Arch string
 	Env                                 []string
 	Getenv                              func(string) string
@@ -34,6 +34,9 @@ type Options struct {
 	Hold                                func()
 	Watch, Board                        func(ctx context.Context, home string) error
 	Stop, Kill                          func(pid int, marker string) error
+	Start                               func(ctx context.Context, home string) error
+	Version                             func(ctx context.Context, e fleet.Entry) (string, error)
+	Sleep                               func(ctx context.Context, d time.Duration) error
 }
 
 type UnitResult struct{ Name, Action, Result string }
@@ -134,14 +137,30 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pin, pinned) }
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
-	if current && !repin && (o.KeepLuvus || !slices.ContainsFunc(fleets, func(e fleet.Entry) bool { return e.State == "ok" && server(e) == "stale" })) {
-		if rep.Status != "repaired" {
+	if current && !repin {
+		var stale []fleet.Entry
+		if !o.KeepLuvus {
+			stale = slices.DeleteFunc(slices.Clone(fleets), func(e fleet.Entry) bool { return e.State != "ok" || server(e) != "stale" })
+		}
+		if len(stale) > 0 && !o.Check {
+			hold()
+		}
+		if len(stale) > 0 {
+			rep.cycle(ctx, o, stale, false, repin, server)
+		}
+		if len(stale) > 0 && !o.Check {
+			rep.clearJournal(o)
+		}
+		switch {
+		case o.Check && len(stale) > 0:
+			rep.Status = "checked"
+		case rep.Status != "repaired":
 			rep.Status = "up to date"
 		}
 		return rep, nil
 	}
 	if o.Check {
-		rep.cycle(ctx, o, fleets, repin, server)
+		rep.cycle(ctx, o, fleets, true, repin, server)
 		rep.Status = "checked"
 		return rep, nil
 	}
@@ -179,7 +198,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 			rep.Help = append(rep.Help, fmt.Sprintf("could not remove old backups (%v)", err))
 		}
 	}
-	rep.cycle(ctx, o, fleets, repin, server)
+	rep.cycle(ctx, o, fleets, true, repin, server)
 	for i, e := range fleets {
 		if e.State != "ok" {
 			continue
@@ -190,17 +209,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 		rep.unrecord(o, func(j *journal) { j.Init = without(j.Init, e.Home) })
 	}
-	if err := os.Remove(journalPath(o.Root)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		rep.Help = append(rep.Help, fmt.Sprintf("could not remove %s (%v)", journalPath(o.Root), err))
-	}
+	rep.clearJournal(o)
 	rep.Status = "updated"
 	return rep, nil
 }
 
-func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, repin bool, server func(fleet.Entry) string) {
+func (r *Report) clearJournal(o Options) {
+	if err := os.Remove(journalPath(o.Root)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		r.Help = append(r.Help, fmt.Sprintf("could not remove %s (%v)", journalPath(o.Root), err))
+	}
+}
+
+func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, full, repin bool, server func(fleet.Entry) string) {
 	init := "ok"
-	if o.Check {
+	switch {
+	case o.Check:
 		init = "would run"
+	case !full:
+		init = "skipped: current"
 	}
 	var homes []string
 	for _, e := range fleets {
@@ -211,26 +237,49 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 			continue
 		}
 		homes = append(homes, e.Home)
-		stopped, did := r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"), func(j *journal) { j.Watcher = append(j.Watcher, e.Home) })
-		switch state := server(e); {
-		case state == "not running":
-			fr.Luvus = state
-		case state == "unknown":
-			fr.Luvus = state
-			why := "does not report its version"
+		sv := server(e)
+		switchable := sv == "stale" || o.Check && repin && sv != "not running" && sv != "unknown"
+		why := ""
+		if switchable && !o.KeepLuvus {
+			why = o.ready(ctx, e, r.PinTo)
+		}
+		var stopped, did bool
+		if full || switchable && why == "" && !o.KeepLuvus {
+			stopped, did = r.stopPID(o, "watch "+e.Name, filepath.Join(e.Home, "watch.pid"), func(j *journal) { j.Watcher = append(j.Watcher, e.Home) })
+		}
+		switch {
+		case sv == "not running":
+			fr.Luvus = sv
+		case sv == "unknown":
+			fr.Luvus = sv
+			reason := "does not report its version"
 			if o.Getenv("HAND_LUVUS_SOCKET") != "" {
-				why = "cannot be told apart from the others while HAND_LUVUS_SOCKET is set"
+				reason = "cannot be told apart from the others while HAND_LUVUS_SOCKET is set"
 			}
-			r.Help = append(r.Help, "The Luvus server of "+e.Name+" "+why+", so `hand update` leaves it alone")
-		case state == "stale" || o.Check && repin:
-			if stopped && !o.KeepLuvus {
+			r.Help = append(r.Help, "The Luvus server of "+e.Name+" "+reason+", so `hand update` leaves it alone")
+		case switchable:
+			switch {
+			case o.KeepLuvus:
+				why = "--keep-luvus"
+			case why == "" && !stopped:
+				why = "the watcher is still running"
+			}
+			switch {
+			case why != "":
+				fr.Luvus = "pending: " + why
+			case o.Check:
+				r.Units = append(r.Units, UnitResult{Name: "luvus " + e.Name, Action: "stop", Result: "would run"})
+				fr.Luvus = "would switch"
+			default:
 				fr.Luvus = r.switchLuvus(ctx, o, e)
-			} else {
-				fr.Luvus = "pending"
-				r.Help = append(r.Help, pendingLine)
 			}
-			if o.Check && fr.Luvus != "would switch" {
-				fr.Luvus = "would stay pending"
+			if strings.HasPrefix(fr.Luvus, "pending") {
+				if !slices.Contains(r.Help, pendingLine) {
+					r.Help = append(r.Help, pendingLine)
+				}
+				if o.Check {
+					fr.Luvus = "would stay " + fr.Luvus
+				}
 			}
 		}
 		if did {
@@ -241,7 +290,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, rep
 		}
 		r.Fleets = append(r.Fleets, fr)
 	}
-	if len(homes) == 0 {
+	if len(homes) == 0 || !full {
 		return
 	}
 	if stopped, did := r.stopPID(o, "board", filepath.Join(o.Root, "board.pid"), func(j *journal) { j.Board = append(j.Board, homes...) }); did {
@@ -308,7 +357,11 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 	return err == nil, true
 }
 
-const pendingLine = "At a quiet time run `hand update` from a plain terminal; it switches only the fleets that need it"
+const (
+	pendingLine = "`hand update` switches a pending fleet once it is quiet and settled; `hand board --update-every` tries again by itself"
+	settledFor  = 15 * time.Minute
+	stillFor    = 30 * time.Second
+)
 
 func (o Options) client(e fleet.Entry) luvus.Client {
 	if o.Client != nil {
@@ -317,11 +370,18 @@ func (o Options) client(e fleet.Entry) luvus.Client {
 	return luvus.Client{Socket: luvus.SocketPath(o.Getenv, fleet.Session(e.ID))}
 }
 
+func (o Options) running(ctx context.Context, e fleet.Entry) (string, error) {
+	if o.Version != nil {
+		return o.Version(ctx, e)
+	}
+	return o.client(e).Version(ctx)
+}
+
 func (o Options) serverState(ctx context.Context, e fleet.Entry, pin luvus.Pin, pinned bool) string {
 	if o.Getenv("HAND_LUVUS_SOCKET") != "" {
 		return "unknown"
 	}
-	version, err := o.client(e).Version(ctx)
+	version, err := o.running(ctx, e)
 	switch {
 	case errors.Is(err, luvus.ErrUnreachable):
 		return "not running"
@@ -337,20 +397,81 @@ func (o Options) inside(e fleet.Entry) bool {
 	return o.Getenv("LUVUS_SESSION") == fleet.Session(e.ID)
 }
 
-func (o Options) switchable(ctx context.Context, e fleet.Entry) (live, ok bool, other string, err error) {
+func (o Options) ready(ctx context.Context, e fleet.Entry, to string) string {
 	if o.inside(e) {
-		return false, false, "", nil
+		return "this update runs inside the Luvus session of " + e.Name
 	}
 	st, err := state.Open(filepath.Join(e.Home, "hand.db"), o.Now)
 	if err != nil {
-		return false, false, "", err
+		return "cannot read hand.db: " + err.Error()
 	}
 	defer st.Close()
-	if _, live, err = st.LiveSupervisor(ctx); err != nil {
-		return false, false, "", err
+	if why := o.settled(ctx, st); why != "" {
+		return why
 	}
-	ok, other, err = quiet(ctx, st, o.client(e), e.Home)
-	return live, ok, other, err
+	if o.Auto {
+		failed, err := st.SwitchFailed(ctx, to)
+		if err != nil {
+			return err.Error()
+		}
+		if failed {
+			return "an earlier switch to " + to + " failed; run `hand update` to try again"
+		}
+	}
+	return quiet(ctx, st, o.client(e), e.Home)
+}
+
+func (o Options) settled(ctx context.Context, st *state.Store) string {
+	last, err := st.RecentEvents(ctx, 1)
+	if err != nil {
+		return err.Error()
+	}
+	if len(last) == 0 {
+		return ""
+	}
+	if at, err := time.Parse(time.RFC3339Nano, last[0].At); err != nil || o.Now().Sub(at) < settledFor {
+		return "the fleet recorded an event within the last 15 minutes"
+	}
+	return ""
+}
+
+func (o Options) still(ctx context.Context, st *state.Store, c luvus.Client, home string, sup state.Supervisor, live bool) string {
+	if live {
+		revision := func() (int64, error) {
+			s, err := c.Read(ctx, sup.PaneID, luvus.ScreenLines)
+			return s.ContentRevision, err
+		}
+		before, err := revision()
+		if err == nil {
+			err = o.pause(ctx)
+		}
+		var after int64
+		if err == nil {
+			after, err = revision()
+		}
+		switch {
+		case err != nil:
+			return "cannot watch the supervisor's screen: " + err.Error()
+		case before != after:
+			return "the supervisor's screen changed"
+		}
+	}
+	if why := o.settled(ctx, st); why != "" {
+		return why
+	}
+	return quiet(ctx, st, c, home)
+}
+
+func (o Options) pause(ctx context.Context) error {
+	if o.Sleep != nil {
+		return o.Sleep(ctx, stillFor)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(stillFor):
+		return nil
+	}
 }
 
 func (o Options) stopServer(ctx context.Context, e fleet.Entry) error {
@@ -368,78 +489,111 @@ func (o Options) stopServer(ctx context.Context, e fleet.Entry) error {
 	return o.client(e).StopServer(ctx, dir, o.Kill)
 }
 
+func (o Options) startServer(ctx context.Context, e fleet.Entry, to string) error {
+	if err := o.Start(ctx, e.Home); err != nil {
+		return err
+	}
+	got, err := o.client(e).Version(ctx)
+	if err == nil && got != to {
+		err = fmt.Errorf("the server came back as %q, not the pinned %s", got, to)
+	}
+	return err
+}
+
+func (r *Report) resume(ctx context.Context, o Options, home string) error {
+	if live, err := supervisorLive(ctx, home, o.Now); err == nil && live {
+		return nil
+	}
+	err := child(ctx, o, home, "supervisor", "resume")
+	if err != nil {
+		r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", home, err))
+	}
+	return err
+}
+
+func (r *Report) failSwitch(ctx context.Context, st *state.Store, e fleet.Entry, reason string) string {
+	reason = strings.Join(strings.Fields(reason), " ")
+	r.fail(fmt.Sprintf("the Luvus switch of %s failed (%s); the board's timer will not try again, but `hand update` will", e.Name, reason))
+	if err := st.NoteLuvus(ctx, "failed", r.PinTo+": "+reason); err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("could not record luvus.failed in %s (%v)", e.Home, err))
+	}
+	return "failed: " + reason
+}
+
 func (r *Report) switchLuvus(ctx context.Context, o Options, e fleet.Entry) string {
-	unit := "luvus " + e.Name
-	live, ok, other, err := o.switchable(ctx, e)
-	switch {
-	case err != nil:
-		r.fail(fmt.Sprintf("could not read %s (%v). %s", e.Home, err, pendingLine))
-		return "failed: " + err.Error()
-	case o.inside(e):
-		r.Help = append(r.Help, "This hand update runs inside the Luvus session of "+e.Name+", so it leaves that server alone. "+pendingLine)
-		return "pending"
-	case other != "":
-		r.Help = append(r.Help, other+" "+pendingLine)
-		return "pending"
-	case !ok:
-		r.Help = append(r.Help, pendingLine)
-		return "pending"
+	st, err := state.Open(filepath.Join(e.Home, "hand.db"), o.Now)
+	if err != nil {
+		return "pending: cannot read hand.db: " + err.Error()
 	}
-	if o.Check {
-		r.Units = append(r.Units, UnitResult{Name: unit, Action: "stop", Result: "would run"})
-		return "would switch"
+	defer st.Close()
+	c := o.client(e)
+	sup, live, err := st.LiveSupervisor(ctx)
+	if err != nil {
+		return "pending: " + err.Error()
 	}
+	if why := o.still(ctx, st, c, e.Home, sup, live); why != "" {
+		return "pending: " + why
+	}
+	from, _ := o.running(ctx, e)
 	if live {
 		if err := r.record(o, func(j *journal) { j.Supervisor = append(j.Supervisor, e.Home) }); err != nil {
-			r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v). %s", journalPath(o.Root), err, pendingLine))
-			return "pending"
+			r.Help = append(r.Help, fmt.Sprintf("could not write %s (%v)", journalPath(o.Root), err))
+			return "pending: cannot write the update journal"
 		}
 		defer r.unrecord(o, func(j *journal) { j.Supervisor = without(j.Supervisor, e.Home) })
 		if err := child(ctx, o, e.Home, "supervisor", "stop"); err != nil {
-			r.fail(fmt.Sprintf("`hand supervisor stop` failed in %s (%v). %s", e.Home, err, pendingLine))
-			if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {
-				r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); check the supervisor there", e.Home, err))
-			}
-			return "failed: " + err.Error()
+			_ = r.resume(ctx, o, e.Home)
+			return r.failSwitch(ctx, st, e, "`hand supervisor stop` failed: "+err.Error())
+		}
+		if why := quiet(ctx, st, c, e.Home); why != "" {
+			_ = r.resume(ctx, o, e.Home)
+			return "pending: " + why
 		}
 	}
-	stopErr := o.stopServer(ctx, e)
-	res := UnitResult{Name: unit, Action: "stop", Result: "ok"}
-	if stopErr != nil {
-		res.Result = "failed: " + stopErr.Error()
-		r.fail(fmt.Sprintf("stopping the Luvus server of %s failed (%v). %s", e.Name, stopErr, pendingLine))
+	res := UnitResult{Name: "luvus " + e.Name, Action: "stop", Result: "ok"}
+	err = o.stopServer(ctx, e)
+	if err != nil {
+		res.Result = "failed: " + err.Error()
 	}
 	r.Units = append(r.Units, res)
-	if live {
-		if err := child(ctx, o, e.Home, "supervisor", "resume"); err != nil {
-			r.fail(fmt.Sprintf("`hand supervisor resume` failed in %s (%v); run it there", e.Home, err))
-			if stopErr == nil {
-				return "switched; resume failed"
-			}
-		}
+	if err == nil {
+		err = o.startServer(ctx, e, r.PinTo)
 	}
-	if stopErr != nil {
-		return "failed: " + stopErr.Error()
+	resumed := !live || r.resume(ctx, o, e.Home) == nil
+	switch {
+	case err != nil:
+		return r.failSwitch(ctx, st, e, err.Error())
+	case !resumed:
+		return "switched; resume failed"
+	}
+	if err := st.NoteLuvus(ctx, "switched", from+" -> "+r.PinTo); err != nil {
+		r.Help = append(r.Help, fmt.Sprintf("could not record luvus.switched in %s (%v)", e.Home, err))
 	}
 	return "switched"
 }
 
-func quiet(ctx context.Context, st *state.Store, c luvus.Client, home string) (bool, string, error) {
+func quiet(ctx context.Context, st *state.Store, c luvus.Client, home string) string {
 	attempts, err := st.LiveAttempts(ctx)
-	if err != nil || len(attempts) > 0 {
-		return false, "", err
+	if err != nil {
+		return err.Error()
+	}
+	if len(attempts) > 0 {
+		return "a worker attempt is live"
 	}
 	inputs, err := st.PendingSupervisorInputs(ctx)
-	if err != nil || len(inputs) > 0 {
-		return false, "", err
+	if err != nil {
+		return err.Error()
+	}
+	if len(inputs) > 0 {
+		return "a message waits for the supervisor"
 	}
 	sup, live, err := st.LiveSupervisor(ctx)
 	if err != nil {
-		return false, "", err
+		return err.Error()
 	}
 	terms, err := c.Inventory(ctx)
 	if err != nil {
-		return false, "", nil
+		return "cannot list the Luvus panes: " + err.Error()
 	}
 	listed := false
 	for _, t := range terms {
@@ -448,20 +602,23 @@ func quiet(ctx context.Context, st *state.Store, c luvus.Client, home string) (b
 			listed = true
 		case initialShell(t, home):
 		case rootAlive(t.Root):
-			return false, "Pane " + t.PaneID + " (" + t.CWD + ") is not Hand's, and stopping the Luvus server ends it.", nil
+			return "pane " + t.PaneID + " (" + t.CWD + ") is not Hand's, and stopping the Luvus server ends it"
 		}
 	}
 	if !live {
-		return true, "", nil
+		return ""
 	}
 	if !listed {
-		return false, "", nil
+		return "the supervisor's pane is not in the Luvus inventory"
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)
 	if err != nil {
-		return false, "", nil
+		return "cannot read the supervisor's state: " + err.Error()
 	}
-	return ag.Status == "idle" || ag.Status == "done", "", nil
+	if ag.Status != "idle" && ag.Status != "done" {
+		return "the supervisor is " + ag.Status
+	}
+	return ""
 }
 
 func initialShell(t luvus.Terminal, home string) bool {

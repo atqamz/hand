@@ -13,6 +13,7 @@ import (
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/update"
 )
 
 var watcherSweep = 30 * time.Second
@@ -39,6 +40,9 @@ func (r *runner) keepWatchers(ctx context.Context, root string, every time.Durat
 }
 
 func (r *runner) sweepWatchers(ctx context.Context, root string, failed map[string]string) {
+	if held, _ := update.Running(root); held {
+		return
+	}
 	entries, err := fleet.List(root)
 	r.noteWatcher(ctx, failed, "", err)
 	for _, e := range entries {

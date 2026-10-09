@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func TestMain(m *testing.M) {
@@ -56,8 +57,27 @@ func fakeHandMain(args []string) int {
 		fmt.Fprintln(os.Stderr, "stop failed")
 		return 1
 	}
+	if len(args) > 1 && args[0]+" "+args[1] == "supervisor stop" {
+		fakeStop()
+	}
 	code, _ := strconv.Atoi(os.Getenv("HAND_EXIT"))
 	return code
+}
+
+func fakeStop() {
+	dir, _ := os.Getwd()
+	st, err := state.Open(filepath.Join(dir, "hand.db"), func() time.Time { return stamp })
+	if err != nil {
+		return
+	}
+	defer st.Close()
+	ctx := context.Background()
+	if sup, live, err := st.LiveSupervisor(ctx); err == nil && live {
+		_, _ = st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "stopped by operator")
+	}
+	if os.Getenv("HAND_QUEUE_ON_STOP") != "" {
+		_, _ = st.AddSupervisorInput(ctx, "typed while the update waited")
+	}
 }
 
 func hostTarget() (goos, arch string) {
