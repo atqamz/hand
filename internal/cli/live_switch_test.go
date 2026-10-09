@@ -72,14 +72,14 @@ func waitIdle(t *testing.T, h *harness, session, bin string) {
 	t.Helper()
 	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(100 * time.Millisecond) {
 		show := h.ok("supervisor", "show")
-		if strings.Contains(show, "agent: idle") {
+		if agent := field(show, "agent"); agent == "idle" || agent == "done" {
 			return
 		}
 		if time.Now().After(deadline) {
 			explain := exec.Command(bin, "--session", session, "agent", "explain", field(show, "pane"))
 			explain.Env = h.env(nil, nil).Environ()
 			out, err := explain.CombinedOutput()
-			t.Fatalf("no idle supervisor within 60s\nshow: %s\nexplain: %v %s", show, err, out)
+			t.Fatalf("no idle or done supervisor within 60s\nshow: %s\nexplain: %v %s", show, err, out)
 		}
 	}
 }
