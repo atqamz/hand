@@ -21,6 +21,35 @@ jobs:
       - run: go vet ./...
       - run: GOOS=windows GOARCH=amd64 go vet ./...
       - run: go test -race ./...
+      - name: Install Luvus
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) triple=x86_64-unknown-linux-musl ;;
+            Darwin-arm64) triple=aarch64-apple-darwin ;;
+            *) echo "no Luvus build for $(uname -s)-$(uname -m)"; exit 1 ;;
+          esac
+          name=luvus-v$version-$triple
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$RUNNER_TEMP/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.tar.gz" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          shasum -a 256 -c "$name.sha256"
+          tar -xzf "$name.tar.gz"
+          chmod +x luvus
+          echo "$dir" >> "$GITHUB_PATH"
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        env:
+          HAND_LUVUS_IT: "1"
 
   test-macos:
     runs-on: macos-latest
@@ -34,6 +63,35 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Install Luvus
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) triple=x86_64-unknown-linux-musl ;;
+            Darwin-arm64) triple=aarch64-apple-darwin ;;
+            *) echo "no Luvus build for $(uname -s)-$(uname -m)"; exit 1 ;;
+          esac
+          name=luvus-v$version-$triple
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$RUNNER_TEMP/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.tar.gz" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          shasum -a 256 -c "$name.sha256"
+          tar -xzf "$name.tar.gz"
+          chmod +x luvus
+          echo "$dir" >> "$GITHUB_PATH"
+      - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
+        env:
+          HAND_LUVUS_IT: "1"
 
   test-windows:
     runs-on: windows-latest
@@ -64,8 +122,13 @@ jobs:
           dir=$(cygpath -u "$RUNNER_TEMP")/luvus
           mkdir "$dir"
           cd "$dir"
-          curl -fsSLO "$base/$name.zip"
-          curl -fsSLO "$base/$name.sha256"
+          for file in "$name.zip" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
           sha256sum -c "$name.sha256"
           unzip -q "$name.zip"
           cygpath -w "$dir" >> "$GITHUB_PATH"

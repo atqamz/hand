@@ -109,9 +109,12 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("attach needs a pty, and Windows has no script")
+	}
 	script, err := exec.LookPath("script")
-	if err != nil || runtime.GOOS == "windows" {
-		t.Skip("attach needs a terminal; install util-linux script to run this")
+	if err != nil {
+		t.Fatal(err)
 	}
 	root := t.TempDir()
 	env := append(luvus.Scrub(os.Environ()), "LUVUS_HOME="+root)
@@ -146,7 +149,11 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 		for _, a := range luvus.AttachArgv(bin, session, pane) {
 			line = append(line, "'"+strings.ReplaceAll(a, "'", `'\''`)+"'")
 		}
-		cmd := exec.CommandContext(run, script, "-qec", strings.Join(line, " "), "/dev/null")
+		scriptArgs := []string{"-qec", strings.Join(line, " "), "/dev/null"}
+		if runtime.GOOS == "darwin" {
+			scriptArgs = []string{"-q", "/dev/null", "sh", "-c", strings.Join(line, " ")}
+		}
+		cmd := exec.CommandContext(run, script, scriptArgs...)
 		cmd.Env = env
 		out, _ := cmd.CombinedOutput()
 		cancel()
