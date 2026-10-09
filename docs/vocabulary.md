@@ -69,7 +69,7 @@ What `hand update` does, in order:
 4. replaces the binary;
 5. for each fleet:
    - stops its watcher by `watch.pid`;
-   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane;
+   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane; only a server in a systemd user unit is checked, since elsewhere (macOS, Windows, Linux without a user session) Hand cannot tell which Luvus a server runs, and leaves it alone;
    - starts that watcher again the way `hand supervisor start` does, when it stopped one;
 6. stops the board by `board.pid` and starts it again the way `hand open` does, when it stopped one;
 7. runs `hand init` in each fleet.
@@ -219,7 +219,7 @@ The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<v
 
 - `hand init` pins the `luvus` on `PATH` when there is no pin, and downloads the tested version, checked against its SHA-256, when there is none on `PATH` either. `hand luvus pin` without `BIN` does the same when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
 - The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
-- A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
+- A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy, for a server in a systemd user unit. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
 
 ### Pane
 
