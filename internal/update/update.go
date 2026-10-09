@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -309,6 +310,13 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 }
 
 func pendingLine(e fleet.Entry) string {
+	return pendingLineFor(runtime.GOOS, e)
+}
+
+func pendingLineFor(goos string, e fleet.Entry) string {
+	if goos != "linux" {
+		return "At a quiet time: stop the fleet's Luvus server (this ends every live pane), then `hand supervisor resume` in " + e.Home
+	}
 	return "At a quiet time: `systemctl --user stop " + fleet.LuvusUnit(e.ID) + ".service`, then `hand supervisor resume` in " + e.Home
 }
 

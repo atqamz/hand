@@ -438,7 +438,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand board [--addr ADDR] [--update-every DURATION]` | Serve the board for every fleet. |
 | `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
-| `hand unit board` | Print the board's systemd user unit. It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
+| `hand unit board` | Print the board's systemd user unit (Linux only; on macOS and Windows it exits 2, see [Autostart](#autostart)). It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check] [--keep-luvus]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 
