@@ -69,7 +69,7 @@ What `hand update` does, in order:
 4. replaces the binary;
 5. for each fleet:
    - stops its watcher by `watch.pid`;
-   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane; only a server in a systemd user unit is checked, since elsewhere (macOS, Windows, Linux without a user session) Hand cannot tell which Luvus a server runs, and leaves it alone;
+   - switches its Luvus server to the pin when the fleet is quiet (no live attempt, an idle supervisor, no queued input, and no live pane besides the supervisor's and the shell Luvus opens when it starts), otherwise reports the switch as pending and names any such pane. On every OS a fleet's server is stale when its UHP `ping` version differs from the pin's. A server that does not answer is `not running` and a server that answers without a version is `unknown`; neither is switched. The switch sends `server.stop`, waits up to 10 seconds for the process in `server.pid` (in the session folder that `luvus session list --json` reports) to exit, and ends it itself (on Windows its whole process tree) only when the stop was acknowledged or `ping` no longer answers; a recycled process ID, whose start marker differs from the one in `server.pid`, is never signalled. A `hand update` whose environment has `LUVUS_SESSION` equal to the fleet's session runs inside that fleet and leaves its server alone;
    - starts that watcher again the way `hand supervisor start` does, when it stopped one;
 6. stops the board by `board.pid` and starts it again the way `hand open` does, when it stopped one;
 7. runs `hand init` in each fleet.
@@ -219,7 +219,7 @@ The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<v
 
 - `hand init` pins the `luvus` on `PATH` when there is no pin, and downloads the tested version, checked against its SHA-256, when there is none on `PATH` either. `hand luvus pin` without `BIN` does the same when there is no pin. `hand luvus pin [BIN]` pins another binary, and old copies stay for rollback.
 - The server start and `hand attach` check the copy's sha256 and refuse a copy that changed on disk.
-- A new pin reaches a running server only when that server restarts. `hand luvus show` says whether the server is the pinned copy, for a server in a systemd user unit. Restarting it ends every live pane, so it stays a manual step at a quiet time: stop `secondhand-luvus-<fleet id>`, let the next `hand` command start the pinned copy, and resume the supervisor.
+- A new pin reaches a running server only when that server restarts. `hand luvus show` prints the server's version (from a UHP `ping`) and whether it is the pinned copy: `yes`, `no`, `not running` or `unknown`. Restarting it ends every live pane, so it happens only at a quiet time: run `hand update`, which switches a quiet fleet, or stop the server yourself, let the next `hand` command start the pinned copy, and resume the supervisor.
 
 ### Pane
 
