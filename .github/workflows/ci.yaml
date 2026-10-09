@@ -38,7 +38,7 @@ jobs:
           cd "$dir"
           for file in "$name.tar.gz" "$name.sha256"; do
             for attempt in 1 2 3 4; do
-              curl -fsSLO "$base/$file" && break
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
               test "$attempt" -lt 4
               sleep $((attempt * 5))
             done
@@ -80,7 +80,7 @@ jobs:
           cd "$dir"
           for file in "$name.tar.gz" "$name.sha256"; do
             for attempt in 1 2 3 4; do
-              curl -fsSLO "$base/$file" && break
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
               test "$attempt" -lt 4
               sleep $((attempt * 5))
             done
@@ -124,7 +124,7 @@ jobs:
           cd "$dir"
           for file in "$name.zip" "$name.sha256"; do
             for attempt in 1 2 3 4; do
-              curl -fsSLO "$base/$file" && break
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
               test "$attempt" -lt 4
               sleep $((attempt * 5))
             done
