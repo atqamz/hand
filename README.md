@@ -74,12 +74,13 @@ In the table:
 | Start the watcher on demand, and the board keeps watchers alive | daily | CI, fake | CI, fake |
 | `hand update` | daily | CI, fake | CI, fake |
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
+| Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |
 | Desktop notifications | daily | CI, fake | no |
 | `hand open` starts the board and opens the browser | CI, fake | CI, fake | CI, fake |
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
 | Start the board at login | daily | not run | not run |
-| Luvus server under a service manager, restarted after a crash | daily | no | no |
+| The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 
