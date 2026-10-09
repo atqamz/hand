@@ -47,6 +47,17 @@ jobs:
           tar -xzf "$name.tar.gz"
           chmod +x luvus
           echo "$dir" >> "$GITHUB_PATH"
+      - name: Start a systemd user manager
+        continue-on-error: true
+        run: |
+          sudo loginctl enable-linger "$USER"
+          runtime=/run/user/$(id -u)
+          for _ in $(seq 20); do
+            test -S "$runtime/systemd/private" && break
+            sleep 1
+          done
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          systemd-run --user --scope --collect --quiet true
       - run: go test -race -count=1 -v -run '^TestLive' ./internal/luvus ./internal/cli
         env:
           HAND_LUVUS_IT: "1"
