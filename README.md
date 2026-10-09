@@ -49,7 +49,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its checklist below.
 
-CI runs the tests on Ubuntu 24.04 (amd64), macOS 26 (Apple silicon) and Windows Server 2025 (amd64). Only the Windows job runs the real Luvus; the Linux and macOS jobs use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
+CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Only the Windows job runs the real Luvus; the Linux and macOS jobs use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
 In the table:
 - **daily**: a real Linux machine runs it every day, with the real Luvus and harnesses;
@@ -136,11 +136,12 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 It also pins the Luvus version that build was tested with when that is newer than the pin. It switches a fleet's Luvus server only when the fleet is quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Otherwise it prints the command to run at a quiet time, and names any other live pane, since stopping the server ends it. Hand can tell which Luvus a running server uses only when the server runs in a systemd user unit; elsewhere (macOS, Windows, Linux without a user session) `hand update` never stops the server, which keeps its Luvus until it next starts. It signals only a process whose recorded binary is the one being updated, and only while its recorded start time still matches, and it restarts only what it stopped. It stops a process with SIGTERM (`TerminateProcess` on Windows), which exits cleanly, so systemd does not restart an installed unit itself: an installed board unit is started again, and an installed watch unit stays inactive while the watcher runs as the transient unit `secondhand-watch-<fleet id>` until your next login. If both ever run, the second watcher finds `watch.lock` held and exits with status 3, and a second board fails to bind the board's address. Once it starts changing things it ignores Ctrl-C, and its own steps run outside the terminal's process group, so it does not leave a fleet without its watcher. If it is killed anyway, the next `hand update` finishes the steps it left, from its journal at `~/.secondhand/update.json`. A failed update can leave the new Luvus pin in place; a running server ignores it, and the next `hand update` carries on. Run it from a plain terminal: a `hand update` started inside a fleet's Luvus panes leaves that fleet's server alone.
 
 To restore a backup:
-1. stop the board, then the fleet's watcher, so the board cannot start it again: `kill` (on Windows, `Stop-Process -Id`) the process ID at the start of `board.pid` in `~/.secondhand`, then the one in `watch.pid` in the fleet folder;
-2. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
-3. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
-4. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
-5. run `hand open` to start the board again; it starts the fleet's watcher as [Keep the watcher and the board running](#keep-the-watcher-and-the-board-running) describes.
+1. stop the board, then the fleet's watcher, so the board cannot start it again. Their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder. A stale file can name a reused ID, so first check that each ID is still a `hand` process (`ps -p PID`; on Windows, `Get-Process -Id PID`), then `kill PID` (`Stop-Process -Id PID`) and wait until it has exited;
+2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
+3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
+4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
+5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
+6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
 
 The options:
 - `hand update --check` shows what would change and changes nothing; its `units` rows list the stop and start steps a real run would take for each fleet's watcher and the board, each marked `would run`;
