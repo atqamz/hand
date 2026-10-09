@@ -26,16 +26,42 @@ func reporterMain([]string) int {
 	return 1
 }
 
-func TestLiveAttemptReports(t *testing.T) {
-	if os.Getenv("HAND_LUVUS_IT") != "1" {
-		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
-	}
-	h := newHarness(t)
+func (h *harness) inheritEnv() {
 	for _, kv := range luvus.Scrub(os.Environ()) {
 		if k, v, ok := strings.Cut(kv, "="); ok && k != "" && k != "XDG_RUNTIME_DIR" && !strings.EqualFold(k, "PATH") && h.vars[k] == "" {
 			h.vars[k] = v
 		}
 	}
+}
+
+func TestLiveInitDownloadsTheTestedLuvus(t *testing.T) {
+	if os.Getenv("HAND_LUVUS_IT") != "1" {
+		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
+	}
+	h := newHarness(t)
+	h.inheritEnv()
+	delete(h.vars, "HAND_LUVUS_BASE")
+	noLuvusOnPath(h, t)
+	out := h.ok("init")
+	if !strings.HasPrefix(field(out, "luvus"), "downloaded and pinned "+luvus.Tested+" (") {
+		t.Fatalf("init = %q", out)
+	}
+	pin, ok, err := luvus.LoadPin(h.vars["SECONDHAND_HOME"])
+	if err != nil || !ok {
+		t.Fatalf("pin = %+v, %v, %v", pin, ok, err)
+	}
+	version, err := exec.Command(pin.Path, "--version").Output()
+	if err != nil || strings.TrimSpace(string(version)) != "luvus "+luvus.Tested {
+		t.Fatalf("%s --version = %q, %v", pin.Path, version, err)
+	}
+}
+
+func TestLiveAttemptReports(t *testing.T) {
+	if os.Getenv("HAND_LUVUS_IT") != "1" {
+		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
+	}
+	h := newHarness(t)
+	h.inheritEnv()
 	bin := t.TempDir()
 	fakebin.Install(t, bin, "claude", "reporter", nil)
 	h.vars["PATH"] = bin + string(os.PathListSeparator) + os.Getenv("PATH")
