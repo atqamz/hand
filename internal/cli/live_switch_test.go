@@ -42,7 +42,7 @@ func liveFleet(t *testing.T) (h *harness, session, luvusBin string) {
 		_ = stop.Run()
 	})
 	h.ok("supervisor", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low")
-	waitLive(t, "an idle supervisor", func() bool { return strings.Contains(h.ok("supervisor", "show"), "agent: idle") })
+	waitIdle(t, h, session, luvusBin)
 	return h, session, luvusBin
 }
 
@@ -64,6 +64,22 @@ func waitLive(t *testing.T, what string, ok func() bool) {
 	for deadline := time.Now().Add(60 * time.Second); !ok(); time.Sleep(100 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s: not reached within 60s", what)
+		}
+	}
+}
+
+func waitIdle(t *testing.T, h *harness, session, bin string) {
+	t.Helper()
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		show := h.ok("supervisor", "show")
+		if strings.Contains(show, "agent: idle") {
+			return
+		}
+		if time.Now().After(deadline) {
+			explain := exec.Command(bin, "--session", session, "agent", "explain", field(show, "pane"))
+			explain.Env = h.env(nil, nil).Environ()
+			out, err := explain.CombinedOutput()
+			t.Fatalf("no idle supervisor within 60s\nshow: %s\nexplain: %v %s", show, err, out)
 		}
 	}
 }
@@ -95,7 +111,7 @@ func TestLiveSwitchResumesTheSupervisor(t *testing.T) {
 	if show := h.ok("luvus", "show"); !strings.Contains(show, "match: yes\n") {
 		t.Fatalf("luvus show = %s", show)
 	}
-	waitLive(t, "an idle supervisor again", func() bool { return strings.Contains(h.ok("supervisor", "show"), "agent: idle") })
+	waitIdle(t, h, session, bin)
 	if show := h.ok("supervisor", "show"); !strings.Contains(show, "supervisor: s2\n") || !strings.Contains(show, "status: running\n") {
 		t.Fatalf("supervisor show = %s", show)
 	}
