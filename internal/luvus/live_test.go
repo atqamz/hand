@@ -55,7 +55,7 @@ func TestLiveLuvusRoundTrip(t *testing.T) {
 		_ = stop.Run()
 	})
 	ctx := context.Background()
-	caps, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) })
+	caps, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, root, env) })
 	if err != nil || caps.ServerGeneration == "" {
 		t.Fatalf("ensure = %+v, %v", caps, err)
 	}
@@ -141,7 +141,7 @@ func TestLiveAttachOpensThePane(t *testing.T) {
 		_ = stop.Run()
 	})
 	ctx := context.Background()
-	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) }); err != nil {
+	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, root, env) }); err != nil {
 		t.Fatal(err)
 	}
 	sleep := fakebin.Install(t, t.TempDir(), "sleep", "sleep", nil)
@@ -199,7 +199,7 @@ func startLive(t *testing.T, session string) (bin string, c luvus.Client, dir st
 		_ = stop.Run()
 	})
 	ctx := context.Background()
-	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, "", root, env) }); err != nil {
+	if _, err := luvus.Ensure(ctx, c, func() error { return luvus.StartServer(ctx, bin, session, root, env) }); err != nil {
 		t.Fatal(err)
 	}
 	if _, dir, err = luvus.Address(ctx, bin, session, env); err != nil || dir == "" {
@@ -267,5 +267,27 @@ func TestLiveStopServer(t *testing.T) {
 	}
 	if _, err := c.Version(ctx); !errors.Is(err, luvus.ErrUnreachable) {
 		t.Fatalf("version after stop err = %v", err)
+	}
+}
+
+func TestLiveServerRunsInItsOwnScope(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("a systemd scope exists only on Linux")
+	}
+	if _, ok := luvus.UserManager(luvus.Scrub(os.Environ())); !ok {
+		t.Skip("no systemd user manager here, so Luvus starts directly; the argv test covers the scope")
+	}
+	_, _, dir := startLive(t, "hand-it-scope")
+	pid, _ := serverPID(t, dir)
+	cgroup := func(pid string) string {
+		b, err := os.ReadFile("/proc/" + pid + "/cgroup")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	got := cgroup(fmt.Sprint(pid))
+	if !strings.Contains(got, "/run-") || !strings.HasSuffix(got, ".scope") || got == cgroup("self") {
+		t.Fatalf("server cgroup = %q, starter cgroup = %q", got, cgroup("self"))
 	}
 }

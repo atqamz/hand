@@ -258,24 +258,26 @@ func AttachArgv(bin, session, pane string) []string {
 	return []string{bin, "--session", session, "attach", pane}
 }
 
-func StartServer(ctx context.Context, bin, session, unit, dir string, environ []string) error {
+func StartServer(ctx context.Context, bin, session, dir string, environ []string) error {
 	ctx, cancel := context.WithTimeout(ctx, startWait)
 	defer cancel()
 	env := longPaths(runtime.GOOS, Scrub(environ))
-	if run, ok := UserManager(env); ok && unit != "" {
-		if err := startUnit(ctx, run, bin, session, unit, dir, env); !errors.Is(err, errNoManager) {
-			return err
-		}
-	}
 	logPath := filepath.Join(dir, "server-start.log")
 	log, err := os.Create(logPath)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	cmd := command(ctx, env, bin, "--session", session, "server", "start")
-	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
-	if err := cmd.Run(); err != nil {
+	start := func(name string, args ...string) error {
+		cmd := command(ctx, env, name, args...)
+		cmd.Dir, cmd.Stdout, cmd.Stderr = dir, log, log
+		return cmd.Run()
+	}
+	serve := []string{bin, "--session", session, "server", "start"}
+	if run, ok := UserManager(env); ok && start(run, append([]string{"--user", "--scope", "--collect", "--quiet", "--description=Luvus server for " + session, "--"}, serve...)...) == nil {
+		return nil
+	}
+	if err := start(serve[0], serve[1:]...); err != nil {
 		out, _ := os.ReadFile(logPath)
 		return fmt.Errorf("luvus server start: %w: %s", err, bytes.TrimSpace(out))
 	}
@@ -289,11 +291,7 @@ func longPaths(goos string, env []string) []string {
 	return append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.longpaths", "GIT_CONFIG_VALUE_0=true")
 }
 
-var errNoManager = errors.New("no systemd user manager")
-
 var startWait = time.Minute
-
-var systemdOwned = []string{"INVOCATION_ID", "JOURNAL_STREAM", "SYSTEMD_EXEC_PID", "MANAGERPID", "NOTIFY_SOCKET", "LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES", "WATCHDOG_PID", "WATCHDOG_USEC"}
 
 func UserManager(env []string) (string, bool) {
 	var runtime, path string
@@ -325,82 +323,6 @@ func command(ctx context.Context, env []string, name string, args ...string) *ex
 	cmd.Env, cmd.WaitDelay = env, time.Second
 	proc.NoWindow(cmd)
 	return cmd
-}
-
-func startUnit(ctx context.Context, run, bin, session, unit, dir string, env []string) error {
-	systemctl := func(args ...string) error {
-		out, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), append([]string{"--user"}, args...)...).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("systemctl --user %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(out))
-		}
-		return nil
-	}
-	_ = systemctl("reset-failed", unit+".service")
-	args := []string{"--user", "--unit=" + unit, "--description=Luvus server for " + session, "--working-directory=" + dir,
-		"-p", "Type=forking", "-p", "Restart=on-failure", "-p", "RestartSec=5"}
-	manager, err := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show-environment").CombinedOutput()
-	switch {
-	case err != nil && bytes.Contains(manager, []byte("Failed to connect to")):
-		return errNoManager
-	case err != nil:
-		return fmt.Errorf("systemctl --user show-environment: %w: %s", err, bytes.TrimSpace(manager))
-	}
-	for _, line := range strings.Split(string(manager), "\n") {
-		if name, _, ok := strings.Cut(line, "="); ok && scrubbed(name) {
-			args = append(args, "-p", "UnsetEnvironment="+name)
-		}
-	}
-	for _, kv := range env {
-		if name, _, _ := strings.Cut(kv, "="); !slices.Contains(systemdOwned, name) {
-			args = append(args, "-E", name)
-		}
-	}
-	start := append(args, bin, "--session", session, "server", "start")
-	out, err := command(ctx, env, run, start...).CombinedOutput()
-	if err != nil && bytes.Contains(out, []byte("already loaded")) {
-		show := func(ctx context.Context, prop string) string {
-			out, _ := command(ctx, env, filepath.Join(filepath.Dir(run), "systemctl"), "--user", "show", unit+".service", "-p", prop, "--value").Output()
-			return strings.TrimSpace(string(out))
-		}
-		if loaded := execPath(show(ctx, "ExecStart")); loaded == "" || loaded == bin {
-			return systemctl("start", unit+".service")
-		} else if stopErr := systemctl("stop", unit+".service"); stopErr != nil {
-			return stopErr
-		} else if unloaded(ctx, show) {
-			out, err = command(ctx, env, run, start...).CombinedOutput()
-		}
-	}
-	switch {
-	case err == nil:
-		return nil
-	case bytes.Contains(out, []byte("Failed to connect to")):
-		return errNoManager
-	}
-	return fmt.Errorf("systemd-run --user --unit=%s: %w: %s", unit, err, bytes.TrimSpace(out))
-}
-
-func execPath(execStart string) string {
-	_, rest, ok := strings.Cut(execStart, "path=")
-	if !ok {
-		return ""
-	}
-	path, _, _ := strings.Cut(rest, " ;")
-	return strings.TrimSpace(path)
-}
-
-var unloadWait = 10 * time.Second
-
-func unloaded(ctx context.Context, show func(context.Context, string) string) bool {
-	ctx, cancel := context.WithTimeout(ctx, unloadWait)
-	defer cancel()
-	for show(ctx, "LoadState") != "not-found" {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
-	return true
 }
 
 func Scrub(environ []string) []string {
