@@ -696,13 +696,13 @@ If it fails: file the failing command and its output, and say which path contain
 
 Steps:
 
-**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's README, section "Alerts on your phone", so that it is the one that README documents (the check fails with a message when that line is not found). Set `$rev` to the docs revision that you recorded for the run, if you recorded one, so that the recipe is the one of the guide you follow; it is `main` otherwise:
+**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's README, section "Alerts on your phone", so that it is the one that README documents (the check fails with a message when that line is not found). `$rev` is the docs revision that an agent recorded in `vars.ps1`, so that the recipe is the one of the guide it follows, and `main` when none was recorded:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 if (Test-Path "$D\fleet\watch.pid") { $p = [int](Get-Content "$D\fleet\watch.pid").Split(' ')[0]; if ((Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName -eq 'hand') { Stop-Process -Id $p } }
-$rev = 'main'
+$rev = if ($docsRev) { $docsRev } else { 'main' }
 $readme = irm "https://raw.githubusercontent.com/atqamz/hand/$rev/README.md"
 $line = ($readme -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.StartsWith('"notify": ["powershell.exe"') })[0]
 if (-not $line) { throw 'no toast recipe found in the README' }

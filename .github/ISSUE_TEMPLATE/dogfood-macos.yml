@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        File one issue per failed check. Search open issues for the same check ID first, and add your evidence to that issue as a comment when one exists. Replace your user name, home folder and machine name with `<user>`, `<home>` and `<machine>`, and never paste a token or a login link.
+        File one issue per failed check. Replace the `?` in the title with your check number, so that the title starts with the check ID: a search for the same check finds it by its title. Search open issues for the same check ID first, and add your evidence to that issue as a comment when one exists. Replace your user name, home folder and machine name with `<user>`, `<home>` and `<machine>`, and never paste a token or a login link.
   - type: input
     id: check
     attributes:
