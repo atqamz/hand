@@ -1,0 +1,65 @@
+name: Dogfood failure (Windows)
+description: A check in docs/dogfood/windows.md failed on a real machine
+title: "W?: summary"
+labels: ["bug", "platform: windows"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        File one issue per failed check. Search open issues for the same check ID first, and add your evidence to that issue as a comment when one exists. Replace your user name, home folder and machine name with `<user>`, `<home>` and `<machine>`, and never paste a token or a login link.
+  - type: input
+    id: check
+    attributes:
+      label: Check ID
+      placeholder: "W2"
+    validations:
+      required: true
+  - type: input
+    id: run
+    attributes:
+      label: Run issue
+      description: Link to the dogfood run issue this check belongs to, if you made one.
+      placeholder: https://github.com/atqamz/hand/issues/0
+  - type: input
+    id: version
+    attributes:
+      label: hand version
+      description: The first lines of `hand version`, which give the version, the channel and the commit.
+      placeholder: 0.10.0 stable
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: Windows 11 23H2 (amd64), with Git for Windows
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The steps of the check that you ran, with the exact commands.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: The expected result the check states.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Redacted command output, as text.
+      render: text
+    validations:
+      required: true
