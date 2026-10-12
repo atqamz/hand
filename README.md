@@ -47,7 +47,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Platform support
 
-Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its checklist below.
+Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its [checks](#real-machine-checks).
 
 CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
@@ -84,36 +84,9 @@ In the table:
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 
-### Unverified on macOS
+### Real-machine checks
 
-Check these on a real Mac, Apple silicon then Intel, riskiest first:
-
-1. On Intel (CI covers Apple silicon), Hand's process start marker equals the one Luvus reports for a pane: from a checkout, with `luvus` on `PATH`, run `HAND_LUVUS_IT=1 go test -run '^TestLive' ./internal/luvus ./internal/cli`. If they differ, `hand attempt stop aN` takes a live worker for gone and leaves it running.
-2. Hand reaches the fleet's Luvus socket, and **Start** on the board runs the supervisor.
-3. A real Claude Code worker: Hand accepts its trust screen, and the worker reports through the footer.
-4. On Intel (CI covers Apple silicon), with no `luvus` on `PATH`, `hand init` downloads and pins the macOS build, and macOS lets it run.
-5. `hand attach supervisor` opens the supervisor's terminal.
-6. `hand open` starts the board and opens the default browser.
-7. An `osascript` notification appears.
-8. `hand update` from the previous release swaps the binary and starts the watcher and the board again.
-9. The LaunchAgent under [Autostart](#macos) starts the board at login with a `PATH` that finds your tools.
-
-### Unverified on Windows
-
-Check these on Windows 11, in an account without admin rights, once with Git for Windows and once without, riskiest first:
-
-1. Real Claude Code under Windows' pseudo console: Hand accepts its trust screen, and **Start** on the board runs the supervisor.
-2. A worker reports with the Windows footer from PowerShell and from Git Bash, and the supervisor wakes.
-3. codex through its npm `.cmd` shim, agy and opencode start with their exact arguments.
-4. `hand update` from the previous release renames the running `hand.exe`, starts the watcher and the board again, and the next run deletes `hand.exe.old`; SmartScreen and Defender leave the new binary alone.
-5. After `install.ps1`, with no `luvus.exe` on `PATH`, `hand init` downloads and pins Luvus, and its server starts.
-6. `hand open` starts the board, and no console window flashes from the board, the watcher or the commands they run.
-7. `hand attach supervisor` works in Windows Terminal.
-8. `hand attempt stop` and `hand attempt clean` work while a child process of the worker still runs.
-9. A worker commits in a worktree whose paths pass 260 characters.
-10. After a logoff and a logon, the Startup shortcut starts the board, the board starts the watcher, and `hand supervisor resume` continues.
-11. A user profile folder whose name has a space or a non-ASCII character works.
-12. The toast recipe and the ssh notes below hold.
+macOS and Windows stay experimental until a real machine of that OS has run the checks in [`docs/dogfood/`](docs/dogfood/README.md): one set of checks for a person at the machine and for a coding agent, with a throw-away home that never touches your own fleets. The checks live only there, riskiest first, and so do the checks for Linux without a systemd user session and for Linux arm64. A run is reported as a GitHub issue, and when it passes, the row of the table above changes from "CI" to a real-machine result, with a link to the run issue.
 
 ## Install
 
@@ -182,7 +155,7 @@ To try it next to an older Hand, build it under another name such as `~/.local/b
 
 ### Windows (experimental)
 
-Native Windows support is **experimental**. It has not yet passed an end-to-end run on a real Windows machine, so expect rough edges and report them. [Platform support](#platform-support) lists what CI covers and what a Windows machine must still confirm.
+Native Windows support is **experimental**. It has not yet passed an end-to-end run on a real Windows machine, so expect rough edges and report them. [Platform support](#platform-support) lists what CI covers, and [`docs/dogfood/windows.md`](docs/dogfood/windows.md) has the checks that a real Windows machine must pass.
 
 Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or newer. No admin rights are needed:
 
