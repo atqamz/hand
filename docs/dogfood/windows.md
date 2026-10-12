@@ -47,7 +47,7 @@ The checks hand the supervisor on to each other, and each says whether the super
 
 ## W0: Install and the temporary home
 
-- **Proves:** the Install script row, the `hand init` and the Luvus pin row, and the Download the tested Luvus row. README Windows item 5.
+- **Proves:** the Install script row, the `hand init` and the Luvus pin row, and the Download the tested Luvus row.
 - **Run:** agent, then needs human (one question).
 - **Real sessions:** 0.
 - **Preconditions:** Windows 10 or 11 amd64, no admin rights. `git`. In run B, a `git.exe` without Git Bash. Best: no `luvus.exe` on `PATH`, so that `hand init` has to download it (step 2 shows whether there is one).
@@ -80,13 +80,17 @@ The last command should print nothing. If it prints a path, `hand init` will pin
 `$env:SECONDHAND_HOME = "`$D\home"
 `$env:LUVUS_HOME = "`$D\luvus"
 `$env:Path = "`$D\bin;`$env:Path"
+if (Test-Path "`$D\vars.ps1") { . "`$D\vars.ps1" }
 function Redact { process { ("`$_" -replace [regex]::Escape(`$env:USERPROFILE), '<home>' -replace [regex]::Escape(`$env:USERNAME), '<user>' -replace [regex]::Escape(`$env:COMPUTERNAME), '<machine>' -replace 'token=[A-Za-z0-9._~-]+', 'token=<token>' -replace 'gh[pousr]_[A-Za-z0-9]{20,}', '<token>') } }
 function Ev([string]`$Id) { `$input | Redact | Tee-Object -FilePath "`$D\evidence\`$Id.txt" -Append }
+function Find-Ping { Get-CimInstance Win32_Process -Filter "Name = 'ping.exe'" | Where-Object { `$_.CommandLine -like '*-n 1234*' } | Select-Object ProcessId, ParentProcessId }
 "@ | Set-Content -Path "$D\env.ps1"
 . "$D\env.ps1"
 ```
 
 A user name that is a common word also changes that word in the output: read the redacted text before you post it.
+
+Many agent harnesses start a new shell for every command, so a value that a step sets (`$t`, `$a`, `$cur`, `$wt`, `$deep`) is also appended to `$D\vars.ps1`, which `env.ps1` loads. Start every block, and every Evidence command, with `. "$D\env.ps1"; Set-Location "$D\fleet"`.
 
 **4.** **Run B only:** take Git Bash out of every shell that loads `env.ps1`. Unzip a MinGit 64-bit zip (not the busybox one; it comes from the Git for Windows project's release page) into `$D\mingit`, then (`unverified`: it assumes that MinGit has no `bash.exe`):
 
@@ -153,7 +157,7 @@ If it fails: file it with the failing step and its output. If `W0` fails, stop: 
 
 ## W1: The supervisor starts under the pseudo console, and Hand accepts the trust screen
 
-- **Proves:** the Start claude, and accept its trust screen row, and the Luvus server, panes and events row, over a named pipe. README Windows item 1, and item 5's "its server starts".
+- **Proves:** the Start claude, and accept its trust screen row, and the Luvus server, panes and events row, over a named pipe.
 - **Run:** agent.
 - **Real sessions:** 1 (the supervisor).
 - **Preconditions:** `W0` passed. `claude` is installed and logged in; otherwise skip `W1` to `W3`, `W8`, `W9`, `W11` and `W14`. No supervisor runs.
@@ -188,7 +192,7 @@ If it fails: file the output above and the start command's output. If `status` i
 
 ## W2: **Start** on the board runs the supervisor
 
-- **Proves:** the Luvus server, panes and events row, through the board. README Windows item 1, second half.
+- **Proves:** the Luvus server, panes and events row, through the board.
 - **Run:** needs human.
 - **Real sessions:** 1 (the supervisor).
 - **Preconditions:** `W0` passed. Run A only.
@@ -224,7 +228,7 @@ If it fails: file what the owner saw (the text of any banner), the output above,
 
 ## W3: A worker reports, from PowerShell and Git Bash, and the supervisor wakes
 
-- **Proves:** the A worker reports through the footer row, and the wake. README Windows item 2.
+- **Proves:** the A worker reports through the footer row, and the wake.
 - **Run:** agent.
 - **Real sessions:** 1 (the worker), and one short turn of the supervisor when it wakes.
 - **Preconditions:** `W1` or `W2` passed, and the supervisor runs. The supervisor may act on the report (acknowledge it, mark the task done): that is expected. Do not answer it. For the Git Bash half: run A, and `bash.exe` of Git for Windows exists.
@@ -247,11 +251,13 @@ $out = hand attempt start --profile cheap --prompt-file "$D\brief.md" $t
 $out
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 $wt = ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value
+Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'`n`$cur = '$cur'`n`$wt = '$wt'"
 ```
 
 **2.** While the worker runs, report by hand from inside its worktree, from PowerShell and from Git Bash, the way the footer tells a Windows worker to. These are `progress` reports, so they wake nobody. Find Git Bash first (not WSL's `bash.exe`):
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 Set-Content "$D\r-ps.md" "report from PowerShell"
 Set-Content "$D\r-gb.md" "report from Git Bash"
 Push-Location $wt; hand report add --status progress --file "$D\r-ps.md"; Pop-Location
@@ -263,12 +269,14 @@ if ($bash) { & $bash -c "cd '$wtf' && hand report add --status progress --file '
 **3.** Wait for the worker's own report. This blocks until an event arrives; run it again with the cursor it prints, at most three times, until a row has the kind `attempt.reported` with detail `done`:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand wait --after $cur --timeout 8m
 ```
 
 **4.** Read the result:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand report list
 hand attempt show $a
 git -C "$D\repo" log --oneline "hand/$fid/$t-$a"
@@ -288,7 +296,7 @@ If it fails: file the output above. File the Git Bash half as its own issue (`W3
 
 ## W4: codex through its npm shim, agy and opencode start
 
-- **Proves:** the Start codex or agy row, and the Start opencode row. README Windows item 3, including the `.cmd` shim that `npm` makes for codex.
+- **Proves:** the Start codex or agy row, and the Start opencode row. The codex check includes the `.cmd` shim that `npm` makes for it.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs.
 - **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run codex once yourself before you use it, so that its model cache exists. For agy, `agy models` must list models. opencode uses the model from its own configuration. `Get-Command codex` should name a `codex.cmd`: say what it names in the evidence.
@@ -302,14 +310,24 @@ Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from t
 hand supervisor stop
 hand route list
 Get-Command codex, agy, opencode -ErrorAction SilentlyContinue | Select-Object Name, Source
+Add-Content "$D\vars.ps1" "`$h = '<harness>'`n`$model = '<model>'`n`$effort = '<effort>'"
 ```
 
-**2.** Start one worker on the task of `W3`'s brief. For codex and agy:
+Write the real harness, model and effort into that last line (for agy, leave `$effort` empty), by editing `$D\vars.ps1`.
+
+**2.** Write the brief, and start one worker on it. For codex and agy:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+Set-Content -Path "$D\brief.md" -Value @'
+Create a file named hello.txt in the repository root containing exactly: hello
+Commit it with the message: dogfood
+Do nothing else.
+'@
 $t = (hand task add --goal "Add hello.txt" demo "dogfood $h" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
 $a = (hand attempt start --harness $h --model $model --effort $effort --prompt-file "$D\brief.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 ```
 
 For agy, leave out `--effort`. For opencode: `hand attempt start --harness opencode --prompt-file "$D\brief.md" $t`.
@@ -317,12 +335,13 @@ For agy, leave out `--effort`. For opencode: `hand attempt start --harness openc
 **3.** Wait up to eight minutes for the report, then read it:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand wait --timeout 8m
 hand attempt show $a
 hand report list
 ```
 
-**4.** Stop and clean the worker: `hand attempt stop $a; hand attempt clean $a`.
+**4.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
 
 Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see README, The supervisor); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for.
 
@@ -332,7 +351,7 @@ If it fails: file one issue per harness, titled `W4: <harness> ...`, with `hand 
 
 ## W5: `hand update` renames the running `hand.exe`
 
-- **Proves:** the `hand update` row. README Windows item 4.
+- **Proves:** the `hand update` row.
 - **Run:** agent, then needs human (one question).
 - **Real sessions:** 0.
 - **Preconditions:** `W0` passed. Nothing listens on port 7777 (the restarted board uses it): `Get-NetTCPConnection -LocalPort 7777 -State Listen -ErrorAction SilentlyContinue` prints nothing, and no board of `$D\home` runs. Otherwise `skip` with `port 7777 busy`. This check uses its own home, `$D\home2`, and its own copy of the binary in `$D\old`: it never updates the copy in `$D\bin` or any other `hand`. The install adds `$D\old` to your user `PATH`: the Teardown removes it.
@@ -359,6 +378,7 @@ Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"
 **2.** Update to the rolling build, and look at the result:
 
 ```powershell
+. "$D\env.ps1"; $env:SECONDHAND_HOME = "$D\home2"; Set-Location "$D\fleet2"
 & "$D\old\hand.exe" update --channel edge
 Test-Path "$D\old\hand.exe.old"
 & "$D\old\hand.exe" version
@@ -382,11 +402,11 @@ Evidence: `& { & "$D\old\hand.exe" version; Get-Content "$D\fleet2\watch.pid", "
 
 If it fails: file the update's output. The journal `$env:SECONDHAND_HOME\update.json` (if it exists) belongs in the evidence. If the binary was replaced but the board or the watcher did not return, say which. If `hand.exe.old` is never deleted, say so.
 
-After this check, set the home back for the next ones: `. "$D\env.ps1"`.
+The next block of the next check loads `env.ps1` again, which sets the home back.
 
 ## W6: `hand open` starts the board, and no console window flashes
 
-- **Proves:** the `hand open` starts the board and opens the browser row. README Windows item 6.
+- **Proves:** the `hand open` starts the board and opens the browser row.
 - **Run:** needs human. The owner watches the screen while the agent runs the steps.
 - **Real sessions:** 0.
 - **Preconditions:** `W1` or `W2` passed, and the supervisor runs, so that the board has a fleet to keep. No board of this home runs: stop one that you started, with `Stop-Process -Id ([int](Get-Content "$env:SECONDHAND_HOME\board.pid").Split(' ')[0])`. Nothing listens on port 7777; otherwise `skip` with `port 7777 busy`, and do not stop what listens. Run A only.
@@ -417,19 +437,21 @@ If it fails: file the output above and what the owner saw. A console window that
 
 ## W7: `hand attach supervisor` in Windows Terminal
 
-- **Proves:** the `hand attach` row, the one that is `not run` on Windows. README Windows item 7.
+- **Proves:** the `hand attach` row, the one that is `not run` on Windows.
 - **Run:** needs human. The owner opens a real Windows Terminal window; the agent cannot attach.
 - **Real sessions:** 0 (a resume).
 - **Preconditions:** `W0` passed. A supervisor runs: `hand supervisor resume`, or `hand supervisor start --profile cheap`. Run A only.
 
 Steps:
 
-**1.** Tell the owner to open Windows Terminal (PowerShell) and run, with the real path of `D` for the first line:
+**1.** Print the lines that the owner will run, with the real path, and give them to them exactly:
 
 ```powershell
-. "C:\Users\<user>\AppData\Local\Temp\hd-xxxxxx\env.ps1"
-Set-Location "$D\fleet"; hand attach supervisor
+. "$D\env.ps1"
+Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand attach supervisor"
 ```
+
+Tell the owner to open Windows Terminal (PowerShell) and paste that line.
 
 **2.** Ask the owner: *Did the supervisor's Claude Code screen appear in that tab, and when you typed `x`, did it show in the input box?* (yes or no). Then ask them to delete the `x` and leave: close that tab. (The key that detaches from a Luvus pane is not documented in this repository: unverified.)
 
@@ -447,7 +469,7 @@ If it fails: file what the owner saw, and what `hand attach supervisor` printed 
 
 ## W8: Stop and clean a worker that has a child process
 
-- **Proves:** the Stop a worker row, with a real harness. README Windows item 8.
+- **Proves:** the Stop a worker row, with a real harness.
 - **Run:** agent.
 - **Real sessions:** 1 (the worker).
 - **Preconditions:** `W0` passed and `claude` works. Run `hand supervisor stop` first, so that the supervisor does not react to the worker.
@@ -466,9 +488,9 @@ Do nothing else.
 $t = (hand task add --goal "Hold a child process" demo "dogfood child" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
 $a = (hand attempt start --profile cheap --prompt-file "$D\brief8.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
-$find = { Get-CimInstance Win32_Process -Filter "Name = 'ping.exe'" | Where-Object { $_.CommandLine -like '*-n 1234*' } | Select-Object ProcessId, ParentProcessId }
-foreach ($i in 1..24) { if (& $find) { break }; Start-Sleep -Seconds 5 }
-& $find
+Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
+foreach ($i in 1..24) { if (Find-Ping) { break }; Start-Sleep -Seconds 5 }
+Find-Ping
 ```
 
 If no `ping.exe` appears within two minutes, the worker did not run it: run the step once more with a new task; if it fails again, mark `W8` `skip` with that reason.
@@ -476,15 +498,17 @@ If no `ping.exe` appears within two minutes, the worker did not run it: run the 
 **2.** Stop the worker, and look for the child:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand attempt stop $a
 Start-Sleep -Seconds 3
-if (& $find) { 'child left' } else { 'child gone' }
+if (Find-Ping) { 'child left' } else { 'child gone' }
 hand attempt show $a
 ```
 
 **3.** Clean it:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand attempt clean $a
 Get-ChildItem "$env:SECONDHAND_HOME\worktrees\$fid" -ErrorAction SilentlyContinue
 git -C "$D\repo" branch --list "hand/$fid/*"
@@ -502,7 +526,7 @@ If it fails: file the failing step's output. If a process is left, add `Get-CimI
 
 ## W9: A worker commits in a worktree with paths over 260 characters
 
-- **Proves:** the Paths over 260 characters row, for a worker's git, which is `not run`. README Windows item 9.
+- **Proves:** the Paths over 260 characters row, for a worker's git, which is `not run`.
 - **Run:** agent.
 - **Real sessions:** 1 (the worker).
 - **Preconditions:** `W0` passed and `claude` works. Do not set `git config --global core.longpaths`: Hand's own git and the worker's inherit it from Hand, and that is what is tested. Run `hand supervisor stop` first.
@@ -519,11 +543,13 @@ $blob = 'one' | git -C "$D\repo" hash-object -w --stdin
 git -C "$D\repo" update-index --add --cacheinfo "100644,$blob,$deep"
 git -C "$D\repo" commit -q -m deep
 $deep.Length
+Add-Content "$D\vars.ps1" "`$deep = '$deep'"
 ```
 
 **2.** Start a worker that edits the file and commits:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 Set-Content -Path "$D\brief9.md" -Value @"
 Append the line changed to the file $deep (the path is relative to your worktree root), then run git add -A and git commit -m long. If your file tool refuses the path as too long, use git, or PowerShell with a path that starts with \\?\. Do nothing else.
 "@
@@ -531,6 +557,7 @@ $t = (hand task add --goal "Edit a deep file" demo "dogfood long path" | Select-
 hand task start $t
 $out = hand attempt start --profile cheap --prompt-file "$D\brief9.md" $t
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value.Length + $deep.Length + 1
 hand wait --timeout 8m
 ```
@@ -538,6 +565,7 @@ hand wait --timeout 8m
 **3.** Read the result:
 
 ```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
 hand attempt show $a
 git -C "$D\repo" -c core.longpaths=true show --stat --format=%s "hand/$fid/$t-$a"
 ```
@@ -553,7 +581,7 @@ If it fails: file the output above and `hand attempt read $a`. Say whether the f
 
 ## W10: The Startup shortcut starts the board after a logon
 
-- **Proves:** the Start the board at login row. README Windows item 10.
+- **Proves:** the Start the board at login row.
 - **Run:** agent, then needs human (logoff and logon).
 - **Real sessions:** 0 (a resume).
 - **Preconditions:** `W0` passed. A supervisor runs (`hand supervisor resume`). This check writes one file outside the temporary folder, `Hand dogfood board.lnk` in your Startup folder, which it removes; its name is not `Hand board.lnk`, so it cannot overwrite your own. Run A only.
@@ -562,22 +590,36 @@ The shortcut differs from the README's recipe in one way: a shortcut cannot set 
 
 Steps:
 
-**1.** Make the shortcut, and make the board resume the supervisor by itself:
+**1.** Check that the shortcut's name is free. The command must print `False`; if it prints `True`, skip `W10` with the reason `shortcut exists`, and do not overwrite or remove that file:
+
+```powershell
+Test-Path "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"
+```
+
+**2.** Make the shortcut, and make the board resume the supervisor by itself:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
-$link = (New-Object -ComObject WScript.Shell).CreateShortcut("$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk")
+$lnk = "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"
+$link = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
 $link.TargetPath = "$env:SystemRoot\System32\cmd.exe"
 $link.Arguments = "/c set `"SECONDHAND_HOME=$D\home`"&& set `"LUVUS_HOME=$D\luvus`"&& `"$D\bin\hand.exe`" board --addr 127.0.0.1:7790"
 $link.WindowStyle = 7
 $link.Save()
-Test-Path "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"
+Test-Path $lnk
 Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},"supervisor":{"autoresume":true}}'
 ```
 
 `Test-Path` must print `True`. The `cmd.exe` wrapper and its quoting are `unverified`.
 
-**2.** Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run `. "<D>\env.ps1"; hand orient | Select-Object -First 5; hand open --print *> $null; if ($LASTEXITCODE -eq 0) { 'board-answers' }`, with the real path of `D`. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).
+**3.** Print the line that the owner will run, with the real path, and give it to them exactly:
+
+```powershell
+. "$D\env.ps1"
+Write-Output ". `"$D\env.ps1`"; hand orient | Select-Object -First 5; hand open --print *> `$null; if (`$LASTEXITCODE -eq 0) { 'board-answers' }"
+```
+
+Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run that line. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).
 
 Logging off ends this session, and the supervisor. An agent cannot finish this step: it leaves the check `waiting for owner`, and the owner runs the Teardown after they answer.
 
@@ -595,6 +637,8 @@ If it fails: file what happened after the logon, step by step, with the output a
 - **Preconditions:** `W0` passed, and `claude` works.
 
 Steps:
+
+Run steps 1 and 2 in one shell: step 2 uses what step 1 sets.
 
 **1.** Build a second temporary folder `$D2` with the letters made from their code points, so that no console encoding matters, and set it up like `W0`, steps 2, 6 and 7, with `$D2` in place of `$D`: its own `SECONDHAND_HOME` and `LUVUS_HOME`, repository, fleet and `routing.json`. Do not install again: use `hand` from `$D\bin`:
 
@@ -645,20 +689,21 @@ If it fails: file the failing command and its output, and say which path contain
 
 ## W12: The toast recipe shows a toast
 
-- **Proves:** the Desktop notifications row (`no` in the table), through the README's toast recipe. README Windows item 12.
+- **Proves:** the Desktop notifications row (`no` in the table), through the README's toast recipe.
 - **Run:** needs human.
 - **Real sessions:** 0.
 - **Preconditions:** `W0` passed. Windows may suppress toasts while Focus assist or Do not disturb is on: turn it off for this check.
 
 Steps:
 
-**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's README, section "Alerts on your phone", so that it is the one that README documents (the check fails with a message when that line is not found):
+**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's README, section "Alerts on your phone", so that it is the one that README documents (the check fails with a message when that line is not found). Set `$rev` to the docs revision that you recorded for the run, if you recorded one, so that the recipe is the one of the guide you follow; it is `main` otherwise:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 if (Test-Path "$D\fleet\watch.pid") { $p = [int](Get-Content "$D\fleet\watch.pid").Split(' ')[0]; if ((Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName -eq 'hand') { Stop-Process -Id $p } }
-$readme = irm https://raw.githubusercontent.com/atqamz/hand/main/README.md
+$rev = 'main'
+$readme = irm "https://raw.githubusercontent.com/atqamz/hand/$rev/README.md"
 $line = ($readme -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.StartsWith('"notify": ["powershell.exe"') })[0]
 if (-not $line) { throw 'no toast recipe found in the README' }
 Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value ('{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},' + $line + '}')
@@ -690,7 +735,7 @@ If it fails: file what the owner saw, and the watcher's output. The recipe is `u
 
 ## W13: The ssh note: the `ssh-agent` service
 
-- **Proves:** the README's note on signing and ssh, which the README says nobody has verified on a Windows machine. This check reads three facts and changes nothing; it does not push, and does not test signing, which needs the `ssh-agent` service started with admin rights.
+- **Proves:** the paragraph that starts `Signing and ssh` in the README's Windows section, which the README says nobody has verified on a Windows machine. This check reads three facts and changes nothing; it does not push, and does not test signing, which needs the `ssh-agent` service started with admin rights.
 - **Run:** agent.
 - **Real sessions:** 0.
 - **Preconditions:** none.
@@ -713,7 +758,7 @@ If it fails: file it as a documentation issue, with the facts.
 
 ## W14: The watcher starts a killed Luvus server again
 
-- **Proves:** the The watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
+- **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
 - **Preconditions:** a supervisor runs (`hand supervisor start --profile cheap` if none does), and the watcher runs (`hand orient` prints `watch: running`).
@@ -756,19 +801,21 @@ If it fails: file the output above, and `Get-Content "$D\fleet\watch.log" -Tail 
 
 ## Teardown
 
-Run it at the end, even after a failure, and again after a logoff. In its first line, write the real path of `D`. It removes the Startup shortcut and the `PATH` entries, stops every process of this run, and deletes the temporary folder.
+Run it at the end, even after a failure, and again after a logoff. In its first line, write the real path of `D`. It removes the Startup shortcut that `W10` made (and only a shortcut whose arguments name your temporary folder) and the `PATH` entries, stops every process of this run, and deletes the temporary folder. Post your evidence first: the evidence files are in that folder.
 
 ```powershell
 . "C:\Users\<user>\AppData\Local\Temp\hd-xxxxxx\env.ps1"
-Remove-Item "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk" -ErrorAction SilentlyContinue
+$lnk = "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"
+if ((Test-Path $lnk) -and (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).Arguments -like "*$D*") { Remove-Item $lnk }
 foreach ($f in "$D\fleet\watch.pid", "$D\fleet2\watch.pid", "$D\home\board.pid", "$D\home2\board.pid") {
-  if (Test-Path $f) { $p = [int](Get-Content $f).Split(' ')[0]; $proc = Get-Process -Id $p -ErrorAction SilentlyContinue; if ($proc -and $proc.ProcessName -eq 'hand') { Stop-Process -Id $p -Force } }
+  if (Test-Path $f) { $p = [int](Get-Content $f).Split(' ')[0]; $proc = Get-Process -Id $p -ErrorAction SilentlyContinue; if ($proc -and $proc.Path -like "$D\*") { Stop-Process -Id $p -Force } }
 }
 foreach ($s in @(Get-ChildItem "$D\luvus\sessions" -Directory -ErrorAction SilentlyContinue)) { & $luvus session stop $s.Name }
 & $luvus session list --json | Select-String '"running": true'
+Get-Process | Where-Object { $_.Path -like "$D\*" } | Select-Object Id, Path
 ```
 
-The last command must print nothing; a `secondhand-` session that still runs belongs to this run, so stop it with `& $luvus session stop <name>`. Then take the temporary folders out of your user `PATH`, where `install.ps1` put them, and delete the folder:
+The last two commands must print nothing; a `secondhand-` session that still runs belongs to this run, so stop it with `& $luvus session stop <name>`, and a process that runs from `$D` is yours, so stop it by its process ID. Then take the temporary folders out of your user `PATH`, where `install.ps1` put them, and delete the folder:
 
 ```powershell
 $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
@@ -781,4 +828,4 @@ Set-Location $env:TEMP
 Remove-Item -Recurse -Force $D
 ```
 
-The `Where-Object` line must print nothing. If `Remove-Item` reports a file in use, find the process (`Get-Process | Where-Object { $_.Path -like "$D*" }`), stop it, and run it again; if a file stays locked, delete the folder after the next restart. The shortcut is gone: `Test-Path "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"` prints `False`. Your real `~\.secondhand` was never used. Claude Code keeps the temporary folders in its list of trusted folders; that is harmless and is not edited here.
+The `Where-Object` line must print nothing. If `Remove-Item` reports a file in use, find the process (`Get-Process | Where-Object { $_.Path -like "$D*" }`), stop it, and run it again; if a file stays locked, delete the folder after the next restart. The shortcut is gone: `Test-Path $lnk` prints `False`, unless the `W10` check found a shortcut of your own, which stays. Your real `~\.secondhand` was never used. Claude Code keeps the temporary folders in its list of trusted folders; that is harmless and is not edited here.

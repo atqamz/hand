@@ -25,7 +25,7 @@ This page is the path for a person at the machine: read a check, run it, fill th
 3. For each following check: read the preconditions, run the numbered steps, compare with "Expected", and run the evidence commands. A `needs human` check ends with a question: answer it by what you saw on the screen.
 4. Record each result as `pass`, `fail` or `skip`, with a reason for a skip. Skip a check whose precondition you cannot meet (no account, port busy, hardware missing) rather than bend the steps.
 5. If a check fails, do not retry it more than once. File it (below), and go on with the next check unless the OS file says the later ones need it.
-6. Run the Teardown, and read its list of what to confirm gone.
+6. Post your results first: the evidence files are in the temporary folder, which the Teardown deletes. Then run the Teardown, and read its list of what to confirm gone.
 
 ## Your result
 

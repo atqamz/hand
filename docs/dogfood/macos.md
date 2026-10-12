@@ -56,6 +56,7 @@ cat > "$D/env.sh" <<EOF
 export D="$D"
 export SECONDHAND_HOME="\$D/home" LUVUS_HOME="\$D/luvus"
 export PATH="\$D/bin:\$PATH"
+if [ -f "\$D/vars.sh" ]; then . "\$D/vars.sh"; fi
 redact() { sed -e "s#\$HOME#<home>#g" -e "s#\$(id -un)#<user>#g" -e "s#\$(hostname -s)#<machine>#g" -e "s#\$(scutil --get ComputerName 2>/dev/null || echo no-such-name)#<machine>#g" -e 's/token=[A-Za-z0-9._~-]*/token=<token>/g' -e 's/gh[pousr]_[A-Za-z0-9]\{20,\}/<token>/g'; }
 ev() { redact | tee -a "\$D/evidence/\$1.txt"; }
 EOF
@@ -63,6 +64,8 @@ EOF
 ```
 
 A user name that is a common word also changes that word in the output: read the redacted text before you post it.
+
+Many agent harnesses start a new shell for every command, so a value that a step sets (`T`, `A`, `CUR`) is also appended to `$D/vars.sh`, which `env.sh` loads. Start every block, and every Evidence command, with `. $D/env.sh; cd $D/fleet`.
 
 **4.** Install the latest release into the folder, and check that this copy is the one that runs:
 
@@ -85,7 +88,8 @@ cat > routing.json <<'EOF'
 {"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}
 EOF
 hand route list | head -3
-echo "export FID=$(ls $SECONDHAND_HOME/fleets) LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p')" >> $D/env.sh
+FID=$(ls $SECONDHAND_HOME/fleets)
+echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') SD=$LUVUS_HOME/sessions/secondhand-$FID" >> $D/env.sh
 . $D/env.sh; hand fleet list
 ```
 
@@ -104,7 +108,7 @@ If it fails: file it with the failing step and its output. If `M0` fails, stop: 
 
 ## M1: The supervisor starts, and Hand reaches Luvus
 
-- **Proves:** the Luvus server, panes and events row, and the Start claude and accept its trust screen row. README macOS item 2, and item 3 for the supervisor.
+- **Proves:** the Luvus server, panes and events row, and the Start claude and accept its trust screen row.
 - **Run:** agent.
 - **Real sessions:** 1 (the supervisor).
 - **Preconditions:** `M0` passed. `claude` is installed and logged in; otherwise skip `M1` to `M5`. No supervisor runs.
@@ -139,7 +143,7 @@ If it fails: file the output above and the start command's output. If `status` i
 
 ## M2: A real worker reports, and the supervisor wakes
 
-- **Proves:** the Start claude and accept its trust screen row, and the A worker reports through the footer row. README macOS item 3.
+- **Proves:** the Start claude and accept its trust screen row, and the A worker reports through the footer row.
 - **Run:** agent.
 - **Real sessions:** 1 (the worker), and one short turn of the supervisor when it wakes.
 - **Preconditions:** `M1` passed, and the supervisor runs. The supervisor may act on the report (acknowledge it, mark the task done): that is expected. Do not answer it.
@@ -160,17 +164,20 @@ hand task start $T
 CUR=$(hand orient | sed -n 's/^cursor: //p')
 hand attempt start --profile cheap --prompt-file $D/brief.md $T | tee $D/m2-start.txt
 A=$(sed -n 's/^attempt: //p' $D/m2-start.txt)
+echo "export T=$T A=$A CUR=$CUR" >> $D/vars.sh
 ```
 
 **2.** Wait for the wake. This blocks until an event arrives; run it again with the cursor it prints, at most three times, until a row has the kind `attempt.reported`:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 hand wait --after $CUR --timeout 8m
 ```
 
 **3.** Read the result:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 hand report list
 hand attempt show $A
 git -C $D/repo log --oneline hand/$FID/$T-$A
@@ -190,7 +197,7 @@ If it fails: file the output above. If `trust` is `not pressed` or the attempt i
 
 ## M3: **Start** on the board runs the supervisor
 
-- **Proves:** the Luvus server, panes and events row, through the board. README macOS item 2, second half.
+- **Proves:** the Luvus server, panes and events row, through the board.
 - **Run:** needs human.
 - **Real sessions:** 1 (the supervisor).
 - **Preconditions:** `M0` passed.
@@ -202,7 +209,7 @@ Steps:
 ```zsh
 . $D/env.sh; cd $D/fleet
 hand supervisor stop
-if lsof -nP -iTCP:7777 -sTCP:LISTEN >/dev/null; then (hand board --addr 127.0.0.1:7790 > $D/board.log 2>&1 &); sleep 3; fi
+if lsof -nP -iTCP:7777 -sTCP:LISTEN >/dev/null; then ($D/bin/hand board --addr 127.0.0.1:7790 > $D/board.log 2>&1 &); sleep 3; fi
 hand open --print
 ```
 
@@ -245,6 +252,7 @@ EOF
 T=$(hand task add --goal "Hold a child process" demo "dogfood child" | sed -n 's/^task: //p')
 hand task start $T
 A=$(hand attempt start --profile cheap --prompt-file $D/brief4.md $T | sed -n 's/^attempt: //p')
+echo "export T=$T A=$A" >> $D/vars.sh
 for i in $(seq 24); do pgrep -f '[s]leep 1234' >/dev/null && break; sleep 5; done
 pgrep -fl '[s]leep 1234'
 ```
@@ -254,6 +262,7 @@ If no `sleep 1234` appears within two minutes, the worker did not run it: run th
 **2.** Stop the worker, and look for the child:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 hand attempt stop $A
 sleep 3
 pgrep -fl '[s]leep 1234' || echo "child gone"
@@ -263,6 +272,7 @@ hand attempt show $A
 **3.** Clean it:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 hand attempt clean $A
 ls $SECONDHAND_HOME/worktrees/$FID
 git -C $D/repo branch --list "hand/$FID/*"
@@ -280,7 +290,7 @@ If it fails: file the failing step's output. If a process is left, add `ps -o pi
 
 ## M5: The watcher starts a killed Luvus server again
 
-- **Proves:** the The watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
+- **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
 - **Preconditions:** `M3` left a supervisor running, or one is started with `hand supervisor start --profile cheap`. The watcher runs (`hand orient` prints `watch: running`).
@@ -291,7 +301,6 @@ Steps:
 
 ```zsh
 . $D/env.sh; cd $D/fleet
-SD=$LUVUS_HOME/sessions/secondhand-$FID
 cat $SD/server.pid
 OLD=$(cut -d' ' -f1 $SD/server.pid)
 kill -9 $OLD
@@ -336,14 +345,24 @@ Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the 
 . $D/env.sh; cd $D/fleet
 hand supervisor stop
 hand route list
+echo 'export H=codex MODEL=<model> EFFORT=<effort>' >> $D/vars.sh
 ```
 
-**2.** Start one worker on the task of `M2`'s brief. For codex and agy:
+Write the real harness, model and effort into that last line (for agy, leave `EFFORT` empty).
+
+**2.** Write the brief, and start one worker on it. For codex and agy:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
+cat > $D/brief.md <<'EOF'
+Create a file named hello.txt in the repository root containing exactly: hello
+Commit it with the message: dogfood
+Do nothing else.
+EOF
 T=$(hand task add --goal "Add hello.txt" demo "dogfood $H" | sed -n 's/^task: //p')
 hand task start $T
 A=$(hand attempt start --harness $H --model $MODEL --effort $EFFORT --prompt-file $D/brief.md $T | sed -n 's/^attempt: //p')
+echo "export T=$T A=$A" >> $D/vars.sh
 ```
 
 For agy, leave out `--effort`. For opencode: `hand attempt start --harness opencode --prompt-file $D/brief.md $T`.
@@ -351,12 +370,13 @@ For agy, leave out `--effort`. For opencode: `hand attempt start --harness openc
 **3.** Wait up to eight minutes for the report, then read it:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 hand wait --timeout 8m
 hand attempt show $A
 hand report list
 ```
 
-**4.** Stop and clean the worker: `hand attempt stop $A; hand attempt clean $A`.
+**4.** Stop and clean the worker: `. $D/env.sh; cd $D/fleet; hand attempt stop $A; hand attempt clean $A`.
 
 Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see README, The supervisor); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure.
 
@@ -373,7 +393,7 @@ If it fails: file one issue per harness, titled `M6: <harness> ...`, with `hand 
 
 Steps:
 
-**1.** Tell the owner to open a new Terminal window and run, with the real path of `D` for the first line:
+**1.** Tell the owner to open a new Terminal window and run these two lines, with the value of `$D` (print it with `echo $D`) in place of `/tmp/hand-dogfood.XXXXXX`:
 
 ```zsh
 . /tmp/hand-dogfood.XXXXXX/env.sh
@@ -396,7 +416,7 @@ If it fails: file what the owner saw, and what `hand attach supervisor` printed 
 
 ## M8: `hand open` starts the board and opens the browser
 
-- **Proves:** the `hand open` starts the board and opens the browser row. README macOS item 6.
+- **Proves:** the `hand open` starts the board and opens the browser row.
 - **Run:** needs human.
 - **Real sessions:** 0.
 - **Preconditions:** `M0` passed. No board of this home runs: stop one that you started, with `kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid)`. Nothing listens on port 7777: `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing. Otherwise `skip` with `port 7777 busy`, and do not stop what listens.
@@ -422,10 +442,10 @@ If it fails: file the output above. If the board did not start, add the end of `
 
 ## M9: A notification appears
 
-- **Proves:** the Desktop notifications row, with `osascript`. README macOS item 7.
+- **Proves:** the Desktop notifications row, with `osascript`.
 - **Run:** needs human.
 - **Real sessions:** 0.
-- **Preconditions:** `M0` passed. The watcher runs: a supervisor runs (`hand supervisor resume`), or start the watcher by hand with `(hand watch > $D/watch-m9.log 2>&1 &)`. macOS may ask you to allow notifications for the script runner, and Focus mode hides them: allow it, or turn Focus off, for this check.
+- **Preconditions:** `M0` passed. The watcher runs: a supervisor runs (`hand supervisor resume`), or start the watcher by hand with `($D/bin/hand watch > $D/watch-m9.log 2>&1 &)` (the full path, so that the Teardown can tell it is yours). macOS may ask you to allow notifications for the script runner, and Focus mode hides them: allow it, or turn Focus off, for this check.
 
 Steps:
 
@@ -447,7 +467,7 @@ If it fails: file what the owner saw, and whether macOS asked for permission.
 
 ## M10: `hand update` from the latest release
 
-- **Proves:** the `hand update` row. README macOS item 8.
+- **Proves:** the `hand update` row.
 - **Run:** agent, then needs human (one question).
 - **Real sessions:** 0.
 - **Preconditions:** `M0` passed. Nothing listens on port 7777 (the restarted board uses it): `lsof -nP -iTCP:7777 -sTCP:LISTEN` prints nothing, and no board of `$D/home` runs. Otherwise `skip` with `port 7777 busy`. This check uses its own home, `$D/home2`, and its own copy of the binary in `$D/old`: it never updates the copy in `$D/bin` or any other `hand`.
@@ -460,7 +480,7 @@ Steps:
 . $D/env.sh
 mkdir -p $D/old $D/fleet2
 curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.10.0 sh
-export H2=$D/home2
+H2=$D/home2
 cd $D/fleet2 && SECONDHAND_HOME=$H2 $D/old/hand init
 cp $D/fleet2/hand.db $D/hand2.db.backup
 (SECONDHAND_HOME=$H2 $D/old/hand watch > $D/watch2.log 2>&1 &)
@@ -473,6 +493,7 @@ SECONDHAND_HOME=$H2 $D/old/hand update --channel edge --check
 **2.** Update to the rolling build, and look at the result:
 
 ```zsh
+. $D/env.sh; H2=$D/home2; cd $D/fleet2
 SECONDHAND_HOME=$H2 $D/old/hand update --channel edge
 SECONDHAND_HOME=$H2 $D/old/hand version
 cat $D/fleet2/watch.pid $H2/board.pid
@@ -495,20 +516,27 @@ If it fails: file the update's output. The journal `$H2/update.json` (if it exis
 
 ## M11: The LaunchAgent starts the board at login
 
-- **Proves:** the Start the board at login row. README macOS item 9, and its `PATH`.
+- **Proves:** the Start the board at login row. The board's `PATH` must find your tools.
 - **Run:** agent, then needs human (logout and login).
 - **Real sessions:** 0 (a resume).
 - **Preconditions:** `M0` passed. This check writes one file outside the temporary folder, `~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist`, which it removes. The label is not `dev.secondhand.board`, so it cannot collide with your own. A supervisor runs (`hand supervisor resume`), so that the board has a fleet to keep. No board of this home runs.
 
 Steps:
 
-**1.** Write the plist from the README's Autostart recipe, with this temporary home, another port, and a `PATH` that finds `claude` and `git`:
+**1.** Check that the file is free. The command must print `free`; if it does not, skip `M11` with the reason `plist exists`, and do not overwrite or remove that file:
+
+```zsh
+test ! -e ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist && echo free
+```
+
+**2.** Write the plist from the README's Autostart recipe, with this temporary home, another port, and a `PATH` that finds `claude` and `git`:
 
 ```zsh
 . $D/env.sh; cd $D/fleet
+PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
 kill $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) 2>/dev/null
 TOOLS=$(dirname $(command -v claude)):$(dirname $(command -v git))
-cat > ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist <<EOF
+cat > $PLIST <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -536,30 +564,39 @@ cat > ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist <<EOF
 </dict>
 </plist>
 EOF
-launchctl load ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
+launchctl load $PLIST
 sleep 10
 launchctl list | grep dev.secondhand.dogfood
 hand open --print > /dev/null && echo board-answers
 ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='
 ```
 
-**2.** The board must keep the watcher alive. Kill the watcher, and wait up to 60 seconds:
+**3.** The board must keep the watcher alive. Kill the watcher, and wait up to 60 seconds:
 
 ```zsh
+. $D/env.sh; cd $D/fleet
 kill $(cut -d' ' -f1 $D/fleet/watch.pid)
 for i in $(seq 12); do sleep 5; hand orient | grep -q '^watch: running' && break; done
 hand orient | sed -n 1,5p
 ```
 
-**3.** Prepare the logout: make the board resume the supervisor by itself, which needs `claude` on the board's `PATH`:
+**4.** Prepare the logout: make the board resume the supervisor by itself, which needs `claude` on the board's `PATH`:
 
 ```zsh
+. $D/env.sh
 cat > $D/fleet/routing.json <<'EOF'
 {"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},"supervisor":{"autoresume":true}}
 EOF
 ```
 
-**4.** Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run `. /tmp/hand-dogfood.XXXXXX/env.sh; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers`. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
+**5.** Print the line that the owner will run, with the real path, and give it to them exactly:
+
+```zsh
+. $D/env.sh
+echo ". $D/env.sh; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers"
+```
+
+Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
 
 Logging out ends this session, and the supervisor. An agent cannot finish this step: it leaves the check `waiting for owner`, and the owner runs the Teardown after they answer.
 
@@ -575,23 +612,24 @@ If it fails: file the output above and `tail -20 $SECONDHAND_HOME/board.log`.
 
 ## Teardown
 
-Run it at the end, even after a failure, and again after a logout. It removes the LaunchAgent, stops every process of this run, and deletes the temporary folder.
+Run it at the end, even after a failure, and again after a logout. In its first line, write the real path of `D`. It removes the LaunchAgent that `M11` made (and only a file that names your temporary folder), stops every process of this run, and deletes the temporary folder. Post your evidence first: the evidence files are in that folder.
 
 ```zsh
 . /tmp/hand-dogfood.XXXXXX/env.sh
-launchctl unload ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist 2>/dev/null
-rm -f ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
+PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
+if grep -q "$D/" $PLIST 2>/dev/null; then launchctl unload $PLIST; rm -f $PLIST; fi
 for f in $D/fleet/watch.pid $D/fleet2/watch.pid $D/home/board.pid $D/home2/board.pid; do
   [ -f $f ] || continue
   p=$(cut -d' ' -f1 $f)
-  grep -q "$D/" $f && ps -p $p -o comm= | grep -q hand && kill $p
+  ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done
 sleep 2
+pgrep -fl "^$D/"
 lsof +D $D 2>/dev/null
 ```
 
-The last command must print nothing: a process that remains holds a file under `$D`, and belongs to this run, so stop it by its process ID. Then:
+The last two commands must print nothing: a process that remains runs from `$D`, or holds a file under it, and belongs to this run, so stop it by its process ID. Then:
 
 ```zsh
 launchctl list | grep dev.secondhand.dogfood
@@ -599,4 +637,4 @@ ls ~/Library/LaunchAgents | grep dev.secondhand.dogfood
 rm -rf $D
 ```
 
-The first two must print nothing. Your real `~/.secondhand` was never used. Claude Code keeps the temporary folders in its list of trusted folders; that is harmless and is not edited here.
+The first two must print nothing, unless the `M11` guard found a file of your own, which stays. Your real `~/.secondhand` was never used. Claude Code keeps the temporary folders in its list of trusted folders; that is harmless and is not edited here.

@@ -56,6 +56,7 @@ unset XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 export D="$D"
 export SECONDHAND_HOME="\$D/home" LUVUS_HOME="\$D/luvus"
 export PATH="\$D/bin:\$PATH"
+if [ -f "\$D/vars.sh" ]; then . "\$D/vars.sh"; fi
 redact() { sed -e "s#\$HOME#<home>#g" -e "s#\$(id -un)#<user>#g" -e "s#\$(hostname -s 2>/dev/null || hostname)#<machine>#g" -e 's/token=[A-Za-z0-9._~-]*/token=<token>/g' -e 's/gh[pousr]_[A-Za-z0-9]\{20,\}/<token>/g'; }
 ev() { redact | tee -a "\$D/evidence/\$1.txt"; }
 EOF
@@ -63,6 +64,8 @@ EOF
 ```
 
 A user name that is a common word also changes that word in the output: read the redacted text before you post it.
+
+Many agent harnesses start a new shell for every command, so a value that a step sets (`T`, `A`, `CUR`) is also appended to `$D/vars.sh`, which `env.sh` loads. Start every block, and every Evidence command, with `. $D/env.sh; cd $D/fleet`.
 
 **4.** Install the latest release into the folder, and check that this copy is the one that runs:
 
@@ -85,7 +88,8 @@ cat > routing.json <<'EOF'
 {"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}
 EOF
 hand route list | head -3
-echo "export FID=$(ls $SECONDHAND_HOME/fleets) LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p')" >> $D/env.sh
+FID=$(ls $SECONDHAND_HOME/fleets)
+echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') SD=$LUVUS_HOME/sessions/secondhand-$FID" >> $D/env.sh
 . $D/env.sh; hand fleet list
 ```
 
@@ -120,7 +124,6 @@ hand orient | sed -n 1,5p
 hand luvus show
 ls $D/fleet/watch.log $D/fleet/watch.pid
 cut -d' ' -f1 $D/fleet/watch.pid | xargs -I{} ps -o pid,ppid,comm -p {}
-SD=$LUVUS_HOME/sessions/secondhand-$FID
 cat $SD/server.pid
 cut -d' ' -f1 $SD/server.pid | xargs -I{} cat /proc/{}/cgroup
 ```
@@ -162,17 +165,20 @@ hand task start $T
 CUR=$(hand orient | sed -n 's/^cursor: //p')
 hand attempt start --profile cheap --prompt-file $D/brief.md $T | tee $D/l2-start.txt
 A=$(sed -n 's/^attempt: //p' $D/l2-start.txt)
+echo "export T=$T A=$A CUR=$CUR" >> $D/vars.sh
 ```
 
 **2.** Wait for the wake. This blocks until an event arrives; run it again with the cursor it prints, at most three times, until a row has the kind `attempt.reported`:
 
 ```sh
+. $D/env.sh; cd $D/fleet
 hand wait --after $CUR --timeout 8m
 ```
 
 **3.** Read the result:
 
 ```sh
+. $D/env.sh; cd $D/fleet
 hand report list
 hand attempt show $A
 git -C $D/repo log --oneline hand/$FID/$T-$A
@@ -229,7 +235,7 @@ If it fails: file the output above and the end of `$SECONDHAND_HOME/board.log`.
 
 ## L4: The watcher starts a killed Luvus server again
 
-- **Proves:** the The watcher starts a killed Luvus server again row, with a real harness instead of a fake one, and without the scope that a user manager gives the server.
+- **Proves:** the watcher starts a killed Luvus server again row, with a real harness instead of a fake one, and without the scope that a user manager gives the server.
 - **Run:** agent.
 - **Real sessions:** 0: it resumes the supervisor's session, which spends nothing until a message arrives.
 - **Preconditions:** a supervisor runs (`hand supervisor start --profile cheap` if none does), and the watcher runs (`hand orient` prints `watch: running`).
@@ -240,7 +246,6 @@ Steps:
 
 ```sh
 . $D/env.sh; cd $D/fleet
-SD=$LUVUS_HOME/sessions/secondhand-$FID
 cat $SD/server.pid
 OLD=$(cut -d' ' -f1 $SD/server.pid)
 kill -9 $OLD
@@ -302,21 +307,21 @@ If it fails: file what the owner saw, and what `hand attach supervisor` printed 
 
 ## Teardown
 
-Run it at the end, even after a failure. It stops every process of this run, and deletes the temporary folder. In its first line, write the real path of `D`.
+Run it at the end, even after a failure. It stops every process of this run, and deletes the temporary folder. In its first line, write the real path of `D`. Post your evidence first: the evidence files are in that folder.
 
 ```sh
 . /tmp/hand-dogfood.XXXXXX/env.sh
 for f in $D/fleet/watch.pid $D/home/board.pid; do
   [ -f $f ] || continue
   p=$(cut -d' ' -f1 $f)
-  grep -q "$D/" $f && ps -p $p -o comm= | grep -q hand && kill $p
+  ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done
 sleep 2
-ls $D/home/board.pid $D/fleet/watch.pid 2>/dev/null
+pgrep -fa "^$D/"
 ```
 
-The last command must print nothing; a process that remains belongs to this run, so stop it by its process ID. Then delete the folder:
+The last command must print nothing; a process that remains runs from `$D`, belongs to this run, and is stopped by its process ID. Then delete the folder:
 
 ```sh
 rm -rf $D

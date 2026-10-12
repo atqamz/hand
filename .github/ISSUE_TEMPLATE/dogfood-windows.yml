@@ -18,8 +18,10 @@ body:
     id: run
     attributes:
       label: Run issue
-      description: Link to the dogfood run issue this check belongs to, if you made one.
+      description: Link to the dogfood run issue this check belongs to.
       placeholder: https://github.com/atqamz/hand/issues/0
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
