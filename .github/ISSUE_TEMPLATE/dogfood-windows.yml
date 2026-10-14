@@ -27,7 +27,7 @@ body:
     attributes:
       label: hand version
       description: The first lines of `hand version`, which give the version, the channel and the commit.
-      placeholder: 0.10.0 stable
+      placeholder: 0.11.0 stable
     validations:
       required: true
   - type: input
