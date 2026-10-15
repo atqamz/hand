@@ -71,6 +71,9 @@ func cmdOpen(r *runner, args []string) error {
 			}
 			return r.printLink(d.Ref, "")
 		}
+		if strings.HasPrefix(d.Ref, `\\`) {
+			return fmt.Errorf("%w: UNC paths are not opened, because Windows would connect to the host they name: %s", state.ErrConflict, d.Ref)
+		}
 		target := d.Ref
 		if d.Kind == "file" {
 			target = folderOf(d.Ref)

@@ -38,6 +38,7 @@ func newOpenFixture(t *testing.T) *openFixture {
 		{"https://docs.example.com/q3-review", filepath.Join(dir, "notes.md")},
 		{`C:\Users\me\out\report.docx`},
 		{dir},
+		{"https://docs.example.com/older", `\\evil\share\dir\report.docx`},
 	}
 	for i := range extra {
 		h.ok("task", "add", "hand", "Deliverable task")
@@ -178,6 +179,10 @@ func TestOpenDelivered(t *testing.T) {
 		}
 	}
 	before := len(fx.opened(t))
+	unc := `\\evil\share\dir\report.docx`
+	if out := fx.h.ok("open", "--print", "--delivered", "t6"); field(out, "path") != unc {
+		t.Fatalf("open --print --delivered t6 = %q", out)
+	}
 	for _, c := range []struct{ ref, key, want string }{
 		{"t1", "url", "https://github.com/atqamz/hand/pull/42"},
 		{"t3", "path", filepath.Join(fx.dir, "notes.md")},
@@ -189,6 +194,14 @@ func TestOpenDelivered(t *testing.T) {
 	}
 	if got := len(fx.opened(t)); got != before {
 		t.Fatalf("--print opened something: %d lines, was %d", got, before)
+	}
+	for _, args := range [][]string{{"t6", "--delivered"}, {"--delivered", "t6"}} {
+		if _, errOut, code := fx.h.run(append([]string{"open"}, args...)...); code == 0 || !strings.Contains(errOut, "UNC paths are not opened") || !strings.Contains(errOut, unc) || strings.Count(strings.TrimSpace(errOut), "\n") != 0 {
+			t.Fatalf("open %q on a UNC deliverable: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	if got := len(fx.opened(t)); got != before {
+		t.Fatalf("a UNC deliverable reached the opener: %d lines, was %d", got, before)
 	}
 	if _, errOut, code := fx.h.run("open", "t2", "--delivered"); code != 3 || !strings.Contains(errOut, "t2 has no deliverable in its reports") {
 		t.Fatalf("a task with no deliverable: code=%d stderr=%q", code, errOut)

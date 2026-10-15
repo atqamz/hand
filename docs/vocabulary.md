@@ -219,7 +219,7 @@ A report stays unread until someone acknowledges it: the supervisor with `hand r
 
 ### Deliverable
 
-Whatever a worker delivered: a PR or merge request on any forge, a document or page URL, or the path of a file or folder. The report footer asks the worker to end its report with one line `Delivered: <link or absolute path>` for each. Hand reads them on demand, with no stored column: `Delivered:` lines first, and only for a report with none, the change-request URLs in its body (GitHub `/pull/N`, Gitea and Forgejo `/pulls/N`, GitLab `/-/merge_requests/N`, Bitbucket `/pull-requests/N`). A value that is neither an http(s) URL nor an absolute path (a POSIX or Windows path, judged by its text) is ignored. The board labels each `PR`, `MR`, `link` or `file`; a `file` chip is text, never a link. `hand open tN --delivered` opens the newest.
+Whatever a worker delivered: a PR or merge request on any forge, a document or page URL, or the path of a file or folder. The report footer asks the worker to end its report with one line `Delivered: <link or absolute path>` for each. Hand reads them on demand, with no stored column: `Delivered:` lines first, and only for a report with none, the change-request URLs in its body (GitHub `/pull/N`, Gitea and Forgejo `/pulls/N`, GitLab `/-/merge_requests/N`, Bitbucket `/pull-requests/N`). A value that is neither an http(s) URL nor an absolute path (a POSIX or Windows path, judged by its text) is ignored. The board labels each `PR`, `MR`, `link` or `file`; a `file` chip is text, never a link. `hand open tN --delivered` opens the newest, but never a UNC path.
 
 ### Decision
 

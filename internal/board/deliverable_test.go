@@ -28,6 +28,7 @@ func TestDeliverables(t *testing.T) {
 		{"backticks, bullet and CRLF", "- Delivered: `https://example.com/a`\r\nDelivered: /tmp/x\r\n", []board.Deliverable{d("https://example.com/a", "link"), d("/tmp/x", "file")}},
 		{"file scheme ignored", "Delivered: file:///home/me/a.md", nil},
 		{"other scheme ignored", "Delivered: ftp://example.com/a\nDelivered: javascript:alert(1)\nDelivered: mailto:a@b.c", nil},
+		{"forward-slash unc ignored", "Delivered: //host/share/a.md", nil},
 		{"relative path ignored", "Delivered: notes/a.md\nDelivered: ./a.md\nDelivered: ~/a.md", nil},
 		{"prose ignored", "Delivered: the report\nDelivered:\nDelivered: https://", nil},
 		{"url with a space ignored", "Delivered: https://example.com/a b", nil},
