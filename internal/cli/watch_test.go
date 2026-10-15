@@ -1112,3 +1112,19 @@ func TestAttemptShowHasNoScreenWhenNoReadSucceeded(t *testing.T) {
 		t.Fatalf("attempt show = %q", show)
 	}
 }
+
+func TestWatchRecordsAnAPIErrorTurnAsQuiet(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "● API Error: Connection lost mid-response. The response above may be\n  incomplete.\n\n> "
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if !strings.Contains(got, `,attempt.quiet,t1,"a1: api error: API Error: Connection lost mid-response`) {
+		t.Fatalf("wait = %q", got)
+	}
+}

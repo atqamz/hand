@@ -12,6 +12,9 @@ var (
 		"codex":  regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your usage limit[^\n]*)`),
 		"agy":    regexp.MustCompile(`(?m)^[^\w\n]*(Individual quota reached\.(?:[^\n]*\n){0,2}?[^\n]*?Resets\s+in\s+(\w+)\.)`),
 	}
+	apiErrorLines = map[string]*regexp.Regexp{
+		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(API Error:[^\n]*)`),
+	}
 	wrapped = regexp.MustCompile(`\s*\n\s*`)
 )
 
@@ -30,6 +33,24 @@ func Limit(name, screen string) (string, bool) {
 		if d, err := time.ParseDuration(m[2]); err == nil {
 			line += " (~" + time.Now().Add(d).UTC().Format(time.RFC3339) + ")"
 		}
+	}
+	return line, true
+}
+
+const apiErrorMax = 160
+
+func APIError(name, screen string) (string, bool) {
+	re, ok := apiErrorLines[name]
+	if !ok {
+		return "", false
+	}
+	all := re.FindAllStringSubmatch(screen, -1)
+	if all == nil {
+		return "", false
+	}
+	line := strings.TrimSpace(all[len(all)-1][1])
+	if r := []rune(line); len(r) > apiErrorMax {
+		line = string(r[:apiErrorMax]) + "…"
 	}
 	return line, true
 }

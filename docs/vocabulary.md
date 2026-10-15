@@ -283,7 +283,7 @@ The wake kinds are:
 | Kind | Meaning |
 |---|---|
 | `attempt.reported` | a worker added a report |
-| `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn |
+| `attempt.quiet` | the worker's turn ended; the detail says whether it reported since its last quiet turn, or `api error: <line>` when claude's screen has a line starting `API Error:` |
 | `attempt.idle` | the worker's turn ended again, or after its `done` or `stuck` report |
 | `attempt.limited` | the worker's turn ended at its harness's usage limit; the detail is the limit line |
 | `attempt.long` | the worker's turn has run 60 minutes without a break; the detail is `working for 60m` |

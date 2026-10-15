@@ -561,7 +561,8 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				return nil
 			}
 		}
-		kind, detail, err := w.st.RecordQuiet(ctx, a.ID)
+		apiError, _ := harness.APIError(a.Harness, s.Text)
+		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
 		if err != nil {
 			return err
 		}

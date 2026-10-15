@@ -366,7 +366,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 		switch {
 		case e.Kind == "attempt.blocked":
 			kind = "worker"
-		case (e.Kind == "attempt.quiet" || e.Kind == "attempt.idle") && strings.HasSuffix(e.Detail, "without a new report"):
+		case (e.Kind == "attempt.quiet" || e.Kind == "attempt.idle") && (strings.HasSuffix(e.Detail, "without a new report") || strings.Contains(e.Detail, ": api error: ")):
 			kind = "quiet"
 		case e.Kind == "attempt.limited":
 			kind = "limited"

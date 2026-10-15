@@ -69,3 +69,19 @@ func TestLimitIgnoresWarningsOtherHarnessesAndOpencode(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIErrorMatchesOnlyALineStart(t *testing.T) {
+	for screen, want := range map[string]string{
+		"● API Error: Connection lost mid-response. The response above may be\n  incomplete.\n\n> ": "API Error: Connection lost mid-response. The response above may be",
+		"● Retrying after an API Error: 500\n> ":                                                    "",
+		"● Done\n> ": "",
+	} {
+		got, ok := APIError("claude", screen)
+		if got != want || ok != (want != "") {
+			t.Errorf("APIError(%q) = %q, %v; want %q", screen, got, ok, want)
+		}
+	}
+	if _, ok := APIError("codex", "● API Error: boom"); ok {
+		t.Error("codex matched")
+	}
+}
