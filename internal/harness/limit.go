@@ -15,7 +15,8 @@ var (
 	apiErrorLines = map[string]*regexp.Regexp{
 		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(API Error:[^\n]*)`),
 	}
-	wrapped = regexp.MustCompile(`\s*\n\s*`)
+	turnBullet = regexp.MustCompile(`(?m)^●`)
+	wrapped    = regexp.MustCompile(`\s*\n\s*`)
 )
 
 func Limit(name, screen string) (string, bool) {
@@ -44,11 +45,15 @@ func APIError(name, screen string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	all := re.FindAllStringSubmatch(screen, -1)
+	all := re.FindAllStringSubmatchIndex(screen, -1)
 	if all == nil {
 		return "", false
 	}
-	line := strings.TrimSpace(all[len(all)-1][1])
+	m := all[len(all)-1]
+	if turnBullet.MatchString(screen[m[1]:]) {
+		return "", false
+	}
+	line := strings.TrimSpace(screen[m[2]:m[3]])
 	if r := []rune(line); len(r) > apiErrorMax {
 		line = string(r[:apiErrorMax]) + "…"
 	}

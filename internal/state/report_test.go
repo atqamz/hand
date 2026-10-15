@@ -233,3 +233,18 @@ func TestReportsOldestKeepsTheOldestN(t *testing.T) {
 		t.Fatalf("oldest = %v", got)
 	}
 }
+
+func TestRecordQuietLabelsAnAPIErrorOnlyWithoutAnUnseenReport(t *testing.T) {
+	s, _ := openTest(t)
+	a := runningAttempt(t, s)
+	ctx := context.Background()
+	if _, got, err := s.RecordQuiet(ctx, a.ID, "API Error: boom"); err != nil || got != "api error: API Error: boom" {
+		t.Fatalf("RecordQuiet = %q, %v", got, err)
+	}
+	if _, err := s.AddReport(ctx, a.ID, ReportDone, "Fixed login"); err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := s.RecordQuiet(ctx, a.ID, "API Error: boom"); err != nil || got != "turn ended; reported r1 done" {
+		t.Fatalf("RecordQuiet = %q, %v", got, err)
+	}
+}

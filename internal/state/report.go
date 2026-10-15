@@ -245,9 +245,10 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError strin
 			detail = "turn ended; reported " + ReportRef(id) + " " + status
 		case !errors.Is(err, sql.ErrNoRows):
 			return err
-		}
-		if apiError != "" {
-			detail = "api error: " + apiError
+		default:
+			if apiError != "" {
+				detail = "api error: " + apiError
+			}
 		}
 		last, _, err := lastAttemptEvent(ctx, tx, attemptID)
 		if err != nil {
