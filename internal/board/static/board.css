@@ -29,6 +29,7 @@ pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto;font-si
 .more{color:var(--muted);font-size:12px;padding:4px 0}
 .ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font-size:12px;line-height:18px;white-space:nowrap}
 a.ref:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
+.chip.file{max-width:min(100%,32ch);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:var(--mono)}
 .chip{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;font-size:12px;font-weight:600;line-height:18px}
 button{font:inherit;font-size:14px;font-weight:500;line-height:20px;padding:4px 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
 button:hover{background:var(--hover)}

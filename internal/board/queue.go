@@ -415,12 +415,12 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 }
 
 type facts struct {
-	signals map[int64]state.Event
-	latest  map[int64]state.Attempt
-	done    map[int64]bool
-	unread  map[int64]bool
-	asked   map[int64]int
-	prs     map[int64]string
+	signals   map[int64]state.Event
+	latest    map[int64]state.Attempt
+	done      map[int64]bool
+	unread    map[int64]bool
+	asked     map[int64]int
+	delivered map[int64]Deliverable
 }
 
 func (b *Board) facts(ctx context.Context) (facts, error) {
@@ -442,19 +442,19 @@ func (b *Board) facts(ctx context.Context) (facts, error) {
 	return f, err
 }
 
-func (b *Board) prLinks(ctx context.Context, tasks []state.Task) (map[int64]string, error) {
+func (b *Board) deliverables(ctx context.Context, tasks []state.Task) (map[int64]Deliverable, error) {
 	ids := make([]int64, 0, len(tasks))
 	for _, t := range tasks {
 		ids = append(ids, t.ID)
 	}
-	reports, err := b.st.ReportsMentioning(ctx, "/pull/", ids)
+	reports, err := b.st.ReportsMentioning(ctx, []string{"Delivered:", "/pull", "/merge_requests/", "/pull-requests/"}, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64]string{}
+	out := map[int64]Deliverable{}
 	for _, r := range reports {
-		if links := PRLinks(r.Body); len(links) > 0 {
-			out[r.TaskID] = links[len(links)-1]
+		if found := Deliverables(r.Body); len(found) > 0 {
+			out[r.TaskID] = found[len(found)-1]
 		}
 	}
 	return out, nil
@@ -516,16 +516,19 @@ func when(stamp string) string {
 }
 
 type check struct {
-	Task    state.Task
-	State   string
-	Agent   string
-	Attempt *state.Attempt
-	At      string
-	PR      string
+	Task      state.Task
+	State     string
+	Agent     string
+	Attempt   *state.Attempt
+	At        string
+	Delivered *Deliverable
 }
 
 func (f facts) check(t state.Task) check {
-	c := check{Task: t, State: "idle", PR: f.prs[t.ID]}
+	c := check{Task: t, State: "idle"}
+	if d, ok := f.delivered[t.ID]; ok {
+		c.Delivered = &d
+	}
 	failed, done := false, t.Status == state.StatusDone
 	if a, ok := f.latest[t.ID]; ok {
 		c.Attempt = &a

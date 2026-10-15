@@ -36,7 +36,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	if f.prs, err = b.prLinks(ctx, tasks); err != nil {
+	if f.delivered, err = b.deliverables(ctx, tasks); err != nil {
 		b.failErr(w, err)
 		return
 	}

@@ -81,8 +81,6 @@ func tabOnce(h template.HTML) template.HTML {
 
 var finished = []string{state.StatusDone, state.StatusAbandoned}
 
-var prLink = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/[0-9]+`)
-
 var (
 	taskPill     = map[string]string{state.StatusActive: "running", state.StatusInbox: "neutral", state.StatusDone: "passing", state.StatusAbandoned: "neutral"}
 	decisionPill = map[string]string{state.DecisionOpen: "waiting", state.DecisionAnswered: "passing", state.DecisionWithdrawn: "neutral"}
@@ -121,7 +119,7 @@ type card struct {
 	Attempts  []state.Attempt
 	Report    *state.Report
 	Decisions []state.Decision
-	PRs       []string
+	Delivered []Deliverable
 }
 
 func New(st *state.Store, token string, o Options) http.Handler {
@@ -383,8 +381,6 @@ func tint(id any) int {
 	return int(h.Sum32() % 12)
 }
 
-func PRLinks(text string) []string { return prLink.FindAllString(text, -1) }
-
 var absPath = regexp.MustCompile(`(^|[\s"'(=])(?:/|[A-Za-z]:[\\/]|\\\\[?]\\[A-Za-z]:[\\/]|\\\\)(?:[^\s"'():,/\\]+(?: [^\s"'():,/\\]+)*[/\\])*[^\s"'():,]+`)
 
 func Scrub(msg string) string {
@@ -458,9 +454,11 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 		return c, err
 	}
 	for i := len(reports) - 1; i >= 0; i-- {
-		for _, link := range PRLinks(reports[i].Body) {
-			if !slices.Contains(c.PRs, link) {
-				c.PRs = append(c.PRs, link)
+		found := Deliverables(reports[i].Body)
+		slices.Reverse(found)
+		for _, d := range found {
+			if !slices.Contains(c.Delivered, d) {
+				c.Delivered = append(c.Delivered, d)
 			}
 		}
 	}
@@ -496,11 +494,11 @@ func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values
 		tasks = append(tasks, recent...)
 	}
 	f, _ := data["facts"].(facts)
-	prs, err := b.prLinks(ctx, tasks)
+	delivered, err := b.deliverables(ctx, tasks)
 	if err != nil {
 		return err
 	}
-	f.prs = prs
+	f.delivered = delivered
 	checks := make([]check, 0, len(tasks))
 	for _, t := range tasks {
 		checks = append(checks, f.check(t))
