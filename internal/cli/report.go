@@ -42,7 +42,7 @@ func reportFooterFor(goos, exe string) string {
 		return "\n\n---\n" + reportMarker + ". Write the report to a file outside the worktree, so none is left in it, then run this in PowerShell or Git Bash:\n" +
 			name + " report add --status done --file PATH\n" + full +
 			"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-			"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal.\n" +
+			"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Hand reads your report, not your terminal.\n" +
 			"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch`. " +
 			"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
 			"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
@@ -54,7 +54,7 @@ func reportFooterFor(goos, exe string) string {
 		"YOUR REPORT\n" +
 		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-		"Say what changed, list the commits, and give any PR link. Hand reads your report, not your terminal.\n" +
+		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Hand reads your report, not your terminal.\n" +
 		"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch` or an `until ...; do sleep 30; done` loop in a single shell call. " +
 		"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
 		"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
