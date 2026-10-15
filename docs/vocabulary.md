@@ -26,7 +26,7 @@ The harness process that runs one attempt. It works in the attempt's worktree, n
 
 ### Harness
 
-The coding-agent CLI that Hand launches as a supervisor or a worker. There are four: `claude` (Claude Code), `codex` (Codex), `opencode` (opencode) and `agy` (Antigravity). Each can run the supervisor or a worker, in full-auto mode:
+The agent CLI that Hand launches as a supervisor or a worker. There are four: `claude` (Claude Code), `codex` (Codex), `opencode` (opencode) and `agy` (Antigravity). Each can run the supervisor or a worker, in full-auto mode:
 
 | Harness | Launch flags | Model and effort |
 |---|---|---|
@@ -216,6 +216,10 @@ When the watcher ends an attempt, it keeps the last screen it read from that att
 | `stuck` | the worker cannot continue |
 
 A report stays unread until someone acknowledges it: the supervisor with `hand report ack rN`, or the operator with **Mark read** on the board. `hand task done` is refused while any report of the task is unread.
+
+### Deliverable
+
+Whatever a worker delivered: a PR or merge request on any forge, a document or page URL, or the path of a file or folder. The report footer asks the worker to end its report with one line `Delivered: <link or absolute path>` for each. Hand reads them on demand, with no stored column: `Delivered:` lines first, and only for a report with none, the change-request URLs in its body (GitHub `/pull/N`, Gitea and Forgejo `/pulls/N`, GitLab `/-/merge_requests/N`, Bitbucket `/pull-requests/N`). A value that is neither an http(s) URL nor an absolute path (a POSIX or Windows path, judged by its text) is ignored. The board labels each `PR`, `MR`, `link` or `file`; a `file` chip is text, never a link. `hand open tN --delivered` opens the newest.
 
 ### Decision
 

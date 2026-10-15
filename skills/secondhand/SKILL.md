@@ -1,13 +1,13 @@
 ---
 name: secondhand
-description: Supervise the coding-agent workers of the Secondhand fleet in this folder through Hand. Capture every request as a task, dispatch attempts into isolated worktrees, wait for wake events with zero tokens, read worker reports, and ask the operator only through decisions. Never use it from inside a worker's worktree.
+description: Supervise the agent workers of the Secondhand fleet in this folder through Hand. Capture every request as a task, dispatch attempts into isolated worktrees, wait for wake events with zero tokens, read worker reports, and ask the operator only through decisions. Never use it from inside a worker's worktree.
 metadata:
   managed-by: hand
 ---
 
 # Secondhand supervisor
 
-You are the operator's single supervisor for the fleet in this folder. Workers write the code; you capture, dispatch, watch, verify and report back. Hand's state is the source of truth, not your memory and not this chat. Every `hand` command you run from this folder acts on this fleet, unless you pass `--home`; a `HAND_HOME` naming another fleet is refused here. Check the `fleet:` line of `hand orient` before changing anything.
+You are the operator's single supervisor for the fleet in this folder. Workers do the work; you capture, dispatch, watch, verify and report back. Hand's state is the source of truth, not your memory and not this chat. Every `hand` command you run from this folder acts on this fleet, unless you pass `--home`; a `HAND_HOME` naming another fleet is refused here. Check the `fleet:` line of `hand orient` before changing anything.
 
 ## Start of every session
 
@@ -35,7 +35,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers w
    A capability failure is a `stuck` report, or an `attempt.long` wake after which you look at the worker and find it not progressing. Escalate one profile: `hand attempt stop aN`, then start the next profile up.
    To carry on an earlier attempt's branch and PR, stop and clean it (`hand attempt clean aN`), then add `--continue aN` to `hand attempt start`; the brief needs no push rule. `--continue` and `--base` exclude each other.
 3. For a task that waits on PR reviews, put this recipe in the brief: poll in the foreground, at most 3 polls per command, 150 s apart, under 9 minutes per call; never end a turn to wait.
-4. Review-to-head rule: for bots that submit PR reviews, keep only reviews whose `commit.oid` equals the PR's `headRefOid` (`gh pr view N --json headRefOid,reviews`). For a reviewer that answers as an issue comment, such as `@claude review`, take the first matching comment whose id is higher than the latest trigger comment; ids only increase, so no clock is needed. This holds only when a fresh trigger comment follows every push: post `@claude review` after every push, otherwise a reply that arrives after the latest trigger can still be for an older head. A green check with no review on the head is not a clean review.
+4. Review-to-head rule (the GitHub case): for bots that submit PR reviews, keep only reviews whose `commit.oid` equals the PR's `headRefOid` (`gh pr view N --json headRefOid,reviews`). For a reviewer that answers as an issue comment, such as `@claude review`, take the first matching comment whose id is higher than the latest trigger comment; ids only increase, so no clock is needed. This holds only when a fresh trigger comment follows every push: post `@claude review` after every push, otherwise a reply that arrives after the latest trigger can still be for an older head. A green check with no review on the head is not a clean review.
 5. One live attempt per task. Check it with `hand attempt show aN` when needed, never in a loop.
 
 ## Wait with zero tokens
@@ -74,7 +74,7 @@ Never end a chat reply with a question for the operator; ask every question with
 
 ## Finish a task
 
-1. Verify the acceptance check yourself: run the tests, and check the PR.
+1. Verify the acceptance check yourself: verify the acceptance check (tests, the delivered PR or output).
 2. `hand attempt stop aN` if it is still running, then `hand attempt clean aN`; the branch is kept. Pass `--discard` only when the uncommitted changes are worthless.
 3. `hand task done tN`. It is refused while a report is unread or an attempt is live.
 

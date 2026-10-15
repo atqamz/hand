@@ -1,6 +1,6 @@
 # Hand (next)
 
-Personal supervisor layer for coding agents. Read `docs/spec.md` before changing anything.
+Personal supervisor layer for agents. Read `docs/spec.md` before changing anything.
 
 - Terms follow `docs/vocabulary.md`; update it when a term, state, wake kind or ref changes.
 - Standard library first. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` (already one of its own) for macOS process start times.

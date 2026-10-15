@@ -1,6 +1,6 @@
 # Hand
 
-Hand is a personal supervisor layer for coding agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
+Hand is a personal supervisor layer for agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
 Hand is built for one operator, not as a product for other users. It runs every day on Linux; macOS and native Windows are **experimental**: see [Platform support](#platform-support). The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
@@ -23,7 +23,7 @@ The idea of one agent running a crew of workers in worktrees is also the idea be
 
 ## Why
 
-A single coding agent works well on one task. Running several at once leaves someone to:
+A single agent works well on one task. Running several at once leaves someone to:
 
 - write each request down before work starts, so nothing lives only in chat;
 - keep concurrent work in separate worktrees and branches;
@@ -227,7 +227,7 @@ What you do:
 2. Ask for work in the **Chat** tab. The supervisor captures each request as a task before doing anything else.
 3. Answer decisions on their card or their page, or with `hand decision answer dN "ANSWER"`.
 4. Read reports, and press **Mark read** once you have read one.
-5. Follow a task on its page, or open its newest pull request with `hand open tN --pr`.
+5. Follow a task on its page, or open its newest deliverable with `hand open tN --delivered`.
 6. Find a finished task with **Browse finished tasks** under the task list. That page searches titles, goals and refs, filters by status, project and finish date, and groups the results by day, 50 to a page.
 
 What the supervisor does, following the `secondhand` skill:
@@ -392,9 +392,9 @@ A fleet's page has two tabs. **Needs you** lists what waits on you, then the tas
 | `hand open tN` | the task |
 | `hand open dN` | the decision |
 | `hand open rN`, `hand open aN` | the report or attempt, on its task's page |
-| `hand open tN --pr` | the task's newest PR, on GitHub |
+| `hand open tN --delivered` | the task's newest deliverable: a PR, a document or a file |
 
-It logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes, and starts a board first when none answers.
+`--delivered` never opens a file itself, because the path comes from a worker's report and the OS opener runs programs: it opens the folder that holds a file, or the folder itself, and opens a URL only when its scheme is `http` or `https`; `--print` prints the path or URL as it is. It logs the browser in with the fleet's token through `xdg-open` (on macOS, `open`) and never prints the token; `hand open --print` prints the login link instead, for a phone or another browser, so keep that output private. It finds the board through `~/.secondhand/board.addr`, which the running board writes, and starts a board first when none answers.
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 
@@ -462,7 +462,7 @@ Every worker runs with its permission prompts skipped (see [The supervisor](#the
 
 ## Commands
 
-Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--pr` after the ref. `--home DIR`, given before the command, picks the fleet.
+Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--delivered` after the ref. `--home DIR`, given before the command, picks the fleet.
 
 | Command | Purpose |
 |---|---|
@@ -499,7 +499,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. `--harness H` switches to another harness between turns. |
 | `hand board [--addr ADDR] [--update-every DURATION]` | Serve the board for every fleet. |
-| `hand open [--print] [REF]`, `hand open tN --pr` | Open the fleet page, a task, decision, report or attempt, or a task's newest PR, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
+| `hand open [--print] [REF]`, `hand open tN --delivered` | Open the fleet page, a task, decision, report or attempt, or a task's newest deliverable, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit board` | Print the board's systemd user unit (Linux only; on macOS and Windows it exits 2, see [Autostart](#autostart)). It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check] [--keep-luvus] [--auto]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |

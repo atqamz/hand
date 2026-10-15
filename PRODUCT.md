@@ -14,7 +14,7 @@ The board is the one thing they open; a terminal is optional. They use it as muc
 
 ## Product Purpose
 
-Hand is a personal supervisor layer for coding agents. The operator talks to one supervisor agent per fleet. The supervisor:
+Hand is a personal supervisor layer for agents. The operator talks to one supervisor agent per fleet. The supervisor:
 - captures every request as a task;
 - dispatches Claude Code, Codex or opencode workers into isolated git worktrees through Luvus;
 - waits for them at zero token cost;
@@ -86,7 +86,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 
 ## Evidence on Hand
 
-This is a personal tool: it has no testimonials, customers or usage metrics, and none may be invented. The real content is live fleet data: tasks, plans, reports (often with PR links), decisions, events, and supervisor transcripts.
+This is a personal tool: it has no testimonials, customers or usage metrics, and none may be invented. The real content is live fleet data: tasks, plans, reports (often with deliverable links), decisions, events, and supervisor transcripts.
 
 ## Product Principles
 

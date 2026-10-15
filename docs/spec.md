@@ -1,6 +1,6 @@
 # Hand — personal spec
 
-Hand is the operator's personal tool for running a crew of coding agents through one supervisor. It is not a product for other users. Every decision is judged by one question: does this make the operator's daily loop cheaper, more deterministic, or more reliable?
+Hand is the operator's personal tool for running a crew of agents through one supervisor. It is not a product for other users. Every decision is judged by one question: does this make the operator's daily loop cheaper, more deterministic, or more reliable?
 
 Written 2026-09-26 after freezing the v19 rewrite. The runtime was chosen the same day after two spikes: Orca (`~/orca-spike/REPORT.md`) and Luvus (`~/luvus-spike/REPORT.md`).
 
@@ -16,7 +16,7 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 4. **Fleets.** A fleet is any folder `hand init` ran in, with an immutable ID and a name the operator can change. The operator runs each fleet's supervisor from its board, and several fleets run side by side. `~/.secondhand` (`$SECONDHAND_HOME`) links each fleet ID to its folder and holds every worker worktree outside every fleet. Each fleet has its own Luvus session, watcher and board.
 5. **Board.** One place outside chat where everything is visible:
    - every operator request becomes a durable item (inbox/Task) before work starts, so nothing lives only in chat text;
-   - one card per Task: goal, status, current plan, attempts, latest report, pending decisions, PR link;
+   - one card per Task: goal, status, current plan, attempts, latest report, pending decisions, deliverables;
    - the board is a pure projection of Hand state: deleting or restarting it loses nothing;
    - the board is the operator's interface. It answers a Decision by ID, acknowledges a report by ID, and starts, resumes, stops and chats with the supervisor. Judgement goes to the supervisor through chat, and supervisor control works over loopback only.
 
