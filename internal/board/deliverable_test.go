@@ -39,7 +39,7 @@ func TestDeliverables(t *testing.T) {
 		{"fallback stops at the number", "https://github.com/a/b/pull/9/files#diff", []board.Deliverable{d("https://github.com/a/b/pull/9", "PR")}},
 		{"github issue is not a deliverable", "Fixes https://github.com/atqamz/hand/issues/796 and https://example.com/docs", nil},
 		{"explicit wins over fallback", "https://github.com/a/b/pull/1\nDelivered: /tmp/out.md\nhttps://github.com/a/b/pull/2", []board.Deliverable{d("/tmp/out.md", "file")}},
-		{"an invalid explicit line does not unlock the fallback", "Delivered: soon\nhttps://github.com/a/b/pull/2", []board.Deliverable{d("https://github.com/a/b/pull/2", "PR")}},
+		{"an invalid explicit line still blocks the fallback", "Delivered: pending\nhttps://github.com/a/b/pull/2", nil},
 		{"duplicates removed", "https://github.com/a/b/pull/1 https://github.com/a/b/pull/2 https://github.com/a/b/pull/1", []board.Deliverable{d("https://github.com/a/b/pull/1", "PR"), d("https://github.com/a/b/pull/2", "PR")}},
 		{"explicit duplicates removed", "Delivered: /tmp/a\nDelivered: /tmp/b\nDelivered: /tmp/a", []board.Deliverable{d("/tmp/a", "file"), d("/tmp/b", "file")}},
 	} {

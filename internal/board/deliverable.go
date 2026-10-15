@@ -26,10 +26,11 @@ func Deliverables(body string) []Deliverable {
 			out = append(out, Deliverable{ref, kind})
 		}
 	}
-	for _, m := range deliveredLine.FindAllStringSubmatch(body, -1) {
+	lines := deliveredLine.FindAllStringSubmatch(body, -1)
+	for _, m := range lines {
 		add(strings.Trim(strings.TrimSpace(m[1]), "`"))
 	}
-	if out == nil {
+	if len(lines) == 0 {
 		for _, ref := range changeRequest.FindAllString(body, -1) {
 			add(ref)
 		}
