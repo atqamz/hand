@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ type openFixture struct {
 	base string
 	stop func() string
 	log  string
+	dir  string
 }
 
 func newOpenFixture(t *testing.T) *openFixture {
@@ -31,6 +33,16 @@ func newOpenFixture(t *testing.T) *openFixture {
 	h.ok("task", "add", "hand", "Fix login")
 	h.ok("task", "add", "hand", "Write docs")
 	h.ok("task", "start", "t1")
+	dir := t.TempDir()
+	extra := [][]string{
+		{"https://docs.example.com/q3-review", filepath.Join(dir, "notes.md")},
+		{`C:\Users\me\out\report.docx`},
+		{dir},
+	}
+	for i := range extra {
+		h.ok("task", "add", "hand", "Deliverable task")
+		h.ok("task", "start", "t"+strconv.Itoa(i+3))
+	}
 	st, err := state.Open(filepath.Join(h.home, "hand.db"), func() time.Time { return h.now })
 	if err != nil {
 		t.Fatal(err)
@@ -52,10 +64,24 @@ func newOpenFixture(t *testing.T) *openFixture {
 	if _, err := st.Ask(ctx, 1, "Keep the old cookie name?"); err != nil {
 		t.Fatal(err)
 	}
+	for i, refs := range extra {
+		w, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: int64(i + 3), Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AttemptRunning(ctx, w.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, ref := range refs {
+			if _, err := st.AddReport(ctx, w.ID, state.ReportProgress, "Done.\nDelivered: "+ref+"\n"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	fx := &openFixture{h: h, id: field(h.ok("init"), "id"), log: filepath.Join(t.TempDir(), "opened")}
+	fx := &openFixture{h: h, id: field(h.ok("init"), "id"), log: filepath.Join(t.TempDir(), "opened"), dir: dir}
 	bin := t.TempDir()
 	fakebin.Install(t, bin, openerName(), "opener", nil)
 	h.vars["PATH"] = bin
@@ -118,7 +144,7 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 			t.Fatalf("open %q leaked the token:\n%s%s", args, out, errOut)
 		}
 	}
-	for _, args := range [][]string{nil, {"supervisor"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--pr"}, {"t9"}, {"x1"}} {
+	for _, args := range [][]string{nil, {"supervisor"}, {"t1"}, {"d1"}, {"r1"}, {"a1"}, {"t1", "--delivered"}, {"t9"}, {"x1"}} {
 		check(args...)
 	}
 	path := fx.h.vars["PATH"]
@@ -133,24 +159,51 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 	check("t1")
 }
 
-func TestOpenPR(t *testing.T) {
+func TestOpenDelivered(t *testing.T) {
 	fx := newOpenFixture(t)
-	for _, args := range [][]string{{"t1", "--pr"}, {"--pr", "t1"}} {
-		out := fx.h.ok(append([]string{"open"}, args...)...)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"t1", "--delivered"}, "https://github.com/atqamz/hand/pull/42"},
+		{[]string{"--delivered", "t1"}, "https://github.com/atqamz/hand/pull/42"},
+		{[]string{"t3", "--delivered"}, fx.dir},
+		{[]string{"t4", "--delivered"}, `C:\Users\me\out`},
+		{[]string{"t5", "--delivered"}, fx.dir},
+	} {
+		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t)
-		if got := opened[len(opened)-1]; got != "https://github.com/atqamz/hand/pull/42" || !strings.Contains(out, "pull/42") {
-			t.Fatalf("open %q = %q (%q)", args, got, out)
+		if got := opened[len(opened)-1]; got != c.want || !strings.Contains(out, strings.ReplaceAll(c.want, `\`, `\\`)) {
+			t.Fatalf("open %q = %q (%q), want %q", c.args, got, out, c.want)
 		}
 	}
-	if _, errOut, code := fx.h.run("open", "t2", "--pr"); code != 3 || !strings.Contains(errOut, "no PR link") {
-		t.Fatalf("a task with no PR: code=%d stderr=%q", code, errOut)
+	before := len(fx.opened(t))
+	for _, c := range []struct{ ref, key, want string }{
+		{"t1", "url", "https://github.com/atqamz/hand/pull/42"},
+		{"t3", "path", filepath.Join(fx.dir, "notes.md")},
+		{"t4", "path", `C:\Users\me\out\report.docx`},
+	} {
+		if out := fx.h.ok("open", "--print", "--delivered", c.ref); field(out, c.key) != c.want {
+			t.Fatalf("open --print --delivered %s = %q, want %s %q", c.ref, out, c.key, c.want)
+		}
 	}
-	if _, _, code := fx.h.run("open", "d1", "--pr"); code != 2 {
-		t.Fatalf("--pr on a decision: code=%d", code)
+	if got := len(fx.opened(t)); got != before {
+		t.Fatalf("--print opened something: %d lines, was %d", got, before)
+	}
+	if _, errOut, code := fx.h.run("open", "t2", "--delivered"); code != 3 || !strings.Contains(errOut, "t2 has no deliverable in its reports") {
+		t.Fatalf("a task with no deliverable: code=%d stderr=%q", code, errOut)
+	}
+	if _, _, code := fx.h.run("open", "d1", "--delivered"); code != 2 {
+		t.Fatalf("--delivered on a decision: code=%d", code)
+	}
+	for _, args := range [][]string{{"t1", "--pr"}, {"--pr", "t1"}, {"-pr", "t1"}} {
+		if _, errOut, code := fx.h.run(append([]string{"open"}, args...)...); code != 2 || !strings.Contains(errOut, "--delivered") {
+			t.Fatalf("open %q: code=%d stderr=%q", args, code, errOut)
+		}
 	}
 	fx.stop()
-	if _, errOut, code := fx.h.run("open", "t1", "--pr"); code != 0 {
-		t.Fatalf("--pr needs no board: code=%d stderr=%q", code, errOut)
+	if _, errOut, code := fx.h.run("open", "t1", "--delivered"); code != 0 {
+		t.Fatalf("--delivered needs no board: code=%d stderr=%q", code, errOut)
 	}
 }
 
