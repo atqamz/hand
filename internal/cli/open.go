@@ -161,15 +161,12 @@ func newestDeliverable(ctx context.Context, st *state.Store, ref string) (board.
 }
 
 func folderOf(path string) string {
-	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		return path
-	}
 	trimmed := strings.TrimRight(path, `/\`)
 	i := strings.LastIndexAny(trimmed, `/\`)
 	if i < 0 {
 		return path
 	}
-	if trimmed != path {
+	if info, err := os.Stat(trimmed); err == nil && info.IsDir() {
 		return trimmed
 	}
 	if parent := trimmed[:i]; parent != "" && !strings.HasSuffix(parent, ":") {
