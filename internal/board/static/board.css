@@ -29,7 +29,7 @@ pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto;font-si
 .more{color:var(--muted);font-size:12px;padding:4px 0}
 .ref{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);font-size:12px;line-height:18px;white-space:nowrap}
 a.ref:hover{border-color:var(--accent);color:var(--accent);text-decoration:none}
-.chip.file{max-width:min(100%,32ch);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:var(--mono)}
+.chip.file{max-width:32ch;padding:0;border:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:var(--mono);font-weight:400}
 .chip{display:inline-block;padding:0 7px;border:1px solid var(--line);border-radius:999px;font-size:12px;font-weight:600;line-height:18px}
 button{font:inherit;font-size:14px;font-weight:500;line-height:20px;padding:4px 12px;border:1px solid var(--line-strong);border-radius:6px;background:var(--card);color:var(--fg);cursor:pointer}
 button:hover{background:var(--hover)}
@@ -151,6 +151,9 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .task-row .check-title::after{content:"";position:absolute;inset:0}
 .task-row .ref,.task-row .chip{position:relative;z-index:1}
 .task-row .meta{justify-self:start}
+.check-sub{display:flex;align-items:baseline;gap:8px;min-width:0}
+.check-sub .meta{min-width:0}
+.check-sub .chip{flex:none;max-width:24ch}
 .all-clear{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:12px 0;color:var(--muted)}
 .all-clear .icon{color:var(--pass)}
 .all-clear>span{color:var(--fg);font-weight:600}
@@ -405,7 +408,6 @@ body[data-link=lost] .strip .status-line{opacity:.45}
 .filters input,.filters select{min-height:32px}
 .found{margin:0;color:var(--muted);font-size:12px}
 .days .group:first-child{margin-top:0}
-.archive .task-row{grid-template-columns:16px auto minmax(0,1fr) auto auto}
 .when{white-space:nowrap}
 .pager{display:flex;justify-content:space-between;gap:12px}
 .pager a[rel=next]{margin-left:auto}

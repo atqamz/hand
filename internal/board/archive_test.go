@@ -229,7 +229,6 @@ func TestTheArchiveStyles(t *testing.T) {
 		".filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));",
 		".filters .search{grid-column:1/-1}",
 		".filters input,.filters select{min-height:32px}",
-		".archive .task-row{grid-template-columns:16px auto minmax(0,1fr) auto auto}",
 		".when{white-space:nowrap}",
 		".finished{margin:0;padding:8px 0;font-size:12px}",
 		".pager a[rel=next]{margin-left:auto}",

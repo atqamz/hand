@@ -68,7 +68,7 @@ func TestTaskCardChipsByKind(t *testing.T) {
 	var seen []string
 	for _, want := range []string{
 		`<a class="chip" href="https://github.com/atqamz/hand/pull/9" target="_blank" rel="noopener noreferrer">PR</a>`,
-		`<span class="chip file" title="/home/me/out/notes.md">file: /home/me/out/notes.md</span>`,
+		`<span class="chip file" title="/home/me/out/notes.md">file: notes.md</span>`,
 		`<a class="chip" href="https://docs.example.com/q3" target="_blank" rel="noopener noreferrer">link</a>`,
 		`<a class="chip" href="https://gitlab.com/g/p/-/merge_requests/4" target="_blank" rel="noopener noreferrer">MR</a>`,
 		`<a class="chip" href="https://github.com/atqamz/hand/pull/800" target="_blank" rel="noopener noreferrer">PR</a>`,
@@ -97,7 +97,7 @@ func TestPathChipIsEscapedText(t *testing.T) {
 	}
 	h := board.New(st, token, board.Options{})
 	for _, page := range []string{get(t, h, "/task/t1"), checks(get(t, h, "/"))["t1"]} {
-		for _, want := range []string{`title="/tmp/a&lt;b&amp;c&#34;d.md"`, `file: /tmp/a&lt;b&amp;c&#34;d.md</span>`} {
+		for _, want := range []string{`title="/tmp/a&lt;b&amp;c&#34;d.md"`, `file: a&lt;b&amp;c&#34;d.md</span>`} {
 			if !strings.Contains(page, want) {
 				t.Fatalf("page lacks %q:\n%s", want, page)
 			}
@@ -140,4 +140,26 @@ func TestOldReportWithOnlyAPullRequestKeepsItsPRChip(t *testing.T) {
 	if page := get(t, h, "/task/t1"); !strings.Contains(page, want) {
 		t.Fatalf("task page lacks the PR chip:\n%s", page)
 	}
+}
+
+func TestLongPathChipStaysOnTheMetaLine(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	task := active(t, st, "Long path")
+	a := attempt(t, st, task.ID, state.AttemptRunning, "")
+	name := strings.Repeat("n", 190) + ".md"
+	if _, err := st.AddReport(ctx, a.ID, state.ReportProgress, "Delivered: /"+strings.Repeat("d/", 3)+name); err != nil {
+		t.Fatal(err)
+	}
+	row := checks(get(t, board.New(st, token, board.Options{}), "/"))["t1"]
+	chip := `<span class="chip file" title="/d/d/d/` + name + `">file: ` + name + `</span>`
+	if body := strings.Index(row, `<span class="check-body">`); body < 0 || !strings.Contains(row[body:], chip+`</span></span>`) {
+		t.Fatalf("chip is outside .check-body: %s", row)
+	}
+}
+
+func TestFileChipIsPlainCappedText(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, ".chip.file{max-width:32ch;padding:0;border:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:var(--mono);font-weight:400}")
+	lacks(t, "board.css", css, "min(100%,32ch)", ".archive .task-row{")
 }

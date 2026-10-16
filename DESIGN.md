@@ -587,7 +587,7 @@ With nothing open, Needs shows the passing icon in green, "All clear" in ink at 
 
 ### Tasks
 Under a "Tasks" head, grouped by status (Active and Inbox, then a Finished group holding the five most recent finished tasks), each group with a muted label head and a count pill. The Finished count is every finished task, not the five shown.
-- **Row:** a grid of the state icon, the task ref chip, the title (one line, ellipsis), a right-aligned muted meta ("a9 claude opus · blocked") and a deliverable chip, padded 6px by 4px between hairlines.
+- **Row:** a grid of the state icon, the task ref chip, the title (one line, ellipsis), and a muted meta line ("a9 claude opus · blocked") that ends with the deliverable chip, padded 6px by 4px between hairlines.
 - **Icon colour:** failing red, waiting amber, running and passing green, idle neutral.
 - A "Browse finished tasks (N)" link, 12px, sits under the list and opens the finished-tasks page. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
@@ -620,7 +620,7 @@ The model menu and the overflow menu are `details` elements whose body opens abo
 
 ### Refs, chips and counts
 - **Ref:** a mono chip on `card` with a hairline border, 6px corners and 0 by 6px padding. A linked ref turns its border and text accent on hover. Inside slug lines and Hand lines a ref drops its chip and takes the line's size and colour.
-- **Chip:** a pill with a hairline border in Label type: the deliverable link (`PR`, `MR` or `link`, opening in a new tab), the path of a deliverable file as plain text in the mono face (cut with an ellipsis, the full path in its title), and the option chips that fill a decision's answer.
+- **Chip:** a pill with a hairline border in Label type: the deliverable link (`PR`, `MR` or `link`, opening in a new tab), a deliverable file as plain text in the mono face, with no border (its basename cut with an ellipsis, the full path in its title), and the option chips that fill a decision's answer.
 - **Count:** a pill at least 22px wide on neutral-bg in Badge type, taking the worst open item's tone in the Needs head.
 
 ### Inputs

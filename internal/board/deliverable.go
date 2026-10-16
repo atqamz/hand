@@ -54,3 +54,8 @@ func deliverableKind(ref string) string {
 	}
 	return "link"
 }
+
+func base(path string) string {
+	path = strings.TrimRight(path, `/\`)
+	return path[strings.LastIndexAny(path, `/\`)+1:]
+}

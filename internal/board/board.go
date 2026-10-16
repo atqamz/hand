@@ -54,6 +54,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	},
 	"words": func(kind string) string { return strings.NewReplacer(".", " ", "_", " ").Replace(kind) },
 	"hm":    hm,
+	"base":  base,
 	"tint":  tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
