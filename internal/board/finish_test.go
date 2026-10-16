@@ -82,7 +82,8 @@ func TestCountsFollowTheSeverityRamp(t *testing.T) {
 
 func TestHeadersTintTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "tint", css, ".wait[data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}", ":not(:has(+.spacer))::after{content:\"·\";display:inline-block;margin-left:8px;opacity:.5}")
+	contains(t, "tint", css, ".wait[data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}")
+	lacks(t, "separator dots", css, `content:"·"`)
 	i := strings.Index(css, ".menu-body label{")
 	if i < 0 || strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "--mono") {
 		t.Fatal("menu labels still wear mono caps")
@@ -111,8 +112,9 @@ func TestASentItemStaysClosedOnlyForItsScreen(t *testing.T) {
 
 func TestThePhoneMastheadStaysOneRow(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:none;")
-	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;flex-wrap:nowrap}")
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}", ".masthead .strip-note{flex-basis:100%}")
+	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;overflow-x:clip;white-space:nowrap;flex-wrap:nowrap}")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead .strip{display:flex;flex-wrap:wrap;", ".masthead .strip-note{flex-basis:100%;")
 }
 
 func TestStuckReportsWearTheFailTone(t *testing.T) {
@@ -151,7 +153,7 @@ func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
 
 func TestReportHeadersCentreTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "report head", css, ".thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;", ".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{")
+	contains(t, "report head", css, ".thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;")
 }
 
 func TestNeedsAffordances(t *testing.T) {
@@ -164,4 +166,19 @@ func TestNeedsAffordances(t *testing.T) {
 		"#needs{scrollbar-gutter:stable}")
 	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".wait>summary>.icon:last-child{transition:none}")
 	contains(t, "desk", block(t, css, "@media (min-width:1024px){"), "body[data-page=fleet] .queue-head{display:flex;position:sticky;top:0;")
+}
+
+func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "composer", css,
+		"#chat{container-type:inline-size}",
+		`@container (max-width:699px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`)
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".console-box:has(.starter){position:static}")
+	contains(t, "controls", css, ".filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}")
+	contains(t, "thread pages", css, ".thread-head .question{max-height:none;overflow:visible}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none}")
+	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"),
+		".filters :is(input,select),.menu-body label select{font-size:16px}",
+		".crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}",
+		"a.chip,.needs-count{position:relative}",
+		`a.chip::before,.needs-count::before{content:"";position:absolute;inset:-12px 0}`)
 }

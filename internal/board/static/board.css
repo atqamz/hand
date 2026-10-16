@@ -52,7 +52,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .mark{width:22px;height:22px;color:var(--tint)}
 .masthead .fleet-id{border-color:transparent;background:none;color:var(--muted);line-height:24px}
 .strip{font-size:12px;line-height:20px;color:var(--fg);min-width:0}
-.strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;white-space:nowrap;flex-wrap:nowrap}
+.strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;overflow-x:clip;white-space:nowrap;flex-wrap:nowrap}
 .strip .who,.strip .queued,.strip .compactions{color:var(--muted)}
 .pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-weight:600;line-height:20px}
 .pill .icon{width:12px;height:12px;vertical-align:0}
@@ -114,7 +114,6 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .copy,.wait-title,.report-title,.need-title,.hand-text{min-width:0;overflow-wrap:anywhere}
 .wait-title{grid-column:1/-1;grid-row:2;min-width:0;color:var(--fg);font-size:16px;font-weight:600;line-height:22px}
 .wait:not([open]) .wait-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{content:"·";display:inline-block;margin-left:8px;opacity:.5}
 .slug .ref,.slug a.ref{padding:0;border:0;background:none;color:inherit;font-size:inherit;line-height:inherit}
 .slug a.ref{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{padding:0 6px;border-radius:999px;background:var(--neutral-bg);color:var(--neutral);font-family:var(--mono);font-weight:700;letter-spacing:.03em;text-transform:uppercase}
@@ -237,6 +236,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .console-box.dropping{border-color:var(--accent);outline:2px dashed var(--accent);outline-offset:3px}
 @media (max-width:799px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
+@container (max-width:699px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}
 @media (min-width:600px) and (max-width:799px){.console{flex-wrap:wrap}}
 .console-box:has(.starter){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint send" "console console"}
 .console:has(.starter){flex-wrap:wrap;align-items:flex-start;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
@@ -292,6 +292,7 @@ kbd{padding:0 5px;border:1px solid var(--line);border-bottom-width:2px;border-ra
 #toast:empty{display:none}
 body[data-page=fleet] .board{max-width:none}
 #needs,#chat{width:100%}
+#chat{container-type:inline-size}
 #needs{scrollbar-gutter:stable}
 #needs>*,#chat>*{width:100%;max-width:760px;margin-inline:auto}
 #chat>.timeline{max-width:none;padding-inline:max(2px,calc((100% - 760px)/2))}
@@ -316,32 +317,37 @@ body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 1192p
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
+.console-box:has(.starter){position:static}
 .masthead{position:sticky;top:0;z-index:4}
 .masthead-inner{min-height:36px;padding:0 12px;overflow:hidden}
 .masthead .fleet-id{display:none}
-.masthead .strip{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
+.masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding-block:4px;overflow:hidden}
 .masthead .strip .status-line{flex-wrap:nowrap;white-space:nowrap}
-.masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.masthead .strip-note{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .masthead{display:flex;align-items:center}
 .masthead-inner{flex:1;min-width:0}
 .masthead .tabs{flex:none;padding:0 8px;border:0}
 .masthead .tabs a{padding:6px 10px}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
-@media (max-width:599px){.thread>.card>header.slug>*::after{content:none!important}.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
+@media (max-width:599px){.board{padding:12px}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
 .masthead .spacer{display:none}
-.masthead .strip{flex:none;display:flex;justify-content:flex-end;overflow:hidden}
+.masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}
+.masthead .strip-note{flex-basis:100%}
 .needs-count{display:inline-flex}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
 [data-send-key]{display:none}
-button,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,a.chip{min-height:44px}
+button,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:44px}
+.filters :is(input,select),.menu-body label select{font-size:16px}
 .attach{width:44px}
 .key{min-width:44px}
 .keys{gap:12px}
 .console{flex-wrap:wrap}
-.actions a,.finished a,a.chip{display:inline-flex;align-items:center}}
+.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}
+a.chip,.needs-count{position:relative}
+a.chip::before,.needs-count::before{content:"";position:absolute;inset:-12px 0}}
 @media (prefers-reduced-motion:reduce){.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px}
@@ -388,6 +394,8 @@ form.inline{display:inline}
 .thread-title{overflow-wrap:anywhere;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
 .fleet .mark{align-self:center;color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
+.thread-head .question{max-height:none;overflow:visible}
+.thread>.timeline{max-height:none;overflow:visible;mask-image:none}
 .slug .status[data-state=running],.slug .status[data-state=passing]{color:var(--pass)}
 .slug .status[data-state=waiting]{color:var(--wait)}
 .slug .status[data-state=failing]{color:var(--fail)}
@@ -406,6 +414,7 @@ body[data-link=lost] .strip .status-line{opacity:.45}
 .filters label{display:grid;gap:2px;min-width:0;font-size:12px;font-weight:600;color:var(--muted)}
 .filters .search{grid-column:1/-1}
 .filters input,.filters select{min-height:32px}
+.filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
 .found{margin:0;color:var(--muted);font-size:12px}
 .days .group:first-child{margin-top:0}
 .when{white-space:nowrap}

@@ -414,21 +414,20 @@ func TestTheDeskFinishFixes(t *testing.T) {
 	for _, rule := range []string{
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
-		"[data-send-key]{display:none}\nbutton,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,a.chip{min-height:44px}",
+		"[data-send-key]{display:none}\nbutton,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:44px}",
 		".attach{width:44px}\n.key{min-width:44px}\n.keys{gap:12px}\n.console{flex-wrap:wrap}",
 		".timeline .card .copy>:not(.table):not(pre){max-width:72ch}",
 		".from-you .copy{max-width:72ch;",
-		".slug>*:not(:last-child):not(.code):not(.pill):not(.spacer):not(.report-title):not(:has(+.spacer))::after{",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",
-		".masthead .strip-note{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+		".masthead .strip-note{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
 		"@media (max-height:599px) and (max-width:599px){.masthead .fleet-name,",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
 		}
 	}
-	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before", "\n.card .copy>:not(.table)", "[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width"} {
+	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before", "\n.card .copy>:not(.table)", "[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width", ".slug>*:not(:last-child)", "a.chip{min-height:44px}"} {
 		if strings.Contains(css, gone) {
 			t.Errorf("board.css still has %q", gone)
 		}
