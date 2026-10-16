@@ -119,27 +119,37 @@ func TestConsoleMenusKeepIdsAndFields(t *testing.T) {
 
 func TestDraftsKeyOnTheFormIdentity(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, "const key = (f) => `${f.form?.dataset.draftKey ?? [...el.querySelectorAll(\"form\")].indexOf(f.form)}|${f.form?.getAttribute(\"action\")}|${f.name}`;")
-	lacks(t, "app.js", js, "const key = (f) => `${f.form?.getAttribute(\"action\")}|${f.name}`;")
+	contains(t, "app.js", js, "const key = (f) => `${f.form?.getAttribute(\"action\")}|${[...(f.form?.querySelectorAll(\"input[type=hidden]:not([name=csrf])\") ?? [])].map((h) => `${h.name}=${h.value}`)}|${f.name}`;")
+	lacks(t, "app.js", js, "indexOf(f.form)", "draftKey")
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "console", console, `data-draft-key="switch-current-`)
-	if n := strings.Count(console, `action="/supervisor/switch" data-fetch data-draft-key=`); n < 2 {
-		t.Fatalf("switch forms with a draft key = %d:\n%s", n, console)
+	lacks(t, "console", console, "data-draft-key")
+	keyed := regexp.MustCompile(`action="/supervisor/switch" data-fetch><input type="hidden" name="csrf" value="[^"]*">(<input type="hidden" name="harness" value="([^"]+)">)?`).FindAllStringSubmatch(console, -1)
+	seen := map[string]bool{}
+	for _, m := range keyed {
+		if seen[m[2]] {
+			t.Fatalf("two switch forms share the identity %q:\n%s", m[2], console)
+		}
+		seen[m[2]] = true
 	}
-	contains(t, "console", console, `data-draft-key="switch-codex"`)
+	if len(keyed) < 2 || !seen[""] || !seen["codex"] {
+		t.Fatalf("switch forms = %v:\n%s", seen, console)
+	}
 	ended := newFixture(t)
 	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
-	keyed := regexp.MustCompile(`data-draft-key="start-([^"]+)"[^>]*><input type="hidden" name="csrf" value="[^"]*"><input type="hidden" name="harness" value="([^"]+)">`).FindAllStringSubmatch(picked, -1)
-	if len(keyed) == 0 || len(keyed) != strings.Count(picked, `name="harness"`) {
-		t.Fatalf("start forms with a draft key = %d of %d:\n%s", len(keyed), strings.Count(picked, `name="harness"`), picked)
+	lacks(t, "picked", picked, "data-draft-key")
+	starts := regexp.MustCompile(`action="/supervisor/start" data-fetch data-starting="starting…"><input type="hidden" name="csrf" value="[^"]*"><input type="hidden" name="harness" value="([^"]+)">`).FindAllStringSubmatch(picked, -1)
+	if len(starts) == 0 || len(starts) != strings.Count(picked, `name="harness"`) {
+		t.Fatalf("start forms with a harness = %d of %d:\n%s", len(starts), strings.Count(picked, `name="harness"`), picked)
 	}
-	for _, m := range keyed {
-		if m[1] != m[2] {
-			t.Fatalf("start form key %q is not its harness %q", m[1], m[2])
+	names := map[string]bool{}
+	for _, m := range starts {
+		if names[m[1]] {
+			t.Fatalf("two start forms share the harness %q", m[1])
 		}
+		names[m[1]] = true
 	}
 }
 

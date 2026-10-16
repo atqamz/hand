@@ -126,6 +126,10 @@ func TestDecisionsAnswerInPlace(t *testing.T) {
 	h := board.New(st, token, board.Options{})
 	q := region(get(t, h, "/"), "queue")
 	contains(t, "decision item", q, `action="/decision/d1/answer" data-fetch`, `name="csrf" value="`+token+`"`, `<textarea name="answer"`, "Keep the old cookie name?")
+	lacks(t, "decision item", q, "data-draft-key", `name="harness"`)
+	if n := strings.Count(q, `type="hidden"`); n != 1 {
+		t.Fatalf("decision form hidden inputs = %d, want only csrf:\n%s", n, q)
+	}
 	if res := post(h, "/decision/d1/answer", url.Values{"answer": {"yes"}}); res.StatusCode != 303 {
 		t.Fatalf("answer = %d", res.StatusCode)
 	}
