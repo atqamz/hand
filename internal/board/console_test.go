@@ -129,6 +129,18 @@ func TestDraftsKeyOnTheFormIdentity(t *testing.T) {
 		t.Fatalf("switch forms with a draft key = %d:\n%s", n, console)
 	}
 	contains(t, "console", console, `data-draft-key="switch-codex"`)
+	ended := newFixture(t)
+	ended.supervisor(t, state.AttemptInterrupted, "gen-1")
+	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
+	keyed := regexp.MustCompile(`data-draft-key="start-([^"]+)"[^>]*><input type="hidden" name="csrf" value="[^"]*"><input type="hidden" name="harness" value="([^"]+)">`).FindAllStringSubmatch(picked, -1)
+	if len(keyed) == 0 || len(keyed) != strings.Count(picked, `name="harness"`) {
+		t.Fatalf("start forms with a draft key = %d of %d:\n%s", len(keyed), strings.Count(picked, `name="harness"`), picked)
+	}
+	for _, m := range keyed {
+		if m[1] != m[2] {
+			t.Fatalf("start form key %q is not its harness %q", m[1], m[2])
+		}
+	}
 }
 
 func TestTheConsoleWorksWithoutJS(t *testing.T) {
