@@ -117,10 +117,18 @@ func TestConsoleMenusKeepIdsAndFields(t *testing.T) {
 	}
 }
 
-func TestDraftsKeyOnTheFormPosition(t *testing.T) {
+func TestDraftsKeyOnTheFormIdentity(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, "const key = (f) => `${[...el.querySelectorAll(\"form\")].indexOf(f.form)}|${f.form?.getAttribute(\"action\")}|${f.name}`;")
+	contains(t, "app.js", js, "const key = (f) => `${f.form?.dataset.draftKey ?? [...el.querySelectorAll(\"form\")].indexOf(f.form)}|${f.form?.getAttribute(\"action\")}|${f.name}`;")
 	lacks(t, "app.js", js, "const key = (f) => `${f.form?.getAttribute(\"action\")}|${f.name}`;")
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "console", console, `data-draft-key="switch-current-`)
+	if n := strings.Count(console, `action="/supervisor/switch" data-fetch data-draft-key=`); n < 2 {
+		t.Fatalf("switch forms with a draft key = %d:\n%s", n, console)
+	}
+	contains(t, "console", console, `data-draft-key="switch-codex"`)
 }
 
 func TestTheConsoleWorksWithoutJS(t *testing.T) {

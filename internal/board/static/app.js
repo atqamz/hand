@@ -191,7 +191,7 @@
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const fed = new Set([...el.querySelectorAll("[data-no]")].map((d) => d.dataset.no));
 		const fields = "textarea, select, input:not([type=hidden])";
-		const key = (f) => `${[...el.querySelectorAll("form")].indexOf(f.form)}|${f.form?.getAttribute("action")}|${f.name}`;
+		const key = (f) => `${f.form?.dataset.draftKey ?? [...el.querySelectorAll("form")].indexOf(f.form)}|${f.form?.getAttribute("action")}|${f.name}`;
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
 		const pinned = name === "timeline" && gap(el) <= 48;
 		el.innerHTML = html;
