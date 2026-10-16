@@ -114,7 +114,7 @@ func TestThePhoneMastheadStaysOneRow(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}", ".masthead .strip-note{flex-basis:100%}")
 	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;overflow-x:clip;white-space:nowrap;flex-wrap:nowrap}")
-	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead .strip{display:flex;flex-wrap:wrap;", ".masthead .strip-note{flex-basis:100%;")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding-block:4px;overflow-x:clip}", ".masthead .strip-note{flex-basis:100%;")
 }
 
 func TestStuckReportsWearTheFailTone(t *testing.T) {
@@ -173,8 +173,11 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 	contains(t, "composer", css,
 		"#chat{container-type:inline-size}",
 		`@container (max-width:699px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`)
-	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".console-box:has(.starter){position:static}")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), "body .console-box:has(.starter){position:static}", ".masthead-inner{min-height:36px;padding:0 12px;overflow-x:clip}")
 	contains(t, "controls", css, ".filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}")
+	if strings.Index(css, ".menu-body label select{font-size:14px") > strings.Index(css, "@media (pointer:coarse){textarea") {
+		t.Fatal("the 14px control rule comes after the coarse 16px one and wins on touch")
+	}
 	contains(t, "thread pages", css, ".thread-head .question{max-height:none;overflow:visible}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none}")
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"),
 		".filters :is(input,select),.menu-body label select{font-size:16px}",

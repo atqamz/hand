@@ -264,6 +264,7 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 #more-menu .menu-body button,#more-menu .menu-body a{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
+.filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
 .field-label{margin:8px 0 2px;color:var(--muted);font-size:12px;font-weight:600}
 .menu-body a{font-size:14px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;height:28px;padding:0 10px;background:var(--bg);color:var(--fg)}
@@ -317,11 +318,11 @@ body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 1192p
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
-.console-box:has(.starter){position:static}
+body .console-box:has(.starter){position:static}
 .masthead{position:sticky;top:0;z-index:4}
-.masthead-inner{min-height:36px;padding:0 12px;overflow:hidden}
+.masthead-inner{min-height:36px;padding:0 12px;overflow-x:clip}
 .masthead .fleet-id{display:none}
-.masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding-block:4px;overflow:hidden}
+.masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding-block:4px;overflow-x:clip}
 .masthead .strip .status-line{flex-wrap:nowrap;white-space:nowrap}
 .masthead .strip-note{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .masthead{display:flex;align-items:center}
@@ -414,7 +415,6 @@ body[data-link=lost] .strip .status-line{opacity:.45}
 .filters label{display:grid;gap:2px;min-width:0;font-size:12px;font-weight:600;color:var(--muted)}
 .filters .search{grid-column:1/-1}
 .filters input,.filters select{min-height:32px}
-.filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
 .found{margin:0;color:var(--muted);font-size:12px}
 .days .group:first-child{margin-top:0}
 .when{white-space:nowrap}
