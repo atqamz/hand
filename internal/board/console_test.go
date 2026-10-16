@@ -117,6 +117,12 @@ func TestConsoleMenusKeepIdsAndFields(t *testing.T) {
 	}
 }
 
+func TestDraftsKeyOnTheFormPosition(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "const key = (f) => `${[...el.querySelectorAll(\"form\")].indexOf(f.form)}|${f.form?.getAttribute(\"action\")}|${f.name}`;")
+	lacks(t, "app.js", js, "const key = (f) => `${f.form?.getAttribute(\"action\")}|${f.name}`;")
+}
+
 func TestTheConsoleWorksWithoutJS(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
