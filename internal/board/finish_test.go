@@ -241,3 +241,13 @@ func TestThePhoneConsoleWrapsInThePaneHeadAndTheModelMenuIsAGrid(t *testing.T) {
 		".field-label{margin:4px 0 0;")
 	contains(t, "panels", css, ".work:focus-visible{outline:0}", ".sup>.hint.read-only{margin:0 max(16px,calc((100% - 760px)/2)) 16px;")
 }
+
+func TestEveryNeedsMotionHasAReducedMotionOverride(t *testing.T) {
+	css := asset(t, "board.css")
+	reduced := block(t, css, "@media (prefers-reduced-motion:reduce){")
+	contains(t, "reduced motion", reduced,
+		".wait[data-new]>summary{animation:none}",
+		".wait::details-content{transition:none}",
+		".wait>summary>.icon:last-child{transition:none}",
+		".misread>summary::before{transition:none}")
+}
