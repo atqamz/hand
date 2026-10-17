@@ -105,3 +105,17 @@ func TestAttemptRowsKeepTheirOwnLayout(t *testing.T) {
 	contains(t, "task page", page, `<li class="row check" data-state="running" id="a1">`)
 	lacks(t, "task page", page, "task-row")
 }
+
+func TestRowsHaveFiveSlotsAndTheFleetIDFollowsItsName(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "row slots", css,
+		".row>*{order:5;flex:none}",
+		".row>:is(.icon,.mark){order:1}",
+		".row>:is(.ref,.slug){order:2}",
+		".row>:is(.check-title,.check-body,.need-title,.fleet-name){order:3;flex:1 1 0;min-width:0}",
+		".row>.meta{order:4;",
+		".fleet>.ref{order:4}")
+	if strings.Index(css, ".fleet>.ref{order:4}") < strings.Index(css, ".row>:is(.ref,.slug){order:2}") {
+		t.Fatal("the fleet rule comes before the row rule and loses to it")
+	}
+}
