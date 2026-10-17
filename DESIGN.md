@@ -265,21 +265,17 @@ components:
     padding: "4px"
   task-row:
     height: "48px"
-  chat-card:
-    backgroundColor: "{colors.bg}"
-    rounded: "{rounded.lg}"
-  chat-card-header:
-    backgroundColor: "{colors.card}"
+  msg-head:
     textColor: "{colors.muted}"
     typography: "{typography.meta}"
-    padding: "6px 12px"
-  chat-card-body:
+  msg-copy:
     textColor: "{colors.fg}"
     typography: "{typography.copy}"
-    padding: "10px 12px"
-  chat-card-operator:
+  msg-operator:
     backgroundColor: "{colors.accent-bg}"
-  chat-card-operator-author:
+    rounded: "{rounded.lg}"
+    padding: "10px 14px 12px"
+  msg-operator-author:
     textColor: "{colors.accent}"
   hand-line:
     textColor: "{colors.muted}"
@@ -388,7 +384,7 @@ The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refus
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
 - One severity ramp orders Needs, fills each item's header, and colours the Needs counts.
 - Every state is a word plus an icon shape plus a colour, never colour alone.
-- Chat is a thread of bordered cards: the supervisor on the left, the operator on the right on accent-bg, and Hand's own events as one-line ringed notes.
+- Chat is a conversation, not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
 - Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
 - A 44px masthead that answers the supervisor's state, model and context window.
 - Five type sizes, tabular numerals for live figures, no web fonts, and a strict CSP.
@@ -402,7 +398,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 `TestTheOnCallPalette` pins twenty-two of these tokens to their values in both themes, and the radii, `--control` and `--badge`. `TestColoursMeetContrast` holds twenty-two text pairs to 4.5:1 in both themes (among them ink and muted on the ground, the card and the panel, accent on the ground, each signal on its pale fill and on the ground, ink on accent-bg, the terminal pair and the primary pair), the control edge to 3:1 on the ground, the card and the panel, and every fleet tint to 3:1 on the ground.
 
 ### Primary
-- **Review Blue** (`accent`; pale pair `accent-bg`): the operator's own marks and the live signal. It fills the operator's chat cards (`accent-bg`) and colours their "you" label; it draws the focus ring, the caret, links and text selection (`accent-bg`). It is the working pill, the working pulse, the Chat tab's dot while the supervisor works, the context bar's fill below 80%, and the composer's frame while it has focus.
+- **Review Blue** (`accent`; pale pair `accent-bg`): the operator's own marks and the live signal. It fills the operator's chat bubbles (`accent-bg`) and colours their "you" label; it draws the focus ring, the caret, links and text selection (`accent-bg`). It is the working pill, the working pulse, the Chat tab's dot while the supervisor works, the context bar's fill below 80%, and the composer's frame while it has focus.
 
 ### Secondary
 - **Ink** (`primary`, with `on-primary` text): the one committing button in a form: Send, Answer, Resume and Start. It is near-black with white text by day, and near-white with ground-coloured text at night, so it never competes with a signal.
@@ -411,8 +407,8 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Fleet Tint** (`tint-0` to `tint-11`): twelve hues around the wheel at a similar mid lightness, each with a night value. `tint()` in `internal/board/board.go` picks one per fleet as FNV-1a 32 of the fleet id, mod 12, and the page sets `class="tint-N"` on `body`; a page with no fleet id gets `tint-0`. It colours the mark and the masthead's 3px top rule, and nothing else, with one exception the build carries: on the fleet list, a fleet's name turns its tint on hover.
 
 ### Neutral
-- **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and chat cards at rest, the composer box, inputs, keys, open menus and the toast.
-- **Card Grey** (`card`): chat and thread card header strips, and code in replies.
+- **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus and the toast.
+- **Card Grey** (`card`): thread card header strips, and code in replies.
 - **Panel Grey** (`panel`): the supervisor pane at board width.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
@@ -446,14 +442,14 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
 - **Headline** (600, 18px, 24px, -0.01em): the Needs and Tasks heads and the fleet list's head.
 - **Title** (600, 15px, 22px): the headline of an open Needs item, the fleet name in the masthead and `###` headings in replies. A collapsed item sets it at 400 on one line with an ellipsis.
-- **Copy** (400, 15px, 24px): the body of chat and thread cards; chat cards are held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
+- **Copy** (400, 15px, 24px): the body of chat messages and thread cards; a chat message is held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
 - **Body** (400, 14px, 20px): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 20px): `h3` heads on thread pages and `####` headings in replies; report titles in a report header use 14px at 600.
 - **Nav** (600, 14px, 20px): the tabs, the model menu's summary and the model name in the pane head.
 - **Control** (400, 14px, 20px): buttons, with the primary at 600. Keys in a blocked screen take the same size in mono.
 - **Badge** (600, 12px, 18px, tabular): every badge: the status pills, the Needs counts, the task groups' counts, deliverable links, report states and the countdown.
 - **Label** (600, 12px, 18px): the task groups' heads and labels in menus.
-- **Meta** (400, 12px, 18px, tabular): times, meta, card header strips, Hand lines, the working line, hints and notes.
+- **Meta** (400, 12px, 18px, tabular): times, meta, message head lines, card header strips, Hand lines, the working line, hints and notes.
 - **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
 - **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, LIMITED, NO SUPERVISOR, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
 - **Code block** (400, 12px, 18px, mono): terminal excerpts and preformatted blocks.
@@ -472,7 +468,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
 - **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
 - **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content.
-- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 12px gap, a 16px fade at its top edge and a stable scrollbar gutter on both sides, set in a 760px column centred in the pane. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
+- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 14px gap and a 16px fade at its top edge, set in a 760px column centred in the pane. Its scrollbar sits in the pane's own margin: the right padding is 8px (`--sb`) narrower than the composer's margin while the timeline scrolls, so an operator bubble's right edge is the composer's right edge to the pixel (`TestOperatorBubblesEndOnTheComposerEdge`). Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
 ### Named Rules
@@ -499,7 +495,7 @@ The desk is flat. Depth comes from tone and hairlines: cards and header strips o
 ## Shapes
 
 - **Corners:**
-  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, chat cards, thread cards, the composer, menus, the toast and a decision's option buttons.
+  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, operator bubbles (the corner at the bottom right is 4px), thread cards, the composer, menus, the toast and a decision's option buttons.
   - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, the terminal excerpt, code blocks and tables in replies, thumbnails and the skip link.
   - 4px (`rounded.sm`) on the focus ring, `kbd` keycaps, inline code and the overflow menu's rows.
   - Pills (999px) on the badge, the context bar and the scrollbar thumbs.
@@ -507,7 +503,7 @@ The desk is flat. Depth comes from tone and hairlines: cards and header strips o
 - **Lines:**
   - Borders and rules are 1px hairlines. A list of rows (tasks, attempts, events, decisions, fleets) has a hairline above its first row and after each row.
   - A bordered item's header strip ends on a hairline.
-  - In Chat, day dividers are the only full-width rules.
+  - In Chat, day dividers are the only full-width rules; each carries its date in a pill.
   - A quote in a reply carries a 1px hairline on its left, not a coloured stripe.
   - The masthead has a 3px rule in the fleet tint on top and a hairline below.
 
@@ -593,13 +589,18 @@ Under a "Tasks" head with a search field, grouped by status (Active and Inbox, t
 - **Search:** a GET form of one field (a search icon inside it, "Search tasks") that submits `q` to the finished-tasks page, 260px wide at the right of the head at board width. On the phone's Tasks tab the word "Tasks" hides, because the tab says it, and the field takes the whole width. The head and the field sit outside the tasks region so a live update never takes a typed query.
 - A "Browse finished tasks (N)" link, 12px, sits under the list and opens the finished-tasks page. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
-### Chat cards
-- **Supervisor card:** on the left, fit to its content between 16em and 90% of the column, with a hairline border and 10px corners on the ground. Its header strip, on `card` with a hairline under it, holds "s1" in ink at 600, the model when it changed, and the time, all in Meta type. The body is the reply's markdown in Copy type, padded 10px by 12px.
-- **Operator card:** on the right, up to 75% of the column, filled and bordered in accent-bg with a transparent header strip. "you" is in accent, then the time and, on the right, the delivery state: "queued", "delivered 07:18" or "typed anyway 08:17". While the supervisor reads as blocked, a queued card offers "Type anyway". The text keeps its line breaks. Each `[image: PATH]` line that points into this fleet's `inbox/` shows as a thumbnail under the text instead. A thumbnail is at most 240 by 180 px, with the hairline border and the 6px radius, and it opens the full image.
+### Chat messages
+A message has a head line and no box. The head is one Meta line, 4px above the text: the author in ink at 600, then the time and, for the supervisor, the model when it changed; on an operator message the delivery state sits at the right edge.
+- **Supervisor message:** on the pane, full width of the 760px column, with no border and no fill. The text is the reply's markdown in Copy type, each paragraph, list and quote held to 72ch while tables and code blocks may run to the column's edge. A ref inside the text is plain mono, underlined with a dotted line when it links, and never boxed, so a sentence keeps its rhythm and line height.
+- **Operator message:** a bubble on `accent-bg` aligned right, at most 88% of the column and 560px wide, padded 10px by 14px by 12px, with 10px corners and a 4px bottom right corner. "you" is in accent. The delivery state reads "queued", "delivered 07:18" or "typed anyway 08:17"; while the supervisor reads as blocked, a queued message offers "Type anyway". The text keeps its line breaks and is held to 72ch. Each `[image: PATH]` line that points into this fleet's `inbox/` shows as a thumbnail under the text instead, at most 240 by 180 px with the hairline border and the 6px radius; it opens the full image. With forced colours the bubble takes a `CanvasText` border.
+- **Alignment:** the bubble's right edge is the composer's right edge, and the supervisor's text starts at its left edge.
+- **Scroll shadows:** a table or code block that scrolls sideways carries a 14px shadow on its right edge that fades when the content ends, drawn in the box's own background (`--shadow`), with no script.
 - **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
 
 ### Hand lines
-Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in muted ink, the text clamped to one line with refs inline, and the time on the right. Consecutive wakes fold into one line, "3 wakes · 12:28–12:29", that expands to the individual lines indented 16px. Day dividers are centred muted meta between two hairlines. Cards under a divider show the clock time only; the divider and the times use the browser's zone, and without JavaScript both use UTC and the divider says so. While the supervisor works, a working line reads "s1 working · 4m · last output 12s ago · on your 07:19 message", with the message part linking to that card.
+Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in the control edge, the text clamped to one line with refs inline, and the time directly after the text, 8px from it, so the two read as one phrase. Their words are plain: a wake names its kind ("decision answered d1", "attempt reported a1: r1 done") without a "wake:" prefix, and a ref with nothing after it ("a5:") drops its colon. Consecutive wakes fold into one line, "3 wakes 12:28–12:29", that expands to the individual lines indented 16px; wake lines sit 6px apart rather than a message gap, and the folded line is `--control` high on a coarse pointer. A day divider is a hairline across the pane with the date in a `.badge` pill on the ground. Messages under a divider show the clock time only; the divider and the times use the browser's zone, and without JavaScript both use UTC and the divider says so.
+
+The working line is a Hand line with a pulse: an 8px accent dot that fades in and out every 2s (it stops under reduced motion), then "**s1 working** · 4m · last output 12s ago · on your 07:19 message", with the s1 working in ink and the message part linking to that message. When nothing of the operator's started the turn it ends "since the turn began", and for a wake "on a wake".
 
 ### Supervisor pane head
 The console region: a wrapping row at least 52px high with a hairline under it, padded 8px by 16px (8px by 12px on a phone), on the pane's grey. A board on a network address has no console region, so its pane starts at the timeline.
@@ -635,7 +636,7 @@ The model menu and the overflow menu are `details` elements whose body opens bel
 - **Focus:** a 2px accent outline, 2px out, with 4px corners, on every focusable element.
 
 ### Refs and badges
-- **Ref:** plain mono text at 12px in the surrounding colour; a linked ref is accent and underlines on hover. Inside slug lines and Hand lines a ref takes the line's colour.
+- **Ref:** plain mono text at 12px in the surrounding colour; a linked ref is accent and underlines on hover, or with a dotted underline inside a reply. Inside slug lines and Hand lines a ref takes the line's colour.
 - **Badge:** the one `.badge`, a pill at least `--badge` (20px) wide and high, in Badge type, with a transparent 1px border and 0 by 8px padding. The text is trimmed to its cap height and the box padded by `(height - 1cap) / 2 - 1px`, so capitals sit within 0.6px of the centre. The status pill and the masthead's Needs count are `--badge` plus 4px (24px), set through `--size` on the badge. Its tone comes from one set of rules keyed on the attribute the markup already carries, and a badge with none is neutral: `data-tone` (`fail`, `wait`, `pass`, `link`), `data-state` (the pills: `failing` red, `waiting` amber, `ready`, `running` and `passing` green, `working` accent), `data-status` (a report's `stuck`, `progress` and `done`) and `data-worst` (a Needs count: red for blocked, worker, failure and resume; amber for decision, nosup and limited). The badges are the status pills, the Needs counts (masthead, tab and head), the task groups' counts, the severity word on the task page's waiting rows and the error page, the auto-deny countdown, a report's state and the deliverable link (`PR`, `MR` or `link`, outlined in a hairline, opening in a new tab). In a Needs header the severity word drops its fill and padding.
 - **Corner mark:** an outside link (a deliverable chip, or a link in a reply, plan, report or question) ends in a 5px corner drawn with two 1.5px borders, no glyph and no image, at 70% of the text colour (`TestOutsideLinksCarryACornerMark`). A ref carries no mark, since every ref on the Board opens a tab.
 - **Deliverable file:** plain muted mono text with no box (its basename cut with an ellipsis, the full path in its title).
@@ -657,7 +658,7 @@ A slot that is missing leaves no gap. `.wrap` lets the waiting and decision rows
 Inputs and selects are `--control` high on the ground with a control-edge border, 6px corners and 0 by 10px padding; text boxes pad 8px by 10px. Focus draws a 2px accent outline inset by 1px and hides the border. Placeholders are muted.
 
 ### Reply markdown
-Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a numbered list keeps the numbers written in the source (a list a block interrupts resumes at its own number), lines indented under an item nest inside it up to six lists deep (deeper lines render as plain paragraph text), and blank lines between items keep one list; a numbered list starts at the number written when it fits 32 bits; `###` in Title and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` with 6px corners that scroll rather than wrap; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
+Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a numbered list keeps the numbers written in the source (a list a block interrupts resumes at its own number), lines indented under an item nest inside it up to six lists deep (deeper lines render as plain paragraph text), and blank lines between items keep one list; a numbered list starts at the number written when it fits 32 bits; `###` in Title and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` with 6px corners that scroll rather than wrap, behind a scroll shadow; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways behind the same scroll shadow, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
 
 ### Thread pages
 - **Head:** crumbs in muted 14px with refs, the title in Display type, a slug line with the status badge, refs, time and deliverable badges, then one hairline rule.
