@@ -14,19 +14,23 @@ import (
 type scopeOption struct{ Value, Label string }
 
 var scopes = []scopeOption{
-	{"finished", "Done and abandoned"}, {"all", "Every status"},
+	{"", "Default"}, {"finished", "Done and abandoned"}, {"all", "Every status"},
 	{state.StatusDone, "Done"}, {state.StatusAbandoned, "Abandoned"}, {state.StatusActive, "Active"}, {state.StatusInbox, "Inbox"},
 }
 
 func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 	ctx, v := r.Context(), r.URL.Query()
 	q := strings.TrimSpace(v.Get("q"))
-	statuses, scope := finished, "finished"
+	statuses, scope := finished, ""
 	switch s := v.Get("status"); {
-	case s == "all" || (s == "" && q != ""):
-		statuses, scope = nil, "all"
-	case slices.ContainsFunc(scopes[2:], func(o scopeOption) bool { return o.Value == s }):
+	case s == "all":
+		statuses, scope = nil, s
+	case s == "" && q != "":
+		statuses = nil
+	case slices.ContainsFunc(scopes[3:], func(o scopeOption) bool { return o.Value == s }):
 		statuses, scope = []string{s}, s
+	case s != "":
+		scope = "finished"
 	}
 	page := 1
 	if n, err := strconv.Atoi(v.Get("page")); err == nil && n > 1 && n <= maxArchivePage {
