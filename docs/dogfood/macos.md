@@ -618,12 +618,12 @@ Run it at the end, even after a failure, and again after a logout. In its first 
 . /tmp/hand-dogfood.XXXXXX/env.sh
 PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
 if grep -q "$D/" $PLIST 2>/dev/null; then launchctl unload $PLIST; rm -f $PLIST; fi
-for f in $D/fleet*/watch.pid $D/home*/board.pid; do
+for f in $D/fleet*/watch.pid(N) $D/home*/board.pid(N); do
   [ -f $f ] || continue
   p=$(cut -d' ' -f1 $f)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
-[ -f $D/caffeinate.pid ] && kill $(cat $D/caffeinate.pid)
+[ -f $D/caffeinate.pid ] && ps -p $(cat $D/caffeinate.pid) -o command= | grep -q "^caffeinate" && kill $(cat $D/caffeinate.pid)
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done
 sleep 2
 pgrep -fl "^$D/"

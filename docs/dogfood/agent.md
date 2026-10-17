@@ -98,19 +98,19 @@ For an agent whose host is not the machine under test (the target): it reaches t
 
 ### Running commands
 
-1. Send each command block through one `ssh ... zsh -c "$(cat)"` with the block on stdin. A block cannot also read stdin. Start every block with `. $D/env.sh`.
+1. Send each command block through one `ssh HOST 'D=PATH zsh -c "$(cat)"'` with the block on stdin (the single quotes make the target, not your shell, run `$(cat)`; PATH is the real `D` on the target). A block cannot also read stdin. Start every block with `. $D/env.sh`.
 2. `gh`, the issue bodies and the final redaction pass run on your host. The target's `redact` covers only the output that it pipes. Output that comes back (`ls -l` owners, `ps`) holds the user name: pipe it through `ev` on the target, then redact again on your host before you post it.
-3. Start a background process as `( ... </dev/null &)`: without `</dev/null` the channel never closes. Start `caffeinate -i` with `nohup`, and write its process ID to `$D/caffeinate.pid` for the Teardown.
+3. Start a background process as `( ... </dev/null >"$D/NAME.log" 2>&1 &)`: while it holds stdin, stdout or stderr, the channel never closes. Start `caffeinate -i` the same way with `nohup` in front, and write its process ID to `$D/caffeinate.pid` for the Teardown.
 4. `pgrep -f` and `ps | grep` also match your own `zsh -c` line. Anchor the pattern, as in `pgrep -fl "^$D/"`. Never use `pgrep -fl "$D"`. In zsh, `echo ===x` fails: quote it.
 
 ### Claude on the target
 
 The checks need a logged-in `claude`. Never move the owner's login, a token or an account credential to the target. Pick one:
 
-1. **A dedicated key.** The owner makes an API key with a spend cap for this run and types it on the target into `$D/secrets.env`, mode 600. You never see it. Download the `claude` binary into `$D/bin` and verify its checksum; do not run the installer, since it writes into the owner's home. Set `CLAUDE_CONFIG_DIR=$D/claude` in `env.sh`, and load `secrets.env` there. Delete the key file in the Teardown.
+1. **A dedicated key.** The owner makes an API key with a spend cap for this run and types it on the target into `$D/secrets.env`, mode 600. You never see it. Download the `claude` binary into `$D/bin` and verify its checksum; do not run the installer, since it writes into the owner's home. Set `CLAUDE_CONFIG_DIR=$D/claude` in `env.sh`, and load `secrets.env` there. The Teardown deletes the folder, and with it the key file.
 2. **No key.** Skip `M2`, `M3` and `M6`. Run the checks that need only Hand's processes (`M1`, `M4`, `M5`) with a stand-in `claude` script in `$D/shim`, first on `PATH`: it prints a banner, reads stdin, holds a `sleep` child and exits on SIGTERM. Label each such line `pass (stand-in claude)`: it covers Hand's mechanics, not the real worker path (trust screen, hooks, transcript, wake delivery).
 
 ### Checks that need a person
 
 1. When the person at the target is not your operator, relay each question through the operator, one yes/no question at a time, and copy the answer as written.
-2. A check that logs the owner out (`M11`) kills the SSH connection. Either the owner logs in and reopens the connection, or you run `launchctl bootout gui/$(id -u)/dev.secondhand.dogfood.board` and then `launchctl bootstrap gui/$(id -u) $PLIST`, and label the line `pass (bootout and bootstrap; no real logon)`. That does not test `RunAtLoad` at a real login, so say so in the line.
+2. A check that logs the owner out (`M11`) kills the SSH connection. Either the owner logs in and reopens the connection, or you run `launchctl bootout gui/$(id -u)/dev.secondhand.dogfood.board` and then `launchctl bootstrap gui/$(id -u) $PLIST`, and label the line `pass (bootout and bootstrap; no real logon)`. That does not test `RunAtLoad` at a real login, so say so in the line. Run the Teardown after it: its `unload` removes the plist.
