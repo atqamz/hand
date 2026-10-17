@@ -187,6 +187,55 @@ func TestOneBoardServesTwoFleets(t *testing.T) {
 	}
 }
 
+func TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	c := newHarness(t)
+	c.vars = a.vars
+	c.ok("init", "--name", "gamma")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	urlB, tokenB := fleetPage(t, base, b)
+	fleetPage(t, base, c)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(u string) string {
+		t.Helper()
+		res, err := (&http.Client{Jar: jar}).Get(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil || res.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s = %d %v", u, res.StatusCode, err)
+		}
+		return string(body)
+	}
+	label := func(name string) string { return `<span class="label">` + name + `</span>` }
+	get(urlA + "/?token=" + tokenA)
+	if body := get(urlA + "/"); !strings.Contains(body, label("alpha")) || strings.Contains(body, "beta") || strings.Contains(body, "gamma") {
+		t.Fatalf("one login lists more than its fleet:\n%s", body)
+	}
+	get(urlB + "/?token=" + tokenB)
+	body := get(urlA + "/")
+	if !strings.Contains(body, label("alpha")) || !strings.Contains(body, label("beta")) || strings.Contains(body, "gamma") {
+		t.Fatalf("two logins:\n%s", body)
+	}
+	path := filepath.Join(b.home, "board.token")
+	if err := os.WriteFile(path, []byte(strings.Repeat("e", 48)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if body := get(urlA + "/"); strings.Contains(body, "beta") {
+		t.Fatalf("a rotated token still lists its fleet:\n%s", body)
+	}
+}
+
 func TestAMovedFleetIsFollowed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("moving a home whose files are open is Unix-only")
@@ -269,7 +318,7 @@ func postBoard(t *testing.T, base, token, path string, form url.Values) int {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + base[strings.LastIndex(base, "/")+1:], Value: token})
 	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {
 		t.Fatal(err)

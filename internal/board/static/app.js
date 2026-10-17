@@ -131,10 +131,11 @@
 	const title = () => {
 		const w = worst();
 		document.title = blockedNow() ? `(!) ${(w.worstText || "").split(" ")[0]} blocked` : waiting > 0 ? `(${waiting}) ${fleet}` : agent === "working" ? `● ${fleet}` : fleet;
-		for (const n of document.querySelectorAll("[data-tab=needs] .n")) {
+		for (const n of document.querySelectorAll("[data-tab=needs] .n, [data-needs]")) {
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
 			n.dataset.worst = w.worst || "";
+			if (n.matches("[data-needs]")) n.hidden = waiting === 0;
 		}
 		if (!icon || !icons) return;
 		const href = document.body.dataset.link === "lost" ? plain : blockedNow() ? icons.iconBlocked : waiting > 0 || agent === "blocked" ? icons.iconAttention : agent === "working" ? icons.iconWorking : plain;
@@ -498,6 +499,50 @@
 		split.addEventListener("dblclick", reset);
 		addEventListener("resize", mark);
 		mark();
+	}
+
+	const rail = document.querySelector(".rail");
+	if (rail) {
+		const fleets = [...rail.querySelectorAll(".nav-fleets a")];
+		const home = fleets.find((a) => a.hasAttribute("aria-current")) || fleets[0];
+		for (const a of fleets) a.tabIndex = a === home ? 0 : -1;
+		rail.querySelector(".nav-fleets")?.addEventListener("keydown", (e) => {
+			const step = { ArrowDown: 1, ArrowUp: -1 }[e.key];
+			const i = fleets.indexOf(document.activeElement);
+			if (!step || i < 0) return;
+			e.preventDefault();
+			fleets[(i + step + fleets.length) % fleets.length].focus();
+		});
+		let tipped;
+		const tip = () => {
+			const label = tipped?.querySelector(".label");
+			if (!label) return;
+			const r = tipped.getBoundingClientRect();
+			label.style.top = `${r.top + (r.height - label.offsetHeight) / 2}px`;
+		};
+		const aim = (e) => {
+			tipped = (e.target instanceof Element && e.target.closest(".nav a")) || tipped;
+			tip();
+		};
+		rail.addEventListener("mouseover", aim);
+		rail.addEventListener("focusin", aim);
+		rail.querySelector(".rail-scroll").addEventListener("scroll", tip);
+		const toggle = rail.querySelector(".rail-toggle");
+		const set = (open) => {
+			rail.toggleAttribute("data-open", open);
+			toggle.setAttribute("aria-expanded", String(open));
+			toggle.setAttribute("aria-label", open ? "Hide labels" : "Show labels");
+		};
+		toggle.hidden = false;
+		toggle.addEventListener("click", () => set(!rail.hasAttribute("data-open")));
+		document.addEventListener("click", (e) => {
+			if (rail.hasAttribute("data-open") && e.target instanceof Node && !rail.contains(e.target)) set(false);
+		});
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || !rail.hasAttribute("data-open")) return;
+			set(false);
+			toggle.focus();
+		});
 	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);

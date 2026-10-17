@@ -175,7 +175,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .finished{margin:0;padding:8px 0;font-size:12px}
 .status-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .who{font-weight:600}
-.tabs .dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.nav .dot,.tabs .dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .warn{color:var(--wait)}
 .timeline{display:flex;flex-direction:column-reverse;gap:12px;min-height:12rem;max-height:65vh;overflow-y:auto;overscroll-behavior:contain;padding:16px 2px 2px;scrollbar-gutter:stable both-edges;mask-image:linear-gradient(to bottom,transparent,#000 16px)}
 .timeline>*{flex:none}
@@ -340,6 +340,51 @@ body[data-drag]{cursor:col-resize;user-select:none}}
 @media (min-width:900px) and (pointer:coarse){.split{left:-12px;width:24px}
 .split::before{left:11px}
 .split::after{left:9px;opacity:1}}
+.rail{display:none}
+.nav ul{margin:0;padding:0;list-style:none}
+.nav-pages,.nav-fleets{display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
+.nav-head{margin:16px 0 6px;padding:0 12px;color:var(--muted);font-size:12px;font-weight:600;line-height:18px}
+.nav a{position:relative;display:flex;align-items:center;gap:12px;height:max(40px,var(--control));padding:0 11px;border:1px solid transparent;border-radius:var(--r-md);color:var(--muted);font-weight:600;white-space:nowrap}
+.nav a:hover{background:var(--hover);color:var(--fg);text-decoration:none}
+.nav-pages a[aria-current]{border-color:var(--line);background:var(--bg);color:var(--fg)}
+.nav-fleets a[aria-current]{color:var(--fg)}
+.nav-fleets a[aria-current]::before{content:"";position:absolute;left:-8px;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--fg)}
+.nav .icon{margin:0 1px}
+.nav-fleets .mark{width:18px;height:18px;margin:0;color:var(--tint)}
+.nav .label{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.nav .badge,.nav .dot{margin-left:auto}
+.nav-menu{margin:0 -4px 0 -8px}
+.nav-menu>summary{width:var(--control);justify-content:center;padding:0;color:var(--muted)}
+.nav-menu[open]>summary .icon{transform:none}
+.nav-menu[open]>summary::before{content:"";position:fixed;inset:0;z-index:7;background:rgba(10,12,16,.32);cursor:default}
+.sheet{position:fixed;top:0;bottom:0;left:0;z-index:8;display:block;width:min(300px,86vw);max-height:none;padding:16px 12px 16px 16px;border-width:0 1px 0 0;border-radius:0}
+.sheet .nav-pages{margin-top:4px}
+@media (min-width:900px){.nav-menu{display:none}
+body:has(>.rail){padding-left:56px}
+.rail{position:fixed;inset:0 auto 0 0;z-index:7;display:flex;flex-direction:column;width:56px;padding:0 7px 12px;border-right:1px solid var(--line);background:var(--panel);transition:width .18s cubic-bezier(.16,1,.3,1)}
+.rail-top{display:flex;align-items:center;justify-content:center;flex:none;height:48px;margin:0 -7px 8px;border-bottom:1px solid var(--line)}
+.rail-scroll{flex:1;min-height:0;margin:0 -7px;padding:0 7px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.rail .nav-fleets a[aria-current]::before{left:-6px}
+.rail-toggle{width:40px;height:40px;padding:0;border:0;background:none;color:var(--muted)}
+.rail-toggle:hover{background:var(--hover);color:var(--fg)}
+.rail .nav-pages a,.rail .nav-fleets a{width:40px;justify-content:center;padding:0}
+.rail .nav-head{height:1px;margin:10px 4px;padding:0;overflow:hidden;background:var(--line);font-size:0}
+.rail .label{position:fixed;left:66px;z-index:9;padding:3px 8px;border-radius:var(--r-sm);background:var(--fg);color:var(--bg);font-size:12px;line-height:18px;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s}
+.rail a:hover .label,.rail a:focus-visible .label{opacity:1;visibility:visible}
+.rail .badge{position:absolute;top:-6px;right:-6px;padding-inline:5px;outline:2px solid var(--panel)}
+.rail .dot{position:absolute;top:9px;right:9px;margin:0;outline:2px solid var(--panel)}
+.rail[data-open]{width:232px}
+.rail[data-open] .rail-top{justify-content:flex-start;padding-left:7px}
+.rail[data-open] :is(.nav-pages,.nav-fleets) a{width:auto;justify-content:flex-start;padding:0 11px}
+.rail[data-open] .label{position:static;padding:0;background:none;color:inherit;font-size:14px;line-height:20px;transform:none;opacity:1;visibility:visible}
+.rail[data-open] .nav-head{height:auto;margin:16px 0 6px;padding:0 12px;overflow:visible;background:none;font-size:12px}
+.rail[data-open] .badge{position:static;padding-inline:8px;outline:0}
+.rail[data-open] .dot{position:static;margin-left:auto;outline:0}}
+@media (min-width:900px) and (pointer:coarse){.rail{padding-inline:6px}
+.rail-top,.rail-scroll{margin-inline:-6px}
+.rail-scroll{padding-inline:6px}
+.rail .nav-pages a,.rail .nav-fleets a,.rail-toggle{width:var(--control);height:var(--control)}
+.rail[data-open] .rail-top{padding-left:6px}}
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
@@ -374,7 +419,7 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}
 a.badge{position:relative}
 a.badge::before{content:"";position:absolute;inset:-12px 0}}
-@media (prefers-reduced-motion:reduce){.split::before,.split::after{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}
+@media (prefers-reduced-motion:reduce){.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.pill .icon{animation:none}.timeline>[data-new]{animation:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px}
 .rule{width:100%;margin:0;border:0;border-top:1px solid var(--line)}

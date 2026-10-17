@@ -382,7 +382,7 @@ The fleet is an on-call desk. Everything that needs the operator is an open item
 
 The material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 900px and wider the fleet page is two panes: the work pane on the left holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer, with a separator between them that the operator drags. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time.
+The Board refuses the chat-ops shell, a text sidebar with chat and an inspector beside it, and it refuses the green-on-black terminal opposite. Its navigation is one slim rail of icons at the left edge, 56px wide, and the work pane stays the widest thing on the page. Every page shows one fleet. At 900px and wider the fleet page is the rail and two panes: the work pane holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer, with a separator between them that the operator drags. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time, and a menu button opens the rail's links as a sheet.
 
 **Key Characteristics:**
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
@@ -465,13 +465,14 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ## Layout
 
+- **Rail (900px and wider):** a column fixed to the left edge, 56px wide and the full height, on `panel` with a hairline on its right. The page sits to its right: the body takes 56px of left padding, so the masthead, the grid and every thread page start after it, and the pane clamp below is a percentage of the space that is left. Its top cell is 48px high, the height of the masthead, with the label button and a hairline under it. The rail has no shadow and stays 56px at every window width (the label button widens it on request): at 900px the work pane is 444px and the chat 400px.
 - **Fleet page below 900px:** three tabs switch between Needs (the open items), Tasks (the search field, then the task list) and Chat (the supervisor's pane head, the timeline, then the composer), one full-height panel each. Needs and Tasks are held to an 880px column centred in the page, and Chat sets its timeline and composer in a 760px one. The tab comes from the URL hash, and an id inside a panel (such as `#msg-i3`) opens the tab that holds it; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript all three panels show and the tabs are anchors. Nothing resizes below 900px.
 - **Fleet page at 900px and wider:** a grid of the work pane (`minmax(0,1fr)`) and the supervisor pane (`--pane`) with no gap. The work pane scrolls on its own and holds Needs, then Tasks, each in an 880px column centred in the pane, padded 24px by 32px. The supervisor pane is a column on `panel` with a hairline on its left: the pane head, the timeline, then the composer. The tabs are hidden, the Needs head and the Tasks head show, and the masthead's inner row spans the page with 24px of padding.
-- **Chat width:** `--pane` is `clamp(360px, var(--chat, clamp(400px, 38vw, 720px)), calc(100% - 440px))`: the chat is never under 360px, the work pane never under 440px, and with nothing set the chat is 38vw between 400px and 720px. At 900px the range is 360px to 460px. The separator only sets `--chat`; the clamp stays in CSS, so a width stored on a large screen cannot break a smaller one (a stored 5000px renders at the widest the screen allows) and the limits follow every window resize.
+- **Chat width:** `--pane` is `clamp(360px, var(--chat, clamp(400px, 38vw, 720px)), calc(100% - 440px))`: the chat is never under 360px, the work pane never under 440px, and with nothing set the chat is 38vw between 400px and 720px. With the rail's 56px out of 900px, the range at 900px is 360px to 404px. The separator only sets `--chat`; the clamp stays in CSS, so a width stored on a large screen cannot break a smaller one (a stored 5000px renders at the widest the screen allows) and the limits follow every window resize.
 - **App shell (at least 600px tall, or 900px and wider):** the body fills `100dvh` and never scrolls. The work pane and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
 - **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
-- **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
-- **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content. The task page widens its column to 1120px, and the masthead aligns to its 1088px content.
+- **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the menu button, the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
+- **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column, to the right of the rail, with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content. The task page widens its column to 1120px, and the masthead aligns to its 1088px content.
 - **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 12px gap, a 16px fade at its top edge and a stable scrollbar gutter on both sides, set in a 760px column centred in the pane. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
@@ -479,6 +480,10 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 **The Two Panes At Board Width Rule.** The work pane and the supervisor pane sit side by side from 900px (`TestNeedsAndTasksSitBesideTheChatAtBoardWidth`); below it the three tabs stay and the separator is absent (`TestTabsBelowBoardWidth`).
 
 **The Chat Width Clamp Rule.** The chat's width is the custom property `--chat`, and only `--pane` turns it into a grid track, clamped to 360px at least and everything but 440px at most. `app.js` sets `--chat` through the CSSOM, which the CSP allows, and never lays the pane out itself (`TestTheChatPaneResizesInsideTheClamp`).
+
+**The Slim Rail Rule.** Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened variant (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`). The page is called Board, never Desk.
+
+**The Proven Fleets Rule.** The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts. A fleet the browser holds no valid token for never has its name in the page, and no fleet's Needs count shows in another's rail. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`).
 
 **The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft. The console region sits in the supervisor pane's head, and the task search form sits in the Tasks head outside the tasks region, for the same reason.
 
@@ -500,22 +505,23 @@ The desk is flat. Depth comes from tone and hairlines: cards and header strips o
 
 - **Corners:**
   - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, chat cards, thread cards, the composer, menus, the toast and a decision's option buttons.
-  - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, the terminal excerpt, code blocks and tables in replies, thumbnails and the skip link.
+  - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, rail and sheet items, the terminal excerpt, code blocks and tables in replies, thumbnails and the skip link.
   - 4px (`rounded.sm`) on the focus ring, `kbd` keycaps, inline code and the overflow menu's rows.
   - Pills (999px) on the badge, the context bar and the scrollbar thumbs.
-  - Circles on the Hand line's ring (8px) and the Chat tab's dot (6px).
+  - Circles on the Hand line's ring (8px) and the dot of the Chat tab and the rail's Conversation item (6px).
 - **Lines:**
   - Borders and rules are 1px hairlines. A list of rows (tasks, attempts, events, decisions, fleets) has a hairline above its first row and after each row.
   - A bordered item's header strip ends on a hairline.
   - In Chat, day dividers are the only full-width rules.
   - A quote in a reply carries a 1px hairline on its left, not a coloured stripe.
-  - The masthead has a 3px rule in the fleet tint on top and a hairline below.
+  - The masthead has a 3px rule in the fleet tint on top and a hairline below. The rail has a hairline on its right and one under its top cell, and the fleets sit under a hairline instead of a heading.
 
 ### Icons
 Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 - **Construction:** each uses a 16 by 16 viewBox and `aria-hidden="true"`, with one to four paths. Line icons stroke in `currentColor` at 1.5 with round caps and joins; solid icons fill in `currentColor`. `TestIconsAreOwnInlineSVG` checks all of this and rejects Octicons.
 - **Size and colour:** 16px, except the mark at 22px and the pill's icon at 12px. They take their colour from the surrounding state.
 - **The state family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
+- **The rail's six:** Board is a panel with a divider, Tasks a checklist, Conversation a speech bubble, All fleets four squares, the label button a panel with a narrow strip at its left, and the menu button three lines.
 - **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. A bell is defined in the set, but no page draws it since Notify moved into the overflow menu.
 
 ## Components
@@ -525,6 +531,7 @@ A 44px row on the ground with the fleet tint's 3px rule on top and a hairline be
 - **Left:** the mark in the fleet tint and the fleet name (Headline), linking home, then the fleet id as a borderless muted ref.
 - **Right, in order:** on phone only, the Needs count; the status pill; the supervisor and its model ("s1 · opus high", muted, which leaves the masthead at board width while the pane head shows it); "2 queued" when above zero; the context bar; "compacted 2×" when above zero. A stale-server note follows in amber, on its own line where the strip wraps (phone and short screens).
 - **Link state:** when live updates drop, a muted note reads "Reconnecting…", then "Board offline since 12:41", or "Log in again: hand open --print" when the board refuses the session.
+- **Menu button:** below 900px, a `--control` square left of the mark that opens the sheet (see Rail and sheet).
 - **Thread pages** carry the same masthead with a static copy of the strip.
 
 ### Status pill
@@ -543,6 +550,17 @@ Below 900px, a bar under the masthead row with a hairline between.
 - **Current tab:** ink text and a 2px ink underline.
 - **Needs count:** a neutral badge that takes the worst open item's tone, red or amber.
 - **Chat:** a 6px accent dot while the supervisor works.
+
+### Rail and sheet
+The navigation, on every page that shows a fleet and on no error page. At 900px and wider it is the rail, and below it the same list opens from the masthead's menu button as a sheet.
+- **Items:** Board with the live Needs count, Tasks, and Conversation with the working dot, then a hairline and the fleets: the current fleet and the fleets the browser has a valid login for, each a mark in its tint, then "All fleets" (on a loopback board, where `/` lists fleets). Items are 40px high (a `--control` on touch) with 6px corners and muted ink; at rest the rail shows only icons. At most seven fleets show besides the current one. Below the top cell the items scroll inside the rail when the window is too short for them (the scrollbar is hidden), so the last fleet and "All fleets" are always reachable.
+- **Current:** the page is a tile on the ground with a hairline and ink text (Tasks stays current on a task page). The fleet is ink text with a 3px ink bar at the rail's left edge. Both carry `aria-current`; the decision page marks nothing.
+- **Needs count:** the shared badge on the Board icon's corner, in the tone of the worst open item, hidden at zero and kept live by the tab title's updater (`data-needs`). Only the fleet page has the count; the other pages show none. The working dot is the 6px accent dot on the Conversation icon.
+- **Labels:** on hover or keyboard focus an item's name shows beside it on a small ink tip. The tip is fixed to the viewport so the scrolling list never clips it; `app.js` sets its `top` through the CSSOM to the item's centre, on hover, on focus and while the list scrolls. The label button at the top shows every label at once: the rail widens to 232px over the page with the names, the count and the dot in line, and Escape or a click outside closes it and returns focus to the button. The button is made by `app.js` (hidden until then), with `aria-expanded` and an `aria-label` that reads "Show labels" or "Hide labels".
+- **Keyboard:** the fleet list is one Tab stop, which rests on the current fleet; Up and Down move through it and wrap. With the skip link, the rail is six Tab stops before the masthead (the label button, three pages and the fleets), five without the skip link.
+- **Who is listed:** the host decides it per request. A login cookie is named for its fleet (`hand_board_<fleet id>`) and sent to every page of the board, so the page can see which other fleets this browser holds a token for; each one counts only while it still matches that fleet's `board.token`. The current fleet is always listed, even if the host cannot list fleets. A board on a network address lists only its own fleet and has no "All fleets" link.
+- **Sheet:** a `details.menu` in the masthead whose body is the same list, fixed to the left edge at 300px (86vw at most), full height on the ground with a hairline on its right, over a 32% scrim that a tap closes. Escape closes it and returns focus to the button; it scrolls when the list is taller than the screen. The three tabs stay the phone's primary navigation.
+- **Links:** every rail and sheet item navigates in place and carries no `target`.
 
 ### Needs items
 The signature component. Each open item is a `details` element with a 1px hairline border and 10px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest. A muted chevron at the right of every summary turns 180° when the item opens, so a collapsed item reads as something to open. The keyboard focus ring sits inside the item (`outline-offset:-2px`), because the item clips anything drawn outside it. The work pane keeps its scrollbar gutter on both edges so the width never jumps. From 900px the Needs head ("Needs" and its count) shows above the items; below it the tab carries the count and the head hides.
@@ -624,7 +642,7 @@ A drag strip on the supervisor pane's left edge, 10px wide (24px on coarse point
 - **No fold and no widen mode:** the chat is dragged to size, never folded or maximised.
 
 ### Menus
-The model menu and the overflow menu are `details` elements whose body opens below the summary (the overflow menu's at the right edge) on the ground, with a hairline border, 10px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of `--control`-high rows with 12px side padding, 4px corners and the hover wash: Notify me, New session and Other harness. Escape and a click outside close any open menu.
+The model menu and the overflow menu are `details` elements whose body opens below the summary (the overflow menu's at the right edge) on the ground, with a hairline border, 10px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of `--control`-high rows with 12px side padding, 4px corners and the hover wash: Notify me, New session and Other harness. Fleets are not in it: the rail lists them. Escape and a click outside close any open menu.
 
 ### Buttons
 - **Shape:** gently rounded corners (6px).
@@ -695,4 +713,5 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Don't** load web fonts or images from the stylesheet.
 - **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
 - **Don't** show both panes below 900px or resize anything there, and don't switch tabs for the operator.
-- **Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt.
+- **Don't** build a chat-ops shell: no text sidebar, chat and inspector at once. Navigation is the 56px icon rail, its names showing on hover, on focus or on request, and the work pane stays the widest thing on the page. Don't make a green-on-black terminal look beyond the screen excerpt.
+- **Don't** list a fleet in the rail, or show its name or count anywhere in a page, unless the browser holds a valid token for it.

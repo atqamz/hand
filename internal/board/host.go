@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,12 +16,51 @@ import (
 
 type FleetLink struct{ ID, Name string }
 
+type fleetsKey struct{}
+
+type railLink struct {
+	FleetLink
+	Current bool
+}
+
+const railOthers = 7
+
+func (b *Board) fleets(ctx context.Context) []railLink {
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		return nil
+	}
+	current := strings.TrimPrefix(b.o.Base, "/")
+	var out []railLink
+	found := false
+	if list, ok := ctx.Value(fleetsKey{}).(func() []FleetLink); ok {
+		for _, l := range list() {
+			out = append(out, railLink{l, l.ID == current})
+			found = found || l.ID == current
+		}
+	}
+	if !found {
+		out = append([]railLink{{FleetLink{ID: current, Name: f.Name}, true}}, out...)
+	}
+	kept, others := out[:0], 0
+	for _, l := range out {
+		if l.Current || others < railOthers {
+			kept = append(kept, l)
+			if !l.Current {
+				others++
+			}
+		}
+	}
+	return kept
+}
+
 type HostOptions struct {
 	Loopback bool
 	Grace    time.Duration
 	Resolve  func(id string) (home string, err error)
 	Open     func(id, home string) (http.Handler, io.Closer, error)
 	List     func() ([]FleetLink, error)
+	Valid    func(id, token string) bool
 }
 
 type Host struct {
@@ -98,7 +138,36 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
 		defer context.AfterFunc(f.ctx, cancel)()
+		if h.o.Loopback && h.o.List != nil {
+			ctx = context.WithValue(ctx, fleetsKey{}, h.signedIn(id, r))
+		}
 		http.StripPrefix("/"+id, f.h).ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+func (h *Host) signedIn(current string, r *http.Request) func() []FleetLink {
+	return func() []FleetLink {
+		proven := map[string]bool{current: true}
+		for _, c := range r.Cookies() {
+			id, ok := strings.CutPrefix(c.Name, cookieName+"_")
+			if ok && state.FleetID.MatchString(id) && h.o.Valid != nil && h.o.Valid(id, c.Value) {
+				proven[id] = true
+			}
+		}
+		if len(proven) == 1 {
+			return nil
+		}
+		all, err := h.o.List()
+		if err != nil {
+			return nil
+		}
+		var out []FleetLink
+		for _, l := range all {
+			if proven[l.ID] {
+				out = append(out, l)
+			}
+		}
+		return out
 	}
 }
 
