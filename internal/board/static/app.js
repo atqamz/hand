@@ -513,6 +513,20 @@
 			e.preventDefault();
 			fleets[(i + step + fleets.length) % fleets.length].focus();
 		});
+		let tipped;
+		const tip = () => {
+			const label = tipped?.querySelector(".label");
+			if (!label) return;
+			const r = tipped.getBoundingClientRect();
+			label.style.top = `${r.top + (r.height - label.offsetHeight) / 2}px`;
+		};
+		const aim = (e) => {
+			tipped = (e.target instanceof Element && e.target.closest(".nav a")) || tipped;
+			tip();
+		};
+		rail.addEventListener("mouseover", aim);
+		rail.addEventListener("focusin", aim);
+		rail.querySelector(".rail-scroll").addEventListener("scroll", tip);
 		const toggle = rail.querySelector(".rail-toggle");
 		const set = (open) => {
 			rail.toggleAttribute("data-open", open);

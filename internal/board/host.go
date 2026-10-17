@@ -23,6 +23,8 @@ type railLink struct {
 	Current bool
 }
 
+const railOthers = 7
+
 func (b *Board) fleets(ctx context.Context) []railLink {
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
@@ -40,7 +42,16 @@ func (b *Board) fleets(ctx context.Context) []railLink {
 	if !found {
 		out = append([]railLink{{FleetLink{ID: current, Name: f.Name}, true}}, out...)
 	}
-	return out
+	kept, others := out[:0], 0
+	for _, l := range out {
+		if l.Current || others < railOthers {
+			kept = append(kept, l)
+			if !l.Current {
+				others++
+			}
+		}
+	}
+	return kept
 }
 
 type HostOptions struct {

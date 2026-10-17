@@ -275,3 +275,42 @@ func TestTheRailsFleetLinksStayInThePlace(t *testing.T) {
 	rail := railOf(t, visit(t, railHost(f, true, nil), "/"+f[0].id+"/", map[string]string{f[0].id: f[0].token, f[1].id: f[1].token}))
 	lacks(t, "rail", rail, "target=")
 }
+
+func TestTheRailListsSevenFleetsBesideTheCurrentOne(t *testing.T) {
+	for _, n := range []int{8, 9} {
+		names := []string{"a1", "b2", "c3", "d4", "e5", "f6", "g7", "h8", "i9"}[:n]
+		f := railFleets(t, names...)
+		h := railHost(f, true, nil)
+		held := map[string]string{}
+		for _, x := range f {
+			held[x.id] = x.token
+		}
+		for _, i := range []int{0, n / 2, n - 1} {
+			body := visit(t, h, "/"+f[i].id+"/", held)
+			for _, rail := range []string{railOf(t, body), sheetOf(t, body)} {
+				if got := strings.Count(rail, `class="tint-`) - 1; got != 7 {
+					t.Fatalf("%d fleets, current %d: %d listed besides the current one, want 7:\n%s", n, i, got, rail)
+				}
+				contains(t, "current fleet", rail, `href="/`+f[i].id+`/" aria-current="true"`, `<span class="label">All fleets</span>`)
+			}
+		}
+	}
+}
+
+func TestTheRailsLinksScrollInsideTheRail(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		".rail-top{display:flex;align-items:center;justify-content:center;flex:none;",
+		".rail-scroll{flex:1;min-height:0;margin:0 -7px;padding:0 7px;overflow-y:auto;",
+		".rail .label{position:fixed;left:66px;")
+	lacks(t, "board.css", css, "position:absolute;left:calc(100% + 10px)")
+	body := get(t, newFixture(t).handler(), "/")
+	rail := railOf(t, body)
+	if i, j := strings.Index(rail, `<div class="rail-scroll">`), strings.Index(rail, `<ul class="nav-pages">`); i < 0 || j < i || strings.Index(rail, `class="rail-toggle"`) > i {
+		t.Fatalf("the label button must sit above the scroll area, and the links in it:\n%s", rail)
+	}
+	lacks(t, "sheet", sheetOf(t, body), "rail-scroll")
+	contains(t, "app.js", asset(t, "app.js"),
+		`label.style.top = `,
+		`rail.querySelector(".rail-scroll").addEventListener("scroll", tip);`)
+}

@@ -362,12 +362,14 @@ body[data-drag]{cursor:col-resize;user-select:none}}
 @media (min-width:900px){.nav-menu{display:none}
 body:has(>.rail){padding-left:56px}
 .rail{position:fixed;inset:0 auto 0 0;z-index:7;display:flex;flex-direction:column;width:56px;padding:0 7px 12px;border-right:1px solid var(--line);background:var(--panel);transition:width .18s cubic-bezier(.16,1,.3,1)}
-.rail-top{display:flex;align-items:center;justify-content:center;height:48px;margin:0 -7px 8px;border-bottom:1px solid var(--line)}
+.rail-top{display:flex;align-items:center;justify-content:center;flex:none;height:48px;margin:0 -7px 8px;border-bottom:1px solid var(--line)}
+.rail-scroll{flex:1;min-height:0;margin:0 -7px;padding:0 7px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.rail .nav-fleets a[aria-current]::before{left:-6px}
 .rail-toggle{width:40px;height:40px;padding:0;border:0;background:none;color:var(--muted)}
 .rail-toggle:hover{background:var(--hover);color:var(--fg)}
 .rail .nav-pages a,.rail .nav-fleets a{width:40px;justify-content:center;padding:0}
 .rail .nav-head{height:1px;margin:10px 4px;padding:0;overflow:hidden;background:var(--line);font-size:0}
-.rail .label{position:absolute;left:calc(100% + 10px);top:50%;z-index:9;padding:3px 8px;border-radius:var(--r-sm);background:var(--fg);color:var(--bg);font-size:12px;line-height:18px;transform:translateY(-50%);opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s}
+.rail .label{position:fixed;left:66px;z-index:9;padding:3px 8px;border-radius:var(--r-sm);background:var(--fg);color:var(--bg);font-size:12px;line-height:18px;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s}
 .rail a:hover .label,.rail a:focus-visible .label{opacity:1;visibility:visible}
 .rail .badge{position:absolute;top:-6px;right:-6px;padding-inline:5px;outline:2px solid var(--panel)}
 .rail .dot{position:absolute;top:9px;right:9px;margin:0;outline:2px solid var(--panel)}
@@ -379,7 +381,8 @@ body:has(>.rail){padding-left:56px}
 .rail[data-open] .badge{position:static;padding-inline:8px;outline:0}
 .rail[data-open] .dot{position:static;margin-left:auto;outline:0}}
 @media (min-width:900px) and (pointer:coarse){.rail{padding-inline:6px}
-.rail-top{margin-inline:-6px}
+.rail-top,.rail-scroll{margin-inline:-6px}
+.rail-scroll{padding-inline:6px}
 .rail .nav-pages a,.rail .nav-fleets a,.rail-toggle{width:var(--control);height:var(--control)}
 .rail[data-open] .rail-top{padding-left:6px}}
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
