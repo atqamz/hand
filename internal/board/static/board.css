@@ -227,7 +227,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .hand-line{display:grid;grid-template-columns:8px minmax(0,max-content) auto;justify-content:start;align-items:start;column-gap:8px;color:var(--muted);font-size:12px;line-height:18px}
 .hand-line>.ring{margin-top:5px}
 .hand-line>time{white-space:nowrap}
-.hand-line+.hand-line,.hand-line+.wakes,.wakes+.hand-line{margin-bottom:-8px}
+.timeline>.hand-line+.hand-line,.timeline>.hand-line+.wakes,.timeline>.wakes+.hand-line{margin-bottom:-8px}
 .hand-text{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .hand-line .ref{color:inherit}
 .working{padding:10px 0}
