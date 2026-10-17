@@ -150,6 +150,11 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(strings.Repeat("a\n", 100000)), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	for i := range state.MaxTimers {
+		if _, err := st.AddTimer(ctx, state.TimerSpec{After: time.Hour, Note: strings.Repeat(string([]rune(titles[i%len(titles)])[0]), state.MaxTimerNote)}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +163,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 	if len(out) >= 6000 || !utf8.ValidString(out) {
 		t.Fatalf("orient is %d bytes (valid UTF-8: %v), want < 6000:\n%s", len(out), utf8.ValidString(out), out)
 	}
-	for _, want := range []string{"active_more:", "operator_memory_truncated:"} {
+	for _, want := range []string{"active_more:", "operator_memory_truncated:", "timers[20]{id,due,note}:"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q:\n%s", want, out)
 		}
@@ -528,5 +533,34 @@ func TestOrientCapsTheUnwatchedList(t *testing.T) {
 	out := doc.String()
 	if !strings.Contains(out, "unwatched[15]:\n  - t1\n") || !strings.Contains(out, "  - t15\nunwatched_more: 15 of 40 shown; run `hand task list --status active --limit 500`\nunwatched_idle: <1m\n") || len(out) >= DefaultBudget.Bytes {
 		t.Fatalf("orient = %d bytes\n%s", len(out), out)
+	}
+}
+
+func TestOrientListsArmedTimers(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	orient := func() string {
+		t.Helper()
+		doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	if out := orient(); strings.Contains(out, "timers") || !strings.Contains(out, "unwatched[1]") {
+		t.Fatalf("orient without timers =\n%s", out)
+	}
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 30 * time.Minute, Note: "check PR 909 and its CodeRabbit review before you merge it"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTimer(ctx, state.TimerSpec{Every: 10 * time.Minute, TaskID: task.ID}); err != nil {
+		t.Fatal(err)
+	}
+	out := orient()
+	if !strings.Contains(out, "cursor: 6\ntimers[2]{id,due,note}:\n  w2,\"2026-09-26T00:10:00Z\",\"\"\n  w1,\"2026-09-26T00:30:00Z\",check PR 909 and its CodeRabbit review before…\nactive[1]") || strings.Contains(out, "unwatched") {
+		t.Fatalf("orient =\n%s", out)
 	}
 }

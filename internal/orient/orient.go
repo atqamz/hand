@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
@@ -177,6 +178,15 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 	unwatchedTotal := len(unwatched.Tasks)
 	unwatched.Tasks = unwatched.Tasks[:min(unwatchedTotal, b.Active)]
 
+	timers, err := st.Timers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	timerRows := make([][]string, 0, len(timers))
+	for _, t := range timers {
+		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), clip(t.Note, b.TitleBytes)})
+	}
+
 	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
 	if err != nil {
 		return nil, err
@@ -191,7 +201,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, sections, memLines, truncated)
+		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -215,7 +225,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -241,6 +251,9 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 			d.Field("unwatched_more", fmt.Sprintf("%d of %d shown; run `hand task list --status active --limit 500`", len(refs), unwatchedTotal))
 		}
 		d.Field("unwatched_idle", unwatched.IdleFor())
+	}
+	if len(timers) > 0 {
+		d.Rows("timers", []string{"id", "due", "note"}, timers)
 	}
 	for _, s := range sections {
 		d.Rows(s.name, s.fields, s.rows)
