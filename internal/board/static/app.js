@@ -37,11 +37,11 @@
 	const toBottom = (el) => {
 		el.scrollTop = reversed(el) ? 0 : el.scrollHeight;
 	};
-	const tall = matchMedia("(min-height: 600px)");
+	const fills = matchMedia("(min-height: 600px), (min-width: 900px)");
 	const page = () => document.scrollingElement || document.documentElement;
-	const gap = (el) => (tall.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
+	const gap = (el) => (fills.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
 	const pin = (el) => {
-		if (tall.matches) toBottom(el);
+		if (fills.matches) toBottom(el);
 		else page().scrollTop = page().scrollHeight;
 	};
 
@@ -378,20 +378,20 @@
 	});
 
 	const tabs = [...document.querySelectorAll("[data-tab]")];
-	const hashed = location.hash.slice(1);
-	let current = tabs.some((t) => t.dataset.tab === hashed) ? hashed : waiting > 0 ? "needs" : "chat";
-	const desk = matchMedia("(min-width:1024px)");
+	const owner = (id) => tabs.find((t) => t.dataset.tab === id || document.getElementById(t.dataset.tab)?.contains(document.getElementById(id)))?.dataset.tab;
+	let current = owner(location.hash.slice(1)) || owner(waiting > 0 ? "needs" : "chat") || tabs[0]?.dataset.tab;
+	const wide = matchMedia("(min-width:900px)");
 	const select = () => {
 		for (const t of tabs) {
 			const on = t.dataset.tab === current;
 			if (on) t.setAttribute("aria-current", "true");
 			else t.removeAttribute("aria-current");
 			const panel = document.getElementById(t.dataset.tab);
-			if (panel) panel.hidden = !on && !desk.matches;
+			if (panel) panel.hidden = !on && !wide.matches;
 		}
 		const timeline = regions.get("timeline");
 		if (timeline && current === "chat") pin(timeline);
-		if (current === "needs" && !tall.matches) {
+		if (current !== "chat" && !fills.matches) {
 			scrollTo(0, 0);
 			requestAnimationFrame(() => scrollTo(0, 0));
 		}
@@ -406,17 +406,18 @@
 			});
 		}
 		select();
-		desk.addEventListener("change", select);
+		wide.addEventListener("change", select);
 		addEventListener("hashchange", () => {
-			const next = location.hash.slice(1);
-			if (next === current || !tabs.some((t) => t.dataset.tab === next)) return;
+			const next = owner(location.hash.slice(1));
+			if (!next || next === current) return;
 			current = next;
 			select();
 		});
 		addEventListener("load", () => {
-			if (current === "needs" && !tall.matches) scrollTo(0, 0);
+			if (current !== "chat" && !fills.matches) scrollTo(0, 0);
 		}, { once: true });
 	}
+
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
@@ -455,7 +456,7 @@
 		new ResizeObserver(() => {
 			if (near && composer.offsetHeight > 0) pin(timeline);
 		}).observe(composer);
-		tall.addEventListener("change", () => {
+		fills.addEventListener("change", () => {
 			if (near && composer.offsetHeight > 0) requestAnimationFrame(() => pin(timeline));
 		});
 	}

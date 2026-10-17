@@ -280,8 +280,9 @@ func TestALanBoardIsReadOnly(t *testing.T) {
 	if got := fx.called(); len(got) != 0 {
 		t.Fatalf("control called: %q", got)
 	}
-	lacks(t, "LAN shell", get(t, h, "/"), "<form", "<textarea")
+	lacks(t, "LAN shell", get(t, h, "/"), `method="post"`, "<textarea")
 	lacks(t, "LAN page", get(t, h, "/"), `action="/supervisor/`)
+	contains(t, "LAN search", get(t, h, "/"), `<form class="task-search" role="search" method="get" action="/tasks">`)
 	get(t, h, "/supervisor/log")
 }
 

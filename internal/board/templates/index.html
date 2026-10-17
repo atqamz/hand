@@ -1,18 +1,24 @@
-{{define "fleet-tabs"}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"><a href="#needs" data-tab="needs">Needs <span class="badge n" data-waiting="{{.Waiting}}" data-worst="{{.Worst}}">{{.Waiting}}</span></a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>{{end}}
+{{define "fleet-tabs"}}<nav class="tabs" aria-label="Board" data-icon-working="{{asset "favicon-working.svg"}}" data-icon-attention="{{asset "favicon-attention.svg"}}" data-icon-blocked="{{asset "favicon-blocked.svg"}}"><a href="#needs" data-tab="needs">Needs <span class="badge n" data-waiting="{{.Waiting}}" data-worst="{{.Worst}}">{{.Waiting}}</span></a><a href="#tasks" data-tab="tasks">Tasks</a><a href="#chat" data-tab="chat">Chat <span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span></a></nav>{{end}}
 
 {{define "index.html"}}{{template "head" .}}{{template "top" .}}
 <main class="board">
-<div class="column" id="needs">
+<div class="work">
+<div class="panel" id="needs">
 <section class="queue" data-region="queue">{{template "region-queue" .}}</section>
+</div>
+<div class="panel" id="tasks">
+<header class="panel-head"><h2>Tasks</h2><form class="task-search" role="search" method="get" action="{{.Base}}/tasks"><label>{{template "icon-search"}}<input type="search" name="q" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off"></label></form></header>
 <section class="tasks" data-region="tasks">{{template "region-tasks" .}}</section>
 </div>
-<div class="column" id="chat">
+</div>
+<div class="panel sup" id="chat">
+{{if .Controls}}<section class="console" data-region="console">{{template "region-console" .}}</section>{{end}}
 <section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
-<textarea id="composer-text" name="text" required rows="3" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach images">{{template "icon-attach"}}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach><span class="sr">Attach images</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span>
-</form><section class="console" data-region="console">{{template "region-console" .}}</section></div>{{else}}<p class="hint">This board is read-only: it listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
+<textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
+<div class="composer-foot"><span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach images">{{template "icon-attach"}}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach><span class="sr">Attach images</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
+</form></div>{{else}}<p class="hint read-only">This board is read-only: it listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
 </div>
 </main>
 {{template "foot"}}{{end}}

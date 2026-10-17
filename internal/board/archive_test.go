@@ -212,7 +212,7 @@ func TestRailShowsFiveFinishedTasksAndLinksToTheArchive(t *testing.T) {
 	if n := len(titles(all)); n != 8 {
 		t.Fatalf("?all=1 lists %d tasks, want every task", n)
 	}
-	contains(t, "all", all, `<a href="/#needs">Hide finished tasks</a>`)
+	contains(t, "all", all, `<a href="/#tasks">Hide finished tasks</a>`)
 }
 
 func TestRailHasNoArchiveLinkWithoutFinishedTasks(t *testing.T) {

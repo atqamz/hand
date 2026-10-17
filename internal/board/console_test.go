@@ -239,7 +239,7 @@ func TestThePhoneRowNamesTheWorstItem(t *testing.T) {
 	lacks(t, "calm", region(get(t, calm.handler(), "/"), "status"), `class="badge needs-count"`)
 }
 
-func TestTheComposerFootRow(t *testing.T) {
+func TestThePaneHeadRowOrder(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
@@ -250,7 +250,7 @@ func TestTheComposerFootRow(t *testing.T) {
 	contains(t, "interrupt", console, `<span class="key-label">Interrupt</span>`)
 	more := console[strings.Index(console, `id="more-menu"`):]
 	lacks(t, "more menu", more[:strings.Index(more, "</details>")], "supervisor/stop")
-	contains(t, "css", asset(t, "board.css"), `grid-template-areas:"text text text" "console hint send"`, "#more-menu:not(:has(.menu-body>:not([hidden])))")
+	contains(t, "css", asset(t, "board.css"), ".composer-foot{display:flex;align-items:center;gap:12px;", "#more-menu:not(:has(.menu-body>:not([hidden])))")
 }
 
 func TestStopArmsWithJS(t *testing.T) {
@@ -402,7 +402,7 @@ func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
 	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
 	lacks(t, "after a supervisor", picked, " required>", " selected>")
-	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){flex-wrap:wrap", ".starter{flex:1 1 100%", `.console-box:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
+	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:12px;padding:16px}", ".starter{flex:1 1 100%", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
 }
 
 func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {

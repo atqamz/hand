@@ -40,8 +40,9 @@ func TestAPressClosesTheItemInPlace(t *testing.T) {
 
 func TestTheMastheadAlignsWithItsColumn(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "masthead", css, "body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 760px)/2))}", "body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% - 848px)/2))}")
-	contains(t, "desk", block(t, css, "@media (min-width:1024px){"), "body[data-page=fleet] .masthead-inner{padding-inline:max(16px,calc((100% - 1192px)/2))}")
+	contains(t, "masthead", css, "body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% - 848px)/2))}")
+	lacks(t, "masthead", css, "body[data-page=fleet] .masthead-inner{padding-inline:max(")
+	contains(t, "board", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .masthead-inner{padding-inline:24px}")
 }
 
 func TestNoSupervisorWaitsInAmber(t *testing.T) {
@@ -164,17 +165,17 @@ func TestNeedsAffordances(t *testing.T) {
 		"grid-template-columns:16px minmax(0,1fr) auto 16px",
 		".wait>summary>.icon:last-child{grid-column:4;grid-row:1;",
 		".wait[open]>summary>.icon:last-child{transform:rotate(180deg)}",
-		"#needs{scrollbar-gutter:stable}")
+		".work{scrollbar-gutter:stable both-edges}")
 	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".wait>summary>.icon:last-child{transition:none}")
-	contains(t, "desk", block(t, css, "@media (min-width:1024px){"), "body[data-page=fleet] .queue-head{display:flex;position:sticky;top:0;")
+	contains(t, "tabs", block(t, css, "@media (max-width:899px){"), "#needs .panel-head{display:none}")
 }
 
 func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "composer", css,
 		"#chat{container-type:inline-size}",
-		`@container (max-width:699px){.console-box{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"text text" "hint hint" "console send"}}`)
-	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), "body .console-box:has(.starter){position:static}", ".masthead-inner{min-height:36px;padding:0 12px;overflow-x:clip}")
+		"@container (max-width:519px){[data-send-key]{display:none}}")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead-inner{min-height:36px;padding:0 12px;overflow-x:clip}")
 	contains(t, "controls", css, ".filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}")
 	if strings.Index(css, ".menu-body label select{font-size:14px") > strings.Index(css, "@media (pointer:coarse){textarea") {
 		t.Fatal("the 14px control rule comes after the coarse 16px one and wins on touch")
@@ -187,17 +188,13 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 		`a.badge::before{content:"";position:absolute;inset:-12px 0}`)
 }
 
-func TestThePhoneConsoleHasItsOwnRowAndTheModelMenuIsAGrid(t *testing.T) {
+func TestThePhoneConsoleWrapsInThePaneHeadAndTheModelMenuIsAGrid(t *testing.T) {
 	css := asset(t, "board.css")
-	phone := `.console-box{grid-template-areas:"text text" "hint hint" "console console" ". send"}`
-	contains(t, "phone", block(t, css, "@media (max-width:599px){"), phone, ".console .pending{flex:1 1 0}")
-	if strings.Index(css, phone) < strings.Index(css, "@container (max-width:699px){.console-box{") {
-		t.Fatal("the container rule comes after the phone one and wins on phones")
-	}
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".console{padding:8px 12px}.console>.pending{flex:1 1 100%}", ".console-box,.sup>.hint.read-only{margin:0 12px 12px}")
 	contains(t, "model menu", css,
 		".menu-body form{display:grid;gap:8px}",
 		".menu-body form:has(>input[name=harness]){grid-template-columns:repeat(2,minmax(max-content,1fr))}",
 		".menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}",
 		".field-label{margin:4px 0 0;")
-	contains(t, "panels", css, "#needs:focus-visible{outline:0}", "#chat>p.hint{text-align:center}")
+	contains(t, "panels", css, ".work:focus-visible{outline:0}", ".sup>.hint.read-only{margin:0 max(16px,calc((100% - 760px)/2)) 16px;")
 }

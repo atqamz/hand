@@ -180,7 +180,7 @@ func TestANeedsItemKeepsLinksOutOfItsSummary(t *testing.T) {
 }
 
 func TestTabTargetsClearTheStickyTabs(t *testing.T) {
-	contains(t, "board.css", asset(t, "board.css"), "#needs,#chat{scroll-margin-top:48px}")
+	contains(t, "board.css", asset(t, "board.css"), "#needs,#tasks,#chat{scroll-margin-top:48px}")
 }
 
 func TestABlockedAndAResumeItemNeverShareAnID(t *testing.T) {

@@ -226,8 +226,6 @@ components:
     textColor: "{colors.muted}"
     typography: "{typography.nav}"
     padding: "10px 12px"
-  tab-wide:
-    padding: "10px 14px"
   tab-active:
     textColor: "{colors.fg}"
   tab-dot:
@@ -290,10 +288,23 @@ components:
   ring:
     rounded: "{rounded.round}"
     size: "8px"
-  composer:
+  work-pane:
+    backgroundColor: "{colors.bg}"
+    padding: "24px 32px 0"
+  chat-pane:
     backgroundColor: "{colors.panel}"
+  pane-head:
+    height: "52px"
+    padding: "8px 16px"
+  task-search:
+    typography: "{typography.control}"
+    rounded: "{rounded.md}"
+    height: "32px"
+    width: "260px"
+  composer:
+    backgroundColor: "{colors.bg}"
     rounded: "{rounded.lg}"
-    padding: "10px"
+    padding: "4px 4px 8px"
   button:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
@@ -369,7 +380,7 @@ The fleet is an on-call desk. Everything that needs the operator is an open item
 
 The material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1024px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.
+The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 900px and wider the fleet page is two panes: the work pane on the left holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time.
 
 **Key Characteristics:**
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
@@ -398,9 +409,9 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Fleet Tint** (`tint-0` to `tint-11`): twelve hues around the wheel at a similar mid lightness, each with a night value. `tint()` in `internal/board/board.go` picks one per fleet as FNV-1a 32 of the fleet id, mod 12, and the page sets `class="tint-N"` on `body`; a page with no fleet id gets `tint-0`. It colours the mark and the masthead's 3px top rule, and nothing else, with one exception the build carries: on the fleet list, a fleet's name turns its tint on hover.
 
 ### Neutral
-- **Review Ground** (`bg`): the page, the masthead, the tabs, Needs items and chat cards at rest, inputs, keys, open menus and the toast.
+- **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and chat cards at rest, the composer box, inputs, keys, open menus and the toast.
 - **Card Grey** (`card`): chat and thread card header strips, and code in replies.
-- **Panel Grey** (`panel`): the composer box.
+- **Panel Grey** (`panel`): the supervisor pane at board width.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
 - **Hairline** (`line`): every rule and decorative border (card edges, dividers), the context bar's track, and scrollbar thumbs.
@@ -436,7 +447,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Copy** (400, 15px, 24px): the body of chat and thread cards; chat cards are held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
 - **Body** (400, 14px, 20px): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 20px): `h3` heads on thread pages and `####` headings in replies; report titles in a report header use 14px at 600.
-- **Nav** (600, 14px, 20px): the tabs, the model menu's summary and the model name in the composer.
+- **Nav** (600, 14px, 20px): the tabs, the model menu's summary and the model name in the pane head.
 - **Control** (400, 14px, 20px): buttons, with the primary at 600. Keys in a blocked screen take the same size in mono.
 - **Badge** (600, 12px, 18px, tabular): every badge: the status pills, the Needs counts, the task groups' counts, deliverable links, report states and the countdown.
 - **Label** (600, 12px, 18px): the task groups' heads and labels in menus.
@@ -452,19 +463,20 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ## Layout
 
-- **Fleet page below 1024px:** one column held to 760px and centred, with the masthead's inner row aligned to it. Two tabs switch between Needs (the open items, then Tasks) and Chat (the timeline, then the composer). The tab comes from the URL hash; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript both panels show and the tabs are anchors.
-- **Fleet page at 1024px and wider:** a grid of Chat (`minmax(0,760px)`) and the Needs rail (`minmax(360px,400px)`) with a 32px gap, centred. The rail has a hairline on its left, 24px of padding inside it, and scrolls on its own; the tabs are hidden and the Needs head shows. The masthead's inner row aligns to the 1192px pair.
-- **App shell (at least 600px tall):** the body fills `100dvh` and never scrolls. Needs and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
-- **Short screens (under 600px tall):** the page flows as one scroll. The masthead shrinks to 36px, sticks to the top and merges the tabs into its single row. The composer sticks to the bottom, except while the start picker is open, and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer.
-- **Phone (under 600px wide):** 12px board padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The composer moves the hint to its own row above the controls, the Interrupt key drops its label, and the tabs split the width in halves. On a phone that is also short, the fleet name hides too.
+- **Fleet page below 900px:** three tabs switch between Needs (the open items), Tasks (the search field, then the task list) and Chat (the supervisor's pane head, the timeline, then the composer), one full-height panel each. Needs and Tasks are held to an 880px column centred in the page, and Chat sets its timeline and composer in a 760px one. The tab comes from the URL hash, and an id inside a panel (such as `#msg-i3`) opens the tab that holds it; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript all three panels show and the tabs are anchors.
+- **Fleet page at 900px and wider:** a grid of the work pane (`minmax(0,1fr)`) and the supervisor pane (`--pane`) with no gap. The work pane scrolls on its own and holds Needs, then Tasks, each in an 880px column centred in the pane, padded 24px by 32px. The supervisor pane is a column on `panel` with a hairline on its left: the pane head, the timeline, then the composer. The tabs are hidden, the Needs head and the Tasks head show, and the masthead's inner row spans the page with 24px of padding.
+- **Chat width:** `--pane` is `clamp(360px, clamp(400px, 38vw, 720px), calc(100% - 440px))`: the chat is 38vw between 400px and 720px, never under 360px, and the work pane is never under 440px. At 900px the chat is 400px beside a 500px work pane.
+- **App shell (at least 600px tall, or 900px and wider):** the body fills `100dvh` and never scrolls. The work pane and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
+- **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
+- **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
 - **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content.
-- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 12px gap, a 16px fade at its top edge and a stable scrollbar gutter on both sides. Without JavaScript it scrolls on its own up to 65vh; on short screens it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
-- **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, 20px between the sections of a panel, and a 24px board gap (32px between Chat and the rail). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
+- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 12px gap, a 16px fade at its top edge and a stable scrollbar gutter on both sides, set in a 760px column centred in the pane. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
+- **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
 ### Named Rules
-**The Rail At Desk Width Rule.** Needs is a rail only from 1024px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.
+**The Two Panes At Board Width Rule.** The work pane and the supervisor pane sit side by side from 900px (`TestNeedsAndTasksSitBesideTheChatAtBoardWidth`); below it the three tabs stay (`TestTabsBelowBoardWidth`).
 
-**The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft.
+**The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft. The console region sits in the supervisor pane's head, and the task search form sits in the Tasks head outside the tasks region, for the same reason.
 
 **The Things In New Tabs Rule.** From the Board, things open in a new tab and places navigate in place; outside links always open in a new tab. A thing is a task, attempt, report, decision, deliverable, image or outside page; a place is a fleet, the Board, Tasks, Conversation, a crumb, a pager step or an anchor. The fleet page's task rows, Needs links and refs in replies and Hand lines carry `target="_blank" rel="noopener"` (`TestAwayOpensLiveRefsInANewTab`); the Tasks page, the conversation page and the thread pages browse refs in place (`TestTheTasksPageBrowsesInPlace`, `TestTheLogAndThreadPagesKeepRefsInPlace`). Middle-click and Ctrl-click work everywhere.
 
@@ -505,9 +517,9 @@ Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 ## Components
 
 ### Masthead
-A 44px row on the ground with the fleet tint's 3px rule on top and a hairline below, on every page.
+A 44px row on the ground with the fleet tint's 3px rule on top and a hairline below, on every page. On the fleet page at board width its inner row spans the page with 24px of padding.
 - **Left:** the mark in the fleet tint and the fleet name (Headline), linking home, then the fleet id as a borderless muted ref.
-- **Right, in order:** on phone only, the Needs count; the status pill; the supervisor and its model ("s1 · opus high", muted); "2 queued" when above zero; the context bar; "compacted 2×" when above zero. A stale-server note follows in amber, on its own line where the strip wraps (phone and short screens).
+- **Right, in order:** on phone only, the Needs count; the status pill; the supervisor and its model ("s1 · opus high", muted, which leaves the masthead at board width while the pane head shows it); "2 queued" when above zero; the context bar; "compacted 2×" when above zero. A stale-server note follows in amber, on its own line where the strip wraps (phone and short screens).
 - **Link state:** when live updates drop, a muted note reads "Reconnecting…", then "Board offline since 12:41", or "Log in again: hand open --print" when the board refuses the session.
 - **Thread pages** carry the same masthead with a static copy of the strip.
 
@@ -522,14 +534,14 @@ A badge, 24px high (`--badge` plus 4px) with a 12px icon and a lower-case word.
 A native `meter`, 48 by 6px on a hairline track, followed by the figure in tabular mono ("510K / 1M"). The fill is accent below 80% and amber from 80%, where the figure turns amber too; from 90% both turn red, the figure at 600 with "· compact soon" added. The figure alone shows when the window is unknown, and nothing shows before there is context data.
 
 ### Tabs
-Below 1024px, a bar under the masthead row with a hairline between.
-- **Labels:** "Needs" with its count and "Chat", in Nav type and muted ink, 10px by 12px (10px by 14px and content width from 600px wide), turning to ink on hover.
+Below 900px, a bar under the masthead row with a hairline between.
+- **Labels:** "Needs" with its count, "Tasks" and "Chat", in Nav type and muted ink, each a third of the width and padded 10px by 12px, turning to ink on hover.
 - **Current tab:** ink text and a 2px ink underline.
 - **Needs count:** a neutral badge that takes the worst open item's tone, red or amber.
 - **Chat:** a 6px accent dot while the supervisor works.
 
 ### Needs items
-The signature component. Each open item is a `details` element with a 1px hairline border and 10px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest. A muted chevron at the right of every summary turns 180° when the item opens, so a collapsed item reads as something to open. The keyboard focus ring sits inside the item (`outline-offset:-2px`), because the item clips anything drawn outside it. In the rail, `#needs` keeps its scrollbar gutter so the width never jumps, and the Needs head sticks to the top of the rail.
+The signature component. Each open item is a `details` element with a 1px hairline border and 10px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest. A muted chevron at the right of every summary turns 180° when the item opens, so a collapsed item reads as something to open. The keyboard focus ring sits inside the item (`outline-offset:-2px`), because the item clips anything drawn outside it. The work pane keeps its scrollbar gutter on both edges so the width never jumps. From 900px the Needs head ("Needs" and its count) shows above the items; below it the tab carries the count and the head hides.
 
 | Kind | Order | Tone | Code |
 |---|---|---|---|
@@ -571,9 +583,10 @@ The signature interaction. Pressing a key on a blocked screen marks the item sen
 With nothing open, Needs shows the passing icon in green, "All clear" in ink at 600, and in muted ink the time it was last cleared and a summary: "All clear since 12:41 · 1 running · 6 inbox".
 
 ### Tasks
-Under a "Tasks" head, grouped by status (Active and Inbox, then a Finished group holding the five most recent finished tasks), each group with a muted label head and a count badge. The Finished count is every finished task, not the five shown.
+Under a "Tasks" head with a search field, grouped by status (Active and Inbox, then a Finished group holding the five most recent finished tasks), each group with a muted label head and a count badge. The Finished count is every finished task, not the five shown.
 - **Row:** a `.row` of the state icon, the task ref, the title (one line, ellipsis), and a muted meta line ("a9 claude opus · blocked") that ends with the deliverable badge, at least 48px high between hairlines.
 - **Icon colour:** failing red, waiting amber, running and passing green, idle neutral.
+- **Search:** a GET form of one field (a search icon inside it, "Search tasks") that submits `q` to the finished-tasks page, 260px wide at the right of the head at board width. On the phone's Tasks tab the word "Tasks" hides, because the tab says it, and the field takes the whole width. The head and the field sit outside the tasks region so a live update never takes a typed query.
 - A "Browse finished tasks (N)" link, 12px, sits under the list and opens the finished-tasks page. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
 ### Chat cards
@@ -584,18 +597,22 @@ Under a "Tasks" head, grouped by status (Active and Inbox, then a Finished group
 ### Hand lines
 Hand's own events take one muted 12px line each, with no card: an 8px ring outlined in muted ink, the text clamped to one line with refs inline, and the time on the right. Consecutive wakes fold into one line, "3 wakes · 12:28–12:29", that expands to the individual lines indented 16px. Day dividers are centred muted meta between two hairlines. Cards under a divider show the clock time only; the divider and the times use the browser's zone, and without JavaScript both use UTC and the divider says so. While the supervisor works, a working line reads "s1 working · 4m · last output 12s ago · on your 07:19 message", with the message part linking to that card.
 
+### Supervisor pane head
+The console region: a wrapping row at least 52px high with a hairline under it, padded 8px by 16px (8px by 12px on a phone), on the pane's grey. A board on a network address has no console region, so its pane starts at the timeline.
+- **While a supervisor runs:** the `sN` ref in mono at 600 (hidden on a phone), the model menu (its summary in Nav type with the chevron) or the plain model name, then, pushed to the right edge, Interrupt while a turn runs, a key of `--control` height with a red border and text, the stop-square icon and its label; Stop, a muted key that turns red on hover and asks "Press again to stop" on a red pale fill for 4s; and the overflow menu. A pending switch shows in amber with Cancel.
+- **With no supervisor running:** the primary Resume after a stopped one, and the overflow menu at the right edge, then the Start strip in a row padded 16px: the profile select (`default` preselected, and required when profiles exist) and the single primary Start, then the closed "Other harness, model or effort" details, whose claude, codex, opencode and agy rows align as model, effort and Start. On a phone the selects come first and the button spans the row. With no routing policy the details start open. After a stopped supervisor the select reads "same as sN · model effort" and its button says "Start new". The empty thread is a centred note in the timeline, not a void.
+
 ### Composer
-One box on `panel` with a hairline border and 10px corners, padded 10px, pinned under the timeline. Its focus frame is an accent border plus a 1px accent ring.
+One box on the ground with a 1px control-edge border and 10px corners, padded 4px by 4px by 8px, set in the pane's 760px column and pinned under the timeline. It is 90px high at rest, and 94px while the hint wraps to a second line. Its focus frame is an accent border plus a 1px accent ring.
 - **Draft:** the text survives in-place navigation. It is kept in `sessionStorage` per tab and fleet, restored on load when the box is empty, and cleared by a successful send; with storage blocked the box works without it (`TestTheDraftSurvivesInPlaceNavigation`).
-- **Text box:** borderless and transparent, growing with its text up to 40dvh (30dvh on short screens and without JavaScript).
-- **Foot row:** the console region on the left, the hint in muted meta, then the send group. When the chat column is under 700px wide (the rail beside it at 1024px, or a phone) the hint takes its own row above the console and Send.
-  - **Send group:** the paperclip "Attach images" button (a square of `--control`), the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers) and the primary Send.
-  - **Hint:** while the supervisor is blocked, it links to Needs. While images upload, it reads "Attaching n image(s)…". With no supervisor running, the hint and the send group share one row above the Start strip, and Send turns from primary to a default button while a Start or Resume form is in the console.
+- **Text box:** at least 44px high, borderless and transparent, growing with its text up to 40dvh (30dvh on short screens and without JavaScript).
+- **Foot row:** the hint in muted meta, which wraps rather than truncates, then the send group at the right edge.
+  - **Send group:** the paperclip "Attach images" button (a square of `--control`), the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers and while the chat pane is under 520px wide) and the primary Send.
+  - **Hint:** while the supervisor is blocked, it links to Needs. While images upload, it reads "Attaching n image(s)…". While a Start or Resume form is in the pane head, Send turns from primary to a default button.
   - **Attaching:** paste, a drop on the composer and the paperclip each attach png, jpeg, webp or gif images up to 10 MiB. During a drag, the composer shows an accent dashed outline.
-- **Console region:** the model menu (its summary in Nav type with the chevron); a pending switch in amber with Cancel; Interrupt while a turn runs, a key of `--control` height with a red border and text, the stop-square icon and its label; Stop, a muted key that turns red on hover and asks "Press again to stop" on a red pale fill for 4s; and the overflow menu. With no supervisor running, a hairline then the Start strip take the foot row's place: one row with the profile select (`default` preselected, and required when profiles exist) and the single primary Start, then the closed "Other harness, model or effort" details, whose claude, codex, opencode and agy rows align as model, effort and Start. On a phone the selects come first and the button spans the row. With no routing policy the details start open. After a stopped supervisor, Resume is the primary, the select reads "same as sN · model effort" and its button says "Start new". The empty thread is a centred note above the composer, not a void.
 
 ### Menus
-The model menu and the overflow menu are `details` elements whose body opens above the summary on the ground, with a hairline border, 10px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of `--control`-high rows with 12px side padding, 4px corners and the hover wash: Notify me, New session and Other harness. Escape and a click outside close any open menu.
+The model menu and the overflow menu are `details` elements whose body opens below the summary (the overflow menu's at the right edge) on the ground, with a hairline border, 10px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of `--control`-high rows with 12px side padding, 4px corners and the hover wash: Notify me, New session and Other harness. Escape and a click outside close any open menu.
 
 ### Buttons
 - **Shape:** gently rounded corners (6px).
@@ -665,5 +682,5 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.
 - **Don't** load web fonts or images from the stylesheet.
 - **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
-- **Don't** show the Needs rail below 1024px, and don't switch tabs for the operator.
+- **Don't** show both panes below 900px, and don't switch tabs for the operator.
 - **Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt.
