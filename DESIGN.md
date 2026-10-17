@@ -386,7 +386,7 @@ The Board refuses the chat-ops shell, a text sidebar with chat and an inspector 
 
 **Key Characteristics:**
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
-- One severity ramp orders Needs, fills each item's header, and colours the Needs counts.
+- One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.
 - Every state is a word plus an icon shape plus a colour, never colour alone.
 - Chat is a thread of bordered cards: the supervisor on the left, the operator on the right on accent-bg, and Hand's own events as one-line ringed notes.
 - Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
@@ -431,7 +431,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 ### Named Rules
 **The Red Is Trouble Rule.** Fail red marks only what blocks or has broken: a blocked screen, a failure, an interrupted or unreachable supervisor, a context window at 90%, the auto-deny countdown and an error, plus the two controls that end a turn. Decisions, reports, links and ordinary states never take it.
 
-**The Word And Shape Rule.** A state is never colour alone. The masthead pill carries an icon and a word, each Needs header carries an icon and a severity code, and each task row carries its state icon.
+**The Word And Shape Rule.** A state is never colour alone. The masthead pill carries an icon and a word, each Needs band head carries the severity word and each Needs row its icon, and each task row carries its state icon.
 
 **The Tint Stays Put Rule.** The fleet tint colours the mark and the masthead's 3px top rule. It never fills a surface or colours copy.
 
@@ -445,7 +445,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 ### Hierarchy
 - **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
 - **Headline** (600, 18px, 24px, -0.01em): the Needs and Tasks heads and the fleet list's head.
-- **Title** (600, 15px, 22px): the headline of an open Needs item, the fleet name in the masthead and `###` headings in replies. A collapsed item sets it at 400 on one line with an ellipsis.
+- **Title** (600, 15px, 22px): the headline of an open Needs item, the fleet name in the masthead and `###` headings in replies. A collapsed row sets it at 400 in Body type on one line with an ellipsis.
 - **Copy** (400, 15px, 24px): the body of chat and thread cards; chat cards are held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
 - **Body** (400, 14px, 20px): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 20px): `h3` heads on thread pages and `####` headings in replies; report titles in a report header use 14px at 600.
@@ -455,7 +455,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Label** (600, 12px, 18px): the task groups' heads and labels in menus.
 - **Meta** (400, 12px, 18px, tabular): times, meta, card header strips, Hand lines, the working line, hints and notes.
 - **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
-- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, LIMITED, NO SUPERVISOR, STALLED, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
+- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the severity word on the task page's waiting rows. A Needs band head sets the same word in Label type, in sentence case (Blocked, Failed, Limited, No supervisor, Stalled, Interrupted, Decision, Report, Quiet).
 - **Code block** (400, 12px, 18px, mono): terminal excerpts and preformatted blocks.
 
 ### Named Rules
@@ -563,7 +563,13 @@ The navigation, on every page that shows a fleet and on no error page. At 900px 
 - **Links:** every rail and sheet item navigates in place and carries no `target`.
 
 ### Needs items
-The signature component. Each open item is a `details` element with a 1px hairline border and 10px corners on the ground, 8px apart, most severe first; the top item is open and the rest are collapsed. Up to 50 show, then a line counts the rest. A muted chevron at the right of every summary turns 180° when the item opens, so a collapsed item reads as something to open. The keyboard focus ring sits inside the item (`outline-offset:-2px`), because the item clips anything drawn outside it. The work pane keeps its scrollbar gutter on both edges so the width never jumps. From 900px the Needs head ("Needs" and its count) shows above the items; below it the tab carries the count and the head hides.
+The signature component. Needs groups its items into **bands** by severity word, most severe first: one head per word (Blocked, Failed, Decision, Report, and the rarer Limited, No supervisor, Interrupted and Quiet), so a blocked supervisor screen and a blocked worker screen share the Blocked band. A band head is Label type with 20px above and 4px below, inset 16px to the row's icon, and takes its tone's ink: fail red, wait amber, or muted for neutral. Up to 50 items show, then a line counts the rest.
+
+Each item is a `details` element. A collapsed item is a calm hairline row: no fill, no border but a hairline under it (and over the first row of a band), 44px high (52px on a touch screen), padded 16px, with the tone's state icon, the title on one line with an ellipsis, then the refs and time in meta, the auto-deny countdown, and a muted chevron that turns 180° when the item opens. Hovering a row takes the hover wash. The band head carries the word, so the row's severity code, harness, model and status stay in the open item's header. The keyboard focus ring sits inside the row (`outline-offset:-2px`), because the item clips anything drawn outside it.
+
+The top item is open, and the operator can open any other. An open item is a card: a 1px hairline border and 10px corners on the ground, with 6px above and 10px below, whose header takes the tone's pale fill. Its body is padded 41px on the left, so body text starts exactly where the title does (a 1px border, 15px of padding, the 16px icon and a 10px gap). The work pane keeps its scrollbar gutter on both edges so the width never jumps. From 900px the Needs head ("Needs" and its count) shows above the items; below it the tab carries the count and the head hides.
+
+When the work pane is under 480px wide (a phone, or a wide chat), a collapsed row takes two lines in place of one: the title on the first line and the refs and time under it, 52px high, so the title keeps its ellipsis but loses only the refs' width.
 
 | Kind | Order | Tone | Code |
 |---|---|---|---|
@@ -578,11 +584,11 @@ The signature component. Each open item is a `details` element with a 1px hairli
 | an unread report | 8 | neutral | REPORT |
 | an attempt that stopped without a report | 9 | neutral | QUIET |
 
-- **Header:** a grid of a 16px state icon, a slug line and a right-hand cell, over the headline on its own row, padded 8px by 12px on the tone's pale fill (`fail-bg`, `wait-bg` or `neutral-bg`). The icon takes the tone: failure for fail, waiting for wait, idle for neutral.
-- **Slug line:** the severity code in the tone's colour, then the refs, harness and model, status and time, separated by an 8px gap. Refs in the slug take the line's size and colour, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink.
-- **Headline:** Title type; hovering the header underlines it in hairline colour.
-- **Body:** a grid with a 10px gap, padded 10px by 12px by 12px, holding the item's action:
-  - a blocked supervisor screen shows its terminal excerpt and its keys, then "Type queued messages anyway" with a hint for a screen Luvus misread;
+- **Header (open item):** a wrapping row of a 16px state icon, the headline and the countdown and chevron, with the slug line under the headline, padded 12px by 15px by 10px on the tone's pale fill (`fail-bg`, `wait-bg` or `neutral-bg`). The icon takes the tone: failure for fail, waiting for wait, idle for neutral.
+- **Slug line:** the refs, harness and model, status and time, separated by an 8px gap and indented to the headline. Refs in the slug take the line's size and colour, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink. A collapsed row shows only its refs and time.
+- **Headline:** Title type in an open item, Body type at 400 in a row.
+- **Body:** a grid with a 10px gap, padded 10px by 15px by 15px by 41px, holding the item's action:
+  - a blocked supervisor screen shows its terminal excerpt and its keys, then a "Screen misread?" disclosure that holds the hint for a screen Luvus misread and "Type queued messages anyway";
   - a blocked worker screen names the attempt and its task, then shows its excerpt and keys;
   - a decision shows its question (up to 40vh, then it scrolls), option buttons that fill the answer box, the answer box, the primary Answer and an "Open dN" link;
   - a failure shows its reason in muted ink and a "View aN" link;
@@ -591,12 +597,12 @@ The signature component. Each open item is a `details` element with a 1px hairli
   - a limited attempt's headline is its limit line, and its body says it stopped at a usage limit and links to it;
   - a limited supervisor's headline is its limit line, and its body says Hand holds wakes until that line leaves the screen;
   - a no-supervisor item shows Resume or Start, and an interrupted supervisor shows the primary Resume and New session.
-- **Countdown:** Claude Code's auto-deny countdown sits in the header's right-hand cell as a live timer ("0:42", then "denying…") in red tabular mono on a ground badge.
+- **Countdown:** Claude Code's auto-deny countdown sits between the headline and the chevron as a live timer ("0:42", then "denying…") in red tabular mono on a ground badge.
 - **Opening and closing** animate the body's height over .24s where the browser supports `interpolate-size`.
-- **Arrival:** a new item's header starts 35% brighter and settles over 1.6s.
+- **Arrival:** a new item's row starts 35% brighter and settles over 1.6s.
 
 ### Acknowledge in place
-The signature interaction. Pressing a key on a blocked screen marks the item sent: the header's right-hand cell reads "Sent 2 · waiting…" in muted meta, the countdown hides, the keys dim to 55% and stop taking input, and the item collapses. A receipt toast ("Sent 2 to s1") shows for 4s. The next live update then removes the item and a Hand line lands in Chat. Answers and Mark read send the same way through `data-fetch` and leave their own receipt ("r7 marked read"); their item leaves Needs on the next update rather than collapsing to a sent state first.
+The signature interaction. Pressing a key on a blocked screen marks the item sent: the row's right-hand end reads "Sent 2 · waiting…" in muted meta in place of the refs, the countdown hides, the keys dim to 55% and stop taking input, and the item collapses. A receipt toast ("Sent 2 to s1") shows for 4s. The next live update then removes the item and a Hand line lands in Chat. Answers and Mark read send the same way through `data-fetch` and leave their own receipt ("r7 marked read"); their item leaves Needs on the next update rather than collapsing to a sent state first.
 
 ### Blocked screen and keys
 - **Terminal excerpt:** the screen's last lines in Code block type on the terminal colours with 6px corners, padded 10px top and bottom and 12px on the left. In a Needs item the lines wrap; a right-edge fade and a thin scrollbar remain for anything wider.
@@ -660,7 +666,7 @@ The model menu and the overflow menu are `details` elements whose body opens bel
 - **Deliverable file:** plain muted mono text with no box (its basename cut with an ellipsis, the full path in its title).
 - **Option:** the buttons that fill a decision's answer: `--control` high at least, 10px corners, left-aligned and wrapping.
 - **Keycap:** `kbd` is `--badge` high with a 2px bottom edge.
-- **Forced colours:** every badge draws a `CanvasText` border, so a tone is never lost with the fill.
+- **Forced colours:** every badge draws a `CanvasText` border, so a tone is never lost with the fill. The open Needs item draws its border and a rule under its header in `CanvasText`, since its pale fill vanishes.
 
 ### Rows
 One `.row` serves the attempt and task rows, the waiting rows and decision rows on the task page, and the fleet list. It is a flex line at least 40px high with 4px of padding and a hairline under it, with five named slots in this order:
@@ -698,7 +704,7 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 
 ### Do:
 - **Do** take every colour from the custom properties in `board.css` (`var(--fail)`, `var(--accent-bg)`), and give any new token both a light and a dark value that keeps 4.5:1 for text.
-- **Do** order anything that needs the operator by the severity ramp in `internal/board/queue.go`, and fill its header with its tone's pale fill.
+- **Do** order anything that needs the operator by the severity ramp in `internal/board/queue.go`, group it under one head per severity word, and fill the open item's header with its tone's pale fill.
 - **Do** give every state a word and an icon shape as well as its colour.
 - **Do** keep font sizes to 22, 18, 15, 14 and 12px, and set figures that update in place in tabular numerals.
 - **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
