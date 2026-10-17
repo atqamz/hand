@@ -70,7 +70,7 @@ func cmdWake(r *runner, args []string) error {
 	if when[0] == "at" {
 		t, err := time.Parse(time.RFC3339, *at)
 		if err != nil {
-			return usageError{fmt.Sprintf("wake: --at %q is not an RFC 3339 time such as 2026-10-18T09:00:00Z", *at)}
+			return usageError{fmt.Sprintf("wake: --at %q is not an RFC 3339 time like YYYY-MM-DDTHH:MM:SSZ", *at)}
 		}
 		spec.At = t
 	}

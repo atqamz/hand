@@ -57,7 +57,7 @@ func TestWakeRefusesBadTimers(t *testing.T) {
 		{[]string{"--after", "30m", "--every", "1h"}, 2, "wake: give exactly one of --after, --at or --every"},
 		{[]string{"--after", "59s"}, 2, "a timer must be due at least 1m from now"},
 		{[]string{"--every", "30s"}, 2, "a timer repeats at most once a minute"},
-		{[]string{"--at", "tomorrow"}, 2, `wake: --at "tomorrow" is not an RFC 3339 time such as 2026-10-18T09:00:00Z`},
+		{[]string{"--at", "tomorrow"}, 2, `wake: --at "tomorrow" is not an RFC 3339 time like YYYY-MM-DDTHH:MM:SSZ`},
 		{[]string{"--at", "2026-09-25T23:00:00Z"}, 2, "a timer must be due at least 1m from now"},
 		{[]string{"--after", "1h", "--note", strings.Repeat("x", 201)}, 2, "a timer note is at most 200 characters"},
 		{[]string{"--after", "1h", "--note", "two\nlines"}, 2, "a timer note is one line"},
