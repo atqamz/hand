@@ -51,6 +51,9 @@ type watcher struct {
 	pending sync.WaitGroup
 	warned  atomic.Bool
 	snapped string
+
+	rest         rest
+	policyWarned bool
 }
 
 type turn struct {
@@ -186,6 +189,9 @@ func (w *watcher) session(ctx context.Context) error {
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
 				err = w.longTurns(sctx)
+			}
+			if err == nil {
+				err = w.stall(sctx, c, caps)
 			}
 			if err == nil {
 				w.snapshot(sctx)

@@ -363,7 +363,7 @@ func (r *Report) stopPID(o Options, name, path string, mark func(*journal)) (sto
 const (
 	pendingLine = "`hand update` switches a pending fleet once it is quiet and settled; the board's timer (`hand board --update-every`) runs it for you"
 	settledFor  = 15 * time.Minute
-	stillFor    = 30 * time.Second
+	StillFor    = 30 * time.Second
 )
 
 func (o Options) client(e fleet.Entry) luvus.Client {
@@ -467,12 +467,12 @@ func (o Options) still(ctx context.Context, st *state.Store, c luvus.Client, hom
 
 func (o Options) pause(ctx context.Context) error {
 	if o.Sleep != nil {
-		return o.Sleep(ctx, stillFor)
+		return o.Sleep(ctx, StillFor)
 	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(stillFor):
+	case <-time.After(StillFor):
 		return nil
 	}
 }
