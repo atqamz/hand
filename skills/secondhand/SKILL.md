@@ -46,7 +46,9 @@ As the managed supervisor (`hand orient` prints `you: sN`), never run `hand wait
 
 Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
 
-Before you end a turn, run `hand orient`. Never end a turn while it lists `unwatched` tasks, which no attempt or decision will wake you for: start a worker, finish the task, or write down in your reply what you are waiting for.
+Before you end a turn, run `hand orient`. Never end a turn while it lists `unwatched` tasks, which no attempt or decision will wake you for: start a worker, arm a timer with `hand wake`, or finish the task.
+
+To wait on something outside Hand, such as a PR review, CI or a person, arm a timer, never a background script: `hand wake --after 30m --note "check PR 909"`, `--at 2026-10-18T09:00:00Z`, or `--every 30m --while tN`, which ends when the task finishes. `hand orient` lists the armed timers; `hand wake list` and `hand wake cancel wN` manage them. Hand only wakes you; you do the checking.
 
 ## On each wake event
 
@@ -66,6 +68,7 @@ A `[hand v1 resume]` message is not a wake: run `hand orient`, take your ref fro
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.
 - `decision.answered`: `hand decision show dN` prints the answer; continue the task with it.
 - `supervisor.stalled`: you went idle while the named tasks are active and nothing watches them. Act on each as the rule under "Wait with zero tokens" says.
+- `timer.fired`: a timer you armed is due; the detail is `wN`, how late it fired after a gap, and its note. Check what the note names, then act.
 
 ## Ask the operator
 

@@ -262,7 +262,7 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle`, `attempt.limited` and `attempt.long` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
-- wakes the managed supervisor with `supervisor.stalled` while it idles with unwatched work (see Unwatched and stalled);
+- wakes the managed supervisor with `supervisor.stalled` while it idles with unwatched work (see Unwatched and stalled), and with `timer.fired` when a timer comes due (see Timer);
 - snapshots the fleet's `hand.db` once a day (UTC) with `integrity_check` to `$SECONDHAND_HOME/backups/<fleet id>/hand-YYYYMMDD.db`, and keeps the newest 7, retrying a failed snapshot only after the next UTC day starts or the watcher restarts; `hand update` keeps its own `hand.db.<stamp>` files in that folder, and neither removes the other's;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
 - alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), when a decision is asked while it runs, and once per stall episode, on the first stall wake at or after 60 minutes idle;
@@ -278,7 +278,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 ### Wake
 
-A message that tells the supervisor something changed, or that it idles with unwatched work, so it never polls and spends no tokens while idle.
+A message that tells the supervisor something changed, that a timer it armed came due, or that it idles with unwatched work, so it never polls and spends no tokens while idle.
 
 - **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out. While the supervisor's screen shows its harness's usage-limit line, Hand holds wakes and leaves the cursor where it is, because the harness would answer them with the limit error. It holds them too when it cannot read that screen. The hold lifts once the line leaves the screen. Operator messages still go out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
@@ -298,6 +298,7 @@ The wake kinds are:
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
 | `supervisor.stalled` | the supervisor idles with unwatched work; the detail names the tasks and the idle time |
+| `timer.fired` | a timer came due; the detail is `wN`, how late it fired when that is a minute or more, and its note |
 
 `attempt.idle` and a `progress` report never wake the supervisor on their own, and `attempt.idle` sends no desktop or notify-command alert either; `attempt.limited` and `attempt.long` always do. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
@@ -305,11 +306,17 @@ Wakes reach the managed supervisor through the watcher, so `hand watch` must run
 
 ### Unwatched and stalled
 
-A fleet's work is **unwatched** when at least one task is `active`, no attempt is live and no decision is open: no event will ever wake the supervisor for it. Its **idle time** counts from the fleet's last event other than `supervisor.stalled` and `supervisor.delivered`, which only records that something already recorded reached the supervisor. `hand orient` lists such tasks as `unwatched[N]` (at most 15, then `unwatched_more`) with `unwatched_idle`, and prints neither otherwise.
+A fleet's work is **unwatched** when at least one task is `active`, no attempt is live, no decision is open and no timer is armed: no event will ever wake the supervisor for it. Its **idle time** counts from the fleet's last event other than `supervisor.stalled` and `supervisor.delivered`, which only records that something already recorded reached the supervisor. `hand orient` lists such tasks as `unwatched[N]` (at most 15, then `unwatched_more`) with `unwatched_idle`, and prints neither otherwise.
 
-The watcher records `supervisor.stalled`, a wake, when the work is unwatched and the supervisor is running and idle: Luvus reads it as `idle` or `done`, its screen revision has not changed for 30 seconds (the test the Luvus switch uses), no message waits for it, its screen shows no usage-limit line, and no model switch is pending. A stopped, blocked, limited or switching supervisor gets none. An episode's first stall comes when the idle time reaches `after`; each later one waits twice as long as the one before, up to `every`: by default 20 minutes, then 40, then every 60. Any other event ends the episode, so the idle time and the delays start again. A turn holds the next stall until `after` has passed since the watcher last saw the supervisor working. The detail names the tasks and the idle time: `s3: t139 and t142 are active, no attempt is running, idle 23m. Start a worker, finish the task, or write down in your reply what you are waiting for.` The first stall wake of an episode at or after 60 minutes idle also alerts the operator, once.
+The watcher records `supervisor.stalled`, a wake, when the work is unwatched and the supervisor is running and idle: Luvus reads it as `idle` or `done`, its screen revision has not changed for 30 seconds (the test the Luvus switch uses), no message waits for it, its screen shows no usage-limit line, and no model switch is pending. A stopped, blocked, limited or switching supervisor gets none. An episode's first stall comes when the idle time reaches `after`; each later one waits twice as long as the one before, up to `every`: by default 20 minutes, then 40, then every 60. Any other event ends the episode, so the idle time and the delays start again. A turn holds the next stall until `after` has passed since the watcher last saw the supervisor working. The detail names the tasks and the idle time: ``s3: t139 and t142 are active, no attempt is running, idle 23m. Start a worker, arm a timer with `hand wake`, or finish the task.`` The first stall wake of an episode at or after 60 minutes idle also alerts the operator, once.
 
 `routing.json` sets the delays with `"stall": {"after": "20m", "every": "60m"}`, each from `1m` to `24h` (one left out keeps its default), and `"stall": "off"` turns the stall wake off. Without `stall` the defaults apply. A bad value makes `routing.json` invalid with an error that names it; the watcher says so once in its output and keeps the defaults.
+
+### Timer
+
+`wN`. A wake the supervisor arms for later with `hand wake`, for something outside Hand such as a PR review: once after a delay (`--after 30m`), once at a time (`--at 2026-10-18T09:00:00Z`), or repeatedly (`--every 30m`). `--while tN` ties it to a task: finishing or abandoning the task cancels it. `--note` says what to check, in one line of at most 200 characters. A timer is due at least 1 minute ahead and repeats at most once a minute, and a fleet holds at most 20 armed timers. It is stored in `hand.db` as `armed`, `fired` or `cancelled`, so it survives a watcher restart, a supervisor switch and a resume. `hand wake list` shows the armed ones, `hand wake cancel wN` cancels one, and `hand orient` lists them as `timers` (id, due time, note).
+
+The watcher fires a due timer while the managed supervisor runs, on its start and on every reconcile tick, by recording `timer.fired`, a wake, whose detail is `w3: check PR 909`. A timer that came due while the watcher or the supervisor was down fires once when both are back, marked with how late it is: `w3, 2h10m late: check PR 909`. A repeating timer then moves to its next due time, or to `every` after now when that has passed, so it never fires twice for one gap. `hand wake`, a fire and a cancel record `timer.armed`, `timer.fired` and `timer.cancelled` with the timer's task. An armed timer keeps the work from being unwatched. Hand never asks a forge or CI anything for a timer: it only wakes the supervisor.
 
 ### Supervisor input
 
@@ -331,7 +338,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the unwatched tasks and their idle time when there are any, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the unwatched tasks and their idle time when there are any, the armed timers when there are any, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 
@@ -369,6 +376,7 @@ Every record has a short ref that commands, the board and wakes share.
 | `dN` | decision | across the fleet |
 | `sN` | supervisor launch | across the fleet |
 | `iN` | supervisor input | across the fleet |
+| `wN` | timer | across the fleet |
 
 ## Changed since 0.7
 

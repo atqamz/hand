@@ -32,7 +32,7 @@ A single agent works well on one task. Running several at once leaves someone to
 - ask the operator only when a choice is theirs;
 - stop and clean up workers without losing uncommitted work.
 
-In Hand, the supervisor handles judgement and `hand` handles the mechanics. Workflow state lives in a state machine over SQLite, never in an agent's memory, so a fresh supervisor orients from `hand orient` alone. Waiting costs no tokens: a watcher wakes the supervisor only when something changed, or when it idles while nothing watches its active tasks.
+In Hand, the supervisor handles judgement and `hand` handles the mechanics. Workflow state lives in a state machine over SQLite, never in an agent's memory, so a fresh supervisor orients from `hand orient` alone. Waiting costs no tokens: a watcher wakes the supervisor only when something changed, when a timer it armed comes due, or when it idles while nothing watches its active tasks.
 
 ## Requirements
 
@@ -236,7 +236,7 @@ What the supervisor does, following the `secondhand` skill:
 1. `hand orient`, at the start of every turn and after every wake.
 2. Capture with `hand task add`, start with `hand task start tN`, and plan with `hand plan set --body-file PLAN.md tN`.
 3. Start a worker with `hand attempt start --profile NAME --prompt-file BRIEF.md tN`.
-4. Wait: wakes arrive as messages that start with `[hand v1 wake]`. Before it ends a turn it runs `hand orient`, and it never ends one while tasks are `unwatched`.
+4. Wait: wakes arrive as messages that start with `[hand v1 wake]`. For something outside Hand, such as a PR review, it arms a timer with `hand wake`. Before it ends a turn it runs `hand orient`, and it never ends one while tasks are `unwatched`.
 5. Read reports with `hand report show rN`, act on them, and acknowledge them with `hand report ack rN`.
 6. Ask you with `hand decision ask tN "QUESTION"`.
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.
@@ -450,11 +450,15 @@ The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor
 
 ### When the supervisor idles
 
-The supervisor acts only on a message. While a task is active, no attempt runs and no decision is open, no event will ever come for it, and its work is unwatched. The watcher then wakes the supervisor with `supervisor.stalled` once it has been idle for 20 minutes, again 40 minutes later, then every 60 minutes while nothing changes. The wake names the tasks and the idle time. Any event other than the stall wake and its delivery starts the count again, and the next wake comes no sooner than `after` (20 minutes by default) after the supervisor last worked. Hand never sends it to a supervisor that is stopped, blocked, at a usage limit or switching models. After the first one, the Board's Needs shows "Supervisor idle for 1h12m with 3 active tasks and no running attempt" until the work is watched again, and the alert goes out once, on the first due stall wake at or after 60 minutes of idle time. `hand orient` lists the tasks as `unwatched`. Change the delays in `routing.json` (each from `1m` to `24h`), or turn the wake off with `"stall": "off"`:
+The supervisor acts only on a message. While a task is active, no attempt runs, no decision is open and no timer is armed, no event will ever come for it, and its work is unwatched. The watcher then wakes the supervisor with `supervisor.stalled` once it has been idle for 20 minutes, again 40 minutes later, then every 60 minutes while nothing changes. The wake names the tasks and the idle time. Any event other than the stall wake and its delivery starts the count again, and the next wake comes no sooner than `after` (20 minutes by default) after the supervisor last worked. Hand never sends it to a supervisor that is stopped, blocked, at a usage limit or switching models. After the first one, the Board's Needs shows "Supervisor idle for 1h12m with 3 active tasks and no running attempt" until the work is watched again, and the alert goes out once, on the first due stall wake at or after 60 minutes of idle time. `hand orient` lists the tasks as `unwatched`. Change the delays in `routing.json` (each from `1m` to `24h`), or turn the wake off with `"stall": "off"`:
 
 ```json
 "stall": {"after": "20m", "every": "60m"}
 ```
+
+### Timers
+
+The supervisor waits on something outside Hand, such as a PR review or CI, with a timer instead of a background script, which a switch or resume would lose. `hand wake --after 30m --note "check PR 909"` wakes it once 30 minutes from now, `--at 2026-10-18T09:00:00Z` at that time, and `--every 30m --while t137` every 30 minutes until t137 is done or abandoned. The watcher delivers each one as the wake `timer.fired w1: check PR 909`. Timers live in `hand.db`, so they survive a watcher restart, a supervisor switch and a resume. The watcher fires them only while the managed supervisor runs: one that came due while the watcher or the supervisor was down fires once when both are back, marked `w1, 2h10m late`, and a repeating one then carries on from there. While a timer is armed the work is not unwatched, so no stall wake comes, and `hand orient` lists the armed timers. A timer is due at least 1 minute ahead, a fleet holds at most 20 armed timers, and a note is one line of at most 200 characters. `hand wake list` shows them and `hand wake cancel wN` drops one. Hand never asks GitHub or CI anything for a timer: it only wakes the supervisor, which does the checking.
 
 ## Safe use
 
@@ -499,6 +503,8 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand luvus show` | Show the pinned Luvus and the version of the fleet's running server (from a UHP `ping`), with `match: yes`, `no`, `not running` or `unknown`. |
 | `hand orient` | Print the bounded fleet summary the supervisor starts every turn with. |
 | `hand wait [--after CURSOR] [--timeout DURATION]` | Block until a wake event arrives, for a supervisor opened by hand. |
+| `hand wake --after DURATION\|--at TIME\|--every DURATION [--while tN] [--note TEXT]` | Arm a timer that wakes the managed supervisor once after a delay, once at an RFC 3339 time, or repeatedly; `--while tN` cancels it when that task is done or abandoned. See [Timers](#timers). |
+| `hand wake list`, `hand wake cancel wN` | List the armed timers, or cancel one. |
 | `hand watch [--every DURATION] [--notify=false]` | Run the fleet's watcher. |
 | `hand supervisor start [--profile NAME]` | Start the managed supervisor; `--harness`, `--model` and `--effort` replace `--profile`, and with no flags it copies the last one. |
 | `hand supervisor resume`, `hand supervisor stop`, `hand supervisor show` | Continue the last session, stop it, or show its state, screen revision and number of queued messages. |
