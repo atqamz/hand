@@ -383,7 +383,7 @@ $link.Save()
 
 The board listens on `127.0.0.1:7777`. Each fleet has its own page at `http://127.0.0.1:7777/<fleet id>/`, and `/` lists the fleets. Each fleet keeps its own token in `board.token` in its folder, so logging in to one fleet never logs you out of another. A fleet you add or move shows up without a restart. The board also keeps each fleet's watcher alive (see above). To reach the board from a phone, use a tunnel such as `ssh -L` or `tailscale serve`.
 
-A fleet's page has two panes from 900px wide. The work pane on the left lists what waits on you (**Needs**), then the tasks with a search field (**Tasks**). The supervisor pane on the right shows the supervisor controls, the conversation without tool calls or thinking, and the message box. Below 900px the page has three tabs, **Needs**, **Tasks** and **Chat**. Each task and each decision also has its own page. The board is a projection of Hand's state, so restarting it loses nothing, and it updates itself as things change.
+A fleet's page has two panes from 900px wide. The work pane on the left lists what waits on you (**Needs**), then the tasks with a search field (**Tasks**). The supervisor pane on the right shows the supervisor controls, the conversation without tool calls or thinking, and the message box. Drag the line between the panes, or focus it and use the arrow keys, to resize the chat; the board remembers the width, and a double-click resets it. Below 900px the page has three tabs, **Needs**, **Tasks** and **Chat**. Each task and each decision also has its own page. The board is a projection of Hand's state, so restarting it loses nothing, and it updates itself as things change.
 
 `hand open` opens a page in your browser, from inside a fleet:
 

@@ -235,7 +235,6 @@ func TestNeedsAndTasksSitBesideTheChatAtBoardWidth(t *testing.T) {
 		t.Fatal("board.css has no board-width query")
 	}
 	contains(t, "board width", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .board{display:grid;grid-template-columns:minmax(0,1fr) var(--pane)}", ".tabs{display:none}", ".sup{position:relative;border-left:1px solid var(--line);background:var(--panel)}", ".work>.panel{padding:24px 32px 0}")
-	contains(t, "pane clamp", css, "--pane:clamp(360px,clamp(400px,38vw,720px),calc(100% - 440px))")
 	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:900px)")`)
 }
 
@@ -429,6 +428,31 @@ func TestTheTasksHeadCarriesTheSearch(t *testing.T) {
 	head = head[:strings.Index(head, `data-region="tasks"`)]
 	contains(t, "tasks head", head, `<h2>Tasks</h2>`, `<form class="task-search" role="search" method="get" action="/tasks">`, `<input type="search" name="q" placeholder="Search tasks" aria-label="Search tasks"`)
 	lacks(t, "tasks region", region(body, "tasks"), "task-search", "<h2>")
+}
+
+func TestTheChatPaneResizesInsideTheClamp(t *testing.T) {
+	css, js := asset(t, "board.css"), asset(t, "app.js")
+	contains(t, "board.css", css,
+		"--pane:clamp(360px,var(--chat,clamp(400px,38vw,720px)),calc(100% - 440px))",
+		".split{display:none}",
+		".split{position:absolute;top:0;bottom:0;left:-1px;z-index:5;display:block;width:10px;cursor:col-resize;touch-action:none}",
+		"body[data-drag]{cursor:col-resize;user-select:none}",
+		"@media (min-width:900px) and (pointer:coarse){.split{left:-12px;width:24px}",
+		".split::before,.split::after{transition:none}")
+	if strings.Index(css, ".split{display:none}") > strings.Index(css, "@media (min-width:900px){") {
+		t.Fatal("the separator is shown below board width")
+	}
+	contains(t, "app.js", js,
+		`document.querySelector("body[data-page=fleet] .sup")`,
+		`role: "separator"`, `"aria-orientation": "vertical"`, `"aria-controls": "chat"`,
+		`localStorage.getItem("hand.chat")`, `localStorage.setItem("hand.chat", String(px))`, `localStorage.removeItem("hand.chat")`,
+		`root.setProperty("--chat"`, `root.removeProperty("--chat")`,
+		`[360, Math.max(360, board.clientWidth - 440)]`,
+		`ArrowLeft: width() + step, ArrowRight: width() - step, Home: lo, End: hi`,
+		`e.key === "Enter"`, `split.addEventListener("dblclick", reset)`, "setPointerCapture")
+	lacks(t, "app.js", js, "hand.chat${", "style.cssText", `setAttribute("style"`)
+	body := get(t, newFixture(t).handler(), "/")
+	lacks(t, "markup", body, `role="separator"`, `class="split"`, "--chat")
 }
 
 func TestTheCapTrimIsADefaultComponentsOverride(t *testing.T) {

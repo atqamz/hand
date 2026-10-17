@@ -296,6 +296,8 @@ components:
   pane-head:
     height: "52px"
     padding: "8px 16px"
+  separator:
+    width: "10px"
   task-search:
     typography: "{typography.control}"
     rounded: "{rounded.md}"
@@ -380,7 +382,7 @@ The fleet is an on-call desk. Everything that needs the operator is an open item
 
 The material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 900px and wider the fleet page is two panes: the work pane on the left holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time.
+The desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 900px and wider the fleet page is two panes: the work pane on the left holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer, with a separator between them that the operator drags. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time.
 
 **Key Characteristics:**
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
@@ -463,9 +465,9 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ## Layout
 
-- **Fleet page below 900px:** three tabs switch between Needs (the open items), Tasks (the search field, then the task list) and Chat (the supervisor's pane head, the timeline, then the composer), one full-height panel each. Needs and Tasks are held to an 880px column centred in the page, and Chat sets its timeline and composer in a 760px one. The tab comes from the URL hash, and an id inside a panel (such as `#msg-i3`) opens the tab that holds it; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript all three panels show and the tabs are anchors.
+- **Fleet page below 900px:** three tabs switch between Needs (the open items), Tasks (the search field, then the task list) and Chat (the supervisor's pane head, the timeline, then the composer), one full-height panel each. Needs and Tasks are held to an 880px column centred in the page, and Chat sets its timeline and composer in a 760px one. The tab comes from the URL hash, and an id inside a panel (such as `#msg-i3`) opens the tab that holds it; with no hash it opens on Needs when anything waits and on Chat otherwise. The board never switches tabs for the operator. Without JavaScript all three panels show and the tabs are anchors. Nothing resizes below 900px.
 - **Fleet page at 900px and wider:** a grid of the work pane (`minmax(0,1fr)`) and the supervisor pane (`--pane`) with no gap. The work pane scrolls on its own and holds Needs, then Tasks, each in an 880px column centred in the pane, padded 24px by 32px. The supervisor pane is a column on `panel` with a hairline on its left: the pane head, the timeline, then the composer. The tabs are hidden, the Needs head and the Tasks head show, and the masthead's inner row spans the page with 24px of padding.
-- **Chat width:** `--pane` is `clamp(360px, clamp(400px, 38vw, 720px), calc(100% - 440px))`: the chat is 38vw between 400px and 720px, never under 360px, and the work pane is never under 440px. At 900px the chat is 400px beside a 500px work pane.
+- **Chat width:** `--pane` is `clamp(360px, var(--chat, clamp(400px, 38vw, 720px)), calc(100% - 440px))`: the chat is never under 360px, the work pane never under 440px, and with nothing set the chat is 38vw between 400px and 720px. At 900px the range is 360px to 460px. The separator only sets `--chat`; the clamp stays in CSS, so a width stored on a large screen cannot break a smaller one (a stored 5000px renders at the widest the screen allows) and the limits follow every window resize.
 - **App shell (at least 600px tall, or 900px and wider):** the body fills `100dvh` and never scrolls. The work pane and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
 - **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
 - **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
@@ -474,7 +476,9 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
 ### Named Rules
-**The Two Panes At Board Width Rule.** The work pane and the supervisor pane sit side by side from 900px (`TestNeedsAndTasksSitBesideTheChatAtBoardWidth`); below it the three tabs stay (`TestTabsBelowBoardWidth`).
+**The Two Panes At Board Width Rule.** The work pane and the supervisor pane sit side by side from 900px (`TestNeedsAndTasksSitBesideTheChatAtBoardWidth`); below it the three tabs stay and the separator is absent (`TestTabsBelowBoardWidth`).
+
+**The Chat Width Clamp Rule.** The chat's width is the custom property `--chat`, and only `--pane` turns it into a grid track, clamped to 360px at least and everything but 440px at most. `app.js` sets `--chat` through the CSSOM, which the CSP allows, and never lays the pane out itself (`TestTheChatPaneResizesInsideTheClamp`).
 
 **The Five Regions Rule.** The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft. The console region sits in the supervisor pane's head, and the task search form sits in the Tasks head outside the tasks region, for the same reason.
 
@@ -611,6 +615,14 @@ One box on the ground with a 1px control-edge border and 10px corners, padded 4p
   - **Hint:** while the supervisor is blocked, it links to Needs. While images upload, it reads "Attaching n image(s)…". While a Start or Resume form is in the pane head, Send turns from primary to a default button.
   - **Attaching:** paste, a drop on the composer and the paperclip each attach png, jpeg, webp or gif images up to 10 MiB. During a drag, the composer shows an accent dashed outline.
 
+### Separator
+A drag strip on the supervisor pane's left edge, 10px wide (24px on coarse pointers) and made by `app.js` as `div.split`, so a page without JavaScript carries no dead control. It is hidden below 900px. It is a `role="separator"` with `aria-orientation="vertical"`, `aria-controls="chat"` and `aria-label="Chat width"`, focusable, with `aria-valuemin`, `aria-valuemax` and `aria-valuenow` in chat pixels.
+- **At rest:** only the pane's hairline. On hover, focus or drag, a 3px accent line and a 36px grip show; on touch the grip always shows.
+- **Pointer:** pointer events with capture, so a drag that leaves the window keeps working. The chat width follows the pointer one to one, between the limits; a click that moves nothing stores nothing.
+- **Keys:** Left and Right move the separator by 16px (64px with Shift), so Left widens the chat; Home sets the narrowest chat, End the widest, and Enter resets. A double-click resets too.
+- **Remembered:** one width for the whole board in `localStorage` under `hand.chat`, removed on reset. Storage errors are caught, so with storage blocked the separator works for the session; a stored value that is not a positive number is ignored.
+- **No fold and no widen mode:** the chat is dragged to size, never folded or maximised.
+
 ### Menus
 The model menu and the overflow menu are `details` elements whose body opens below the summary (the overflow menu's at the right edge) on the ground, with a hairline border, 10px corners, the lift shadow and 12px padding. The model menu offers a profile select (each profile naming what it runs), model and effort lists for the current harness, and "Switch now" or "Switch after this turn", then one switch form per other harness. The overflow menu is a column of `--control`-high rows with 12px side padding, 4px corners and the hover wash: Notify me, New session and Other harness. Escape and a click outside close any open menu.
 
@@ -672,7 +684,7 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Do** keep font sizes to 22, 18, 15, 14 and 12px, and set figures that update in place in tabular numerals.
 - **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
 - **Do** keep one primary button per form, and keep Stop behind a second press.
-- **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute.
+- **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property through the CSSOM, which the CSP allows.
 - **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition.
 
 ### Don't:
@@ -682,5 +694,5 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.
 - **Don't** load web fonts or images from the stylesheet.
 - **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
-- **Don't** show both panes below 900px, and don't switch tabs for the operator.
+- **Don't** show both panes below 900px or resize anything there, and don't switch tabs for the operator.
 - **Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt.

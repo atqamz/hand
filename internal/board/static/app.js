@@ -418,6 +418,83 @@
 		}, { once: true });
 	}
 
+	const pane = document.querySelector("body[data-page=fleet] .sup");
+	if (pane) {
+		const root = document.documentElement.style;
+		const board = pane.closest(".board");
+		const recall = () => {
+			try {
+				return Number(localStorage.getItem("hand.chat"));
+			} catch {
+				return 0;
+			}
+		};
+		const remember = (px) => {
+			try {
+				if (px) localStorage.setItem("hand.chat", String(px));
+				else localStorage.removeItem("hand.chat");
+			} catch {
+				return;
+			}
+		};
+		const saved = recall();
+		if (Number.isFinite(saved) && saved > 0) root.setProperty("--chat", `${saved}px`);
+		const split = document.createElement("div");
+		split.className = "split";
+		split.tabIndex = 0;
+		for (const [k, v] of Object.entries({ role: "separator", "aria-orientation": "vertical", "aria-controls": "chat", "aria-label": "Chat width", title: "Drag to resize the chat. Double-click resets it." })) split.setAttribute(k, v);
+		pane.prepend(split);
+		const bounds = () => [360, Math.max(360, board.clientWidth - 440)];
+		const width = () => Math.round(pane.getBoundingClientRect().width);
+		const mark = () => {
+			const [lo, hi] = bounds();
+			split.setAttribute("aria-valuemin", String(lo));
+			split.setAttribute("aria-valuemax", String(hi));
+			split.setAttribute("aria-valuenow", String(width()));
+		};
+		const size = (px) => {
+			const [lo, hi] = bounds();
+			root.setProperty("--chat", `${Math.round(Math.min(hi, Math.max(lo, px)))}px`);
+			mark();
+		};
+		const reset = () => {
+			root.removeProperty("--chat");
+			remember(0);
+			mark();
+		};
+		split.addEventListener("pointerdown", (e) => {
+			if (e.button !== 0) return;
+			e.preventDefault();
+			split.setPointerCapture(e.pointerId);
+			const from = width();
+			let moved = false;
+			body.dataset.drag = "";
+			const move = (m) => {
+				moved = true;
+				size(from + e.clientX - m.clientX);
+			};
+			split.addEventListener("pointermove", move);
+			split.addEventListener("lostpointercapture", () => {
+				split.removeEventListener("pointermove", move);
+				delete body.dataset.drag;
+				if (moved) remember(width());
+			}, { once: true });
+		});
+		split.addEventListener("keydown", (e) => {
+			const [lo, hi] = bounds();
+			const step = e.shiftKey ? 64 : 16;
+			const next = { ArrowLeft: width() + step, ArrowRight: width() - step, Home: lo, End: hi }[e.key];
+			if (e.key === "Enter") reset();
+			else if (next !== undefined) {
+				size(next);
+				remember(width());
+			} else return;
+			e.preventDefault();
+		});
+		split.addEventListener("dblclick", reset);
+		addEventListener("resize", mark);
+		mark();
+	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
