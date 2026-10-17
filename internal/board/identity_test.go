@@ -444,7 +444,7 @@ func TestTheChatPaneResizesInsideTheClamp(t *testing.T) {
 	}
 	contains(t, "app.js", js,
 		`document.querySelector("body[data-page=fleet] .sup")`,
-		`role: "separator"`, `"aria-orientation": "vertical"`, `"aria-controls": "chat"`,
+		`role: "separator"`, `"aria-orientation": "vertical"`, `"aria-controls": "chat"`, "aria-valuetext",
 		`localStorage.getItem("hand.chat")`, `localStorage.setItem("hand.chat", String(px))`, `localStorage.removeItem("hand.chat")`,
 		`root.setProperty("--chat"`, `root.removeProperty("--chat")`,
 		`[360, Math.max(360, board.clientWidth - 440)]`,

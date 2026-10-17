@@ -616,7 +616,7 @@ One box on the ground with a 1px control-edge border and 10px corners, padded 4p
   - **Attaching:** paste, a drop on the composer and the paperclip each attach png, jpeg, webp or gif images up to 10 MiB. During a drag, the composer shows an accent dashed outline.
 
 ### Separator
-A drag strip on the supervisor pane's left edge, 10px wide (24px on coarse pointers) and made by `app.js` as `div.split`, so a page without JavaScript carries no dead control. It is hidden below 900px. It is a `role="separator"` with `aria-orientation="vertical"`, `aria-controls="chat"` and `aria-label="Chat width"`, focusable, with `aria-valuemin`, `aria-valuemax` and `aria-valuenow` in chat pixels.
+A drag strip on the supervisor pane's left edge, 10px wide (24px on coarse pointers) and made by `app.js` as `div.split`, so a page without JavaScript carries no dead control. It is hidden below 900px. It is a `role="separator"` with `aria-orientation="vertical"`, `aria-controls="chat"` and `aria-label="Chat width"`, focusable, with `aria-valuemin`, `aria-valuemax` and `aria-valuenow` in chat pixels and an `aria-valuetext` that reads "547 pixels".
 - **At rest:** only the pane's hairline. On hover, focus or drag, a 3px accent line and a 36px grip show; on touch the grip always shows.
 - **Pointer:** pointer events with capture, so a drag that leaves the window keeps working. The chat width follows the pointer one to one, between the limits; a click that moves nothing stores nothing.
 - **Keys:** Left and Right move the separator by 16px (64px with Shift), so Left widens the chat; Home sets the narrowest chat, End the widest, and Enter resets. A double-click resets too.

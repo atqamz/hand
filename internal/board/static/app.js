@@ -451,6 +451,7 @@
 			split.setAttribute("aria-valuemin", String(lo));
 			split.setAttribute("aria-valuemax", String(hi));
 			split.setAttribute("aria-valuenow", String(width()));
+			split.setAttribute("aria-valuetext", `${width()} pixels`);
 		};
 		const size = (px) => {
 			const [lo, hi] = bounds();
