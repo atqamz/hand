@@ -274,7 +274,10 @@ func (s *Store) Transition(ctx context.Context, id int64, to string) (Task, erro
 			return err
 		}
 		if to == StatusDone || to == StatusAbandoned {
-			return withdrawOpen(tx, id, now)
+			if err := withdrawOpen(tx, id, now); err != nil {
+				return err
+			}
+			return cancelTimers(tx, id, now)
 		}
 		return nil
 	})

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -24,6 +25,32 @@ func emit(tx *sql.Tx, at, kind string, taskID int64, detail string) error {
 	}
 	_, err := tx.Exec(`INSERT INTO event(at, kind, task_id, detail) VALUES (?, ?, ?, ?)`, at, kind, task, detail)
 	return err
+}
+
+func closeAll(tx *sql.Tx, taskID int64, now, kind string, ref func(int64) string, q string, args ...any) error {
+	rows, err := tx.Query(q, args...)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	slices.Sort(ids)
+	for _, id := range ids {
+		if err := emit(tx, now, kind, taskID, ref(id)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) RecentEvents(ctx context.Context, limit int) ([]Event, error) {

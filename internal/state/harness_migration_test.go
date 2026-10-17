@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -103,7 +104,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 9 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 10 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -237,5 +238,62 @@ func TestAScreenIsTrimmedToItsEndAndMadeSafe(t *testing.T) {
 	}
 	if got := screenTail("a\r\nb\xffc"); got != "a\nbc" {
 		t.Fatalf("tail = %q", got)
+	}
+}
+
+func TestAVersion9HomeLearnsTimers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:9] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 9`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x'), (2, 'hand', 'Two', '', 'done', 'x', 'x')`,
+		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at, screen) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'b', 'exited', 'x', 'kept screen')`,
+		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'task.active', 1, 'inbox->active')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 10 {
+		t.Fatalf("user_version = %d, %v", v, err)
+	}
+	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
+		t.Fatalf("old attempt screen = %q, %v", screen, err)
+	}
+	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 1 || u.Idle != time.Hour {
+		t.Fatalf("unwatched before a timer = %+v, %v", u, err)
+	}
+	w, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 1, Note: "check CI"})
+	if err != nil || TimerRef(w.ID) != "w1" {
+		t.Fatalf("timer on a migrated home = %+v, %v", w, err)
+	}
+	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 0 {
+		t.Fatalf("unwatched with a timer = %+v, %v", u, err)
+	}
+	if _, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 2}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("timer on a done task = %v", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO timer(due_at, task_id, status, created_at) VALUES ('x', 99, 'armed', 'x')`); err == nil || !strings.Contains(err.Error(), "FOREIGN KEY") {
+		t.Fatalf("timer on a missing task = %v", err)
 	}
 }

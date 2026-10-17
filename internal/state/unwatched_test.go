@@ -110,3 +110,37 @@ func TestIdleForReadsInHoursAndMinutes(t *testing.T) {
 		}
 	}
 }
+
+func TestAnArmedTimerWatchesTheFleet(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	want := func(tasks []int64, idle time.Duration) {
+		t.Helper()
+		u, err := s.Unwatched(ctx)
+		if err != nil || !slices.Equal(u.Tasks, tasks) || u.Idle != idle {
+			t.Fatalf("unwatched = %+v, %v; want tasks %v, idle %v", u, err, tasks, idle)
+		}
+	}
+	advance(10 * time.Minute)
+	want([]int64{task.ID}, 10*time.Minute)
+	if _, err := s.AddTimer(ctx, TimerSpec{After: 30 * time.Minute}); err != nil {
+		t.Fatal(err)
+	}
+	want(nil, 0)
+	advance(30 * time.Minute)
+	if _, err := s.FireTimers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	advance(5 * time.Minute)
+	want([]int64{task.ID}, 5*time.Minute)
+	w, err := s.AddTimer(ctx, TimerSpec{Every: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want(nil, 0)
+	if _, err := s.CancelTimer(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	want([]int64{task.ID}, 0)
+}

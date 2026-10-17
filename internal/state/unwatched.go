@@ -17,9 +17,9 @@ type Unwatched struct {
 }
 
 func (s *Store) Unwatched(ctx context.Context) (Unwatched, error) {
-	var live, open int
-	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen).Scan(&live, &open)
-	if err != nil || live > 0 || open > 0 {
+	var live, open, armed int
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?), (SELECT count(*) FROM timer WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen, TimerArmed).Scan(&live, &open, &armed)
+	if err != nil || live > 0 || open > 0 || armed > 0 {
 		return Unwatched{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM task WHERE status = ? ORDER BY id`, StatusActive)
