@@ -47,7 +47,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Platform support
 
-Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them, but no real Mac or Windows machine has run a fleet yet, so whatever touches the harnesses, Luvus, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its [checks](#real-machine-checks).
+Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them. A real Mac has run the checks once, with a stand-in `claude` (the real one was not tried), and no real Windows machine has run a fleet yet, so whatever touches the real harnesses, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its [checks](#real-machine-checks).
 
 CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
@@ -56,31 +56,32 @@ In the table:
 - **real**: it has run on a real Linux machine, but not every day;
 - **CI**: CI runs it on that OS, with the real system calls;
 - **CI, fake**: CI runs it on that OS, but a fake stands in for the harness, Luvus, the release server, the browser, the notifier or the watcher and board processes;
+- **real Mac (#895)**: it ran on a real Mac (macOS 26.5.1, Apple silicon) in the first dogfood run, the issue linked. *Stand-in claude*: a script stood in for `claude`, so the run covers Hand's own processes and panes but not the real worker path;
 - **not run**: the code exists but has never run on that OS;
 - **no**: not supported.
 
 | What | Linux | macOS | Windows |
 |---|---|---|---|
-| Install script | CI, fake | CI, fake | CI, fake, in PowerShell 5.1 and 7 |
-| `hand init` and the Luvus pin | daily | CI, real Luvus | CI, real Luvus |
+| Install script | CI, fake | real Mac (#895) | CI, fake, in PowerShell 5.1 and 7 |
+| `hand init` and the Luvus pin | daily | real Mac (#895) | CI, real Luvus |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
-| Luvus server, panes and events | daily | CI, real Luvus over its Unix socket | CI, real Luvus over its named pipe |
+| Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
 | Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
 | Start codex or agy | real | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | A worker reports through the footer | daily | CI, fake | CI, fake |
-| Stop a worker | daily | CI, fake | CI |
-| `hand attach` | CI, fake | not run | not run |
-| Start the watcher on demand, and the board keeps watchers alive | daily | CI, fake | CI, fake |
-| `hand update` | daily | CI, fake | CI, fake |
+| Stop a worker | daily | real Mac (#895), stand-in claude | CI |
+| `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
+| Start the watcher on demand, and the board keeps watchers alive | daily | real Mac (#895) | CI, fake |
+| `hand update` | daily | real Mac (#895), from v0.11.0 | CI, fake |
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
 | Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |
-| Desktop notifications | daily | CI, fake | no |
-| `hand open` starts the board and opens the browser | CI, fake | CI, fake | CI, fake |
+| Desktop notifications | daily | real Mac (#895) | no |
+| `hand open` starts the board and opens the browser | CI, fake | real Mac (#895) | CI, fake |
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
-| Start the board at login | daily | not run | not run |
-| The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
+| Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
+| The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 
@@ -330,7 +331,7 @@ On macOS add `<string>--update-every</string><string>1h</string>` after `<string
 
 ### macOS
 
-Unverified on a real Mac (issue #761 tracks it). Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary, and a `PATH` that holds `claude`, `git`, `luvus` and your other tools, since launchd gives agents a minimal one:
+Run on a real Mac with Hand 0.11.0: the recipe loads, runs the board and respawns the watcher. Still unverified (issue #761 tracks it): `RunAtLoad` at a real login, the Background Items notice that macOS may show at login, and the real `claude` on macOS. Save this as `~/Library/LaunchAgents/dev.secondhand.board.plist`, with the absolute path of your `hand` binary, and a `PATH` that holds `claude`, `git`, `luvus` and your other tools, since launchd gives agents a minimal one:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>

@@ -1,6 +1,6 @@
 # Dogfooding Hand on a real machine
 
-Hand builds for macOS and native Windows, and CI runs its tests there, but with fakes standing in for most of the real system: no real Mac or Windows machine has run a fleet yet. This folder lets another person, or that person's coding agent, find out, and report the result as GitHub issues in `atqamz/hand`, without asking the author anything. Nothing here claims that a check passes: a run finds out.
+Hand builds for macOS and native Windows, and CI runs its tests there, but with fakes standing in for most of the real system: one real Mac has run the checks (#895, with a stand-in `claude`), and no real Windows machine has run a fleet yet. This folder lets another person, or that person's coding agent, find out, and report the result as GitHub issues in `atqamz/hand`, without asking the author anything. Nothing here claims that a check passes: a run finds out.
 
 ## Pick a path
 
@@ -21,7 +21,7 @@ Each check names the row of the README's [Platform support](../../README.md#plat
 
 ## Result format
 
-One run issue per session, titled `dogfood(<os>): <hand version> on <OS version> <date>`, for example `dogfood(macos): 0.10.0 on macOS 15.1 2026-10-12`. Its body lists the versions (hand, OS, arch, shell, claude, Luvus), then every check of the OS file as a task-list line:
+One run issue per session, titled `dogfood(<os>): <hand version> on <OS version> <date>`, for example `dogfood(macos): 0.11.0 on macOS 15.1 2026-10-12`. Its body lists the versions (hand, OS, arch, shell, claude, Luvus), then every check of the OS file as a task-list line:
 
 ```text
 - [x] M1 Supervisor starts: pass

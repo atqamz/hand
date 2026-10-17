@@ -145,7 +145,7 @@ Add-Content "$D\env.ps1" "`$fid = '$fid'`n`$luvus = '$luvus'"
 **8.** Ask the owner: *While you ran `install.ps1` and `hand`, did SmartScreen, Defender or Windows Security show any prompt, warning or notification about `hand.exe` or `luvus.exe`?* (yes or no, and its text).
 
 Expected:
-- the install prints `installed hand version: 0.10.0 to ...\bin\hand.exe` (the version can be newer), and `(Get-Command hand).Source` is that path;
+- the install prints `installed hand version: 0.11.0 to ...\bin\hand.exe` (the version can be newer), and `(Get-Command hand).Source` is that path;
 - `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line: when no `luvus.exe` was on `PATH`, it downloaded and pinned the tested Luvus, and the pinned file is under `$D\home\luvus`;
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
 - `hand route list` shows `cheap,claude,haiku,low,yes`;
@@ -358,12 +358,12 @@ If it fails: file one issue per harness, titled `W4: <harness> ...`, with `hand 
 
 Steps:
 
-**1.** Install the latest release (v0.10.0, the first that has a Windows zip and records process IDs for the update) as a second copy, make a fleet in a second home, and start its watcher and board with that old copy:
+**1.** Install v0.11.0 or a later release as a second copy (the update stops processes by pid file from v0.11.0 on), make a fleet in a second home, and start its watcher and board with that old copy:
 
 ```powershell
 . "$D\env.ps1"
 New-Item -ItemType Directory -Path "$D\fleet2" | Out-Null
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1))) -Dir "$D\old" -Version v0.10.0
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1))) -Dir "$D\old" -Version v0.11.0
 $env:SECONDHAND_HOME = "$D\home2"
 Set-Location "$D\fleet2"
 & "$D\old\hand.exe" init
@@ -392,7 +392,7 @@ Start-Sleep -Seconds 5
 **3.** Ask the owner: *During the install and the update, did SmartScreen, Defender or Windows Security show any prompt, warning or notification about `hand.exe`?* (yes or no, and its text).
 
 Expected:
-- the check prints `status: checked`; the update prints `status: updated`, `from: 0.10.0 stable ...` and `to: 0.10.0 edge ...` (the versions can be newer), a `backups` list, and `init ok` for the fleet;
+- the check prints `status: checked`; the update prints `status: updated`, `from: 0.11.0 stable ...` and `to: 0.11.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - the first `Test-Path` after the update prints `True` (the running `hand.exe` was renamed to `hand.exe.old`), and the second, after one more `hand` run, prints `False`;
 - `hand version` prints `channel: edge`;
 - both PID files changed, `orient` prints `watch: running`, and `board-answers` prints: the watcher and the board run again, started by the update;
@@ -429,7 +429,7 @@ The kill makes the board start the watcher again within 30 seconds, which starts
 
 **2.** Ask the owner two questions: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* and *In those two minutes, did any console window appear, even briefly?* (yes or no for each, and which browser).
 
-Expected: `hand open` prints `opened: http://127.0.0.1:7777/<fleet id>/`; `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
+Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; `watch: running` returns within 60 seconds; the first answer is yes and the second is no.
 
 Evidence: `& { hand open; Get-Content "$env:SECONDHAND_HOME\board.addr"; hand orient | Select-String '^watch:'; Get-Content "$env:SECONDHAND_HOME\board.log" -Tail 5 -ErrorAction SilentlyContinue } 2>&1 | Ev W6`, and both answers.
 
@@ -616,7 +616,7 @@ Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"
 
 ```powershell
 . "$D\env.ps1"
-Write-Output ". `"$D\env.ps1`"; hand orient | Select-Object -First 5; hand open --print *> `$null; if (`$LASTEXITCODE -eq 0) { 'board-answers' }"
+Write-Output ". `"$D\env.ps1`"; Set-Location `"$D\fleet`"; hand orient | Select-Object -First 5; hand open --print *> `$null; if (`$LASTEXITCODE -eq 0) { 'board-answers' }"
 ```
 
 Ask the owner: *Log off from Windows, log on again, wait two minutes, then open PowerShell and run that line. Paste the output here. Did it print `board-answers`, `watch: running`, and a supervisor line that says `running` (resumed by the board's watcher) or `interrupted` (then run `hand supervisor resume`, and say whether it says `running` afterwards)?* (yes or no, and the output).
@@ -807,7 +807,7 @@ Run it at the end, even after a failure, and again after a logoff. In its first 
 . "C:\Users\<user>\AppData\Local\Temp\hd-xxxxxx\env.ps1"
 $lnk = "$([Environment]::GetFolderPath('Startup'))\Hand dogfood board.lnk"
 if ((Test-Path $lnk) -and (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).Arguments -like "*$D*") { Remove-Item $lnk }
-foreach ($f in "$D\fleet\watch.pid", "$D\fleet2\watch.pid", "$D\home\board.pid", "$D\home2\board.pid") {
+foreach ($f in @(Get-ChildItem "$D\fleet*\watch.pid", "$D\home*\board.pid" -ErrorAction SilentlyContinue).FullName) {
   if (Test-Path $f) { $p = [int](Get-Content $f).Split(' ')[0]; $proc = Get-Process -Id $p -ErrorAction SilentlyContinue; if ($proc -and $proc.Path -like "$D\*") { Stop-Process -Id $p -Force } }
 }
 foreach ($s in @(Get-ChildItem "$D\luvus\sessions" -Directory -ErrorAction SilentlyContinue)) { & $luvus session stop $s.Name }

@@ -94,7 +94,7 @@ echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') 
 ```
 
 Expected:
-- the install prints `installed hand version: 0.10.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
+- the install prints `installed hand version: 0.11.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
 - `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line (the version is the tested one; on arm64 the download is the `aarch64-unknown-linux-musl` build);
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
 - `hand route list` shows `cheap,claude,haiku,low,yes`;
@@ -226,7 +226,7 @@ hand orient | sed -n 1,5p
 
 Expected:
 - the board runs detached, with its output in `board.log`: `board.addr` holds `127.0.0.1:7777`, and `board-answers` prints;
-- `hand open` either prints `opened: http://127.0.0.1:7777/<fleet id>/` with exit 0, or fails with a message that names the missing opener and tells you to open the page yourself (with the board still started); a hang is a failure;
+- `hand open` either prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes) with exit 0, or fails with a message that names the missing opener and tells you to open the page yourself (with the board still started); a hang is a failure;
 - `watch: running` returns within 60 seconds of the kill.
 
 Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; hand orient | sed -n 1,5p; } 2>&1 | ev L3`. Never print `hand open --print` into an issue.

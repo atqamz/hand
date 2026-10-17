@@ -1,8 +1,8 @@
 # macOS checks
 
-Apple silicon only: `uname -m` prints `arm64`. Intel is not tested here. The shell is zsh. Read [`README.md`](README.md) for the safety rules and the result format, and your entry point ([`human.md`](human.md) or [`agent.md`](agent.md)) for how to run and report.
+Apple silicon only: `uname -m` prints `arm64`. Intel is not tested here. The shell is zsh. On macOS `/tmp` is `/private/tmp`: `hand` prints `/private/tmp/...` paths for a folder that you made as `/tmp/...`, and both name the same folder. Read [`README.md`](README.md) for the safety rules and the result format, and your entry point ([`human.md`](human.md) or [`agent.md`](agent.md)) for how to run and report.
 
-Nobody has run these commands on a real Mac before the first dogfood run. A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
+One real Mac has run these commands (#895). A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
 In each check, **Run** says whether an agent can run it to the end (`agent`) or it ends in a question that only a person at the screen can answer (`needs human`). **Real sessions** counts the Claude Code sessions it starts on your account.
 
@@ -96,7 +96,7 @@ echo "export FID=$FID LUVUS_BIN=$(hand luvus show | sed -n 's/^pin: [^ ]* //p') 
 **7.** Ask the owner: *While you installed and ran `hand`, did macOS show any dialog or notification about `hand` or `luvus`, such as "cannot be opened", "cannot verify the developer", "malware" or a request to allow it?* (yes or no, and its text).
 
 Expected:
-- the install prints `installed hand version: 0.10.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
+- the install prints `installed hand version: 0.11.0 to /tmp/hand-dogfood.XXXXXX/bin/hand` (the version can be newer), and `command -v hand` prints that path;
 - `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line (the version is the tested one);
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
 - `hand route list` shows `cheap,claude,haiku,low,yes`;
@@ -434,7 +434,7 @@ cat $SECONDHAND_HOME/board.addr
 
 **2.** Ask the owner: *Did your default browser open the Hand fleet page, already logged in (no question about a token)?* (yes or no, and which browser).
 
-Expected: `hand open` prints `opened: http://127.0.0.1:7777/<fleet id>/`; `board.addr` holds `127.0.0.1:7777`; the answer is yes.
+Expected: `hand open` prints `opened: "http://127.0.0.1:7777/<fleet id>/"` (the URL is in quotes); `board.addr` holds `127.0.0.1:7777`; the answer is yes.
 
 Evidence: `{ hand open; cat $SECONDHAND_HOME/board.addr; tail -5 $SECONDHAND_HOME/board.log; } 2>&1 | ev M8`, and the answer.
 
@@ -457,7 +457,7 @@ T=$(hand task add --goal "Notify me" demo "dogfood notify" | sed -n 's/^task: //
 hand decision ask $T "Did the notification show?"
 ```
 
-**2.** Ask the owner, within 30 seconds: *Did a macOS notification appear with the title `fleet` and a text starting `t` followed by the task number and ` decision:`?* (yes or no, and the text).
+**2.** Ask the owner, within 30 seconds: *Did a macOS notification appear with the title `fleet` and a text starting `t` followed by the task number and ` decision:`? Look in Notification Center too.* (yes or no, and the text, and whether it was a banner or only in Notification Center). When a person has to relay the answer, 30 seconds cannot hold: resend it live with `hand decision ask $T "Did the notification show again?"` while the owner watches, or accept Notification Center, and write which one in the answer.
 
 Expected: the answer is yes.
 
@@ -474,12 +474,12 @@ If it fails: file what the owner saw, and whether macOS asked for permission.
 
 Steps:
 
-**1.** Install the latest release (v0.10.0, the first that records process IDs for the update) as a second copy, make a fleet in a second home, and start its watcher and board with that old copy:
+**1.** Install v0.11.0 or a later release as a second copy (the update stops processes by pid file from v0.11.0 on, so an older copy cannot restart the watcher and the board on macOS), make a fleet in a second home, and start its watcher and board with that old copy:
 
 ```zsh
 . $D/env.sh
 mkdir -p $D/old $D/fleet2
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.10.0 sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.11.0 sh
 H2=$D/home2
 cd $D/fleet2 && SECONDHAND_HOME=$H2 $D/old/hand init
 cp $D/fleet2/hand.db $D/hand2.db.backup
@@ -505,7 +505,7 @@ SECONDHAND_HOME=$H2 $D/old/hand open --print > /dev/null && echo board-answers
 **3.** Ask the owner: *During the update, did macOS show any dialog or notification about `hand`, such as "cannot be opened" or "malware"?* (yes or no, and its text).
 
 Expected:
-- the check prints `status: checked`; the update prints `status: updated`, `from: 0.10.0 stable ...` and `to: 0.10.0 edge ...` (the versions can be newer), a `backups` list, and `init ok` for the fleet;
+- the check prints `status: checked`; the update prints `status: updated`, `from: 0.11.0 stable ...` and `to: 0.11.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - `hand version` now prints `channel: edge`;
 - both PID files changed, `orient` prints `watch: running`, and `board-answers` prints: the watcher and the board run again, started by the update;
 - the answer is no.
@@ -593,7 +593,7 @@ EOF
 
 ```zsh
 . $D/env.sh
-echo ". $D/env.sh; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers"
+echo ". $D/env.sh; cd $D/fleet; hand orient | sed -n 1,5p; launchctl list | grep dev.secondhand.dogfood; hand open --print > /dev/null && echo board-answers"
 ```
 
 Ask the owner: *Log out of macOS from the Apple menu, log in again, wait one minute, then open Terminal and run that line. Paste the output here. Did it print `board-answers`, a `launchctl` line with a number in its first column, and `supervisor: ... running`?* (yes or no, and the output).
@@ -618,11 +618,12 @@ Run it at the end, even after a failure, and again after a logout. In its first 
 . /tmp/hand-dogfood.XXXXXX/env.sh
 PLIST=~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist
 if grep -q "$D/" $PLIST 2>/dev/null; then launchctl unload $PLIST; rm -f $PLIST; fi
-for f in $D/fleet/watch.pid $D/fleet2/watch.pid $D/home/board.pid $D/home2/board.pid; do
+for f in $D/fleet*/watch.pid $D/home*/board.pid; do
   [ -f $f ] || continue
   p=$(cut -d' ' -f1 $f)
   ps -p $p -o command= | grep -q "^$D/" && kill $p
 done
+[ -f $D/caffeinate.pid ] && kill $(cat $D/caffeinate.pid)
 for s in $(ls $LUVUS_HOME/sessions 2>/dev/null); do $LUVUS_BIN session stop $s; done
 sleep 2
 pgrep -fl "^$D/"

@@ -32,7 +32,7 @@ This page is the path for a person at the machine: read a check, run it, fill th
 Fill this in as you go. Replace the example lines with the checks of your OS file; keep one line per check:
 
 ```text
-Hand: 0.10.0 stable abc1234def56   (the first lines of `hand version`)
+Hand: 0.11.0 stable abc1234def56   (the first lines of `hand version`)
 OS: macOS 15.1, arm64
 Shell: zsh 5.9
 claude: 2.1.0
@@ -48,7 +48,7 @@ A ticked box means `pass`. For a `needs human` check, write your answer on the l
 
 ## Filing it
 
-1. Create the run issue at `https://github.com/atqamz/hand/issues/new`. The title is `dogfood(<os>): <hand version> on <OS version> <date>`, for example `dogfood(windows): 0.10.0 on Windows 11 23H2 2026-10-12`. The body is your result, above. When a check changes later, edit the body of the issue; do not add a comment.
+1. Create the run issue at `https://github.com/atqamz/hand/issues/new`. The title is `dogfood(<os>): <hand version> on <OS version> <date>`, for example `dogfood(windows): 0.11.0 on Windows 11 23H2 2026-10-12`. The body is your result, above. When a check changes later, edit the body of the issue; do not add a comment.
 2. For each failed check, search the open issues of `atqamz/hand` for its ID, for example `M2:` in the title. If an issue for it exists, add your redacted evidence to it as a comment, and write its number on the check's line of the run issue.
 3. Otherwise open the form for your OS, which applies the labels `bug` and `platform: <os>` for you:
    - `https://github.com/atqamz/hand/issues/new?template=dogfood-macos.yml`

@@ -1,6 +1,6 @@
 # Dogfood Hand with a coding agent
 
-This page is the path for a coding agent that its owner runs on their own machine. It is complete on its own: give the agent the block below, and it needs nothing else but the OS file. A person can do the same job without an agent: see [`human.md`](human.md).
+This page is the path for a coding agent that its owner runs on their own machine. It is complete on its own: give the agent the block below, and it needs nothing else but the OS file. A person can do the same job without an agent: see [`human.md`](human.md). An agent that runs on another machine and reaches the machine under test over SSH reads [Remote mode](#remote-mode) too.
 
 ## What the owner needs
 
@@ -86,3 +86,31 @@ A check that ends the session (a logoff and logon, a reboot) cannot be finished 
 1. Stop when every check is `pass`, `fail`, `skip` or `waiting for owner`, or when the owner stops you, or when a safety rule would be broken to go on.
 2. Before the Teardown, make sure every result and every piece of evidence is posted: the evidence files are in the temporary folder, which the Teardown deletes. Run the OS file's Teardown, and put its result in the run issue: the temporary folder is gone, and nothing that the Teardown lists is left. Report anything that you could not remove, with the path redacted.
 3. End your answer to the owner with the run issue link, the failed checks with their issue links, and what is waiting for them.
+
+## Remote mode
+
+For an agent whose host is not the machine under test (the target): it reaches the target over SSH, and the owner sits at the target or relays for someone who does. Every rule above holds. Where this section differs, it wins.
+
+### Access
+
+1. The operator opens one SSH control connection (`ControlMaster`, `ControlPersist`) and types the password or touches the key themself. You never handle a password. You never create or install an SSH key on the target. You use only that connection.
+2. `D` is a path on the target. Scratch files, issue bodies and the final text live on your host.
+
+### Running commands
+
+1. Send each command block through one `ssh ... zsh -c "$(cat)"` with the block on stdin. A block cannot also read stdin. Start every block with `. $D/env.sh`.
+2. `gh`, the issue bodies and the final redaction pass run on your host. The target's `redact` covers only the output that it pipes. Output that comes back (`ls -l` owners, `ps`) holds the user name: pipe it through `ev` on the target, then redact again on your host before you post it.
+3. Start a background process as `( ... </dev/null &)`: without `</dev/null` the channel never closes. Start `caffeinate -i` with `nohup`, and write its process ID to `$D/caffeinate.pid` for the Teardown.
+4. `pgrep -f` and `ps | grep` also match your own `zsh -c` line. Anchor the pattern, as in `pgrep -fl "^$D/"`. Never use `pgrep -fl "$D"`. In zsh, `echo ===x` fails: quote it.
+
+### Claude on the target
+
+The checks need a logged-in `claude`. Never move the owner's login, a token or an account credential to the target. Pick one:
+
+1. **A dedicated key.** The owner makes an API key with a spend cap for this run and types it on the target into `$D/secrets.env`, mode 600. You never see it. Download the `claude` binary into `$D/bin` and verify its checksum; do not run the installer, since it writes into the owner's home. Set `CLAUDE_CONFIG_DIR=$D/claude` in `env.sh`, and load `secrets.env` there. Delete the key file in the Teardown.
+2. **No key.** Skip `M2`, `M3` and `M6`. Run the checks that need only Hand's processes (`M1`, `M4`, `M5`) with a stand-in `claude` script in `$D/shim`, first on `PATH`: it prints a banner, reads stdin, holds a `sleep` child and exits on SIGTERM. Label each such line `pass (stand-in claude)`: it covers Hand's mechanics, not the real worker path (trust screen, hooks, transcript, wake delivery).
+
+### Checks that need a person
+
+1. When the person at the target is not your operator, relay each question through the operator, one yes/no question at a time, and copy the answer as written.
+2. A check that logs the owner out (`M11`) kills the SSH connection. Either the owner logs in and reopens the connection, or you run `launchctl bootout gui/$(id -u)/dev.secondhand.dogfood.board` and then `launchctl bootstrap gui/$(id -u) $PLIST`, and label the line `pass (bootout and bootstrap; no real logon)`. That does not test `RunAtLoad` at a real login, so say so in the line.
