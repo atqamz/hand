@@ -586,6 +586,7 @@ Hand's own events take one muted 12px line each, with no card: an 8px ring outli
 
 ### Composer
 One box on `panel` with a hairline border and 10px corners, padded 10px, pinned under the timeline. Its focus frame is an accent border plus a 1px accent ring.
+- **Draft:** the text survives in-place navigation. It is kept in `sessionStorage` per tab and fleet, restored on load when the box is empty, and cleared by a successful send; with storage blocked the box works without it (`TestTheDraftSurvivesInPlaceNavigation`).
 - **Text box:** borderless and transparent, growing with its text up to 40dvh (30dvh on short screens and without JavaScript).
 - **Foot row:** the console region on the left, the hint in muted meta, then the send group. When the chat column is under 700px wide (the rail beside it at 1024px, or a phone) the hint takes its own row above the console and Send.
   - **Send group:** the paperclip "Attach images" button (a square of `--control`), the send key hint ("Ctrl Enter", or "⌘ Enter" on Apple devices, hidden on coarse pointers) and the primary Send.

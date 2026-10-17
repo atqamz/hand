@@ -21,6 +21,15 @@
 	};
 	const apple = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 	body.dataset.shell = "";
+	const composerKey = `hand.draft${base}`;
+	const kept = (value) => {
+		try {
+			if (value === undefined) return sessionStorage.getItem(composerKey) || "";
+			if (value) sessionStorage.setItem(composerKey, value);
+			else sessionStorage.removeItem(composerKey);
+		} catch {}
+		return "";
+	};
 	const typing = (el) => el.contains(document.activeElement) && document.activeElement.matches("textarea, select, input:not([type=hidden])");
 
 	const reversed = (el) => getComputedStyle(el).flexDirection === "column-reverse";
@@ -324,7 +333,10 @@
 			return;
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
-			if (form.id === "composer") form.reset();
+			if (form.id === "composer") {
+				form.reset();
+				kept("");
+			}
 			const id = form.action.endsWith("/keys") && form.closest("details.wait")?.id;
 			if (id) {
 				const label = (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
@@ -418,6 +430,11 @@
 			c.textContent = left === 0 ? "denying…" : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 		}
 	};
+	const message = document.getElementById("composer-text");
+	if (message) {
+		if (!message.value) message.value = kept();
+		message.addEventListener("input", () => kept(message.value));
+	}
 	since();
 	tick();
 	setInterval(since, 30000);
