@@ -390,6 +390,9 @@
 		complain(form, header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
 	});
 
+	addEventListener("pageshow", () => {
+		for (const f of document.querySelectorAll("form[data-choose]")) otherwise(f);
+	});
 	document.addEventListener("change", (e) => {
 		const form = e.target instanceof HTMLInputElement && e.target.name === "choice" ? e.target.form : null;
 		if (form) otherwise(form);

@@ -97,6 +97,27 @@ func TestProseDropsOnlyTheOptionLines(t *testing.T) {
 	}
 }
 
+func TestASecondListThatReusesAKeyStaysInTheQuestion(t *testing.T) {
+	body := "Pick one\n\n1. A\n2. B\n\nThen the steps:\n1. do x\n2. do y"
+	got := options(body)
+	if len(got) != 2 || got[0].Label != "A" || got[1].Label != "B" {
+		t.Fatalf("options = %+v", got)
+	}
+	if rest := prose(body); !strings.Contains(rest, "Then the steps:\n1. do x\n2. do y") || strings.Contains(rest, "1. A") {
+		t.Fatalf("prose = %q", rest)
+	}
+}
+
+func TestALineWithoutALabelIsNeitherAnOptionNorLostFromTheQuestion(t *testing.T) {
+	body := "Pick one\n\n1. (recommended)\n2. B\n3. C"
+	if got := options(body); len(got) != 2 || got[0].Key != "2" || got[1].Key != "3" {
+		t.Fatalf("options = %+v", got)
+	}
+	if rest := prose(body); !strings.Contains(rest, "1. (recommended)") || strings.Contains(rest, "2. B") {
+		t.Fatalf("prose = %q", rest)
+	}
+}
+
 func TestChosenAndNoteReadAnAnswerBack(t *testing.T) {
 	opts := options("1. Pin\n2. Track\nC. Other (write your own)")
 	cases := []struct{ answer, key, note string }{

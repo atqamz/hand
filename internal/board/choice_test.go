@@ -113,6 +113,27 @@ func TestAnEmptyChoiceAndNoteAreRefused(t *testing.T) {
 	}
 }
 
+func TestAnOtherChoiceNeedsItsNote(t *testing.T) {
+	fx := newFixture(t)
+	d := asked(t, fx, pinQuestion)
+	rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"choice": {"3. Other (write your own)"}, "answer": {"  "}})
+	msg, _ := url.PathUnescape(rec.Header().Get("X-Hand-Error"))
+	if rec.Code != http.StatusBadRequest || msg != "write your answer: that option asks for one" {
+		t.Fatalf("Other without a note = %d %q", rec.Code, msg)
+	}
+	contains(t, "in place", rec.Body.String(), `<p class="form-error" role="alert">Write your answer: that option asks for one.</p>`, "<fieldset")
+	if got, _ := fx.st.Decision(context.Background(), d.ID); got.Status != state.DecisionOpen {
+		t.Fatalf("a refused answer closed the decision: %+v", got)
+	}
+	if rec := fetchPost(fx.handler(), "/decision/d1/answer", url.Values{"choice": {"2. Track 0.14.x"}}); rec.Code != http.StatusNoContent {
+		t.Fatalf("a plain row needs no note: %d", rec.Code)
+	}
+	other := asked(t, fx, pinQuestion)
+	if rec := fetchPost(fx.handler(), "/decision/"+state.DecisionRef(other.ID)+"/answer", url.Values{"choice": {"3. Other (write your own)"}, "answer": {"vendor it"}}); rec.Code != http.StatusNoContent {
+		t.Fatalf("Other with a note = %d", rec.Code)
+	}
+}
+
 func TestTheAnsweredStateMarksTheChosenRow(t *testing.T) {
 	fx := newFixture(t)
 	d := asked(t, fx, pinQuestion)
@@ -195,7 +216,7 @@ func TestTheChoiceListIsDrivenFromTheKeyboardAndKeepsItsState(t *testing.T) {
 		`.querySelector(".option-key").textContent.toLowerCase() === e.key.toLowerCase()`, "radio.checked = true;", "radio.focus();",
 		`if (radio.hasAttribute("data-other")) form.querySelector("textarea[name=answer]").focus();`,
 		`e.detail > 0 && e.target instanceof HTMLInputElement && e.target.hasAttribute("data-other")`,
-		`const fields = "textarea, select, input:not([type=hidden]):not([type=radio])";`, `input[type=radio]:checked`, `if (picked.has(`, `otherwise(f);`,
+		`addEventListener("pageshow", () => {`, `const fields = "textarea, select, input:not([type=hidden]):not([type=radio])";`, `input[type=radio]:checked`, `if (picked.has(`, `otherwise(f);`,
 		`(form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id`, `data.get("choice")?.split(".")[0] || "answer"`,
 		`complain(form, "Pick an option or write an answer.");`, `if (res.status === 409 && form.matches(".answer")) {`, `.querySelector(".answered-block")`, "form.replaceWith(next);", `document.querySelector(".thread-head .status")?.replaceWith(status);`, "local(next);",
 		`const out = form.matches(".answer") && form.querySelector(".form-error");`)

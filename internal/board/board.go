@@ -270,51 +270,52 @@ type option struct {
 	Recommended, Other, Long bool
 }
 
-func options(body string) []option {
-	var out []option
-	fenced := false
-	for _, line := range strings.Split(body, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			fenced = !fenced
-			continue
-		}
-		m := optionLine.FindStringSubmatch(line)
-		if m == nil || fenced {
-			continue
-		}
-		text := strings.TrimSpace(m[2])
-		o := option{Key: m[1], Recommended: recommended.MatchString(text)}
-		text = strings.TrimSpace(recommended.ReplaceAllString(text, ""))
-		o.Label = text
-		if parts := consequence.Split(text, 2); len(parts) == 2 {
-			o.Label, o.Note = parts[0], parts[1]
-		}
-		if o.Label == "" {
-			continue
-		}
-		o.Other, o.Long = other.MatchString(o.Label), utf8.RuneCountInString(o.Label) > 90
-		o.Value = o.Key + ". " + o.Label
-		out = append(out, o)
+func parseOption(line string) (option, bool) {
+	m := optionLine.FindStringSubmatch(line)
+	if m == nil {
+		return option{}, false
 	}
-	return out
+	text := strings.TrimSpace(m[2])
+	o := option{Key: m[1], Recommended: recommended.MatchString(text)}
+	text = strings.TrimSpace(recommended.ReplaceAllString(text, ""))
+	o.Label = text
+	if parts := consequence.Split(text, 2); len(parts) == 2 {
+		o.Label, o.Note = parts[0], parts[1]
+	}
+	o.Other, o.Long = other.MatchString(o.Label), utf8.RuneCountInString(o.Label) > 90
+	o.Value = o.Key + ". " + o.Label
+	return o, o.Label != ""
 }
 
-func prose(body string) string {
-	if len(options(body)) == 0 {
-		return body
-	}
+func parseBody(body string) ([]option, string) {
+	var opts []option
 	var keep []string
+	seen := map[string]bool{}
 	fenced := false
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			fenced = !fenced
-		}
-		if !fenced && optionLine.MatchString(line) {
+		} else if o, ok := parseOption(line); ok && !fenced && !seen[o.Key] {
+			seen[o.Key] = true
+			opts = append(opts, o)
 			continue
 		}
 		keep = append(keep, line)
 	}
-	return strings.TrimSpace(strings.Join(keep, "\n"))
+	if len(opts) == 0 {
+		return nil, body
+	}
+	return opts, strings.TrimSpace(strings.Join(keep, "\n"))
+}
+
+func options(body string) []option {
+	opts, _ := parseBody(body)
+	return opts
+}
+
+func prose(body string) string {
+	_, rest := parseBody(body)
+	return rest
 }
 
 func chosen(opts []option, answer string) string {
@@ -723,18 +724,27 @@ func (b *Board) rejected(w http.ResponseWriter, r *http.Request, id int64, statu
 	b.decisionPage(w, r, id, status, notice)
 }
 
+func (b *Board) asksForANote(ctx context.Context, id int64, choice string) bool {
+	d, err := b.st.Decision(ctx, id)
+	return err == nil && slices.ContainsFunc(options(d.Body()), func(o option) bool { return o.Other && o.Value == choice })
+}
+
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r, "d")
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
-	answer := strings.TrimSpace(r.PostFormValue("answer"))
-	if choice := strings.TrimSpace(r.PostFormValue("choice")); choice != "" {
-		answer = strings.TrimSpace(choice + "\n\n" + answer)
-	}
+	note := strings.TrimSpace(r.PostFormValue("answer"))
+	choice := strings.TrimSpace(r.PostFormValue("choice"))
+	answer := strings.TrimSpace(choice + "\n\n" + note)
 	if answer == "" {
 		const msg = "pick an option or write an answer"
+		b.rejected(w, r, id, http.StatusBadRequest, msg, sentence(msg))
+		return
+	}
+	if note == "" && b.asksForANote(r.Context(), id, choice) {
+		const msg = "write your answer: that option asks for one"
 		b.rejected(w, r, id, http.StatusBadRequest, msg, sentence(msg))
 		return
 	}
