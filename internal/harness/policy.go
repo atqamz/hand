@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -21,6 +22,7 @@ const PolicyFile = "routing.json"
 type Policy struct {
 	Profiles   map[string]Spec `json:"profiles"`
 	Notify     []string        `json:"notify,omitzero"`
+	Stall      Stall           `json:"stall,omitzero"`
 	Supervisor struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`
@@ -36,6 +38,60 @@ var StarterPolicy = Policy{Profiles: map[string]Spec{
 
 var profileName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
+type Stall struct {
+	Off          bool
+	After, Every time.Duration
+}
+
+var DefaultStall = Stall{After: 20 * time.Minute, Every: time.Hour}
+
+const stallForm = `stall must be "off" or {"after": "20m", "every": "60m"}`
+
+func (s *Stall) UnmarshalJSON(b []byte) error {
+	var word string
+	if json.Unmarshal(b, &word) == nil {
+		if word != "off" {
+			return errors.New(stallForm)
+		}
+		*s = Stall{Off: true}
+		return nil
+	}
+	var raw struct {
+		After *string `json:"after"`
+		Every *string `json:"every"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return fmt.Errorf("%s: %w", stallForm, err)
+	}
+	*s = DefaultStall
+	if err := stallDelay(&s.After, "after", raw.After); err != nil {
+		return err
+	}
+	return stallDelay(&s.Every, "every", raw.Every)
+}
+
+func stallDelay(to *time.Duration, name string, text *string) error {
+	if text == nil {
+		return nil
+	}
+	d, err := time.ParseDuration(*text)
+	if err != nil || d < time.Minute || d > 24*time.Hour {
+		return fmt.Errorf("stall.%s is %q; give a duration from 1m to 24h, like \"20m\"", name, *text)
+	}
+	*to = d
+	return nil
+}
+
+func (s Stall) Delay(n int) time.Duration {
+	d := s.After
+	for range n {
+		d = min(2*d, s.Every)
+	}
+	return d
+}
+
 func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)
@@ -45,7 +101,7 @@ func LoadPolicy(home string) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
-	var p Policy
+	p := Policy{Stall: DefaultStall}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
