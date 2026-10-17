@@ -102,7 +102,7 @@ func TestWakesGroup(t *testing.T) {
 	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
 	claudeLog(t, fx, []string{at(wake, "2026-09-28T12:28:00Z"), at(wake, "2026-09-28T12:28:30Z"), at(wake, "2026-09-28T12:29:00Z"), at(reply("done"), "2026-09-28T12:30:00Z")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "wakes", tl, `<details class="hand-line wakes"`, `3 wakes · <time datetime="2026-09-28T12:28:00Z" data-clock>`, `–<time datetime="2026-09-28T12:29:00Z" data-clock>`)
+	contains(t, "wakes", tl, `<details class="hand-line wakes"`, `<span class="hand-text">3 wakes</span><span class="span"><time datetime="2026-09-28T12:28:00Z" data-clock>`, `–<time datetime="2026-09-28T12:29:00Z" data-clock>`)
 	group := tl[strings.Index(tl, `<details class="hand-line wakes"`):]
 	group = group[:strings.Index(group, "</details>")]
 	if n := strings.Count(group, `<p class="hand-line"`); n != 3 {

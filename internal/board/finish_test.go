@@ -102,6 +102,7 @@ func TestBrowserSurfacesAreThemed(t *testing.T) {
 
 func TestHandLinesStayOnOneLine(t *testing.T) {
 	contains(t, "hand lines", asset(t, "board.css"), "-webkit-line-clamp:1;overflow:hidden}", ".hand-line .ref{padding:0;border:0;background:none;")
+	contains(t, "wakes summary", asset(t, "board.css"), ".wakes>summary{grid-column:1/-1;display:grid;grid-template-columns:8px minmax(0,1fr) auto;", ".wakes>summary>.span{white-space:nowrap}")
 }
 
 func TestASentItemStaysClosedOnlyForItsScreen(t *testing.T) {

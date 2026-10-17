@@ -184,8 +184,9 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:3px}
 .ring{flex:none;width:8px;height:8px;border:1.5px solid var(--muted);border-radius:50%}
 .day{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px}
 .day::before,.day::after{content:"";flex:1;border-top:1px solid var(--line)}
-.wakes>summary{grid-column:1/-1;display:grid;grid-template-columns:8px auto;align-items:center;column-gap:8px;cursor:pointer;list-style:none}
+.wakes>summary{grid-column:1/-1;display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:center;column-gap:8px;cursor:pointer;list-style:none}
 .wakes>summary::-webkit-details-marker{display:none}
+.wakes>summary>.span{white-space:nowrap}
 .wakes>.hand-line{grid-column:1/-1;padding:4px 0 0 16px}
 .card .copy{font-size:15px;line-height:1.6}
 .timeline .card .copy>:not(.table):not(pre){max-width:72ch}
