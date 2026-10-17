@@ -78,12 +78,14 @@ func TestShortScreensMergeTheTabs(t *testing.T) {
 func TestCountsFollowTheSeverityRamp(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "counts", css, ".badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}", ".badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited],[data-worst=stalled]){--tone:var(--wait);--tone-bg:var(--wait-bg)}")
+	contains(t, "bands", css, ".band[data-tone=fail]{color:var(--fail)}", ".band[data-tone=wait]{color:var(--wait)}")
 	lacks(t, "counts", css, ".count:not([data-waiting=\"0\"])")
 }
 
 func TestHeadersTintTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "tint", css, ".wait[data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}")
+	contains(t, "tint", css, ".wait[open][data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}", ".wait[open][data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}")
+	lacks(t, "tint", css, ".wait[data-tone=fail]>summary .slug{")
 	lacks(t, "separator dots", css, `content:"·"`)
 	i := strings.Index(css, ".menu-body label{")
 	if i < 0 || strings.Contains(css[i:i+strings.IndexByte(css[i:], '}')], "--mono") {
@@ -162,12 +164,49 @@ func TestNeedsAffordances(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
 		".wait>summary:focus-visible{outline-offset:-2px}",
-		"grid-template-columns:16px minmax(0,1fr) auto 16px",
-		".wait>summary>.icon:last-child{grid-column:4;grid-row:1;",
+		".wait>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;cursor:pointer;list-style:none}",
+		".wait>summary>.icon:last-child{order:2;",
 		".wait[open]>summary>.icon:last-child{transform:rotate(180deg)}",
 		".work{scrollbar-gutter:stable both-edges}")
+	lacks(t, "board.css", css, ".wait>summary>.icon:last-child{grid-column")
 	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".wait>summary>.icon:last-child{transition:none}")
 	contains(t, "tabs", block(t, css, "@media (max-width:899px){"), "#needs .panel-head{display:none}")
+}
+
+func TestNeedsRowsAreCalmAndTheOpenItemIsACard(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "rows", css,
+		".wait{overflow-wrap:anywhere;border-bottom:1px solid var(--line);background:var(--bg)}",
+		".wait>summary:hover{background:var(--hover)}",
+		".wait-title{flex:1 1 0;overflow:hidden;color:var(--fg);text-overflow:ellipsis;white-space:nowrap}",
+		".wait>summary .slug>.code,.wait:not([open])>summary .slug>.meta{display:none}")
+	lacks(t, "rows", css, ".wait[data-tone=fail]>summary{", ".wait[data-tone=wait]>summary{", ".wait:not([open]) .wait-title{")
+	contains(t, "card", css,
+		".wait[open]{margin:6px 0 10px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}",
+		".wait[open][data-tone=fail]>summary{background:var(--fail-bg)}",
+		".wait[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}",
+		".wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:10px 15px 15px 41px}")
+	contains(t, "two lines", block(t, css, "@container (max-width:479px){"), ".wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}")
+	contains(t, "container", css, "#needs{container-type:inline-size}")
+	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"), ".wait>summary{min-height:52px}")
+}
+
+func TestNeedsSeverityHoldsInForcedColours(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "forced colours", block(t, css, "@media (forced-colors:active){.wait"),
+		".wait[open],.wait[open]>summary{border-color:CanvasText}",
+		".wait[open]>summary{border-bottom:1px solid CanvasText}")
+}
+
+func TestTheMisreadDisclosureHidesTheForceForm(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint, fx.screen = "blocked", "Esc to cancel · Tab to amend", permission
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "misread", q, `<details class="misread" id="misread-s1"><summary>Screen misread?</summary><form class="force" method="post" action="/supervisor/force" data-fetch>`, "Type queued messages anyway")
+	if strings.Index(q, `class="misread"`) > strings.Index(q, "Type queued messages anyway") {
+		t.Fatal("the force button sits outside the disclosure")
+	}
 }
 
 func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
