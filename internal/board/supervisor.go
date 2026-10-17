@@ -51,7 +51,7 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	data["Page"] = "fleet"
+	data["Page"], data["Fleets"] = "fleet", b.fleets(r.Context())
 	b.render(w, http.StatusOK, "index.html", data)
 }
 
@@ -79,7 +79,7 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 }
 
 func (b *Board) history(w http.ResponseWriter, r *http.Request) {
-	data := map[string]any{"Title": "conversation", "StripData": b.stripData(r.Context())}
+	data := map[string]any{"Title": "conversation", "Page": "log", "Fleets": b.fleets(r.Context()), "StripData": b.stripData(r.Context())}
 	if err := b.timelineData(r.Context(), data, r.URL.Query()); err != nil {
 		b.failErr(w, err)
 		return

@@ -84,7 +84,8 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	contains(t, "idle", console, `action="/supervisor/stop"`, "Switch now")
 	stopped := newFixture(t)
 	stopped.supervisor(t, state.AttemptStopped, "gen-1")
-	contains(t, "stopped", region(get(t, stopped.handler(), "/"), "console"), `action="/supervisor/resume"`, `action="/supervisor/start"`, `href="/?pick=1#chat"`, `<a href="/">Fleets</a>`)
+	contains(t, "stopped", region(get(t, stopped.handler(), "/"), "console"), `action="/supervisor/resume"`, `action="/supervisor/start"`, `href="/?pick=1#chat"`)
+	lacks(t, "stopped", region(get(t, stopped.handler(), "/"), "console"), "Fleets")
 	interrupted := newFixture(t)
 	interrupted.supervisor(t, state.AttemptInterrupted, "gen-1")
 	body := get(t, interrupted.handler(), "/")
@@ -223,7 +224,8 @@ func TestNotifyLivesInTheMenu(t *testing.T) {
 	body := get(t, fx.handler(), "/")
 	menu := body[strings.Index(body, `id="more-menu"`):]
 	menu = menu[:strings.Index(menu, "</details>")]
-	contains(t, "more menu", menu, `id="notify"`, `<a href="/">Fleets</a>`)
+	contains(t, "more menu", menu, `id="notify"`)
+	lacks(t, "more menu", menu, "Fleets", "<a ")
 	if strings.Count(body, `id="notify"`) != 1 {
 		t.Fatal("the page holds more than one notify button")
 	}

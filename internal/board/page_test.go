@@ -3,8 +3,8 @@ package board_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -95,35 +95,50 @@ func TestHeadersAreStrict(t *testing.T) {
 func TestLinksFollowTheBase(t *testing.T) {
 	st := open(t)
 	seed(t, st)
+	fleet, err := st.Fleet(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/" + fleet.ID
 	fx := newFixture(t)
 	fx.st = st
-	fx.options.Base = "/f000000000001"
+	fx.options.Base = base
 	h := fx.handler()
 	link := regexp.MustCompile(`(?:href|action)="([^"]*)"`)
+	call := func(method, p string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, p, strings.NewReader("csrf="+token))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet.ID, Value: token})
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
 	for _, p := range []string{"/", "/task/t1", "/decision/d1"} {
-		body := get(t, h, p)
+		rec := call("GET", p)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d", p, rec.Code)
+		}
+		body := rec.Body.String()
 		for _, m := range link.FindAllStringSubmatch(body, -1) {
 			u := m[1]
 			if strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "/static/") || strings.HasPrefix(u, "#") || u == "/" {
 				continue
 			}
-			if !strings.HasPrefix(u, "/f000000000001/") {
+			if !strings.HasPrefix(u, base+"/") {
 				t.Fatalf("%s links %q outside the base", p, u)
 			}
 		}
 	}
 	rec := request(h, "GET", "/?token="+token, nil, false)
-	if c := rec.Header().Get("Set-Cookie"); !strings.Contains(c, "Path=/f000000000001/") {
+	if c := rec.Header().Get("Set-Cookie"); !strings.HasPrefix(c, "hand_board_"+fleet.ID+"="+token) || !strings.Contains(c, "Path=/;") {
 		t.Fatalf("cookie = %q", c)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/f000000000001/" {
+	if loc := rec.Header().Get("Location"); loc != base+"/" {
 		t.Fatalf("token redirect = %q", loc)
 	}
-	res := post(h, "/supervisor/stop", nil)
-	if loc := res.Header.Get("Location"); loc != "/f000000000001/" {
+	if loc := call("POST", "/supervisor/stop").Header().Get("Location"); loc != base+"/" {
 		t.Fatalf("control redirect = %q", loc)
 	}
-	_, _ = io.Copy(io.Discard, res.Body)
 	_ = board.New
 }
 

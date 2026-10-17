@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -67,7 +68,8 @@ func cmdBoard(r *runner, args []string) error {
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
 			return r.openBoard(id, home, loopback, transcripts)
 		},
-		List: func() ([]board.FleetLink, error) { return boardFleets(root) },
+		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
+		Valid: func(id, token string) bool { return boardTokenIs(root, id, token) },
 	})
 	defer host.Close()
 	srv := &http.Server{Handler: host, ReadHeaderTimeout: 10 * time.Second}
@@ -213,6 +215,15 @@ func boardFleets(root string) ([]board.FleetLink, error) {
 		}
 	}
 	return out, nil
+}
+
+func boardTokenIs(root, id, token string) bool {
+	home, err := boardHome(root, id)
+	if err != nil {
+		return false
+	}
+	want, err := readBoardToken(filepath.Join(home, "board.token"))
+	return err == nil && subtle.ConstantTimeCompare([]byte(want), []byte(token)) == 1
 }
 
 func recordAddr(root, addr string) (func(), error) {

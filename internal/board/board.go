@@ -67,6 +67,8 @@ const (
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
 
+func cookieFor(base string) string { return cookieName + strings.ReplaceAll(base, "/", "_") }
+
 var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task)\.([a-z]+)\b`)
 
 var refAnchor = regexp.MustCompile(`<a class="ref" `)
@@ -177,7 +179,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b.fail(w, http.StatusForbidden, "this board link is not valid")
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: b.o.Base + "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		q := r.URL.Query()
 		q.Del("token")
 		next := b.o.Base + r.URL.Path
@@ -187,7 +189,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
-	if c, err := r.Cookie(cookieName); err != nil || !b.valid(c.Value) {
+	if c, err := r.Cookie(cookieFor(b.o.Base)); err != nil || !b.valid(c.Value) {
 		b.fail(w, http.StatusForbidden, "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints.")
 		return
 	}
@@ -612,7 +614,7 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
+		"Title": state.TaskRef(id), "Page": "task", "Fleets": b.fleets(ctx), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -634,7 +636,7 @@ func (b *Board) decision(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx)})
+	b.render(w, http.StatusOK, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx)})
 }
 
 func (b *Board) answer(w http.ResponseWriter, r *http.Request) {

@@ -206,10 +206,10 @@ func TestTwoFleetsKeepSeparateLogins(t *testing.T) {
 		List: func() ([]board.FleetLink, error) { return nil, nil },
 	})
 	login := fetch(h, "/"+fleetA+"/?token="+token)
-	if login.Code != http.StatusSeeOther || login.Header().Get("Location") != "/"+fleetA+"/" || !strings.Contains(login.Header().Get("Set-Cookie"), "Path=/"+fleetA+"/") {
+	if login.Code != http.StatusSeeOther || login.Header().Get("Location") != "/"+fleetA+"/" || !strings.HasPrefix(login.Header().Get("Set-Cookie"), "hand_board_"+fleetA+"="+token+"; Path=/;") {
 		t.Fatalf("login A = %d %q %q", login.Code, login.Header().Get("Location"), login.Header().Get("Set-Cookie"))
 	}
-	with := func(method, path, cookie string, form url.Values) int {
+	with := func(method, path, as, cookie string, form url.Values) int {
 		var body io.Reader = strings.NewReader("")
 		if form != nil {
 			body = strings.NewReader(form.Encode())
@@ -218,21 +218,24 @@ func TestTwoFleetsKeepSeparateLogins(t *testing.T) {
 		if form != nil {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		}
-		req.AddCookie(&http.Cookie{Name: "hand_board", Value: cookie})
+		req.AddCookie(&http.Cookie{Name: "hand_board_" + as, Value: cookie})
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	if code := with("GET", "/"+fleetA+"/", token, nil); code != http.StatusOK {
+	if code := with("GET", "/"+fleetA+"/", fleetA, token, nil); code != http.StatusOK {
 		t.Fatalf("A with its cookie = %d", code)
 	}
-	if code := with("GET", "/"+fleetB+"/", token, nil); code != http.StatusForbidden {
+	if code := with("GET", "/"+fleetB+"/", fleetB, token, nil); code != http.StatusForbidden {
+		t.Fatalf("B with A's token = %d", code)
+	}
+	if code := with("GET", "/"+fleetB+"/", fleetA, token, nil); code != http.StatusForbidden {
 		t.Fatalf("B with A's cookie = %d", code)
 	}
-	if code := with("GET", "/"+fleetB+"/", tokenB, nil); code != http.StatusOK {
+	if code := with("GET", "/"+fleetB+"/", fleetB, tokenB, nil); code != http.StatusOK {
 		t.Fatalf("B with its cookie = %d", code)
 	}
-	if code := with("POST", "/"+fleetB+"/report/r1/ack", tokenB, url.Values{"csrf": {token}}); code != http.StatusForbidden {
+	if code := with("POST", "/"+fleetB+"/report/r1/ack", fleetB, tokenB, url.Values{"csrf": {token}}); code != http.StatusForbidden {
 		t.Fatalf("B with A's csrf = %d", code)
 	}
 }
