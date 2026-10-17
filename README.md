@@ -2,7 +2,7 @@
 
 Hand is a personal supervisor layer for agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode or Antigravity workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
-Hand is built for one operator, not as a product for other users. It runs every day on Linux; macOS and native Windows are **experimental**: see [Platform support](#platform-support). The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
+Hand is built for one operator, not as a product for other users. It supports Linux, macOS and native Windows; [Platform support](#platform-support) says how each part is verified. The design and its non-goals are in [`docs/spec.md`](docs/spec.md), and every term used here is defined in [`docs/vocabulary.md`](docs/vocabulary.md).
 
 Wiki: [deepwiki.com/atqamz/hand](https://deepwiki.com/atqamz/hand), a generated overview for browsing the code.
 
@@ -36,9 +36,9 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Requirements
 
-- Linux, macOS (Apple silicon or Intel), or Windows 10 or 11 (amd64). macOS and Windows are **experimental**: see [Platform support](#platform-support).
+- Linux, macOS (Apple silicon; Intel builds are released but not tested), or Windows 10 or 11 (amd64). See [Platform support](#platform-support).
   - On macOS, `hand open` starts the board and `hand supervisor start` the watcher when none runs, detached, and the Luvus server starts directly, without restart on failure. See [Autostart](#autostart) to run the board at login.
-  - On Windows, Hand runs natively, without WSL. See [Windows](#windows-experimental).
+  - On Windows, Hand runs natively, without WSL. See [Windows](#windows).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, which Hand needs for its UHP 1.x protocol and was tested with at 0.14. `hand init` pins a copy under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs: the `luvus` on `PATH` when there is one, otherwise the tested version, which it downloads and checks against the release's SHA-256 (nothing is pinned if the check fails). `hand luvus pin` pins another one.
 - At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
@@ -47,7 +47,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 ## Platform support
 
-Linux is supported: a real Linux machine runs Hand every day. macOS and native Windows are **experimental**: Hand builds for them and CI tests it on them. A real Mac has run the checks once, with a stand-in `claude` (the real one was not tried), and no real Windows machine has run a fleet yet, so whatever touches the real harnesses, the terminal or the desktop is unproven there. Each label goes when a real machine of that OS passes its [checks](#real-machine-checks).
+Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tested) and native Windows (amd64, Windows 10 or 11). Supported means the project fixes problems that people report on those systems, not that every step has run on a real machine; the table below says how each part is verified. Known gaps: Windows has run in CI, with the real Luvus, and not yet on a real Windows machine; the real Mac run of 2026-10-17 ([#895](https://github.com/atqamz/hand/issues/895)) used a stand-in `claude`; Windows has no desktop notifications; the macOS LaunchAgent's `RunAtLoad` at a real login is unverified.
 
 CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
@@ -87,7 +87,7 @@ On Linux, the setup without a systemd user session (plain SSH, for example) has 
 
 ### Real-machine checks
 
-macOS and Windows stay experimental until a real machine of that OS has run the checks in [`docs/dogfood/`](docs/dogfood/README.md): one set of checks for a person at the machine and for a coding agent, with a throw-away home that never touches your own fleets. The checks live only there, riskiest first, and so do the checks for Linux without a systemd user session and for Linux arm64. A run is reported as a GitHub issue, and when it passes, the row of the table above changes from "CI" to a real-machine result, with a link to the run issue.
+To help, run the checks in [`docs/dogfood/`](docs/dogfood/README.md) on a real machine, yourself or with a coding agent: one set of checks, with a throw-away home that never touches your own fleets. The checks live only there, riskiest first, and so do the checks for Linux without a systemd user session and for Linux arm64. Report what fails through the issue form; when a run passes, the row of the table above changes from "CI" to a real-machine result, with a link to the run issue.
 
 ## Install
 
@@ -154,9 +154,9 @@ go build -o ~/.local/bin/hand .
 
 To try it next to an older Hand, build it under another name such as `~/.local/bin/hand-next`. Hand calls itself by its binary's name in the fleet's `AGENTS.md`, its skill, its help lines and its errors, so a supervisor in that fleet runs `hand-next`. When you later install it as plain `hand`, run that `hand init` in each fleet to rewrite them.
 
-### Windows (experimental)
+### Windows
 
-Native Windows support is **experimental**. It has not yet passed an end-to-end run on a real Windows machine, so expect rough edges and report them. [Platform support](#platform-support) lists what CI covers, and [`docs/dogfood/windows.md`](docs/dogfood/windows.md) has the checks that a real Windows machine must pass.
+Native Windows is supported, without WSL. It has run in CI and not yet on a real Windows machine, so report any problem through the issue form. [Platform support](#platform-support) lists what CI covers, and [`docs/dogfood/windows.md`](docs/dogfood/windows.md) has the checks for a real Windows machine.
 
 Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or newer. No admin rights are needed:
 
@@ -517,7 +517,7 @@ The new Hand does not read 0.7 data. Its supervisor rebuilds what still matters,
 5. Run `hand init` there with the new binary. The old `AGENTS.md` and skill are replaced. Everything else (`data/`, `state/`, `config/`, `projects/`) is left alone, and the folder gets a `secondhand-migrate` skill.
 6. Open the supervisor there and ask it to migrate the fleet. It lists what it would create (projects, open tasks, queue items, decisions, routing and memory), then waits for your approval before it changes anything.
 7. Afterwards it can remove the 0.7 pool worktrees and shared files, and then archive the old data into `legacy-0.7/`. Each of those steps waits for your approval. Its last step runs `hand init`, which removes the migrate skill.
-8. Trust the worktrees folder once, so Claude does not ask in every worktree: `w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude`. On Windows, use the PowerShell line under [Windows](#windows-experimental).
+8. Trust the worktrees folder once, so Claude does not ask in every worktree: `w="${SECONDHAND_HOME:-$HOME/.secondhand}/worktrees"; mkdir -p "$w" && cd "$w" && claude`. On Windows, use the PowerShell line under [Windows](#windows).
 
 ## Development
 
