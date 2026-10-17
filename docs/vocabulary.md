@@ -327,16 +327,20 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 `hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`). `hand open` starts a board when none answers its `/<fleet id>/proof` check: `systemctl --user start` of an installed `secondhand-board` unit, else a transient unit of that name, else a detached process (macOS, Windows, no user manager) logging to `board.log`; it waits up to 10 seconds for the proof.
 
-A fleet's page has two parts. At 1024px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
+A fleet's page has two parts. At 900px and wider, the work pane (Needs, then Tasks) sits beside Chat, with a draggable separator between them; below that Needs, Tasks and Chat are three tabs, which merge into the masthead on short screens:
 
 - **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again, and the supervisor while its screen shows a limit line; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
 - **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, as a thread of cards (the supervisor on the left, the operator on the right), plus the message box and the supervisor controls.
 
 Each task and each decision also has its own page. The Tasks list under Needs keeps active and inbox tasks and the five most recent finished ones; **Browse finished tasks (N)** opens `/<fleet id>/tasks`, the finished-tasks page: a search over title, goal and ref (every word must match, in any case), filters for status, project (when the fleet has several) and a UTC finish date range, and results newest first, grouped by day with a count, 50 to a page. A task's finish date is the time of its `task.done` or `task.abandoned` event. `?all=1` on a fleet page still lists every task. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.
 
+### Rail
+
+The Board's navigation: a 56px column of icons at the left edge from 900px, and below that a sheet opened from the masthead's menu button. It holds Board (with the live Needs count), Tasks, Conversation and the fleets. A name shows on hover, on focus, or for every item at once from the label button. It lists the current fleet and only the other fleets whose token the browser holds and that fleet still accepts; it shows no other fleet's Needs count. On a network address it lists only its own fleet.
+
 ### Board token
 
-`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie scoped to that one fleet. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser.
+`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser.
 
 ### TOON
 

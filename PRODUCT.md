@@ -66,7 +66,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **Server:** Go standard library (`net/http`, `html/template`), in one binary with few dependencies.
 - **JavaScript:** allowed since 2026-09-28, as small first-party code with no framework and no build step, embedded in the binary. The CSP allows `script-src 'self'`. Live updates use Server-Sent Events from the Go server.
 - **Security:**
-  - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie, scoped to one fleet;
+  - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie named for one fleet, which only that fleet accepts;
   - CSRF protects every form;
   - supervisor controls work only on a loopback listener. On a network address the controls are off, while answering decisions and acknowledging reports still work;
   - error pages reveal no paths;
