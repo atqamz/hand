@@ -356,7 +356,7 @@ body:not([data-shell]) #composer textarea{max-height:30dvh}
 body[data-shell] .timeline{max-height:none;overflow:visible}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.work>.panel{padding:16px 12px 0}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
-.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}.card.report>header>.act{justify-self:start;margin-top:4px}
+.task-main>.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}.task-main>.card.report>header>.act{justify-self:start;margin-top:4px}
 .masthead .spacer{display:none}
 .masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}
 .masthead .strip-note{flex-basis:100%}
