@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -240,6 +241,27 @@ func TestSearchTasks(t *testing.T) {
 	for _, q := range []TaskQuery{{Limit: 0}, {Limit: 1, Statuses: []string{"later"}}, {Limit: 1, Since: "yesterday"}, {Limit: 1, Until: "2026-13-01"}} {
 		if _, _, err := s.SearchTasks(ctx, q); !errors.Is(err, ErrInvalid) {
 			t.Errorf("SearchTasks(%+v) err = %v, want ErrInvalid", q, err)
+		}
+	}
+}
+
+func TestStatusWords(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+		bad  bool
+	}{
+		{"inbox,active", []string{StatusInbox, StatusActive}, false},
+		{"finished", []string{StatusDone, StatusAbandoned}, false},
+		{" finished , inbox", []string{StatusDone, StatusAbandoned, StatusInbox}, false},
+		{"all", nil, false},
+		{" all ", nil, false},
+		{"all,done", nil, true},
+		{"done,all", nil, true},
+	} {
+		got, err := StatusWords(tc.in)
+		if (err != nil) != tc.bad || (err != nil && !errors.Is(err, ErrInvalid)) || !slices.Equal(got, tc.want) {
+			t.Errorf("StatusWords(%q) = %v, %v", tc.in, got, err)
 		}
 	}
 }

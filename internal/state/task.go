@@ -126,6 +126,25 @@ type TaskQuery struct {
 	Offset   int
 }
 
+func StatusWords(list string) ([]string, error) {
+	var out []string
+	words := strings.Split(list, ",")
+	for _, w := range words {
+		switch w = strings.TrimSpace(w); w {
+		case "all":
+			if len(words) > 1 {
+				return nil, fmt.Errorf("%w: all stands alone, not in a list; got %q", ErrInvalid, list)
+			}
+			return nil, nil
+		case "finished":
+			out = append(out, StatusDone, StatusAbandoned)
+		default:
+			out = append(out, w)
+		}
+	}
+	return out, nil
+}
+
 const finishedAt = `COALESCE(f.at, t.updated_at)`
 
 func (s *Store) SearchTasks(ctx context.Context, q TaskQuery) ([]Task, int, error) {

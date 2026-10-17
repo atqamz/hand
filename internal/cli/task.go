@@ -125,7 +125,7 @@ func taskFields(d *toon.Doc, t state.Task) {
 
 func cmdTaskList(r *runner, args []string) error {
 	fs := flags("task list")
-	status := fs.String("status", "", "comma-separated statuses, or all; default inbox,active, or all with --q")
+	status := fs.String("status", "", "comma-separated statuses (inbox, active, done, abandoned, or finished for done and abandoned), or all alone; default inbox,active, or all with --q")
 	q := fs.String("q", "", "words that must each appear in the title or goal, or be the task ref")
 	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
@@ -144,9 +144,9 @@ func cmdTaskList(r *runner, args []string) error {
 			*status = "all"
 		}
 	}
-	var want []string
-	if *status != "all" {
-		want = strings.Split(*status, ",")
+	want, err := state.StatusWords(*status)
+	if err != nil {
+		return err
 	}
 	tasks, _, err := st.SearchTasks(context.Background(), state.TaskQuery{Q: *q, Statuses: want, Since: *since, Until: *until, Limit: *limit})
 	if err != nil {

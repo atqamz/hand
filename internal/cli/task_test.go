@@ -130,3 +130,23 @@ func TestTaskListQuerySearchesEveryStatus(t *testing.T) {
 		t.Fatalf("--status all = %q", out)
 	}
 }
+
+func TestTaskListStatusWords(t *testing.T) {
+	h := initWithProject(t)
+	for _, title := range []string{"Fix login", "Fix inbox", "Fix search"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "t1")
+	h.ok("task", "abandon", "t3")
+	if out := h.ok("task", "list", "--status", "finished"); !strings.Contains(out, "tasks[2]") || strings.Contains(out, "t2,") {
+		t.Fatalf("--status finished = %q", out)
+	}
+	if out := h.ok("task", "list", "--status", "finished,inbox"); !strings.Contains(out, "tasks[3]") {
+		t.Fatalf("--status finished,inbox = %q", out)
+	}
+	_, errOut, code := h.run("task", "list", "--status", "all,done")
+	if code != 2 || !strings.Contains(errOut, "all stands alone") {
+		t.Fatalf("--status all,done code=%d stderr=%q", code, errOut)
+	}
+}
