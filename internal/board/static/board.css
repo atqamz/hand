@@ -263,9 +263,12 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 #more-menu .menu-body{min-width:0;gap:0;padding:4px}
 #more-menu .menu-body button,#more-menu .menu-body a{display:block;width:100%;padding:6px 12px;border:0;border-radius:4px;background:none;text-align:left;white-space:nowrap}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
+.menu-body form{display:grid;gap:8px}
+.menu-body form:has(>input[name=harness]){grid-template-columns:repeat(2,minmax(max-content,1fr))}
+.menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
 .filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
-.field-label{margin:8px 0 2px;color:var(--muted);font-size:12px;font-weight:600}
+.field-label{margin:4px 0 0;color:var(--muted);font-size:12px;font-weight:600}
 .menu-body a{font-size:14px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:32px;height:28px;padding:0 10px;background:var(--bg);color:var(--fg)}
 .key.fail{border-color:var(--fail);color:var(--fail)}
@@ -295,6 +298,8 @@ body[data-page=fleet] .board{max-width:none}
 #needs,#chat{width:100%}
 #chat{container-type:inline-size}
 #needs{scrollbar-gutter:stable}
+#needs:focus-visible{outline:0}
+#chat>p.hint{text-align:center}
 #needs>*,#chat>*{width:100%;max-width:760px;margin-inline:auto}
 #chat>.timeline{max-width:none;padding-inline:max(2px,calc((100% - 760px)/2))}
 .queue-head{display:none}
@@ -337,7 +342,8 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 .masthead .strip-note{flex-basis:100%}
 .needs-count{display:inline-flex}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
-.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
+.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}
+.console-box{grid-template-areas:"text text" "hint hint" "console console" ". send"}.console .pending{flex:1 1 0}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
 [data-send-key]{display:none}
 button,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:44px}

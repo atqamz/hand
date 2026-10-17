@@ -185,3 +185,18 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 		"a.chip,.needs-count{position:relative}",
 		`a.chip::before,.needs-count::before{content:"";position:absolute;inset:-12px 0}`)
 }
+
+func TestThePhoneConsoleHasItsOwnRowAndTheModelMenuIsAGrid(t *testing.T) {
+	css := asset(t, "board.css")
+	phone := `.console-box{grid-template-areas:"text text" "hint hint" "console console" ". send"}`
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), phone, ".console .pending{flex:1 1 0}")
+	if strings.Index(css, phone) < strings.Index(css, "@container (max-width:699px){.console-box{") {
+		t.Fatal("the container rule comes after the phone one and wins on phones")
+	}
+	contains(t, "model menu", css,
+		".menu-body form{display:grid;gap:8px}",
+		".menu-body form:has(>input[name=harness]){grid-template-columns:repeat(2,minmax(max-content,1fr))}",
+		".menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}",
+		".field-label{margin:4px 0 0;")
+	contains(t, "panels", css, "#needs:focus-visible{outline:0}", "#chat>p.hint{text-align:center}")
+}
