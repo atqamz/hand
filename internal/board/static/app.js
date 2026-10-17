@@ -389,8 +389,11 @@
 			const panel = document.getElementById(t.dataset.tab);
 			if (panel) panel.hidden = !on && !wide.matches;
 		}
+		const linked = document.getElementById(location.hash.slice(1));
+		const nested = linked && !tabs.some((t) => t.dataset.tab === linked.id);
 		const timeline = regions.get("timeline");
-		if (timeline && current === "chat") pin(timeline);
+		if (timeline && current === "chat" && !(nested && timeline.contains(linked))) pin(timeline);
+		if (!nested) document.querySelector(".work")?.scrollTo(0, 0);
 		if (current !== "chat" && !fills.matches) {
 			scrollTo(0, 0);
 			requestAnimationFrame(() => scrollTo(0, 0));

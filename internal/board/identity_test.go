@@ -547,3 +547,10 @@ func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestSelectingATabKeepsALinkedMessageInViewAndOpensWorkAtTheTop(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"),
+		"const nested = linked && !tabs.some((t) => t.dataset.tab === linked.id);",
+		"if (timeline && current === \"chat\" && !(nested && timeline.contains(linked))) pin(timeline);",
+		`if (!nested) document.querySelector(".work")?.scrollTo(0, 0);`)
+}
