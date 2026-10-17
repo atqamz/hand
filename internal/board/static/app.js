@@ -60,6 +60,7 @@
 				const p = document.createElement("p");
 				p.className = "day";
 				const label = document.createElement("span");
+				label.className = "badge";
 				label.textContent = dayName(d);
 				p.append(label);
 				items[i].after(p);

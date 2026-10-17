@@ -11,7 +11,8 @@ func TestTheWorkingRowNamesWhatItWorksOn(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := fx.handler()
-	contains(t, "fresh", region(get(t, h, "/"), "timeline"), "data-working", "s1 working", "data-since", "since it started")
+	contains(t, "fresh", region(get(t, h, "/"), "timeline"), "data-working", "s1 working", "data-since", "since the turn began")
+	lacks(t, "fresh", region(get(t, h, "/"), "timeline"), "since it started")
 	ctx := context.Background()
 	in, err := fx.st.AddSupervisorInput(ctx, "hello")
 	if err != nil {

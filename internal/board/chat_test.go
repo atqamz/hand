@@ -21,7 +21,7 @@ func TestChatKeepsOrderWithoutNumbers(t *testing.T) {
 	if first < 0 || second < 0 || third < 0 || !(third < second && second < first) {
 		t.Fatalf("replies out of order (%d %d %d):\n%s", third, second, first, tl)
 	}
-	contains(t, "slug", tl, `<header class="slug"><span class="who">s1</span>`)
+	contains(t, "head", tl, `<header class="msg-head"><span class="who">s1</span>`)
 	lacks(t, "numbers", tl, "NO. ")
 	older := get(t, fx.handler(), "/supervisor/log?before=4")
 	contains(t, "paging", older, "second reply", "first reply")
@@ -43,7 +43,8 @@ func TestHandLinesAreOneLine(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ndecision.answered d1`)})
-	contains(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), `<p class="hand-line" data-no="1"><span class="ring" aria-hidden="true"></span>`, `wake: decision answered <a class="ref" target="_blank" rel="noopener" href="/ref/d1">d1</a>`)
+	contains(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), `<p class="hand-line" data-no="1"><span class="ring" aria-hidden="true"></span>`, `decision answered <a class="ref" target="_blank" rel="noopener" href="/ref/d1">d1</a>`)
+	lacks(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), "wake:")
 }
 
 func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {
@@ -65,12 +66,13 @@ func at(record, ts string) string {
 	return strings.Replace(record, `"timestamp":"2026-09-28T01:00:0`, `"timestamp":"`+ts+`","_":"`, 1)
 }
 
-func TestChatCardsHaveAHeaderStrip(t *testing.T) {
+func TestChatMessagesHaveAHeadLine(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("please look"), reply("on it")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "cards", tl, `<article class="card from-sup" data-role="supervisor"`, `<header class="slug"><span class="who">s1</span>`, `<div class="copy md">`, `<article class="card from-you" data-role="operator"`, `<span class="who">you</span>`)
+	contains(t, "cards", tl, `<article class="card from-sup" data-role="supervisor"`, `<header class="msg-head"><span class="who">s1</span>`, `<div class="copy md">`, `<article class="card from-you" data-role="operator"`, `<header class="msg-head"><span class="who">you</span>`)
+	lacks(t, "cards", tl, `class="slug"`)
 }
 
 func TestAForcedMessageSaysTypedAnyway(t *testing.T) {
@@ -130,7 +132,7 @@ func TestTheWorkingLineLinksYourMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "working", tl, `s1 working · `, `on your <a href="#msg-i1">`)
+	contains(t, "working", tl, `<span class="pulse" aria-hidden="true"></span>`, `<b>s1 working</b> · `, `on your <a href="#msg-i1">`)
 }
 
 func TestDayDividers(t *testing.T) {
@@ -138,7 +140,7 @@ func TestDayDividers(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{at(userRecord("go"), "2026-09-27T10:00:00Z"), at(reply("yesterday"), "2026-09-27T10:00:05Z"), at(reply("today"), "2026-09-28T10:00:00Z")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	day := `<p class="day"><span>Mon 28 Sep UTC</span></p>`
+	day := `<p class="day"><span class="badge">Mon 28 Sep UTC</span></p>`
 	today, divider, yesterday := strings.Index(tl, "today"), strings.Index(tl, day), strings.Index(tl, "yesterday")
 	if strings.Count(tl, day) != 1 || !(today < divider && divider < yesterday) {
 		t.Fatalf("no single divider between the days (%d %d %d):\n%s", today, divider, yesterday, tl)
@@ -165,7 +167,7 @@ func TestWakesSplitAtMidnight(t *testing.T) {
 	if n := strings.Count(tl, `<details class="hand-line wakes"`); n != 2 {
 		t.Fatalf("%d wake groups across midnight, want 2:\n%s", n, tl)
 	}
-	contains(t, "divider", tl, `<span>Mon 28 Sep UTC</span>`)
+	contains(t, "divider", tl, `<span class="badge">Mon 28 Sep UTC</span>`)
 }
 
 func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
@@ -183,4 +185,45 @@ func TestRepeatedMessagesKeepTheirOwnDelivery(t *testing.T) {
 	}
 	claudeLog(t, fx, []string{userRecord("ok"), userRecord("ok")})
 	contains(t, "delivery", region(get(t, fx.handler(), "/"), "timeline"), `id="msg-i1"`, `id="msg-i2"`)
+}
+
+func TestWakeLinesNameTheKindAndDropDanglingColons(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\nattempt.reported a1: r1 progress\nattempt.quiet a1:`)})
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "wake line", tl, `attempt reported <a class="ref" target="_blank" rel="noopener" href="/ref/a1">a1</a>: `, `progress; attempt quiet <a class="ref" tabindex="-1" target="_blank" rel="noopener" href="/ref/a1">a1</a></span>`)
+	lacks(t, "wake line", tl, "wake:", "</a>:</span>")
+}
+
+func TestOperatorBubblesEndOnTheComposerEdge(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "bubble", css, ".timeline>.from-you{align-self:flex-end;max-width:min(88%,560px);", ".timeline>.card{min-width:0;padding:0;border:0}")
+	contains(t, "gutter", css, ".timeline{--sb:8px;", "scrollbar-gutter:stable;mask-image", ".sup>.timeline{padding:16px calc(max(16px,calc((100% - 760px)/2)) - var(--sb)) 16px max(16px,calc((100% - 760px)/2))}", ".sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}", "body[data-shell] .timeline{--sb:0px}", ".thread>.timeline{--sb:0px}")
+	contains(t, "composer", css, ".console-box{flex:none;margin:0 max(16px,calc((100% - 760px)/2)) 16px;")
+}
+
+func TestRepliesCarryScrollShadowsAndPlainRefs(t *testing.T) {
+	css := asset(t, "board.css")
+	shadow := "linear-gradient(to left,var(--shadow),transparent) right/14px 100% no-repeat scroll"
+	for _, rule := range []string{"\n.md pre{", "\n.md .table{"} {
+		i := strings.Index(css, rule) + 1
+		if i < 1 || !strings.Contains(css[i:i+strings.IndexByte(css[i:], '\n')], shadow) {
+			t.Errorf("%s has no scroll shadow", rule)
+		}
+	}
+	contains(t, "refs", css, ".md a.ref{text-decoration:underline dotted;text-underline-offset:3px}")
+	lacks(t, "refs", css, ".md .ref{padding", ".md .ref{border", ".md .ref{background")
+}
+
+func TestDayPillsAreBadges(t *testing.T) {
+	contains(t, "css", asset(t, "board.css"), ".day>.badge{")
+	contains(t, "app.js", asset(t, "app.js"), `label.className = "badge"`)
+}
+
+func TestTheWorkingLinePulsesAndStopsForReducedMotion(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "pulse", css, ".pulse{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:lamp 2s ease-in-out infinite}", ".working-line b{color:var(--fg);font-weight:600}")
+	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".pulse{animation:none}")
+	contains(t, "forced colours", css, ".timeline>.from-you{border:1px solid CanvasText}.pulse{background:CanvasText}")
 }
