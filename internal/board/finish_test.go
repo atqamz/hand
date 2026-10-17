@@ -206,6 +206,11 @@ func TestTheMisreadDisclosureHidesTheForceForm(t *testing.T) {
 	contains(t, "misread", q, `<details class="misread" id="misread-s1"><summary>Screen misread?</summary><form class="force" method="post" action="/supervisor/force" data-fetch>`, "Type queued messages anyway")
 	disclosure := q[strings.Index(q, `class="misread"`):]
 	contains(t, "misread", disclosure[:strings.Index(disclosure, "</details>")], "Type queued messages anyway")
+	lan := newFixture(t)
+	lan.options.Controls = false
+	lan.status, lan.hint, lan.screen = "blocked", "Esc to cancel · Tab to amend", permission
+	lan.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "LAN misread", region(get(t, lan.handler(), "/"), "queue"), "Screen misread?", "Type queued messages anyway")
 }
 
 func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
