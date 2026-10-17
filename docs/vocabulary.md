@@ -223,7 +223,7 @@ Whatever a worker delivered: a PR or merge request on any forge, a document or p
 
 ### Decision
 
-`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`, or `hand decision ask --file - tN` with a longer question on stdin; a question holds at most 8000 characters. The question's first line is its headline, at most 120 characters; the lines after it are the body, shown with the board's markdown, and a numbered option in the body becomes a button that fills the answer. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
+`dN`. A question the supervisor asks the operator about one `inbox` or `active` task: `hand decision ask tN "QUESTION"`, or `hand decision ask --file - tN` with a longer question on stdin; a question holds at most 8000 characters. The question's first line is its headline, at most 120 characters; the lines after it are the body, shown with the board's markdown. A numbered line in the body that reads `N. Label — consequence (recommended)` is an option: the board lists the options as rows (the label in bold, the consequence under it, a Recommended badge) with an optional note and one Send, and answers with `N. Label`, then a blank line and the note. The consequence and the badge are optional, and a body without numbered lines gets a plain answer box. The `secondhand` skill makes it the only way the supervisor asks the operator anything.
 
 | Status | Meaning |
 |---|---|

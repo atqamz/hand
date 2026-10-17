@@ -71,7 +71,7 @@ A `[hand v1 resume]` message is not a wake: run `hand orient`, take your ref fro
 
 Only through `hand decision ask tN "<question>"`. They answer on the board (`hand board`) or with `hand decision answer`. Do not ask in chat and wait.
 
-Write the question's first line as a short headline (at most 120 characters), then the details below it: numbered options or steps, and commands in code blocks. For a long question use `hand decision ask --file - tN` with the text on stdin.
+Write the question's first line as a short headline (at most 120 characters), then the details below it, with commands in code blocks. Write each option on one numbered line as `N. Label — consequence (recommended)`: the board shows the options as a choice list and sends back `N. Label` with the operator's note. Number nothing but options; write steps as bullets. For a long question use `hand decision ask --file - tN` with the text on stdin.
 
 Never end a chat reply with a question for the operator; ask every question with `hand decision ask`.
 
