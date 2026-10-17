@@ -20,7 +20,6 @@ func (w *watcher) snapshot(ctx context.Context) {
 	if day == w.snapped {
 		return
 	}
-	w.snapped = day
 	dir := filepath.Join(w.r.root, "backups", w.r.fleet.ID)
 	path := filepath.Join(dir, "hand-"+day+".db")
 	err := os.MkdirAll(dir, 0o700)
@@ -31,6 +30,11 @@ func (w *watcher) snapshot(ctx context.Context) {
 			err = os.Rename(tmp, path)
 		}
 	}
+	if ctx.Err() != nil {
+		_ = os.Remove(path + ".tmp")
+		return
+	}
+	w.snapped = day
 	if err != nil {
 		w.say("snapshot: " + err.Error())
 		return
