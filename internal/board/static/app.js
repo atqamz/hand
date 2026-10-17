@@ -201,12 +201,15 @@
 		const focused = spot(document.activeElement);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const fed = new Set([...el.querySelectorAll("[data-no]")].map((d) => d.dataset.no));
-		const fields = "textarea, select, input:not([type=hidden])";
+		const fields = "textarea, select, input:not([type=hidden]):not([type=radio])";
 		const key = (f) => `${f.form?.getAttribute("action")}|${[...(f.form?.querySelectorAll("input[type=hidden]:not([name=csrf])") ?? [])].map((h) => `${h.name}=${h.value}`)}|${f.name}`;
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
+		const picked = new Set([...el.querySelectorAll("input[type=radio]:checked")].map((f) => `${key(f)}=${f.value}`));
 		const pinned = name === "timeline" && gap(el) <= 48;
 		el.innerHTML = html;
+		for (const f of el.querySelectorAll("input[type=radio]")) if (picked.has(`${key(f)}=${f.value}`)) f.checked = true;
 		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
+		for (const f of el.querySelectorAll("form[data-choose]")) otherwise(f);
 		for (const f of el.querySelectorAll("form[data-confirm]")) {
 			if ((arms.get(f.getAttribute("action")) ?? 0) > Date.now()) {
 				const b = f.querySelector("button");
@@ -290,11 +293,32 @@
 		}, ms);
 	};
 
+	const complain = (form, msg) => {
+		const out = form.matches(".answer") && form.querySelector(".form-error");
+		if (out) out.textContent = msg;
+		else show(msg);
+	};
+	const choice = (form) => form.querySelector("input[name=choice]:checked");
+	const otherwise = (form) => {
+		const box = form.querySelector("textarea[name=answer]");
+		if (!box || !form.querySelector("input[name=choice]")) return;
+		const other = choice(form)?.hasAttribute("data-other");
+		box.required = !!other;
+		box.placeholder = other ? "Write your answer" : "Add a note (optional)";
+	};
+
 	document.addEventListener("submit", async (e) => {
 		const form = e.target;
 		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
+		const problem = form.querySelector(".form-error");
+		if (problem) problem.textContent = "";
+		if ("choose" in form.dataset && !choice(form) && !form.querySelector("textarea[name=answer]").value.trim()) {
+			complain(form, "Pick an option or write an answer.");
+			form.querySelector("input[name=choice]").focus();
+			return;
+		}
 		if ("attaching" in form.dataset) {
 			show("Wait for the images to finish attaching, then send.", 4000, "receipt");
 			return;
@@ -331,7 +355,7 @@
 		}
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
-			show("The board did not answer; check that hand board is running.");
+			complain(form, "The board did not answer; check that hand board is running.");
 			return;
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
@@ -339,9 +363,9 @@
 				form.reset();
 				kept("");
 			}
-			const id = form.action.endsWith("/keys") && form.closest("details.wait")?.id;
+			const id = (form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id;
 			if (id) {
-				const label = (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
+				const label = form.action.endsWith("/answer") ? data.get("choice")?.split(".")[0] || "answer" : (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
 				sent.set(id, { label, screen: data.get("screen") || "" });
 				collapse(document.getElementById(id));
 			}
@@ -352,16 +376,44 @@
 			else show("", 0);
 			return;
 		}
-		show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+		if (res.status === 409 && form.matches(".answer")) {
+			const doc = new DOMParser().parseFromString(await res.text(), "text/html");
+			const next = doc.querySelector(".answered-block");
+			if (next) {
+				form.replaceWith(next);
+				const status = doc.querySelector(".thread-head .status");
+				if (status) document.querySelector(".thread-head .status")?.replaceWith(status);
+				local(next);
+				return;
+			}
+		}
+		complain(form, header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
 	});
 
+	document.addEventListener("change", (e) => {
+		const form = e.target instanceof HTMLInputElement && e.target.name === "choice" ? e.target.form : null;
+		if (form) otherwise(form);
+	});
 	document.addEventListener("click", (e) => {
-		const chip = e.target instanceof Element ? e.target.closest("button[data-fill]") : null;
-		const box = chip?.form?.querySelector("textarea[name=answer]");
-		if (!box) return;
-		box.value = chip.dataset.fill;
-		box.focus();
-		box.dispatchEvent(new Event("input", { bubbles: true }));
+		if (e.detail > 0 && e.target instanceof HTMLInputElement && e.target.hasAttribute("data-other")) e.target.form?.querySelector("textarea[name=answer]")?.focus();
+	});
+	document.addEventListener("keydown", (e) => {
+		if (e.ctrlKey || e.metaKey || e.altKey || e.target instanceof HTMLTextAreaElement) return;
+		const at = e.target instanceof Element && e.target !== body ? e.target : null;
+		const form = at ? at.closest("form[data-choose]") ?? at.closest("details.wait[open]")?.querySelector("form[data-choose]") : regions.size === 0 ? document.querySelector("form[data-choose]") : null;
+		if (!form) return;
+		if (e.key === "Enter" && e.target instanceof HTMLInputElement && e.target.name === "choice") {
+			e.preventDefault();
+			if (!e.repeat) form.requestSubmit();
+			return;
+		}
+		const radio = [...form.querySelectorAll("input[name=choice]")].find((r) => r.closest(".option").querySelector(".option-key").textContent.toLowerCase() === e.key.toLowerCase());
+		if (!radio) return;
+		e.preventDefault();
+		radio.checked = true;
+		radio.focus();
+		otherwise(form);
+		if (radio.hasAttribute("data-other")) form.querySelector("textarea[name=answer]").focus();
 	});
 
 	document.addEventListener("click", async (e) => {

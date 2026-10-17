@@ -177,7 +177,7 @@ func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()
 	task := active(t, fx.st, "Fix login")
-	if _, err := fx.st.Ask(ctx, task.ID, "Pick how to publish the docs\n\n1. From CI, see t1\n2. From a wiki"); err != nil {
+	if _, err := fx.st.Ask(ctx, task.ID, "Pick how to publish the docs\n\nSee t1, then **pick**:\n\n1. From CI\n2. From a wiki"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fx.st.Ask(ctx, task.ID, "Ship it?"); err != nil {
@@ -185,10 +185,12 @@ func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
 	}
 	h := fx.handler()
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "needs", q, `<span class="wait-title" title="Pick how to publish the docs">Pick how to publish the docs</span>`, "<ol>", `href="/ref/t1"`, `data-fill="From CI, see t1"`, `data-fill="From a wiki"`)
+	contains(t, "needs", q, `<span class="wait-title" title="Pick how to publish the docs">Pick how to publish the docs</span>`, `href="/ref/t1"`, "<strong>pick</strong>", `value="2. From a wiki"`, `data-fetch`)
+	lacks(t, "needs", q, "<ol>", "<li>1.")
 	page := get(t, h, "/decision/d1")
-	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, "<ol>", `data-fill="From a wiki"`, `data-fetch`)
-	lacks(t, "one-line page", get(t, h, "/decision/d2"), `data-fill=`, `<div class="question md">`)
+	contains(t, "page", page, `<h2 class="thread-title">Pick how to publish the docs</h2>`, `href="/ref/t1"`, "<strong>pick</strong>", `value="2. From a wiki"`, `data-fetch`)
+	lacks(t, "page", page, "<ol>", "<li>1.")
+	lacks(t, "one-line page", get(t, h, "/decision/d2"), `type="radio"`, `<div class="question md">`)
 }
 
 func TestAnsweringAnAnsweredDecisionKeepsTheDraft(t *testing.T) {
@@ -278,14 +280,14 @@ func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
 	}
 }
 
-func TestChipsSkipCodeFences(t *testing.T) {
+func TestOptionRowsSkipCodeFences(t *testing.T) {
 	fx := newFixture(t)
 	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Pick one\n\n```\n1. make build\n```\n\n1. Ship it\n2. Wait"); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/decision/d1")
-	contains(t, "chips", body, `data-fill="Ship it"`, `data-fill="Wait"`)
-	lacks(t, "chips", body, `data-fill="make build"`)
+	contains(t, "options", body, `value="1. Ship it"`, `value="2. Wait"`, "1. make build")
+	lacks(t, "options", body, `value="1. make build"`)
 }
 
 func TestAPollThatWorksReopensTheStream(t *testing.T) {
