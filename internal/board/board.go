@@ -47,6 +47,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"when":     when,
 	"chips":    chips,
 	"tabonce":  tabOnce,
+	"away":     away,
 	"plain":    func(s string) string { return eventKind.ReplaceAllString(s, "$1 $2") },
 	"rest": func(s string) string {
 		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
@@ -69,6 +70,13 @@ const (
 var eventKind = regexp.MustCompile(`\b(attempt|decision|report|supervisor|task)\.([a-z]+)\b`)
 
 var refAnchor = regexp.MustCompile(`<a class="ref" `)
+
+func away(on any, h template.HTML) template.HTML {
+	if on != true {
+		return h
+	}
+	return template.HTML(strings.ReplaceAll(string(h), `<a class="ref" href=`, `<a class="ref" target="_blank" rel="noopener" href=`))
+}
 
 func tabOnce(h template.HTML) template.HTML {
 	n := 0

@@ -62,7 +62,7 @@ func TestChecksAreOneLinePerTask(t *testing.T) {
 		}
 	}
 	contains(t, "running row", rows["t1"], "Running work", "a1 codex gpt-6-luna", `href="https://github.com/atqamz/hand/pull/7"`)
-	contains(t, "running row", rows["t1"], `<a class="check-title" title="Running work" href="/task/t1">Running work</a>`, `<span class="check-body">`)
+	contains(t, "running row", rows["t1"], `<a class="check-title" title="Running work" href="/task/t1" target="_blank" rel="noopener">Running work</a>`, `<span class="check-body">`)
 	if strings.Contains(rows["t1"], "\n") {
 		t.Fatalf("a check row spans lines: %q", rows["t1"])
 	}
@@ -87,7 +87,7 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 	contains(t, "timeline", tl,
 		`<article class="card from-sup" data-role="supervisor" data-no=`, "<strong>shipped</strong>",
 		`<article class="card from-you" data-role="operator" data-no=`, "please **look**",
-		`<p class="hand-line" data-no=`, `wake: <a class="ref" href="/ref/r3">r3</a> from <a class="ref" tabindex="-1" href="/ref/a2">a2</a> done`,
+		`<p class="hand-line" data-no=`, `wake: <a class="ref" target="_blank" rel="noopener" href="/ref/r3">r3</a> from <a class="ref" tabindex="-1" target="_blank" rel="noopener" href="/ref/a2">a2</a> done`,
 		"queued", "later please")
 	lacks(t, "timeline", tl, "<strong>look</strong>", "queued: later please")
 }

@@ -24,8 +24,8 @@ func TestRenderSubset(t *testing.T) {
 		{"intro\n- a\n\nafter", `<p>intro</p><ul><li>a</li></ul><p>after</p>`},
 		{"```go\n<b>\n```", `<pre><code>&lt;b&gt;</code></pre>`},
 		{"```\na\n\nb\n```\nnext", `<pre><code>a` + "\n\n" + `b</code></pre><p>next</p>`},
-		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" rel="noopener noreferrer">PR</a></p>`},
-		{"see https://x.io/a?b=1&c=2.", `<p>see <a href="https://x.io/a?b=1&amp;c=2" rel="noopener noreferrer">https://x.io/a?b=1&amp;c=2</a>.</p>`},
+		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">PR</a></p>`},
+		{"see https://x.io/a?b=1&c=2.", `<p>see <a href="https://x.io/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer">https://x.io/a?b=1&amp;c=2</a>.</p>`},
 		{"snake_case_name and a_b", `<p>snake_case_name and a_b</p>`},
 		{"`**not bold**`", `<p><code>**not bold**</code></p>`},
 		{"#not a heading", `<p>#not a heading</p>`},
@@ -86,7 +86,7 @@ func TestRenderRefs(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
 		{"see t12 and d3", `<p>see ` + link("t12") + ` and ` + link("d3") + `</p>`},
 		{"`t12`", `<p><code>t12</code></p>`},
-		{"[x](https://a.io/t12)", `<p><a href="https://a.io/t12" rel="noopener noreferrer">x</a></p>`},
+		{"[x](https://a.io/t12)", `<p><a href="https://a.io/t12" target="_blank" rel="noopener noreferrer">x</a></p>`},
 		{"at12 t12x", `<p>at12 t12x</p>`},
 		{"r7.", `<p>` + link("r7") + `.</p>`},
 		{"**a5** done", `<p><strong>` + link("a5") + `</strong> done</p>`},
@@ -148,7 +148,7 @@ func TestRenderUnclosedMarkers(t *testing.T) {
 		{"*a", `<p>*a</p>`},
 		{"`a", "<p>`a</p>"},
 		{"[a](", `<p>[a](</p>`},
-		{"[a](https://x.io", `<p>[a](<a href="https://x.io" rel="noopener noreferrer">https://x.io</a></p>`},
+		{"[a](https://x.io", `<p>[a](<a href="https://x.io" target="_blank" rel="noopener noreferrer">https://x.io</a></p>`},
 		{"```\nx\ny", "<pre><code>x\ny</code></pre>"},
 	} {
 		if got := string(markdown.Render(c.in)); got != c.want {
@@ -238,7 +238,11 @@ func active(out string) string {
 				continue
 			}
 			switch {
-			case m[2] != "a" || (a[1] != "href" && a[1] != "rel"):
+			case m[2] == "a" && a[1] == "target":
+				if a[2] != "_blank" {
+					return "value " + a[2] + " for target on a"
+				}
+			case m[2] != "a" || (a[1] != "href" && a[1] != "rel" && a[1] != "target"):
 				return "attribute " + a[1] + " on " + m[2]
 			case a[1] == "href":
 				u, err := url.Parse(strings.ReplaceAll(a[2], "&amp;", "&"))

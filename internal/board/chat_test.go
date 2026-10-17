@@ -43,7 +43,7 @@ func TestHandLinesAreOneLine(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`[hand v1 wake]\ndecision.answered d1`)})
-	contains(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), `<p class="hand-line" data-no="1"><span class="ring" aria-hidden="true"></span>`, `wake: decision answered <a class="ref" href="/ref/d1">d1</a>`)
+	contains(t, "hand line", region(get(t, fx.handler(), "/"), "timeline"), `<p class="hand-line" data-no="1"><span class="ring" aria-hidden="true"></span>`, `wake: decision answered <a class="ref" target="_blank" rel="noopener" href="/ref/d1">d1</a>`)
 }
 
 func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {
@@ -58,7 +58,7 @@ func TestRefsLinkInDispatches(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("go"), reply("started t1 for you")})
-	contains(t, "refs", region(get(t, fx.handler(), "/"), "timeline"), `<a class="ref" href="/ref/t1">t1</a>`)
+	contains(t, "refs", region(get(t, fx.handler(), "/"), "timeline"), `<a class="ref" target="_blank" rel="noopener" href="/ref/t1">t1</a>`)
 }
 
 func at(record, ts string) string {
@@ -115,7 +115,7 @@ func TestLaterRefsLeaveTheTabOrder(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("go"), reply("see t1, t2 and t3")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "refs", tl, `<a class="ref" href="/ref/t1"`, `<a class="ref" tabindex="-1" href="/ref/t2"`, `<a class="ref" tabindex="-1" href="/ref/t3"`)
+	contains(t, "refs", tl, `<a class="ref" target="_blank" rel="noopener" href="/ref/t1"`, `<a class="ref" tabindex="-1" target="_blank" rel="noopener" href="/ref/t2"`, `<a class="ref" tabindex="-1" target="_blank" rel="noopener" href="/ref/t3"`)
 }
 
 func TestTheWorkingLineLinksYourMessage(t *testing.T) {

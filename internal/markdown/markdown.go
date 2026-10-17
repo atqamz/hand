@@ -435,7 +435,7 @@ func safe(raw string) bool {
 
 func anchor(raw, text string) string {
 	u, _ := url.Parse(raw)
-	return `<a href="` + html.EscapeString(u.String()) + `" rel="noopener noreferrer">` + text + `</a>`
+	return `<a href="` + html.EscapeString(u.String()) + `" target="_blank" rel="noopener noreferrer">` + text + `</a>`
 }
 
 func refLen(rest string) int {
