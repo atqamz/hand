@@ -73,7 +73,7 @@ func TestArchiveGroupsFinishedTasksByDay(t *testing.T) {
 	a.finish(t, "hand", "Drop chore", state.StatusAbandoned, day(6, 1))
 	a.finish(t, "hand", "Fix search", state.StatusDone, day(6, 23))
 	body := get(t, a.handler(), "/tasks")
-	contains(t, "archive", body, `<h3 class="group">Tue 6 Oct UTC <span class="n">2</span></h3>`, `<h3 class="group">Mon 5 Oct UTC <span class="n">2</span></h3>`, `data-days`, `<time class="when" datetime="2026-10-06T23:00:00Z" data-clock>23:00</time>`, `>4 tasks</p>`)
+	contains(t, "archive", body, `<h3 class="group">Tue 6 Oct UTC <span class="badge">2</span></h3>`, `<h3 class="group">Mon 5 Oct UTC <span class="badge">2</span></h3>`, `data-days`, `<time class="when" datetime="2026-10-06T23:00:00Z" data-clock>23:00</time>`, `>4 tasks</p>`)
 	if got := strings.Join(titles(body), "|"); got != "Fix search|Drop chore|Write docs|Fix login" {
 		t.Fatalf("order = %s", got)
 	}
@@ -204,7 +204,7 @@ func TestRailShowsFiveFinishedTasksAndLinksToTheArchive(t *testing.T) {
 	if got := strings.Join(titles(rail), "|"); got != "Live work|Recent 5|Recent 4|Recent 3|Recent 2|Recent 1" {
 		t.Fatalf("rail rows = %s", got)
 	}
-	contains(t, "rail", rail, `<h3 class="group">Finished <span class="n">7</span></h3>`, `<a href="/tasks">Browse finished tasks (7)</a>`)
+	contains(t, "rail", rail, `<h3 class="group">Finished <span class="badge">7</span></h3>`, `<a href="/tasks">Browse finished tasks (7)</a>`)
 	if strings.Contains(rail, "Show finished tasks") || strings.Contains(rail, "more tasks are not shown") {
 		t.Fatalf("rail:\n%s", rail)
 	}
@@ -228,7 +228,6 @@ func TestTheArchiveStyles(t *testing.T) {
 	contains(t, "board.css", css,
 		".filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));",
 		".filters .search{grid-column:1/-1}",
-		".filters input,.filters select{min-height:32px}",
 		".when{white-space:nowrap}",
 		".finished{margin:0;padding:8px 0;font-size:12px}",
 		".pager a[rel=next]{margin-left:auto}",

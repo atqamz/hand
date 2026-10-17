@@ -59,7 +59,7 @@ func TestTheLiveStripNamesTheLine(t *testing.T) {
 				}
 			}
 			strip := region(get(t, fx.handler(), "/"), "status")
-			contains(t, c.name, strip, `<span class="pill" data-state="`+c.lamp+`"`, `<span class="word">`+strings.ToLower(c.line)+`</span>`)
+			contains(t, c.name, strip, `<span class="badge pill" data-state="`+c.lamp+`"`, `<span class="word">`+strings.ToLower(c.line)+`</span>`)
 			if c.status == state.AttemptRunning {
 				contains(t, c.name, strip, `<span class="who">s1 · sonnet low</span>`)
 			}
@@ -194,7 +194,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
-	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<span class="pill" data-state="failing" title="test">`)
+	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<span class="badge pill" data-state="failing" title="test">`)
 	oc := newFixture(t)
 	ctx := context.Background()
 	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
@@ -213,7 +213,7 @@ func TestTheMastheadNamesStateAndContext(t *testing.T) {
 	claudeLog(t, fx, []string{userRecord("hi"), usageRecord(508139)})
 	body := get(t, fx.handler(), "/")
 	strip := region(body, "status")
-	contains(t, "masthead", strip, `class="pill" data-state="working"`, `<span class="word">working</span>`, `<svg class="icon"`, `<span class="who">s1 · sonnet low</span>`, `class="ctx live"`, `<meter`, `508K / 1M`)
+	contains(t, "masthead", strip, `class="badge pill" data-state="working"`, `<span class="word">working</span>`, `<svg class="icon"`, `<span class="who">s1 · sonnet low</span>`, `class="ctx live"`, `<meter`, `508K / 1M`)
 	lacks(t, "masthead", body, "data-clock-now", "CTX ")
 }
 
@@ -233,10 +233,10 @@ func TestThePhoneRowNamesTheWorstItem(t *testing.T) {
 	fx := newFixture(t)
 	fx.status, fx.hint = "blocked", "Trust this folder?"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `class="needs-count" href="#needs" data-worst="blocked"`, `<span class="n">1</span> blocked`)
+	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `class="badge needs-count" href="#needs" data-worst="blocked"`, `<span class="n">1</span> blocked`)
 	calm := newFixture(t)
 	calm.supervisor(t, state.AttemptRunning, "gen-1")
-	lacks(t, "calm", region(get(t, calm.handler(), "/"), "status"), `class="needs-count"`)
+	lacks(t, "calm", region(get(t, calm.handler(), "/"), "status"), `class="badge needs-count"`)
 }
 
 func TestTheComposerFootRow(t *testing.T) {
@@ -402,7 +402,7 @@ func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
 	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
 	lacks(t, "after a supervisor", picked, " required>", " selected>")
-	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){flex-wrap:wrap", ".starter{flex:1 1 100%", `.console-box:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--card)`)
+	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){flex-wrap:wrap", ".starter{flex:1 1 100%", `.console-box:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
 }
 
 func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {

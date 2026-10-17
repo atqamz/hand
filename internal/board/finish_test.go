@@ -76,7 +76,7 @@ func TestShortScreensMergeTheTabs(t *testing.T) {
 
 func TestCountsFollowTheSeverityRamp(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "counts", css, ".queue-head[data-worst=failure] .count", ".queue-head[data-worst=decision] .count", ".tabs .n[data-worst=failure]", ".tabs .n[data-worst=decision]", ".needs-count[data-worst=nosup]")
+	contains(t, "counts", css, ".badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}", ".badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited]){--tone:var(--wait);--tone-bg:var(--wait-bg)}")
 	lacks(t, "counts", css, ".count:not([data-waiting=\"0\"])")
 }
 
@@ -101,7 +101,7 @@ func TestBrowserSurfacesAreThemed(t *testing.T) {
 }
 
 func TestHandLinesStayOnOneLine(t *testing.T) {
-	contains(t, "hand lines", asset(t, "board.css"), "-webkit-line-clamp:1;overflow:hidden}", ".hand-line .ref{padding:0;border:0;background:none;")
+	contains(t, "hand lines", asset(t, "board.css"), "-webkit-line-clamp:1;overflow:hidden}", ".hand-line .ref{color:inherit}")
 	contains(t, "wakes summary", asset(t, "board.css"), ".wakes>summary{grid-column:1/-1;display:grid;grid-template-columns:8px minmax(0,1fr) auto;", ".wakes>summary>.span{white-space:nowrap}")
 }
 
@@ -142,7 +142,7 @@ func TestErrorPagesSpeakLowerCase(t *testing.T) {
 
 func TestAnswerChipsReadAsOptions(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .chip{max-width:100%;padding:6px 12px;border-radius:8px;text-align:left;white-space:normal;font-size:14px;font-weight:500;line-height:20px}")
+	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .option{max-width:100%;height:auto;min-height:var(--control);padding:6px 12px;border-radius:var(--r-lg);font-weight:400;text-align:left;white-space:normal}")
 }
 
 func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
@@ -183,8 +183,8 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"),
 		".filters :is(input,select),.menu-body label select{font-size:16px}",
 		".crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}",
-		"a.chip,.needs-count{position:relative}",
-		`a.chip::before,.needs-count::before{content:"";position:absolute;inset:-12px 0}`)
+		"a.badge{position:relative}",
+		`a.badge::before{content:"";position:absolute;inset:-12px 0}`)
 }
 
 func TestThePhoneConsoleHasItsOwnRowAndTheModelMenuIsAGrid(t *testing.T) {

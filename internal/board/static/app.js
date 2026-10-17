@@ -74,7 +74,7 @@
 				head = document.createElement("h3");
 				head.className = "group";
 				count = document.createElement("span");
-				count.className = "n";
+				count.className = "badge";
 				count.textContent = "0";
 				head.append(dayName(at[i]), " ", count);
 				ol = document.createElement("ol");

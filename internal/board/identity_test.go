@@ -96,7 +96,7 @@ func rootTokens(t *testing.T, block string) map[string]string {
 
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"muted", "bg"}, {"muted", "card"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"fg", "panel"}, {"muted", "bg"}, {"muted", "card"}, {"muted", "panel"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
 		tokens := rootTokens(t, c.block)
 		for _, p := range pairs {
@@ -107,7 +107,7 @@ func TestColoursMeetContrast(t *testing.T) {
 				t.Errorf("%s: --%s on --%s = %.2f", c.name, p[0], p[1], r)
 			}
 		}
-		for _, ground := range []string{"bg", "card"} {
+		for _, ground := range []string{"bg", "card", "panel"} {
 			if r := contrast(tokens["line-strong"], tokens[ground]); r < 3 {
 				t.Errorf("%s: --line-strong on --%s = %.2f", c.name, ground, r)
 			}
@@ -126,9 +126,13 @@ func TestColoursMeetContrast(t *testing.T) {
 
 func TestTypeHasFiveSteps(t *testing.T) {
 	css := asset(t, "board.css")
+	for _, touch := range []string{"textarea,input,select{font-size:16px}", ".filters :is(input,select),.menu-body label select{font-size:16px}"} {
+		contains(t, "touch inputs", css, touch)
+		css = strings.Replace(css, touch, "", 1)
+	}
 	for _, m := range regexp.MustCompile(`font-size:([0-9.]+px)`).FindAllStringSubmatch(css, -1) {
 		switch m[1] {
-		case "22px", "16px", "15px", "14px", "12px":
+		case "22px", "18px", "15px", "14px", "12px":
 		default:
 			t.Errorf("board.css uses font-size %s", m[1])
 		}
@@ -190,7 +194,7 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs <span class="count n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#chat"`, `Needs <span class="badge n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
 	for _, id := range []string{"needs", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
@@ -271,14 +275,15 @@ func TestTheFaviconsAreHashedSVG(t *testing.T) {
 
 func TestEverySlugStateHasItsColour(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, s := range []string{"running", "waiting", "failing", "passing"} {
-		if !strings.Contains(css, ".slug .status[data-state="+s+"]") {
-			t.Errorf("board.css has no colour for the %s status", s)
+	for _, s := range []string{"running", "waiting", "failing", "passing", "ready", "working"} {
+		tone := false
+		for _, line := range strings.Split(css, "\n") {
+			if strings.HasPrefix(line, ".badge") && strings.Contains(line, "[data-state="+s+"]") {
+				tone = true
+			}
 		}
-	}
-	for _, s := range []string{"ready", "working", "failing"} {
-		if !strings.Contains(css, ".pill[data-state="+s+"]") {
-			t.Errorf("board.css has no colour for the %s pill", s)
+		if !tone {
+			t.Errorf("board.css has no badge tone for the %s state", s)
 		}
 	}
 }
@@ -319,7 +324,7 @@ func TestTheFinishFixesHold(t *testing.T) {
 		".menu[open]>summary .icon{transform:rotate(180deg)}",
 		".md table{width:max-content;",
 		"max-height:calc(100dvh - 120px);overflow-y:auto;",
-		"padding:4px 8px;white-space:nowrap;",
+		"height:var(--control);padding:0 8px 0 10px;white-space:nowrap;",
 		"@media (min-width:600px) and (max-width:799px){.console{flex-wrap:wrap}}",
 	} {
 		if !strings.Contains(css, rule) {
@@ -349,11 +354,11 @@ func TestFleetLinksKeepTheirTab(t *testing.T) {
 func TestTheOnCallPalette(t *testing.T) {
 	light, dark := themes(t)
 	want := map[string][2]string{
-		"bg": {"#fcfcfd", "#0d1117"}, "card": {"#f4f6f8", "#161b22"}, "fg": {"#1b1f24", "#e6ebf1"}, "muted": {"#59616c", "#9aa3ae"},
-		"line": {"#d5dbe2", "#2e353e"}, "line-strong": {"#848d99", "#5f6975"}, "hover": {"#eaeef2", "#1c232c"}, "fail": {"#c4262e", "#ff6a63"}, "wait": {"#8f5e00", "#e3a73b"},
-		"pass": {"#19793b", "#4fc46c"}, "neutral": {"#59616c", "#9aa3ae"}, "accent": {"#1d5fc2", "#6ea6ff"}, "fail-bg": {"#fdecec", "#3a1a1c"},
-		"wait-bg": {"#fcf3d9", "#352912"}, "pass-bg": {"#e3f5e8", "#15301d"}, "neutral-bg": {"#eceff3", "#20262e"}, "accent-bg": {"#e8f0fc", "#17263d"},
-		"screen": {"#11151a", "#07090c"}, "screen-fg": {"#d7dde4", "#d7dde4"}, "primary": {"#19793b", "#1f7f3e"}, "on-primary": {"#ffffff", "#ffffff"},
+		"bg": {"#ffffff", "#111317"}, "panel": {"#f6f7f9", "#15181d"}, "card": {"#f1f3f5", "#1b1f25"}, "fg": {"#15171c", "#e8eaee"}, "muted": {"#5b626e", "#9ba2ad"},
+		"line": {"#e3e6ea", "#262b32"}, "line-strong": {"#80889a", "#6b7482"}, "hover": {"#eef0f3", "#1e232a"}, "fail": {"#c42b32", "#ff6b6b"}, "wait": {"#8a5b00", "#e6ac45"},
+		"pass": {"#1a7a3e", "#56c77a"}, "neutral": {"#5b626e", "#9ba2ad"}, "accent": {"#2457c5", "#7ea6ff"}, "fail-bg": {"#fdeeee", "#2c1719"},
+		"wait-bg": {"#fcf3dc", "#2a2212"}, "pass-bg": {"#e4f4e9", "#13281b"}, "neutral-bg": {"#eef0f3", "#1e232a"}, "accent-bg": {"#ebf1fd", "#172238"},
+		"screen": {"#111418", "#08090b"}, "screen-fg": {"#d8dde4", "#d8dde4"}, "primary": {"#15171c", "#e8eaee"}, "on-primary": {"#ffffff", "#111317"},
 	}
 	lt, dt := rootTokens(t, light), rootTokens(t, dark)
 	for name, v := range want {
@@ -363,10 +368,11 @@ func TestTheOnCallPalette(t *testing.T) {
 	}
 	css := asset(t, "board.css")
 	contains(t, "control edges", css,
-		"textarea,input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong)",
-		"padding:4px 12px;border:1px solid var(--line-strong)",
+		"textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong)",
+		"height:var(--control);padding:0 12px;border:1px solid var(--line-strong)",
 		"padding:10px;border:1px solid var(--line-strong)",
-		"width:30px;height:30px;border:1px solid var(--line-strong)")
+		"width:var(--control);height:var(--control);border:1px solid var(--line-strong)")
+	contains(t, "tokens", css, "--r-sm:4px;--r-md:6px;--r-lg:10px;--control:32px;--badge:20px}", "@media (pointer:coarse){:root{--control:44px}}")
 	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")
@@ -414,8 +420,8 @@ func TestTheDeskFinishFixes(t *testing.T) {
 	for _, rule := range []string{
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
-		"[data-send-key]{display:none}\nbutton,select,input:not([type=file]),.attach,.menu>summary,.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:44px}",
-		".attach{width:44px}\n.key{min-width:44px}\n.keys{gap:12px}\n.console{flex-wrap:wrap}",
+		"[data-send-key]{display:none}\n.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:var(--control)}",
+		".keys{gap:12px}\n.console{flex-wrap:wrap}",
 		".timeline .card .copy>:not(.table):not(pre){max-width:72ch}",
 		".from-you .copy{max-width:72ch;",
 		".masthead{position:sticky;top:0;",
@@ -467,5 +473,27 @@ func TestNoSidewaysScrollOnPhone(t *testing.T) {
 	}
 	if regexp.MustCompile(`(?:^|\n)(?:html|body)\{[^}]*[{;]width:`).MatchString(css) {
 		t.Fatal("html or body carries a fixed width")
+	}
+}
+
+func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "controls", css,
+		"button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--control);",
+		"input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}",
+		".attach{position:relative;display:inline-flex;align-items:center;justify-content:center;width:var(--control);height:var(--control);",
+		".key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);",
+		"button:not(:has(.icon)){display:inline-block;height:auto;min-height:var(--control);")
+	contains(t, "badges", css,
+		".badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));",
+		".badge.pill{--size:calc(var(--badge) + 4px);",
+		".needs-count{--size:calc(var(--badge) + 4px);display:none}",
+		"kbd{display:inline-flex;align-items:center;height:var(--badge);",
+		"@media (forced-colors:active){.badge{border-color:CanvasText}}")
+	lacks(t, "fixed heights", css, "min-height:32px", "height:28px", "width:30px", "width:44px", "min-height:44px}\n")
+	for _, gone := range []string{".chip{", ".chip.", ".count{", ".state{", "\n.pill{", ".status.pill", ".countdown{padding", ".tabs .n{", ".group .n{"} {
+		if strings.Contains(css, gone) {
+			t.Errorf("board.css still styles %q apart from .badge", gone)
+		}
 	}
 }

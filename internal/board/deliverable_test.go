@@ -67,11 +67,11 @@ func TestTaskCardChipsByKind(t *testing.T) {
 	slug := get(t, board.New(st, token, board.Options{}), "/task/t1")
 	var seen []string
 	for _, want := range []string{
-		`<a class="chip" href="https://github.com/atqamz/hand/pull/9" target="_blank" rel="noopener noreferrer">PR</a>`,
-		`<span class="chip file" title="/home/me/out/notes.md">file: notes.md</span>`,
-		`<a class="chip" href="https://docs.example.com/q3" target="_blank" rel="noopener noreferrer">link</a>`,
-		`<a class="chip" href="https://gitlab.com/g/p/-/merge_requests/4" target="_blank" rel="noopener noreferrer">MR</a>`,
-		`<a class="chip" href="https://github.com/atqamz/hand/pull/800" target="_blank" rel="noopener noreferrer">PR</a>`,
+		`<a class="badge" data-tone="link" href="https://github.com/atqamz/hand/pull/9" target="_blank" rel="noopener noreferrer">PR</a>`,
+		`<span class="file" title="/home/me/out/notes.md">file: notes.md</span>`,
+		`<a class="badge" data-tone="link" href="https://docs.example.com/q3" target="_blank" rel="noopener noreferrer">link</a>`,
+		`<a class="badge" data-tone="link" href="https://gitlab.com/g/p/-/merge_requests/4" target="_blank" rel="noopener noreferrer">MR</a>`,
+		`<a class="badge" data-tone="link" href="https://github.com/atqamz/hand/pull/800" target="_blank" rel="noopener noreferrer">PR</a>`,
 	} {
 		i := strings.Index(slug, want)
 		if i < 0 {
@@ -119,7 +119,7 @@ func TestQueueRowShowsTheNewestDeliverableOnly(t *testing.T) {
 		}
 	}
 	row := checks(get(t, board.New(st, token, board.Options{}), "/"))["t1"]
-	if n := strings.Count(row, `class="chip"`); n != 1 || !strings.Contains(row, `href="https://docs.example.com/b" target="_blank" rel="noopener noreferrer">link</a>`) {
+	if n := strings.Count(row, `data-tone="link"`); n != 1 || !strings.Contains(row, `href="https://docs.example.com/b" target="_blank" rel="noopener noreferrer">link</a>`) {
 		t.Fatalf("row = %s", row)
 	}
 }
@@ -133,7 +133,7 @@ func TestOldReportWithOnlyAPullRequestKeepsItsPRChip(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := board.New(st, token, board.Options{})
-	want := `<a class="chip" href="https://github.com/atqamz/hand/pull/42" target="_blank" rel="noopener noreferrer">PR</a>`
+	want := `<a class="badge" data-tone="link" href="https://github.com/atqamz/hand/pull/42" target="_blank" rel="noopener noreferrer">PR</a>`
 	if row := checks(get(t, h, "/"))["t1"]; !strings.Contains(row, want) {
 		t.Fatalf("row lacks the PR chip: %s", row)
 	}
@@ -152,7 +152,7 @@ func TestLongPathChipStaysOnTheMetaLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := checks(get(t, board.New(st, token, board.Options{}), "/"))["t1"]
-	chip := `<span class="chip file" title="/d/d/d/` + name + `">file: ` + name + `</span>`
+	chip := `<span class="file" title="/d/d/d/` + name + `">file: ` + name + `</span>`
 	if body := strings.Index(row, `<span class="check-body">`); body < 0 || !strings.Contains(row[body:], chip+`</span></span>`) {
 		t.Fatalf("chip is outside .check-body: %s", row)
 	}
@@ -160,6 +160,6 @@ func TestLongPathChipStaysOnTheMetaLine(t *testing.T) {
 
 func TestFileChipIsPlainCappedText(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, ".chip.file{max-width:32ch;padding:0;border:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:var(--mono);font-weight:400}")
+	contains(t, "board.css", css, ".file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}")
 	lacks(t, "board.css", css, "min(100%,32ch)", ".archive .task-row{")
 }

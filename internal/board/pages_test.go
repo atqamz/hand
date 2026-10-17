@@ -25,10 +25,10 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 		t.Fatalf("task page regions = %d:\n%s", n, body)
 	}
 	contains(t, "task thread", body,
-		`<span class="ref">t1</span>`, `<span class="status pill" data-state="running">active</span>`,
+		`<span class="ref">t1</span>`, `<span class="badge status" data-state="running">active</span>`,
 		"plan p1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
 		`<article class="card report" id="r1"`, `<article class="card report" id="r2"`, "<strong>tests</strong>",
-		`<li class="check" data-state="running" id="a1">`,
+		`<li class="row check" data-state="running" id="a1">`,
 		"Keep the old cookie name?", `href="/decision/d1"`)
 }
 
@@ -53,7 +53,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 	}
 	loop := host(true, links)
 	for _, l := range links {
-		row := regexp.MustCompile(`<li class="fleet tint-[0-9]+">[\s\S]*?</li>`).FindAllString(loop, -1)
+		row := regexp.MustCompile(`<li class="row fleet tint-[0-9]+">[\s\S]*?</li>`).FindAllString(loop, -1)
 		found := false
 		for _, r := range row {
 			if strings.Contains(r, `href="/`+l.ID+`/"`) {
@@ -67,7 +67,7 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 	}
 	network := host(false, links)
 	contains(t, "network list", network, "fleet's link")
-	lacks(t, "network list", network, "f6b63e98d4af2", "work", `class="fleet"`)
+	lacks(t, "network list", network, "f6b63e98d4af2", "work", `class="row fleet`)
 	contains(t, "empty list", host(true, nil), "Run <code>hand init</code> in a folder")
 }
 
@@ -144,16 +144,16 @@ func TestThreadPagesUseTheDispatchModule(t *testing.T) {
 		`<article class="card" data-role="plan"><header class="slug"><span class="who">plan p1</span>`,
 		`<article class="card report" id="r1" data-status="done"><header class="slug"><span class="who">r1</span>`,
 		`<li class="event"><time datetime=`,
-		`<li class="check" data-state="running" id="a1">`,
-		`<span class="code" data-tone="wait">DECISION</span>`,
+		`<li class="row check" data-state="running" id="a1">`,
+		`<span class="badge code" data-tone="wait">DECISION</span>`,
 		`<div class="strip">`)
 	lacks(t, "task page", task, `data-region="status"`)
-	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="status pill" data-state="waiting">open</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
+	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="badge status" data-state="waiting">open</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
 	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
 	}})
-	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="fleet tint-`, `<a class="fleet-name" title="hand" href="/f6b63e98d4af2/">hand</a>`)
-	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="code" data-tone="fail">404</span>`)
+	contains(t, "fleet list", fetch(list, "/").Body.String(), `<li class="row fleet tint-`, `<a class="fleet-name" title="hand" href="/f6b63e98d4af2/">hand</a>`)
+	contains(t, "error page", request(h, "GET", "/task/t99", nil, true).Body.String(), `<header class="masthead">`, `<span class="badge code" data-tone="fail">404</span>`)
 }
 
 func TestThreadPagesCarryAStaticStrip(t *testing.T) {
@@ -170,7 +170,7 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 		contains(t, path+" loopback", get(t, board.New(st, token, board.Options{Controls: true}), path), `<p class="crumbs"><a href="/">Fleets</a> / `)
 	}
 	lacks(t, "dots", asset(t, "board.css"), "header.slug>*::after")
-	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="status pill" data-state="waiting">open</span>`)
+	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="badge status" data-state="waiting">open</span>`)
 }
 
 func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
@@ -301,7 +301,7 @@ func TestTheTaskPageHead(t *testing.T) {
 	fx := newFixture(t)
 	task := active(t, fx.st, "Fix login")
 	body := get(t, fx.handler(), "/task/t1")
-	contains(t, "head", body, `<p class="crumbs">`, `<h2 class="thread-title">Fix login</h2>`, `<span class="status pill" data-state="`, `<hr class="rule">`)
+	contains(t, "head", body, `<p class="crumbs">`, `<h2 class="thread-title">Fix login</h2>`, `<span class="badge status" data-state="`, `<hr class="rule">`)
 	_ = task
 	css := asset(t, "board.css")
 	contains(t, "title", css, `.thread-title{overflow-wrap:anywhere;`)
