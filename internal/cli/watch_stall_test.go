@@ -77,7 +77,7 @@ func noStall(t *testing.T, fx *attemptFixture) {
 func wantStall(t *testing.T, fx *attemptFixture, n int, text string) {
 	t.Helper()
 	eventually(t, func() bool { return stallWake(fx, n) != "" })
-	want := "[hand v1 wake]\nsupervisor.stalled s1: " + text + ". Start a worker, finish the task, or write down in your reply what you are waiting for."
+	want := "[hand v1 wake]\nsupervisor.stalled s1: " + text + ". Start a worker, arm a timer with `hand wake`, or finish the task."
 	if got := stallWake(fx, n); got != want {
 		t.Fatalf("stall wake %d =\n%q\nwant\n%q", n, got, want)
 	}

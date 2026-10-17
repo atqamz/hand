@@ -11,7 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.idle", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled"}
+var wakeKinds = []string{"attempt.blocked", "attempt.quiet", "attempt.idle", "attempt.limited", "attempt.long", "attempt.reported", "attempt.exited", "attempt.interrupted", "attempt.failed", "decision.answered", "supervisor.stalled", "timer.fired"}
 
 const (
 	waitPoll  = 250 * time.Millisecond

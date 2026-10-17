@@ -11,10 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/update"
 )
 
-const (
-	stallAlert = time.Hour
-	stallAsk   = "Start a worker, finish the task, or write down in your reply what you are waiting for."
-)
+const stallAlert = time.Hour
 
 type rest struct {
 	sup    int64
@@ -80,7 +77,7 @@ func (w *watcher) stall(ctx context.Context, c luvus.Client, caps luvus.Capabili
 		return nil
 	}
 	text := stalled(u)
-	if err := w.st.NoteSupervisor(ctx, sup.ID, "stalled", text+". "+stallAsk); err != nil {
+	if err := w.st.NoteSupervisor(ctx, sup.ID, "stalled", text+". Start a worker, arm a timer with `"+w.r.env.command()+" wake`, or finish the task."); err != nil {
 		return err
 	}
 	line := state.SupervisorRef(sup.ID) + " stalled: " + text
@@ -103,4 +100,20 @@ func stalled(u state.Unwatched) string {
 		names, verb = strings.Join(refs[:n-1], ", ")+" and "+refs[n-1], " are active"
 	}
 	return names + verb + ", no attempt is running, idle " + u.IdleFor()
+}
+
+func (w *watcher) timers(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	sup, ok, err := w.st.LiveSupervisor(ctx)
+	if err != nil || !ok || sup.Status != state.AttemptRunning || sup.ServerGeneration != caps.ServerGeneration {
+		return err
+	}
+	fired, err := w.st.FireTimers(ctx)
+	if err != nil || len(fired) == 0 {
+		return err
+	}
+	for _, line := range fired {
+		w.say("timer " + line)
+	}
+	w.deliver(ctx, c, caps)
+	return nil
 }

@@ -175,6 +175,9 @@ func (w *watcher) session(ctx context.Context) error {
 		return err
 	}
 	w.autoresume(sctx, c, caps)
+	if err := w.timers(sctx, c, caps); err != nil {
+		return err
+	}
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -189,6 +192,9 @@ func (w *watcher) session(ctx context.Context) error {
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
 				err = w.longTurns(sctx)
+			}
+			if err == nil {
+				err = w.timers(sctx, c, caps)
 			}
 			if err == nil {
 				err = w.stall(sctx, c, caps)
