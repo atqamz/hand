@@ -231,7 +231,7 @@ type working struct {
 }
 
 func (b *Board) working(ctx context.Context, sup state.Supervisor) (working, error) {
-	w := working{Ref: state.SupervisorRef(sup.ID), Since: sup.CreatedAt, On: "since it started"}
+	w := working{Ref: state.SupervisorRef(sup.ID), Since: sup.CreatedAt, On: "since the turn began"}
 	e, ok, err := b.st.LatestEvent(ctx, "supervisor.delivered")
 	if err != nil {
 		return w, err
@@ -524,6 +524,9 @@ type chatItem struct {
 }
 
 func once(ref, kind, detail string) string {
+	if detail == "" {
+		return ref + " " + kind
+	}
 	if strings.HasPrefix(detail, kind+" ") {
 		return ref + " " + detail
 	}

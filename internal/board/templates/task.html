@@ -21,7 +21,7 @@
 {{with .Decisions}}<ol class="decisions">{{range .}}<li class="row wrap decision" data-status="{{.Status}}"><a class="ref" href="{{$.Base}}/decision/{{decision .ID}}">{{decision .ID}}</a><span class="need-title">{{.Headline}}</span>{{with .Answer}}<span class="answer">{{.}}</span>{{else}}<a href="{{$.Base}}/decision/{{decision .ID}}">Answer</a>{{end}}</li>{{end}}</ol>
 {{else}}<p class="quiet">No decisions yet.</p>
 {{end}}<h3>Events</h3>
-<ol class="events">{{range .Events}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{words .Kind}}</span><span class="detail">{{refs .Detail $.Base $.Titles}}</span></li>
+<ol class="events">{{range .Events}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{words .Kind}}</span><span class="detail">{{refs (plain .Detail) $.Base $.Titles}}</span></li>
 {{end}}</ol>
 {{if .MoreEvents}}<p class="more">Only the latest 50 events are shown.</p>{{end}}
 </div>
