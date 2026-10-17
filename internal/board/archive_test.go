@@ -125,6 +125,56 @@ func TestArchiveFiltersAndSaysWhenNothingMatches(t *testing.T) {
 	contains(t, "form", get(t, h, "/tasks?status=abandoned&since=2026-10-01&project=docs"), `<option value="abandoned" selected>`, `<option value="docs" selected>`, `name="since" value="2026-10-01"`, `method="get" action="/tasks"`)
 }
 
+func TestTasksPageSearchesEveryStatus(t *testing.T) {
+	a := newArchive(t)
+	ctx := context.Background()
+	other, _ := filepath.Abs("/other")
+	if _, err := a.st.AddProject(ctx, "docs", other); err != nil {
+		t.Fatal(err)
+	}
+	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
+	a.finish(t, "hand", "Fix login", state.StatusDone, day(2))
+	a.finish(t, "docs", "Fix guide", state.StatusAbandoned, day(3))
+	a.now = day(4)
+	active, err := a.st.AddTask(ctx, "hand", "Fix search", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.Transition(ctx, active.ID, state.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddTask(ctx, "hand", "Fix inbox", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.st.AddTask(ctx, "hand", "Write docs", ""); err != nil {
+		t.Fatal(err)
+	}
+	h := a.handler()
+	for _, tc := range []struct{ query, want string }{
+		{"", "Fix guide|Fix login"},
+		{"?q=fix", "Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=all", "Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=finished", "Fix guide|Fix login"},
+		{"?q=fix&status=done", "Fix login"},
+		{"?q=fix&status=active", "Fix search"},
+		{"?q=fix&status=inbox", "Fix inbox"},
+		{"?q=fix&project=docs", "Fix guide"},
+		{"?q=fix&since=2026-10-04", "Fix inbox|Fix search"},
+		{"?q=fix&until=2026-10-03", "Fix guide|Fix login"},
+		{"?q=t4", "Fix inbox"},
+		{"?status=all", "Write docs|Fix inbox|Fix search|Fix guide|Fix login"},
+		{"?q=fix&status=junk", "Fix guide|Fix login"},
+	} {
+		if got := strings.Join(titles(get(t, h, "/tasks"+tc.query)), "|"); got != tc.want {
+			t.Errorf("%s = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+	body := get(t, h, "/tasks?q=fix")
+	contains(t, "grouped", body, `<h3 class="group">Sun 4 Oct UTC <span class="badge">2</span></h3>`, `<h3 class="group">Sat 3 Oct UTC <span class="badge">1</span></h3>`, `>4 tasks</p>`, `<option value="all" selected>`, `<h2 class="thread-title">Tasks</h2>`)
+	contains(t, "bare", get(t, h, "/tasks"), `<option value="finished" selected>`)
+	contains(t, "scopes", body, `<option value="active">Active</option>`, `<option value="inbox">Inbox</option>`)
+}
+
 func TestArchiveOffersProjectsOnlyWhenThereAreSeveral(t *testing.T) {
 	a := newArchive(t)
 	if body := get(t, a.handler(), "/tasks"); strings.Contains(body, `name="project"`) {
@@ -169,7 +219,7 @@ func TestArchivePagesKeepTheQuery(t *testing.T) {
 func TestArchiveNeedsNoScript(t *testing.T) {
 	a := newArchive(t)
 	a.finish(t, "hand", "Fix login", state.StatusDone, time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC))
-	rec := request(a.handler(), "GET", "/tasks", nil, true)
+	rec := request(a.handler(), "GET", "/tasks?q=fix&status=all", nil, true)
 	body := rec.Body.String()
 	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe") {
 		t.Fatalf("csp = %q", csp)

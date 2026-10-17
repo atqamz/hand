@@ -229,7 +229,7 @@ What you do:
 3. Answer decisions on their card or their page, or with `hand decision answer dN "ANSWER"`.
 4. Read reports, and press **Mark read** once you have read one.
 5. Follow a task on its page, or open its newest deliverable with `hand open tN --delivered`.
-6. Find a finished task with **Browse finished tasks** under the task list. That page searches titles, goals and refs, filters by status, project and finish date, and groups the results by day, 50 to a page.
+6. Find a task with **Browse finished tasks** under the task list, or the search field above it. The Tasks page searches titles, goals and refs over every task: with a query it covers every status, and the Status filter narrows it to finished, active, inbox, done or abandoned. It also filters by project and date, and groups the results by day, 50 to a page.
 
 What the supervisor does, following the `secondhand` skill:
 
@@ -472,7 +472,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand project add NAME PATH`, `hand project list` | Register a repository by its absolute path, and list projects. |
 | `hand task add --goal TEXT PROJECT TITLE` | Capture a request as an `inbox` task. |
 | `hand task start tN`, `hand task done tN`, `hand task abandon tN` | Move a task to `active`, `done` or `abandoned`. |
-| `hand task list [--status LIST] [--q TEXT] [--since DATE] [--until DATE] [--limit N]`, `hand task show tN` | List tasks newest first (default `inbox,active`), or show one with its plan, attempt, report and decisions. `--q` keeps tasks where every word, in any case, is in the title or goal or is the whole ref (`t12`). `--since` and `--until` take a UTC `YYYY-MM-DD` and filter on the day a task finished (`done` or `abandoned`; its last update otherwise). Rows of finished tasks carry that day in a `finished` column. |
+| `hand task list [--status LIST] [--q TEXT] [--since DATE] [--until DATE] [--limit N]`, `hand task show tN` | List tasks newest first (default `inbox,active`; `--status all` lists every status), or show one with its plan, attempt, report and decisions. `--q` searches every status unless `--status` is given, and keeps tasks where every word, in any case, is in the title or goal or is the whole ref (`t12`). `--since` and `--until` take a UTC `YYYY-MM-DD` and filter on the day a task finished (`done` or `abandoned`; its last update otherwise). Rows of finished tasks carry that day in a `finished` column. |
 | `hand plan set --body-file PATH tN`, `hand plan show tN` | Add a plan revision (or `--body TEXT`), and show the current one. |
 | `hand attempt start --profile NAME --prompt-file PATH tN` | Start a worker in a new worktree from the repository's fetched default branch (`origin/HEAD`, else `origin/main`, else `origin/master`, else its current branch; from a remote ref, unpushed local commits are left out, so pass `--base HEAD` to keep them); `--harness`, `--model` and `--effort` replace `--profile`, `--base REF` picks another start point, and `--continue aN` checks out the branch of `aN`, an ended and cleaned attempt of the same task, so pushes reach its PR. |
 | `hand attempt list [--task tN] [--limit N]`, `hand attempt show aN` | List attempts, or show one with its live agent state, or the last screen the watcher read from one that ended. |

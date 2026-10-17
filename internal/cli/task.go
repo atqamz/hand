@@ -125,7 +125,7 @@ func taskFields(d *toon.Doc, t state.Task) {
 
 func cmdTaskList(r *runner, args []string) error {
 	fs := flags("task list")
-	status := fs.String("status", "inbox,active", "comma-separated statuses")
+	status := fs.String("status", "", "comma-separated statuses, or all; default inbox,active, or all with --q")
 	q := fs.String("q", "", "words that must each appear in the title or goal, or be the task ref")
 	since := fs.String("since", "", "on or after this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
 	until := fs.String("until", "", "on or before this UTC date, YYYY-MM-DD; the day a task finished, else its last update")
@@ -138,12 +138,21 @@ func cmdTaskList(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
-	want := strings.Split(*status, ",")
+	if *status == "" {
+		*status = "inbox,active"
+		if strings.TrimSpace(*q) != "" {
+			*status = "all"
+		}
+	}
+	var want []string
+	if *status != "all" {
+		want = strings.Split(*status, ",")
+	}
 	tasks, _, err := st.SearchTasks(context.Background(), state.TaskQuery{Q: *q, Statuses: want, Since: *since, Until: *until, Limit: *limit})
 	if err != nil {
 		return err
 	}
-	dated := slices.Contains(want, state.StatusDone) || slices.Contains(want, state.StatusAbandoned)
+	dated := want == nil || slices.Contains(want, state.StatusDone) || slices.Contains(want, state.StatusAbandoned)
 	header := []string{"id", "project", "status", "title"}
 	if dated {
 		header = append(header, "finished")

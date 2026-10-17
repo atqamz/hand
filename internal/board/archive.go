@@ -4,23 +4,35 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/atqamz/hand/internal/state"
 )
 
+type scopeOption struct{ Value, Label string }
+
+var scopes = []scopeOption{
+	{"finished", "Done and abandoned"}, {"all", "Every status"},
+	{state.StatusDone, "Done"}, {state.StatusAbandoned, "Abandoned"}, {state.StatusActive, "Active"}, {state.StatusInbox, "Inbox"},
+}
+
 func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 	ctx, v := r.Context(), r.URL.Query()
-	statuses := finished
-	if s := v.Get("status"); s == state.StatusDone || s == state.StatusAbandoned {
-		statuses = []string{s}
+	q := strings.TrimSpace(v.Get("q"))
+	statuses, scope := finished, "finished"
+	switch s := v.Get("status"); {
+	case s == "all" || (s == "" && q != ""):
+		statuses, scope = nil, "all"
+	case slices.ContainsFunc(scopes[2:], func(o scopeOption) bool { return o.Value == s }):
+		statuses, scope = []string{s}, s
 	}
 	page := 1
 	if n, err := strconv.Atoi(v.Get("page")); err == nil && n > 1 && n <= maxArchivePage {
 		page = n
 	}
-	query := state.TaskQuery{Q: strings.TrimSpace(v.Get("q")), Statuses: statuses, Project: v.Get("project"), Since: v.Get("since"), Until: v.Get("until"), Limit: archivePage, Offset: (page - 1) * archivePage}
+	query := state.TaskQuery{Q: q, Statuses: statuses, Project: v.Get("project"), Since: v.Get("since"), Until: v.Get("until"), Limit: archivePage, Offset: (page - 1) * archivePage}
 	tasks, total, err := b.st.SearchTasks(ctx, query)
 	if err != nil {
 		b.failErr(w, err)
@@ -65,7 +77,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Title": "tasks", "Page": "tasks", "StripData": b.stripData(ctx), "Token": b.token,
 		"Groups": groups, "Total": total, "Projects": projects, "Filtered": len(keep) > 0,
-		"Q": query.Q, "Status": v.Get("status"), "Project": query.Project, "Since": query.Since, "Until": query.Until,
+		"Q": query.Q, "Scope": scope, "Scopes": scopes, "Project": query.Project, "Since": query.Since, "Until": query.Until,
 	}
 	if page > 1 {
 		data["Prev"] = link(page - 1)

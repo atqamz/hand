@@ -221,6 +221,11 @@ func TestSearchTasks(t *testing.T) {
 		{"both dates", TaskQuery{Since: "2026-10-02", Until: "2026-10-03", Statuses: done}, "t3 t2", 2},
 		{"empty", TaskQuery{Q: "nothing here", Statuses: done}, "", 0},
 		{"unfinished fall back to the update", TaskQuery{Statuses: []string{StatusInbox}}, TaskRef(open.ID), 1},
+		{"every status", TaskQuery{Q: "fix"}, "t5 t4 t1", 3},
+		{"every status, ref", TaskQuery{Q: "t5"}, "t5", 1},
+		{"every status, project", TaskQuery{Project: "docs"}, "t3", 1},
+		{"every status, since", TaskQuery{Q: "fix", Since: "2026-10-03"}, "t5 t4", 2},
+		{"every status, one status", TaskQuery{Q: "fix", Statuses: []string{StatusInbox}}, "t5", 1},
 		{"page", TaskQuery{Statuses: done, Limit: 2, Offset: 2}, "t2 t1", 4},
 		{"past the end", TaskQuery{Statuses: done, Limit: 2, Offset: 8}, "", 4},
 	} {

@@ -5,7 +5,7 @@
 </header>
 <form class="filters" method="get" action="{{.Base}}/tasks">
 <label class="search">Search<input type="search" name="q" value="{{.Q}}" placeholder="Title, goal or ref" autocomplete="off"></label>
-<label>Status<select name="status"><option value=""{{if eq .Status ""}} selected{{end}}>Done and abandoned</option><option value="done"{{if eq .Status "done"}} selected{{end}}>Done</option><option value="abandoned"{{if eq .Status "abandoned"}} selected{{end}}>Abandoned</option></select></label>
+<label>Status<select name="status">{{range .Scopes}}<option value="{{.Value}}"{{if eq .Value $.Scope}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
 {{if gt (len .Projects) 1}}<label>Project<select name="project"><option value="">All projects</option>{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $.Project}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
 {{end}}<label>Since (UTC)<input type="date" name="since" value="{{.Since}}"></label>
 <label>Until (UTC)<input type="date" name="until" value="{{.Until}}"></label>
