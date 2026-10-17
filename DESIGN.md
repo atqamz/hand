@@ -599,7 +599,7 @@ The model menu and the overflow menu are `details` elements whose body opens abo
 
 ### Buttons
 - **Shape:** gently rounded corners (6px).
-- **Height:** every button, input, select, the paperclip and the model menu's summary is `--control` high (32px; 44px on coarse pointers), and a key is at least that wide. The text of a button without an icon is trimmed to its cap height (`text-box: trim-both cap alphabetic`) and the box padded by `(--control - 1cap) / 2`, so capitals sit on the box's centre whatever the font; browsers without `text-box` fall back to centring the line.
+- **Height:** every button, input, select, the paperclip and the model menu's summary is `--control` high (32px; 44px on coarse pointers), and a key is at least that wide. The text of a button without an icon is trimmed to its cap height (`text-box: trim-both cap alphabetic`) and the box padded by `(--control - 1cap) / 2`, so capitals sit on the box's centre whatever the font; browsers without `text-box` fall back to centring the line. The trim is a default, `button:where(:not(:has(.icon)))` and Stop, with the specificity of a plain `button` and set after it, so a component's own box (the decision options' `min-height` and padding) overrides it.
 - **Default:** ground fill, control-edge border, ink text in Control type, padded 0 by 12px; hover takes the hover wash.
 - **Primary:** Ink with `on-primary` text at 600 and no visible border, one per form; hover mixes 14% of the ground into it.
 - **Disabled and busy:** disabled buttons fade to 55%; a form in flight fades its buttons to 60% with a progress cursor.

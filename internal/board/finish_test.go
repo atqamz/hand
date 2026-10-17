@@ -142,7 +142,7 @@ func TestErrorPagesSpeakLowerCase(t *testing.T) {
 
 func TestAnswerChipsReadAsOptions(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .option{max-width:100%;height:auto;min-height:var(--control);padding:6px 12px;border-radius:var(--r-lg);font-weight:400;text-align:left;white-space:normal}")
+	contains(t, "chips", css, ".chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}", ".chips .option{display:flex;align-items:center;justify-content:flex-start;max-width:100%;height:auto;min-height:var(--control);padding:5px 12px;border-radius:var(--r-lg);font-weight:400;text-align:left;white-space:normal}")
 }
 
 func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {

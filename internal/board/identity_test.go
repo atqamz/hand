@@ -415,6 +415,16 @@ func TestTheConsoleSitsInTheComposerBox(t *testing.T) {
 	}
 }
 
+func TestTheCapTrimIsADefaultComponentsOverride(t *testing.T) {
+	css := asset(t, "board.css")
+	trim := "button:where(:not(:has(.icon))),.key.stop{"
+	contains(t, "cap trim", css, trim)
+	if strings.Index(css, trim) < strings.Index(css, "\nbutton{display:inline-flex") {
+		t.Fatal("the cap-trim default comes before the base button rule, so the base rule wins")
+	}
+	lacks(t, "balance", css, "text-wrap:balance")
+}
+
 func TestTheDeskFinishFixes(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
@@ -483,7 +493,7 @@ func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 		"input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}",
 		".attach{position:relative;display:inline-flex;align-items:center;justify-content:center;width:var(--control);height:var(--control);",
 		".key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);",
-		"button:not(:has(.icon)){display:inline-block;height:auto;min-height:var(--control);")
+		"button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);")
 	contains(t, "badges", css,
 		".badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));",
 		".badge.pill{--size:calc(var(--badge) + 4px);",

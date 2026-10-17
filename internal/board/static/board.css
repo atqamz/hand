@@ -42,13 +42,14 @@ a.badge[data-tone=link]:hover{border-color:var(--accent)}
 a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}
 @supports (text-box:trim-both cap alphabetic){
 .badge{height:auto;line-height:18px;text-box:trim-both cap alphabetic;padding-block:calc((var(--size,var(--badge)) - 1cap)/2 - 1px)}
-button:not(:has(.icon)){display:inline-block;height:auto;min-height:var(--control);text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((var(--control) - 1cap)/2 - 1px)}
 .pill>.word,.key>.key-label,.menu>summary>.model{text-box:trim-both cap alphabetic}}
 button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--control);padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg);color:var(--fg);font:inherit;font-size:14px;line-height:20px;white-space:nowrap;cursor:pointer}
 button:hover{background:var(--hover)}
 button:disabled{opacity:.55;cursor:default}
 button.primary{background:var(--primary);border-color:transparent;color:var(--on-primary);font-weight:600}
 button.primary:hover{background:color-mix(in srgb,var(--primary) 86%,var(--bg))}
+@supports (text-box:trim-both cap alphabetic){
+button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((var(--control) - 1cap)/2 - 1px)}}
 textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r-md)}
 input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}
 textarea{display:block;width:100%;min-height:4.5em;padding:8px 10px;line-height:20px;resize:vertical}
@@ -213,7 +214,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .md code{padding:.1em .4em;border-radius:var(--r-sm);background:var(--card);font-size:12px}
 .md pre{padding:10px 12px;border-radius:var(--r-md);background:var(--card);white-space:pre}
 .md pre code{padding:0;background:none;font-size:inherit}
-.md h3,.md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.md h3,.md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap-style:balance}
 .md h3{font-size:15px;line-height:22px}
 .md h4{font-size:14px;line-height:20px}
 .md>:first-child{margin-top:0}
@@ -391,7 +392,7 @@ form.inline{display:inline}
 .fleet .fleet-name:hover{color:var(--tint);text-decoration:none}
 .card.error .copy{margin:6px 0 10px}
 .card.error .back{margin:0;padding:0 12px 12px}
-.thread-title{overflow-wrap:anywhere;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.thread-title{overflow-wrap:anywhere;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap-style:balance}
 .fleet .mark{color:var(--tint)}
 .thread-head+.needs-here{border-top:0}
 .thread-head .question{max-height:none;overflow:visible}
@@ -399,7 +400,7 @@ form.inline{display:inline}
 @media (max-height:599px) and (max-width:599px){.masthead .fleet-name,.masthead .strip .who,.masthead .strip .queued,.masthead .strip .compactions{display:none}}
 form[data-busy] button{opacity:.6;cursor:progress}
 .chips{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:0 0 8px}
-.chips .option{max-width:100%;height:auto;min-height:var(--control);padding:6px 12px;border-radius:var(--r-lg);font-weight:400;text-align:left;white-space:normal}
+.chips .option{display:flex;align-items:center;justify-content:flex-start;max-width:100%;height:auto;min-height:var(--control);padding:5px 12px;border-radius:var(--r-lg);font-weight:400;text-align:left;white-space:normal}
 .chips .option:hover{border-color:var(--accent);background:var(--accent-bg)}
 .skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-md)}
 .skip:focus{left:16px}
