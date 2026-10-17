@@ -73,6 +73,6 @@ func TestNeedsLinksOpenANewTab(t *testing.T) {
 
 func TestOutsideLinksCarryACornerMark(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, `a.badge[target=_blank]::after,.md a[target=_blank]:not(.ref)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}`)
+	contains(t, "board.css", css, `a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}`)
 	lacks(t, "board.css", css, "a.ref[target=_blank]::after")
 }
