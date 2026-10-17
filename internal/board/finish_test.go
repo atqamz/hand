@@ -121,7 +121,7 @@ func TestThePhoneMastheadStaysOneRow(t *testing.T) {
 
 func TestStuckReportsWearTheFailTone(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "stuck", css, ".thread>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}")
+	contains(t, "stuck", css, ":is(.thread,.task-main)>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}")
 	lacks(t, "stuck", css, "data-status=blocked]", "data-status=failed]")
 }
 
@@ -155,7 +155,7 @@ func TestTheFleetIDSharesTheNameBaseline(t *testing.T) {
 
 func TestReportHeadersCentreTheirMeta(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "report head", css, ".thread>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;")
+	contains(t, "report head", css, ":is(.thread,.task-main)>.card>header.slug{display:flex;flex-wrap:wrap;align-items:center;")
 }
 
 func TestNeedsAffordances(t *testing.T) {

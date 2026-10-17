@@ -234,3 +234,12 @@ func TestTheArchiveStyles(t *testing.T) {
 		"@media (pointer:coarse){.pager a{display:inline-flex;align-items:center;min-height:44px}}",
 	)
 }
+
+func TestTheTasksPageIsTitledTasks(t *testing.T) {
+	a := newArchive(t)
+	h := a.handler()
+	body := get(t, h, "/tasks")
+	contains(t, "tasks page", body, `<title>tasks · `, `/ tasks</p>`, `<h2 class="thread-title">Tasks</h2>`)
+	lacks(t, "tasks page", body, "Finished tasks", "/ finished tasks")
+	contains(t, "empty", get(t, h, "/tasks?q=nothing"), "No tasks match. Try fewer words, or clear the dates.")
+}

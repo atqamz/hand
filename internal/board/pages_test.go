@@ -389,3 +389,64 @@ func TestTheTaskPageNamesTheAttemptAnAttemptContinues(t *testing.T) {
 	}
 	contains(t, "continuing attempt", get(t, board.New(st, token, board.Options{}), "/task/t1"), `id="a2"`, "continues a1")
 }
+
+func TestTheTaskPageIsTwoColumns(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	a := attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	path := "/very/" + strings.Repeat("long/", 40) + "report.md"
+	if _, err := fx.st.AddReport(context.Background(), a.ID, state.ReportProgress, "Done.\n\nDelivered: "+path+"\nDelivered: https://github.com/atqamz/hand/pull/9"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/task/t1")
+	grid := body[strings.Index(body, `<div class="task-grid">`):]
+	main, side := strings.Index(grid, `<div class="task-main">`), strings.Index(grid, `<aside class="task-side">`)
+	if main < 0 || side < main {
+		t.Fatalf("the task page lacks its two columns:\n%s", body)
+	}
+	for _, want := range []string{"<h3>Reports</h3>", "<h3>Decisions</h3>", "<h3>Events</h3>"} {
+		if i := strings.Index(grid, want); i < main || i > side {
+			t.Fatalf("%s is not in the main column", want)
+		}
+	}
+	aside := grid[side:]
+	delivered, attempts := strings.Index(aside, "<h3>Delivered</h3>"), strings.Index(aside, "<h3>Attempts</h3>")
+	if delivered < 0 || attempts < delivered || strings.Index(aside, `id="a1"`) < attempts {
+		t.Fatalf("the aside does not lead with Delivered, then Attempts:\n%s", aside)
+	}
+	contains(t, "delivered", aside, `<span class="url">`+path+`</span>`, `<span class="url">https://github.com/atqamz/hand/pull/9</span>`)
+	lacks(t, "head", body[:strings.Index(body, `<hr class="rule">`)], `class="file"`, `data-tone="link"`)
+}
+
+func TestTheTaskPageHasNoDeliveredAsideWithoutDeliverables(t *testing.T) {
+	fx := newFixture(t)
+	active(t, fx.st, "Fix login")
+	body := get(t, fx.handler(), "/task/t1")
+	lacks(t, "task page", body, "<h3>Delivered</h3>")
+	contains(t, "task page", body, `<aside class="task-side">`, "<h3>Attempts</h3>")
+}
+
+func TestTheTaskPageStylesItsColumnsAndPhoneOrder(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "columns", css,
+		".thread:has(.task-grid){max-width:1120px}",
+		".task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}",
+		".task-side{position:sticky;top:16px;",
+		".delivered .url{max-width:100%;",
+		"overflow-wrap:anywhere}")
+	contains(t, "phone order", css, "@media (max-width:999px){.task-grid{grid-template-columns:minmax(0,1fr)}.task-side{order:-1;position:static;max-height:none;overflow:visible}}")
+	contains(t, "masthead", css, "body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}")
+	contains(t, "report head", css, `.card.report>header.slug{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"who title act" ". meta act";`)
+	contains(t, "phone report head", block(t, css, "@media (max-width:599px){"), `.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}`)
+}
+
+func TestTheReportHeadGroupsItsMetaAndAction(t *testing.T) {
+	fx := newFixture(t)
+	task := active(t, fx.st, "Fix login")
+	a := attempt(t, fx.st, task.ID, state.AttemptRunning, "")
+	if _, err := fx.st.AddReport(context.Background(), a.ID, state.ReportDone, "Shipped the fix"); err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, fx.handler(), "/task/t1")
+	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from a1</span><span class="badge" data-status="done">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
+}
