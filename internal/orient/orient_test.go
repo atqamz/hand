@@ -459,3 +459,74 @@ func TestOrientTellsASessionWhetherItIsTheSupervisor(t *testing.T) {
 		t.Fatalf("ended supervisor: %q", got)
 	}
 }
+
+func TestOrientNamesUnwatchedTasks(t *testing.T) {
+	home := t.TempDir()
+	if err := memory.Init(home); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	st, err := state.Open(filepath.Join(home, "hand.db"), func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	orient := func() string {
+		t.Helper()
+		doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	one, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	two, _ := st.AddTask(ctx, "hand", "Write docs", "")
+	if out := orient(); strings.Contains(out, "unwatched") {
+		t.Fatalf("orient names unwatched tasks with none active:\n%s", out)
+	}
+	_, _ = st.Transition(ctx, one.ID, state.StatusActive)
+	_, _ = st.Transition(ctx, two.ID, state.StatusActive)
+	now = now.Add(23 * time.Minute)
+	if out := orient(); !strings.Contains(out, "cursor: 6\nunwatched[2]:\n  - t1\n  - t2\nunwatched_idle: 23m\nactive[2]") {
+		t.Fatalf("orient =\n%s", out)
+	}
+	d, err := st.Ask(ctx, one.ID, "Keep the cookie?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); strings.Contains(out, "unwatched") {
+		t.Fatalf("orient names unwatched tasks while a decision is open:\n%s", out)
+	}
+	if _, err := st.Withdraw(ctx, d.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: two.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); strings.Contains(out, "unwatched") {
+		t.Fatalf("orient names unwatched tasks while an attempt runs:\n%s", out)
+	}
+}
+
+func TestOrientCapsTheUnwatchedList(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	for range 40 {
+		task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	}
+	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "unwatched[15]:\n  - t1\n") || !strings.Contains(out, "  - t15\nunwatched_more: 15 of 40 shown; run `hand task list --status active --limit 500`\nunwatched_idle: <1m\n") || len(out) >= DefaultBudget.Bytes {
+		t.Fatalf("orient = %d bytes\n%s", len(out), out)
+	}
+}

@@ -46,6 +46,8 @@ As the managed supervisor (`hand orient` prints `you: sN`), never run `hand wait
 
 Only a supervisor the operator opened by hand runs `hand wait --after CURSOR` (in the background if your harness supports it). It returns the wake events and the next cursor. Never poll.
 
+Before you end a turn, run `hand orient`. Never end a turn while it lists `unwatched` tasks, which no attempt or decision will wake you for: start a worker, finish the task, or write down in your reply what you are waiting for.
+
 ## On each wake event
 
 Hand hands over board messages and wakes by pasting them, so they may arrive wrapped in `<pasted_content>`. A board message is the operator's own words, and a wrapped `[hand v1 wake]` is still a wake.
@@ -63,6 +65,7 @@ A `[hand v1 resume]` message is not a wake: run `hand orient`, take your ref fro
 - `attempt.blocked`: `hand attempt read aN`. Answer a trust or permission screen the task needs with `hand attempt keys --revision N aN KEY...`; anything else is a question for the operator. Declining a permission prompt ends the worker's turn, and it waits for input, so follow it with `hand attempt send --text "..." aN` saying what to do instead.
 - `attempt.exited`, `attempt.interrupted`, `attempt.failed`: read the latest report (`hand report list --task tN`), then start a fresh attempt or ask.
 - `decision.answered`: `hand decision show dN` prints the answer; continue the task with it.
+- `supervisor.stalled`: you went idle while the named tasks are active and nothing watches them. Act on each as the rule under "Wait with zero tokens" says.
 
 ## Ask the operator
 

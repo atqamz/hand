@@ -262,9 +262,10 @@ A screen that waits for an answer, such as a trust or permission prompt, puts th
 - follows Luvus's events and checks the live attempts at least every 30 seconds (`--every`);
 - records the `attempt.blocked`, `attempt.quiet`, `attempt.idle`, `attempt.limited` and `attempt.long` events from Luvus's agent status, and on every start catches up on a blocked screen or an ended turn it missed while it was down;
 - delivers queued messages and wakes to the managed supervisor, and alerts once each time a supervisor reaches a usage limit, counting a limit as over once a screen read shows no limit line or another supervisor takes over;
+- wakes the managed supervisor with `supervisor.stalled` while it idles with unwatched work (see Unwatched and stalled);
 - snapshots the fleet's `hand.db` once a day (UTC) with `integrity_check` to `$SECONDHAND_HOME/backups/<fleet id>/hand-YYYYMMDD.db`, and keeps the newest 7, retrying a failed snapshot only after the next UTC day starts or the watcher restarts; `hand update` keeps its own `hand.db.<stamp>` files in that folder, and neither removes the other's;
 - resumes an interrupted or exited supervisor when it starts, if `routing.json` turns on `supervisor.autoresume`;
-- alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), and when a decision is asked while it runs;
+- alerts when an attempt ends, blocks, hits a usage limit or goes quiet (not for `attempt.idle`, which wakes nobody), when a decision is asked while it runs, and once per stall episode at 60 minutes idle;
 - sends each alert through the `notify` command in `routing.json` (an argv; `HAND_NOTIFY_KIND`, `HAND_NOTIFY_REF`, `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` in its environment), else through `notify-send` (on macOS, `osascript`; on Windows, none), unless `--notify=false`.
 
 The running board keeps it alive. `hand unit board` prints the board's systemd user unit on Linux, and exits 2 on macOS and Windows.
@@ -277,7 +278,7 @@ Every state change is one transaction that also appends an event with a sequence
 
 ### Wake
 
-A message that tells the supervisor something changed, so it never polls and spends no tokens while idle.
+A message that tells the supervisor something changed, or that it idles with unwatched work, so it never polls and spends no tokens while idle.
 
 - **Managed supervisor:** Hand sends its pane a message whose first line is `[hand v1 wake]`, followed by one `KIND DETAIL` line for each event since the supervisor's wake cursor. A line about a task ends with that task, e.g. `(t1 "Fix the login redirect")`. Hand sends a wake only while the supervisor is idle or done, and only after every queued operator message has gone out. While the supervisor's screen shows its harness's usage-limit line, Hand holds wakes and leaves the cursor where it is, because the harness would answer them with the limit error. It holds them too when it cannot read that screen. The hold lifts once the line leaves the screen. Operator messages still go out.
 - **Supervisor opened by hand:** it runs `hand wait --after CURSOR`, which returns the same events and the next cursor.
@@ -296,10 +297,19 @@ The wake kinds are:
 | `attempt.interrupted` | the attempt was cut off by a Luvus restart or a changed process |
 | `attempt.failed` | the attempt's launch failed |
 | `decision.answered` | the operator answered a decision |
+| `supervisor.stalled` | the supervisor idles with unwatched work; the detail names the tasks and the idle time |
 
 `attempt.idle` and a `progress` report never wake the supervisor on their own, and `attempt.idle` sends no desktop or notify-command alert either; `attempt.limited` and `attempt.long` always do. They ride in the next wake with the event that does, or go out once 50 of them wait.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
+
+### Unwatched and stalled
+
+A fleet's work is **unwatched** when at least one task is `active`, no attempt is live and no decision is open: no event will ever wake the supervisor for it. Its **idle time** counts from the fleet's last event other than `supervisor.stalled` and `supervisor.delivered`, which only records that something already recorded reached the supervisor. `hand orient` lists such tasks as `unwatched[N]` (at most 15, then `unwatched_more`) with `unwatched_idle`, and prints neither otherwise.
+
+The watcher records `supervisor.stalled`, a wake, when the work is unwatched and the supervisor is running and idle: Luvus reads it as `idle` or `done`, its screen revision has not changed for 30 seconds (the test the Luvus switch uses), no message waits for it, its screen shows no usage-limit line, and no model switch is pending. A stopped, blocked, limited or switching supervisor gets none. An episode's first stall comes when the idle time reaches `after`; each later one waits twice as long as the one before, up to `every`: by default 20 minutes, then 40, then every 60. Any other event ends the episode, so the idle time and the delays start again. A turn holds the next stall until `after` has passed since the watcher last saw the supervisor working. The detail names the tasks and the idle time: `s3: t139 and t142 are active, no attempt is running, idle 23m. Start a worker, finish the task, or write down in your reply what you are waiting for.` The first stall of an episode at 60 minutes idle or later also alerts the operator, once.
+
+`routing.json` sets the delays with `"stall": {"after": "20m", "every": "60m"}`, each from `1m` to `24h` (one left out keeps its default), and `"stall": "off"` turns the stall wake off. Without `stall` the defaults apply. A bad value makes `routing.json` invalid with an error that names it; the watcher says so once in its output and keeps the defaults.
 
 ### Supervisor input
 
@@ -315,13 +325,13 @@ A pending change of the supervisor's model or effort that keeps its harness and 
 
 ### Routing profile
 
-A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter of five `claude` `sonnet` profiles that differ only in effort (`quick` low, `default` medium, `high` high, `deep` xhigh, `max` max) when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume` and the watcher's `notify` command. `hand route list` also prints a track record per harness, model and effort over ended attempts: how many, and the rates of first-try finish, re-attempt, stuck reports, interventions and wakes per attempt, and the median minutes to the first `done` report.
+A named harness, model and effort in `routing.json` in the fleet home. `hand init` writes a starter of five `claude` `sonnet` profiles that differ only in effort (`quick` low, `default` medium, `high` high, `deep` xhigh, `max` max) when the file is missing, and never overwrites it. `hand route list` shows the profiles and whether each is valid on this machine. `--profile NAME` picks one for `hand attempt start`, `hand supervisor start` and `hand supervisor switch`. The same file holds `supervisor.autoresume`, the watcher's `notify` command and its `stall` delays. `hand route list` also prints a track record per harness, model and effort over ended attempts: how many, and the rates of first-try finish, re-attempt, stuck reports, interventions and wakes per attempt, and the median minutes to the first `done` report.
 
 ## Surfaces
 
 ### Orient
 
-`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
+`hand orient`: a bounded summary of the fleet, rendered from state alone. It shows the home, the fleet, the supervisor, the task counts, the cursor, the unwatched tasks and their idle time when there are any, the active tasks with their plan, attempt (with `quiet`, or `blocked:` and the screen's hint, when that is its newest signal), report and open decisions, then the open decisions, the unread reports, the inbox, recent events and the operator memory. A title, question, hint or report summary that is too long is cut at a word boundary, so a URL is never cut in half. It stays under 6000 bytes: when it would not fit, it drops rows and says which command lists the rest. The supervisor runs it at the start of every turn and after every wake.
 
 ### Board
 
@@ -329,7 +339,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 A fleet's page has two parts. At 1024px and wider, Needs is a rail beside Chat; below that they are two tabs, which merge into the masthead on short screens:
 
-- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again, and the supervisor while its screen shows a limit line; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
+- **Needs:** what waits on the operator, most severe first: the supervisor's blocked screens; a worker's blocked screen or its turn that ended without a report, once no supervisor is running or the supervisor has left it for 10 minutes; a worker stopped at a usage limit, at once and until it works again, and the supervisor while its screen shows a limit line; failed, exited or interrupted attempts; "Work is waiting for a supervisor" while work waits on one; the idle supervisor once a stall wake went out (`Supervisor idle for 1h12m with 3 active tasks and no running attempt`), until the work is watched, another event arrives or the supervisor works; a supervisor that stopped unexpectedly; open decisions; unread reports. Below them sits the task list, grouped under Active and Inbox, with each attempt's agent state. With nothing waiting it reads "All clear";
 - **Chat:** the conversation, read from the harness's own session record without tool calls or thinking, as a thread of cards (the supervisor on the left, the operator on the right), plus the message box and the supervisor controls.
 
 Each task and each decision also has its own page. The Tasks list under Needs keeps active and inbox tasks and the five most recent finished ones; **Browse finished tasks (N)** opens `/<fleet id>/tasks`, the Tasks page: a search over title, goal and ref (every word must match, in any case) that covers every task; filters for status (default (every status once there is a query, finished without one), or one chosen status), project (when the fleet has several) and a UTC date range, and results newest first, grouped by day with a count, 50 to a page. `hand task list --q` searches every status the same way. A task's finish date is the time of its `task.done` or `task.abandoned` event; a task still open dates by its last update. `?all=1` on a fleet page still lists every task. Every action answers with a short receipt, and Chat shows key presses and the supervisor's starts, stops and switches as Hand lines. The board is a projection of state, so restarting it loses nothing. The supervisor controls work only while the board listens on a loopback address. On a network address, only answering decisions and marking reports read still work.

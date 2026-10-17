@@ -170,6 +170,13 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 		eventRows = append(eventRows, []string{strconv.FormatInt(e.Seq, 10), e.Kind, task})
 	}
 
+	unwatched, err := st.Unwatched(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unwatchedTotal := len(unwatched.Tasks)
+	unwatched.Tasks = unwatched.Tasks[:min(unwatchedTotal, b.Active)]
+
 	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
 	if err != nil {
 		return nil, err
@@ -184,7 +191,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, sections, memLines, truncated)
+		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -208,7 +215,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -224,6 +231,17 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	d.Field("tasks", fmt.Sprintf("inbox=%d active=%d done=%d abandoned=%d",
 		counts[state.StatusInbox], counts[state.StatusActive], counts[state.StatusDone], counts[state.StatusAbandoned]))
 	d.Field("cursor", strconv.FormatInt(cursor, 10))
+	if len(unwatched.Tasks) > 0 {
+		refs := make([]string, len(unwatched.Tasks))
+		for i, id := range unwatched.Tasks {
+			refs[i] = state.TaskRef(id)
+		}
+		d.List("unwatched", refs)
+		if len(refs) < unwatchedTotal {
+			d.Field("unwatched_more", fmt.Sprintf("%d of %d shown; run `hand task list --status active --limit 500`", len(refs), unwatchedTotal))
+		}
+		d.Field("unwatched_idle", unwatched.IdleFor())
+	}
 	for _, s := range sections {
 		d.Rows(s.name, s.fields, s.rows)
 		if s.cmd != "" && len(s.rows) < s.total {

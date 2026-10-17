@@ -32,7 +32,7 @@ A single agent works well on one task. Running several at once leaves someone to
 - ask the operator only when a choice is theirs;
 - stop and clean up workers without losing uncommitted work.
 
-In Hand, the supervisor handles judgement and `hand` handles the mechanics. Workflow state lives in a state machine over SQLite, never in an agent's memory, so a fresh supervisor orients from `hand orient` alone. Waiting costs no tokens: a watcher wakes the supervisor only when something changed.
+In Hand, the supervisor handles judgement and `hand` handles the mechanics. Workflow state lives in a state machine over SQLite, never in an agent's memory, so a fresh supervisor orients from `hand orient` alone. Waiting costs no tokens: a watcher wakes the supervisor only when something changed, or when it idles while nothing watches its active tasks.
 
 ## Requirements
 
@@ -224,7 +224,7 @@ The other commands (`hand task`, `hand attempt`, `hand decision`, `hand report`,
 
 What you do:
 
-1. Open the fleet's page with `hand open`. The **Needs you** tab lists what waits on you: open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, and a supervisor that stopped unexpectedly.
+1. Open the fleet's page with `hand open`. The **Needs you** tab lists what waits on you: open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, a supervisor that idles with unwatched work, and a supervisor that stopped unexpectedly.
 2. Ask for work in the **Chat** tab. The supervisor captures each request as a task before doing anything else.
 3. Answer decisions on their card or their page, or with `hand decision answer dN "ANSWER"`.
 4. Read reports, and press **Mark read** once you have read one.
@@ -236,7 +236,7 @@ What the supervisor does, following the `secondhand` skill:
 1. `hand orient`, at the start of every turn and after every wake.
 2. Capture with `hand task add`, start with `hand task start tN`, and plan with `hand plan set --body-file PLAN.md tN`.
 3. Start a worker with `hand attempt start --profile NAME --prompt-file BRIEF.md tN`.
-4. Wait: wakes arrive as messages that start with `[hand v1 wake]`.
+4. Wait: wakes arrive as messages that start with `[hand v1 wake]`. Before it ends a turn it runs `hand orient`, and it never ends one while tasks are `unwatched`.
 5. Read reports with `hand report show rN`, act on them, and acknowledge them with `hand report ack rN`.
 6. Ask you with `hand decision ask tN "QUESTION"`.
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.
@@ -401,13 +401,13 @@ The board is where you start, chat with and resume the supervisor. Those control
 
 ## Alerts on your phone
 
-The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet (a repeated turn end, `attempt.idle`, does not alert), and when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
+The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet (a repeated turn end, `attempt.idle`, does not alert), when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`), and once when the supervisor has idled 60 minutes with unwatched work ([When the supervisor idles](#when-the-supervisor-idles)). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
 
 ```json
 "notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use (on Windows there is none, so no alert is sent), and the watcher writes one line about it to its own output, `watch.log` when it runs detached, which no one is shown. `--notify=false` turns all alerts off.
+Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`, `supervisor.stalled`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use (on Windows there is none, so no alert is sent), and the watcher writes one line about it to its own output, `watch.log` when it runs detached, which no one is shown. `--notify=false` turns all alerts off.
 
 On Windows, this toast recipe uses `powershell.exe` (unverified: it has not been run on a Windows machine). It borrows Windows PowerShell's app ID, because Windows may show no toast for an app ID that nothing registered. Hand starts it without a console window:
 
@@ -447,6 +447,14 @@ You can still open an agent in the fleet folder by hand (`cd ~/fleets/demo && cl
 ### After a reboot
 
 The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
+
+### When the supervisor idles
+
+The supervisor acts only on a message. While a task is active, no attempt runs and no decision is open, no event will ever come for it, and its work is unwatched. The watcher then wakes the supervisor with `supervisor.stalled` once it has been idle for 20 minutes, again 40 minutes later, then every 60 minutes while nothing changes. The wake names the tasks and the idle time. Any event starts the count again, and the next wake comes no sooner than 20 minutes after the supervisor last worked. Hand never sends it to a supervisor that is stopped, blocked, at a usage limit or switching models. After the first one, the Board's Needs shows "Supervisor idle for 1h12m with 3 active tasks and no running attempt" until the work is watched again, and the alert goes out once when the idle time reaches 60 minutes. `hand orient` lists the tasks as `unwatched`. Change the delays in `routing.json` (each from `1m` to `24h`), or turn the wake off with `"stall": "off"`:
+
+```json
+"stall": {"after": "20m", "every": "60m"}
+```
 
 ## Safe use
 
