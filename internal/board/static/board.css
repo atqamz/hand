@@ -519,7 +519,7 @@ body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(1
 .report-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:baseline;gap:0 8px}
 .card.report>header>.act{grid-area:act}
 @media (max-width:999px){.task-grid{grid-template-columns:minmax(0,1fr)}.task-side{order:-1;position:static;max-height:none;overflow:visible}}
-@container (max-width:479px){.wait:not([open])>summary{flex-wrap:wrap;gap:0 10px;min-height:52px;padding-block:7px}
+@container (width < 480px){.wait:not([open])>summary{flex-wrap:wrap;gap:0 10px;min-height:52px;padding-block:7px}
 .wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}}
 @media (forced-colors:active){.badge{border-color:CanvasText}}
 @media (forced-colors:active){.wait[open]{border-color:CanvasText}

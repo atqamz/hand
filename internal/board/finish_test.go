@@ -186,7 +186,7 @@ func TestNeedsRowsAreCalmAndTheOpenItemIsACard(t *testing.T) {
 		".wait[open][data-tone=fail]>summary{background:var(--fail-bg)}",
 		".wait[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}",
 		".wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:10px 15px 15px 41px}")
-	contains(t, "two lines", block(t, css, "@container (max-width:479px){"), ".wait:not([open])>summary{flex-wrap:wrap;gap:0 10px;min-height:52px;padding-block:7px}", ".wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}")
+	contains(t, "two lines", block(t, css, "@container (width < 480px){"), ".wait:not([open])>summary{flex-wrap:wrap;gap:0 10px;min-height:52px;padding-block:7px}", ".wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}")
 	contains(t, "container", css, "#needs{container-type:inline-size}")
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"), ".wait>summary{min-height:52px}")
 }
