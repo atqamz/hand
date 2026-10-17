@@ -1,7 +1,7 @@
 {{define "tasks.html"}}{{template "head" .}}{{template "top" .}}<main class="thread archive">
 <header class="thread-head">
-<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / finished tasks</p>
-<h2 class="thread-title">Finished tasks</h2>
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / tasks</p>
+<h2 class="thread-title">Tasks</h2>
 </header>
 <form class="filters" method="get" action="{{.Base}}/tasks">
 <label class="search">Search<input type="search" name="q" value="{{.Q}}" placeholder="Title, goal or ref" autocomplete="off"></label>
@@ -12,7 +12,7 @@
 <span class="actions"><button class="primary">Search</button>{{if .Filtered}} <a href="{{.Base}}/tasks">Clear</a>{{end}}</span>
 </form>
 <p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p>
-<div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match.</p>
+<div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match. Try fewer words, or clear the dates.</p>
 {{end}}</div>
 {{if or .Prev .Next}}<nav class="pager" aria-label="Pages">{{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}{{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}</nav>
 {{end}}</main>

@@ -63,7 +63,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		return b.o.Base + "/tasks?" + q.Encode()
 	}
 	data := map[string]any{
-		"Title": "finished tasks", "Page": "tasks", "StripData": b.stripData(ctx), "Token": b.token,
+		"Title": "tasks", "Page": "tasks", "StripData": b.stripData(ctx), "Token": b.token,
 		"Groups": groups, "Total": total, "Projects": projects, "Filtered": len(keep) > 0,
 		"Q": query.Q, "Status": v.Get("status"), "Project": query.Project, "Since": query.Since, "Until": query.Until,
 	}
