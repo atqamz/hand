@@ -2,9 +2,12 @@ package board_test
 
 import (
 	"context"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -221,4 +224,80 @@ func TestEveryNeedsSummaryEndsInAChevron(t *testing.T) {
 			t.Fatalf("a summary does not end in the chevron: %s", s)
 		}
 	}
+}
+
+func TestNeedsShowAStalledSupervisorUntilWorkResumes(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	advance := func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		now = now.Add(d)
+	}
+	st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	fx := newFixture(t)
+	fx.st, fx.status, fx.screen = st, "idle", "> "
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	one := active(t, st, "Fix login")
+	needs := func() string { return region(get(t, fx.handler(), "/"), "queue") }
+	stalled := func(want string) {
+		t.Helper()
+		q := needs()
+		if want == "" {
+			if strings.Contains(q, `data-kind="stalled"`) {
+				t.Fatalf("needs still show the stall:\n%s", q)
+			}
+			return
+		}
+		contains(t, "needs", q, `data-kind="stalled" id="wait-stalled-s1" open data-tone="wait">`, `data-tone="wait">STALLED</span><span class="ref">s1</span>`, `<span class="wait-title" title="`+want+`">`+want+`</span>`, "only Hand's stall wakes reach it")
+	}
+	stall := func() {
+		t.Helper()
+		if err := st.NoteSupervisor(ctx, 1, "stalled", "idle"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	advance(20 * time.Minute)
+	stalled("")
+	stall()
+	advance(52 * time.Minute)
+	stalled("Supervisor idle for 1h12m with 1 active task and no running attempt")
+	fx.mu.Lock()
+	fx.status = "working"
+	fx.mu.Unlock()
+	stalled("")
+	fx.mu.Lock()
+	fx.status = "idle"
+	fx.mu.Unlock()
+	stalled("Supervisor idle for 1h12m with 1 active task and no running attempt")
+	two := active(t, st, "Write docs")
+	stalled("")
+	advance(20 * time.Minute)
+	stall()
+	stalled("Supervisor idle for 20m with 2 active tasks and no running attempt")
+	if _, err := st.Ask(ctx, one.ID, "Keep the cookie?"); err != nil {
+		t.Fatal(err)
+	}
+	stalled("")
+	if _, err := st.Withdraw(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	advance(25 * time.Minute)
+	stalled("")
+	stall()
+	stalled("Supervisor idle for 25m with 2 active tasks and no running attempt")
+	workerAttempt(t, st, two.ID)
+	stalled("")
 }

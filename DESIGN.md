@@ -455,7 +455,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Label** (600, 12px, 18px): the task groups' heads and labels in menus.
 - **Meta** (400, 12px, 18px, tabular): times, meta, card header strips, Hand lines, the working line, hints and notes.
 - **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
-- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, LIMITED, NO SUPERVISOR, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
+- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the word in a Needs header (BLOCKED, FAILED, LIMITED, NO SUPERVISOR, STALLED, INTERRUPTED, DECISION, REPORT, QUIET) and on the task page's waiting rows.
 - **Code block** (400, 12px, 18px, mono): terminal excerpts and preformatted blocks.
 
 ### Named Rules
@@ -554,6 +554,7 @@ The signature component. Each open item is a `details` element with a 1px hairli
 | a failed attempt | 3 | fail | FAILED |
 | a supervisor or an attempt stopped at a usage limit | 4 | wait | LIMITED |
 | work waiting with no supervisor | 5 | wait | NO SUPERVISOR |
+| an idle supervisor with unwatched work, after a stall wake | 5 | wait | STALLED |
 | an interrupted supervisor | 6 | fail | INTERRUPTED |
 | a decision | 7 | wait | DECISION |
 | an unread report | 8 | neutral | REPORT |
@@ -636,7 +637,7 @@ The model menu and the overflow menu are `details` elements whose body opens bel
 
 ### Refs and badges
 - **Ref:** plain mono text at 12px in the surrounding colour; a linked ref is accent and underlines on hover. Inside slug lines and Hand lines a ref takes the line's colour.
-- **Badge:** the one `.badge`, a pill at least `--badge` (20px) wide and high, in Badge type, with a transparent 1px border and 0 by 8px padding. The text is trimmed to its cap height and the box padded by `(height - 1cap) / 2 - 1px`, so capitals sit within 0.6px of the centre. The status pill and the masthead's Needs count are `--badge` plus 4px (24px), set through `--size` on the badge. Its tone comes from one set of rules keyed on the attribute the markup already carries, and a badge with none is neutral: `data-tone` (`fail`, `wait`, `pass`, `link`), `data-state` (the pills: `failing` red, `waiting` amber, `ready`, `running` and `passing` green, `working` accent), `data-status` (a report's `stuck`, `progress` and `done`) and `data-worst` (a Needs count: red for blocked, worker, failure and resume; amber for decision, nosup and limited). The badges are the status pills, the Needs counts (masthead, tab and head), the task groups' counts, the severity word on the task page's waiting rows and the error page, the auto-deny countdown, a report's state and the deliverable link (`PR`, `MR` or `link`, outlined in a hairline, opening in a new tab). In a Needs header the severity word drops its fill and padding.
+- **Badge:** the one `.badge`, a pill at least `--badge` (20px) wide and high, in Badge type, with a transparent 1px border and 0 by 8px padding. The text is trimmed to its cap height and the box padded by `(height - 1cap) / 2 - 1px`, so capitals sit within 0.6px of the centre. The status pill and the masthead's Needs count are `--badge` plus 4px (24px), set through `--size` on the badge. Its tone comes from one set of rules keyed on the attribute the markup already carries, and a badge with none is neutral: `data-tone` (`fail`, `wait`, `pass`, `link`), `data-state` (the pills: `failing` red, `waiting` amber, `ready`, `running` and `passing` green, `working` accent), `data-status` (a report's `stuck`, `progress` and `done`) and `data-worst` (a Needs count: red for blocked, worker, failure and resume; amber for decision, nosup, limited and stalled). The badges are the status pills, the Needs counts (masthead, tab and head), the task groups' counts, the severity word on the task page's waiting rows and the error page, the auto-deny countdown, a report's state and the deliverable link (`PR`, `MR` or `link`, outlined in a hairline, opening in a new tab). In a Needs header the severity word drops its fill and padding.
 - **Corner mark:** an outside link (a deliverable chip, or a link in a reply, plan, report or question) ends in a 5px corner drawn with two 1.5px borders, no glyph and no image, at 70% of the text colour (`TestOutsideLinksCarryACornerMark`). A ref carries no mark, since every ref on the Board opens a tab.
 - **Deliverable file:** plain muted mono text with no box (its basename cut with an ellipsis, the full path in its title).
 - **Option:** the buttons that fill a decision's answer: `--control` high at least, 10px corners, left-aligned and wrapping.

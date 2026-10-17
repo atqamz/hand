@@ -33,7 +33,7 @@ a.ref{color:var(--accent)}
 .file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));padding:0 8px;border:1px solid transparent;border-radius:999px;background:var(--tone-bg,var(--neutral-bg));color:var(--tone,var(--neutral));font-size:12px;font-weight:600;line-height:calc(var(--size,var(--badge)) - 2px);text-align:center;white-space:nowrap}
 .badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}
-.badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited]){--tone:var(--wait);--tone-bg:var(--wait-bg)}
+.badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited],[data-worst=stalled]){--tone:var(--wait);--tone-bg:var(--wait-bg)}
 .badge:is([data-tone=pass],[data-state=ready],[data-state=running],[data-state=passing],[data-status=done]){--tone:var(--pass);--tone-bg:var(--pass-bg)}
 .badge[data-state=working]{--tone:var(--accent);--tone-bg:var(--accent-bg)}
 .badge[data-tone=link]{--tone:var(--accent);--tone-bg:transparent;border-color:var(--line)}

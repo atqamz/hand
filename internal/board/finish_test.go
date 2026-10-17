@@ -77,7 +77,7 @@ func TestShortScreensMergeTheTabs(t *testing.T) {
 
 func TestCountsFollowTheSeverityRamp(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "counts", css, ".badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}", ".badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited]){--tone:var(--wait);--tone-bg:var(--wait-bg)}")
+	contains(t, "counts", css, ".badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}", ".badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited],[data-worst=stalled]){--tone:var(--wait);--tone-bg:var(--wait-bg)}")
 	lacks(t, "counts", css, ".count:not([data-waiting=\"0\"])")
 }
 

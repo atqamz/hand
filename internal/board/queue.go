@@ -159,6 +159,7 @@ var severity = map[string]struct {
 	"failure":  {2, "fail", "FAILED"},
 	"limited":  {3, "wait", "LIMITED"},
 	"nosup":    {4, "wait", "NO SUPERVISOR"},
+	"stalled":  {4, "wait", "STALLED"},
 	"resume":   {5, "fail", "INTERRUPTED"},
 	"decision": {6, "wait", "DECISION"},
 	"report":   {7, "neutral", "REPORT"},
@@ -294,6 +295,22 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		}
 		if waitsOnOne {
 			add(waiting{Kind: "nosup", Title: "Work is waiting for a supervisor"})
+		}
+	}
+	agent, _ := data["Agent"].(string)
+	limited, _ := data["Limited"].(string)
+	_, stale := data["Stale"]
+	if pending, _ := data["Pending"].(int); supervised && !sup.Switching() && pending == 0 && (agent == "idle" || agent == "done") && limited == "" && !stale {
+		u, err := b.st.Unwatched(ctx)
+		if err != nil {
+			return err
+		}
+		if u.Stalls > 0 {
+			tasks := strconv.Itoa(len(u.Tasks)) + " active task"
+			if len(u.Tasks) != 1 {
+				tasks += "s"
+			}
+			add(waiting{Kind: "stalled", Ref: state.SupervisorRef(sup.ID), Title: "Supervisor idle for " + u.IdleFor() + " with " + tasks + " and no running attempt", Sup: &sup})
 		}
 	}
 	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
