@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-18T01:01:57+00:00",
+  "generatedAt": "2026-10-18T01:55:46+00:00",
   "title": "Design System: Hand board",
   "extensions": {
     "source": "internal/board/static/board.css",
@@ -1919,7 +1919,7 @@
       },
       {
         "name": "The Slim Rail Rule",
-        "body": "Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened chat (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).",
+        "body": "Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar, and the chat is dragged to size with no fold or widen mode (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).",
         "section": "layout"
       },
       {

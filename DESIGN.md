@@ -543,7 +543,7 @@ Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 
 ### Masthead
 A 44px row on the ground with the fleet tint's 3px rule on top and a hairline below, on every page. On the fleet page at board width its inner row spans the page with 24px of padding.
-- **Left:** the mark in the fleet tint and the fleet name (Headline), linking home, then the fleet id as a borderless muted ref.
+- **Left:** the mark in the fleet tint and the fleet name (Title), linking home, then the fleet id as a borderless muted ref.
 - **Right, in order:** on phone only, the Needs count; the status pill; the supervisor and its model ("s1 · opus high", muted, which leaves the masthead at board width while the pane head shows it); "2 queued" when above zero; the context bar; "compacted 2×" when above zero. A stale-server note follows in amber, on its own line where the strip wraps (phone and short screens).
 - **Link state:** when live updates drop, a muted note reads "Reconnecting…", then "Board offline since 12:41", or "Log in again: hand open --print" when the board refuses the session.
 - **Menu button:** below 900px, a `--control` square left of the mark that opens the sheet (see Rail and sheet).
@@ -578,7 +578,7 @@ The navigation, on every page that shows a fleet and on no error page. At 900px 
 - **Links:** every rail and sheet item navigates in place and carries no `target`.
 
 ### Needs items
-The signature component. Needs groups its items into **bands** by severity word, most severe first: one head per word (Blocked, Failed, Decision, Report, and the rarer Limited, No supervisor, Interrupted, Quiet and Long turn), so a blocked supervisor screen and a blocked worker screen share the Blocked band. A band head is Label type with 20px above and 4px below, inset 16px to the row's icon, and takes its tone's ink: fail red, wait amber, or muted for neutral. Up to 50 items show, then a line counts the rest.
+The signature component. Needs groups its items into **bands** by severity word, most severe first: one head per word (Blocked, Failed, Decision, Report, and the rarer Limited, No supervisor, Stalled, Interrupted, Quiet and Long turn), so a blocked supervisor screen and a blocked worker screen share the Blocked band. A band head is Label type with 20px above and 4px below, inset 16px to the row's icon, and takes its tone's ink: fail red, wait amber, or muted for neutral. Up to 50 items show, then a line counts the rest.
 
 Each item is a `details` element. A collapsed item is a calm hairline row: no fill, no border but a hairline under it (and over the first row of a band), 44px high (52px on a touch screen), padded 16px, with the tone's state icon, the title on one line with an ellipsis, then the refs and time in meta, the auto-deny countdown, and a muted chevron that turns 180° when the item opens. Hovering a row takes the hover wash. The band head carries the word, so no row repeats the severity code; an open item's slug line keeps the refs, harness, model, status and time. The keyboard focus ring sits inside the row (`outline-offset:-2px`), because the item clips anything drawn outside it.
 

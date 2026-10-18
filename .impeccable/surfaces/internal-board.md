@@ -55,7 +55,7 @@ FIRST VIEWPORT: At 1440px: a 56px rail of icons at the left edge (Board with the
 FORM: The On-Call Board. It takes these raises:
 - from the teletext service: red is reserved for what blocks the operator now;
 - from the type specimen: live figures (the countdown, the context bar, the working timer) update in place in tabular mono without shifting layout;
-- from the star atlas: one fixed severity ramp (blocked, failure, limited, decision, report, quiet) orders Needs into bands, fills each header, and colours the band heads and the Needs counts;
+- from the star atlas: one fixed severity ramp (blocked, failed, limited, no supervisor, stalled, interrupted, decision, report, quiet, long turn) orders Needs into bands, fills each header, and colours the band heads and the Needs counts;
 - from the folding sequence: every action leaves a recoverable trace, namely a receipt, a Hand line and a deep link back to the item;
 - from the cyclorama: state is never colour alone; every pill carries a word and an icon shape;
 Signature interaction: acknowledge in place. A pressed key or a sent answer collapses the item to "Sent 2 · waiting…" with its keys disabled, then resolves it into the conversation as a Hand line. A decision is answered from a choice list (numbered options with their consequences, one marked recommended, and a note), by pointer or by number key. Motion grammar: an arrival wash on new items, one accent working pulse, and the collapse on acknowledge; all of it stops under `prefers-reduced-motion`.
