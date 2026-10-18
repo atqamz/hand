@@ -38,7 +38,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 
 ## Operating Context
 
-- **Platform:** Linux and macOS; Windows through WSL2.
+- **Platform:** Linux, macOS (Apple silicon) and native Windows (amd64), without WSL.
 - **Fleets:** they are registered under `~/.secondhand/fleets`. One board process serves every fleet, each at its own path, `127.0.0.1:7777/<fleet-id>/`. Each page shows one fleet; there is no combined cross-fleet page.
 - **Surfaces:**
   - the rail (a sheet on a phone): Board, Tasks, Conversation and the fleets this browser can open;
