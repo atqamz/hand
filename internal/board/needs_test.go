@@ -43,6 +43,37 @@ func TestNeedsItemsCarryTheirWord(t *testing.T) {
 	contains(t, "resume", region(get(t, resume.handler(), "/"), "queue"), `data-tone="fail">INTERRUPTED</span>`)
 }
 
+var bandOrItem = regexp.MustCompile(`<h3 class="band" data-tone="[a-z]+">([A-Z ]+)</h3>|<details class="wait" data-kind="([a-z]+)"`)
+
+func TestABandHeadAppearsOncePerWord(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Trust this folder?"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ctx := context.Background()
+	for _, title := range []string{"Fix login", "Flaky test"} {
+		attempt(t, fx.st, active(t, fx.st, title).ID, state.AttemptFailed, "launch did not finish")
+	}
+	for _, q := range []string{"Keep it?", "Ship it?"} {
+		if _, err := fx.st.Ask(ctx, active(t, fx.st, "Task "+q).ID, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, title := range []string{"Docs", "Search"} {
+		a := attempt(t, fx.st, active(t, fx.st, title).ID, state.AttemptRunning, "")
+		if _, err := fx.st.AddReport(ctx, a.ID, state.ReportProgress, "Halfway there"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, m := range bandOrItem.FindAllStringSubmatch(region(get(t, fx.handler(), "/"), "queue"), -1) {
+		got = append(got, m[1]+m[2])
+	}
+	want := "BLOCKED blocked FAILED failure failure DECISION decision decision REPORT report report"
+	if strings.Join(got, " ") != want {
+		t.Fatalf("bands and items = %q", got)
+	}
+}
+
 func TestTasksAreOneLinePerTask(t *testing.T) {
 	fx := newFixture(t)
 	one := active(t, fx.st, "Fix login")

@@ -22,7 +22,7 @@ func TestAwayOpensLiveRefsInANewTab(t *testing.T) {
 	})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", tl,
-		`wake: decision answered <a class="ref" `+newTab+` href="/ref/d1">d1</a>`,
+		`decision answered <a class="ref" `+newTab+` href="/ref/d1">d1</a>`,
 		`started <a class="ref" `+newTab+` href="/ref/t1">t1</a>`,
 		`<a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">the PR</a>`)
 }
