@@ -1,6 +1,6 @@
 ---
 name: Hand board
-description: The operator's board for one Hand fleet, run as an on-call desk. Everything that needs the operator is an open item in Needs, most severe first, acknowledged in place and resolved into the Chat timeline, under a masthead that answers the supervisor's state and context window.
+description: The operator's board for one Hand fleet, run as an on-call board. A slim rail of icons, a work pane that holds Needs in severity bands and then Tasks, and a supervisor pane with the conversation that the operator drags to size. Everything that needs the operator is an open item, acknowledged in place and resolved into the conversation, under a masthead that answers the supervisor's state and context window.
 colors:
   bg: "#ffffff"
   panel: "#f6f7f9"
@@ -180,7 +180,7 @@ components:
     padding: "0 12px"
   fleet-name:
     textColor: "{colors.fg}"
-    typography: "{typography.headline}"
+    typography: "{typography.title}"
   mark:
     size: "22px"
   badge:
@@ -232,6 +232,17 @@ components:
     backgroundColor: "{colors.accent}"
     rounded: "{rounded.round}"
     size: "6px"
+  rail:
+    backgroundColor: "{colors.panel}"
+    width: "56px"
+  rail-item:
+    textColor: "{colors.muted}"
+    rounded: "{rounded.md}"
+    height: "40px"
+    width: "40px"
+  band-head:
+    typography: "{typography.label}"
+    padding: "0 16px"
   need-item:
     backgroundColor: "{colors.bg}"
     rounded: "{rounded.lg}"
@@ -299,6 +310,11 @@ components:
     rounded: "{rounded.md}"
     height: "32px"
     width: "260px"
+  choice-option:
+    backgroundColor: "{colors.bg}"
+    rounded: "{rounded.lg}"
+    height: "48px"
+    padding: "12px 14px"
   composer:
     backgroundColor: "{colors.bg}"
     rounded: "{rounded.lg}"
@@ -372,20 +388,23 @@ components:
 
 ## Overview
 
-**Creative North Star: "The On-Call Desk"**
+**Creative North Star: "The On-Call Board"**
 
-The fleet is an on-call desk. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order, acknowledged in place, and resolved into the timeline. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press "2 No", answer d5, mark r7 read), watch it collapse to its receipt while a Hand line lands in Chat, and then read s1's cards and steer it from the composer.
+The fleet is run from an on-call board. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order and grouped under one head per severity word, acknowledged in place, and resolved into the conversation. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press "2 No", pick an option on d5 and send it, mark r7 read), watch it collapse to its receipt while a Hand line lands in the conversation, and then read s1's reply and steer it from the composer.
 
-The material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
+The material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own bubble, focus, links, the picked option and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.
 
-The Board refuses the chat-ops shell, a text sidebar with chat and an inspector beside it, and it refuses the green-on-black terminal opposite. Its navigation is one slim rail of icons at the left edge, 56px wide, and the work pane stays the widest thing on the page. Every page shows one fleet. At 900px and wider the fleet page is the rail and two panes: the work pane holds Needs, then Tasks, and the supervisor pane on the right holds the supervisor's controls, its conversation and a slim composer, with a separator between them that the operator drags. Below that width, three tabs, Needs, Tasks and Chat, show one panel at a time, and a menu button opens the rail's links as a sheet.
+The Board is built for one operator who works beside an editor or on a phone. Navigation is one slim rail of icons at the left edge, 56px wide, that names its items on hover, on focus or on request; below 900px the same list opens from the masthead as a sheet. At 900px and wider the fleet page is that rail and two panes. The work pane is the widest thing on the page and holds Needs in severity bands, then Tasks with its search field. The supervisor pane on the right holds the supervisor's controls, its conversation, set as replies on the pane and the operator's bubbles, and a slim composer. A separator between the panes is dragged to size the chat: one remembered width for the whole board, never under 360px for the chat or 440px for the work pane, and no resizing below 900px, where three tabs (Needs, Tasks and Chat) show one panel at a time. A decision is answered from a choice list in Needs or on its page. From the Board, things (a task, a report, a decision, a deliverable) open in a new tab and places (the rail, a crumb, a pager step) navigate in place, so the Board stays where the operator left it. Every page shows one fleet; the Tasks page searches all of its tasks. The Board refuses a text sidebar with a conversation and an inspector beside it, and it refuses the green-on-black terminal opposite.
 
 **Key Characteristics:**
 - A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.
+- A 56px icon rail and two panes from 900px, three tabs and a sheet below it: the work pane stays the widest thing on the page, and the chat is dragged to a remembered width inside fixed limits.
 - One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.
 - Every state is a word plus an icon shape plus a colour, never colour alone.
-- Chat is a conversation, not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
+- The conversation is not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
+- A decision is a choice list: numbered options with their consequences, one marked recommended, and a note.
 - Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
+- Things open in a new tab and places in place; the composer's draft survives either.
 - A 44px masthead that answers the supervisor's state, model and context window.
 - Five type sizes, tabular numerals for live figures, no web fonts, and a strict CSP.
 
@@ -398,7 +417,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 `TestTheOnCallPalette` pins twenty-two of these tokens to their values in both themes, and the radii, `--control` and `--badge`. `TestColoursMeetContrast` holds twenty-two text pairs to 4.5:1 in both themes (among them ink and muted on the ground, the card and the panel, accent on the ground, each signal on its pale fill and on the ground, ink on accent-bg, the terminal pair and the primary pair), the control edge to 3:1 on the ground, the card and the panel, and every fleet tint to 3:1 on the ground.
 
 ### Primary
-- **Review Blue** (`accent`; pale pair `accent-bg`): the operator's own marks and the live signal. It fills the operator's chat bubbles (`accent-bg`) and colours their "you" label; it draws the focus ring, the caret, links and text selection (`accent-bg`). It is the working pill, the working pulse, the Chat tab's dot while the supervisor works, the context bar's fill below 80%, and the composer's frame while it has focus.
+- **Review Blue** (`accent`; pale pair `accent-bg`): the operator's own marks and the live signal. It fills the operator's chat bubbles (`accent-bg`) and colours their "you" label; it draws the focus ring, the caret, links and text selection (`accent-bg`). It is the working pill, the working pulse, the dot on the Chat tab and the rail's Conversation item while the supervisor works, the picked row of a choice list, the context bar's fill below 80%, and the composer's frame while it has focus.
 
 ### Secondary
 - **Ink** (`primary`, with `on-primary` text): the one committing button in a form: Send, Answer, Resume and Start. It is near-black with white text by day, and near-white with ground-coloured text at night, so it never competes with a signal.
@@ -407,9 +426,9 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Fleet Tint** (`tint-0` to `tint-11`): twelve hues around the wheel at a similar mid lightness, each with a night value. `tint()` in `internal/board/board.go` picks one per fleet as FNV-1a 32 of the fleet id, mod 12, and the page sets `class="tint-N"` on `body`; a page with no fleet id gets `tint-0`. It colours the mark and the masthead's 3px top rule, and nothing else, with one exception the build carries: on the fleet list, a fleet's name turns its tint on hover.
 
 ### Neutral
-- **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus and the toast.
+- **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus, the sheet and the toast.
 - **Card Grey** (`card`): thread card header strips, and code in replies.
-- **Panel Grey** (`panel`): the supervisor pane at board width.
+- **Panel Grey** (`panel`): the supervisor pane and the rail at board width.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
 - **Hairline** (`line`): every rule and decorative border (card edges, dividers), the context bar's track, and scrollbar thumbs.
@@ -451,7 +470,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Label** (600, 12px, 18px): the task groups' heads and labels in menus.
 - **Meta** (400, 12px, 18px, tabular): times, meta, message head lines, card header strips, Hand lines, the working line, hints and notes.
 - **Mono** (400, 12px, 18px, tabular): refs, the fleet id, `kbd` keycaps, the context figure and the countdown (at 600).
-- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the severity word on the task page's waiting rows. A Needs band head sets the same word in Label type, in sentence case (Blocked, Failed, Limited, No supervisor, Stalled, Interrupted, Decision, Report, Quiet).
+- **Severity code** (600, 12px, 18px, 0.03em, uppercase mono): the severity word on the task page's waiting rows. A Needs band head sets the same word in Label type, in sentence case (Blocked, Failed, Limited, No supervisor, Stalled, Interrupted, Decision, Report, Quiet, Long turn).
 - **Code block** (400, 12px, 18px, mono): terminal excerpts and preformatted blocks.
 
 ### Named Rules
@@ -468,7 +487,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **App shell (at least 600px tall, or 900px and wider):** the body fills `100dvh` and never scrolls. The work pane and the timeline scroll inside themselves, and the composer's text box grows up to 40dvh.
 - **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
 - **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the menu button, the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
-- **Thread pages:** the task, decision, conversation, error and fleet-list pages use one 880px column, to the right of the rail, with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content. The task page widens its column to 1120px, and the masthead aligns to its 1088px content.
+- **Thread pages:** the task, Tasks, decision, conversation, error and fleet-list pages use one 880px column, to the right of the rail, with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content. The task page widens its column to 1120px, and the masthead aligns to its 1088px content.
 - **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 14px gap and a 16px fade at its top edge, set in a 760px column centred in the pane. Its scrollbar sits in the pane's own margin: the right padding is 8px (`--sb`) narrower than the composer's margin while the timeline scrolls, so an operator bubble's right edge is the composer's right edge to the pixel (`TestOperatorBubblesEndOnTheComposerEdge`). The 8px is the scrollbar's width in `board.css`; where a browser draws another width (Firefox's thin scrollbar, an overlay scrollbar on a phone) the bubble ends a few pixels off the edge. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
@@ -477,7 +496,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 **The Chat Width Clamp Rule.** The chat's width is the custom property `--chat`, and only `--pane` turns it into a grid track, clamped to 360px at least and everything but 440px at most. `app.js` sets `--chat` through the CSSOM, which the CSP allows, and never lays the pane out itself (`TestTheChatPaneResizesInsideTheClamp`).
 
-**The Slim Rail Rule.** Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened variant (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`). The page is called Board, never Desk.
+**The Slim Rail Rule.** Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened chat (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).
 
 **The Proven Fleets Rule.** The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts. A fleet the browser holds no valid token for never has its name in the page, and no fleet's Needs count shows in another's rail. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`).
 
@@ -487,7 +506,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ## Elevation & Depth
 
-The desk is flat. Depth comes from tone and hairlines: cards and header strips on `card` or a pale signal fill, borders in `line`, and a night card one step above the night ground. Only two things float, the open menus and the toast, and they share one soft lift. The keys of a blocked screen carry a 1px keycap edge, and `kbd` keycaps a 2px bottom border instead of a shadow.
+The Board is flat. Depth comes from tone and hairlines: cards and header strips on `card` or a pale signal fill, borders in `line`, and a night card one step above the night ground. Only two things float, the open menus and the toast, and they share one soft lift. The keys of a blocked screen carry a 1px keycap edge, and `kbd` keycaps a 2px bottom border instead of a shadow.
 
 ### Shadow Vocabulary
 - **Lift** (`box-shadow: 0 8px 24px var(--shadow)`): the open model menu, the overflow menu and the toast.
@@ -495,7 +514,7 @@ The desk is flat. Depth comes from tone and hairlines: cards and header strips o
 - **Keycap edge** (`box-shadow: inset 0 -1px 0 var(--line)`): the bottom edge of each key under a blocked screen.
 
 ### Named Rules
-**The Flat Desk Rule.** Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the keys and `kbd`.
+**The Flat Board Rule.** Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the keys and `kbd`.
 
 ## Shapes
 
@@ -518,7 +537,7 @@ Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 - **Size and colour:** 16px, except the mark at 22px and the pill's icon at 12px. They take their colour from the surrounding state.
 - **The state family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
 - **The rail's six:** Board is a panel with a divider, Tasks a checklist, Conversation a speech bubble, All fleets four squares, the label button a panel with a narrow strip at its left, and the menu button three lines.
-- **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. A bell is defined in the set, but no page draws it since Notify moved into the overflow menu.
+- **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. Attach is a paperclip and Search a magnifier. Notify in the overflow menu has no icon.
 
 ## Components
 
@@ -559,9 +578,9 @@ The navigation, on every page that shows a fleet and on no error page. At 900px 
 - **Links:** every rail and sheet item navigates in place and carries no `target`.
 
 ### Needs items
-The signature component. Needs groups its items into **bands** by severity word, most severe first: one head per word (Blocked, Failed, Decision, Report, and the rarer Limited, No supervisor, Interrupted and Quiet), so a blocked supervisor screen and a blocked worker screen share the Blocked band. A band head is Label type with 20px above and 4px below, inset 16px to the row's icon, and takes its tone's ink: fail red, wait amber, or muted for neutral. Up to 50 items show, then a line counts the rest.
+The signature component. Needs groups its items into **bands** by severity word, most severe first: one head per word (Blocked, Failed, Decision, Report, and the rarer Limited, No supervisor, Interrupted, Quiet and Long turn), so a blocked supervisor screen and a blocked worker screen share the Blocked band. A band head is Label type with 20px above and 4px below, inset 16px to the row's icon, and takes its tone's ink: fail red, wait amber, or muted for neutral. Up to 50 items show, then a line counts the rest.
 
-Each item is a `details` element. A collapsed item is a calm hairline row: no fill, no border but a hairline under it (and over the first row of a band), 44px high (52px on a touch screen), padded 16px, with the tone's state icon, the title on one line with an ellipsis, then the refs and time in meta, the auto-deny countdown, and a muted chevron that turns 180° when the item opens. Hovering a row takes the hover wash. The band head carries the word, so the row's severity code, harness, model and status stay in the open item's header. The keyboard focus ring sits inside the row (`outline-offset:-2px`), because the item clips anything drawn outside it.
+Each item is a `details` element. A collapsed item is a calm hairline row: no fill, no border but a hairline under it (and over the first row of a band), 44px high (52px on a touch screen), padded 16px, with the tone's state icon, the title on one line with an ellipsis, then the refs and time in meta, the auto-deny countdown, and a muted chevron that turns 180° when the item opens. Hovering a row takes the hover wash. The band head carries the word, so no row repeats the severity code; an open item's slug line keeps the refs, harness, model, status and time. The keyboard focus ring sits inside the row (`outline-offset:-2px`), because the item clips anything drawn outside it.
 
 The top item is open, and the operator can open any other. An open item is a card: a 1px hairline border and 10px corners on the ground, with 6px above and 10px below, whose header takes the tone's pale fill. Its body is padded 41px on the left, so body text starts exactly where the title does (a 1px border, 15px of padding, the 16px icon and a 10px gap). The work pane keeps its scrollbar gutter on both edges so the width never jumps. From 900px the Needs head ("Needs" and its count) shows above the items; below it the tab carries the count and the head hides.
 
@@ -579,6 +598,7 @@ When the work pane is under 480px wide (a phone, or a wide chat), a collapsed ro
 | a decision | 7 | wait | DECISION |
 | an unread report | 8 | neutral | REPORT |
 | an attempt that stopped without a report | 9 | neutral | QUIET |
+| an attempt whose turn has run 60 minutes | 10 | neutral | LONG TURN |
 
 - **Header (open item):** a wrapping row of a 16px state icon, the headline and the countdown and chevron, with the slug line under the headline, padded 12px by 15px by 10px on the tone's pale fill (`fail-bg`, `wait-bg` or `neutral-bg`). The icon takes the tone: failure for fail, waiting for wait, idle for neutral.
 - **Slug line:** the refs, harness and model, status and time, separated by an 8px gap and indented to the headline. Refs in the slug take the line's size and colour, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink. A collapsed row shows only its refs and time.
@@ -590,6 +610,7 @@ When the work pane is under 480px wide (a phone, or a wide chat), a collapsed ro
   - a failure shows its reason in muted ink and a "View aN" link;
   - a report shows its excerpt, Mark read and an open link;
   - a quiet attempt says it stopped without a report and links to it;
+  - a long turn says the attempt has been working for a long time and links to it;
   - a limited attempt's headline is its limit line, and its body says it stopped at a usage limit and links to it;
   - a limited supervisor's headline is its limit line, and its body says Hand holds wakes until that line leaves the screen;
   - a no-supervisor item shows Resume or Start, and an interrupted supervisor shows the primary Resume and New session.
@@ -690,6 +711,7 @@ Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a
 - **Head:** crumbs in muted 14px with refs, the title in Display type, a slug line with the status badge, project, plan and time, then one hairline rule.
 - **Task page:** the waiting rows for its open decisions and unread reports, each with a filled severity code, then a grid of two columns. The main column (`minmax(0,1fr)`) holds the goal and plan as cards with Copy filling the card, then Reports, Decisions and Events. Reports are bordered cards whose header strip is neutral-bg, fail-bg when blocked or failed, or pass-bg when done: the ref, the summary and Mark read (or "read by") on the first line, then "from aN", the state badge and the time on a second. Decisions list with their answers, and events are a grid of time, kind in plain words and detail. The aside (300px, 40px from the main column, sticky 16px from the top and scrolling inside itself when taller than the screen) holds Delivered, then Attempts. Delivered lists each deliverable as its badge (or file chip) with the full link or path under it in muted 12px mono, wrapping anywhere so a long path stays inside the aside; with none, the heading is absent. Attempts are task rows of two lines: icon, ref and the harness, model and effort, then the status and time. Under 1000px the grid is one column and the aside comes first, so Delivered is the first thing after the waiting rows (`TestTheTaskPageIsTwoColumns`, `TestTheTaskPageStylesItsColumnsAndPhoneOrder`). The page keeps `main.thread` as its one region (`TestTheTaskPageIsOneRegion`).
 - **Tasks page** (`/<fleet>/tasks`, titled "Tasks", the Board's search over every task): the head, then a GET form on a grid of 150px-minimum columns: Search across the full width, then Status (Default, Done and abandoned, Every status, Done, Abandoned, Active, Inbox; the page opens on Default, which searches every status when there is a query and lists done and abandoned tasks when there is none, and only an explicit choice narrows it), Project (only when the fleet has several), Since and Until as native date inputs (labelled UTC) and the primary Search button with a Clear link while a filter is set. Inputs and selects are 32px high. A muted 12px count line ("46 tasks") sits above the results. Results are task rows in the Tasks region's markup, grouped by day under group heads with count badges ("Tue 6 Oct UTC 5"), each row carrying the finish time (the last update for a task still open) in muted tabular meta before its PR badge; the server groups in UTC and JavaScript regroups in the browser's zone, as the timeline does, dropping "UTC". An empty result reads "No tasks match. Try fewer words, or clear the dates." in muted ink. Previous and Next links sit under the list at the left and right edges, keep every filter, and grow to 44px on touch. The page works without JavaScript, claims none of the five fleet-page regions and carries no composer.
+- **Conversation page** (`/<fleet>/supervisor/log`): crumbs, then the timeline on its own, set in the thread column and without a composer or supervisor controls. The rail marks Conversation current.
 - **Decision page:** the headline, the question as markdown without its option lines (the whole question shows; only Needs caps it at 40vh), then the choice list with its note and Send answer. Once answered, the answered state takes the form's place.
 - **Error page:** one card with the status code as a red severity code, the message and a link back. It never shows a path.
 - **Fleet list:** one row per fleet with its mark in its tint, its name and its id.
@@ -702,6 +724,13 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Tab title:** "(!) s1 blocked" for a blocked screen, "(3) fleet" when items wait, "● fleet" while the supervisor works, else the fleet's name.
 - **Notifications:** opt-in from the overflow menu. When the open count rises while the page is hidden, one notification names the worst item.
 
+### Named Rules
+**The Bands Rule.** Needs groups its open items under one head per severity word, most severe first, and the head carries the word and its tone, so a row repeats neither. A collapsed row is one calm line and only the open item is a card.
+
+**The One Choice List Rule.** A decision is answered from one component, the choice list, in a Needs item and on the decision page, and the answered state is the same list at rest. The question never repeats its option lines, and the server joins the pick and the note into one answer.
+
+**The One Badge And One Row Rule.** Every pill, count and tag is the one `.badge`, and every line of the task, attempt, event, decision and fleet lists is the one `.row`. A new component sets a slot or a tone on them; it never draws a third shape.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -711,7 +740,7 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Do** keep font sizes to 22, 18, 15, 14 and 12px, and set figures that update in place in tabular numerals.
 - **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
 - **Do** keep one primary button per form, and keep Stop behind a second press.
-- **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property through the CSSOM, which the CSP allows.
+- **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property and the rail tip's `top` through the CSSOM, which the CSP allows.
 - **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition.
 
 ### Don't:
@@ -722,5 +751,5 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Don't** load web fonts or images from the stylesheet.
 - **Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.
 - **Don't** show both panes below 900px or resize anything there, and don't switch tabs for the operator.
-- **Don't** build a chat-ops shell: no text sidebar, chat and inspector at once. Navigation is the 56px icon rail, its names showing on hover, on focus or on request, and the work pane stays the widest thing on the page. Don't make a green-on-black terminal look beyond the screen excerpt.
+- **Don't** add a text sidebar or a third column beside the two panes. Navigation is the 56px icon rail, its names showing on hover, on focus or on request, and the work pane stays the widest thing on the page. Don't make a green-on-black terminal look beyond the screen excerpt.
 - **Don't** list a fleet in the rail, or show its name or count anywhere in a page, unless the browser holds a valid token for it.
