@@ -496,7 +496,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 **The Chat Width Clamp Rule.** The chat's width is the custom property `--chat`, and only `--pane` turns it into a grid track, clamped to 360px at least and everything but 440px at most. `app.js` sets `--chat` through the CSSOM, which the CSP allows, and never lays the pane out itself (`TestTheChatPaneResizesInsideTheClamp`).
 
-**The Slim Rail Rule.** Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened chat (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).
+**The Slim Rail Rule.** Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar, and the chat is dragged to size with no fold or widen mode (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).
 
 **The Proven Fleets Rule.** The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts. A fleet the browser holds no valid token for never has its name in the page, and no fleet's Needs count shows in another's rail. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`).
 
