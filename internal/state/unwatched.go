@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -14,12 +15,18 @@ type Unwatched struct {
 	Idle   time.Duration
 	Stalls int
 	Last   time.Time
+	Far    Timer
+	FarIn  time.Duration
 }
 
 func (s *Store) Unwatched(ctx context.Context) (Unwatched, error) {
-	var live, open, armed int
-	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?), (SELECT count(*) FROM timer WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen, TimerArmed).Scan(&live, &open, &armed)
-	if err != nil || live > 0 || open > 0 || armed > 0 {
+	var live, open int
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen).Scan(&live, &open)
+	if err != nil || live > 0 || open > 0 {
+		return Unwatched{}, err
+	}
+	timers, err := s.Timers(ctx)
+	if err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
 		return Unwatched{}, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM task WHERE status = ? ORDER BY id`, StatusActive)
@@ -28,6 +35,10 @@ func (s *Store) Unwatched(ctx context.Context) (Unwatched, error) {
 	}
 	defer rows.Close()
 	var u Unwatched
+	if len(timers) > 0 {
+		u.Far = timers[0]
+		u.FarIn = u.Far.Due.Sub(s.now())
+	}
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {

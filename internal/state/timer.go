@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -21,6 +22,8 @@ const (
 	MaxTimers    = 20
 	MaxTimerNote = 200
 	MinTimer     = time.Minute
+
+	timerWatchHorizon = 6 * time.Hour
 )
 
 type TimerSpec struct {
@@ -38,6 +41,7 @@ type Timer struct {
 	TaskID int64
 	Note   string
 	Status string
+	Beyond bool
 }
 
 const timerSelect = `SELECT id, due_at, every, COALESCE(task_id, 0), note, status FROM timer`
@@ -133,7 +137,19 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 }
 
 func (s *Store) Timers(ctx context.Context) ([]Timer, error) {
-	return armedTimers(ctx, s.db)
+	timers, err := armedTimers(ctx, s.db)
+	horizon := s.now().Add(timerWatchHorizon)
+	for i := range timers {
+		timers[i].Beyond = timers[i].Due.After(horizon)
+	}
+	return timers, err
+}
+
+func Ahead(d time.Duration) string {
+	if d >= 24*time.Hour {
+		return strconv.Itoa(int(d/(24*time.Hour))) + "d"
+	}
+	return Span(d.Truncate(time.Minute))
 }
 
 func armedTimers(ctx context.Context, q interface {

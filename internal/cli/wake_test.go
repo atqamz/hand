@@ -51,7 +51,7 @@ func TestWakeRefusesBadTimers(t *testing.T) {
 		code int
 		err  string
 	}{
-		{nil, 2, "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN"},
+		{nil, 2, "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours"},
 		{[]string{"soon"}, 2, "usage: hand wake --after"},
 		{[]string{"--note", "x"}, 2, "wake: give exactly one of --after, --at or --every"},
 		{[]string{"--after", "30m", "--every", "1h"}, 2, "wake: give exactly one of --after, --at or --every"},
@@ -128,7 +128,7 @@ func TestATimerWakesTheSupervisorAndHoldsTheStallWake(t *testing.T) {
 	fx.h.advance(20 * time.Minute)
 	wantStall(t, fx, 1, "t1 is active, no attempt is running, idle 20m")
 	out, _ := stop()
-	if !strings.Contains(out, `observed: "timer w1: check PR 909"`) {
+	if !strings.Contains(out, `observed: "timer.fired w1: check PR 909"`) {
 		t.Fatalf("watch out = %q", out)
 	}
 	if alerts := stallAlerts(log); len(alerts) != 0 {
@@ -200,4 +200,23 @@ func TestATimerWaitsForASupervisorAndReachesTheNextOne(t *testing.T) {
 	fx.h.advance(30 * time.Minute)
 	wantTimerWake(t, fx, 2, "timer.fired w2: after the resume")
 	has(t, "show", fx.h.ok("supervisor", "show"), "supervisor: s3")
+}
+
+func TestAFarTimerDoesNotHoldTheStallWake(t *testing.T) {
+	fx, _ := stallFleet(t, "")
+	fx.h.ok("wake", "--after", "7h", "--note", "check PR 909")
+	if out := fx.h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || !strings.Contains(out, "(beyond the horizon) check PR 909") {
+		t.Fatalf("orient = %q", out)
+	}
+	stop := startWatch(t, fx, "--every", "30ms")
+	stallTick(t, fx)
+	fx.h.advance(20 * time.Minute)
+	wantStall(t, fx, 1, "t1 is active, no attempt is running, idle 20m; w1 is armed but due in 6h40m")
+	fx.h.advance(time.Hour)
+	fx.h.advance(5 * time.Hour)
+	stallTick(t, fx)
+	if out := fx.h.ok("orient"); strings.Contains(out, "unwatched") || strings.Contains(out, "beyond") {
+		t.Fatalf("orient once the timer is within the horizon = %q", out)
+	}
+	stop()
 }

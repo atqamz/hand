@@ -564,3 +564,25 @@ func TestOrientListsArmedTimers(t *testing.T) {
 		t.Fatalf("orient =\n%s", out)
 	}
 }
+
+func TestOrientMarksATimerBeyondTheHorizon(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 7 * time.Hour, Note: "check PR 909"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 8 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "unwatched[1]") || !strings.Contains(out, "timers[2]{id,due,note}:\n  w1,\"2026-09-26T07:00:00Z\",(beyond the horizon) check PR 909\n  w2,\"2026-09-26T08:00:00Z\",(beyond the horizon)\n") {
+		t.Fatalf("orient =\n%s", out)
+	}
+}

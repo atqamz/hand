@@ -11,7 +11,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const wakeUsage = "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN"
+const wakeUsage = "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours"
 
 var wakeCommands = map[string]handler{
 	"list":   cmdWakeList,

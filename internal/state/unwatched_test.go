@@ -144,3 +144,74 @@ func TestAnArmedTimerWatchesTheFleet(t *testing.T) {
 	}
 	want([]int64{task.ID}, 0)
 }
+
+func TestATimerWatchesOnlyWhileDueWithinSixHours(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	watched := func() bool {
+		t.Helper()
+		u, err := s.Unwatched(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(u.Tasks) == 0
+	}
+	near, err := s.AddTimer(ctx, TimerSpec{After: 5*time.Hour + 59*time.Minute})
+	if err != nil || !watched() {
+		t.Fatalf("a timer due in 5h59m: %v, watched %v", err, watched())
+	}
+	if _, err := s.CancelTimer(ctx, near.ID); err != nil {
+		t.Fatal(err)
+	}
+	far, err := s.AddTimer(ctx, TimerSpec{After: 6*time.Hour + time.Minute})
+	if err != nil || watched() {
+		t.Fatalf("a timer due in 6h01m: %v, watched %v", err, watched())
+	}
+	u, err := s.Unwatched(ctx)
+	if err != nil || !slices.Equal(u.Tasks, []int64{task.ID}) || u.Far.ID != far.ID || u.FarIn != 6*time.Hour+time.Minute {
+		t.Fatalf("unwatched = %+v, %v", u, err)
+	}
+	advance(2 * time.Minute)
+	if !watched() {
+		t.Fatal("a timer that came within 6h did not start watching")
+	}
+}
+
+func TestARepeatingTimerWatchesWhileItsNextDueIsWithinSixHours(t *testing.T) {
+	s, advance := movingStore(t)
+	ctx := context.Background()
+	activeTask(t, s)
+	if _, err := s.AddTimer(ctx, TimerSpec{Every: 7 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 1 {
+		t.Fatalf("a timer repeating every 7h: %+v, %v", u, err)
+	}
+	advance(7 * time.Hour)
+	if _, err := s.FireTimers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 1 {
+		t.Fatalf("after its fire: %+v, %v", u, err)
+	}
+	if _, err := s.AddTimer(ctx, TimerSpec{Every: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 0 {
+		t.Fatalf("a timer repeating every hour: %+v, %v", u, err)
+	}
+}
+
+func TestAheadReadsInDaysAndHours(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		7 * time.Hour:                 "7h",
+		7*time.Hour + 30*time.Minute:  "7h30m",
+		24 * time.Hour:                "1d",
+		31*24*time.Hour + 5*time.Hour: "31d",
+	} {
+		if got := Ahead(d); got != want {
+			t.Fatalf("Ahead(%v) = %q, want %q", d, got, want)
+		}
+	}
+}

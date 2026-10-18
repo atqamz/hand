@@ -99,7 +99,11 @@ func stalled(u state.Unwatched) string {
 	if n := len(refs); n > 1 {
 		names, verb = strings.Join(refs[:n-1], ", ")+" and "+refs[n-1], " are active"
 	}
-	return names + verb + ", no attempt is running, idle " + u.IdleFor()
+	text := names + verb + ", no attempt is running, idle " + u.IdleFor()
+	if u.Far.ID != 0 {
+		text += "; " + state.TimerRef(u.Far.ID) + " is armed but due in " + state.Ahead(u.FarIn)
+	}
+	return text
 }
 
 func (w *watcher) timers(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
@@ -112,7 +116,7 @@ func (w *watcher) timers(ctx context.Context, c luvus.Client, caps luvus.Capabil
 		return err
 	}
 	for _, line := range fired {
-		w.say("timer " + line)
+		w.say("timer.fired " + line)
 	}
 	w.deliver(ctx, c, caps)
 	return nil

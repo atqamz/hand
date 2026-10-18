@@ -184,7 +184,11 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 	}
 	timerRows := make([][]string, 0, len(timers))
 	for _, t := range timers {
-		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), clip(t.Note, b.TitleBytes)})
+		note := clip(t.Note, b.TitleBytes)
+		if t.Beyond {
+			note = strings.TrimSpace("(beyond the horizon) " + note)
+		}
+		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), note})
 	}
 
 	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
