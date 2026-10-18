@@ -41,12 +41,13 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **Platform:** Linux and macOS; Windows through WSL2.
 - **Fleets:** they are registered under `~/.secondhand/fleets`. One board process serves every fleet, each at its own path, `127.0.0.1:7777/<fleet-id>/`. Each page shows one fleet; there is no combined cross-fleet page.
 - **Surfaces:**
-  - the supervisor panel: Start, Resume, New session, Stop, Interrupt, and the key buttons for a blocked screen;
-  - the conversation: the calm view, plus messages still queued;
-  - the message box;
-  - the task cards;
+  - the rail (a sheet on a phone): Board, Tasks, Conversation and the fleets this browser can open;
+  - Needs: the open items in severity bands, with the keys of a blocked screen and the choice list of a decision;
+  - the supervisor pane: Start, Resume, New session, Stop, Interrupt, the conversation (the calm view, plus messages still queued) and the message box, with a separator that resizes it;
+  - Tasks: the task list on the fleet page, and the Tasks page that searches every task;
   - the task page: plan, reports and events;
   - the decision page;
+  - the conversation page;
   - error pages.
 - **What needs the operator:**
   - open decisions;
@@ -75,7 +76,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - supervisor and worker status comes live from Luvus;
   - the conversation comes from harness transcripts;
   - everything else comes from SQLite.
-- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets.
+- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets. The rail names the fleets this browser holds a valid token for, so it switches fleets, and it never shows another fleet's counts.
 
 ## Brand Commitments
 
