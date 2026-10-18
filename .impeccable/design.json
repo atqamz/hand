@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-30T09:25:36+00:00",
+  "generatedAt": "2026-10-18T01:01:57+00:00",
   "title": "Design System: Hand board",
   "extensions": {
     "source": "internal/board/static/board.css",
@@ -13,6 +13,7 @@
         "#6b7480 for the terminal scrollbar",
         "rgba(7,9,12,0) and rgba(215,221,228,.32) in the terminal edge fade",
         "#000 in the timeline top fade mask",
+        "rgba(10,12,16,.32) for the sheet scrim",
         "the favicon colours"
       ]
     },
@@ -22,27 +23,46 @@
         "displayName": "Review Ground",
         "cssVar": "--bg",
         "theme": "light",
-        "canonical": "#fcfcfd",
-        "oklch": "oklch(99.1% 0.001 286.4)",
+        "canonical": "#ffffff",
+        "oklch": "oklch(100.0% 0.000 89.9)",
         "tonalRamp": [
-          "oklch(15% 0.001 286.4)",
-          "oklch(26% 0.001 286.4)",
-          "oklch(38% 0.001 286.4)",
-          "oklch(50% 0.001 286.4)",
-          "oklch(62% 0.001 286.4)",
-          "oklch(74% 0.001 286.4)",
-          "oklch(85% 0.001 286.4)",
-          "oklch(95% 0.001 286.4)"
+          "oklch(15% 0.000 89.9)",
+          "oklch(26% 0.000 89.9)",
+          "oklch(38% 0.000 89.9)",
+          "oklch(50% 0.000 89.9)",
+          "oklch(62% 0.000 89.9)",
+          "oklch(74% 0.000 89.9)",
+          "oklch(85% 0.000 89.9)",
+          "oklch(95% 0.000 89.9)"
         ],
-        "purpose": "The page, the masthead, the tabs, Needs items and chat cards at rest, inputs, keys, open menus and the toast."
+        "purpose": "The page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus, the sheet and the toast."
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Grey",
+        "cssVar": "--panel",
+        "theme": "light",
+        "canonical": "#f6f7f9",
+        "oklch": "oklch(97.6% 0.003 264.5)",
+        "tonalRamp": [
+          "oklch(15% 0.003 264.5)",
+          "oklch(26% 0.003 264.5)",
+          "oklch(38% 0.003 264.5)",
+          "oklch(50% 0.003 264.5)",
+          "oklch(62% 0.003 264.5)",
+          "oklch(74% 0.003 264.5)",
+          "oklch(85% 0.003 264.5)",
+          "oklch(95% 0.003 264.5)"
+        ],
+        "purpose": "The supervisor pane and the rail at board width."
       },
       "card": {
         "role": "neutral",
         "displayName": "Card Grey",
         "cssVar": "--card",
         "theme": "light",
-        "canonical": "#f4f6f8",
-        "oklch": "oklch(97.2% 0.003 247.9)",
+        "canonical": "#f1f3f5",
+        "oklch": "oklch(96.3% 0.003 247.9)",
         "tonalRamp": [
           "oklch(15% 0.003 247.9)",
           "oklch(26% 0.003 247.9)",
@@ -53,24 +73,24 @@
           "oklch(85% 0.003 247.9)",
           "oklch(95% 0.003 247.9)"
         ],
-        "purpose": "Chat and thread card header strips, the composer box, default buttons, ref chips, and code in replies."
+        "purpose": "Thread card header strips, and code in replies."
       },
       "fg": {
         "role": "neutral",
         "displayName": "Ink",
         "cssVar": "--fg",
         "theme": "light",
-        "canonical": "#1b1f24",
-        "oklch": "oklch(23.7% 0.011 254.1)",
+        "canonical": "#15171c",
+        "oklch": "oklch(20.5% 0.010 268.2)",
         "tonalRamp": [
-          "oklch(15% 0.011 254.1)",
-          "oklch(26% 0.011 254.1)",
-          "oklch(38% 0.011 254.1)",
-          "oklch(50% 0.011 254.1)",
-          "oklch(62% 0.011 254.1)",
-          "oklch(74% 0.011 254.1)",
-          "oklch(85% 0.011 254.1)",
-          "oklch(95% 0.011 254.1)"
+          "oklch(15% 0.010 268.2)",
+          "oklch(26% 0.010 268.2)",
+          "oklch(38% 0.010 268.2)",
+          "oklch(50% 0.010 268.2)",
+          "oklch(62% 0.010 268.2)",
+          "oklch(74% 0.010 268.2)",
+          "oklch(85% 0.010 268.2)",
+          "oklch(95% 0.010 268.2)"
         ],
         "purpose": "Body copy, headlines, the current tab and its underline, the author in a card header."
       },
@@ -79,17 +99,17 @@
         "displayName": "Muted Ink",
         "cssVar": "--muted",
         "theme": "light",
-        "canonical": "#59616c",
-        "oklch": "oklch(49.0% 0.020 256.3)",
+        "canonical": "#5b626e",
+        "oklch": "oklch(49.4% 0.021 261.3)",
         "tonalRamp": [
-          "oklch(15% 0.020 256.3)",
-          "oklch(26% 0.020 256.3)",
-          "oklch(38% 0.020 256.3)",
-          "oklch(50% 0.020 256.3)",
-          "oklch(62% 0.020 256.3)",
-          "oklch(74% 0.020 256.3)",
-          "oklch(85% 0.020 256.3)",
-          "oklch(95% 0.020 256.3)"
+          "oklch(15% 0.021 261.3)",
+          "oklch(26% 0.021 261.3)",
+          "oklch(38% 0.021 261.3)",
+          "oklch(50% 0.021 261.3)",
+          "oklch(62% 0.021 261.3)",
+          "oklch(74% 0.021 261.3)",
+          "oklch(85% 0.021 261.3)",
+          "oklch(95% 0.021 261.3)"
         ],
         "purpose": "Meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts."
       },
@@ -98,217 +118,8 @@
         "displayName": "Hairline",
         "cssVar": "--line",
         "theme": "light",
-        "canonical": "#d5dbe2",
-        "oklch": "oklch(88.9% 0.012 252.1)",
-        "tonalRamp": [
-          "oklch(15% 0.012 252.1)",
-          "oklch(26% 0.012 252.1)",
-          "oklch(38% 0.012 252.1)",
-          "oklch(50% 0.012 252.1)",
-          "oklch(62% 0.012 252.1)",
-          "oklch(74% 0.012 252.1)",
-          "oklch(85% 0.012 252.1)",
-          "oklch(95% 0.012 252.1)"
-        ],
-        "purpose": "Every rule and border, the context bar's track, and scrollbar thumbs."
-      },
-      "line-strong": {
-        "role": "neutral",
-        "displayName": "Control Edge",
-        "cssVar": "--line-strong",
-        "theme": "light",
-        "canonical": "#848d99",
-        "oklch": "oklch(64.0% 0.021 255.6)",
-        "tonalRamp": [
-          "oklch(15% 0.021 255.6)",
-          "oklch(26% 0.021 255.6)",
-          "oklch(38% 0.021 255.6)",
-          "oklch(50% 0.021 255.6)",
-          "oklch(62% 0.021 255.6)",
-          "oklch(74% 0.021 255.6)",
-          "oklch(85% 0.021 255.6)",
-          "oklch(95% 0.021 255.6)"
-        ],
-        "purpose": "The outline of select, input, textarea, the composer box, default buttons and the paperclip, at 3:1 or more on the ground and the card."
-      },
-      "hover": {
-        "role": "neutral",
-        "displayName": "Hover Wash",
-        "cssVar": "--hover",
-        "theme": "light",
-        "canonical": "#eaeef2",
-        "oklch": "oklch(94.7% 0.007 247.9)",
-        "tonalRamp": [
-          "oklch(15% 0.007 247.9)",
-          "oklch(26% 0.007 247.9)",
-          "oklch(38% 0.007 247.9)",
-          "oklch(50% 0.007 247.9)",
-          "oklch(62% 0.007 247.9)",
-          "oklch(74% 0.007 247.9)",
-          "oklch(85% 0.007 247.9)",
-          "oklch(95% 0.007 247.9)"
-        ],
-        "purpose": "The hover fill of buttons, menu rows and the model menu's summary."
-      },
-      "fail": {
-        "role": "signal",
-        "displayName": "Fail Red",
-        "cssVar": "--fail",
-        "theme": "light",
-        "canonical": "#c4262e",
-        "oklch": "oklch(53.4% 0.193 24.6)",
-        "tonalRamp": [
-          "oklch(15% 0.193 24.6)",
-          "oklch(26% 0.193 24.6)",
-          "oklch(38% 0.193 24.6)",
-          "oklch(50% 0.193 24.6)",
-          "oklch(62% 0.193 24.6)",
-          "oklch(74% 0.193 24.6)",
-          "oklch(85% 0.193 24.6)",
-          "oklch(95% 0.193 24.6)"
-        ],
-        "purpose": "What blocks or has broken: blocked screens, failures, an interrupted or unreachable supervisor, the countdown, context at 90%, errors, Interrupt and an armed Stop."
-      },
-      "wait": {
-        "role": "signal",
-        "displayName": "Wait Amber",
-        "cssVar": "--wait",
-        "theme": "light",
-        "canonical": "#8f5e00",
-        "oklch": "oklch(52.2% 0.111 73.8)",
-        "tonalRamp": [
-          "oklch(15% 0.111 73.8)",
-          "oklch(26% 0.111 73.8)",
-          "oklch(38% 0.111 73.8)",
-          "oklch(50% 0.111 73.8)",
-          "oklch(62% 0.111 73.8)",
-          "oklch(74% 0.111 73.8)",
-          "oklch(85% 0.111 73.8)",
-          "oklch(95% 0.111 73.8)"
-        ],
-        "purpose": "Decisions and no-supervisor items, a pending model switch, context from 80%, a stale-server note, waiting task icons."
-      },
-      "pass": {
-        "role": "signal",
-        "displayName": "Pass Green",
-        "cssVar": "--pass",
-        "theme": "light",
-        "canonical": "#19793b",
-        "oklch": "oklch(50.8% 0.129 150.1)",
-        "tonalRamp": [
-          "oklch(15% 0.129 150.1)",
-          "oklch(26% 0.129 150.1)",
-          "oklch(38% 0.129 150.1)",
-          "oklch(50% 0.129 150.1)",
-          "oklch(62% 0.129 150.1)",
-          "oklch(74% 0.129 150.1)",
-          "oklch(85% 0.129 150.1)",
-          "oklch(95% 0.129 150.1)"
-        ],
-        "purpose": "The ready pill, running and passing task icons, done report headers, the All clear icon."
-      },
-      "neutral": {
-        "role": "signal",
-        "displayName": "Neutral",
-        "cssVar": "--neutral",
-        "theme": "light",
-        "canonical": "#59616c",
-        "oklch": "oklch(49.0% 0.020 256.3)",
-        "tonalRamp": [
-          "oklch(15% 0.020 256.3)",
-          "oklch(26% 0.020 256.3)",
-          "oklch(38% 0.020 256.3)",
-          "oklch(50% 0.020 256.3)",
-          "oklch(62% 0.020 256.3)",
-          "oklch(74% 0.020 256.3)",
-          "oklch(85% 0.020 256.3)",
-          "oklch(95% 0.020 256.3)"
-        ],
-        "purpose": "Reports and quiet attempts in Needs, the starting, stopped and no-supervisor pills, idle task icons, counts at rest."
-      },
-      "accent": {
-        "role": "primary",
-        "displayName": "Review Blue",
-        "cssVar": "--accent",
-        "theme": "light",
-        "canonical": "#1d5fc2",
-        "oklch": "oklch(50.3% 0.169 259.1)",
-        "tonalRamp": [
-          "oklch(15% 0.169 259.1)",
-          "oklch(26% 0.169 259.1)",
-          "oklch(38% 0.169 259.1)",
-          "oklch(50% 0.169 259.1)",
-          "oklch(62% 0.169 259.1)",
-          "oklch(74% 0.169 259.1)",
-          "oklch(85% 0.169 259.1)",
-          "oklch(95% 0.169 259.1)"
-        ],
-        "purpose": "The operator's own marks and the live signal: the \"you\" label, focus, caret, links, the working pill and pulse, the Chat tab dot, the context fill, the composer focus frame."
-      },
-      "fail-bg": {
-        "role": "signal",
-        "displayName": "Fail Fill",
-        "cssVar": "--fail-bg",
-        "theme": "light",
-        "canonical": "#fdecec",
-        "oklch": "oklch(95.7% 0.018 17.5)",
-        "tonalRamp": [
-          "oklch(15% 0.018 17.5)",
-          "oklch(26% 0.018 17.5)",
-          "oklch(38% 0.018 17.5)",
-          "oklch(50% 0.018 17.5)",
-          "oklch(62% 0.018 17.5)",
-          "oklch(74% 0.018 17.5)",
-          "oklch(85% 0.018 17.5)",
-          "oklch(95% 0.018 17.5)"
-        ],
-        "purpose": "Header fill of red Needs items and blocked or failed report headers; the failing pill; an armed Stop."
-      },
-      "wait-bg": {
-        "role": "signal",
-        "displayName": "Wait Fill",
-        "cssVar": "--wait-bg",
-        "theme": "light",
-        "canonical": "#fcf3d9",
-        "oklch": "oklch(96.4% 0.035 91.1)",
-        "tonalRamp": [
-          "oklch(15% 0.035 91.1)",
-          "oklch(26% 0.035 91.1)",
-          "oklch(38% 0.035 91.1)",
-          "oklch(50% 0.035 91.1)",
-          "oklch(62% 0.035 91.1)",
-          "oklch(74% 0.035 91.1)",
-          "oklch(85% 0.035 91.1)",
-          "oklch(95% 0.035 91.1)"
-        ],
-        "purpose": "Header fill of amber Needs items; the masthead Needs count by default."
-      },
-      "pass-bg": {
-        "role": "signal",
-        "displayName": "Pass Fill",
-        "cssVar": "--pass-bg",
-        "theme": "light",
-        "canonical": "#e3f5e8",
-        "oklch": "oklch(95.3% 0.026 154.5)",
-        "tonalRamp": [
-          "oklch(15% 0.026 154.5)",
-          "oklch(26% 0.026 154.5)",
-          "oklch(38% 0.026 154.5)",
-          "oklch(50% 0.026 154.5)",
-          "oklch(62% 0.026 154.5)",
-          "oklch(74% 0.026 154.5)",
-          "oklch(85% 0.026 154.5)",
-          "oklch(95% 0.026 154.5)"
-        ],
-        "purpose": "The ready pill and done report headers."
-      },
-      "neutral-bg": {
-        "role": "signal",
-        "displayName": "Neutral Fill",
-        "cssVar": "--neutral-bg",
-        "theme": "light",
-        "canonical": "#eceff3",
-        "oklch": "oklch(95.1% 0.006 255.5)",
+        "canonical": "#e3e6ea",
+        "oklch": "oklch(92.4% 0.006 255.5)",
         "tonalRamp": [
           "oklch(15% 0.006 255.5)",
           "oklch(26% 0.006 255.5)",
@@ -319,87 +130,296 @@
           "oklch(85% 0.006 255.5)",
           "oklch(95% 0.006 255.5)"
         ],
-        "purpose": "Header fill of neutral Needs items and report headers; neutral pills and counts."
+        "purpose": "Every rule and decorative border, the context bar track and scrollbar thumbs."
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "cssVar": "--line-strong",
+        "theme": "light",
+        "canonical": "#80889a",
+        "oklch": "oklch(62.6% 0.029 266.5)",
+        "tonalRamp": [
+          "oklch(15% 0.029 266.5)",
+          "oklch(26% 0.029 266.5)",
+          "oklch(38% 0.029 266.5)",
+          "oklch(50% 0.029 266.5)",
+          "oklch(62% 0.029 266.5)",
+          "oklch(74% 0.029 266.5)",
+          "oklch(85% 0.029 266.5)",
+          "oklch(95% 0.029 266.5)"
+        ],
+        "purpose": "The outline of what the operator operates: select, input, textarea, the composer box, default buttons and the paperclip. 3:1 on the ground, the card and the panel."
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "cssVar": "--hover",
+        "theme": "light",
+        "canonical": "#eef0f3",
+        "oklch": "oklch(95.4% 0.005 258.3)",
+        "tonalRamp": [
+          "oklch(15% 0.005 258.3)",
+          "oklch(26% 0.005 258.3)",
+          "oklch(38% 0.005 258.3)",
+          "oklch(50% 0.005 258.3)",
+          "oklch(62% 0.005 258.3)",
+          "oklch(74% 0.005 258.3)",
+          "oklch(85% 0.005 258.3)",
+          "oklch(95% 0.005 258.3)"
+        ],
+        "purpose": "The hover fill of buttons, rows, menu rows and the model menu summary."
+      },
+      "fail": {
+        "role": "secondary",
+        "displayName": "Fail Red",
+        "cssVar": "--fail",
+        "theme": "light",
+        "canonical": "#c42b32",
+        "oklch": "oklch(53.8% 0.189 24.3)",
+        "tonalRamp": [
+          "oklch(15% 0.189 24.3)",
+          "oklch(26% 0.189 24.3)",
+          "oklch(38% 0.189 24.3)",
+          "oklch(50% 0.189 24.3)",
+          "oklch(62% 0.189 24.3)",
+          "oklch(74% 0.189 24.3)",
+          "oklch(85% 0.189 24.3)",
+          "oklch(95% 0.189 24.3)"
+        ],
+        "purpose": "Blocked screens, failures, an interrupted supervisor, the failing pill, the auto-deny countdown, the context bar from 90%, errors, and the controls that end a turn."
+      },
+      "wait": {
+        "role": "secondary",
+        "displayName": "Wait Amber",
+        "cssVar": "--wait",
+        "theme": "light",
+        "canonical": "#8a5b00",
+        "oklch": "oklch(51.0% 0.108 74.2)",
+        "tonalRamp": [
+          "oklch(15% 0.108 74.2)",
+          "oklch(26% 0.108 74.2)",
+          "oklch(38% 0.108 74.2)",
+          "oklch(50% 0.108 74.2)",
+          "oklch(62% 0.108 74.2)",
+          "oklch(74% 0.108 74.2)",
+          "oklch(85% 0.108 74.2)",
+          "oklch(95% 0.108 74.2)"
+        ],
+        "purpose": "Decisions, limited attempts, no-supervisor and stalled items, a pending model switch, the context bar from 80%, waiting task icons."
+      },
+      "pass": {
+        "role": "secondary",
+        "displayName": "Pass Green",
+        "cssVar": "--pass",
+        "theme": "light",
+        "canonical": "#1a7a3e",
+        "oklch": "oklch(51.1% 0.127 150.9)",
+        "tonalRamp": [
+          "oklch(15% 0.127 150.9)",
+          "oklch(26% 0.127 150.9)",
+          "oklch(38% 0.127 150.9)",
+          "oklch(50% 0.127 150.9)",
+          "oklch(62% 0.127 150.9)",
+          "oklch(74% 0.127 150.9)",
+          "oklch(85% 0.127 150.9)",
+          "oklch(95% 0.127 150.9)"
+        ],
+        "purpose": "The ready pill, running and passing task icons, done report headers, the All clear icon, the Recommended badge."
+      },
+      "neutral": {
+        "role": "neutral",
+        "displayName": "Neutral",
+        "cssVar": "--neutral",
+        "theme": "light",
+        "canonical": "#5b626e",
+        "oklch": "oklch(49.4% 0.021 261.3)",
+        "tonalRamp": [
+          "oklch(15% 0.021 261.3)",
+          "oklch(26% 0.021 261.3)",
+          "oklch(38% 0.021 261.3)",
+          "oklch(50% 0.021 261.3)",
+          "oklch(62% 0.021 261.3)",
+          "oklch(74% 0.021 261.3)",
+          "oklch(85% 0.021 261.3)",
+          "oklch(95% 0.021 261.3)"
+        ],
+        "purpose": "Reports and quiet attempts in Needs, the starting, stopped and no-supervisor pills, idle task icons, counts at rest."
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Review Blue",
+        "cssVar": "--accent",
+        "theme": "light",
+        "canonical": "#2457c5",
+        "oklch": "oklch(49.1% 0.181 262.8)",
+        "tonalRamp": [
+          "oklch(15% 0.181 262.8)",
+          "oklch(26% 0.181 262.8)",
+          "oklch(38% 0.181 262.8)",
+          "oklch(50% 0.181 262.8)",
+          "oklch(62% 0.181 262.8)",
+          "oklch(74% 0.181 262.8)",
+          "oklch(85% 0.181 262.8)",
+          "oklch(95% 0.181 262.8)"
+        ],
+        "purpose": "The operator's own marks and the live signal: the \"you\" label and bubble, focus, caret, links, the working pill and pulse, the Chat tab and Conversation item dot, the context fill, the picked choice row, the composer focus frame."
+      },
+      "fail-bg": {
+        "role": "secondary",
+        "displayName": "Pale Fail",
+        "cssVar": "--fail-bg",
+        "theme": "light",
+        "canonical": "#fdeeee",
+        "oklch": "oklch(96.1% 0.016 17.4)",
+        "tonalRamp": [
+          "oklch(15% 0.016 17.4)",
+          "oklch(26% 0.016 17.4)",
+          "oklch(38% 0.016 17.4)",
+          "oklch(50% 0.016 17.4)",
+          "oklch(62% 0.016 17.4)",
+          "oklch(74% 0.016 17.4)",
+          "oklch(85% 0.016 17.4)",
+          "oklch(95% 0.016 17.4)"
+        ],
+        "purpose": "The header of a failing Needs item, the failing pill and report headers."
+      },
+      "wait-bg": {
+        "role": "secondary",
+        "displayName": "Pale Wait",
+        "cssVar": "--wait-bg",
+        "theme": "light",
+        "canonical": "#fcf3dc",
+        "oklch": "oklch(96.5% 0.032 89.1)",
+        "tonalRamp": [
+          "oklch(15% 0.032 89.1)",
+          "oklch(26% 0.032 89.1)",
+          "oklch(38% 0.032 89.1)",
+          "oklch(50% 0.032 89.1)",
+          "oklch(62% 0.032 89.1)",
+          "oklch(74% 0.032 89.1)",
+          "oklch(85% 0.032 89.1)",
+          "oklch(95% 0.032 89.1)"
+        ],
+        "purpose": "The header of a waiting Needs item and the waiting pill."
+      },
+      "pass-bg": {
+        "role": "secondary",
+        "displayName": "Pale Pass",
+        "cssVar": "--pass-bg",
+        "theme": "light",
+        "canonical": "#e4f4e9",
+        "oklch": "oklch(95.2% 0.022 155.9)",
+        "tonalRamp": [
+          "oklch(15% 0.022 155.9)",
+          "oklch(26% 0.022 155.9)",
+          "oklch(38% 0.022 155.9)",
+          "oklch(50% 0.022 155.9)",
+          "oklch(62% 0.022 155.9)",
+          "oklch(74% 0.022 155.9)",
+          "oklch(85% 0.022 155.9)",
+          "oklch(95% 0.022 155.9)"
+        ],
+        "purpose": "The ready pill and done report headers."
+      },
+      "neutral-bg": {
+        "role": "neutral",
+        "displayName": "Pale Neutral",
+        "cssVar": "--neutral-bg",
+        "theme": "light",
+        "canonical": "#eef0f3",
+        "oklch": "oklch(95.4% 0.005 258.3)",
+        "tonalRamp": [
+          "oklch(15% 0.005 258.3)",
+          "oklch(26% 0.005 258.3)",
+          "oklch(38% 0.005 258.3)",
+          "oklch(50% 0.005 258.3)",
+          "oklch(62% 0.005 258.3)",
+          "oklch(74% 0.005 258.3)",
+          "oklch(85% 0.005 258.3)",
+          "oklch(95% 0.005 258.3)"
+        ],
+        "purpose": "The header of a neutral Needs item, quiet pills and counts at rest."
       },
       "accent-bg": {
         "role": "primary",
-        "displayName": "Accent Fill",
+        "displayName": "Pale Blue",
         "cssVar": "--accent-bg",
         "theme": "light",
-        "canonical": "#e8f0fc",
-        "oklch": "oklch(95.3% 0.018 258.4)",
+        "canonical": "#ebf1fd",
+        "oklch": "oklch(95.7% 0.017 264.5)",
         "tonalRamp": [
-          "oklch(15% 0.018 258.4)",
-          "oklch(26% 0.018 258.4)",
-          "oklch(38% 0.018 258.4)",
-          "oklch(50% 0.018 258.4)",
-          "oklch(62% 0.018 258.4)",
-          "oklch(74% 0.018 258.4)",
-          "oklch(85% 0.018 258.4)",
-          "oklch(95% 0.018 258.4)"
+          "oklch(15% 0.017 264.5)",
+          "oklch(26% 0.017 264.5)",
+          "oklch(38% 0.017 264.5)",
+          "oklch(50% 0.017 264.5)",
+          "oklch(62% 0.017 264.5)",
+          "oklch(74% 0.017 264.5)",
+          "oklch(85% 0.017 264.5)",
+          "oklch(95% 0.017 264.5)"
         ],
-        "purpose": "The operator's chat cards, the working pill, and text selection."
+        "purpose": "The operator bubble, the picked choice row, the working pill and text selection."
       },
       "screen": {
         "role": "neutral",
         "displayName": "Terminal",
         "cssVar": "--screen",
         "theme": "light",
-        "canonical": "#11151a",
-        "oklch": "oklch(19.4% 0.012 254.1)",
+        "canonical": "#111418",
+        "oklch": "oklch(19.0% 0.009 255.6)",
         "tonalRamp": [
-          "oklch(15% 0.012 254.1)",
-          "oklch(26% 0.012 254.1)",
-          "oklch(38% 0.012 254.1)",
-          "oklch(50% 0.012 254.1)",
-          "oklch(62% 0.012 254.1)",
-          "oklch(74% 0.012 254.1)",
-          "oklch(85% 0.012 254.1)",
-          "oklch(95% 0.012 254.1)"
+          "oklch(15% 0.009 255.6)",
+          "oklch(26% 0.009 255.6)",
+          "oklch(38% 0.009 255.6)",
+          "oklch(50% 0.009 255.6)",
+          "oklch(62% 0.009 255.6)",
+          "oklch(74% 0.009 255.6)",
+          "oklch(85% 0.009 255.6)",
+          "oklch(95% 0.009 255.6)"
         ],
-        "purpose": "The ground of a blocked screen's excerpt, dark in both themes."
+        "purpose": "A blocked screen's excerpt, dark in both themes."
       },
       "screen-fg": {
         "role": "neutral",
-        "displayName": "Terminal Text",
+        "displayName": "Terminal Ink",
         "cssVar": "--screen-fg",
         "theme": "light",
-        "canonical": "#d7dde4",
-        "oklch": "oklch(89.5% 0.012 252.1)",
+        "canonical": "#d8dde4",
+        "oklch": "oklch(89.6% 0.011 256.7)",
         "tonalRamp": [
-          "oklch(15% 0.012 252.1)",
-          "oklch(26% 0.012 252.1)",
-          "oklch(38% 0.012 252.1)",
-          "oklch(50% 0.012 252.1)",
-          "oklch(62% 0.012 252.1)",
-          "oklch(74% 0.012 252.1)",
-          "oklch(85% 0.012 252.1)",
-          "oklch(95% 0.012 252.1)"
+          "oklch(15% 0.011 256.7)",
+          "oklch(26% 0.011 256.7)",
+          "oklch(38% 0.011 256.7)",
+          "oklch(50% 0.011 256.7)",
+          "oklch(62% 0.011 256.7)",
+          "oklch(74% 0.011 256.7)",
+          "oklch(85% 0.011 256.7)",
+          "oklch(95% 0.011 256.7)"
         ],
-        "purpose": "The text of a blocked screen's excerpt."
+        "purpose": "Text in the terminal excerpt."
       },
       "primary": {
         "role": "secondary",
-        "displayName": "Commit Green",
+        "displayName": "Ink Button",
         "cssVar": "--primary",
         "theme": "light",
-        "canonical": "#19793b",
-        "oklch": "oklch(50.8% 0.129 150.1)",
+        "canonical": "#15171c",
+        "oklch": "oklch(20.5% 0.010 268.2)",
         "tonalRamp": [
-          "oklch(15% 0.129 150.1)",
-          "oklch(26% 0.129 150.1)",
-          "oklch(38% 0.129 150.1)",
-          "oklch(50% 0.129 150.1)",
-          "oklch(62% 0.129 150.1)",
-          "oklch(74% 0.129 150.1)",
-          "oklch(85% 0.129 150.1)",
-          "oklch(95% 0.129 150.1)"
+          "oklch(15% 0.010 268.2)",
+          "oklch(26% 0.010 268.2)",
+          "oklch(38% 0.010 268.2)",
+          "oklch(50% 0.010 268.2)",
+          "oklch(62% 0.010 268.2)",
+          "oklch(74% 0.010 268.2)",
+          "oklch(85% 0.010 268.2)",
+          "oklch(95% 0.010 268.2)"
         ],
-        "purpose": "The one committing button in a form: Send, Answer, Resume, Start."
+        "purpose": "The one committing button in a form; near-black by day and near-white at night."
       },
       "on-primary": {
-        "role": "secondary",
-        "displayName": "On Commit",
+        "role": "neutral",
+        "displayName": "Ink Button Text",
         "cssVar": "--on-primary",
         "theme": "light",
         "canonical": "#ffffff",
@@ -414,70 +434,89 @@
           "oklch(85% 0.000 89.9)",
           "oklch(95% 0.000 89.9)"
         ],
-        "purpose": "Text on the committing button."
+        "purpose": "Text on the primary button."
       },
       "shadow": {
         "role": "neutral",
-        "displayName": "Shadow",
+        "displayName": "Lift Shadow",
         "cssVar": "--shadow",
         "theme": "light",
-        "canonical": "rgba(27,31,36,.14)",
-        "purpose": "The colour of the one lift shadow, under open menus and the toast."
+        "canonical": "rgba(21,23,28,.12)",
+        "purpose": "The one lift shadow under open menus and the toast."
       },
       "bg-dark": {
         "role": "neutral",
-        "displayName": "Night Review Ground",
+        "displayName": "Night Ground",
         "cssVar": "--bg",
         "theme": "dark",
-        "canonical": "#0d1117",
-        "oklch": "oklch(17.6% 0.014 258.4)",
+        "canonical": "#111317",
+        "oklch": "oklch(18.6% 0.009 264.3)",
         "tonalRamp": [
-          "oklch(15% 0.014 258.4)",
-          "oklch(26% 0.014 258.4)",
-          "oklch(38% 0.014 258.4)",
-          "oklch(50% 0.014 258.4)",
-          "oklch(62% 0.014 258.4)",
-          "oklch(74% 0.014 258.4)",
-          "oklch(85% 0.014 258.4)",
-          "oklch(95% 0.014 258.4)"
+          "oklch(15% 0.009 264.3)",
+          "oklch(26% 0.009 264.3)",
+          "oklch(38% 0.009 264.3)",
+          "oklch(50% 0.009 264.3)",
+          "oklch(62% 0.009 264.3)",
+          "oklch(74% 0.009 264.3)",
+          "oklch(85% 0.009 264.3)",
+          "oklch(95% 0.009 264.3)"
         ],
-        "purpose": "The page, the masthead, the tabs, Needs items and chat cards at rest, inputs, keys, open menus and the toast."
+        "purpose": "The page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus, the sheet and the toast."
+      },
+      "panel-dark": {
+        "role": "neutral",
+        "displayName": "Night Panel",
+        "cssVar": "--panel",
+        "theme": "dark",
+        "canonical": "#15181d",
+        "oklch": "oklch(20.8% 0.011 260.7)",
+        "tonalRamp": [
+          "oklch(15% 0.011 260.7)",
+          "oklch(26% 0.011 260.7)",
+          "oklch(38% 0.011 260.7)",
+          "oklch(50% 0.011 260.7)",
+          "oklch(62% 0.011 260.7)",
+          "oklch(74% 0.011 260.7)",
+          "oklch(85% 0.011 260.7)",
+          "oklch(95% 0.011 260.7)"
+        ],
+        "purpose": "The supervisor pane and the rail at board width."
       },
       "card-dark": {
         "role": "neutral",
-        "displayName": "Night Card Grey",
+        "displayName": "Night Card",
         "cssVar": "--card",
         "theme": "dark",
-        "canonical": "#161b22",
-        "oklch": "oklch(22.0% 0.016 256.8)",
+        "canonical": "#1b1f25",
+        "oklch": "oklch(23.8% 0.013 258.4)",
         "tonalRamp": [
-          "oklch(15% 0.016 256.8)",
-          "oklch(26% 0.016 256.8)",
-          "oklch(38% 0.016 256.8)",
-          "oklch(50% 0.016 256.8)",
-          "oklch(62% 0.016 256.8)",
-          "oklch(74% 0.016 256.8)",
-          "oklch(85% 0.016 256.8)",
-          "oklch(95% 0.016 256.8)"
+          "oklch(15% 0.013 258.4)",
+          "oklch(26% 0.013 258.4)",
+          "oklch(38% 0.013 258.4)",
+          "oklch(50% 0.013 258.4)",
+          "oklch(62% 0.013 258.4)",
+          "oklch(74% 0.013 258.4)",
+          "oklch(85% 0.013 258.4)",
+          "oklch(95% 0.013 258.4)"
         ],
-        "purpose": "Chat and thread card header strips, the composer box, default buttons, ref chips, and code in replies."
+        "purpose": "Thread card header strips, and code in replies."
       },
       "fg-dark": {
         "role": "neutral",
         "displayName": "Night Ink",
         "cssVar": "--fg",
         "theme": "dark",
-        "canonical": "#e6ebf1",
-        "oklch": "oklch(93.8% 0.010 252.8)",
+        "canonical": "#e8eaee",
+        "oklch": "oklch(93.7% 0.006 264.5)",
         "tonalRamp": [
-          "oklch(15% 0.010 252.8)",
-          "oklch(26% 0.010 252.8)",
-          "oklch(38% 0.010 252.8)",
-          "oklch(50% 0.010 252.8)",
-          "oklch(62% 0.010 252.8)",
-          "oklch(74% 0.010 252.8)",
-          "oklch(85% 0.010 252.8)",
-          "oklch(95% 0.010 252.8)"
+          "oklch(15% 0.006 264.5)",
+          "oklch(26% 0.006 264.5)",
+          "oklch(38% 0.006 264.5)",
+          "oklch(50% 0.006 264.5)",
+          "oklch(62% 0.006 264.5)",
+          "oklch(74% 0.006 264.5)",
+          "oklch(85% 0.006 264.5)",
+          "oklch(95% 0.006 264.5)"
         ],
         "purpose": "Body copy, headlines, the current tab and its underline, the author in a card header."
       },
@@ -486,17 +525,17 @@
         "displayName": "Night Muted Ink",
         "cssVar": "--muted",
         "theme": "dark",
-        "canonical": "#9aa3ae",
-        "oklch": "oklch(71.2% 0.019 253.4)",
+        "canonical": "#9ba2ad",
+        "oklch": "oklch(71.0% 0.018 259.4)",
         "tonalRamp": [
-          "oklch(15% 0.019 253.4)",
-          "oklch(26% 0.019 253.4)",
-          "oklch(38% 0.019 253.4)",
-          "oklch(50% 0.019 253.4)",
-          "oklch(62% 0.019 253.4)",
-          "oklch(74% 0.019 253.4)",
-          "oklch(85% 0.019 253.4)",
-          "oklch(95% 0.019 253.4)"
+          "oklch(15% 0.018 259.4)",
+          "oklch(26% 0.018 259.4)",
+          "oklch(38% 0.018 259.4)",
+          "oklch(50% 0.018 259.4)",
+          "oklch(62% 0.018 259.4)",
+          "oklch(74% 0.018 259.4)",
+          "oklch(85% 0.018 259.4)",
+          "oklch(95% 0.018 259.4)"
         ],
         "purpose": "Meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts."
       },
@@ -505,131 +544,131 @@
         "displayName": "Night Hairline",
         "cssVar": "--line",
         "theme": "dark",
-        "canonical": "#2e353e",
-        "oklch": "oklch(32.6% 0.019 254.8)",
+        "canonical": "#262b32",
+        "oklch": "oklch(28.7% 0.015 256.8)",
         "tonalRamp": [
-          "oklch(15% 0.019 254.8)",
-          "oklch(26% 0.019 254.8)",
-          "oklch(38% 0.019 254.8)",
-          "oklch(50% 0.019 254.8)",
-          "oklch(62% 0.019 254.8)",
-          "oklch(74% 0.019 254.8)",
-          "oklch(85% 0.019 254.8)",
-          "oklch(95% 0.019 254.8)"
+          "oklch(15% 0.015 256.8)",
+          "oklch(26% 0.015 256.8)",
+          "oklch(38% 0.015 256.8)",
+          "oklch(50% 0.015 256.8)",
+          "oklch(62% 0.015 256.8)",
+          "oklch(74% 0.015 256.8)",
+          "oklch(85% 0.015 256.8)",
+          "oklch(95% 0.015 256.8)"
         ],
-        "purpose": "Every rule and border, the context bar's track, and scrollbar thumbs."
+        "purpose": "Every rule and decorative border, the context bar track and scrollbar thumbs."
       },
       "line-strong-dark": {
         "role": "neutral",
         "displayName": "Night Control Edge",
         "cssVar": "--line-strong",
         "theme": "dark",
-        "canonical": "#5f6975",
-        "oklch": "oklch(51.7% 0.023 253.0)",
+        "canonical": "#6b7482",
+        "oklch": "oklch(55.6% 0.024 259.2)",
         "tonalRamp": [
-          "oklch(15% 0.023 253.0)",
-          "oklch(26% 0.023 253.0)",
-          "oklch(38% 0.023 253.0)",
-          "oklch(50% 0.023 253.0)",
-          "oklch(62% 0.023 253.0)",
-          "oklch(74% 0.023 253.0)",
-          "oklch(85% 0.023 253.0)",
-          "oklch(95% 0.023 253.0)"
+          "oklch(15% 0.024 259.2)",
+          "oklch(26% 0.024 259.2)",
+          "oklch(38% 0.024 259.2)",
+          "oklch(50% 0.024 259.2)",
+          "oklch(62% 0.024 259.2)",
+          "oklch(74% 0.024 259.2)",
+          "oklch(85% 0.024 259.2)",
+          "oklch(95% 0.024 259.2)"
         ],
-        "purpose": "The outline of select, input, textarea, the composer box, default buttons and the paperclip, at 3:1 or more on the ground and the card."
+        "purpose": "The outline of what the operator operates: select, input, textarea, the composer box, default buttons and the paperclip. 3:1 on the ground, the card and the panel."
       },
       "hover-dark": {
         "role": "neutral",
         "displayName": "Night Hover Wash",
         "cssVar": "--hover",
         "theme": "dark",
-        "canonical": "#1c232c",
-        "oklch": "oklch(25.3% 0.020 254.9)",
+        "canonical": "#1e232a",
+        "oklch": "oklch(25.4% 0.015 256.8)",
         "tonalRamp": [
-          "oklch(15% 0.020 254.9)",
-          "oklch(26% 0.020 254.9)",
-          "oklch(38% 0.020 254.9)",
-          "oklch(50% 0.020 254.9)",
-          "oklch(62% 0.020 254.9)",
-          "oklch(74% 0.020 254.9)",
-          "oklch(85% 0.020 254.9)",
-          "oklch(95% 0.020 254.9)"
+          "oklch(15% 0.015 256.8)",
+          "oklch(26% 0.015 256.8)",
+          "oklch(38% 0.015 256.8)",
+          "oklch(50% 0.015 256.8)",
+          "oklch(62% 0.015 256.8)",
+          "oklch(74% 0.015 256.8)",
+          "oklch(85% 0.015 256.8)",
+          "oklch(95% 0.015 256.8)"
         ],
-        "purpose": "The hover fill of buttons, menu rows and the model menu's summary."
+        "purpose": "The hover fill of buttons, rows, menu rows and the model menu summary."
       },
       "fail-dark": {
-        "role": "signal",
+        "role": "secondary",
         "displayName": "Night Fail Red",
         "cssVar": "--fail",
         "theme": "dark",
-        "canonical": "#ff6a63",
-        "oklch": "oklch(70.9% 0.183 25.5)",
+        "canonical": "#ff6b6b",
+        "oklch": "oklch(71.2% 0.181 22.8)",
         "tonalRamp": [
-          "oklch(15% 0.183 25.5)",
-          "oklch(26% 0.183 25.5)",
-          "oklch(38% 0.183 25.5)",
-          "oklch(50% 0.183 25.5)",
-          "oklch(62% 0.183 25.5)",
-          "oklch(74% 0.183 25.5)",
-          "oklch(85% 0.183 25.5)",
-          "oklch(95% 0.183 25.5)"
+          "oklch(15% 0.181 22.8)",
+          "oklch(26% 0.181 22.8)",
+          "oklch(38% 0.181 22.8)",
+          "oklch(50% 0.181 22.8)",
+          "oklch(62% 0.181 22.8)",
+          "oklch(74% 0.181 22.8)",
+          "oklch(85% 0.181 22.8)",
+          "oklch(95% 0.181 22.8)"
         ],
-        "purpose": "What blocks or has broken: blocked screens, failures, an interrupted or unreachable supervisor, the countdown, context at 90%, errors, Interrupt and an armed Stop."
+        "purpose": "Blocked screens, failures, an interrupted supervisor, the failing pill, the auto-deny countdown, the context bar from 90%, errors, and the controls that end a turn."
       },
       "wait-dark": {
-        "role": "signal",
+        "role": "secondary",
         "displayName": "Night Wait Amber",
         "cssVar": "--wait",
         "theme": "dark",
-        "canonical": "#e3a73b",
-        "oklch": "oklch(76.7% 0.139 78.2)",
+        "canonical": "#e6ac45",
+        "oklch": "oklch(78.0% 0.135 78.5)",
         "tonalRamp": [
-          "oklch(15% 0.139 78.2)",
-          "oklch(26% 0.139 78.2)",
-          "oklch(38% 0.139 78.2)",
-          "oklch(50% 0.139 78.2)",
-          "oklch(62% 0.139 78.2)",
-          "oklch(74% 0.139 78.2)",
-          "oklch(85% 0.139 78.2)",
-          "oklch(95% 0.139 78.2)"
+          "oklch(15% 0.135 78.5)",
+          "oklch(26% 0.135 78.5)",
+          "oklch(38% 0.135 78.5)",
+          "oklch(50% 0.135 78.5)",
+          "oklch(62% 0.135 78.5)",
+          "oklch(74% 0.135 78.5)",
+          "oklch(85% 0.135 78.5)",
+          "oklch(95% 0.135 78.5)"
         ],
-        "purpose": "Decisions and no-supervisor items, a pending model switch, context from 80%, a stale-server note, waiting task icons."
+        "purpose": "Decisions, limited attempts, no-supervisor and stalled items, a pending model switch, the context bar from 80%, waiting task icons."
       },
       "pass-dark": {
-        "role": "signal",
+        "role": "secondary",
         "displayName": "Night Pass Green",
         "cssVar": "--pass",
         "theme": "dark",
-        "canonical": "#4fc46c",
-        "oklch": "oklch(73.3% 0.164 148.9)",
+        "canonical": "#56c77a",
+        "oklch": "oklch(74.5% 0.152 151.4)",
         "tonalRamp": [
-          "oklch(15% 0.164 148.9)",
-          "oklch(26% 0.164 148.9)",
-          "oklch(38% 0.164 148.9)",
-          "oklch(50% 0.164 148.9)",
-          "oklch(62% 0.164 148.9)",
-          "oklch(74% 0.164 148.9)",
-          "oklch(85% 0.164 148.9)",
-          "oklch(95% 0.164 148.9)"
+          "oklch(15% 0.152 151.4)",
+          "oklch(26% 0.152 151.4)",
+          "oklch(38% 0.152 151.4)",
+          "oklch(50% 0.152 151.4)",
+          "oklch(62% 0.152 151.4)",
+          "oklch(74% 0.152 151.4)",
+          "oklch(85% 0.152 151.4)",
+          "oklch(95% 0.152 151.4)"
         ],
-        "purpose": "The ready pill, running and passing task icons, done report headers, the All clear icon."
+        "purpose": "The ready pill, running and passing task icons, done report headers, the All clear icon, the Recommended badge."
       },
       "neutral-dark": {
-        "role": "signal",
+        "role": "neutral",
         "displayName": "Night Neutral",
         "cssVar": "--neutral",
         "theme": "dark",
-        "canonical": "#9aa3ae",
-        "oklch": "oklch(71.2% 0.019 253.4)",
+        "canonical": "#9ba2ad",
+        "oklch": "oklch(71.0% 0.018 259.4)",
         "tonalRamp": [
-          "oklch(15% 0.019 253.4)",
-          "oklch(26% 0.019 253.4)",
-          "oklch(38% 0.019 253.4)",
-          "oklch(50% 0.019 253.4)",
-          "oklch(62% 0.019 253.4)",
-          "oklch(74% 0.019 253.4)",
-          "oklch(85% 0.019 253.4)",
-          "oklch(95% 0.019 253.4)"
+          "oklch(15% 0.018 259.4)",
+          "oklch(26% 0.018 259.4)",
+          "oklch(38% 0.018 259.4)",
+          "oklch(50% 0.018 259.4)",
+          "oklch(62% 0.018 259.4)",
+          "oklch(74% 0.018 259.4)",
+          "oklch(85% 0.018 259.4)",
+          "oklch(95% 0.018 259.4)"
         ],
         "purpose": "Reports and quiet attempts in Needs, the starting, stopped and no-supervisor pills, idle task icons, counts at rest."
       },
@@ -638,198 +677,198 @@
         "displayName": "Night Review Blue",
         "cssVar": "--accent",
         "theme": "dark",
-        "canonical": "#6ea6ff",
-        "oklch": "oklch(72.5% 0.143 259.3)",
+        "canonical": "#7ea6ff",
+        "oklch": "oklch(73.4% 0.137 264.9)",
         "tonalRamp": [
-          "oklch(15% 0.143 259.3)",
-          "oklch(26% 0.143 259.3)",
-          "oklch(38% 0.143 259.3)",
-          "oklch(50% 0.143 259.3)",
-          "oklch(62% 0.143 259.3)",
-          "oklch(74% 0.143 259.3)",
-          "oklch(85% 0.143 259.3)",
-          "oklch(95% 0.143 259.3)"
+          "oklch(15% 0.137 264.9)",
+          "oklch(26% 0.137 264.9)",
+          "oklch(38% 0.137 264.9)",
+          "oklch(50% 0.137 264.9)",
+          "oklch(62% 0.137 264.9)",
+          "oklch(74% 0.137 264.9)",
+          "oklch(85% 0.137 264.9)",
+          "oklch(95% 0.137 264.9)"
         ],
-        "purpose": "The operator's own marks and the live signal: the \"you\" label, focus, caret, links, the working pill and pulse, the Chat tab dot, the context fill, the composer focus frame."
+        "purpose": "The operator's own marks and the live signal: the \"you\" label and bubble, focus, caret, links, the working pill and pulse, the Chat tab and Conversation item dot, the context fill, the picked choice row, the composer focus frame."
       },
       "fail-bg-dark": {
-        "role": "signal",
-        "displayName": "Night Fail Fill",
+        "role": "secondary",
+        "displayName": "Night Pale Fail",
         "cssVar": "--fail-bg",
         "theme": "dark",
-        "canonical": "#3a1a1c",
-        "oklch": "oklch(26.4% 0.051 17.2)",
+        "canonical": "#2c1719",
+        "oklch": "oklch(23.4% 0.034 13.9)",
         "tonalRamp": [
-          "oklch(15% 0.051 17.2)",
-          "oklch(26% 0.051 17.2)",
-          "oklch(38% 0.051 17.2)",
-          "oklch(50% 0.051 17.2)",
-          "oklch(62% 0.051 17.2)",
-          "oklch(74% 0.051 17.2)",
-          "oklch(85% 0.051 17.2)",
-          "oklch(95% 0.051 17.2)"
+          "oklch(15% 0.034 13.9)",
+          "oklch(26% 0.034 13.9)",
+          "oklch(38% 0.034 13.9)",
+          "oklch(50% 0.034 13.9)",
+          "oklch(62% 0.034 13.9)",
+          "oklch(74% 0.034 13.9)",
+          "oklch(85% 0.034 13.9)",
+          "oklch(95% 0.034 13.9)"
         ],
-        "purpose": "Header fill of red Needs items and blocked or failed report headers; the failing pill; an armed Stop."
+        "purpose": "The header of a failing Needs item, the failing pill and report headers."
       },
       "wait-bg-dark": {
-        "role": "signal",
-        "displayName": "Night Wait Fill",
+        "role": "secondary",
+        "displayName": "Night Pale Wait",
         "cssVar": "--wait-bg",
         "theme": "dark",
-        "canonical": "#352912",
-        "oklch": "oklch(28.9% 0.041 82.2)",
+        "canonical": "#2a2212",
+        "oklch": "oklch(25.7% 0.030 83.9)",
         "tonalRamp": [
-          "oklch(15% 0.041 82.2)",
-          "oklch(26% 0.041 82.2)",
-          "oklch(38% 0.041 82.2)",
-          "oklch(50% 0.041 82.2)",
-          "oklch(62% 0.041 82.2)",
-          "oklch(74% 0.041 82.2)",
-          "oklch(85% 0.041 82.2)",
-          "oklch(95% 0.041 82.2)"
+          "oklch(15% 0.030 83.9)",
+          "oklch(26% 0.030 83.9)",
+          "oklch(38% 0.030 83.9)",
+          "oklch(50% 0.030 83.9)",
+          "oklch(62% 0.030 83.9)",
+          "oklch(74% 0.030 83.9)",
+          "oklch(85% 0.030 83.9)",
+          "oklch(95% 0.030 83.9)"
         ],
-        "purpose": "Header fill of amber Needs items; the masthead Needs count by default."
+        "purpose": "The header of a waiting Needs item and the waiting pill."
       },
       "pass-bg-dark": {
-        "role": "signal",
-        "displayName": "Night Pass Fill",
+        "role": "secondary",
+        "displayName": "Night Pale Pass",
         "cssVar": "--pass-bg",
         "theme": "dark",
-        "canonical": "#15301d",
-        "oklch": "oklch(28.1% 0.048 151.8)",
+        "canonical": "#13281b",
+        "oklch": "oklch(25.5% 0.037 155.5)",
         "tonalRamp": [
-          "oklch(15% 0.048 151.8)",
-          "oklch(26% 0.048 151.8)",
-          "oklch(38% 0.048 151.8)",
-          "oklch(50% 0.048 151.8)",
-          "oklch(62% 0.048 151.8)",
-          "oklch(74% 0.048 151.8)",
-          "oklch(85% 0.048 151.8)",
-          "oklch(95% 0.048 151.8)"
+          "oklch(15% 0.037 155.5)",
+          "oklch(26% 0.037 155.5)",
+          "oklch(38% 0.037 155.5)",
+          "oklch(50% 0.037 155.5)",
+          "oklch(62% 0.037 155.5)",
+          "oklch(74% 0.037 155.5)",
+          "oklch(85% 0.037 155.5)",
+          "oklch(95% 0.037 155.5)"
         ],
         "purpose": "The ready pill and done report headers."
       },
       "neutral-bg-dark": {
-        "role": "signal",
-        "displayName": "Night Neutral Fill",
+        "role": "neutral",
+        "displayName": "Night Pale Neutral",
         "cssVar": "--neutral-bg",
         "theme": "dark",
-        "canonical": "#20262e",
-        "oklch": "oklch(26.6% 0.017 255.7)",
+        "canonical": "#1e232a",
+        "oklch": "oklch(25.4% 0.015 256.8)",
         "tonalRamp": [
-          "oklch(15% 0.017 255.7)",
-          "oklch(26% 0.017 255.7)",
-          "oklch(38% 0.017 255.7)",
-          "oklch(50% 0.017 255.7)",
-          "oklch(62% 0.017 255.7)",
-          "oklch(74% 0.017 255.7)",
-          "oklch(85% 0.017 255.7)",
-          "oklch(95% 0.017 255.7)"
+          "oklch(15% 0.015 256.8)",
+          "oklch(26% 0.015 256.8)",
+          "oklch(38% 0.015 256.8)",
+          "oklch(50% 0.015 256.8)",
+          "oklch(62% 0.015 256.8)",
+          "oklch(74% 0.015 256.8)",
+          "oklch(85% 0.015 256.8)",
+          "oklch(95% 0.015 256.8)"
         ],
-        "purpose": "Header fill of neutral Needs items and report headers; neutral pills and counts."
+        "purpose": "The header of a neutral Needs item, quiet pills and counts at rest."
       },
       "accent-bg-dark": {
         "role": "primary",
-        "displayName": "Night Accent Fill",
+        "displayName": "Night Pale Blue",
         "cssVar": "--accent-bg",
         "theme": "dark",
-        "canonical": "#17263d",
-        "oklch": "oklch(26.8% 0.048 258.7)",
+        "canonical": "#172238",
+        "oklch": "oklch(25.3% 0.045 263.3)",
         "tonalRamp": [
-          "oklch(15% 0.048 258.7)",
-          "oklch(26% 0.048 258.7)",
-          "oklch(38% 0.048 258.7)",
-          "oklch(50% 0.048 258.7)",
-          "oklch(62% 0.048 258.7)",
-          "oklch(74% 0.048 258.7)",
-          "oklch(85% 0.048 258.7)",
-          "oklch(95% 0.048 258.7)"
+          "oklch(15% 0.045 263.3)",
+          "oklch(26% 0.045 263.3)",
+          "oklch(38% 0.045 263.3)",
+          "oklch(50% 0.045 263.3)",
+          "oklch(62% 0.045 263.3)",
+          "oklch(74% 0.045 263.3)",
+          "oklch(85% 0.045 263.3)",
+          "oklch(95% 0.045 263.3)"
         ],
-        "purpose": "The operator's chat cards, the working pill, and text selection."
+        "purpose": "The operator bubble, the picked choice row, the working pill and text selection."
       },
       "screen-dark": {
         "role": "neutral",
         "displayName": "Night Terminal",
         "cssVar": "--screen",
         "theme": "dark",
-        "canonical": "#07090c",
-        "oklch": "oklch(13.9% 0.008 255.5)",
+        "canonical": "#08090b",
+        "oklch": "oklch(13.9% 0.005 262.8)",
         "tonalRamp": [
-          "oklch(15% 0.008 255.5)",
-          "oklch(26% 0.008 255.5)",
-          "oklch(38% 0.008 255.5)",
-          "oklch(50% 0.008 255.5)",
-          "oklch(62% 0.008 255.5)",
-          "oklch(74% 0.008 255.5)",
-          "oklch(85% 0.008 255.5)",
-          "oklch(95% 0.008 255.5)"
+          "oklch(15% 0.005 262.8)",
+          "oklch(26% 0.005 262.8)",
+          "oklch(38% 0.005 262.8)",
+          "oklch(50% 0.005 262.8)",
+          "oklch(62% 0.005 262.8)",
+          "oklch(74% 0.005 262.8)",
+          "oklch(85% 0.005 262.8)",
+          "oklch(95% 0.005 262.8)"
         ],
-        "purpose": "The ground of a blocked screen's excerpt, dark in both themes."
+        "purpose": "A blocked screen's excerpt, dark in both themes."
       },
       "screen-fg-dark": {
         "role": "neutral",
-        "displayName": "Night Terminal Text",
+        "displayName": "Night Terminal Ink",
         "cssVar": "--screen-fg",
         "theme": "dark",
-        "canonical": "#d7dde4",
-        "oklch": "oklch(89.5% 0.012 252.1)",
+        "canonical": "#d8dde4",
+        "oklch": "oklch(89.6% 0.011 256.7)",
         "tonalRamp": [
-          "oklch(15% 0.012 252.1)",
-          "oklch(26% 0.012 252.1)",
-          "oklch(38% 0.012 252.1)",
-          "oklch(50% 0.012 252.1)",
-          "oklch(62% 0.012 252.1)",
-          "oklch(74% 0.012 252.1)",
-          "oklch(85% 0.012 252.1)",
-          "oklch(95% 0.012 252.1)"
+          "oklch(15% 0.011 256.7)",
+          "oklch(26% 0.011 256.7)",
+          "oklch(38% 0.011 256.7)",
+          "oklch(50% 0.011 256.7)",
+          "oklch(62% 0.011 256.7)",
+          "oklch(74% 0.011 256.7)",
+          "oklch(85% 0.011 256.7)",
+          "oklch(95% 0.011 256.7)"
         ],
-        "purpose": "The text of a blocked screen's excerpt."
+        "purpose": "Text in the terminal excerpt."
       },
       "primary-dark": {
         "role": "secondary",
-        "displayName": "Night Commit Green",
+        "displayName": "Night Ink Button",
         "cssVar": "--primary",
         "theme": "dark",
-        "canonical": "#1f7f3e",
-        "oklch": "oklch(52.7% 0.132 149.6)",
+        "canonical": "#e8eaee",
+        "oklch": "oklch(93.7% 0.006 264.5)",
         "tonalRamp": [
-          "oklch(15% 0.132 149.6)",
-          "oklch(26% 0.132 149.6)",
-          "oklch(38% 0.132 149.6)",
-          "oklch(50% 0.132 149.6)",
-          "oklch(62% 0.132 149.6)",
-          "oklch(74% 0.132 149.6)",
-          "oklch(85% 0.132 149.6)",
-          "oklch(95% 0.132 149.6)"
+          "oklch(15% 0.006 264.5)",
+          "oklch(26% 0.006 264.5)",
+          "oklch(38% 0.006 264.5)",
+          "oklch(50% 0.006 264.5)",
+          "oklch(62% 0.006 264.5)",
+          "oklch(74% 0.006 264.5)",
+          "oklch(85% 0.006 264.5)",
+          "oklch(95% 0.006 264.5)"
         ],
-        "purpose": "The one committing button in a form: Send, Answer, Resume, Start."
+        "purpose": "The one committing button in a form; near-black by day and near-white at night."
       },
       "on-primary-dark": {
-        "role": "secondary",
-        "displayName": "Night On Commit",
+        "role": "neutral",
+        "displayName": "Night Ink Button Text",
         "cssVar": "--on-primary",
         "theme": "dark",
-        "canonical": "#ffffff",
-        "oklch": "oklch(100.0% 0.000 89.9)",
+        "canonical": "#111317",
+        "oklch": "oklch(18.6% 0.009 264.3)",
         "tonalRamp": [
-          "oklch(15% 0.000 89.9)",
-          "oklch(26% 0.000 89.9)",
-          "oklch(38% 0.000 89.9)",
-          "oklch(50% 0.000 89.9)",
-          "oklch(62% 0.000 89.9)",
-          "oklch(74% 0.000 89.9)",
-          "oklch(85% 0.000 89.9)",
-          "oklch(95% 0.000 89.9)"
+          "oklch(15% 0.009 264.3)",
+          "oklch(26% 0.009 264.3)",
+          "oklch(38% 0.009 264.3)",
+          "oklch(50% 0.009 264.3)",
+          "oklch(62% 0.009 264.3)",
+          "oklch(74% 0.009 264.3)",
+          "oklch(85% 0.009 264.3)",
+          "oklch(95% 0.009 264.3)"
         ],
-        "purpose": "Text on the committing button."
+        "purpose": "Text on the primary button."
       },
       "shadow-dark": {
         "role": "neutral",
-        "displayName": "Night Shadow",
+        "displayName": "Night Lift Shadow",
         "cssVar": "--shadow",
         "theme": "dark",
-        "canonical": "rgba(0,0,0,.5)",
-        "purpose": "The colour of the one lift shadow, under open menus and the toast."
+        "canonical": "rgba(0,0,0,.55)",
+        "purpose": "The one lift shadow under open menus and the toast."
       },
       "tint-0": {
         "role": "tertiary",
@@ -1073,241 +1112,241 @@
       },
       "tint-0-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 0 (night)",
+        "displayName": "Fleet Tint 0",
         "cssVar": "--tint",
         "class": "tint-0",
         "theme": "dark",
-        "canonical": "#417ed2",
-        "oklch": "oklch(59.4% 0.144 257.0)",
+        "canonical": "#5b8fe0",
+        "oklch": "oklch(65.0% 0.134 259.0)",
         "tonalRamp": [
-          "oklch(15% 0.144 257.0)",
-          "oklch(26% 0.144 257.0)",
-          "oklch(38% 0.144 257.0)",
-          "oklch(50% 0.144 257.0)",
-          "oklch(62% 0.144 257.0)",
-          "oklch(74% 0.144 257.0)",
-          "oklch(85% 0.144 257.0)",
-          "oklch(95% 0.144 257.0)"
+          "oklch(15% 0.134 259.0)",
+          "oklch(26% 0.134 259.0)",
+          "oklch(38% 0.134 259.0)",
+          "oklch(50% 0.134 259.0)",
+          "oklch(62% 0.134 259.0)",
+          "oklch(74% 0.134 259.0)",
+          "oklch(85% 0.134 259.0)",
+          "oklch(95% 0.134 259.0)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-1-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 1 (night)",
+        "displayName": "Fleet Tint 1",
         "cssVar": "--tint",
         "class": "tint-1",
         "theme": "dark",
-        "canonical": "#7a70de",
-        "oklch": "oklch(60.7% 0.162 284.6)",
+        "canonical": "#8b82ea",
+        "oklch": "oklch(66.1% 0.151 285.4)",
         "tonalRamp": [
-          "oklch(15% 0.162 284.6)",
-          "oklch(26% 0.162 284.6)",
-          "oklch(38% 0.162 284.6)",
-          "oklch(50% 0.162 284.6)",
-          "oklch(62% 0.162 284.6)",
-          "oklch(74% 0.162 284.6)",
-          "oklch(85% 0.162 284.6)",
-          "oklch(95% 0.162 284.6)"
+          "oklch(15% 0.151 285.4)",
+          "oklch(26% 0.151 285.4)",
+          "oklch(38% 0.151 285.4)",
+          "oklch(50% 0.151 285.4)",
+          "oklch(62% 0.151 285.4)",
+          "oklch(74% 0.151 285.4)",
+          "oklch(85% 0.151 285.4)",
+          "oklch(95% 0.151 285.4)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-2-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 2 (night)",
+        "displayName": "Fleet Tint 2",
         "cssVar": "--tint",
         "class": "tint-2",
         "theme": "dark",
-        "canonical": "#a55cd9",
-        "oklch": "oklch(61.3% 0.190 308.8)",
+        "canonical": "#b06fe3",
+        "oklch": "oklch(65.9% 0.176 308.2)",
         "tonalRamp": [
-          "oklch(15% 0.190 308.8)",
-          "oklch(26% 0.190 308.8)",
-          "oklch(38% 0.190 308.8)",
-          "oklch(50% 0.190 308.8)",
-          "oklch(62% 0.190 308.8)",
-          "oklch(74% 0.190 308.8)",
-          "oklch(85% 0.190 308.8)",
-          "oklch(95% 0.190 308.8)"
+          "oklch(15% 0.176 308.2)",
+          "oklch(26% 0.176 308.2)",
+          "oklch(38% 0.176 308.2)",
+          "oklch(50% 0.176 308.2)",
+          "oklch(62% 0.176 308.2)",
+          "oklch(74% 0.176 308.2)",
+          "oklch(85% 0.176 308.2)",
+          "oklch(95% 0.176 308.2)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-3-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 3 (night)",
+        "displayName": "Fleet Tint 3",
         "cssVar": "--tint",
         "class": "tint-3",
         "theme": "dark",
-        "canonical": "#d13bc4",
-        "oklch": "oklch(62.2% 0.234 331.8)",
+        "canonical": "#d955cc",
+        "oklch": "oklch(66.3% 0.213 331.7)",
         "tonalRamp": [
-          "oklch(15% 0.234 331.8)",
-          "oklch(26% 0.234 331.8)",
-          "oklch(38% 0.234 331.8)",
-          "oklch(50% 0.234 331.8)",
-          "oklch(62% 0.234 331.8)",
-          "oklch(74% 0.234 331.8)",
-          "oklch(85% 0.234 331.8)",
-          "oklch(95% 0.234 331.8)"
+          "oklch(15% 0.213 331.7)",
+          "oklch(26% 0.213 331.7)",
+          "oklch(38% 0.213 331.7)",
+          "oklch(50% 0.213 331.7)",
+          "oklch(62% 0.213 331.7)",
+          "oklch(74% 0.213 331.7)",
+          "oklch(85% 0.213 331.7)",
+          "oklch(95% 0.213 331.7)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-4-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 4 (night)",
+        "displayName": "Fleet Tint 4",
         "cssVar": "--tint",
         "class": "tint-4",
         "theme": "dark",
-        "canonical": "#d54b85",
-        "oklch": "oklch(61.7% 0.181 357.9)",
+        "canonical": "#e0628f",
+        "oklch": "oklch(66.4% 0.163 0.1)",
         "tonalRamp": [
-          "oklch(15% 0.181 357.9)",
-          "oklch(26% 0.181 357.9)",
-          "oklch(38% 0.181 357.9)",
-          "oklch(50% 0.181 357.9)",
-          "oklch(62% 0.181 357.9)",
-          "oklch(74% 0.181 357.9)",
-          "oklch(85% 0.181 357.9)",
-          "oklch(95% 0.181 357.9)"
+          "oklch(15% 0.163 0.1)",
+          "oklch(26% 0.163 0.1)",
+          "oklch(38% 0.163 0.1)",
+          "oklch(50% 0.163 0.1)",
+          "oklch(62% 0.163 0.1)",
+          "oklch(74% 0.163 0.1)",
+          "oklch(85% 0.163 0.1)",
+          "oklch(95% 0.163 0.1)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-5-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 5 (night)",
+        "displayName": "Fleet Tint 5",
         "cssVar": "--tint",
         "class": "tint-5",
         "theme": "dark",
-        "canonical": "#d45347",
-        "oklch": "oklch(61.0% 0.165 28.2)",
+        "canonical": "#e06a5e",
+        "oklch": "oklch(66.3% 0.150 27.7)",
         "tonalRamp": [
-          "oklch(15% 0.165 28.2)",
-          "oklch(26% 0.165 28.2)",
-          "oklch(38% 0.165 28.2)",
-          "oklch(50% 0.165 28.2)",
-          "oklch(62% 0.165 28.2)",
-          "oklch(74% 0.165 28.2)",
-          "oklch(85% 0.165 28.2)",
-          "oklch(95% 0.165 28.2)"
+          "oklch(15% 0.150 27.7)",
+          "oklch(26% 0.150 27.7)",
+          "oklch(38% 0.150 27.7)",
+          "oklch(50% 0.150 27.7)",
+          "oklch(62% 0.150 27.7)",
+          "oklch(74% 0.150 27.7)",
+          "oklch(85% 0.150 27.7)",
+          "oklch(95% 0.150 27.7)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-6-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 6 (night)",
+        "displayName": "Fleet Tint 6",
         "cssVar": "--tint",
         "class": "tint-6",
         "theme": "dark",
-        "canonical": "#a97328",
-        "oklch": "oklch(59.8% 0.111 71.0)",
+        "canonical": "#c18a3c",
+        "oklch": "oklch(67.3% 0.115 72.9)",
         "tonalRamp": [
-          "oklch(15% 0.111 71.0)",
-          "oklch(26% 0.111 71.0)",
-          "oklch(38% 0.111 71.0)",
-          "oklch(50% 0.111 71.0)",
-          "oklch(62% 0.111 71.0)",
-          "oklch(74% 0.111 71.0)",
-          "oklch(85% 0.111 71.0)",
-          "oklch(95% 0.111 71.0)"
+          "oklch(15% 0.115 72.9)",
+          "oklch(26% 0.115 72.9)",
+          "oklch(38% 0.115 72.9)",
+          "oklch(50% 0.115 72.9)",
+          "oklch(62% 0.115 72.9)",
+          "oklch(74% 0.115 72.9)",
+          "oklch(85% 0.115 72.9)",
+          "oklch(95% 0.115 72.9)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-7-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 7 (night)",
+        "displayName": "Fleet Tint 7",
         "cssVar": "--tint",
         "class": "tint-7",
         "theme": "dark",
-        "canonical": "#7c841f",
-        "oklch": "oklch(58.8% 0.120 114.1)",
+        "canonical": "#9aa13a",
+        "oklch": "oklch(68.3% 0.126 113.0)",
         "tonalRamp": [
-          "oklch(15% 0.120 114.1)",
-          "oklch(26% 0.120 114.1)",
-          "oklch(38% 0.120 114.1)",
-          "oklch(50% 0.120 114.1)",
-          "oklch(62% 0.120 114.1)",
-          "oklch(74% 0.120 114.1)",
-          "oklch(85% 0.120 114.1)",
-          "oklch(95% 0.120 114.1)"
+          "oklch(15% 0.126 113.0)",
+          "oklch(26% 0.126 113.0)",
+          "oklch(38% 0.126 113.0)",
+          "oklch(50% 0.126 113.0)",
+          "oklch(62% 0.126 113.0)",
+          "oklch(74% 0.126 113.0)",
+          "oklch(85% 0.126 113.0)",
+          "oklch(95% 0.126 113.0)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-8-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 8 (night)",
+        "displayName": "Fleet Tint 8",
         "cssVar": "--tint",
         "class": "tint-8",
         "theme": "dark",
-        "canonical": "#4f8f21",
-        "oklch": "oklch(58.5% 0.155 135.3)",
+        "canonical": "#6ea73d",
+        "oklch": "oklch(66.6% 0.150 133.1)",
         "tonalRamp": [
-          "oklch(15% 0.155 135.3)",
-          "oklch(26% 0.155 135.3)",
-          "oklch(38% 0.155 135.3)",
-          "oklch(50% 0.155 135.3)",
-          "oklch(62% 0.155 135.3)",
-          "oklch(74% 0.155 135.3)",
-          "oklch(85% 0.155 135.3)",
-          "oklch(95% 0.155 135.3)"
+          "oklch(15% 0.150 133.1)",
+          "oklch(26% 0.150 133.1)",
+          "oklch(38% 0.150 133.1)",
+          "oklch(50% 0.150 133.1)",
+          "oklch(62% 0.150 133.1)",
+          "oklch(74% 0.150 133.1)",
+          "oklch(85% 0.150 133.1)",
+          "oklch(95% 0.150 133.1)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-9-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 9 (night)",
+        "displayName": "Fleet Tint 9",
         "cssVar": "--tint",
         "class": "tint-9",
         "theme": "dark",
-        "canonical": "#22912b",
-        "oklch": "oklch(57.5% 0.170 144.0)",
+        "canonical": "#45ad50",
+        "oklch": "oklch(66.5% 0.163 145.3)",
         "tonalRamp": [
-          "oklch(15% 0.170 144.0)",
-          "oklch(26% 0.170 144.0)",
-          "oklch(38% 0.170 144.0)",
-          "oklch(50% 0.170 144.0)",
-          "oklch(62% 0.170 144.0)",
-          "oklch(74% 0.170 144.0)",
-          "oklch(85% 0.170 144.0)",
-          "oklch(95% 0.170 144.0)"
+          "oklch(15% 0.163 145.3)",
+          "oklch(26% 0.163 145.3)",
+          "oklch(38% 0.163 145.3)",
+          "oklch(50% 0.163 145.3)",
+          "oklch(62% 0.163 145.3)",
+          "oklch(74% 0.163 145.3)",
+          "oklch(85% 0.163 145.3)",
+          "oklch(95% 0.163 145.3)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-10-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 10 (night)",
+        "displayName": "Fleet Tint 10",
         "cssVar": "--tint",
         "class": "tint-10",
         "theme": "dark",
-        "canonical": "#218f61",
-        "oklch": "oklch(57.8% 0.120 160.2)",
+        "canonical": "#3fac7c",
+        "oklch": "oklch(66.9% 0.123 161.0)",
         "tonalRamp": [
-          "oklch(15% 0.120 160.2)",
-          "oklch(26% 0.120 160.2)",
-          "oklch(38% 0.120 160.2)",
-          "oklch(50% 0.120 160.2)",
-          "oklch(62% 0.120 160.2)",
-          "oklch(74% 0.120 160.2)",
-          "oklch(85% 0.120 160.2)",
-          "oklch(95% 0.120 160.2)"
+          "oklch(15% 0.123 161.0)",
+          "oklch(26% 0.123 161.0)",
+          "oklch(38% 0.123 161.0)",
+          "oklch(50% 0.123 161.0)",
+          "oklch(62% 0.123 161.0)",
+          "oklch(74% 0.123 161.0)",
+          "oklch(85% 0.123 161.0)",
+          "oklch(95% 0.123 161.0)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       },
       "tint-11-dark": {
         "role": "tertiary",
-        "displayName": "Fleet Tint 11 (night)",
+        "displayName": "Fleet Tint 11",
         "cssVar": "--tint",
         "class": "tint-11",
         "theme": "dark",
-        "canonical": "#238b95",
-        "oklch": "oklch(58.5% 0.091 204.7)",
+        "canonical": "#3fa6b0",
+        "oklch": "oklch(67.0% 0.094 204.2)",
         "tonalRamp": [
-          "oklch(15% 0.091 204.7)",
-          "oklch(26% 0.091 204.7)",
-          "oklch(38% 0.091 204.7)",
-          "oklch(50% 0.091 204.7)",
-          "oklch(62% 0.091 204.7)",
-          "oklch(74% 0.091 204.7)",
-          "oklch(85% 0.091 204.7)",
-          "oklch(95% 0.091 204.7)"
+          "oklch(15% 0.094 204.2)",
+          "oklch(26% 0.094 204.2)",
+          "oklch(38% 0.094 204.2)",
+          "oklch(50% 0.094 204.2)",
+          "oklch(62% 0.094 204.2)",
+          "oklch(74% 0.094 204.2)",
+          "oklch(85% 0.094 204.2)",
+          "oklch(95% 0.094 204.2)"
         ],
         "purpose": "The mark and the masthead's 3px top rule for a fleet whose id hashes to this tint."
       }
@@ -1319,15 +1358,15 @@
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "The fleet name, the Needs and Tasks heads, and ### headings in replies."
+        "purpose": "The Needs and Tasks heads and the fleet list head."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "The headline of an open Needs item; a collapsed item sets it at 500 on one line."
+        "purpose": "The headline of an open Needs item, the fleet name in the masthead and ### headings in replies; a collapsed row sets it at 400 in Body type."
       },
       "copy": {
         "displayName": "Copy",
-        "purpose": "Chat card bodies at a 72ch measure; thread card bodies fill the card."
+        "purpose": "Chat message bodies at a 72ch measure; thread card bodies fill the card."
       },
       "body": {
         "displayName": "Body",
@@ -1335,7 +1374,7 @@
       },
       "heading-small": {
         "displayName": "Heading small",
-        "purpose": "h2 heads and #### headings in replies."
+        "purpose": "h3 heads on thread pages and #### headings in replies."
       },
       "nav": {
         "displayName": "Nav",
@@ -1347,15 +1386,15 @@
       },
       "badge": {
         "displayName": "Badge",
-        "purpose": "The status pill, the masthead Needs count and the Needs head count."
+        "purpose": "Every badge: the status pills, the Needs counts, the task group counts, deliverable links, report states and the countdown."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Chips, the tab count, task group heads and menu labels."
+        "purpose": "Needs band heads, task group heads and menu labels."
       },
       "meta": {
         "displayName": "Meta",
-        "purpose": "Times, meta, card header strips, Hand lines, the working line, hints and notes."
+        "purpose": "Times, meta, message head lines, card header strips, Hand lines, the working line, hints and notes."
       },
       "mono": {
         "displayName": "Mono",
@@ -1363,7 +1402,7 @@
       },
       "severity-code": {
         "displayName": "Severity code",
-        "purpose": "The uppercase word in a Needs header and on the task page waiting rows."
+        "purpose": "The severity word on the task page waiting rows."
       },
       "code-block": {
         "displayName": "Code block",
@@ -1402,45 +1441,50 @@
       {
         "name": "lamp",
         "value": "2s ease-in-out infinite; opacity .35 at 50%",
-        "purpose": "The one working pulse: the running icon in the working pill."
+        "purpose": "The one working pulse: the running icon in the working pill and the working line."
       },
       {
         "name": "feed",
         "value": ".28s cubic-bezier(.16,1,.3,1); from translateY(1.4em) and opacity 0",
-        "purpose": "An entry new to the Chat timeline rises into place."
+        "purpose": "An entry new to the conversation rises into place."
       },
       {
         "name": "arrive",
         "value": "1.6s cubic-bezier(.16,1,.3,1); from filter brightness(1.35)",
-        "purpose": "The arrival wash on a new Needs item's header."
+        "purpose": "The arrival wash on a new Needs item's row."
       },
       {
         "name": "disclose",
         "value": "block-size .24s cubic-bezier(.16,1,.3,1) on ::details-content, with interpolate-size:allow-keywords",
         "purpose": "A Needs item opening, closing, and collapsing on acknowledge."
-      }
-    ],
-    "reducedMotion": "Under prefers-reduced-motion:reduce the lamp, the feed, the arrival wash and the disclose transition all stop (TestMotionHonoursReducedMotion).",
-    "breakpoints": [
-      {
-        "name": "desk",
-        "value": "(min-width:1024px)",
-        "purpose": "Chat 760px and the Needs rail 360 to 400px side by side, 32px apart; tabs hidden; the Needs head shown; masthead aligned to 1192px."
       },
       {
-        "name": "tabs-wide",
-        "value": "(min-width:600px)",
-        "purpose": "Tabs take their content width at 10px by 14px."
+        "name": "rail",
+        "value": "width .18s on the rail; the label button widens it to 232px",
+        "purpose": "The rail's labels opening over the page."
+      }
+    ],
+    "reducedMotion": "Under prefers-reduced-motion:reduce the lamp, the feed, the arrival wash, the disclose transition and the rail and separator transitions all stop (TestMotionHonoursReducedMotion).",
+    "breakpoints": [
+      {
+        "name": "board",
+        "value": "(min-width:900px)",
+        "purpose": "The 56px rail, and the work pane beside the supervisor pane (--pane); tabs hidden; the Needs and Tasks heads shown; the separator present; the masthead row spans the page with 24px of padding."
+      },
+      {
+        "name": "below-board",
+        "value": "(max-width:899px)",
+        "purpose": "Three tabs (Needs, Tasks, Chat), one panel at a time, panels held to 880px and 760px columns; the menu button opens the rail as a sheet; no resizing."
       },
       {
         "name": "phone",
         "value": "(max-width:599px)",
-        "purpose": "12px board padding; one-row masthead with the Needs count shown and the fleet id, model, queue, compactions and context bar hidden; the composer hint on its own row; the Interrupt label hidden; tabs in halves."
+        "purpose": "12px board padding; one-row masthead with the Needs count shown and the fleet id, model, queue, compactions and context bar hidden; the Interrupt label hidden; tabs in thirds."
       },
       {
         "name": "app-shell",
-        "value": "(min-height:600px)",
-        "purpose": "With body[data-page=fleet][data-shell]: the body fills 100dvh and never scrolls; Needs and the timeline scroll inside themselves."
+        "value": "(min-height:600px), (min-width:900px)",
+        "purpose": "With body[data-page=fleet][data-shell]: the body fills 100dvh and never scrolls; the work pane and the timeline scroll inside themselves."
       },
       {
         "name": "short",
@@ -1455,7 +1499,7 @@
       {
         "name": "coarse-pointer",
         "value": "(pointer:coarse)",
-        "purpose": "16px inputs, selects and text areas; the send key hint hidden."
+        "purpose": "--control 44px; 16px inputs; 24px separator; 52px option rows; the send key hint hidden."
       },
       {
         "name": "reduced-motion",
@@ -1465,34 +1509,44 @@
     ],
     "containers": [
       {
-        "name": "fleet-column",
+        "name": "rail",
+        "value": "56px (232px open)",
+        "purpose": "The fixed navigation column from 900px; the page takes 56px of left padding."
+      },
+      {
+        "name": "pane",
+        "value": "clamp(360px, var(--chat, clamp(400px, 38vw, 720px)), calc(100% - 440px))",
+        "purpose": "The supervisor pane's width; --chat is the remembered drag width (hand.chat in localStorage) and only --pane clamps it."
+      },
+      {
+        "name": "work-column",
+        "value": "880px",
+        "purpose": "Needs and Tasks inside the work pane, padded 24px by 32px."
+      },
+      {
+        "name": "chat-column",
         "value": "760px",
-        "purpose": "Chat, and each tabbed panel below 1024px."
-      },
-      {
-        "name": "needs-rail",
-        "value": "minmax(360px,400px)",
-        "purpose": "The Needs rail at desk width, with 24px left padding and a hairline."
-      },
-      {
-        "name": "desk-pair",
-        "value": "1192px",
-        "purpose": "Chat, the 32px gap and the rail; the masthead aligns to it at desk width."
+        "purpose": "The timeline and the composer inside the supervisor pane."
       },
       {
         "name": "thread",
         "value": "880px",
-        "purpose": "Task, decision, conversation, error and fleet-list pages; padding 20px 16px 48px; the masthead aligns to 848px."
+        "purpose": "Task, Tasks, decision, conversation, error and fleet-list pages; padding 20px 16px 48px; the masthead aligns to 848px (1120px and 1088px on the task page)."
+      },
+      {
+        "name": "two-line-row",
+        "value": "(max-width:479px) on the work pane",
+        "purpose": "A collapsed Needs row takes two lines: the title, then the refs and time."
       },
       {
         "name": "measure",
         "value": "72ch",
-        "purpose": "Chat card copy."
+        "purpose": "Chat message copy."
       },
       {
-        "name": "operator-card",
-        "value": "75%",
-        "purpose": "The widest an operator card grows in Chat; supervisor cards stop at 90%."
+        "name": "operator-bubble",
+        "value": "88% / 560px",
+        "purpose": "The widest an operator bubble grows."
       },
       {
         "name": "composer-growth",
@@ -1503,7 +1557,7 @@
     "layers": [
       {
         "z": 1,
-        "what": "a reply table's sticky first column"
+        "what": "a reply table's sticky first column, and refs and badges on a task row"
       },
       {
         "z": 2,
@@ -1515,15 +1569,27 @@
       },
       {
         "z": 4,
-        "what": "the compact masthead and open menus"
+        "what": "the masthead and open menus"
       },
       {
         "z": 5,
-        "what": "the toast"
+        "what": "the toast and the separator"
       },
       {
         "z": 6,
         "what": "the skip link"
+      },
+      {
+        "z": 7,
+        "what": "the rail and the sheet scrim"
+      },
+      {
+        "z": 8,
+        "what": "the sheet"
+      },
+      {
+        "z": 9,
+        "what": "the rail's label tip"
       }
     ],
     "icons": {
@@ -1535,10 +1601,17 @@
         "passing",
         "idle",
         "waiting",
-        "bell",
         "chevron",
         "interrupt",
-        "more"
+        "more",
+        "attach",
+        "search",
+        "board",
+        "tasks",
+        "chat",
+        "fleets",
+        "sidebar",
+        "menu"
       ],
       "viewBox": "0 0 16 16",
       "strokeWidth": 1.5,
@@ -1557,8 +1630,13 @@
         "wait": "waiting",
         "neutral": "idle"
       },
-      "unused": [
-        "bell"
+      "railIcons": [
+        "board",
+        "tasks",
+        "chat",
+        "fleets",
+        "sidebar",
+        "menu"
       ],
       "test": "TestIconsAreOwnInlineSVG"
     },
@@ -1592,9 +1670,19 @@
           "word": "FAILED"
         },
         {
+          "kind": "limited",
+          "tone": "wait",
+          "word": "LIMITED"
+        },
+        {
           "kind": "nosup",
           "tone": "wait",
           "word": "NO SUPERVISOR"
+        },
+        {
+          "kind": "stalled",
+          "tone": "wait",
+          "word": "STALLED"
         },
         {
           "kind": "resume",
@@ -1615,13 +1703,18 @@
           "kind": "quiet",
           "tone": "neutral",
           "word": "QUIET"
+        },
+        {
+          "kind": "long",
+          "tone": "neutral",
+          "word": "LONG TURN"
         }
       ],
       "uses": [
-        "Needs order",
-        "each item header fill and icon",
+        "Needs order and bands",
+        "each band head and each open item header fill and icon",
         "the Needs head count",
-        "the tab count",
+        "the tab count and the rail Board count",
         "the masthead Needs count on phone (\"1 blocked\")"
       ],
       "cap": 50
@@ -1644,7 +1737,7 @@
       "title": "\"(!) s1 blocked\", \"(n) fleet\", \"● fleet\", or the fleet name"
     },
     "constraints": {
-      "csp": "script-src 'self'; one stylesheet and one script; no inline script, inline style or style attribute (TestNoInlineScriptOrStyle)",
+      "csp": "script-src 'self'; one stylesheet and one script; no inline script, inline style or style attribute (TestNoInlineScriptOrStyle); app.js sets --chat and the rail tip's top through the CSSOM",
       "fonts": "system faces only; no @font-face and no url() in board.css (TestNoWebFonts)",
       "regions": [
         "status",
@@ -1653,17 +1746,18 @@
         "queue",
         "tasks"
       ],
-      "outsideRegions": "#composer",
+      "outsideRegions": "#composer and the task search form",
       "liveUpdates": "Server-Sent Events per region, polling when hidden or disconnected",
-      "withoutJs": "both panels show, the tabs are anchors, forms post and redirect",
-      "contrast": "16 text pairs at 4.5:1 in both themes (TestColoursMeetContrast)",
+      "withoutJs": "all three panels show, the tabs are anchors, the rail links render, the separator is absent, forms post and redirect",
+      "contrast": "22 text pairs at 4.5:1 in both themes (TestColoursMeetContrast)",
       "typeSizes": [
         "22px",
-        "16px",
+        "18px",
         "15px",
         "14px",
         "12px"
-      ]
+      ],
+      "width": "one remembered chat width; chat at least 360px, work pane at least 440px; no resizing below 900px"
     }
   },
   "components": [
@@ -1673,15 +1767,15 @@
       "refersTo": "button",
       "description": "The default control: Mark read, New session, Cancel, Switch now, the keys of a blocked screen.",
       "html": "<button class=\"ds-btn\">Mark read</button>",
-      "css": ".ds-btn{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line-strong,#848d99);border-radius:6px;background:var(--card,#f4f6f8);color:var(--fg,#1b1f24);cursor:pointer}.ds-btn:hover{background:var(--hover,#eaeef2)}.ds-btn:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
+      "css": ".ds-btn{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid var(--line-strong,#848d99);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);cursor:pointer}.ds-btn:hover{background:var(--hover,#eaeef2)}.ds-btn:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn:disabled{opacity:.55;cursor:default}"
     },
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one committing button in a form: Send, Answer, Resume, Start.",
+      "description": "The one committing button in a form: Send, Send answer, Resume, Start.",
       "html": "<button class=\"ds-btn-primary\">Answer</button>",
-      "css": ".ds-btn-primary{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#19793b);color:var(--on-primary,#ffffff);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}.ds-btn-primary:disabled{opacity:.55;cursor:default}"
+      "css": ".ds-btn-primary{font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#19793b);color:var(--on-primary,#ffffff);cursor:pointer}.ds-btn-primary:hover{filter:brightness(1.08)}.ds-btn-primary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-btn-primary:disabled{opacity:.55;cursor:default}"
     },
     {
       "name": "Status Pill",
@@ -1689,7 +1783,7 @@
       "refersTo": "status-pill",
       "description": "The supervisor state in the masthead: an icon and a word on a pale fill; the working icon pulses.",
       "html": "<span class=\"ds-pill\" data-state=\"working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span>working</span></span> <span class=\"ds-pill\" data-state=\"ready\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.25 8.25l1.9 1.9 3.6-4\"/></svg><span>ready</span></span> <span class=\"ds-pill\" data-state=\"failing\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span>blocked</span></span> <span class=\"ds-pill\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-dasharray=\"2.2 2.2\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/></svg><span>stopped</span></span>",
-      "css": ".ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill .ds-icon{flex:none;width:12px;height:12px}.ds-pill[data-state=ready]{background:var(--pass-bg,#e3f5e8);color:var(--pass,#19793b)}.ds-pill[data-state=working]{background:var(--accent-bg,#e8f0fc);color:var(--accent,#1d5fc2)}.ds-pill[data-state=working] .ds-icon{animation:ds-lamp 2s ease-in-out infinite}.ds-pill[data-state=failing]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}@keyframes ds-lamp{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.ds-pill .ds-icon{animation:none}}"
+      "css": ".ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:600 12px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-pill .ds-icon{flex:none;width:12px;height:12px}.ds-pill[data-state=ready]{background:var(--pass-bg,#e3f5e8);color:var(--pass,#19793b)}.ds-pill[data-state=working]{background:var(--accent-bg,#e8f0fc);color:var(--accent,#2457c5)}.ds-pill[data-state=working] .ds-icon{animation:ds-lamp 2s ease-in-out infinite}.ds-pill[data-state=failing]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}@keyframes ds-lamp{50%{opacity:.35}}@media (prefers-reduced-motion:reduce){.ds-pill .ds-icon{animation:none}}"
     },
     {
       "name": "Masthead",
@@ -1697,66 +1791,93 @@
       "refersTo": "masthead",
       "description": "The 44px row on every page: the tinted mark and fleet name, then the status pill, the supervisor and model, and the context bar.",
       "html": "<header class=\"ds-masthead\"><a class=\"ds-brand\" href=\"#\"><svg class=\"ds-mark\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13z\"/><path d=\"M8 3.3v1\"/><path d=\"M8 8l2.9-3.9\"/><path d=\"M8 7.2a.8.8 0 1 0 0 1.6a.8.8 0 1 0 0-1.6z\" fill=\"currentColor\"/></svg><span class=\"ds-fleet\">fleet</span></a><span class=\"ds-spacer\"></span><span class=\"ds-strip\"><span class=\"ds-pill\" data-state=\"working\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><span>working</span></span><span class=\"ds-who\">s1 · opus high</span><span class=\"ds-ctx\"><span class=\"ds-meter\"><span></span></span><span>510K / 1M</span></span></span></header>",
-      "css": ".ds-masthead{--tint:#407acc;display:flex;align-items:center;gap:12px;min-height:44px;padding:0 16px;background:var(--bg,#fcfcfd);color:var(--fg,#1b1f24);border-top:3px solid var(--tint);border-bottom:1px solid var(--line,#d5dbe2);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--fg,#1b1f24);text-decoration:none}.ds-mark{flex:none;width:22px;height:22px;color:var(--tint)}.ds-fleet{font-size:16px;font-weight:600;line-height:24px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-spacer{flex:1}.ds-strip{display:flex;align-items:center;gap:10px;font-size:12px;line-height:20px;white-space:nowrap}.ds-who{color:var(--muted,#59616c);font-weight:600}.ds-ctx{display:inline-flex;align-items:center;gap:6px;color:var(--muted,#59616c);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums}.ds-meter{display:inline-block;width:48px;height:6px;border-radius:3px;background:var(--line,#d5dbe2);overflow:hidden}.ds-meter>span{display:block;width:51%;height:100%;background:var(--accent,#1d5fc2)}.ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--accent-bg,#e8f0fc);color:var(--accent,#1d5fc2);font-weight:600}.ds-pill .ds-icon{width:12px;height:12px}.ds-brand:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}"
+      "css": ".ds-masthead{--tint:#407acc;display:flex;align-items:center;gap:12px;min-height:44px;padding:0 16px;background:var(--bg,#ffffff);color:var(--fg,#15171c);border-top:3px solid var(--tint);border-bottom:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-brand{display:flex;align-items:center;gap:8px;min-width:0;color:var(--fg,#15171c);text-decoration:none}.ds-mark{flex:none;width:22px;height:22px;color:var(--tint)}.ds-fleet{font-size:16px;font-weight:600;line-height:24px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ds-spacer{flex:1}.ds-strip{display:flex;align-items:center;gap:10px;font-size:12px;line-height:20px;white-space:nowrap}.ds-who{color:var(--muted,#59616c);font-weight:600}.ds-ctx{display:inline-flex;align-items:center;gap:6px;color:var(--muted,#59616c);font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums}.ds-meter{display:inline-block;width:48px;height:6px;border-radius:3px;background:var(--line,#e3e6ea);overflow:hidden}.ds-meter>span{display:block;width:51%;height:100%;background:var(--accent,#2457c5)}.ds-pill{display:inline-flex;align-items:center;gap:4px;padding:0 8px 0 6px;border-radius:999px;background:var(--accent-bg,#e8f0fc);color:var(--accent,#2457c5);font-weight:600}.ds-pill .ds-icon{width:12px;height:12px}.ds-brand:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}"
+    },
+    {
+      "name": "Rail",
+      "kind": "nav",
+      "refersTo": "rail",
+      "description": "The 56px icon rail from 900px: Board with the Needs count, Tasks, Conversation with the working dot, then the fleets. The current page is a tile on the ground; the current fleet has an ink bar at the edge.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"Board\"><a href=\"#\" aria-current=\"page\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.75 2.75h10.5a1 1 0 0 1 1 1v8.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1v-8.5a1 1 0 0 1 1-1z\"/><path d=\"M9.75 2.75v10.5\"/></svg><span class=\"ds-n\" data-worst=\"fail\">3</span></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 4h6.5M7 8h6.5M7 12h6.5\"/><path d=\"M2.25 4l1 1 1.75-2\"/><path d=\"M2.75 8h1.5M2.75 12h1.5\"/></svg></a><a href=\"#\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3.25 2.75h9.5a1.5 1.5 0 0 1 1.5 1.5v5.5a1.5 1.5 0 0 1-1.5 1.5H7.5l-3 2.5v-2.5H3.25a1.5 1.5 0 0 1-1.5-1.5v-5.5a1.5 1.5 0 0 1 1.5-1.5z\"/></svg><span class=\"ds-dot\"></span></a><hr><a class=\"ds-fleet\" href=\"#\" aria-current=\"true\"><span class=\"ds-mark\"></span></a><a class=\"ds-fleet\" href=\"#\"><span class=\"ds-mark ds-other\"></span></a></nav>",
+      "css": ".ds-rail{display:flex;flex-direction:column;align-items:center;gap:2px;width:56px;padding:56px 0 12px;border:1px solid var(--line,#e3e6ea);border-width:0 1px 0 0;background:var(--panel,#f6f7f9);color:var(--muted,#5b626e);box-sizing:border-box}.ds-rail a{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid transparent;border-radius:6px;color:inherit;text-decoration:none}.ds-rail a:hover{background:var(--hover,#eef0f3);color:var(--fg,#15171c)}.ds-rail a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-rail a[aria-current=page]{border-color:var(--line,#e3e6ea);background:var(--bg,#fff);color:var(--fg,#15171c)}.ds-rail hr{width:32px;margin:8px 0;border:0;border-top:1px solid var(--line,#e3e6ea)}.ds-rail .ds-fleet[aria-current]{color:var(--fg,#15171c)}.ds-rail .ds-fleet[aria-current]::before{content:\"\";position:absolute;left:-8px;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--fg,#15171c)}.ds-mark{width:18px;height:18px;border-radius:50%;background:#407acc}.ds-mark.ds-other{background:#25848d}.ds-n{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32);font:600 12px/18px system-ui,sans-serif;text-align:center;outline:2px solid var(--panel,#f6f7f9)}.ds-dot{position:absolute;top:9px;right:9px;width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5);outline:2px solid var(--panel,#f6f7f9)}.ds-icon{width:16px;height:16px}"
     },
     {
       "name": "Tabs",
       "kind": "nav",
       "refersTo": "tab",
-      "description": "Below 1024px: Needs with its worst-toned count, and Chat with the working dot.",
-      "html": "<nav class=\"ds-tabs\"><a href=\"#\" aria-current=\"true\">Needs <span class=\"ds-n\" data-worst=\"fail\">1</span></a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
-      "css": ".ds-tabs{display:flex;background:var(--bg,#fcfcfd);border-bottom:1px solid var(--line,#d5dbe2);font:600 14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{display:flex;align-items:center;gap:6px;margin-bottom:-1px;padding:10px 14px;border-bottom:2px solid transparent;color:var(--muted,#59616c);text-decoration:none}.ds-tabs a:hover{color:var(--fg,#1b1f24)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#1b1f24);color:var(--fg,#1b1f24)}.ds-n{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}.ds-n[data-worst=fail]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}.ds-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#1d5fc2)}"
+      "description": "Below 900px: Needs with its worst-toned count, Tasks, and Chat with the working dot, each a third of the width.",
+      "html": "<nav class=\"ds-tabs\"><a href=\"#\" aria-current=\"true\">Needs <span class=\"ds-n\" data-worst=\"fail\">1</span></a><a href=\"#\">Tasks</a><a href=\"#\">Chat <span class=\"ds-dot\"></span></a></nav>",
+      "css": ".ds-tabs{display:flex;border-bottom:1px solid var(--line,#e3e6ea);background:var(--bg,#fff);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-tabs a{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:-1px;padding:10px 12px;border-bottom:2px solid transparent;color:var(--muted,#5b626e);font-weight:600;text-decoration:none}.ds-tabs a:hover{color:var(--fg,#15171c)}.ds-tabs a[aria-current=true]{border-bottom-color:var(--fg,#15171c);color:var(--fg,#15171c)}.ds-tabs a:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-n{display:inline-block;min-width:20px;height:20px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--neutral-bg,#eef0f3);color:var(--neutral,#5b626e);font:600 12px/18px system-ui,sans-serif;text-align:center}.ds-n[data-worst=fail]{background:var(--fail-bg,#fdeeee);color:var(--fail,#c42b32)}.ds-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#2457c5)}"
     },
     {
-      "name": "Needs Item",
+      "name": "Needs Band And Items",
       "kind": "custom",
       "refersTo": "need-item",
-      "description": "The signature component: a bordered item with a pale severity header (icon, code, refs, countdown, headline) over its action, here a blocked screen with its keys.",
-      "html": "<details class=\"ds-need\" data-tone=\"fail\" open><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span class=\"ds-slug\"><span class=\"ds-code\">BLOCKED</span><span class=\"ds-ref\">s1</span></span><span class=\"ds-countdown\">0:42</span><span class=\"ds-headline\">Bash: run the test suite · Do you want to proceed?</span></summary><div class=\"ds-need-body\"><pre class=\"ds-screen\"><code>Do you want to proceed?\n  1. Yes\n❯ 2. No</code></pre><div class=\"ds-keys\"><button>2 No</button><button>Esc</button><button>1 Yes</button></div></div></details>",
-      "css": ".ds-need{border:1px solid var(--line,#d5dbe2);border-radius:8px;overflow:hidden;background:var(--bg,#fcfcfd);color:var(--fg,#1b1f24);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-need>summary{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:2px;padding:8px 12px;cursor:pointer;list-style:none;background:var(--neutral-bg,#eceff3)}.ds-need>summary::-webkit-details-marker{display:none}.ds-need>summary:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:-2px}.ds-need .ds-icon{width:16px;height:16px;color:var(--neutral,#59616c)}.ds-need[data-tone=fail]>summary{background:var(--fail-bg,#fdecec)}.ds-need[data-tone=fail] .ds-icon{color:var(--fail,#c4262e)}.ds-slug{display:flex;gap:8px;font-size:12px;line-height:18px;color:color-mix(in srgb,var(--fail,#c4262e) 55%,var(--fg,#1b1f24))}.ds-code{font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--fail,#c4262e)}.ds-ref{font-family:ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}.ds-countdown{padding:0 6px;border-radius:999px;background:var(--bg,#fcfcfd);color:var(--fail,#c4262e);font:600 12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;font-variant-numeric:tabular-nums}.ds-headline{grid-column:1/-1;font-size:16px;font-weight:600;line-height:22px}.ds-need>summary:hover .ds-headline{text-decoration:underline;text-decoration-color:var(--line,#d5dbe2);text-underline-offset:.2em}.ds-need-body{display:grid;gap:10px;padding:10px 12px 12px}.ds-screen{margin:0;padding:10px 12px;border-radius:6px;background:var(--screen,#11151a);color:var(--screen-fg,#d7dde4);font:12px/1.45 ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;white-space:pre-wrap}.ds-keys{display:flex;flex-wrap:wrap;gap:6px}.ds-keys button{min-width:2.6em;padding:4px 12px;border:1px solid var(--line,#d5dbe2);border-radius:6px;background:var(--card,#f4f6f8);color:var(--fg,#1b1f24);font:500 14px/20px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;box-shadow:inset 0 -1px 0 var(--line,#d5dbe2);cursor:pointer}.ds-keys button:hover{background:var(--hover,#eaeef2)}.ds-keys button:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px}"
+      "description": "The signature component: one band head per severity word over calm one-line rows, with the top item open as a card whose header takes the tone's pale fill, here a blocked screen with its keys.",
+      "html": "<div class=\"ds-band\" data-tone=\"fail\">Blocked</div><details class=\"ds-need\" data-tone=\"fail\" open><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.75 5.75l4.5 4.5M10.25 5.75l-4.5 4.5\"/></svg><span class=\"ds-headline\">Bash: run the test suite · Do you want to proceed?</span><span class=\"ds-countdown\">0:42</span><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg><span class=\"ds-slug\"><span class=\"ds-ref\">s1</span><time>12:41</time></span></summary><div class=\"ds-need-body\"><pre class=\"ds-screen\"><code>Do you want to proceed?\n  1. Yes\n❯ 2. No</code></pre><div class=\"ds-keys\"><button>2 No</button><button>Esc</button><button>1 Yes</button></div></div></details><div class=\"ds-band\" data-tone=\"wait\">Decision</div><details class=\"ds-need\" data-tone=\"wait\"><summary><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><span class=\"ds-headline\">Keep the old config format?</span><span class=\"ds-slug\"><span class=\"ds-ref\">d5</span><time>12:30</time></span><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></summary></details>",
+      "css": ".ds-band{margin:20px 0 4px;padding:0 16px;color:var(--muted,#5b626e);font:600 12px/18px system-ui,sans-serif;letter-spacing:.02em}.ds-band[data-tone=fail]{color:var(--fail,#c42b32)}.ds-band[data-tone=wait]{color:var(--wait,#8a5b00)}.ds-need{background:var(--bg,#fff);color:var(--fg,#15171c);border-bottom:1px solid var(--line,#e3e6ea);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-need>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;cursor:pointer;list-style:none}.ds-need>summary::-webkit-details-marker{display:none}.ds-need>summary:hover{background:var(--hover,#eef0f3)}.ds-need>summary:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-2px}.ds-need[data-tone=fail]>summary>.ds-icon:first-child{color:var(--fail,#c42b32)}.ds-need[data-tone=wait]>summary>.ds-icon:first-child{color:var(--wait,#8a5b00)}.ds-headline{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-slug{display:flex;gap:8px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ref{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.ds-countdown{height:20px;padding:0 8px;border-radius:999px;background:var(--bg,#fff);border:1px solid var(--line,#e3e6ea);color:var(--fail,#c42b32);font:600 12px/18px ui-monospace,monospace}.ds-need>summary>.ds-icon:last-of-type{color:var(--muted,#5b626e)}.ds-need[open]{margin:6px 0 10px;border:1px solid var(--line,#e3e6ea);border-radius:10px;overflow:hidden}.ds-need[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}.ds-need[open][data-tone=fail]>summary{background:var(--fail-bg,#fdeeee)}.ds-need[open]>summary>.ds-headline{font-size:15px;font-weight:600;line-height:22px;white-space:normal}.ds-need[open]>summary>.ds-slug{order:5;flex:1 0 100%;padding-left:26px}.ds-need-body{display:grid;gap:10px;padding:10px 15px 15px 41px}.ds-screen{margin:0;padding:10px 0 10px 12px;border-radius:6px;background:var(--screen,#111418);color:var(--screen-fg,#d8dde4);font:12px/18px ui-monospace,monospace;white-space:pre-wrap}.ds-keys{display:flex;flex-wrap:wrap;gap:6px}.ds-keys button{min-width:2.6em;height:32px;padding:0 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px ui-monospace,monospace;box-shadow:inset 0 -1px 0 var(--line,#e3e6ea)}.ds-icon{width:16px;height:16px;flex:none}"
+    },
+    {
+      "name": "Choice List",
+      "kind": "custom",
+      "refersTo": "choice-option",
+      "description": "How a decision is answered: numbered options with their consequences in a bordered list, one marked Recommended, a note, and the one primary Send answer.",
+      "html": "<div class=\"ds-options\"><label class=\"ds-option\"><span class=\"ds-key\">1</span><span class=\"ds-text\"><span class=\"ds-label\">Keep 0.13.x <span class=\"ds-rec\">Recommended</span></span><span class=\"ds-note\">No migration; the old config keeps working.</span></span></label><label class=\"ds-option ds-picked\"><span class=\"ds-key\">2</span><span class=\"ds-text\"><span class=\"ds-label\">Track 0.14.x</span><span class=\"ds-note\">Gets the new watcher; needs a one-time update.</span></span></label><label class=\"ds-option\"><span class=\"ds-key\">3</span><span class=\"ds-text\"><span class=\"ds-label\">Other</span><span class=\"ds-note\">Write your own answer in the note.</span></span></label></div><textarea class=\"ds-textarea\" placeholder=\"Add a note (optional)\" rows=\"1\"></textarea><button class=\"ds-primary\">Send answer</button>",
+      "css": ".ds-options{display:grid;border:1px solid var(--line,#e3e6ea);border-radius:10px;background:var(--bg,#fff);overflow:hidden;font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-option{display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:start;min-height:48px;padding:12px 14px;cursor:pointer}.ds-option+.ds-option{padding-top:11px;border-top:1px solid var(--line,#e3e6ea)}.ds-option:hover{background:var(--hover,#eef0f3)}.ds-key{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--line-strong,#80889a);border-radius:50%;color:var(--muted,#5b626e);font:600 12px/1 ui-monospace,monospace}.ds-text{display:grid;gap:2px}.ds-label{font-weight:600;line-height:22px}.ds-rec{display:inline-block;height:20px;margin-left:8px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:var(--pass-bg,#e4f4e9);color:var(--pass,#1a7a3e);font:600 12px/18px system-ui,sans-serif;vertical-align:1px}.ds-note{color:var(--muted,#5b626e)}.ds-picked{background:var(--accent-bg,#ebf1fd)}.ds-picked .ds-key{border-color:var(--accent,#2457c5);background:var(--accent,#2457c5);color:var(--bg,#fff)}.ds-textarea{display:block;width:100%;box-sizing:border-box;min-height:32px;margin-top:10px;padding:8px 10px;border:1px solid var(--line-strong,#80889a);border-radius:6px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,sans-serif;resize:none}.ds-textarea:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-1px}.ds-primary{height:32px;margin-top:10px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
     },
     {
       "name": "Task Row",
       "kind": "custom",
       "refersTo": "task-row",
-      "description": "One task in Needs or one attempt on a task page: state icon, ref chip, title, right-aligned meta and a PR chip between hairlines.",
+      "description": "One task in Tasks or one attempt on a task page: state icon, ref, title, right-aligned meta and a PR badge between hairlines.",
       "html": "<ol class=\"ds-checks\"><li class=\"ds-check\" data-state=\"waiting\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 0 12.5a6.25 6.25 0 1 0 0-12.5z\"/><path d=\"M5.5 8h.01M8 8h.01M10.5 8h.01\"/></svg><a class=\"ds-ref\" href=\"#\">t12</a><span class=\"ds-title\">Split the report parser</span><span class=\"ds-meta\">a9 claude opus · blocked</span><a class=\"ds-chip\" href=\"#\">PR</a></li><li class=\"ds-check\" data-state=\"running\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M8 1.75a6.25 6.25 0 1 0 6.25 6.25\"/><path d=\"M8 5.25a2.75 2.75 0 1 0 0 5.5a2.75 2.75 0 1 0 0-5.5z\" fill=\"currentColor\"/></svg><a class=\"ds-ref\" href=\"#\">t14</a><span class=\"ds-title\">Add the decision page</span><span class=\"ds-meta\">a11 codex · working</span></li></ol>",
-      "css": ".ds-checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line,#d5dbe2);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#1b1f24)}.ds-check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line,#d5dbe2);white-space:nowrap}.ds-check .ds-icon{width:16px;height:16px}.ds-check[data-state=waiting] .ds-icon{color:var(--wait,#8f5e00)}.ds-check[data-state=running] .ds-icon{color:var(--pass,#19793b)}.ds-title{min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-meta{justify-self:end;color:var(--muted,#59616c);font-size:12px;font-variant-numeric:tabular-nums}.ds-ref{padding:0 6px;border:1px solid var(--line,#d5dbe2);border-radius:6px;background:var(--card,#f4f6f8);color:var(--fg,#1b1f24);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#1d5fc2);color:var(--accent,#1d5fc2)}.ds-chip{padding:0 7px;border:1px solid var(--line,#d5dbe2);border-radius:999px;color:var(--accent,#1d5fc2);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px}"
+      "css": ".ds-checks{list-style:none;margin:0;padding:0;border-top:1px solid var(--line,#e3e6ea);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#15171c)}.ds-check{display:grid;grid-template-columns:16px auto minmax(0,1fr) auto auto;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--line,#e3e6ea);white-space:nowrap}.ds-check .ds-icon{width:16px;height:16px}.ds-check[data-state=waiting] .ds-icon{color:var(--wait,#8f5e00)}.ds-check[data-state=running] .ds-icon{color:var(--pass,#19793b)}.ds-title{min-width:0;overflow:hidden;text-overflow:ellipsis}.ds-meta{justify-self:end;color:var(--muted,#59616c);font-size:12px;font-variant-numeric:tabular-nums}.ds-ref{padding:0 6px;border:1px solid var(--line,#e3e6ea);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#2457c5);color:var(--accent,#2457c5)}.ds-chip{padding:0 7px;border:1px solid var(--line,#e3e6ea);border-radius:999px;color:var(--accent,#2457c5);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px}"
     },
     {
-      "name": "Chat Thread",
+      "name": "Conversation",
       "kind": "card",
-      "refersTo": "chat-card",
-      "description": "A supervisor card on the left, an operator card on the right on accent-bg, and a one-line Hand event with its ring.",
-      "html": "<div class=\"ds-thread\"><article class=\"ds-card\"><header><span class=\"ds-who\">s1</span><time>12:41</time></header><div class=\"ds-copy\">t12 is blocked on a Bash prompt; the attempt a9 waits in Needs.</div></article><p class=\"ds-hand\"><span class=\"ds-ring\"></span><span>You pressed 2 (No) on s1's Bash prompt</span><time>12:42</time></p><article class=\"ds-card ds-you\"><header><span class=\"ds-who\">you</span><time>12:43</time><span class=\"ds-delivery\">delivered 12:43</span></header><div class=\"ds-copy\">Run the tests without the network step.</div></article></div>",
-      "css": ".ds-thread{display:flex;flex-direction:column;gap:12px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#1b1f24)}.ds-card{align-self:flex-start;max-width:90%;min-width:min(16em,100%);border:1px solid var(--line,#d5dbe2);border-radius:8px;background:var(--bg,#fcfcfd);overflow:hidden}.ds-card>header{display:flex;align-items:baseline;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line,#d5dbe2);background:var(--card,#f4f6f8);color:var(--muted,#59616c);font-size:12px;line-height:18px}.ds-card .ds-who{color:var(--fg,#1b1f24);font-weight:600}.ds-copy{padding:10px 12px;font-size:15px;line-height:1.6;max-width:72ch}.ds-you{align-self:flex-end;max-width:75%;border-color:var(--accent-bg,#e8f0fc);background:var(--accent-bg,#e8f0fc)}.ds-you>header{background:transparent}.ds-you .ds-who{color:var(--accent,#1d5fc2)}.ds-delivery{margin-left:auto}.ds-hand{display:grid;grid-template-columns:8px minmax(0,1fr) auto;align-items:start;column-gap:8px;margin:0;padding:2px 0;color:var(--muted,#59616c);font-size:12px;line-height:18px}.ds-ring{width:8px;height:8px;margin-top:5px;border:1.5px solid var(--muted,#59616c);border-radius:50%}"
+      "refersTo": "msg-copy",
+      "description": "A supervisor reply on the pane under a head line, an operator bubble on the right on accent-bg, and a one-line Hand event with its ring.",
+      "html": "<div class=\"ds-thread\"><div class=\"ds-reply\"><div class=\"ds-head\"><b>s1</b><time>12:41</time></div><p>t12 is blocked on a Bash prompt; the attempt a9 waits in Needs.</p></div><p class=\"ds-hand\"><span class=\"ds-ring\"></span><span>pressed 2 (No) on s1's Bash prompt</span><time>12:42</time></p><div class=\"ds-you\"><div class=\"ds-head\"><b>you</b><time>12:43</time><span class=\"ds-delivery\">delivered 12:43</span></div><p>Run the tests without the network step.</p></div></div>",
+      "css": ".ds-thread{display:grid;gap:14px;max-width:760px;color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-head{display:flex;align-items:baseline;gap:8px;margin-bottom:4px;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-head b{color:var(--fg,#15171c);font-weight:600}.ds-delivery{margin-left:auto}.ds-reply p,.ds-you p{margin:0;font-size:15px;line-height:24px;max-width:72ch}.ds-you{justify-self:end;max-width:88%;padding:10px 14px 12px;border-radius:10px 10px 4px 10px;background:var(--accent-bg,#ebf1fd)}.ds-you b{color:var(--accent,#2457c5)}.ds-hand{display:flex;align-items:center;gap:8px;margin:0;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-ring{width:8px;height:8px;border:1px solid var(--line-strong,#80889a);border-radius:50%;box-sizing:border-box}"
     },
     {
       "name": "Composer",
       "kind": "input",
       "refersTo": "composer",
-      "description": "One card under the timeline: the growing text box, then the model menu, Interrupt, Stop, the hint and Send. With no supervisor, the hint and Send share a row above a hairline and the Start strip: profile select, the one primary Start, and a closed details of per-harness rows.",
-      "html": "<div class=\"ds-composer\"><textarea placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><span class=\"ds-console\"><span class=\"ds-model\">opus · high <svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 6.25L8 9.75l3.5-3.5\"/></svg></span><button class=\"ds-key ds-interrupt\"><svg class=\"ds-icon\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\" fill=\"currentColor\"><path d=\"M5 4h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z\"/></svg>Interrupt</button><button class=\"ds-key ds-stop\">Stop</button></span><span class=\"ds-hint\">s1 is working; your message queues.</span><span class=\"ds-send\"><kbd>Ctrl Enter</kbd><button class=\"ds-primary\">Send</button></span></div>",
-      "css": ".ds-composer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:\"text text text\" \"console hint send\";align-items:center;gap:8px 10px;padding:10px;border:1px solid var(--line-strong,#848d99);border-radius:6px;background:var(--card,#f4f6f8);font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;color:var(--fg,#1b1f24)}.ds-composer:focus-within{border-color:var(--accent,#1d5fc2);box-shadow:0 0 0 1px var(--accent,#1d5fc2)}.ds-composer textarea{grid-area:text;min-height:4.5em;border:0;background:transparent;padding:4px 2px;font:inherit;color:inherit;resize:vertical;caret-color:var(--accent,#1d5fc2)}.ds-composer textarea:focus{outline:0}.ds-composer textarea::placeholder{color:var(--muted,#59616c)}.ds-console{grid-area:console;display:flex;align-items:center;gap:4px}.ds-model{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-weight:600;cursor:pointer}.ds-model:hover{background:var(--hover,#eaeef2)}.ds-icon{width:16px;height:16px}.ds-key{display:inline-flex;align-items:center;gap:6px;min-width:32px;height:28px;padding:0 10px;border:1px solid var(--line-strong,#848d99);border-radius:6px;background:var(--bg,#fcfcfd);color:var(--fg,#1b1f24);font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;cursor:pointer}.ds-interrupt{border-color:var(--fail,#c4262e);color:var(--fail,#c4262e)}.ds-stop{color:var(--muted,#59616c)}.ds-stop:hover{border-color:var(--fail,#c4262e);color:var(--fail,#c4262e)}.ds-key:focus-visible,.ds-primary:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px}.ds-hint{grid-area:hint;color:var(--muted,#59616c);font-size:12px}.ds-send{grid-area:send;display:flex;align-items:center;gap:8px}.ds-send kbd{padding:0 5px;border:1px solid var(--line,#d5dbe2);border-bottom-width:2px;border-radius:4px;color:var(--muted,#59616c);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace}.ds-primary{padding:4px 12px;border:1px solid transparent;border-radius:6px;background:var(--primary,#19793b);color:var(--on-primary,#ffffff);font:500 14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif;cursor:pointer}.ds-primary:hover{filter:brightness(1.08)}"
+      "description": "One box under the timeline: the growing text box, then the hint and the send group (paperclip, key hint, Send).",
+      "html": "<div class=\"ds-composer\"><textarea placeholder=\"Message the supervisor\" aria-label=\"Message the supervisor\"></textarea><div class=\"ds-foot\"><span class=\"ds-hint\">s1 is working; your message queues.</span><span class=\"ds-send\"><kbd>Ctrl Enter</kbd><button class=\"ds-primary\">Send</button></span></div></div>",
+      "css": ".ds-composer{max-width:760px;padding:4px 4px 8px;border:1px solid var(--line-strong,#80889a);border-radius:10px;background:var(--bg,#fff);color:var(--fg,#15171c);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-composer:focus-within{border-color:var(--accent,#2457c5);box-shadow:0 0 0 1px var(--accent,#2457c5)}.ds-composer textarea{display:block;width:100%;min-height:44px;box-sizing:border-box;padding:8px 10px;border:0;background:transparent;color:inherit;font:inherit;resize:none;outline:0}.ds-foot{display:flex;align-items:center;gap:8px;padding:0 8px}.ds-hint{flex:1;color:var(--muted,#5b626e);font:12px/18px system-ui,sans-serif}.ds-send{display:flex;align-items:center;gap:8px}kbd{height:20px;padding:0 6px;box-sizing:border-box;border-radius:4px;border:1px solid var(--line,#e3e6ea);border-bottom-width:2px;color:var(--muted,#5b626e);font:12px/16px ui-monospace,monospace}.ds-primary{height:32px;padding:0 12px;border:0;border-radius:6px;background:var(--primary,#15171c);color:var(--on-primary,#fff);font:600 14px system-ui,sans-serif}"
     },
     {
-      "name": "Refs, Chips and Counts",
+      "name": "Separator",
+      "kind": "custom",
+      "refersTo": "separator",
+      "description": "The drag strip on the supervisor pane's left edge: a hairline at rest, a 3px accent line and a grip on hover, focus or drag.",
+      "html": "<div class=\"ds-split\"><div class=\"ds-work\">Work pane</div><div class=\"ds-sep\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Chat width\" tabindex=\"0\"></div><div class=\"ds-chat\">Supervisor pane</div></div>",
+      "css": ".ds-split{position:relative;display:grid;grid-template-columns:1fr 200px;height:96px;color:var(--muted,#5b626e);font:14px/20px system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-work,.ds-chat{display:grid;place-items:center}.ds-chat{border-left:1px solid var(--line,#e3e6ea);background:var(--panel,#f6f7f9)}.ds-sep{position:absolute;top:0;bottom:0;right:199px;width:10px;cursor:col-resize}.ds-sep::before{content:\"\";position:absolute;top:0;bottom:0;left:4px;width:3px;background:var(--accent,#2457c5);opacity:0}.ds-sep::after{content:\"\";position:absolute;top:calc(50% - 18px);left:2px;width:6px;height:36px;border-radius:3px;background:var(--line-strong,#80889a);opacity:0}.ds-sep:hover::before,.ds-sep:focus-visible::before,.ds-sep:hover::after,.ds-sep:focus-visible::after{opacity:1}.ds-sep:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:-2px}"
+    },
+    {
+      "name": "Refs, Badges and Counts",
       "kind": "chip",
       "refersTo": "ref",
-      "description": "A linked mono ref chip, a PR chip, a severity code on its pale fill, and the Needs head count in its worst tone.",
+      "description": "A linked mono ref, a deliverable badge (PR) opening in a new tab, a severity badge on its pale fill, and the Needs head count in its worst tone.",
       "html": "<span class=\"ds-row\"><a class=\"ds-ref\" href=\"#\">t12</a><a class=\"ds-chip\" href=\"#\">PR</a><span class=\"ds-code\" data-tone=\"wait\">DECISION</span><span class=\"ds-count\" data-worst=\"fail\">3</span></span>",
-      "css": ".ds-row{display:flex;align-items:center;gap:8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line,#d5dbe2);border-radius:6px;background:var(--card,#f4f6f8);color:var(--fg,#1b1f24);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#1d5fc2);color:var(--accent,#1d5fc2)}.ds-chip{padding:0 7px;border:1px solid var(--line,#d5dbe2);border-radius:999px;color:var(--accent,#1d5fc2);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#1d5fc2);outline-offset:2px;border-radius:4px}.ds-code{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:700 12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;letter-spacing:.03em;text-transform:uppercase}.ds-code[data-tone=wait]{background:var(--wait-bg,#fcf3d9);color:var(--wait,#8f5e00)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--fg,#1b1f24);font-size:12px;font-weight:600;line-height:20px;text-align:center;font-variant-numeric:tabular-nums}.ds-count[data-worst=fail]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}"
+      "css": ".ds-row{display:flex;align-items:center;gap:8px;font:14px/1.5 system-ui,-apple-system,\"Segoe UI\",\"Noto Sans\",Helvetica,Arial,sans-serif}.ds-ref{display:inline-block;padding:0 6px;border:1px solid var(--line,#e3e6ea);border-radius:6px;background:var(--card,#f1f3f5);color:var(--fg,#15171c);font:12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;text-decoration:none}.ds-ref:hover{border-color:var(--accent,#2457c5);color:var(--accent,#2457c5)}.ds-chip{padding:0 7px;border:1px solid var(--line,#e3e6ea);border-radius:999px;color:var(--accent,#2457c5);font-size:12px;font-weight:600;line-height:18px;text-decoration:none}.ds-ref:focus-visible,.ds-chip:focus-visible{outline:2px solid var(--accent,#2457c5);outline-offset:2px;border-radius:4px}.ds-code{padding:0 6px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--neutral,#59616c);font:700 12px/18px ui-monospace,SFMono-Regular,\"SF Mono\",Menlo,Consolas,\"Liberation Mono\",monospace;letter-spacing:.03em;text-transform:uppercase}.ds-code[data-tone=wait]{background:var(--wait-bg,#fcf3d9);color:var(--wait,#8f5e00)}.ds-count{display:inline-block;min-width:22px;padding:0 7px;border-radius:999px;background:var(--neutral-bg,#eceff3);color:var(--fg,#15171c);font-size:12px;font-weight:600;line-height:20px;text-align:center;font-variant-numeric:tabular-nums}.ds-count[data-worst=fail]{background:var(--fail-bg,#fdecec);color:var(--fail,#c4262e)}"
     }
   ],
   "narrative": {
-    "northStar": "The On-Call Desk",
-    "overview": "The fleet is an on-call desk. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order, acknowledged in place, and resolved into the timeline. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press \"2 No\", answer d5, mark r7 read), watch it collapse to its receipt while a Hand line lands in Chat, and then read s1's cards and steer it from the composer.\n\nThe material is a quiet review palette: a near-white ground, pale grey cards on hairline rules and near-black ink, with a GitHub-dark night theme whose cards sit one step above the ground. Accent blue marks the operator's own card, focus, links and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.\n\nThe desk refuses the chat-ops shell of sidebar, chat and inspector, and it refuses the green-on-black terminal opposite. Every page shows one fleet. At 1024px and wider, Chat is a 760px main column of thread cards with the composer pinned beneath it, and Needs is a rail on the right. Below that width, the same two panels sit behind two tabs, Needs and Chat.",
+    "northStar": "The On-Call Board",
+    "overview": "The fleet is run from an on-call board. Everything that needs the operator is an open item: a blocked screen, a failure, a decision or an unread report. Items are paged in one fixed severity order and grouped under one head per severity word, acknowledged in place, and resolved into the conversation. The operator opens the board and knows at once whether anything is paged, because the masthead pill and the Needs count answer before the page settles. They acknowledge the top item where it sits (press \"2 No\", pick an option on d5 and send it, mark r7 read), watch it collapse to its receipt while a Hand line lands in the conversation, and then read s1's reply and steer it from the composer.\n\nThe material is a quiet review palette: a white ground, pale grey cards and panels on hairline rules and near-black ink, with a charcoal night theme whose cards sit one step above the ground. Accent blue marks the operator's own bubble, focus, links, the picked option and the working pulse. Fail red is kept for trouble. Severity lives in pale header fills on bordered items, and every state carries a word and an icon shape as well as a colour. Type is the system sans at five sizes; mono is kept for refs, code, keys, terminal text, severity codes and live figures. The fleet tint touches only the mark and a 3px rule across the top.\n\nThe Board is built for one operator who works beside an editor or on a phone. Navigation is one slim rail of icons at the left edge, 56px wide, that names its items on hover, on focus or on request; below 900px the same list opens from the masthead as a sheet. At 900px and wider the fleet page is that rail and two panes. The work pane is the widest thing on the page and holds Needs in severity bands, then Tasks with its search field. The supervisor pane on the right holds the supervisor's controls, its conversation, set as replies on the pane and the operator's bubbles, and a slim composer. A separator between the panes is dragged to size the chat: one remembered width for the whole board, never under 360px for the chat or 440px for the work pane, and no resizing below 900px, where three tabs (Needs, Tasks and Chat) show one panel at a time. A decision is answered from a choice list in Needs or on its page. From the Board, things (a task, a report, a decision, a deliverable) open in a new tab and places (the rail, a crumb, a pager step) navigate in place, so the Board stays where the operator left it. Every page shows one fleet; the Tasks page searches all of its tasks. The Board refuses a text sidebar with a conversation and an inspector beside it, and it refuses the green-on-black terminal opposite.",
     "keyCharacteristics": [
-      "A near-white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#0d1117` with cards raised to `#161b22` at night.",
-      "One severity ramp orders Needs, fills each item's header, and colours the Needs counts.",
+      "A white ground (`bg`) with pale grey cards (`card`) on hairlines (`line`) by day, and `#111317` with cards raised to `#1b1f25` at night.",
+      "A 56px icon rail and two panes from 900px, three tabs and a sheet below it: the work pane stays the widest thing on the page, and the chat is dragged to a remembered width inside fixed limits.",
+      "One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.",
       "Every state is a word plus an icon shape plus a colour, never colour alone.",
-      "Chat is a thread of bordered cards: the supervisor on the left, the operator on the right on accent-bg, and Hand's own events as one-line ringed notes.",
+      "The conversation is not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.",
+      "A decision is a choice list: numbered options with their consequences, one marked recommended, and a note.",
       "Acknowledge in place: a pressed key collapses its item to \"Sent 2 · waiting…\", and every action leaves a receipt, a Hand line and a link back.",
+      "Things open in a new tab and places in place; the composer's draft survives either.",
       "A 44px masthead that answers the supervisor's state, model and context window.",
       "Five type sizes, tabular numerals for live figures, no web fonts, and a strict CSP."
     ],
@@ -1768,7 +1889,7 @@
       },
       {
         "name": "The Word And Shape Rule",
-        "body": "A state is never colour alone. The masthead pill carries an icon and a word, each Needs header carries an icon and a severity code, and each task row carries its state icon.",
+        "body": "A state is never colour alone. The masthead pill carries an icon and a word, each Needs band head carries the severity word and each Needs row its icon, and each task row carries its state icon.",
         "section": "colors"
       },
       {
@@ -1778,7 +1899,7 @@
       },
       {
         "name": "The Five Sizes Rule",
-        "body": "Every pixel font size is 22, 16, 15, 14 or 12px. `TestTypeHasFiveSteps` fails on any other. Inline code in replies sets at 85% of its line, and inputs rise to 16px on coarse pointers so a phone never zooms.",
+        "body": "Every pixel font size is 22, 18, 15, 14 or 12px. `TestTypeHasFiveSteps` fails on any other, with one pinned exception: inputs rise to 16px on coarse pointers so a phone never zooms. Inline code in replies sets at 12px.",
         "section": "typography"
       },
       {
@@ -1787,29 +1908,64 @@
         "section": "typography"
       },
       {
-        "name": "The Rail At Desk Width Rule",
-        "body": "Needs is a rail only from 1024px (`TestNeedsIsARailAtDeskWidth`); below it the tabs stay (`TestTabsBelowDeskWidth`) and each panel is held to the 760px column.",
+        "name": "The Two Panes At Board Width Rule",
+        "body": "The work pane and the supervisor pane sit side by side from 900px (`TestNeedsAndTasksSitBesideTheChatAtBoardWidth`); below it the three tabs stay and the separator is absent (`TestTabsBelowBoardWidth`).",
+        "section": "layout"
+      },
+      {
+        "name": "The Chat Width Clamp Rule",
+        "body": "The chat's width is the custom property `--chat`, and only `--pane` turns it into a grid track, clamped to 360px at least and everything but 440px at most. `app.js` sets `--chat` through the CSSOM, which the CSP allows, and never lays the pane out itself (`TestTheChatPaneResizesInsideTheClamp`).",
+        "section": "layout"
+      },
+      {
+        "name": "The Slim Rail Rule",
+        "body": "Navigation is a 56px rail of icons from 900px and a sheet below it; the work pane stays the widest thing on the page, so there is no text sidebar and no folded or widened chat (`TestThePhoneSheetHoldsTheRailsLinks`, `TestTheRailIsSixTabStopsBeforeTheMasthead`).",
+        "section": "layout"
+      },
+      {
+        "name": "The Proven Fleets Rule",
+        "body": "The rail lists the current fleet and, beside it, only the fleets whose login the browser sends and that fleet accepts. A fleet the browser holds no valid token for never has its name in the page, and no fleet's Needs count shows in another's rail. A network board lists only its own fleet (`TestTheRailListsOnlyTheFleetsTheViewerCanProve`, `TestTheCurrentFleetIsAlwaysListed`, `TestANetworkBoardListsOnlyItsOwnFleet`, `TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor`).",
         "section": "layout"
       },
       {
         "name": "The Five Regions Rule",
-        "body": "The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft.",
+        "body": "The fleet page updates live through exactly five regions, `status`, `console`, `timeline`, `queue` and `tasks`, and the composer form sits outside every region so a live update never takes the operator's draft. The console region sits in the supervisor pane's head, and the task search form sits in the Tasks head outside the tasks region, for the same reason.",
         "section": "layout"
       },
       {
-        "name": "The Flat Desk Rule",
+        "name": "The Things In New Tabs Rule",
+        "body": "From the Board, things open in a new tab and places navigate in place; outside links always open in a new tab. A thing is a task, attempt, report, decision, deliverable, image or outside page; a place is a fleet, the Board, Tasks, Conversation, a crumb, a pager step or an anchor. The fleet page's task rows, Needs links and refs in replies and Hand lines carry `target=\"_blank\" rel=\"noopener\"` (`TestAwayOpensLiveRefsInANewTab`); the Tasks page, the conversation page and the thread pages browse refs in place (`TestTheTasksPageBrowsesInPlace`, `TestTheLogAndThreadPagesKeepRefsInPlace`). Middle-click and Ctrl-click work everywhere.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Board Rule",
         "body": "Resting surfaces carry a hairline and no shadow. `TestTheOnCallPalette` fails on any `box-shadow` outside the composer box, the menus, the toast, the keys and `kbd`.",
         "section": "elevation"
+      },
+      {
+        "name": "The Bands Rule",
+        "body": "Needs groups its open items under one head per severity word, most severe first, and the head carries the word and its tone, so a row repeats neither. A collapsed row is one calm line and only the open item is a card.",
+        "section": "components"
+      },
+      {
+        "name": "The One Choice List Rule",
+        "body": "A decision is answered from one component, the choice list, in a Needs item and on the decision page, and the answered state is the same list at rest. The question never repeats its option lines, and the server joins the pick and the note into one answer.",
+        "section": "components"
+      },
+      {
+        "name": "The One Badge And One Row Rule",
+        "body": "Every pill, count and tag is the one `.badge`, and every line of the task, attempt, event, decision and fleet lists is the one `.row`. A new component sets a slot or a tone on them; it never draws a third shape.",
+        "section": "components"
       }
     ],
     "dos": [
       "**Do** take every colour from the custom properties in `board.css` (`var(--fail)`, `var(--accent-bg)`), and give any new token both a light and a dark value that keeps 4.5:1 for text.",
-      "**Do** order anything that needs the operator by the severity ramp in `internal/board/queue.go`, and fill its header with its tone's pale fill.",
+      "**Do** order anything that needs the operator by the severity ramp in `internal/board/queue.go`, group it under one head per severity word, and fill the open item's header with its tone's pale fill.",
       "**Do** give every state a word and an icon shape as well as its colour.",
-      "**Do** keep font sizes to 22, 16, 15, 14 and 12px, and set figures that update in place in tabular numerals.",
+      "**Do** keep font sizes to 22, 18, 15, 14 and 12px, and set figures that update in place in tabular numerals.",
       "**Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.",
       "**Do** keep one primary button per form, and keep Stop behind a second press.",
-      "**Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute.",
+      "**Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property and the rail tip's `top` through the CSSOM, which the CSP allows.",
       "**Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash and the open and close transition."
     ],
     "donts": [
@@ -1819,8 +1975,9 @@
       "**Don't** bring back the newsroom words (WIRE, FLASH, BULLETIN, URGENT, ROUTINE, SERVICE, dispatch, news budget, tray) or the canary, carbon, ink band, `h-*` and `pencil` tokens.",
       "**Don't** load web fonts or images from the stylesheet.",
       "**Don't** draw an icon as a text glyph or pull in an icon library; add it to `icons.html` in the 16px, 1.5-stroke family.",
-      "**Don't** show the Needs rail below 1024px, and don't switch tabs for the operator.",
-      "**Don't** build a chat-ops shell of sidebar, chat and inspector, or a green-on-black terminal look beyond the screen excerpt."
+      "**Don't** show both panes below 900px or resize anything there, and don't switch tabs for the operator.",
+      "**Don't** add a text sidebar or a third column beside the two panes. Navigation is the 56px icon rail, its names showing on hover, on focus or on request, and the work pane stays the widest thing on the page. Don't make a green-on-black terminal look beyond the screen excerpt.",
+      "**Don't** list a fleet in the rail, or show its name or count anywhere in a page, unless the browser holds a valid token for it."
     ]
   }
 }
