@@ -34,7 +34,7 @@ type section struct {
 	cmd    string
 }
 
-func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, b Budget) (*toon.Doc, error) {
+func Build(ctx context.Context, st *state.Store, home, pane string, watch, managed bool, b Budget) (*toon.Doc, error) {
 	f, err := st.Fleet(ctx)
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 		eventRows = append(eventRows, []string{strconv.FormatInt(e.Seq, 10), e.Kind, task})
 	}
 
-	unwatched, err := st.Unwatched(ctx)
+	unwatched, err := st.Unwatched(ctx, managed)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,10 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch bool, 
 	timerRows := make([][]string, 0, len(timers))
 	for _, t := range timers {
 		note := clip(t.Note, b.TitleBytes)
-		if t.Beyond {
+		switch {
+		case !managed:
+			note = strings.TrimSpace("(no managed supervisor: not fired) " + note)
+		case t.Beyond:
 			note = strings.TrimSpace("(beyond the horizon) " + note)
 		}
 		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), note})

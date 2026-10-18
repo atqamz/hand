@@ -280,14 +280,14 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
 		t.Fatalf("old attempt screen = %q, %v", screen, err)
 	}
-	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 1 || u.Idle != time.Hour {
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 1 || u.Idle != time.Hour {
 		t.Fatalf("unwatched before a timer = %+v, %v", u, err)
 	}
 	w, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 1, Note: "check CI"})
 	if err != nil || TimerRef(w.ID) != "w1" {
 		t.Fatalf("timer on a migrated home = %+v, %v", w, err)
 	}
-	if u, err := s.Unwatched(ctx); err != nil || len(u.Tasks) != 0 {
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
 		t.Fatalf("unwatched with a timer = %+v, %v", u, err)
 	}
 	if _, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 2}); !errors.Is(err, ErrConflict) {

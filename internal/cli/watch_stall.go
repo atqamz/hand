@@ -33,14 +33,14 @@ func (w *watcher) stall(ctx context.Context, c luvus.Client, caps luvus.Capabili
 	if err != nil {
 		return err
 	}
-	if p.Stall.Off || !ok || sup.Status != state.AttemptRunning || sup.ServerGeneration != caps.ServerGeneration || sup.Switching() {
+	if p.Stall.Off || !ok || !sup.Managed(caps.ServerGeneration) || sup.Switching() {
 		w.rest = rest{}
 		return nil
 	}
 	if w.rest.sup != sup.ID {
 		w.rest = rest{sup: sup.ID}
 	}
-	u, err := w.st.Unwatched(ctx)
+	u, err := w.st.Unwatched(ctx, true)
 	if err != nil || len(u.Tasks) == 0 {
 		return err
 	}
@@ -108,7 +108,7 @@ func stalled(u state.Unwatched) string {
 
 func (w *watcher) timers(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
 	sup, ok, err := w.st.LiveSupervisor(ctx)
-	if err != nil || !ok || sup.Status != state.AttemptRunning || sup.ServerGeneration != caps.ServerGeneration {
+	if err != nil || !ok || !sup.Managed(caps.ServerGeneration) {
 		return err
 	}
 	fired, err := w.st.FireTimers(ctx)

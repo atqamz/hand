@@ -19,15 +19,17 @@ type Unwatched struct {
 	FarIn  time.Duration
 }
 
-func (s *Store) Unwatched(ctx context.Context) (Unwatched, error) {
+func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) {
 	var live, open int
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen).Scan(&live, &open)
 	if err != nil || live > 0 || open > 0 {
 		return Unwatched{}, err
 	}
-	timers, err := s.Timers(ctx)
-	if err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
-		return Unwatched{}, err
+	var timers []Timer
+	if managed {
+		if timers, err = s.Timers(ctx); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
+			return Unwatched{}, err
+		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM task WHERE status = ? ORDER BY id`, StatusActive)
 	if err != nil {

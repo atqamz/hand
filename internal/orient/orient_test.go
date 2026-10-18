@@ -40,7 +40,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(context.Background(), st, home, "", true, DefaultBudget)
+	doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,11 +77,11 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
 	_, _ = st.Ask(ctx, a.ID, "Keep cookie name?")
 	_, _ = st.AddTask(ctx, "hand", "Write docs", "")
-	first, err := Build(ctx, st, home, "", true, DefaultBudget)
+	first, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _ := Build(ctx, st, home, "", true, DefaultBudget)
+	second, _ := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if first.String() != second.String() {
 		t.Fatal("orient is not deterministic")
 	}
@@ -111,7 +111,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestOrientCutsAReportSummaryAtAWordBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	_, _ = st.EndAttempt(ctx, a1.ID, state.AttemptStopped, "retry")
 	a2, _ := st.AddAttempt(ctx, spec, "/w")
 	_, _ = st.AttemptRunning(ctx, a2.ID, term)
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestBuildAcceptsAZeroReportBudget(t *testing.T) {
 	st, home := setup(t)
 	b := DefaultBudget
 	b.Reports = 0
-	if _, err := Build(context.Background(), st, home, "", false, b); err != nil {
+	if _, err := Build(context.Background(), st, home, "", false, true, b); err != nil {
 		t.Fatalf("zero report budget: %v", err)
 	}
 }
@@ -289,7 +289,7 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	ctx := context.Background()
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -356,7 +356,7 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,11 +376,11 @@ func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 
 func TestOrientWatchLine(t *testing.T) {
 	st, home := setup(t)
-	running, err := Build(context.Background(), st, home, "", true, DefaultBudget)
+	running, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
-	missing, err := Build(context.Background(), st, home, "", false, DefaultBudget)
+	missing, err := Build(context.Background(), st, home, "", false, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +417,7 @@ func TestOrientShowsWorkerSignal(t *testing.T) {
 	if err := st.NoteAttempt(ctx, 2, "blocked", "Do you want to proceed? "+strings.Repeat("x", 100)); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestOrientTellsASessionWhetherItIsTheSupervisor(t *testing.T) {
 	ctx := context.Background()
 	you := func(pane string) string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, pane, true, DefaultBudget)
+		doc, err := Build(ctx, st, home, pane, true, true, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -483,7 +483,7 @@ func TestOrientNamesUnwatchedTasks(t *testing.T) {
 	_, _ = st.AddProject(ctx, "hand", handRepo)
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -526,7 +526,7 @@ func TestOrientCapsTheUnwatchedList(t *testing.T) {
 		task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestOrientListsArmedTimers(t *testing.T) {
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	orient := func() string {
 		t.Helper()
-		doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -577,12 +577,34 @@ func TestOrientMarksATimerBeyondTheHorizon(t *testing.T) {
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 8 * time.Hour}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := Build(ctx, st, home, "", true, DefaultBudget)
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := doc.String()
 	if !strings.Contains(out, "unwatched[1]") || !strings.Contains(out, "timers[2]{id,due,note}:\n  w1,\"2026-09-26T07:00:00Z\",(beyond the horizon) check PR 909\n  w2,\"2026-09-26T08:00:00Z\",(beyond the horizon)\n") {
+		t.Fatalf("orient =\n%s", out)
+	}
+}
+
+func TestOrientMarksATimerNoManagedSupervisorFires(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 30 * time.Minute, Note: "check PR 909"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 8 * time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Build(ctx, st, home, "", true, false, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := doc.String()
+	if !strings.Contains(out, "unwatched[1]") || !strings.Contains(out, "timers[2]{id,due,note}:\n  w1,\"2026-09-26T00:30:00Z\",\"(no managed supervisor: not fired) check PR 909\"\n  w2,\"2026-09-26T08:00:00Z\",\"(no managed supervisor: not fired)\"\n") {
 		t.Fatalf("orient =\n%s", out)
 	}
 }

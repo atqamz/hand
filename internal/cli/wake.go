@@ -86,7 +86,15 @@ func cmdWake(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
-	t, err := st.AddTimer(context.Background(), spec)
+	ctx := context.Background()
+	managed, err := r.managedSupervisor(ctx, st)
+	if err != nil {
+		return err
+	}
+	if !managed {
+		return fmt.Errorf("%w: timers fire only while a managed supervisor runs, and none does: start one with `hand supervisor start`; a supervisor opened by hand waits with `hand wait --timeout` instead", state.ErrConflict)
+	}
+	t, err := st.AddTimer(ctx, spec)
 	if err != nil {
 		return err
 	}

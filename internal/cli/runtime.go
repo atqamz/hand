@@ -64,6 +64,15 @@ func (r *runner) client(session string) luvus.Client {
 	}}
 }
 
+func (r *runner) managedSupervisor(ctx context.Context, st *state.Store) (bool, error) {
+	sup, ok, err := st.LiveSupervisor(ctx)
+	if err != nil || !ok {
+		return false, err
+	}
+	caps, err := r.client(fleet.Session(r.fleet.ID)).Check(ctx)
+	return err == nil && sup.Managed(caps.ServerGeneration), nil
+}
+
 func runtimeErr(err error) error {
 	switch luvus.Code(err) {
 	case "":

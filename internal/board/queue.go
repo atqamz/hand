@@ -301,7 +301,7 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	limited, _ := data["Limited"].(string)
 	_, stale := data["Stale"]
 	if pending, _ := data["Pending"].(int); supervised && !sup.Switching() && pending == 0 && (agent == "idle" || agent == "done") && limited == "" && !stale {
-		u, err := b.st.Unwatched(ctx)
+		u, err := b.st.Unwatched(ctx, true)
 		if err != nil {
 			return err
 		}

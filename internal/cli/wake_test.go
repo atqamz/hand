@@ -8,9 +8,8 @@ import (
 )
 
 func TestWakeArmsListsAndCancelsTimers(t *testing.T) {
-	h := initWithProject(t)
-	h.ok("task", "add", "hand", "Fix login")
-	h.ok("task", "start", "t1")
+	fx, _ := stallFleet(t, "")
+	h := fx.h
 	if out := h.ok("wake", "--after", "30m", "--note", "check PR 909"); out != "timer: w1\nstatus: armed\ndue: \"2026-09-26T00:30:00Z\"\nnote: check PR 909\n" {
 		t.Fatalf("after = %q", out)
 	}
@@ -44,8 +43,8 @@ func TestWakeArmsListsAndCancelsTimers(t *testing.T) {
 }
 
 func TestWakeRefusesBadTimers(t *testing.T) {
-	h := initWithProject(t)
-	h.ok("task", "add", "hand", "Fix login")
+	fx, _ := stallFleet(t, "")
+	h := fx.h
 	for _, c := range []struct {
 		args []string
 		code int
@@ -219,4 +218,48 @@ func TestAFarTimerDoesNotHoldTheStallWake(t *testing.T) {
 		t.Fatalf("orient once the timer is within the horizon = %q", out)
 	}
 	stop()
+}
+
+func TestWakeIsRefusedWithoutAManagedSupervisor(t *testing.T) {
+	fx := newAttemptFixture(t)
+	gen := fx.rt.srv.Generation()
+	refused := "timers fire only while a managed supervisor runs, and none does: start one with `hand supervisor start`; a supervisor opened by hand waits with `hand wait --timeout` instead"
+	check := func(when string) {
+		t.Helper()
+		if out, errOut, code := fx.h.run("wake", "--after", "30m"); code != 3 || out != "" || !strings.Contains(errOut, refused) {
+			t.Fatalf("%s: code=%d stdout=%q stderr=%q", when, code, out, errOut)
+		}
+		if out := fx.h.ok("wake", "list"); out != "timers[0]{id,due,every,while,note}:\n" {
+			t.Fatalf("%s: list = %q", when, out)
+		}
+	}
+	check("no supervisor")
+	startClaudeSupervisor(fx.h)
+	has(t, "wake", fx.h.ok("wake", "--after", "30m"), "timer: w1")
+	fx.rt.srv.SetGeneration("gen-2")
+	if _, errOut, code := fx.h.run("wake", "--after", "30m"); code != 3 || !strings.Contains(errOut, refused) {
+		t.Fatalf("stale generation: code=%d stderr=%q", code, errOut)
+	}
+	has(t, "cancel", fx.h.ok("wake", "cancel", "w1"), "status: cancelled")
+	fx.rt.srv.SetGeneration(gen)
+	fx.h.ok("supervisor", "stop")
+	check("stopped supervisor")
+}
+
+func TestOrientShowsUnwatchedWorkWhenNoManagedSupervisorFiresTheTimer(t *testing.T) {
+	fx, _ := stallFleet(t, "")
+	gen := fx.rt.srv.Generation()
+	fx.h.ok("wake", "--after", "30m", "--note", "check PR 909")
+	if out := fx.h.ok("orient"); strings.Contains(out, "unwatched") || !strings.Contains(out, "w1,\"2026-09-26T00:30:00Z\",check PR 909\n") {
+		t.Fatalf("orient with a managed supervisor = %q", out)
+	}
+	fx.rt.srv.SetGeneration("gen-2")
+	if out := fx.h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || !strings.Contains(out, "w1,\"2026-09-26T00:30:00Z\",\"(no managed supervisor: not fired) check PR 909\"\n") {
+		t.Fatalf("orient with a stale generation = %q", out)
+	}
+	fx.rt.srv.SetGeneration(gen)
+	fx.h.ok("supervisor", "stop")
+	if out := fx.h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || !strings.Contains(out, "\"(no managed supervisor: not fired) check PR 909\"\n") {
+		t.Fatalf("orient without a supervisor = %q", out)
+	}
 }

@@ -43,6 +43,10 @@ func (s Supervisor) Live() bool { return s.Status == AttemptLaunching || s.Statu
 
 func (s Supervisor) Switching() bool { return s.SwitchModel != "" }
 
+func (s Supervisor) Managed(generation string) bool {
+	return s.Status == AttemptRunning && s.ServerGeneration == generation
+}
+
 type SupervisorInput struct {
 	ID          int64
 	Body        string
