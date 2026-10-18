@@ -96,7 +96,7 @@ func rootTokens(t *testing.T, block string) map[string]string {
 
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"fg", "panel"}, {"muted", "bg"}, {"muted", "card"}, {"muted", "panel"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"fg", "panel"}, {"muted", "bg"}, {"muted", "card"}, {"muted", "panel"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fail", "card"}, {"pass", "card"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
 		tokens := rootTokens(t, c.block)
 		for _, p := range pairs {
@@ -472,7 +472,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"[data-send-key]{display:none}\n.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:var(--control)}",
 		".keys{gap:12px}",
-		".timeline .card .copy>:not(.table):not(pre){max-width:72ch}",
+		".timeline .card .copy>:not(.table):not(pre):not(.code){max-width:72ch}",
 		".from-you .copy{max-width:72ch;",
 		".masthead{position:sticky;top:0;",
 		"@keyframes feed{",

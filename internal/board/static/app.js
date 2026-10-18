@@ -96,9 +96,101 @@
 		});
 	};
 
+	const svgNS = "http://www.w3.org/2000/svg";
+	const glyphs = {
+		copy: ["M5.5 7A1.5 1.5 0 0 1 7 5.5h6A1.5 1.5 0 0 1 14.5 7v6a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 13z", "M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5"],
+		copied: ["M3 8.5l3.5 3.5L13 4.5"],
+		failed: ["M4 4l8 8M12 4l-8 8"],
+	};
+	const glyph = (name) => {
+		const svg = document.createElementNS(svgNS, "svg");
+		for (const [k, v] of Object.entries({ class: "icon", viewBox: "0 0 16 16", width: "16", height: "16", "aria-hidden": "true", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round", "stroke-linejoin": "round", "data-glyph": name })) svg.setAttribute(k, v);
+		for (const d of glyphs[name]) {
+			const path = document.createElementNS(svgNS, "path");
+			path.setAttribute("d", d);
+			svg.append(path);
+		}
+		return svg;
+	};
+	const copyLabel = "Copy code";
+	const copyFor = 1500;
+	const copyTimers = new WeakMap();
+	let announce = null;
+	const copies = (root) => [...root.querySelectorAll(".code > .copy")];
+	const copyKey = (b, root) => {
+		const msg = b.closest("[data-no]");
+		return `${msg?.dataset.no ?? ""}|${copies(msg ?? root).indexOf(b)}`;
+	};
+	const enhance = (root) => {
+		for (const pre of root.querySelectorAll(".md pre")) {
+			if (pre.parentElement.matches(".code")) continue;
+			if (!announce) {
+				announce = document.createElement("div");
+				announce.className = "sr";
+				announce.setAttribute("role", "status");
+				body.append(announce);
+			}
+			const wrap = document.createElement("div");
+			wrap.className = "code";
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className = "copy";
+			button.setAttribute("aria-label", copyLabel);
+			button.title = copyLabel;
+			button.append(glyph("copy"), glyph("copied"), glyph("failed"));
+			pre.replaceWith(wrap);
+			wrap.append(pre, button);
+		}
+	};
+	const writeText = async (text) => {
+		if (navigator.clipboard?.writeText) {
+			try {
+				await navigator.clipboard.writeText(text);
+				return true;
+			} catch {}
+		}
+		const box = document.createElement("textarea");
+		box.className = "sr";
+		box.value = text;
+		box.setAttribute("readonly", "");
+		box.setAttribute("aria-hidden", "true");
+		body.append(box);
+		const from = document.activeElement;
+		box.select();
+		box.setSelectionRange(0, text.length);
+		let ok = false;
+		try {
+			ok = document.execCommand("copy");
+		} catch {}
+		box.remove();
+		if (from instanceof HTMLElement) from.focus({ preventScroll: true });
+		return ok;
+	};
+	const outcome = (button, state, label) => {
+		button.dataset.state = state;
+		button.setAttribute("aria-label", label);
+		button.title = label;
+		announce.textContent = label;
+		clearTimeout(copyTimers.get(button));
+		copyTimers.set(button, setTimeout(() => {
+			delete button.dataset.state;
+			button.setAttribute("aria-label", copyLabel);
+			button.title = copyLabel;
+			announce.textContent = "";
+		}, copyFor));
+	};
+	document.addEventListener("click", async (e) => {
+		const button = e.target instanceof Element ? e.target.closest(".code > .copy") : null;
+		if (!button) return;
+		const ok = await writeText(button.previousElementSibling.textContent);
+		if (ok) outcome(button, "copied", "Copied");
+		else outcome(button, "failed", "Copy failed");
+	});
+
 	const local = (root) => {
 		days();
 		archive();
+		enhance(root);
 		for (const b of root.querySelectorAll("#notify")) b.hidden = !("Notification" in window) || Notification.permission !== "default";
 		for (const t of root.querySelectorAll("time[datetime]:not([data-since])")) {
 			const d = new Date(t.dateTime);
@@ -198,7 +290,8 @@
 		}
 		held.delete(name);
 		const spot = (e) => (e && e !== el && el.contains(e) ? [e.closest("details[id]")?.id, e.tagName, e.closest("form")?.getAttribute("action"), e.getAttribute("href"), e.value].join("|") : "");
-		const focused = spot(document.activeElement);
+		const copyFocus = document.activeElement?.matches?.(".code > .copy") && el.contains(document.activeElement) ? copyKey(document.activeElement, el) : "";
+		const focused = copyFocus ? "" : spot(document.activeElement);
 		const before = new Set([...el.querySelectorAll("details[id]")].map((d) => d.id));
 		const fed = new Set([...el.querySelectorAll("[data-no]")].map((d) => d.dataset.no));
 		const fields = "textarea, select, input:not([type=hidden]):not([type=radio])";
@@ -233,6 +326,9 @@
 		}
 		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
 		local(el);
+		if (copyFocus) {
+			copies(el).find((c) => copyKey(c, el) === copyFocus)?.focus();
+		}
 		since();
 		if (pinned) pin(el);
 		if (name === "queue") {

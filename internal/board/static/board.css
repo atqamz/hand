@@ -221,7 +221,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .wakes>summary>.span{white-space:nowrap}
 .wakes>.hand-line{margin:6px 0 0 16px}
 .card .copy{font-size:15px;line-height:1.6}
-.timeline .card .copy>:not(.table):not(pre){max-width:72ch}
+.timeline .card .copy>:not(.table):not(pre):not(.code){max-width:72ch}
 
 .from-you .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
 .timeline>.from-sup{align-self:flex-start;max-width:min(100%,calc(72ch + 30px));padding:9px 13px 11px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--card);font-size:15px}
@@ -248,6 +248,18 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .md code{padding:.1em .4em;border-radius:var(--r-sm);background:var(--card);font-size:12px}
 .md pre{padding:10px 12px;border-radius:var(--r-md);background:linear-gradient(to left,var(--card) 30%,transparent) right/40px 100% no-repeat local,linear-gradient(to left,var(--shadow),transparent) right/14px 100% no-repeat scroll,var(--card);white-space:pre}
 .md pre code{padding:0;background:none;font-size:inherit}
+.md .code{--surface:var(--card);position:relative;margin:0 0 8px;letter-spacing:normal;text-transform:none}
+.from-sup .md .code{--surface:var(--bg)}
+.md>.code:last-child{margin-bottom:0}
+.md .code>pre{margin:0;padding-right:calc(var(--control) + 12px);min-height:calc(var(--control) + 8px)}
+.code>.copy{position:absolute;top:4px;right:4px;width:var(--control);padding:0;background:var(--surface);color:var(--muted);opacity:0;transition:opacity .15s}
+.code>.copy:hover{background:var(--hover);color:var(--fg)}
+.code:hover>.copy,.code:focus-within>.copy,.code>.copy[data-state]{opacity:1}
+.code>.copy>svg{display:none}
+.code>.copy:not([data-state])>[data-glyph=copy],.code>.copy[data-state=copied]>[data-glyph=copied],.code>.copy[data-state=failed]>[data-glyph=failed]{display:block}
+.code>.copy[data-state=copied]{color:var(--pass)}
+.code>.copy[data-state=failed]{color:var(--fail)}
+.sr{position:fixed;top:0;left:0;width:1px;height:1px;min-height:0;margin:0;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .md h3,.md h4{margin:12px 0 4px;font-weight:600;letter-spacing:-.01em;text-wrap-style:balance}
 .md h3{font-size:15px;line-height:22px}
 .md h4{font-size:14px;line-height:20px}
@@ -444,6 +456,7 @@ body[data-shell] .timeline{--sb:0px}
 .sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}
 .console-box,.sup>.hint.read-only{margin:0 12px 12px}}
 @media (pointer:coarse){textarea,input,select{font-size:16px}
+.code>.copy{opacity:1}
 .wait>summary{min-height:52px}
 [data-send-key]{display:none}
 .others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:var(--control)}
@@ -453,7 +466,7 @@ body[data-shell] .timeline{--sb:0px}
 .actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}
 a.badge{position:relative}
 a.badge::before{content:"";position:absolute;inset:-12px 0}}
-@media (prefers-reduced-motion:reduce){.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.misread>summary::before{transition:none}.pill .icon{animation:none}.pulse{animation:none}.timeline>[data-new]{animation:none}}
+@media (prefers-reduced-motion:reduce){.code>.copy{transition:none}.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.misread>summary::before{transition:none}.pill .icon{animation:none}.pulse{animation:none}.timeline>[data-new]{animation:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px}
 .rule{width:100%;margin:0;border:0;border-top:1px solid var(--line)}
@@ -569,3 +582,4 @@ body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(1
 @media (forced-colors:active){.wait[open]{border-color:CanvasText}
 .wait[open]>summary{border-bottom:1px solid CanvasText}}
 @media (forced-colors:active){.timeline>.from-you{border:1px solid CanvasText}.pulse{background:CanvasText}}
+@media (forced-colors:active){.code>.copy{border-color:ButtonText;color:ButtonText}}
