@@ -319,6 +319,10 @@ components:
     backgroundColor: "{colors.bg}"
     rounded: "{rounded.lg}"
     padding: "4px 4px 8px"
+  chat-bubble:
+    backgroundColor: "{colors.card}"
+    rounded: "{rounded.lg}"
+    padding: "9px 13px 11px"
   button:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
@@ -401,7 +405,7 @@ The Board is built for one operator who works beside an editor or on a phone. Na
 - A 56px icon rail and two panes from 900px, three tabs and a sheet below it: the work pane stays the widest thing on the page, and the chat is dragged to a remembered width inside fixed limits.
 - One severity ramp orders Needs into bands, fills the open item's header, and colours the band heads and the Needs counts.
 - Every state is a word plus an icon shape plus a colour, never colour alone.
-- The conversation is not a stack of cards: the supervisor's replies sit on the pane under a head line, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
+- The conversation is not a stack of cards: the supervisor's replies are bordered `card` bubbles on the left with their head line inside, the operator's messages are accent-bg bubbles on the right, and Hand's own events are one-line ringed notes.
 - A decision is a choice list: numbered options with their consequences, one marked recommended, and a note.
 - Acknowledge in place: a pressed key collapses its item to "Sent 2 · waiting…", and every action leaves a receipt, a Hand line and a link back.
 - Things open in a new tab and places in place; the composer's draft survives either.
@@ -427,12 +431,12 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 
 ### Neutral
 - **Review Ground** (`bg`): the page, the masthead, the tabs, the work pane, Needs items and the chat at rest, the composer box, inputs, keys, open menus, the sheet and the toast.
-- **Card Grey** (`card`): thread card header strips, and code in replies.
+- **Card Grey** (`card`): thread card header strips, the supervisor's chat bubbles, and code in replies outside a bubble (inside one, code and tables sit on `bg`).
 - **Panel Grey** (`panel`): the supervisor pane and the rail at board width.
 - **Ink** (`fg`): body copy, headlines, the current tab and its underline, the author in a card header.
 - **Muted Ink** (`muted`, and `neutral` at the same value): meta, times, Hand lines, the hint, crumbs, placeholders, stopped states and quiet counts.
 - **Hairline** (`line`): every rule and decorative border (card edges, dividers), the context bar's track, and scrollbar thumbs.
-- **Control Edge** (`line-strong`): the outline of what the operator operates, where the border is the affordance: select, input, textarea, the composer box, default buttons and the paperclip. `#80889a` by day (3.56:1 on `bg`, 3.20:1 on `card`, 3.32:1 on `panel`) and `#6b7482` at night (3.94:1, 3.50:1 and 3.77:1), so it meets the 3:1 of WCAG 1.4.11; `TestColoursMeetContrast` pins both.
+- **Control Edge** (`line-strong`): the outline of what the operator operates, where the border is the affordance: select, input, textarea, the composer box, default buttons and the paperclip. It is also the edge of the supervisor's chat bubble, which sits on a fill only 1.04:1 (night 1.08:1) from the pane: `line` (1.17:1, night 1.25:1) cannot carry a bubble, `line-strong` does. `#80889a` by day (3.56:1 on `bg`, 3.20:1 on `card`, 3.32:1 on `panel`) and `#6b7482` at night (3.94:1, 3.50:1 and 3.77:1), so it meets the 3:1 of WCAG 1.4.11; `TestColoursMeetContrast` pins both.
 - **Hover Wash** (`hover`): the hover fill of buttons, menu rows and the model menu's summary.
 - **Terminal** (`screen`, `screen-fg`): a blocked screen's excerpt, dark in both themes.
 - **Shadow** (`shadow`): the colour of the one lift shadow, under open menus and the toast.
@@ -461,7 +465,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Display** (600, 22px, 30px, -0.01em): thread titles on the task and decision pages, balanced and clamped to two lines.
 - **Headline** (600, 18px, 24px, -0.01em): the Needs and Tasks heads and the fleet list's head.
 - **Title** (600, 15px, 22px): the headline of an open Needs item, the fleet name in the masthead and `###` headings in replies. A collapsed row sets it at 400 in Body type on one line with an ellipsis.
-- **Copy** (400, 15px, 24px): the body of chat messages and thread cards; a chat message is held to a 72ch measure and thread cards fill their column; tables and code blocks in replies may run wider.
+- **Copy** (400, 15px, 24px): the body of chat messages and thread cards; a chat message is held to a 72ch measure and thread cards fill their column; a bubble holds its tables and code blocks, which scroll inside it.
 - **Body** (400, 14px, 20px): the page default, task rows, crumbs and the composer's text.
 - **Heading small** (600, 14px, 20px): `h3` heads on thread pages and `####` headings in replies; report titles in a report header use 14px at 600.
 - **Nav** (600, 14px, 20px): the tabs, the model menu's summary and the model name in the pane head.
@@ -519,7 +523,7 @@ The Board is flat. Depth comes from tone and hairlines: cards and header strips 
 ## Shapes
 
 - **Corners:**
-  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, operator bubbles (the corner at the bottom right is 4px), thread cards, the composer, menus, the toast and the choice list.
+  - 10px (`rounded.lg`) on bordered items and floating boxes: Needs items, supervisor bubbles, operator bubbles (the corner at the bottom right is 4px), thread cards, the composer, menus, the toast and the choice list.
   - 6px (`rounded.md`) on controls and boxes: buttons, keys, inputs, rail and sheet items, the terminal excerpt, code blocks and tables in replies, thumbnails and the skip link.
   - 4px (`rounded.sm`) on the focus ring, `kbd` keycaps, inline code and the overflow menu's rows.
   - Pills (999px) on the badge, the context bar and the scrollbar thumbs.
@@ -636,10 +640,10 @@ Under a "Tasks" head with a search field, grouped by status (Active and Inbox, t
 - A "Browse finished tasks (N)" link, 12px, sits under the list and opens the Tasks page on its finished scope. With `?all=1` the link reads "Hide finished tasks" and every task lists.
 
 ### Chat messages
-A message has a head line and no box. The head is one Meta line, 4px above the text: the author in ink at 600, then the time and, for the supervisor, the model when it changed; on an operator message the delivery state sits at the right edge.
-- **Supervisor message:** on the pane, full width of the 760px column, with no border and no fill. The text is the reply's markdown in Copy type, each paragraph, list and quote held to 72ch while tables and code blocks may run to the column's edge. A ref inside the text is plain mono, underlined with a dotted line when it links, and never boxed, so a sentence keeps its rhythm and line height.
+A message has a head line. The head is one Meta line, 4px above the text, inside the bubble where there is one: the author in ink at 600, then the time and, for the supervisor, the model when it changed; on an operator message the delivery state sits at the right edge.
+- **Supervisor message:** a bubble aligned left on `card` with a 1px `line-strong` border and 10px corners, padded 9px by 13px by 11px, at most 72ch plus its padding and never wider than the column, so it hugs a short reply and fills the pane for a long one. The head line (author muted, time) is the bubble's first line, one line, with no strip of its own. The text is the reply's markdown in Copy type, each paragraph, list and quote held to 72ch; tables and code blocks scroll inside the bubble. Inside it, inline code, code blocks and tables sit on `bg`, and the quote's stripe and the rule take `line-strong`. With forced colours the border follows the system. A ref inside the text is plain mono, underlined with a dotted line when it links, and never boxed, so a sentence keeps its rhythm and line height.
 - **Operator message:** a bubble on `accent-bg` aligned right, at most 88% of the column and 560px wide, padded 10px by 14px by 12px, with 10px corners and a 4px bottom right corner. "you" is in accent. The delivery state reads "queued", "delivered 07:18" or "typed anyway 08:17"; while the supervisor reads as blocked, a queued message offers "Type anyway". The text keeps its line breaks and is held to 72ch. Each `[image: PATH]` line that points into this fleet's `inbox/` shows as a thumbnail under the text instead, at most 240 by 180 px with the hairline border and the 6px radius; it opens the full image. With forced colours the bubble takes a `CanvasText` border.
-- **Alignment:** the bubble's right edge is the composer's right edge, and the supervisor's text starts at its left edge.
+- **Alignment:** the operator bubble's right edge is the composer's right edge, and the supervisor bubble's left edge is the composer's left edge and the Hand lines'.
 - **Scroll shadows:** a table or code block that scrolls sideways carries a 14px shadow on its right edge that fades when the content ends, drawn in the box's own background (`--shadow`), with no script.
 - **Feed:** an entry new to the timeline rises 1.4em and fades in over .28s.
 

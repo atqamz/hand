@@ -224,6 +224,12 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .timeline .card .copy>:not(.table):not(pre){max-width:72ch}
 
 .from-you .copy{max-width:72ch;white-space:pre-wrap;overflow-wrap:anywhere}
+.timeline>.from-sup{align-self:flex-start;max-width:min(100%,calc(72ch + 30px));padding:9px 13px 11px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--card);font-size:15px}
+.from-sup .msg-head .who{color:var(--muted)}
+.from-sup .md :is(code,pre){background:var(--bg)}
+.from-sup .md pre{background:linear-gradient(to left,var(--bg) 30%,transparent) right/40px 100% no-repeat local,linear-gradient(to left,var(--shadow),transparent) right/14px 100% no-repeat scroll,var(--bg)}
+.from-sup .md blockquote{border-left-color:var(--line-strong)}
+.from-sup .md hr{border-top-color:var(--line-strong)}
 .hand-line{display:grid;grid-template-columns:8px minmax(0,max-content) auto;justify-content:start;align-items:start;column-gap:8px;color:var(--muted);font-size:12px;line-height:18px}
 .hand-line>.ring{margin-top:5px}
 .hand-line>time{white-space:nowrap}
