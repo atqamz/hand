@@ -694,6 +694,16 @@
 		e.preventDefault();
 		form.requestSubmit();
 	});
+	const carries = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+	document.addEventListener("dragover", (e) => {
+		if (!carries(e) || e.defaultPrevented) return;
+		e.preventDefault();
+		e.dataTransfer.dropEffect = "none";
+		document.getElementById("chat")?.classList.remove("dropping");
+	});
+	document.addEventListener("drop", (e) => {
+		if (carries(e)) e.preventDefault();
+	});
 
 	const tabs = [...document.querySelectorAll("[data-tab]")];
 	const owner = (id) => tabs.find((t) => t.dataset.tab === id || document.getElementById(t.dataset.tab)?.contains(document.getElementById(id)))?.dataset.tab;
@@ -1189,7 +1199,6 @@
 			if (!items.some((i) => i.type === "text/plain")) e.preventDefault();
 			take(items);
 		});
-		const carries = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
 		chat.addEventListener("dragover", (e) => {
 			if (!carries(e)) return;
 			e.preventDefault();
@@ -1204,15 +1213,6 @@
 			if (!carries(e)) return;
 			e.preventDefault();
 			take([...e.dataTransfer.items]);
-		});
-		document.addEventListener("dragover", (e) => {
-			if (!carries(e) || e.defaultPrevented) return;
-			e.preventDefault();
-			e.dataTransfer.dropEffect = "none";
-			chat.classList.remove("dropping");
-		});
-		document.addEventListener("drop", (e) => {
-			if (carries(e)) e.preventDefault();
 		});
 	}
 	document.addEventListener("visibilitychange", follow);

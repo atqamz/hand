@@ -493,8 +493,11 @@ func TestADropAnywhereOnTheChatPaneAttaches(t *testing.T) {
 
 func TestAFileDroppedOutsideTheChatNeverOpensInTheTab(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "dragover", listener(t, js, `document.addEventListener("dragover", (e) => {`), "if (!carries(e) || e.defaultPrevented) return;", "e.preventDefault();", `e.dataTransfer.dropEffect = "none";`, `chat.classList.remove("dropping");`)
+	contains(t, "dragover", listener(t, js, `document.addEventListener("dragover", (e) => {`), "if (!carries(e) || e.defaultPrevented) return;", "e.preventDefault();", `e.dataTransfer.dropEffect = "none";`, `document.getElementById("chat")?.classList.remove("dropping");`)
 	contains(t, "drop", listener(t, js, `document.addEventListener("drop", (e) => {`), "if (carries(e)) e.preventDefault();")
+	if strings.Index(js, `document.addEventListener("drop", (e) => {`) > strings.Index(js, "if (regions.size === 0) return;") {
+		t.Fatal("the drop guard must hold on every Board page, not only on a fleet page with a composer")
+	}
 }
 
 func TestANetworkBoardHasNoAttachControl(t *testing.T) {
