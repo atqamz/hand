@@ -577,7 +577,7 @@ func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {
 	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
 	page := get(t, fx.handler(), "/")
 	contains(t, "console", region(page, "console"), `action="/supervisor/resume"`)
-	contains(t, "composer hint", page, "s1 stopped: ", "Resume continues its session")
+	contains(t, "composer hint", page, `<span class="hint">s1 stopped: test; your message waits.</span>`)
 	contains(t, "needs", region(page, "queue"), `data-kind="resume"`)
 }
 

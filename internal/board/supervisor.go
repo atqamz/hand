@@ -99,7 +99,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	data["Pending"], data["Profiles"], data["Keys"] = len(pending), b.profiles(), keyButtons()
 	data["Pick"] = q.Get("pick") == "1" || !ok
 	data["Pill"], data["PillLabel"] = "neutral", "No supervisor"
-	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits until one starts."
+	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits."
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
@@ -210,19 +210,17 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 	case sup.Status == state.AttemptLaunching:
 		return "none", ref + " is starting; your message waits."
 	case !sup.Live() && sup.Session != "":
-		return "none", once(ref, "stopped", sup.Reason) + ". Resume continues its session and then delivers your message."
+		return "none", once(ref, "stopped", sup.Reason) + "; your message waits."
 	case sup.Status != state.AttemptRunning:
-		return "none", "No supervisor is running; your message waits until one starts."
+		return "none", "No supervisor is running; your message waits."
 	case stale:
-		return "none", "Luvus restarted; your message waits until hand watch settles it."
+		return "none", "Luvus restarted; your message waits."
 	case blocked:
 		return "blocked", ref + " is waiting on a screen in Needs; your message waits too."
 	case sup.Switching():
-		return agent, ref + " switches to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn; your message waits for the new session."
-	case agent == "working":
-		return agent, ref + " is working; your message goes to it right away."
+		return agent, ref + " switches to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn; your message waits."
 	}
-	return agent, ref + " is ready; it reads your message now."
+	return agent, ""
 }
 
 type working struct {

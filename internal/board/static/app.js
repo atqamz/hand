@@ -314,7 +314,7 @@
 		agent = line.dataset.agent || "none";
 		for (const d of document.querySelectorAll("[data-agent-dot]")) d.hidden = agent !== "working";
 		const hint = document.querySelector("#composer .hint");
-		if (hint && line.dataset.hint) {
+		if (hint) {
 			if (agent === "blocked") {
 				const a = document.createElement("a");
 				a.href = "#needs";

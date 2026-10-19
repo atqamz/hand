@@ -41,12 +41,12 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 		name, agent, gen, want, data string
 		sup, switching, launching    bool
 	}{
-		{name: "none", want: "No supervisor is running; your message waits until one starts.", data: "none"},
-		{name: "ready", agent: "idle", gen: "gen-1", sup: true, want: "s1 is ready; it reads your message now.", data: "ready"},
-		{name: "working", agent: "working", gen: "gen-1", sup: true, want: "s1 is working; your message goes to it right away.", data: "working"},
+		{name: "none", want: "No supervisor is running; your message waits.", data: "none"},
+		{name: "ready", agent: "idle", gen: "gen-1", sup: true, want: "", data: "ready"},
+		{name: "working", agent: "working", gen: "gen-1", sup: true, want: "", data: "working"},
 		{name: "blocked", agent: "blocked", gen: "gen-1", sup: true, want: "s1 is waiting on a screen in Needs; your message waits too.", data: "blocked"},
-		{name: "unreachable", agent: "working", gen: "gen-0", sup: true, want: "Luvus restarted; your message waits until hand watch settles it.", data: "none"},
-		{name: "switching", agent: "working", gen: "gen-1", sup: true, switching: true, want: "s1 switches to opus high after this turn; your message waits for the new session.", data: "working"},
+		{name: "unreachable", agent: "working", gen: "gen-0", sup: true, want: "Luvus restarted; your message waits.", data: "none"},
+		{name: "switching", agent: "working", gen: "gen-1", sup: true, switching: true, want: "s1 switches to opus high after this turn; your message waits.", data: "working"},
 		{name: "launching", launching: true, want: "s1 is starting; your message waits.", data: "none"},
 	}
 	for _, c := range cases {
@@ -75,4 +75,5 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 			}
 		})
 	}
+	contains(t, "app.js", asset(t, "app.js"), "if (hint) {\n\t\t\tif (agent === \"blocked\") {", "} else hint.textContent = line.dataset.hint;")
 }
