@@ -469,7 +469,7 @@ Attachments pile up in `inbox/`. `hand inbox size` shows how many files Hand sav
 - **How it moves:** a rename into `inbox/.trash/` on the same disk, so nothing is copied. Each moved file gets the time of the move, so its 7 days in the trash start then. Until they end, you can move it back.
 - **Failures:** a file it cannot move or delete is listed under `failed`, the others still go, and the command exits 1.
 - **Repeats:** a second run moves nothing new. Two prunes of one fleet never run at once: the second exits 3.
-- **Event:** a prune that moves files records `inbox.pruned` with their count and size (`3 files, 12 MiB`).
+- **Event:** a prune that moves files records `inbox.pruned` with their count and size (`3 files, 12 MiB`). Deleting expired trash records no event: the move was recorded already.
 
 To prune every day, add this to `routing.json`:
 
@@ -477,7 +477,7 @@ To prune every day, add this to `routing.json`:
 "inbox": {"keep": "30d"}
 ```
 
-The watcher then runs the same prune once a UTC day. It writes the day to `inbox/.trash/.pruned`, so a restart does not run it again. `keep` takes days, from `1d` to `9999d`. With `"inbox": "off"`, or no `inbox` key, nothing is pruned. A bad value makes `routing.json` invalid, as a bad `stall` does: the error names the field, and the watcher logs it once and does not prune. `hand orient` shows `inbox_folder: "612 files, 140 MiB"` once the inbox holds more than 500 files or more than 100 MiB.
+The watcher then runs the same prune once a UTC day. It writes the day to `inbox/.trash/.pruned`, so a restart does not run it again, and a file that failed waits for the next day's run. `keep` takes days, from `1d` to `9999d`. With `"inbox": "off"`, or no `inbox` key, nothing is pruned. A bad value makes `routing.json` invalid, as a bad `stall` does: the error names the field, and the watcher logs it once and does not prune. `hand orient` shows `inbox_folder: "612 files, 140 MiB"` once the inbox holds more than 500 files or more than 100 MiB.
 
 ## Safe use
 
