@@ -116,6 +116,8 @@
 	const copyFor = 1500;
 	const copyTimers = new WeakMap();
 	let announce = null;
+	let spoken = null;
+	let spokenTimer = 0;
 	const copies = (root) => [...root.querySelectorAll(".code > .copy")];
 	const copyKey = (b, root) => {
 		const msg = b.closest("[data-no]");
@@ -166,17 +168,23 @@
 		if (from instanceof HTMLElement) from.focus({ preventScroll: true });
 		return ok;
 	};
+	const say = (button, text) => {
+		spoken = button;
+		clearTimeout(spokenTimer);
+		announce.textContent = "";
+		if (text) spokenTimer = setTimeout(() => (announce.textContent = text), 50);
+	};
 	const outcome = (button, state, label) => {
 		button.dataset.state = state;
 		button.setAttribute("aria-label", label);
 		button.title = label;
-		announce.textContent = label;
+		say(button, label);
 		clearTimeout(copyTimers.get(button));
 		copyTimers.set(button, setTimeout(() => {
 			delete button.dataset.state;
 			button.setAttribute("aria-label", copyLabel);
 			button.title = copyLabel;
-			announce.textContent = "";
+			if (spoken === button) say(null, "");
 		}, copyFor));
 	};
 	document.addEventListener("click", async (e) => {
