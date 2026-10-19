@@ -13,6 +13,10 @@ import (
 
 type scopeOption struct{ Value, Label string }
 
+type chip struct{ Label, Href string }
+
+var chipNames = []struct{ key, name string }{{"q", "Search"}, {"status", "Status"}, {"project", "Project"}, {"since", "Since"}, {"until", "Until"}}
+
 var scopes = []scopeOption{
 	{"", "Default"}, {"finished", "Done and abandoned"}, {"all", "Every status"},
 	{state.StatusDone, "Done"}, {state.StatusAbandoned, "Abandoned"}, {state.StatusActive, "Active"}, {state.StatusInbox, "Inbox"},
@@ -73,6 +77,23 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 			keep.Set(k, s)
 		}
 	}
+	var chips []chip
+	for _, c := range chipNames {
+		val := keep.Get(c.key)
+		if val == "" {
+			continue
+		}
+		if c.key == "status" {
+			val = scopes[slices.IndexFunc(scopes, func(o scopeOption) bool { return o.Value == scope })].Label
+		}
+		rest := maps.Clone(keep)
+		rest.Del(c.key)
+		href := b.o.Base + "/tasks"
+		if len(rest) > 0 {
+			href += "?" + rest.Encode()
+		}
+		chips = append(chips, chip{Label: clip(c.name+": "+val, 40), Href: href})
+	}
 	link := func(n int) string {
 		q := maps.Clone(keep)
 		q.Set("page", strconv.Itoa(n))
@@ -80,7 +101,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 	}
 	data := map[string]any{
 		"Title": "tasks", "Page": "tasks", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": b.token,
-		"Groups": groups, "Total": total, "Projects": projects, "Filtered": len(keep) > 0,
+		"Groups": groups, "Total": total, "Projects": projects, "Chips": chips,
 		"Q": query.Q, "Scope": scope, "Scopes": scopes, "Project": query.Project, "Since": query.Since, "Until": query.Until,
 	}
 	if page > 1 {

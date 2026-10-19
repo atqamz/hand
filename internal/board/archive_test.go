@@ -318,13 +318,61 @@ func TestRailHasNoArchiveLinkWithoutFinishedTasks(t *testing.T) {
 func TestTheArchiveStyles(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
-		".filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));",
-		".filters .search{grid-column:1/-1}",
+		".filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}",
+		".filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}",
+		".filters .refine{display:flex;flex-wrap:wrap;gap:8px}",
+		".filters .field:focus-within{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}",
+		".filters .field :is(input,select){flex:1;align-self:stretch;height:auto;padding:0;border:0;border-radius:0;background:transparent;outline:0}",
+		".filters .range{display:flex;flex:2 1 340px;align-items:center;min-width:0;height:var(--control);overflow:hidden;",
+		".task-search label,.filters .search{position:relative;display:block}",
+		".summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}",
+		".applied{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;margin:0;padding:0;list-style:none}",
+		".found{margin:0 0 0 auto;color:var(--muted);font-size:12px}",
 		".when{white-space:nowrap}",
 		".finished{margin:0;padding:8px 0;font-size:12px}",
 		".pager a[rel=next]{margin-left:auto}",
 		"@media (pointer:coarse){.pager a{display:inline-flex;align-items:center;min-height:44px}}",
+		"@media (pointer:coarse){.applied a:not(.badge){display:inline-flex;align-items:center;min-height:var(--control);margin-block:-10px}}",
 	)
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"),
+		".filters .find{grid-template-columns:minmax(0,1fr)}",
+		".filters .refine{display:grid}",
+		".filters :is(.field,.range){flex:none}",
+		".filters .range{display:grid;gap:8px;height:auto;overflow:visible;border:0;background:none}",
+		`.filters .range .field>span::after{content:" (UTC)"}`,
+		".filters .utc{display:none}",
+	)
+	if strings.Index(css, ".filters .field{position:relative") > strings.Index(css, "@media (max-width:599px){") {
+		t.Fatal("the desk field rules come after the phone block and win on a phone")
+	}
+}
+
+func TestTheFilterBarShowsEachAppliedFilterAsALinkThatDropsIt(t *testing.T) {
+	a := newArchive(t)
+	other, _ := filepath.Abs("/other")
+	if _, err := a.st.AddProject(context.Background(), "docs", other); err != nil {
+		t.Fatal(err)
+	}
+	a.finish(t, "docs", "Fix login", state.StatusDone, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC))
+	h := a.handler()
+	bare := get(t, h, "/tasks")
+	contains(t, "bar", bare, `role="search"`, `<div class="find"><label class="search"><span class="sr">Search tasks</span><svg class="icon"`, `<button class="primary">Search</button>`,
+		`<label class="field"><span>Status</span>`, `<label class="field"><span>Project</span>`, `<div class="range" role="group"`, `<span>Since</span>`, `<span>Until</span>`, `<div class="summary">`, `<p class="found" role="status">`)
+	lacks(t, "bare", bare, `class="applied"`, ">Clear</a>", `class="badge pill drop"`)
+	body := get(t, h, "/tasks?q=fix+login&status=done&project=docs&since=2026-10-01&until=2026-10-05&page=1")
+	contains(t, "applied", body, `<ul class="applied" aria-label="Active filters">`,
+		`href="/tasks?project=docs&amp;since=2026-10-01&amp;status=done&amp;until=2026-10-05" aria-label="Remove filter Search: fix login"><span class="word">Search: fix login</span>`,
+		`href="/tasks?project=docs&amp;q=fix&#43;login&amp;since=2026-10-01&amp;until=2026-10-05" aria-label="Remove filter Status: Done"`,
+		`href="/tasks?q=fix&#43;login&amp;since=2026-10-01&amp;status=done&amp;until=2026-10-05" aria-label="Remove filter Project: docs"`,
+		`href="/tasks?project=docs&amp;q=fix&#43;login&amp;status=done&amp;until=2026-10-05" aria-label="Remove filter Since: 2026-10-01"`,
+		`href="/tasks?project=docs&amp;q=fix&#43;login&amp;since=2026-10-01&amp;status=done" aria-label="Remove filter Until: 2026-10-05"`,
+		`<li><a href="/tasks">Clear</a></li>`)
+	if n := strings.Count(body, `class="badge pill drop"`); n != 5 {
+		t.Fatalf("%d filter links, want 5", n)
+	}
+	contains(t, "one filter", get(t, h, "/tasks?status=all"), `href="/tasks" aria-label="Remove filter Status: Every status"`)
+	contains(t, "wrong status", get(t, h, "/tasks?status=bogus"), `aria-label="Remove filter Status: Done and abandoned"`)
+	contains(t, "long query", get(t, h, "/tasks?q="+strings.Repeat("x", 60)), `<span class="word">Search: `+strings.Repeat("x", 32)+`…</span>`)
 }
 
 func TestTheTasksPageIsTitledTasks(t *testing.T) {

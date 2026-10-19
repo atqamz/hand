@@ -3,15 +3,15 @@
 <p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / tasks</p>
 <h2 class="thread-title">Tasks</h2>
 </header>
-<form class="filters" method="get" action="{{.Base}}/tasks">
-<label class="search">Search<input type="search" name="q" value="{{.Q}}" placeholder="Title, goal or ref" autocomplete="off"></label>
-<label>Status<select name="status">{{range .Scopes}}<option value="{{.Value}}"{{if eq .Value $.Scope}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
-{{if gt (len .Projects) 1}}<label>Project<select name="project"><option value="">All projects</option>{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $.Project}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>
-{{end}}<label>Since (UTC)<input type="date" name="since" value="{{.Since}}"></label>
-<label>Until (UTC)<input type="date" name="until" value="{{.Until}}"></label>
-<span class="actions"><button class="primary">Search</button>{{if .Filtered}} <a href="{{.Base}}/tasks">Clear</a>{{end}}</span>
+<form class="filters" method="get" action="{{.Base}}/tasks" role="search">
+<div class="find"><label class="search"><span class="sr">Search tasks</span>{{template "icon-search"}}<input type="search" name="q" value="{{.Q}}" placeholder="Title, goal or ref" autocomplete="off"></label><button class="primary">Search</button></div>
+<div class="refine">
+<label class="field"><span>Status</span><select name="status">{{range .Scopes}}<option value="{{.Value}}"{{if eq .Value $.Scope}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{template "icon-chevron"}}</label>
+{{if gt (len .Projects) 1}}<label class="field"><span>Project</span><select name="project"><option value="">All projects</option>{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $.Project}} selected{{end}}>{{.Name}}</option>{{end}}</select>{{template "icon-chevron"}}</label>
+{{end}}<div class="range" role="group" aria-label="Finished between, UTC"><label class="field"><span>Since</span><input type="date" name="since" value="{{.Since}}"></label><label class="field"><span>Until</span><input type="date" name="until" value="{{.Until}}"></label><span class="utc" aria-hidden="true">UTC</span></div>
+</div>
 </form>
-<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p>
+<div class="summary">{{if .Chips}}<ul class="applied" aria-label="Active filters">{{range .Chips}}<li><a class="badge pill drop" data-tone="link" href="{{.Href}}" aria-label="Remove filter {{.Label}}"><span class="word">{{.Label}}</span>{{template "icon-close"}}</a></li>{{end}}<li><a href="{{.Base}}/tasks">Clear</a></li></ul>{{end}}<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p></div>
 <div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match. Try fewer words, or clear the dates.</p>
 {{end}}</div>
 {{if or .Prev .Next}}<nav class="pager" aria-label="Pages">{{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}{{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}</nav>

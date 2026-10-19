@@ -103,9 +103,9 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .work>.panel:last-child{padding-bottom:48px}
 .panel-head{display:flex;align-items:center;gap:8px;min-height:var(--control);margin:0 0 12px}
 .task-search{flex:1;min-width:0}
-.task-search label{position:relative;display:block}
-.task-search .icon{position:absolute;left:10px;top:50%;margin-top:-8px;color:var(--muted);pointer-events:none}
-.task-search input[type=search]{width:100%;padding-left:34px}
+.task-search label,.filters .search{position:relative;display:block}
+.task-search .icon,.filters .search .icon{position:absolute;left:10px;top:50%;margin-top:-8px;color:var(--muted);pointer-events:none}
+.task-search input[type=search],.filters .search input{width:100%;padding-left:34px}
 .waits{display:flex;flex-direction:column}
 .band{margin:20px 0 4px;padding:0 16px;color:var(--muted);font-size:12px;font-weight:600;line-height:18px;letter-spacing:.02em;text-transform:lowercase}
 .band::first-letter{text-transform:uppercase}
@@ -329,6 +329,19 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
 .filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
+.filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
+.filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.filters .refine{display:flex;flex-wrap:wrap;gap:8px}
+.filters .field{position:relative;display:flex;flex:1 1 170px;align-items:center;gap:8px;min-width:0;height:var(--control);padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg);color:var(--muted);font-size:12px;font-weight:600}
+.filters .field:focus-within{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+.filters .field>span{flex:none}
+.filters .field :is(input,select){flex:1;align-self:stretch;height:auto;padding:0;border:0;border-radius:0;background:transparent;outline:0}
+.filters .field select{appearance:none;padding-right:20px}
+.filters .field>.icon{position:absolute;right:8px;color:var(--muted);pointer-events:none}
+.filters .range{display:flex;flex:2 1 340px;align-items:center;min-width:0;height:var(--control);overflow:hidden;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg)}
+.filters .range .field{flex:1 1 150px;height:100%;border:0;border-radius:0;background:none}
+.filters .range .field+.field{border-left:1px solid var(--line)}
+.filters .utc{flex:none;padding:0 10px;color:var(--muted);font-size:12px;font-weight:600}
 .field-label{margin:4px 0 0;color:var(--muted);font-size:12px;font-weight:600}
 .menu-body a{font-size:14px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);padding:0 10px;background:var(--bg);color:var(--fg)}
@@ -455,6 +468,14 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 body[data-shell] .timeline{--sb:0px}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.work>.panel{padding:16px 12px 0}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
+.filters .find{grid-template-columns:minmax(0,1fr)}
+.filters .refine{display:grid}
+.filters :is(.field,.range){flex:none}
+.filters .range{display:grid;gap:8px;height:auto;overflow:visible;border:0;background:none}
+.filters .range .field{height:var(--control);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg)}
+.filters .range .field+.field{border-left:1px solid var(--line-strong)}
+.filters .range .field>span::after{content:" (UTC)"}
+.filters .utc{display:none}
 .task-main>.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}.task-main>.card.report>header>.act{justify-self:start;margin-top:4px}
 .masthead .spacer{display:none}
 .masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}
@@ -557,15 +578,15 @@ form[data-busy] button{opacity:.6;cursor:progress}
 .link-state{margin:0;font-size:12px;color:var(--muted)}
 body[data-link=lost] .strip .status-line{opacity:.45}
 #toast[data-kind=receipt]{border-color:var(--line)}
-.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px;align-items:end}
-.filters label{display:grid;gap:2px;min-width:0;font-size:12px;font-weight:600;color:var(--muted)}
-.filters .search{grid-column:1/-1}
-.found{margin:0;color:var(--muted);font-size:12px}
+.summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+.applied{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;margin:0;padding:0;list-style:none}
+.found{margin:0 0 0 auto;color:var(--muted);font-size:12px}
 .days .group:first-child{margin-top:0}
 .when{white-space:nowrap}
 .pager{display:flex;justify-content:space-between;gap:12px}
 .pager a[rel=next]{margin-left:auto}
 @media (pointer:coarse){.pager a{display:inline-flex;align-items:center;min-height:44px}}
+@media (pointer:coarse){.applied a:not(.badge){display:inline-flex;align-items:center;min-height:var(--control);margin-block:-10px}}
 .thread:has(.task-grid){max-width:1120px}
 body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}
 .task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}
