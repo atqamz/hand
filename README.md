@@ -229,7 +229,7 @@ What you do:
 3. Answer decisions on their card or their page, or with `hand decision answer dN "ANSWER"`.
 4. Read reports, and press **Mark read** once you have read one.
 5. Follow a task on its page, or open its newest deliverable with `hand open tN --delivered`.
-6. Find a task with **Browse finished tasks** under the task list, or the search field above it. The Tasks page searches titles, goals and refs over every task: with a query it covers every status, and the Status filter narrows it to finished, active, inbox, done or abandoned. It also filters by project and date, and groups the results by day, 50 to a page.
+6. Find a task with **Browse finished tasks** under the task list, or the search field above it. The Tasks page searches titles, goals and refs over every task: with a query it covers every status, and the Status filter narrows it to finished, active, inbox, done or abandoned. It also filters by project and by date (a date is a UTC day, shown when you hover the field), and groups the results by day, 50 to a page.
 
 What the supervisor does, following the `secondhand` skill:
 

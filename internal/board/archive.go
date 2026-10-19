@@ -83,6 +83,9 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		if val == "" {
 			continue
 		}
+		if c.key == "q" {
+			val = "“" + val + "”"
+		}
 		if c.key == "status" {
 			val = scopes[slices.IndexFunc(scopes, func(o scopeOption) bool { return o.Value == scope })].Label
 		}
@@ -92,7 +95,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		if len(rest) > 0 {
 			href += "?" + rest.Encode()
 		}
-		chips = append(chips, chip{Label: clip(c.name+": "+val, 40), Href: href})
+		chips = append(chips, chip{Label: clip(c.name+" "+val, 40), Href: href})
 	}
 	link := func(n int) string {
 		q := maps.Clone(keep)

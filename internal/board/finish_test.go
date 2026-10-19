@@ -258,3 +258,17 @@ func TestEveryNeedsMotionHasAReducedMotionOverride(t *testing.T) {
 		".wait>summary>.icon:last-child{transition:none}",
 		".misread>summary::before{transition:none}")
 }
+
+func TestSelectsAndTheirOptionsKeepTheThemeColours(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "root", css, ":root{color-scheme:light dark;")
+	contains(t, "controls", css,
+		"textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);",
+		"option{background:var(--bg);color:var(--fg)}")
+	for _, rule := range strings.Split(css, "}") {
+		sel, body, _ := strings.Cut(rule, "{")
+		if strings.Contains(sel, "select") && (strings.Contains(body, "background:transparent") || strings.Contains(body, "background:none")) {
+			t.Fatalf("a select with no background of its own shows a light popup in the dark theme: %s{%s}", sel, body)
+		}
+	}
+}

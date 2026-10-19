@@ -8,10 +8,10 @@
 <div class="refine">
 <label class="field"><span>Status</span><select name="status">{{range .Scopes}}<option value="{{.Value}}"{{if eq .Value $.Scope}} selected{{end}}>{{.Label}}</option>{{end}}</select>{{template "icon-chevron"}}</label>
 {{if gt (len .Projects) 1}}<label class="field"><span>Project</span><select name="project"><option value="">All projects</option>{{range .Projects}}<option value="{{.Name}}"{{if eq .Name $.Project}} selected{{end}}>{{.Name}}</option>{{end}}</select>{{template "icon-chevron"}}</label>
-{{end}}<div class="range" role="group" aria-label="Finished between, UTC"><label class="field"><span>Since</span><input type="date" name="since" value="{{.Since}}"></label><label class="field"><span>Until</span><input type="date" name="until" value="{{.Until}}"></label><span class="utc" aria-hidden="true">UTC</span></div>
+{{end}}<div class="range" role="group" aria-label="Finished between"><label class="field" title="Finished on or after this UTC day"><span>Since</span><input type="date" name="since" value="{{.Since}}"></label><label class="field" title="Finished on or before this UTC day"><span>Until</span><input type="date" name="until" value="{{.Until}}"></label></div>
 </div>
 </form>
-<div class="summary">{{if .Chips}}<ul class="applied" aria-label="Active filters">{{range .Chips}}<li><a class="badge pill drop" data-tone="link" href="{{.Href}}" aria-label="Remove filter {{.Label}}"><span class="word">{{.Label}}</span>{{template "icon-close"}}</a></li>{{end}}<li><a href="{{.Base}}/tasks">Clear</a></li></ul>{{end}}<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p></div>
+<div class="summary">{{if .Chips}}<ul class="applied" aria-label="Active filters">{{range .Chips}}<li><a class="badge pill drop" data-tone="link" href="{{.Href}}" aria-label="Remove filter {{.Label}}"><span class="word">{{.Label}}</span>{{template "icon-close"}}</a></li>{{end}}</ul>{{end}}<div class="tally">{{if .Chips}}<a href="{{.Base}}/tasks">Clear</a>{{end}}<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p></div></div>
 <div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match. Try fewer words, or clear the dates.</p>
 {{end}}</div>
 {{if or .Prev .Next}}<nav class="pager" aria-label="Pages">{{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}{{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}</nav>

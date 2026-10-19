@@ -51,6 +51,7 @@ button.primary:hover{background:color-mix(in srgb,var(--primary) 86%,var(--bg))}
 @supports (text-box:trim-both cap alphabetic){
 button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((var(--control) - 1cap)/2 - 1px)}}
 textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r-md)}
+option{background:var(--bg);color:var(--fg)}
 input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}
 textarea{display:block;width:100%;min-height:4.5em;padding:8px 10px;line-height:20px;resize:vertical}
 ::placeholder{color:var(--muted)}
@@ -335,13 +336,12 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .filters .field{position:relative;display:flex;flex:1 1 170px;align-items:center;gap:8px;min-width:0;height:var(--control);padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg);color:var(--muted);font-size:12px;font-weight:600}
 .filters .field:focus-within{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
 .filters .field>span{flex:none}
-.filters .field :is(input,select){flex:1;align-self:stretch;height:auto;padding:0;border:0;border-radius:0;background:transparent;outline:0}
+.filters .field :is(input,select){flex:1;align-self:stretch;height:auto;padding:0;border:0;border-radius:0;outline:0}
 .filters .field select{appearance:none;padding-right:20px}
 .filters .field>.icon{position:absolute;right:8px;color:var(--muted);pointer-events:none}
 .filters .range{display:flex;flex:2 1 340px;align-items:center;min-width:0;height:var(--control);overflow:hidden;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg)}
 .filters .range .field{flex:1 1 150px;height:100%;border:0;border-radius:0;background:none}
 .filters .range .field+.field{border-left:1px solid var(--line)}
-.filters .utc{flex:none;padding:0 10px;color:var(--muted);font-size:12px;font-weight:600}
 .field-label{margin:4px 0 0;color:var(--muted);font-size:12px;font-weight:600}
 .menu-body a{font-size:14px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);padding:0 10px;background:var(--bg);color:var(--fg)}
@@ -474,8 +474,6 @@ body[data-shell] .timeline{--sb:0px}
 .filters .range{display:grid;gap:8px;height:auto;overflow:visible;border:0;background:none}
 .filters .range .field{height:var(--control);border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--bg)}
 .filters .range .field+.field{border-left:1px solid var(--line-strong)}
-.filters .range .field>span::after{content:" (UTC)"}
-.filters .utc{display:none}
 .task-main>.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}.task-main>.card.report>header>.act{justify-self:start;margin-top:4px}
 .masthead .spacer{display:none}
 .masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}
@@ -579,14 +577,16 @@ form[data-busy] button{opacity:.6;cursor:progress}
 body[data-link=lost] .strip .status-line{opacity:.45}
 #toast[data-kind=receipt]{border-color:var(--line)}
 .summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
-.applied{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;margin:0;padding:0;list-style:none}
-.found{margin:0 0 0 auto;color:var(--muted);font-size:12px}
+.applied{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;margin:0;padding:0;list-style:none;flex:1}
+.found{margin:0;color:var(--muted);font-size:12px}
+.tally{display:flex;align-items:center;gap:12px;line-height:24px}
+.applied+.tally{align-self:flex-start}
 .days .group:first-child{margin-top:0}
 .when{white-space:nowrap}
 .pager{display:flex;justify-content:space-between;gap:12px}
 .pager a[rel=next]{margin-left:auto}
 @media (pointer:coarse){.pager a{display:inline-flex;align-items:center;min-height:44px}}
-@media (pointer:coarse){.applied a:not(.badge){display:inline-flex;align-items:center;min-height:var(--control);margin-block:-10px}}
+@media (pointer:coarse){.tally a{display:inline-flex;align-items:center;min-height:var(--control);margin-block:-10px}}
 .thread:has(.task-grid){max-width:1120px}
 body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}
 .task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}
