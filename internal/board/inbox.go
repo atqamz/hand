@@ -150,6 +150,13 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 
+var shotLine = regexp.MustCompile(`^\[(image|file): ([^\]\n]+)\]$`)
+
+type attachment struct {
+	Name, Label, Kind, Size, Path string
+	Image, Missing                bool
+}
+
 func label(name string) string {
 	if _, rest, ok := strings.Cut(name[len("20060102-150405-"):], "-"); ok {
 		return rest
@@ -157,20 +164,38 @@ func label(name string) string {
 	return name
 }
 
-var shotLine = regexp.MustCompile(`^\[image: ([^\]\n]+)\]$`)
+func size(n int64) string {
+	switch {
+	case n < 1<<10:
+		return fmt.Sprintf("%d B", n)
+	case n < 1<<20:
+		return fmt.Sprintf("%d KiB", (n+1<<9)>>10)
+	default:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	}
+}
 
-func shots(text, home string) (string, []string) {
+func shots(text, home string) (string, []attachment) {
 	inbox := filepath.Join(home, "inbox")
 	var keep []string
-	var names []string
+	var files []attachment
 	for _, line := range strings.Split(text, "\n") {
 		if m := shotLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
-			if dir, name := filepath.Split(m[1]); filepath.Clean(dir) == inbox && shotName.MatchString(name) {
-				names = append(names, name)
+			if dir, name := filepath.Split(m[2]); filepath.Clean(dir) == inbox && shotName.MatchString(name) {
+				a := attachment{Name: name, Label: label(name), Path: m[2], Image: isImage(name), Kind: "FILE"}
+				if ext := strings.TrimPrefix(filepath.Ext(a.Label), "."); ext != "" && len(ext) <= 4 {
+					a.Kind = strings.ToUpper(ext)
+				}
+				if fi, err := os.Lstat(filepath.Join(inbox, name)); err == nil && fi.Mode().IsRegular() {
+					a.Size = size(fi.Size())
+				} else {
+					a.Missing = true
+				}
+				files = append(files, a)
 				continue
 			}
 		}
 		keep = append(keep, line)
 	}
-	return strings.Trim(strings.Join(keep, "\n"), "\n"), names
+	return strings.Trim(strings.Join(keep, "\n"), "\n"), files
 }

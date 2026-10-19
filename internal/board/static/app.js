@@ -576,7 +576,7 @@
 			return;
 		}
 		if ("attaching" in form.dataset) {
-			show("Wait for the images to finish attaching, then send.", 4000, "receipt");
+			show("Wait for the files to finish attaching, then send.", 4000, "receipt");
 			return;
 		}
 		const primary = form.querySelector("button");
@@ -1003,7 +1003,7 @@
 			running += n;
 			if (running > 0) draft.dataset.attaching = "";
 			else delete draft.dataset.attaching;
-			if (running > 0 && note) note.textContent = `Attaching ${running} image${running === 1 ? "" : "s"}…`;
+			if (running > 0 && note) note.textContent = `Attaching ${running} file${running === 1 ? "" : "s"}…`;
 			else reflect();
 		};
 		const put = (line) => {
@@ -1020,12 +1020,12 @@
 			for (const file of files) {
 				try {
 					if (file.size > 10 << 20) {
-						show("an image can be at most 10 MiB");
+						show("a file can be at most 10 MiB");
 						continue;
 					}
 					const data = new FormData();
 					data.append("csrf", csrf);
-					data.append("image", file, file.name || "pasted-image");
+					data.append("image", file, file.name || "pasted-file");
 					const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
 					if (!res) {
 						show("The board did not answer; check that hand board is running.");
@@ -1035,10 +1035,10 @@
 						show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
 						continue;
 					}
-					const { path } = await res.json();
-					put(`[image: ${path}]`);
+					const { path, kind } = await res.json();
+					put(`[${kind}: ${path}]`);
 				} catch {
-					show("The image could not be attached; try again.");
+					show("The file could not be attached; try again.");
 				} finally {
 					busy(-1);
 				}
@@ -1051,7 +1051,7 @@
 		});
 		text.addEventListener("paste", (e) => {
 			const items = [...(e.clipboardData?.items || [])];
-			const files = items.filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter(Boolean);
+			const files = items.filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
 			if (!files.length) return;
 			if (!items.some((i) => i.type === "text/plain")) e.preventDefault();
 			attach(files);

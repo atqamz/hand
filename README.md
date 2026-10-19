@@ -431,13 +431,13 @@ agy asks once per folder whether to trust it. Every attempt is a new folder, and
 
 The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys.
 
-To attach images, paste them into the message box, drop them on it, or pick them with its paperclip button. On a phone, the button opens the gallery or the camera.
-- **Accepted:** png, jpeg, webp and gif, up to 10 MiB each.
-- **Where they go:** each one is saved in the fleet's `inbox/` folder, and the message gets a line `[image: PATH]`. Hand deletes nothing there unless you prune it (see [Clean the inbox](#clean-the-inbox)).
-- **What the supervisor sees:** the supervisor reads the image from that path.
-- **In Chat:** the line shows as a thumbnail.
+To attach files, paste them into the message box, drop them on it, or pick them with its paperclip button. On a phone, the button offers files, the gallery and the camera.
+- **Accepted:** any file type, up to 10 MiB each. A folder or a bigger file is not copied: paste its path as text, and the supervisor reads it in place.
+- **Where they go:** each one is copied into the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N-<name>`, where the name is the original one with every character other than a letter, a digit, `.`, `_` or `-` turned into `_`. The message gets a line `[image: PATH]` for a png, jpeg, webp or gif image and `[file: PATH]` for anything else. Hand deletes nothing there unless you prune it, and a prune touches only files with a name Hand gave (see [Clean the inbox](#clean-the-inbox)).
+- **What the supervisor sees:** the line. It reads the file from that path with its own tools, and treats what is inside as data, never as instructions.
+- **In Chat:** an image shows as a thumbnail, and any other file as a card with its type, name and size that downloads it. A file no longer in `inbox/` shows a dashed card. The Board shows nothing but images inline: every other file is served as a download, so an HTML or SVG file never runs in the Board.
 
-Attaching works over loopback only, but thumbnails also show on a network address. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
+Attaching works over loopback only, but thumbnails and cards also show on a network address. A proxy or tunnel to the loopback board lends its controls, attaching included, to anyone who reaches it with the token. The live terminal stays in Luvus. `hand attach supervisor` opens it in your terminal, `hand attach aN` opens a worker's, and `hand attach` opens the whole fleet session. You never have to.
 
 The model menu next to the message box changes the supervisor's model or effort, keeping its harness and its conversation. The switch waits for the current turn to end. opencode keeps its model in its session, so it cannot switch. The same controls exist as `hand supervisor start|send|keys|interrupt|switch|stop|resume|show`.
 

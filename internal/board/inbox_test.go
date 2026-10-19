@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"html/template"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -261,8 +262,21 @@ func TestOnlyInboxNamesAreServed(t *testing.T) {
 	}
 }
 
+func inboxFile(t *testing.T, home, name string, size int) string {
+	t.Helper()
+	path := filepath.Join(home, "inbox", name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, make([]byte, size), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestAnOperatorMessageShowsItsImages(t *testing.T) {
 	fx := newFixture(t)
+	inboxFile(t, fx.options.Home, "20261001-120000-1.png", 40)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord(`look\n[image: ` + strings.ReplaceAll(fx.options.Home, `\`, `\\`) + `/inbox/20261001-120000-1.png]`)})
 	timeline := region(get(t, fx.handler(), "/"), "timeline")
@@ -272,21 +286,61 @@ func TestAnOperatorMessageShowsItsImages(t *testing.T) {
 
 func TestAQueuedMessageShowsItsImages(t *testing.T) {
 	fx := newFixture(t)
+	inboxFile(t, fx.options.Home, "20261001-120000-1.png", 40)
 	if _, err := fx.st.AddSupervisorInput(context.Background(), "look\n[image: "+fx.options.Home+"/inbox/20261001-120000-1.png]"); err != nil {
 		t.Fatal(err)
 	}
 	contains(t, "timeline", region(get(t, fx.handler(), "/"), "timeline"), `<img src="/inbox/20261001-120000-1.png" alt="Attached image 20261001-120000-1.png" loading="lazy">`)
 }
 
+func TestAMessageShowsAFileCardForEachFile(t *testing.T) {
+	fx := newFixture(t)
+	pdf := inboxFile(t, fx.options.Home, "20261001-120000-1-report.pdf", 312320)
+	shot := inboxFile(t, fx.options.Home, "20261001-120000-2-shot.png", 40)
+	gone := filepath.Join(fx.options.Home, "inbox", "20261001-120000-3-notes.txt")
+	lost := filepath.Join(fx.options.Home, "inbox", "20261001-120000-4.png")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join([]string{"see these", "[file: " + pdf + "]", "[image: " + shot + "]", "[file: " + gone + "]", "[image: " + lost + "]", "[file: " + outside + "]", "[file: " + fx.options.Home + "/inbox/../hand.db]"}, "\n")
+	if _, err := fx.st.AddSupervisorInput(context.Background(), text); err != nil {
+		t.Fatal(err)
+	}
+	timeline := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "timeline", timeline,
+		`<a class="sent-file" href="/inbox/20261001-120000-1-report.pdf" download="report.pdf" title="`+template.HTMLEscapeString(pdf)+`"><span class="badge" aria-hidden="true">PDF</span><span class="sent-name">report.pdf</span><span class="meta">PDF · 305 KiB</span></a>`,
+		`<img src="/inbox/20261001-120000-2-shot.png" alt="Attached image shot.png" loading="lazy">`,
+		`<span class="sent-file missing" title="`+template.HTMLEscapeString(gone)+`"><span class="badge" aria-hidden="true">TXT</span><span class="sent-name">notes.txt</span><span class="meta">no longer in inbox/</span></span>`,
+		`<span class="badge" aria-hidden="true">PNG</span><span class="sent-name">20261001-120000-4.png</span><span class="meta">no longer in inbox/</span>`,
+		template.HTMLEscapeString("[file: "+outside+"]"),
+		template.HTMLEscapeString("[file: "+fx.options.Home+"/inbox/../hand.db]"),
+	)
+	lacks(t, "timeline", timeline, "[file: "+template.HTMLEscapeString(pdf), `src="/inbox/20261001-120000-4.png"`, `href="/inbox/20261001-120000-3-notes.txt"`)
+}
+
 func TestShotsAreStyledInTheStylesheet(t *testing.T) {
 	contains(t, "board.css", asset(t, "board.css"), ".shots img", "max-width:240px", "object-fit:cover")
 }
 
-func TestTheComposerAttachesImages(t *testing.T) {
+func TestFileCardsAreStyledInTheStylesheet(t *testing.T) {
+	contains(t, "board.css", asset(t, "board.css"),
+		".shots .sent-file{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;align-self:start;column-gap:10px;min-width:0;max-width:min(100%,280px);padding:2px 12px 2px 8px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);color:var(--fg);line-height:20px}",
+		".sent-file>.badge{grid-row:1/3}",
+		".sent-file>:not(.badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+		".shots a.sent-file:hover{border-color:var(--line-strong);text-decoration:none}",
+		".shots .sent-file.missing{border-style:dashed;color:var(--muted)}",
+	)
+}
+
+func TestTheComposerAttachesAnyFile(t *testing.T) {
 	fx := newFixture(t)
 	page := get(t, fx.handler(), "/")
-	contains(t, "page", page, `<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach>`, "Attach images")
-	contains(t, "app.js", asset(t, "app.js"), `"paste"`, `"drop"`, `"dragover"`, "data-attach", "/supervisor/image", "[image: ", "Attaching ")
+	contains(t, "page", page, `<input type="file" multiple data-attach>`, `title="Attach files"`, `<span class="sr">Attach files</span>`)
+	lacks(t, "page", page, "accept=", "Attach images")
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, `"paste"`, `"drop"`, `"dragover"`, "data-attach", "/supervisor/image", "const { path, kind } = await res.json();", "put(`[${kind}: ${path}]`);", `items.filter((i) => i.kind === "file").map`, "Attaching ${running} file")
+	lacks(t, "app.js", js, `i.type.startsWith("image/")`, "put(`[image: ${path}]`)")
 	contains(t, "board.css", asset(t, "board.css"), ".console-box.dropping", ".attach")
 }
 
@@ -296,8 +350,8 @@ func TestANetworkBoardHasNoAttachControl(t *testing.T) {
 	lacks(t, "page", get(t, fx.handler(), "/"), "data-attach")
 }
 
-func TestTheComposerChecksAnImagesSizeBeforeUploading(t *testing.T) {
-	contains(t, "app.js", asset(t, "app.js"), "file.size > 10 << 20", "an image can be at most 10 MiB", "busy(files.length)", "reflect()")
+func TestTheComposerChecksAFilesSizeBeforeUploading(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"), "file.size > 10 << 20", "a file can be at most 10 MiB", "busy(files.length)", "reflect()")
 }
 
 func TestABigURLEncodedPostIsTooLarge(t *testing.T) {
@@ -333,13 +387,13 @@ func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
 
 func TestTheComposerWaitsForItsUploads(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, `"attaching" in form.dataset`, "Wait for the images to finish attaching", "const at = text.selectionEnd ?? text.value.length")
+	contains(t, "app.js", js, `"attaching" in form.dataset`, "Wait for the files to finish attaching", "const at = text.selectionEnd ?? text.value.length")
 	lacks(t, "app.js", js, "text.selectionStart ?? text.value.length")
 }
 
 func TestEveryAttachEndsItsUploadOnce(t *testing.T) {
 	js := asset(t, "app.js")
-	if strings.Count(js, "busy(-1)") != 1 || !strings.Contains(js, "} finally {") || !strings.Contains(js, "The image could not be attached") {
+	if strings.Count(js, "busy(-1)") != 1 || !strings.Contains(js, "} finally {") || !strings.Contains(js, "The file could not be attached") {
 		t.Fatal("attach must release each upload once, in a finally, after the line is inserted")
 	}
 }

@@ -17,7 +17,7 @@
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
-<div class="composer-foot"><span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach images">{{template "icon-attach"}}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach><span class="sr">Attach images</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
+<div class="composer-foot"><span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach files">{{template "icon-attach"}}<input type="file" multiple data-attach><span class="sr">Attach files</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
 <span class="draft-note"></span>
 </form></div>{{else}}<p class="hint read-only">Read-only: this board listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
 </div>

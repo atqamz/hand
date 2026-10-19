@@ -518,7 +518,7 @@ type chatItem struct {
 	Clock               bool
 	Input               int64
 	Wakes               []chatItem
-	Shots               []string
+	Shots               []attachment
 }
 
 func once(ref, kind, detail string) string {
