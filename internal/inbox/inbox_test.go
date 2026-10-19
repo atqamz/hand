@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -253,17 +254,21 @@ func TestAFailedMoveDoesNotStopTheRest(t *testing.T) {
 	put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
 	put(t, filepath.Join(dir, "20260902-000000-1.png"), 47*day)
 	put(t, filepath.Join(dir, "20260903-000000-1.png"), 46*day)
+	put(t, filepath.Join(dir, "20260904-000000-1.png"), 45*day)
 	put(t, filepath.Join(dir, Trash, "20260902-000000-1.png", "child"), time.Hour)
+	put(t, filepath.Join(dir, Trash, "20260904-000000-1.png"), time.Hour)
 	p, err := Prune(home, now, 30*day, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(names(p.Moved), []string{"20260901-000000-1.png", "20260903-000000-1.png"}) || len(p.Failed) != 1 || p.Failed[0].Name != "20260902-000000-1.png" || p.Failed[0].Err == nil {
+	if !slices.Equal(names(p.Moved), []string{"20260901-000000-1.png", "20260903-000000-1.png"}) || len(p.Failed) != 2 || p.Failed[0].Name != "20260902-000000-1.png" || p.Failed[1].Name != "20260904-000000-1.png" || p.Failed[1].Err.Error() != "a file of that name is already in the trash" {
 		t.Fatalf("prune = %+v", p)
 	}
-	info, err := os.Lstat(filepath.Join(dir, "20260902-000000-1.png"))
-	if err != nil || !info.ModTime().Equal(now.Add(-47*day)) {
-		t.Fatalf("failed file = %v, %v; want it in place with its own time", info, err)
+	for name, age := range map[string]time.Duration{"20260902-000000-1.png": 47 * day, "20260904-000000-1.png": 45 * day, filepath.Join(Trash, "20260904-000000-1.png"): time.Hour} {
+		info, err := os.Lstat(filepath.Join(dir, name))
+		if err != nil || !info.ModTime().Equal(now.Add(-age)) {
+			t.Fatalf("%s = %v, %v; want it in place with its own time", name, info, err)
+		}
 	}
 }
 
@@ -314,5 +319,27 @@ func TestMarkRemembersTheDay(t *testing.T) {
 	}
 	if u, err := Size(home); err != nil || u != (Usage{}) {
 		t.Fatalf("marker counted: %+v, %v", u, err)
+	}
+}
+
+func TestAFailedRenameGivesTheFileItsTimeBack(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a trash folder this user cannot write to")
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, Folder)
+	trash := filepath.Join(dir, Trash)
+	put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
+	if err := os.MkdirAll(trash, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(trash, 0o700) })
+	p, err := Prune(home, now, 30*day, false)
+	if err != nil || p.Moved != nil || len(p.Failed) != 1 || !errors.Is(p.Failed[0].Err, fs.ErrPermission) {
+		t.Fatalf("prune = %+v, %v", p, err)
+	}
+	info, err := os.Lstat(filepath.Join(dir, "20260901-000000-1.png"))
+	if err != nil || !info.ModTime().Equal(now.Add(-48*day)) {
+		t.Fatalf("file = %v, %v; want it in place with its own time", info, err)
 	}
 }

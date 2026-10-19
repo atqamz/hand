@@ -165,11 +165,21 @@ func move(dir, trash string, f File, now time.Time) error {
 	if err := os.Mkdir(trash, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
-	from := filepath.Join(dir, f.Name)
+	from, to := filepath.Join(dir, f.Name), filepath.Join(trash, f.Name)
+	if _, err := os.Lstat(to); err == nil {
+		return errors.New("a file of that name is already in the trash")
+	}
+	info, err := os.Lstat(from)
+	if err == nil && !info.Mode().IsRegular() {
+		err = errors.New("no longer a regular file")
+	}
+	if err != nil {
+		return err
+	}
 	if err := os.Chtimes(from, now, now); err != nil {
 		return err
 	}
-	if err := os.Rename(from, filepath.Join(trash, f.Name)); err != nil {
+	if err := os.Rename(from, to); err != nil {
 		return errors.Join(err, os.Chtimes(from, time.Time{}, f.Mod))
 	}
 	return nil
