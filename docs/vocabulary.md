@@ -139,8 +139,18 @@ A fleet home holds:
 - the `secondhand` skill under `.claude/`, `.agents/`, `.grok/` and `.pi/`;
 - `memory/`: the operator memory;
 - `routing.json`: the routing profiles;
+- `inbox/`: the files attached on the board, and its trash (see Inbox folder and trash);
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
+
+### Inbox folder and trash
+
+`inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>.ext` (see Supervisor input). Hand deletes nothing there except through a prune:
+
+- `hand inbox size` counts those files, sums their size and gives the ages of the oldest and the newest, by modification time, and the same count and size for the trash.
+- `hand inbox prune --older-than Nd` (at least `1d`) moves each such file older than N days from `inbox/` into the trash, `inbox/.trash/` (mode 0700), by a rename on the same disk, and stamps it with the time of the move. It then deletes each such file in the trash older than 7 days by that stamp. `--dry-run` lists both and changes nothing.
+- A prune touches only regular files with those names, directly inside `inbox/` or, for the expiry, `inbox/.trash/`. It never touches a symlink, a folder, an `.upload-*` file the board is still writing, or a file with another name, and it refuses an `inbox/.trash` that is not a real folder. A file it cannot move or delete is reported, and the others still go. A prune that is not a dry run holds the fleet's `locks/inbox.lock`, so a second one at the same time exits 3.
+- A prune that moves files records the event `inbox.pruned` with their count and size: `3 files, 12 MiB`.
 
 ### Shared folder
 
@@ -322,7 +332,7 @@ The watcher fires a due timer while the managed supervisor runs, on its start an
 
 `iN`. A message queued for the supervisor, from the board's message box or `hand supervisor send --text TEXT`. It is at most 16 KiB of UTF-8 with no control characters other than newline and tab, and it may not start with `[hand v1`, which Hand keeps for its own messages. Inputs are delivered in order as soon as the supervisor can take them.
 
-An input can carry images. Each one the operator pastes, drops or picks on the board is saved in the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N.ext`, and the message gets a line `[image: PATH]`. The supervisor opens that path with its harness's image reading. Chat shows each such line from this fleet's `inbox/` as a thumbnail.
+An input can carry images. Each one the operator pastes, drops or picks on the board is saved in the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N.ext`, and the message gets a line `[image: PATH]`. The supervisor opens that path with its harness's image reading. Chat shows each such line from this fleet's `inbox/` as a thumbnail. A prune may later move the file to the trash (see Inbox folder and trash).
 
 ### Model switch
 

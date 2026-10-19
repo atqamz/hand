@@ -262,6 +262,7 @@ A fleet folder looks like this:
 ├── memory/
 │   ├── operator.md    your standing preferences
 │   └── projects/      one file of lessons per project
+├── inbox/             files attached on the board, and .trash/ for pruned ones
 └── board.token        the board's token for this fleet
 ```
 
@@ -432,7 +433,7 @@ The fleet page updates itself as things change, and keeps what you are typing. I
 
 To attach images, paste them into the message box, drop them on it, or pick them with its paperclip button. On a phone, the button opens the gallery or the camera.
 - **Accepted:** png, jpeg, webp and gif, up to 10 MiB each.
-- **Where they go:** each one is saved in the fleet's `inbox/` folder, and the message gets a line `[image: PATH]`. Hand never deletes `inbox/`.
+- **Where they go:** each one is saved in the fleet's `inbox/` folder, and the message gets a line `[image: PATH]`. Hand deletes nothing there unless you prune it (see [Clean the inbox](#clean-the-inbox)).
 - **What the supervisor sees:** the supervisor reads the image from that path.
 - **In Chat:** the line shows as a thumbnail.
 
@@ -459,6 +460,16 @@ The supervisor acts only on a message. While a task is active, no attempt runs, 
 ### Timers
 
 The supervisor waits on something outside Hand, such as a PR review or CI, with a timer instead of a background script, which a switch or resume would lose. `hand wake --after 30m --note "check PR 909"` wakes it once 30 minutes from now, `--at <UTC time, RFC 3339>` at that time, and `--every 30m --while t137` every 30 minutes until t137 is done or abandoned. The watcher delivers each one as the wake `timer.fired w1: check PR 909`. Timers live in `hand.db`, so they survive a watcher restart, a supervisor switch and a resume. Timers belong to the managed supervisor: `hand wake` is refused while none runs, and a supervisor opened by hand waits with `hand wait --timeout` instead. The watcher fires them only while the managed supervisor runs: one that came due while the watcher or the supervisor was down fires once when both are back, marked `w1, 2h10m late`, and a repeating one then carries on from there. While a timer due within 6 hours is armed and the managed supervisor runs, the work is not unwatched, so no stall wake comes; a timer due later does not count, so a far `--at` cannot silence the supervisor for days, and the stall wake names it (`w2 is armed but due in 31d`). A repeating timer counts while its next due time is within 6 hours. `hand orient` lists the armed timers and marks one beyond the horizon, and every one `(no managed supervisor: not fired)` while none runs. A timer is due at least 1 minute ahead, a fleet holds at most 20 armed timers, and a note is one line of at most 200 characters. `hand wake list` shows them and `hand wake cancel wN` drops one. Hand never asks GitHub or CI anything for a timer: it only wakes the supervisor, which does the checking.
+
+### Clean the inbox
+
+Attachments pile up in `inbox/`. `hand inbox size` shows how many files Hand saved there, their total size, the age of the oldest and of the newest, and what the trash holds. `hand inbox prune --older-than 30d` moves every attachment last modified more than 30 days ago into `inbox/.trash/`, and deletes each file that has been in the trash for more than 7 days. With `--dry-run` it lists both and changes nothing. It prints how many files it moved and deleted, and the space it freed.
+
+- **What it touches:** only regular files directly inside `inbox/` with a name Hand gives (`YYYYMMDD-HHMMSS-N.ext`, or `YYYYMMDD-HHMMSS-N-<name>.ext`). It never touches a symlink, a folder, an upload still in progress (`.upload-*`) or a file with another name. An `inbox/.trash` that is not a real folder stops it.
+- **How it moves:** a rename into `inbox/.trash/` on the same disk, so nothing is copied. Each moved file gets the time of the move, so its 7 days in the trash start then. Until they end, you can move it back.
+- **Failures:** a file it cannot move or delete is listed under `failed`, the others still go, and the command exits 1.
+- **Repeats:** a second run moves nothing new. Two prunes of one fleet never run at once: the second exits 3.
+- **Event:** a prune that moves files records `inbox.pruned` with their count and size (`3 files, 12 MiB`).
 
 ## Safe use
 
@@ -502,6 +513,8 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand luvus pin [BIN]` | Pin a copy of a Luvus binary (default: `luvus` on `PATH`) for every fleet under this `SECONDHAND_HOME`. |
 | `hand luvus show` | Show the pinned Luvus and the version of the fleet's running server (from a UHP `ping`), with `match: yes`, `no`, `not running` or `unknown`. |
 | `hand orient` | Print the bounded fleet summary the supervisor starts every turn with. |
+| `hand inbox size` | Show the attachments in the fleet's `inbox/`: how many, their size, the age of the oldest and of the newest, and the trash. |
+| `hand inbox prune --older-than DURATION [--dry-run]` | Move the attachments older than DURATION (days, like `30d`) to `inbox/.trash/`, and delete the files in the trash for more than 7 days; `--dry-run` only lists them. See [Clean the inbox](#clean-the-inbox). |
 | `hand wait [--after CURSOR] [--timeout DURATION]` | Block until a wake event arrives, for a supervisor opened by hand. |
 | `hand wake --after DURATION\|--at TIME\|--every DURATION [--while tN] [--note TEXT]` | Arm a timer (refused without a running managed supervisor) that wakes it once after a delay, once at an RFC 3339 time, or repeatedly; `--while tN` cancels it when that task is done or abandoned. See [Timers](#timers). |
 | `hand wake list`, `hand wake cancel wN` | List the armed timers, or cancel one. |

@@ -102,6 +102,10 @@ func (s *Store) NoteLuvus(ctx context.Context, kind, detail string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), "luvus."+kind, 0, detail) })
 }
 
+func (s *Store) InboxPruned(ctx context.Context, detail string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error { return emit(tx, s.stamp(), "inbox.pruned", 0, detail) })
+}
+
 func (s *Store) SwitchFailed(ctx context.Context, version string) (bool, error) {
 	var n int
 	prefix := version + ": "
