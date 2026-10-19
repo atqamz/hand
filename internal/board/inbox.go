@@ -165,11 +165,11 @@ func label(name string) string {
 }
 
 func size(n int64) string {
-	switch {
+	switch kib := (n + 1<<9) >> 10; {
 	case n < 1<<10:
 		return fmt.Sprintf("%d B", n)
-	case n < 1<<20:
-		return fmt.Sprintf("%d KiB", (n+1<<9)>>10)
+	case kib < 1<<10:
+		return fmt.Sprintf("%d KiB", kib)
 	default:
 		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
 	}

@@ -90,7 +90,7 @@ func TestALongNameKeepsItsExtension(t *testing.T) {
 }
 
 func TestSizesReadInPlainUnits(t *testing.T) {
-	for n, want := range map[int64]string{0: "0 B", 1023: "1023 B", 1024: "1 KiB", 312320: "305 KiB", 3 << 20: "3.0 MiB"} {
+	for n, want := range map[int64]string{0: "0 B", 1023: "1023 B", 1024: "1 KiB", 312320: "305 KiB", 1048063: "1023 KiB", 1048064: "1.0 MiB", 3 << 20: "3.0 MiB"} {
 		if got := size(n); got != want {
 			t.Errorf("size(%d) = %q, want %q", n, got, want)
 		}
