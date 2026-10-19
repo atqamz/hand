@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,12 +57,14 @@ func startWatch(t *testing.T, fx *attemptFixture, flags ...string) func() (strin
 		done <- result{out, code}
 	}()
 	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
-	return func() (string, int) {
+	stop := sync.OnceValues(func() (string, int) {
 		cancel()
 		r := <-done
 		eventually(t, func() bool { return fx.rt.srv.Subscribers() == 0 })
 		return r.out, r.code
-	}
+	})
+	t.Cleanup(func() { stop() })
+	return stop
 }
 
 func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
