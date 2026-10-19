@@ -158,7 +158,19 @@ func Mark(home, day string) error {
 	} else if err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
-	return os.WriteFile(filepath.Join(trash, mark), []byte(day+"\n"), 0o600)
+	tmp, err := os.CreateTemp(trash, mark+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.WriteString(day + "\n")
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(trash, mark))
 }
 
 func move(dir, trash string, f File, now time.Time) error {
@@ -186,17 +198,19 @@ func move(dir, trash string, f File, now time.Time) error {
 }
 
 func trashDir(home string) (string, error) {
-	dir := filepath.Join(home, Folder, Trash)
-	info, err := os.Lstat(dir)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return dir, nil
-	case err != nil:
-		return "", err
-	case !info.IsDir():
-		return "", fmt.Errorf("%s is not a folder; move it out of the inbox", dir)
+	trash := filepath.Join(home, Folder, Trash)
+	for _, dir := range []string{filepath.Dir(trash), trash} {
+		info, err := os.Lstat(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return trash, nil
+		case err != nil:
+			return "", err
+		case !info.IsDir():
+			return "", fmt.Errorf("%s is a symlink or a file, not a folder; Hand prunes only a real folder", dir)
+		}
 	}
-	return dir, nil
+	return trash, nil
 }
 
 func scan(dir string) ([]File, error) {

@@ -345,3 +345,53 @@ func TestAFailedRenameGivesTheFileItsTimeBack(t *testing.T) {
 		t.Fatalf("file = %v, %v; want it in place with its own time", info, err)
 	}
 }
+
+func TestASymlinkedInboxIsRefused(t *testing.T) {
+	home := t.TempDir()
+	elsewhere := t.TempDir()
+	put(t, filepath.Join(elsewhere, "20250101-000000-1.png"), 300*day)
+	if err := os.Symlink(elsewhere, filepath.Join(home, Folder)); err != nil {
+		t.Fatal(err)
+	}
+	for _, dry := range []bool{true, false} {
+		if p, err := Prune(home, now, day, dry); err == nil {
+			t.Fatalf("dry=%v symlinked inbox = %+v", dry, p)
+		}
+	}
+	if _, err := Size(home); err == nil {
+		t.Fatal("size took a symlinked inbox")
+	}
+	if err := Mark(home, "20261019"); err == nil {
+		t.Fatal("mark took a symlinked inbox")
+	}
+	if des, _ := os.ReadDir(elsewhere); len(des) != 1 {
+		t.Fatalf("symlink target changed: %v", des)
+	}
+}
+
+func TestMarkReplacesASymlinkedMarker(t *testing.T) {
+	home := t.TempDir()
+	trash := filepath.Join(home, Folder, Trash)
+	if err := os.MkdirAll(trash, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "keep.txt")
+	if err := os.WriteFile(target, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(trash, mark)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Mark(home, "20261019"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(target); err != nil || string(b) != "keep\n" {
+		t.Fatalf("symlink target = %q, %v", b, err)
+	}
+	if info, err := os.Lstat(filepath.Join(trash, mark)); err != nil || !info.Mode().IsRegular() || !Marked(home, "20261019") {
+		t.Fatalf("marker = %v, %v", info, err)
+	}
+	if des, _ := os.ReadDir(trash); len(des) != 1 {
+		t.Fatalf("trash holds %v", des)
+	}
+}
