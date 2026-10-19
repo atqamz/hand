@@ -44,7 +44,7 @@ func (w *watcher) stall(ctx context.Context, c luvus.Client, caps luvus.Capabili
 	if err != nil || len(u.Tasks) == 0 {
 		return err
 	}
-	now := w.r.env.Now()
+	now := u.At
 	ag, err := c.Explain(ctx, sup.PaneID)
 	if err != nil {
 		return nil

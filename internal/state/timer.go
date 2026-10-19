@@ -137,8 +137,12 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 }
 
 func (s *Store) Timers(ctx context.Context) ([]Timer, error) {
+	return s.timersAt(ctx, s.now())
+}
+
+func (s *Store) timersAt(ctx context.Context, now time.Time) ([]Timer, error) {
 	timers, err := armedTimers(ctx, s.db)
-	horizon := s.now().Add(timerWatchHorizon)
+	horizon := now.Add(timerWatchHorizon)
 	for i := range timers {
 		timers[i].Beyond = timers[i].Due.After(horizon)
 	}
@@ -175,7 +179,7 @@ func armedTimers(ctx context.Context, q interface {
 func (s *Store) FireTimers(ctx context.Context) ([]string, error) {
 	now := s.now()
 	due := func(t Timer) bool { return !t.Due.After(now) }
-	armed, err := s.Timers(ctx)
+	armed, err := armedTimers(ctx, s.db)
 	if err != nil || !slices.ContainsFunc(armed, due) {
 		return nil, err
 	}

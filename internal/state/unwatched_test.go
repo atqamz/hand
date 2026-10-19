@@ -249,3 +249,32 @@ func TestOnlyARunningSupervisorOnTheCurrentServerIsManaged(t *testing.T) {
 		}
 	}
 }
+
+func TestUnwatchedReadsTheClockOnce(t *testing.T) {
+	var mu sync.Mutex
+	now, tick := fixed, time.Duration(0)
+	s, err := Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		at := now
+		now = now.Add(tick)
+		return at
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	task := activeTask(t, s)
+	far, err := s.AddTimer(ctx, TimerSpec{After: 7 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	now, tick = now.Add(20*time.Minute), 2*time.Minute
+	mu.Unlock()
+	u, err := s.Unwatched(ctx, true)
+	if err != nil || !slices.Equal(u.Tasks, []int64{task.ID}) || u.Far.ID != far.ID || !u.At.Equal(fixed.Add(20*time.Minute)) || u.Idle != 20*time.Minute || u.FarIn != 6*time.Hour+40*time.Minute {
+		t.Fatalf("unwatched = %+v, %v; want t%d idle 20m, w%d due in 6h40m", u, err, task.ID, far.ID)
+	}
+}

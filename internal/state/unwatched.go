@@ -17,6 +17,7 @@ type Unwatched struct {
 	Last   time.Time
 	Far    Timer
 	FarIn  time.Duration
+	At     time.Time
 }
 
 func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) {
@@ -25,9 +26,10 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 	if err != nil || live > 0 || open > 0 {
 		return Unwatched{}, err
 	}
+	now := s.now()
 	var timers []Timer
 	if managed {
-		if timers, err = s.Timers(ctx); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
+		if timers, err = s.timersAt(ctx, now); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
 			return Unwatched{}, err
 		}
 	}
@@ -36,10 +38,10 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 		return Unwatched{}, err
 	}
 	defer rows.Close()
-	var u Unwatched
+	u := Unwatched{At: now}
 	if len(timers) > 0 {
 		u.Far = timers[0]
-		u.FarIn = u.Far.Due.Sub(s.now())
+		u.FarIn = u.Far.Due.Sub(now)
 	}
 	for rows.Next() {
 		var id int64
@@ -70,7 +72,7 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 			return Unwatched{}, err
 		}
 	}
-	u.Idle = s.now().Sub(u.Since)
+	u.Idle = now.Sub(u.Since)
 	return u, nil
 }
 
