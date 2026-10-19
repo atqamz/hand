@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	Name = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(-.+)?\.[A-Za-z0-9]+$`)
+	Name = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9]+(-.+|\.[A-Za-z0-9]+)$`)
 	days = regexp.MustCompile(`^[1-9][0-9]{0,3}d$`)
 )
 

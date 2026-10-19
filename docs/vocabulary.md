@@ -145,7 +145,7 @@ A fleet home holds:
 
 ### Inbox folder and trash
 
-`inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>.ext` (see Supervisor input). Hand deletes nothing there except through a prune:
+`inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>`, with or without an extension (see Supervisor input). Hand deletes nothing there except through a prune:
 
 - `hand inbox size` counts those files, sums their size and gives the ages of the oldest and the newest, by modification time, and the same count and size for the trash.
 - `hand inbox prune --older-than Nd` (at least `1d`) moves each such file older than N days from `inbox/` into the trash, `inbox/.trash/` (mode 0700), by a rename on the same disk, and stamps it with the time of the move. It then deletes each such file in the trash older than 7 days by that stamp. `--dry-run` lists both and changes nothing.

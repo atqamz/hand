@@ -58,12 +58,12 @@ func names(files []File) []string {
 }
 
 func TestNameMatchesBothForms(t *testing.T) {
-	for _, name := range []string{"20261019-101010-1.png", "20261019-101010-12.webp", "20261019-101010-3-report.pdf", "20261019-101010-1-my notes.tar.gz", "20261019-101010-2-shot.png.bin"} {
+	for _, name := range []string{"20261019-101010-1.png", "20261019-101010-12.webp", "20261019-101010-3-report.pdf", "20261019-101010-1-my notes.tar.gz", "20261019-101010-2-shot.png.bin", "20261019-101010-1-Makefile", "20261019-101010-4-bashrc", "20261019-101010-5-.bashrc"} {
 		if !Name.MatchString(name) {
 			t.Errorf("%q does not match", name)
 		}
 	}
-	for _, name := range []string{".upload-123", ".upload-20261019-101010-1.png", "notes.txt", "20261019-101010.png", "20261019-101010-1", "20261019-101010-1-Makefile", "2026101-101010-1.png", "20261019-101010-1.png~", ".trash", ".pruned"} {
+	for _, name := range []string{".upload-123", ".upload-20261019-101010-1.png", "notes.txt", "20261019-101010.png", "20261019-101010-1", "20261019-101010-1-", "20261019-101010-1.", "2026101-101010-1.png", "20261019-101010-1.png~", "x20261019-101010-1.png", ".trash", ".pruned", ".pruned.tmp-123"} {
 		if Name.MatchString(name) {
 			t.Errorf("%q matches", name)
 		}
@@ -161,7 +161,9 @@ func TestPruneMovesOnlyOldHandFilesDirectlyInside(t *testing.T) {
 	trash := filepath.Join(dir, Trash)
 	put(t, filepath.Join(dir, "20260901-000000-1.png"), 48*day)
 	put(t, filepath.Join(dir, "20260902-000000-1-report.pdf"), 47*day)
+	put(t, filepath.Join(dir, "20260903-000000-1-Makefile"), 46*day)
 	put(t, filepath.Join(dir, "20261019-110000-1.png"), time.Hour)
+	put(t, filepath.Join(dir, "20261019-110000-2-bashrc"), time.Hour)
 	put(t, filepath.Join(dir, "20260920-000000-1.png"), 30*day)
 	put(t, filepath.Join(dir, "notes.txt"), 90*day)
 	put(t, filepath.Join(dir, ".upload-123"), 90*day)
@@ -174,10 +176,10 @@ func TestPruneMovesOnlyOldHandFilesDirectlyInside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"20260901-000000-1.png", "20260902-000000-1-report.pdf"}; !slices.Equal(names(p.Moved), want) || p.Deleted != nil || p.Failed != nil {
+	if want := []string{"20260901-000000-1.png", "20260902-000000-1-report.pdf", "20260903-000000-1-Makefile"}; !slices.Equal(names(p.Moved), want) || p.Deleted != nil || p.Failed != nil {
 		t.Fatalf("prune = %+v, want moved %v", p, want)
 	}
-	for _, name := range []string{"20261019-110000-1.png", "20260920-000000-1.png", "notes.txt", ".upload-123", filepath.Join("20250101-000000-1.png", "20250101-000000-2.png"), "20250101-000000-3.png"} {
+	for _, name := range []string{"20261019-110000-1.png", "20261019-110000-2-bashrc", "20260920-000000-1.png", "notes.txt", ".upload-123", filepath.Join("20250101-000000-1.png", "20250101-000000-2.png"), "20250101-000000-3.png"} {
 		if _, err := os.Lstat(filepath.Join(dir, name)); err != nil {
 			t.Errorf("%s left the inbox: %v", name, err)
 		}
