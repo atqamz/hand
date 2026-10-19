@@ -328,6 +328,11 @@ components:
     textColor: "{colors.muted}"
     rounded: "{rounded.md}"
     size: "32px"
+  latest-button:
+    backgroundColor: "{colors.bg}"
+    textColor: "{colors.fg}"
+    rounded: "{rounded.round}"
+    size: "32px"
   button:
     backgroundColor: "{colors.bg}"
     textColor: "{colors.fg}"
@@ -497,7 +502,7 @@ Every colour, radius and size is a custom property on `:root` in `internal/board
 - **Short screens (under 600px tall):** the masthead shrinks to 36px and sticks to the top. Under 900px wide the page flows as one scroll and the masthead merges the three tabs into its single row. The composer sticks to the bottom and its text box stops at 30dvh. Without JavaScript the page also flows, with the same sticky composer; at 900px and wider the supervisor pane then sticks to the top at the height of the viewport.
 - **Phone (under 600px wide):** 16px by 12px of panel padding. The masthead stays one row: the menu button, the mark, the fleet name (which truncates first), then the Needs count with its worst state (for example "1 blocked") and the status pill; the fleet id, the model, the queue, compactions and the context bar are hidden. The pane head drops the `sN` ref, the Interrupt key drops its label, and the tabs split the width in thirds. On a phone that is also short, the fleet name hides too.
 - **Thread pages:** the task, Tasks, decision, conversation, error and fleet-list pages use one 880px column, to the right of the rail, with 20px, 16px and 48px of padding and a 14px gap, and the masthead's inner row aligns to its 848px content. The task page widens its column to 1120px, and the masthead aligns to its 1088px content.
-- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 14px gap and a 16px fade at its top edge, set in a 760px column centred in the pane. Its scrollbar sits in the pane's own margin: the right padding is 8px (`--sb`) narrower than the composer's margin while the timeline scrolls, so an operator bubble's right edge is the composer's right edge to the pixel (`TestOperatorBubblesEndOnTheComposerEdge`). The 8px is the scrollbar's width in `board.css`; where a browser draws another width (Firefox's thin scrollbar, an overlay scrollbar on a phone) the bubble ends a few pixels off the edge. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned.
+- **Chat:** the timeline stacks newest at the bottom (`column-reverse`), with a 14px gap and a 16px fade at its top edge, set in a 760px column centred in the pane. Its scrollbar sits in the pane's own margin: the right padding is 8px (`--sb`) narrower than the composer's margin while the timeline scrolls, so an operator bubble's right edge is the composer's right edge to the pixel (`TestOperatorBubblesEndOnTheComposerEdge`). The 8px is the scrollbar's width in `board.css`; where a browser draws another width (Firefox's thin scrollbar, an overlay scrollbar on a phone) the bubble ends a few pixels off the edge. Without JavaScript it scrolls on its own up to 65vh; on short screens under 900px wide it flows with the page. When the operator is within 48px of the bottom, new entries and a growing composer keep it pinned. Further up, a refresh keeps the message being read where it is, so new replies never move the operator's place, and the scroll to latest button (see Scroll to latest button) offers the way back.
 - **Rhythm:** 4px and 8px steps inside components, 12px between chat entries and around card bodies, and 24px above each work-pane panel (16px below 900px). Rows in lists share one `.row`: 4px of padding, at least 40px high, between hairlines.
 
 ### Named Rules
@@ -546,7 +551,7 @@ Icons are Hand's own inline SVG, kept in `internal/board/templates/icons.html`.
 - **Size and colour:** 16px, except the mark at 22px and the pill's icon at 12px. They take their colour from the surrounding state.
 - **The state family:** failure is a circle with an X, passing a circle with a tick, waiting a circle with three dots, running an open arc around a solid dot, and idle a dashed circle.
 - **The rail's six:** Board is a panel with a divider, Tasks a checklist, Conversation a speech bubble, All fleets four squares, the label button a panel with a narrow strip at its left, and the menu button three lines.
-- **Drawn by the script:** the code copy button's three icons (two sheets, a tick, a cross) are built by `app.js` in the same family, because the button itself is added there.
+- **Drawn by the script:** the code copy button's three icons (two sheets, a tick, a cross) and the scroll to latest button's arrow (a stem with a chevron) are built by `app.js` in the same family, because the buttons themselves are added there.
 - **The rest:** the mark is a dial with a needle. The chevron beside the model menu turns 180° when the menu opens. Interrupt is a solid rounded square and the overflow icon is three solid dots. Attach is a paperclip and Search a magnifier. Notify in the overflow menu has no icon.
 
 ## Components
@@ -726,6 +731,16 @@ Every code block in rendered markdown (replies, plans, reports, decision text, t
 - **Colour:** the icon is `muted` on the block's surface (6.15:1 on `bg`, 5.52:1 on `card`, night 7.23:1 and 6.43:1); the edge is `line-strong` (3.2:1 or better on both surfaces). With forced colours the icon and edge take `ButtonText`.
 - **Motion:** the fade-in is .15s and stops under `prefers-reduced-motion`.
 
+### Scroll to latest button
+A round button above the composer that returns the operator to the newest message after they scrolled up. `app.js` adds it, so without script the page is unchanged; it is not on the conversation page, a short page of at most 50 entries with no composer to sit above.
+- **Structure:** a `button.latest` (type button) holding the down arrow and a `.badge` for the count, set as the first child of the composer box, before its form, so it follows the timeline's content and precedes the text box in the tab order; on a read-only board it sits in the same place on the read-only note. A visually hidden `role=status` region beside it speaks the count. It lives outside the five regions, so a live update never replaces it or loses its count.
+- **Place and size:** `--control` round (32px; 44px on coarse pointers), absolutely placed with its right edge on the composer's right edge and 12px above its top, so it takes no room and shifts nothing when it appears. It covers at most its own size of the last message and never the timeline's scrollbar, which sits in the pane's margin. The Chat tab owns it below 900px, and at the pane's 360px minimum it keeps the same place.
+- **When it shows:** while the timeline (or, on a short screen where the page scrolls, the page) is more than 48px above the bottom, the same threshold as the pin. It fades and rises 8px over .15s, and leaves the tab order while hidden (`visibility`). One scroll listener per scroller, all passive, schedules a single animation frame; nothing is read per scroll event except in that frame.
+- **Count:** each supervisor reply that arrives while the operator is more than 48px up adds one to a badge of the shared 20px height (`99+` past 99). The name reads "Scroll to latest message", or "Scroll to latest, 3 new messages" ("1 new message" for one). The region speaks the count once the count has held for a second, so a burst speaks once. Returning to the bottom, by the button or by scrolling, clears the count.
+- **Click:** scrolls to the bottom, smoothly or at once under `prefers-reduced-motion`; the pin then follows new messages again. A pointer click does not take focus, so focus stays where it was. A keyboard click (Enter or Space) moves focus to the message box, so the button hiding never drops it into the page body; on a read-only board focus goes to the timeline.
+- **Colour:** ink on the ground (17.9:1 by day) with a `line-strong` edge (3.3:1 on the pane, the same as the composer's edge); the badge is `on-primary` on `primary`. With forced colours the edge and icon take `ButtonText`. It takes the 2px accent focus ring and the hover wash of any button, and no shadow.
+- **Motion:** the fade stops under `prefers-reduced-motion`.
+
 ### Reply markdown
 Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a numbered list keeps the numbers written in the source (a list a block interrupts resumes at its own number), lines indented under an item nest inside it up to six lists deep (deeper lines render as plain paragraph text), and blank lines between items keep one list; a numbered list starts at the number written when it fits 32 bits; `###` in Title and `####` in Heading small; inline code on `card` with 4px corners; code blocks on `card` (`bg` inside a bubble) with 6px corners that scroll rather than wrap, behind a scroll shadow, each with a copy button; a hairline rule; quotes with a 1px hairline on the left in muted ink; struck text in muted ink. Tables fit their content inside a bordered 6px box that scrolls sideways behind the same scroll shadow, with a `card` header row in muted 12px at 600, cells at least 10ch wide padded 6px by 10px, tabular numerals, alignment from the source, and a sticky first column divided by a hairline.
 
@@ -765,7 +780,7 @@ A fixed box 16px from the bottom right, up to 28em wide, on the ground with 10px
 - **Do** leave a trace for every action: a receipt, a Hand line in Chat, and a link back to the item.
 - **Do** keep one primary button per form, and keep Stop behind a second press.
 - **Do** keep all style in `board.css` and all script in `app.js`: no inline script, no inline style and no `style` attribute. `app.js` may set the `--chat` custom property and the rail tip's `top` through the CSSOM, which the CSP allows.
-- **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash, the open and close transition and the copy button's fade.
+- **Do** stop every animation under `prefers-reduced-motion`: the working pulse, the feed, the arrival wash, the open and close transition, the copy button's fade and the scroll to latest button's fade.
 
 ### Don't:
 - **Don't** use fail red for decisions, reports, links or ordinary states.

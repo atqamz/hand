@@ -105,6 +105,15 @@
 	const fills = matchMedia("(min-height: 600px), (min-width: 900px)");
 	const page = () => document.scrollingElement || document.documentElement;
 	const gap = (el) => (fills.matches ? fromBottom(el) : page().scrollHeight - page().scrollTop - page().clientHeight);
+	const reading = (el) => {
+		const box = el.getBoundingClientRect();
+		const lo = Math.max(box.top, 0);
+		const hi = Math.min(box.bottom, innerHeight);
+		return [...el.children].find((c) => {
+			const r = c.dataset.no && c.getBoundingClientRect();
+			return r && r.bottom > lo && r.top < hi;
+		});
+	};
 	const pin = (el) => {
 		if (fills.matches) toBottom(el);
 		else page().scrollTop = page().scrollHeight;
@@ -166,6 +175,7 @@
 		copy: ["M5.5 7A1.5 1.5 0 0 1 7 5.5h6A1.5 1.5 0 0 1 14.5 7v6a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 13z", "M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5"],
 		copied: ["M3 8.5l3.5 3.5L13 4.5"],
 		failed: ["M4 4l8 8M12 4l-8 8"],
+		down: ["M8 3v10", "M3.5 8.5L8 13l4.5-4.5"],
 	};
 	const glyph = (name) => {
 		const svg = document.createElementNS(svgNS, "svg");
@@ -259,6 +269,72 @@
 		if (ok) outcome(button, "copied", "Copied");
 		else outcome(button, "failed", "Copy failed");
 	});
+
+	const tail = (() => {
+		const tl = regions.get("timeline");
+		const host = document.querySelector(".console-box, .sup > .hint.read-only");
+		if (!tl || !host) return null;
+		const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+		const button = document.createElement("button");
+		button.type = "button";
+		button.className = "latest";
+		const badge = document.createElement("span");
+		badge.className = "badge";
+		badge.hidden = true;
+		badge.setAttribute("aria-hidden", "true");
+		button.append(glyph("down"), badge);
+		const live = document.createElement("div");
+		live.className = "sr";
+		live.setAttribute("role", "status");
+		host.prepend(button, live);
+		let unread = 0;
+		let frame = 0;
+		let spoken = 0;
+		const news = () => `${unread} new ${unread === 1 ? "message" : "messages"}`;
+		const sync = () => {
+			frame = 0;
+			const off = gap(tl) > 48;
+			if (!off) unread = 0;
+			const label = unread ? `Scroll to latest, ${news()}` : "Scroll to latest message";
+			button.toggleAttribute("data-away", off);
+			badge.hidden = !unread;
+			badge.textContent = unread > 99 ? "99+" : unread;
+			if (button.getAttribute("aria-label") === label) return;
+			button.setAttribute("aria-label", label);
+			button.title = label;
+			clearTimeout(spoken);
+			spoken = setTimeout(() => (live.textContent = unread ? news() : ""), 1000);
+		};
+		const queue = () => {
+			frame ||= requestAnimationFrame(sync);
+		};
+		tl.addEventListener("scroll", queue, { passive: true });
+		addEventListener("scroll", queue, { passive: true });
+		addEventListener("resize", queue, { passive: true });
+		addEventListener("load", queue, { once: true });
+		fills.addEventListener("change", queue);
+		button.addEventListener("mousedown", (e) => e.preventDefault());
+		button.addEventListener("click", (e) => {
+			const behavior = reduced.matches ? "instant" : "smooth";
+			if (fills.matches) tl.scrollTo({ top: reversed(tl) ? 0 : tl.scrollHeight, behavior });
+			else page().scrollTo({ top: page().scrollHeight, behavior });
+			if (e.detail !== 0) return;
+			const box = document.getElementById("composer-text");
+			if (box) box.focus({ preventScroll: true });
+			else {
+				tl.tabIndex = -1;
+				tl.focus({ preventScroll: true });
+			}
+		});
+		sync();
+		return {
+			queue,
+			bump: (n) => {
+				unread += n;
+				queue();
+			},
+		};
+	})();
 
 	const local = (root) => {
 		days();
@@ -372,6 +448,8 @@
 		const drafts = new Map([...el.querySelectorAll(fields)].filter((f) => f.value).map((f) => [key(f), f.value]));
 		const picked = new Set([...el.querySelectorAll("input[type=radio]:checked")].map((f) => `${key(f)}=${f.value}`));
 		const pinned = name === "timeline" && gap(el) <= 48;
+		const read = name === "timeline" && !pinned ? reading(el) : null;
+		const readTop = read?.getBoundingClientRect().top;
 		el.innerHTML = html;
 		for (const f of el.querySelectorAll("input[type=radio]")) if (picked.has(`${key(f)}=${f.value}`)) f.checked = true;
 		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
@@ -392,11 +470,14 @@
 			}
 		}
 		if (fed.size > 0) {
+			let fresh = 0;
 			for (const d of el.querySelectorAll("[data-no]")) {
 				if (fed.has(d.dataset.no)) continue;
 				d.dataset.new = "";
 				setTimeout(() => d.removeAttribute("data-new"), 600);
+				if (d.matches("[data-role=supervisor]")) fresh++;
 			}
+			if (name === "timeline" && !pinned && fresh) tail?.bump(fresh);
 		}
 		if (focused) [...el.querySelectorAll("summary, a, button")].find((c) => spot(c) === focused)?.focus();
 		local(el);
@@ -405,6 +486,11 @@
 		}
 		since();
 		if (pinned) pin(el);
+		else if (read) {
+			const again = [...el.children].find((c) => c.dataset.no === read.dataset.no);
+			if (again) (fills.matches ? el : page()).scrollTop += again.getBoundingClientRect().top - readTop;
+		}
+		if (name === "timeline") tail?.queue();
 		if (name === "queue") {
 			for (const id of [...sent.keys()]) {
 				const item = document.getElementById(id);
@@ -826,10 +912,11 @@
 	const live = regions.has("queue");
 	if (live) reflect();
 	const timeline = regions.get("timeline");
-	if (timeline && current === "chat") pin(timeline);
+	const aimed = !!timeline?.contains(document.getElementById(location.hash.slice(1)));
+	if (timeline && current === "chat" && !aimed) pin(timeline);
 	const composer = document.querySelector(".console-box");
 	if (timeline && composer && "ResizeObserver" in window) {
-		let near = true;
+		let near = !aimed;
 		const track = () => {
 			near = gap(timeline) <= 48;
 		};

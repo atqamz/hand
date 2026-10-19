@@ -298,6 +298,11 @@ body>.sr{position:fixed;top:0;left:0;min-height:0;margin:0;padding:0;border:0}
 .attach input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .console-box.dropping{border-color:var(--accent);outline:2px dashed var(--accent);outline-offset:3px}
+.sup>.hint.read-only{position:relative}
+.latest{position:absolute;right:-1px;bottom:calc(100% + 13px);width:var(--control);padding:0;border-radius:999px;opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .15s,transform .15s,visibility 0s .15s}
+.latest[data-away]{opacity:1;visibility:visible;transform:none;transition-delay:0s}
+.latest>.badge{position:absolute;top:-6px;right:-4px;padding-inline:5px;--tone:var(--on-primary);--tone-bg:var(--primary)}
+.latest>.badge[hidden]{display:none}
 @container (max-width:519px){[data-send-key]{display:none}}
 .console:has(.starter){align-items:flex-start;gap:12px;padding:16px}
 .starter{flex:1 1 100%;display:grid;gap:8px;min-width:0}
@@ -478,7 +483,7 @@ body[data-shell] .timeline{--sb:0px}
 .actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}
 a.badge{position:relative}
 a.badge::before{content:"";position:absolute;inset:-12px 0}}
-@media (prefers-reduced-motion:reduce){.code>.copy{transition:none}.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.misread>summary::before{transition:none}.pill .icon{animation:none}.pulse{animation:none}.timeline>[data-new]{animation:none}}
+@media (prefers-reduced-motion:reduce){.code>.copy{transition:none}.split::before,.split::after{transition:none}.rail,.rail .label{transition:none}.wait[data-new]>summary{animation:none}.wait::details-content{transition:none}.wait>summary>.icon:last-child{transition:none}.misread>summary::before{transition:none}.pill .icon{animation:none}.pulse{animation:none}.timeline>[data-new]{animation:none}.latest{transition:none}}
 .thread,.list{max-width:880px;margin:0 auto;padding:20px 16px 48px;display:flex;flex-direction:column;gap:14px}
 .thread-head{display:grid;gap:6px}
 .rule{width:100%;margin:0;border:0;border-top:1px solid var(--line)}
@@ -595,3 +600,4 @@ body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(1
 .wait[open]>summary{border-bottom:1px solid CanvasText}}
 @media (forced-colors:active){.timeline>.from-you{border:1px solid CanvasText}.pulse{background:CanvasText}}
 @media (forced-colors:active){.code>.copy{border-color:ButtonText;color:ButtonText}}
+@media (forced-colors:active){.latest{border-color:ButtonText;color:ButtonText}.latest>.badge{border-color:ButtonText}}
