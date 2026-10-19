@@ -12,7 +12,7 @@
 </div>
 </form>
 <div class="summary">{{if .Chips}}<ul class="applied" aria-label="Active filters">{{range .Chips}}<li><a class="badge pill drop" data-tone="link" href="{{.Href}}" aria-label="Remove filter {{.Label}}"><span class="word">{{.Label}}</span>{{template "icon-close"}}</a></li>{{end}}</ul>{{end}}<div class="tally">{{if .Chips}}<a href="{{.Base}}/tasks">Clear</a>{{end}}<p class="found" role="status">{{.Total}} {{if eq .Total 1}}task{{else}}tasks{{end}}</p></div></div>
-<div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match. Try fewer words, or clear the dates.</p>
+<div class="days" data-days>{{if .Groups}}{{template "task-groups" .}}{{else}}<p class="quiet">No tasks match.</p>
 {{end}}</div>
 {{if or .Prev .Next}}<nav class="pager" aria-label="Pages">{{with .Prev}}<a href="{{.}}" rel="prev">Previous</a>{{end}}{{with .Next}}<a href="{{.}}" rel="next">Next</a>{{end}}</nav>
 {{end}}</main>
