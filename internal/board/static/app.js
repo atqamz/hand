@@ -56,14 +56,14 @@
 		return false;
 	};
 	const clock = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-	const say = (key, text) => {
+	const noteFor = (key, text) => {
 		if (key === draftPrefix && draftNote) draftNote.textContent = text;
 	};
 	const settle = (f, key, text, note) => {
 		f.value = text;
 		f.setSelectionRange(text.length, text.length);
 		seen.set(key, { text, mine: false });
-		say(key, note);
+		noteFor(key, note);
 	};
 	const restore = (root) => {
 		for (const f of root.querySelectorAll(draftFields)) {
@@ -82,7 +82,7 @@
 		if (!key || f.value === seen.get(key)?.text || (!f.value && !seen.has(key))) return;
 		const ok = stash(key, f.value);
 		seen.set(key, { text: ok || !f.value ? f.value : null, mine: true });
-		say(key, ok ? `Draft saved ${clock(Date.now())}` : "");
+		noteFor(key, ok ? `Draft saved ${clock(Date.now())}` : "");
 	};
 	const flush = () => {
 		for (const f of document.querySelectorAll(draftFields)) save(f);
@@ -92,7 +92,7 @@
 		if (!key) return;
 		stash(key, "");
 		seen.set(key, { text: f.value, mine: false });
-		say(key, "");
+		noteFor(key, "");
 	};
 	let saving = 0;
 	const typing = (el) => el.contains(document.activeElement) && document.activeElement.matches("textarea, select, input:not([type=hidden])");
