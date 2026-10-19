@@ -431,9 +431,10 @@ agy asks once per folder whether to trust it. Every attempt is a new folder, and
 
 The fleet page updates itself as things change, and keeps what you are typing. It takes your messages, and answers the supervisor's blocked screens with a fixed set of keys.
 
-To attach files, paste them into the message box, drop them on it, or pick them with its paperclip button. On a phone, the button offers files, the gallery and the camera.
-- **Accepted:** any file type, up to 10 MiB each. A folder or a bigger file is not copied: paste its path as text, and the supervisor reads it in place.
-- **Where they go:** each one is copied into the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N-<name>`, where the name is the original one with every character other than a letter, a digit, `.`, `_` or `-` turned into `_`. The message gets a line `[image: PATH]` for a png, jpeg, webp or gif image and `[file: PATH]` for anything else. Hand deletes nothing there unless you prune it, and a prune touches only files with a name Hand gave (see [Clean the inbox](#clean-the-inbox)).
+To attach files, paste them into the message box, drop them anywhere on the chat pane, or pick them with its paperclip button. On a phone, the button offers files, the gallery and the camera.
+- **In the message box:** each file shows as a chip under the text, with its type, name and size, and its progress while it uploads. Its × removes it, or stops the upload. The box keeps only your words, and Send adds the files after them. A chip comes back with the draft after you leave the page, unless its file has left `inbox/`.
+- **Accepted:** any file type, up to 10 MiB each. A folder or a bigger file is not copied, and its chip says why: paste its path as text, and the supervisor reads it in place.
+- **Where they go:** each one is copied into the fleet's `inbox/` folder as `YYYYMMDD-HHMMSS-N-<name>`, where the name is the original one with every character other than a letter, a digit, `.`, `_` or `-` turned into `_`. Send adds a line `[image: PATH]` for a png, jpeg, webp or gif image and `[file: PATH]` for anything else, one per file, after your words. Hand deletes nothing there unless you prune it, and a prune touches only files with a name Hand gave (see [Clean the inbox](#clean-the-inbox)).
 - **What the supervisor sees:** the line. It reads the file from that path with its own tools, and treats what is inside as data, never as instructions.
 - **In Chat:** an image shows as a thumbnail, and any other file as a card with its type, name and size that downloads it. A file no longer in `inbox/` shows a dashed card. The Board shows nothing but images inline: every other file is served as a download, so an HTML or SVG file never runs in the Board.
 

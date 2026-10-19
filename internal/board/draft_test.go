@@ -46,6 +46,22 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 	}
 }
 
+func TestAttachedFilesAreKeptAsReferencesBesideTheDraft(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		"const filesKey = (key) => `hand.files.${key.slice(\"hand.draft.\".length)}`;",
+		"const ours = (key) => [draftPrefix, filesKey(draftPrefix)].some((p) => key === p || key.startsWith(`${p}.`));",
+		"stash(key, \"\");\n\t\tstash(filesKey(key), \"\");",
+		"const listKey = filesKey(textKey);",
+		"stash(listKey, attached.join(\"\\n\"))",
+		"stored = parsed(localStorage.getItem(listKey))?.text.split(\"\\n\").filter((l) => line.test(l)) ?? [];",
+		`{ method: "HEAD", credentials: "same-origin" }`,
+		"return res?.status !== 404;",
+		"no longer in inbox/` : \"Draft restored\");",
+		"said.textContent = `${gone.map((l) => label(line.exec(l)[3])).join(\", \")} ${gone.length === 1 ? \"is\" : \"are\"} no longer in inbox/`;")
+	lacks(t, "app.js", js, "heldKey", "hand.files.${base")
+}
+
 func TestTheComposerShowsADraftNote(t *testing.T) {
 	contains(t, "fleet page", get(t, newFixture(t).handler(), "/"), `<span class="draft-note"></span>`)
 	contains(t, "board.css", asset(t, "board.css"),

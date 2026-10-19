@@ -32,7 +32,8 @@
 		const m = f.matches("form.answer textarea[name=answer]") && /\/decision\/([^/]+)\/answer$/.exec(f.form.getAttribute("action") || "");
 		return m ? `${draftPrefix}.${m[1]}` : "";
 	};
-	const ours = (key) => key === draftPrefix || key.startsWith(`${draftPrefix}.`);
+	const filesKey = (key) => `hand.files.${key.slice("hand.draft.".length)}`;
+	const ours = (key) => [draftPrefix, filesKey(draftPrefix)].some((p) => key === p || key.startsWith(`${p}.`));
 	const parsed = (raw) => {
 		try {
 			const d = JSON.parse(raw);
@@ -91,6 +92,7 @@
 		const key = fieldKey(f);
 		if (!key) return;
 		stash(key, "");
+		stash(filesKey(key), "");
 		seen.set(key, { text: f.value, mine: false });
 		noteFor(key, "");
 	};
@@ -993,12 +995,30 @@
 	};
 	const draft = document.getElementById("composer");
 	const picker = draft?.querySelector("[data-attach]");
-	const box = draft?.closest(".console-box");
-	if (draft && picker && box) {
+	const chat = draft?.closest("#chat");
+	const chips = draft?.querySelector(".attachments");
+	const said = draft?.querySelector("[data-att-say]");
+	const tpl = document.getElementById("att-chip");
+	if (draft && picker && chat && chips && said && tpl) {
 		const text = draft.querySelector("textarea");
 		const csrf = draft.querySelector("input[name=csrf]")?.value || "";
 		const note = draft.querySelector(".hint");
+		const textKey = fieldKey(text);
+		const listKey = filesKey(textKey);
+		const line = /^\[(image|file): (.+[\\/]inbox[\\/]([0-9]{8}-[0-9]{6}-[0-9]+(?:\.(?:png|jpg|webp|gif)|-[A-Za-z0-9_][A-Za-z0-9._-]{0,79})))\]$/;
+		const sizes = new Map();
+		const jobs = new Set();
+		let attached = [];
+		let sending = [];
 		let running = 0;
+		const label = (name) => {
+			const rest = name.slice("20060102-150405-".length);
+			const i = rest.indexOf("-");
+			return i < 0 ? name : rest.slice(i + 1);
+		};
+		const kind = (name) => (name.endsWith("/") ? "DIR" : /\.([^.]{1,4})$/.exec(name)?.[1].toUpperCase() || "FILE");
+		const human = (n) => (n < 1024 ? `${n} B` : (n + 512) >> 10 < 1024 ? `${(n + 512) >> 10} KiB` : `${(n / (1 << 20)).toFixed(1)} MiB`);
+		const keep = () => noteFor(textKey, stash(listKey, attached.join("\n")) || text.value ? `Draft saved ${clock(Date.now())}` : "");
 		const busy = (n) => {
 			running += n;
 			if (running > 0) draft.dataset.attaching = "";
@@ -1006,70 +1026,191 @@
 			if (running > 0 && note) note.textContent = `Attaching ${running} file${running === 1 ? "" : "s"}…`;
 			else reflect();
 		};
-		const put = (line) => {
-			const at = text.selectionEnd ?? text.value.length;
-			const head = text.value.slice(0, at);
-			const tail = text.value.slice(at).replace(/^\n/, "");
-			const insert = `${head && !head.endsWith("\n") ? "\n" : ""}${line}\n`;
-			text.value = head + insert + tail;
-			text.setSelectionRange(head.length + insert.length, head.length + insert.length);
-			text.dispatchEvent(new Event("input", { bubbles: true }));
+		const chip = ({ title, meta, img, error, job, remove }) => {
+			const li = tpl.content.firstElementChild.cloneNode(true);
+			const [badge, name, sub, x] = li.children;
+			if (img) {
+				const pic = document.createElement("img");
+				pic.src = img;
+				pic.alt = "";
+				badge.replaceWith(pic);
+			} else badge.textContent = kind(title);
+			name.textContent = title;
+			name.title = title;
+			sub.textContent = error || meta;
+			x.setAttribute("aria-label", `${error ? "Dismiss" : "Remove"} ${title}`);
+			x.addEventListener("click", () => {
+				remove();
+				text.focus();
+			});
+			if (error) li.dataset.state = "error";
+			else if (job) {
+				li.dataset.state = "busy";
+				const bar = document.createElement("progress");
+				bar.max = 1;
+				bar.value = job.loaded / (job.size || 1);
+				bar.setAttribute("aria-label", `Uploading ${title}`);
+				li.append(bar);
+				Object.assign(job, { bar, sub });
+			}
+			return li;
 		};
-		const attach = async (files) => {
-			busy(files.length);
-			for (const file of files) {
+		const render = () => {
+			text.required = !attached.length;
+			const focused = chips.contains(document.activeElement) && document.activeElement.getAttribute("aria-label");
+			chips.replaceChildren(
+				...attached.map((l) => {
+					const [, k, , name] = line.exec(l);
+					const title = label(name);
+					const remove = () => {
+						attached = attached.filter((a) => a !== l);
+						keep();
+						render();
+					};
+					return chip({ title, meta: [kind(title), sizes.get(l)].filter(Boolean).join(" · "), img: k === "image" && `${base}/inbox/${name}`, remove });
+				}),
+				...[...jobs].map((job) => {
+					const remove = () => {
+						jobs.delete(job);
+						job.xhr?.abort();
+						render();
+					};
+					return chip({ title: job.name, meta: `${human(job.loaded)} of ${human(job.size)}`, error: job.error, job, remove });
+				}),
+			);
+			if (focused) [...chips.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === focused)?.focus();
+		};
+		const fail = (job, why) => {
+			job.error = why;
+			said.textContent = `${job.name} was not attached: ${why}`;
+		};
+		const upload = (file) => {
+			const job = { name: file.name || "pasted file", size: file.size, loaded: 0 };
+			jobs.add(job);
+			if (file.size > 10 << 20) {
+				fail(job, `${human(file.size)} is over the 10 MiB limit. Paste its path instead.`);
+				render();
+				return;
+			}
+			busy(1);
+			const data = new FormData();
+			data.append("csrf", csrf);
+			data.append("image", file, job.name);
+			const xhr = (job.xhr = new XMLHttpRequest());
+			xhr.open("POST", `${base}/supervisor/image`);
+			xhr.setRequestHeader("X-Hand-Fetch", "1");
+			xhr.upload.addEventListener("progress", (e) => {
+				job.loaded = Math.min(e.loaded, job.size);
+				if (!job.bar) return;
+				job.bar.value = e.loaded / (e.total || 1);
+				job.sub.textContent = `${human(job.loaded)} of ${human(job.size)}`;
+			});
+			xhr.addEventListener("loadend", () => {
+				busy(-1);
+				if (!jobs.has(job)) return;
+				let r = null;
 				try {
-					if (file.size > 10 << 20) {
-						show("a file can be at most 10 MiB");
-						continue;
-					}
-					const data = new FormData();
-					data.append("csrf", csrf);
-					data.append("image", file, file.name || "pasted-file");
-					const res = await fetch(`${base}/supervisor/image`, { method: "POST", body: data, credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
-					if (!res) {
-						show("The board did not answer; check that hand board is running.");
-						continue;
-					}
-					if (!res.ok) {
-						show(header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
-						continue;
-					}
-					const { path, kind } = await res.json();
-					put(`[${kind}: ${path}]`);
-				} catch {
-					show("The file could not be attached; try again.");
-				} finally {
-					busy(-1);
-				}
+					r = xhr.status === 200 ? JSON.parse(xhr.responseText) : null;
+				} catch {}
+				const l = r && `[${r.kind}: ${r.path}]`;
+				if (l && line.test(l)) {
+					jobs.delete(job);
+					sizes.set(l, human(job.size));
+					if (!attached.includes(l)) attached.push(l);
+					keep();
+					said.textContent = `Attached ${label(r.name)}`;
+				} else if (xhr.status === 0) fail(job, "The board did not answer; check that hand board is running.");
+				else if (xhr.status === 200) fail(job, "The file could not be attached; try again.");
+				else fail(job, header({ headers: { get: (h) => xhr.getResponseHeader(h) } }, "X-Hand-Error") || `${xhr.status} ${xhr.statusText}`);
+				render();
+			});
+			xhr.send(data);
+			render();
+		};
+		const refuse = (name) => {
+			const job = { name: `${name}/`, size: 0, loaded: 0 };
+			jobs.add(job);
+			fail(job, "A folder is not copied. Paste its path instead.");
+			render();
+		};
+		const take = (items) => {
+			for (const item of items) {
+				if (item.kind !== "file") continue;
+				const entry = item.webkitGetAsEntry?.();
+				const file = item.getAsFile();
+				if (entry?.isDirectory) refuse(entry.name);
+				else if (file) upload(file);
 			}
 		};
+		draft.addEventListener("formdata", (e) => {
+			sending = [...attached];
+			if (!sending.length) return;
+			const prose = e.formData.get("text") || "";
+			e.formData.set("text", (prose && !prose.endsWith("\n") ? `${prose}\n` : prose) + sending.map((l) => `${l}\n`).join(""));
+		});
+		draft.addEventListener("reset", () => {
+			attached = attached.filter((l) => !sending.includes(l));
+			for (const job of jobs) if (job.error) jobs.delete(job);
+			setTimeout(() => {
+				keep();
+				render();
+			});
+		});
+		let stored = [];
+		try {
+			stored = parsed(localStorage.getItem(listKey))?.text.split("\n").filter((l) => line.test(l)) ?? [];
+		} catch {}
+		Promise.all(
+			stored.map(async (l) => {
+				const res = await fetch(`${base}/inbox/${line.exec(l)[3]}`, { method: "HEAD", credentials: "same-origin" }).catch(() => null);
+				const n = res?.ok && res.headers.get("Content-Length");
+				if (n) sizes.set(l, human(Number(n)));
+				return res?.status !== 404;
+			}),
+		).then((here) => {
+			const gone = stored.filter((_, i) => !here[i]);
+			attached = [...new Set([...stored.filter((_, i) => here[i]), ...attached])];
+			if (gone.length) {
+				keep();
+				said.textContent = `${gone.map((l) => label(line.exec(l)[3])).join(", ")} ${gone.length === 1 ? "is" : "are"} no longer in inbox/`;
+			}
+			if (stored.length) noteFor(textKey, gone.length ? `${gone.length} attached file${gone.length === 1 ? " is" : "s are"} no longer in inbox/` : "Draft restored");
+			render();
+		});
 		picker.addEventListener("change", () => {
 			const files = [...picker.files];
 			picker.value = "";
-			attach(files);
+			files.forEach(upload);
 		});
 		text.addEventListener("paste", (e) => {
 			const items = [...(e.clipboardData?.items || [])];
-			const files = items.filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
-			if (!files.length) return;
+			if (!items.some((i) => i.kind === "file")) return;
 			if (!items.some((i) => i.type === "text/plain")) e.preventDefault();
-			attach(files);
+			take(items);
 		});
 		const carries = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
-		box.addEventListener("dragover", (e) => {
+		chat.addEventListener("dragover", (e) => {
 			if (!carries(e)) return;
 			e.preventDefault();
-			box.classList.add("dropping");
+			e.dataTransfer.dropEffect = "copy";
+			chat.classList.add("dropping");
 		});
-		box.addEventListener("dragleave", (e) => {
-			if (!box.contains(e.relatedTarget)) box.classList.remove("dropping");
+		chat.addEventListener("dragleave", (e) => {
+			if (!chat.contains(e.relatedTarget)) chat.classList.remove("dropping");
 		});
-		box.addEventListener("drop", (e) => {
-			box.classList.remove("dropping");
-			if (!e.dataTransfer?.files.length) return;
+		chat.addEventListener("drop", (e) => {
+			chat.classList.remove("dropping");
+			if (!carries(e)) return;
 			e.preventDefault();
-			attach([...e.dataTransfer.files]);
+			take([...e.dataTransfer.items]);
+		});
+		document.addEventListener("dragover", (e) => {
+			if (!carries(e) || e.defaultPrevented) return;
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "none";
+		});
+		document.addEventListener("drop", (e) => {
+			if (carries(e)) e.preventDefault();
 		});
 	}
 	document.addEventListener("visibilitychange", follow);

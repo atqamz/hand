@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -236,6 +237,22 @@ func TestEveryOtherFileIsServedAsAnAttachment(t *testing.T) {
 	}
 }
 
+func TestAHeadTellsTheComposerAFileIsStillInTheInbox(t *testing.T) {
+	fx := newFixture(t)
+	data := strings.Repeat("log line\n", 5000)
+	path, stored, _ := saved(t, upload(fx.handler(), "app.log", []byte(data), token))
+	rec := request(fx.handler(), "HEAD", "/inbox/"+stored, nil, true)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Length") != strconv.Itoa(len(data)) || rec.Body.Len() != 0 || rec.Header().Get("Content-Disposition") != "attachment; filename=app.log" {
+		t.Fatalf("HEAD = %d %v, %d body bytes", rec.Code, rec.Header(), rec.Body.Len())
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if rec := request(fx.handler(), "HEAD", "/inbox/"+stored, nil, true); rec.Code != http.StatusNotFound {
+		t.Fatalf("HEAD of a pruned file = %d", rec.Code)
+	}
+}
+
 func TestAFullDiskIsA507(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
@@ -333,25 +350,157 @@ func TestFileCardsAreStyledInTheStylesheet(t *testing.T) {
 	)
 }
 
+func listener(t *testing.T, js, start string) string {
+	t.Helper()
+	i := strings.Index(js, start)
+	if i < 0 {
+		t.Fatalf("app.js lacks %q", start)
+	}
+	indent := js[strings.LastIndexByte(js[:i], '\n')+1 : i]
+	body := js[i:]
+	return body[:strings.Index(body, "\n"+indent+"});")]
+}
+
 func TestTheComposerAttachesAnyFile(t *testing.T) {
 	fx := newFixture(t)
 	page := get(t, fx.handler(), "/")
 	contains(t, "page", page, `<input type="file" multiple data-attach>`, `title="Attach files"`, `<span class="sr">Attach files</span>`)
 	lacks(t, "page", page, "accept=", "Attach images")
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, `"paste"`, `"drop"`, `"dragover"`, "data-attach", "/supervisor/image", "const { path, kind } = await res.json();", "put(`[${kind}: ${path}]`);", `items.filter((i) => i.kind === "file").map`, "Attaching ${running} file")
-	lacks(t, "app.js", js, `i.type.startsWith("image/")`, "put(`[image: ${path}]`)")
-	contains(t, "board.css", asset(t, "board.css"), ".console-box.dropping", ".attach")
+	contains(t, "app.js", js, `text.addEventListener("paste"`, `chat.addEventListener("drop"`, `chat.addEventListener("dragover"`, "data-attach", "files.forEach(upload);", "/supervisor/image", "const l = r && `[${r.kind}: ${r.path}]`;", `if (!items.some((i) => i.kind === "file")) return;`, "Attaching ${running} file")
+	lacks(t, "app.js", js, `i.type.startsWith("image/")`, "put(", "const attach = async")
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, ".attach{")
+	lacks(t, "board.css", css, ".console-box.dropping")
+}
+
+func TestTheComposerHoldsFilesAsChips(t *testing.T) {
+	page := get(t, newFixture(t).handler(), "/")
+	form := page[strings.Index(page, `<form id="composer"`):]
+	form = form[:strings.Index(form, "</form>")]
+	box, list, foot := strings.Index(form, `<textarea id="composer-text"`), strings.Index(form, `<ul class="attachments" aria-label="Attachments"></ul>`), strings.Index(form, `<div class="composer-foot">`)
+	if box < 0 || list < box || foot < list {
+		t.Fatalf("composer order: text box %d, chips %d, foot %d", box, list, foot)
+	}
+	contains(t, "composer", form, `<template id="att-chip"><li class="att"><span class="badge" aria-hidden="true"></span><span class="att-name"></span><span class="att-meta"></span><button type="button" class="att-x"><svg class="icon"`)
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		".attachments{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin:0;padding:2px 6px 8px;list-style:none}",
+		".attachments:empty{display:none}",
+		".att{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:8px;min-width:0;max-width:min(100%,280px);",
+		".att>.badge,.att>img{grid-row:1/3}",
+		".att>img{width:32px;height:32px;",
+		".att-name,.att-meta{grid-column:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+		".att-x{grid-column:3;grid-row:1/3;width:var(--control);padding:0;border:0;background:transparent;color:var(--muted)}",
+		".att>progress{position:absolute;right:0;bottom:0;left:0;width:100%;height:2px;",
+		".att>progress::-webkit-progress-value{background:var(--accent)}",
+		".att>progress::-moz-progress-bar{background:var(--accent)}",
+		".att[data-state=error]{border-color:var(--fail);background:var(--fail-bg)}",
+		".att[data-state=error]>.badge{--tone:var(--fail);--tone-bg:var(--bg)}",
+		".att[data-state=error]>.att-meta{color:var(--fail);")
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		"const li = tpl.content.firstElementChild.cloneNode(true);",
+		"x.setAttribute(\"aria-label\", `${error ? \"Dismiss\" : \"Remove\"} ${title}`);",
+		"remove();\n\t\t\t\ttext.focus();",
+		`if (error) li.dataset.state = "error";`,
+		`li.dataset.state = "busy";`,
+		"if (focused) [...chips.querySelectorAll(\"button\")].find((b) => b.getAttribute(\"aria-label\") === focused)?.focus();",
+		"const kind = (name) => (name.endsWith(\"/\") ? \"DIR\" : /\\.([^.]{1,4})$/.exec(name)?.[1].toUpperCase() || \"FILE\");",
+		"const human = (n) => (n < 1024 ? `${n} B` : (n + 512) >> 10 < 1024 ? `${(n + 512) >> 10} KiB` : `${(n / (1 << 20)).toFixed(1)} MiB`);")
+}
+
+func TestUploadsShowProgressAndRemovingOneAbortsIt(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		"const xhr = (job.xhr = new XMLHttpRequest());",
+		"jobs.delete(job);\n\t\t\t\t\t\tjob.xhr?.abort();",
+		"xhr.addEventListener(\"loadend\", () => {\n\t\t\t\tbusy(-1);\n\t\t\t\tif (!jobs.has(job)) return;")
+	progress := listener(t, js, `xhr.upload.addEventListener("progress", (e) => {`)
+	contains(t, "progress", progress, "job.bar.value = e.loaded / (e.total || 1);", "job.sub.textContent = `${human(job.loaded)} of ${human(job.size)}`;")
+	lacks(t, "progress", progress, "render(")
+	lacks(t, "app.js", js, "fetch(`${base}/supervisor/image`")
+	if strings.Count(js, "busy(1)") != 1 || strings.Count(js, "busy(-1)") != 1 {
+		t.Fatal("each upload must take and release the attaching state once, the release in loadend")
+	}
+}
+
+func TestTheComposerRefusesAFileOverTenMiBBeforeUploading(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, "if (file.size > 10 << 20) {", "fail(job, `${human(file.size)} is over the 10 MiB limit. Paste its path instead.`);", "reflect()")
+	if strings.Index(js, "file.size > 10 << 20") > strings.Index(js, "new XMLHttpRequest()") {
+		t.Fatal("the size is checked after the upload starts")
+	}
+}
+
+func TestAFolderIsRefusedBeforeAnyAwait(t *testing.T) {
+	js := asset(t, "app.js")
+	take := js[strings.Index(js, "const take = (items) => {"):]
+	take = take[:strings.Index(take, "\n\t\t};")]
+	contains(t, "take", take, "const entry = item.webkitGetAsEntry?.();", "const file = item.getAsFile();", "if (entry?.isDirectory) refuse(entry.name);")
+	drop := listener(t, js, `chat.addEventListener("drop", (e) => {`)
+	contains(t, "drop", drop, "take([...e.dataTransfer.items]);")
+	for name, body := range map[string]string{"take": take, "drop": drop} {
+		if strings.Contains(body, "await") || strings.Contains(body, "async") {
+			t.Fatalf("%s awaits before it reads the dropped items:\n%s", name, body)
+		}
+	}
+	contains(t, "app.js", js, `fail(job, "A folder is not copied. Paste its path instead.");`)
+}
+
+func TestTheTextBoxHoldsOnlyTheOperatorsProse(t *testing.T) {
+	contains(t, "page", get(t, newFixture(t).handler(), "/"), `<textarea id="composer-text" name="text" required`)
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		"text.required = !attached.length;",
+		"draft.addEventListener(\"formdata\", (e) => {\n\t\t\tsending = [...attached];",
+		"e.formData.set(\"text\", (prose && !prose.endsWith(\"\\n\") ? `${prose}\\n` : prose) + sending.map((l) => `${l}\\n`).join(\"\"));",
+		"attached = attached.filter((l) => !sending.includes(l));")
+	lacks(t, "app.js", js, "text.value = [", "text.value = head + insert", "const at = text.selectionEnd")
+}
+
+func TestTheComposerWaitsForItsUploads(t *testing.T) {
+	contains(t, "app.js", asset(t, "app.js"), `"attaching" in form.dataset`, "Wait for the files to finish attaching", `draft.dataset.attaching = "";`)
+}
+
+func TestTheComposerAnnouncesAttachmentsInItsStatusSpan(t *testing.T) {
+	contains(t, "page", get(t, newFixture(t).handler(), "/"), `</ul><span class="sr" role="status" aria-live="polite" data-att-say></span>`)
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, `const said = draft?.querySelector("[data-att-say]");`, "said.textContent = `Attached ${label(r.name)}`;", "said.textContent = `${job.name} was not attached: ${why}`;")
+	lacks(t, "attaching", js[strings.Index(js, `const tpl = document.getElementById("att-chip");`):], "show(", "complain(")
+}
+
+func TestADropAnywhereOnTheChatPaneAttaches(t *testing.T) {
+	fx := newFixture(t)
+	chat := get(t, fx.handler(), "/")
+	chat = chat[strings.Index(chat, `<div class="panel sup" id="chat">`):]
+	if veil := strings.Index(chat, `<div class="drop-veil" aria-hidden="true">`); veil < strings.Index(chat, "</form></div>") || veil > strings.Index(chat, "</main>") {
+		t.Fatalf("the veil is not in the chat pane after the composer:\n%s", chat)
+	}
+	contains(t, "veil", chat, `<p class="drop-title"><svg class="icon"`, `</svg>Drop to attach</p>`, `<p class="drop-rule">Each file is copied to this fleet's <code>inbox/</code>, up to 10&nbsp;MiB. Folders: paste their path.</p>`)
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		".sup{position:relative}",
+		".drop-veil{position:absolute;inset:8px;z-index:2;display:none;",
+		"border:2px dashed var(--accent);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 95%,transparent);pointer-events:none;text-align:center}",
+		"#chat.dropping>.drop-veil{display:flex}",
+		".drop-title{display:flex;align-items:center;gap:8px;margin:0;color:var(--accent);font-size:15px;font-weight:600}",
+		".drop-rule{max-width:44ch;margin:0;color:var(--muted);font-size:12px}")
+	contains(t, "app.js", asset(t, "app.js"), `const chat = draft?.closest("#chat");`, `e.dataTransfer.dropEffect = "copy";`, `chat.classList.add("dropping");`, `if (!chat.contains(e.relatedTarget)) chat.classList.remove("dropping");`)
+	fx.options.Controls = false
+	lacks(t, "network page", get(t, fx.handler(), "/"), "drop-veil")
+}
+
+func TestAFileDroppedOutsideTheChatNeverOpensInTheTab(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "dragover", listener(t, js, `document.addEventListener("dragover", (e) => {`), "if (!carries(e) || e.defaultPrevented) return;", "e.preventDefault();", `e.dataTransfer.dropEffect = "none";`)
+	contains(t, "drop", listener(t, js, `document.addEventListener("drop", (e) => {`), "if (carries(e)) e.preventDefault();")
 }
 
 func TestANetworkBoardHasNoAttachControl(t *testing.T) {
 	fx := newFixture(t)
 	fx.options.Controls = false
 	lacks(t, "page", get(t, fx.handler(), "/"), "data-attach")
-}
-
-func TestTheComposerChecksAFilesSizeBeforeUploading(t *testing.T) {
-	contains(t, "app.js", asset(t, "app.js"), "file.size > 10 << 20", "a file can be at most 10 MiB", "busy(files.length)", "reflect()")
 }
 
 func TestABigURLEncodedPostIsTooLarge(t *testing.T) {
@@ -383,17 +532,4 @@ func TestTheComposerLayoutKeepsTheHintReadable(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css, ".composer-foot .hint{flex:1;min-width:0;line-height:18px}", "@container (max-width:519px){[data-send-key]{display:none}}", ".attach:has(input:focus-visible)")
 	lacks(t, "board.css", css, ".attach:focus-within", ".shots:first-child", "minmax(10em,1fr)")
-}
-
-func TestTheComposerWaitsForItsUploads(t *testing.T) {
-	js := asset(t, "app.js")
-	contains(t, "app.js", js, `"attaching" in form.dataset`, "Wait for the files to finish attaching", "const at = text.selectionEnd ?? text.value.length")
-	lacks(t, "app.js", js, "text.selectionStart ?? text.value.length")
-}
-
-func TestEveryAttachEndsItsUploadOnce(t *testing.T) {
-	js := asset(t, "app.js")
-	if strings.Count(js, "busy(-1)") != 1 || !strings.Contains(js, "} finally {") || !strings.Contains(js, "The file could not be attached") {
-		t.Fatal("attach must release each upload once, in a finally, after the line is inserted")
-	}
 }

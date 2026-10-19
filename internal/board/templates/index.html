@@ -17,9 +17,11 @@
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
+<ul class="attachments" aria-label="Attachments"></ul><span class="sr" role="status" aria-live="polite" data-att-say></span>
+<template id="att-chip"><li class="att"><span class="badge" aria-hidden="true"></span><span class="att-name"></span><span class="att-meta"></span><button type="button" class="att-x">{{template "icon-close"}}</button></li></template>
 <div class="composer-foot"><span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach files">{{template "icon-attach"}}<input type="file" multiple data-attach><span class="sr">Attach files</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
 <span class="draft-note"></span>
-</form></div>{{else}}<p class="hint read-only">Read-only: this board listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
+</form></div><div class="drop-veil" aria-hidden="true"><p class="drop-title">{{template "icon-attach"}}Drop to attach</p><p class="drop-rule">Each file is copied to this fleet's <code>inbox/</code>, up to 10&nbsp;MiB. Folders: paste their path.</p></div>{{else}}<p class="hint read-only">Read-only: this board listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
 </div>
 </main>
 {{template "foot"}}{{end}}

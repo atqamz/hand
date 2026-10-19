@@ -27,12 +27,14 @@ func TestTheFleetPageRendersEveryRegionInline(t *testing.T) {
 			t.Fatalf("region %s appears %d times:\n%s", region, n, page)
 		}
 	}
-	contains(t, "fleet page", page, `id="composer"`, `id="toast"`)
-	composer := strings.Index(page, `id="composer"`)
-	for _, m := range regionOpen.FindAllStringIndex(page, -1) {
-		end := strings.Index(page[m[0]:], "</section>")
-		if composer > m[0] && composer < m[0]+end {
-			t.Fatalf("the composer sits inside a region:\n%s", page)
+	contains(t, "fleet page", page, `id="composer"`, `id="toast"`, `class="drop-veil"`)
+	for _, el := range []string{`id="composer"`, `class="drop-veil"`} {
+		at := strings.Index(page, el)
+		for _, m := range regionOpen.FindAllStringIndex(page, -1) {
+			end := strings.Index(page[m[0]:], "</section>")
+			if at > m[0] && at < m[0]+end {
+				t.Fatalf("%s sits inside a region:\n%s", el, page)
+			}
 		}
 	}
 }

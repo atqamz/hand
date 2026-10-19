@@ -147,7 +147,7 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=86400")
-	_, _ = io.Copy(w, f)
+	http.ServeContent(w, r, "", time.Time{}, f)
 }
 
 var shotLine = regexp.MustCompile(`^\[(image|file): ([^\]\n]+)\]$`)
