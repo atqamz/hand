@@ -46,7 +46,7 @@ func clipName(name string) string {
 	if len(ext) > 16 {
 		ext = ""
 	}
-	return name[:maxName-len(ext)] + ext
+	return strings.TrimRight(name[:maxName-len(ext)], ".") + ext
 }
 
 func isImage(name string) bool {

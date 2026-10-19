@@ -130,7 +130,7 @@ func TestANonImageNamedLikeAnImageGetsBin(t *testing.T) {
 		"x.gif":      "x.gif.bin",
 		"notes.txt":  "notes.txt",
 		strings.Repeat("x", 76) + ".png." + strings.Repeat("a", 20): strings.Repeat("x", 76) + ".bin",
-		strings.Repeat("y", 78) + ".webp":                           strings.Repeat("y", 75) + "..bin",
+		strings.Repeat("y", 78) + ".webp":                           strings.Repeat("y", 75) + ".bin",
 	} {
 		_, stored, kind := saved(t, upload(fx.handler(), name, []byte(anyFiles["page.html"]), token))
 		stamped(t, stored, want)

@@ -87,6 +87,9 @@ func TestALongNameKeepsItsExtension(t *testing.T) {
 	if len(odd) != maxName {
 		t.Fatalf("odd = %q (%d)", odd, len(odd))
 	}
+	if dot := clipName(strings.Repeat("c", 79) + "." + strings.Repeat("d", 30)); dot != strings.Repeat("c", 79) {
+		t.Fatalf("a clip that ends on a dot = %q", dot)
+	}
 }
 
 func TestSizesReadInPlainUnits(t *testing.T) {
