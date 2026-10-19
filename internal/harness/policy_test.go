@@ -153,3 +153,36 @@ func TestStallDelaysDoubleUpToEvery(t *testing.T) {
 		t.Fatalf("Delay after many wakes = %v", got)
 	}
 }
+
+func TestPolicyReadsTheInboxSetting(t *testing.T) {
+	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
+	for body, want := range map[string]time.Duration{
+		`{` + profiles + `}`:                         0,
+		`{` + profiles + `,"inbox":"off"}`:           0,
+		`{` + profiles + `,"inbox":{}}`:              0,
+		`{` + profiles + `,"inbox":{"keep":"off"}}`:  0,
+		`{` + profiles + `,"inbox":{"keep":"30d"}}`:  30 * 24 * time.Hour,
+		`{` + profiles + `,"inbox":{"keep":"1d"}}`:   24 * time.Hour,
+		`{` + profiles + `,"inbox":{"keep":"365d"}}`: 365 * 24 * time.Hour,
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Inbox.Keep != want {
+			t.Fatalf("policy %s: inbox = %+v, %v; want keep %v", body, p.Inbox, err, want)
+		}
+	}
+	for body, want := range map[string]string{
+		`"on"`:                        `inbox must be "off" or {"keep": "30d"}`,
+		`null`:                        `inbox must be "off"`,
+		`30`:                          `inbox must be "off"`,
+		`{"keep":30}`:                 `inbox must be "off"`,
+		`{"keep":"30d","every":"1d"}`: `unknown field "every"`,
+		`{"keep":"30"}`:               `inbox.keep is "30"; give "off" or days from 1d to 9999d, like "30d"`,
+		`{"keep":"0d"}`:               `inbox.keep is "0d"`,
+		`{"keep":"12h"}`:              `inbox.keep is "12h"`,
+		`{"keep":""}`:                 `inbox.keep is ""`,
+	} {
+		_, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"inbox":`+body+`}`))
+		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), PolicyFile) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("inbox %s err = %v, want %q", body, err, want)
+		}
+	}
+}

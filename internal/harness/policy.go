@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -23,6 +24,7 @@ type Policy struct {
 	Profiles   map[string]Spec `json:"profiles"`
 	Notify     []string        `json:"notify,omitzero"`
 	Stall      Stall           `json:"stall,omitzero"`
+	Inbox      Inbox           `json:"inbox,omitzero"`
 	Supervisor struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`
@@ -90,6 +92,39 @@ func (s Stall) Delay(n int) time.Duration {
 		d = min(2*d, s.Every)
 	}
 	return d
+}
+
+type Inbox struct{ Keep time.Duration }
+
+const inboxForm = `inbox must be "off" or {"keep": "30d"}`
+
+func (i *Inbox) UnmarshalJSON(b []byte) error {
+	var word string
+	if json.Unmarshal(b, &word) == nil {
+		if word != "off" {
+			return errors.New(inboxForm)
+		}
+		*i = Inbox{}
+		return nil
+	}
+	var raw struct {
+		Keep *string `json:"keep"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return fmt.Errorf("%s: %w", inboxForm, err)
+	}
+	*i = Inbox{}
+	if raw.Keep == nil || *raw.Keep == "off" {
+		return nil
+	}
+	keep, ok := inbox.ParseAge(*raw.Keep)
+	if !ok {
+		return fmt.Errorf("inbox.keep is %q; give \"off\" or days from 1d to 9999d, like \"30d\"", *raw.Keep)
+	}
+	i.Keep = keep
+	return nil
 }
 
 func LoadPolicy(home string) (Policy, error) {

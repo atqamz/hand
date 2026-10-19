@@ -471,6 +471,14 @@ Attachments pile up in `inbox/`. `hand inbox size` shows how many files Hand sav
 - **Repeats:** a second run moves nothing new. Two prunes of one fleet never run at once: the second exits 3.
 - **Event:** a prune that moves files records `inbox.pruned` with their count and size (`3 files, 12 MiB`).
 
+To prune every day, add this to `routing.json`:
+
+```json
+"inbox": {"keep": "30d"}
+```
+
+The watcher then runs the same prune once a UTC day. It writes the day to `inbox/.trash/.pruned`, so a restart does not run it again. `keep` takes days, from `1d` to `9999d`. With `"inbox": "off"`, or no `inbox` key, nothing is pruned. A bad value makes `routing.json` invalid, as a bad `stall` does: the error names the field, and the watcher logs it once and does not prune.
+
 ## Safe use
 
 Every worker runs with its permission prompts skipped (see [The supervisor](#the-supervisor)), as the operator's own OS user. It can read whatever that account can: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`. A worktree is not a fence, and Hand builds no sandbox. A worker that obeys text planted in an issue, a PR or a review can use all of it. The protection is the setup around Hand:
