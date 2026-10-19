@@ -477,7 +477,7 @@ To prune every day, add this to `routing.json`:
 "inbox": {"keep": "30d"}
 ```
 
-The watcher then runs the same prune once a UTC day. It writes the day to `inbox/.trash/.pruned`, so a restart does not run it again. `keep` takes days, from `1d` to `9999d`. With `"inbox": "off"`, or no `inbox` key, nothing is pruned. A bad value makes `routing.json` invalid, as a bad `stall` does: the error names the field, and the watcher logs it once and does not prune.
+The watcher then runs the same prune once a UTC day. It writes the day to `inbox/.trash/.pruned`, so a restart does not run it again. `keep` takes days, from `1d` to `9999d`. With `"inbox": "off"`, or no `inbox` key, nothing is pruned. A bad value makes `routing.json` invalid, as a bad `stall` does: the error names the field, and the watcher logs it once and does not prune. `hand orient` shows `inbox_folder: "612 files, 140 MiB"` once the inbox holds more than 500 files or more than 100 MiB.
 
 ## Safe use
 

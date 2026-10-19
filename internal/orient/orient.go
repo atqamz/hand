@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/memory"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -23,6 +24,11 @@ type Budget struct {
 	TitleBytes  int
 	Bytes       int
 }
+
+const (
+	folderBytes = 100 << 20
+	folderFiles = 500
+)
 
 var DefaultBudget = Budget{Active: 15, Inbox: 10, Decisions: 15, Reports: 10, Events: 10, MemoryBytes: 4000, TitleBytes: 50, Bytes: 6000}
 
@@ -194,6 +200,8 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), note})
 	}
 
+	folder := inboxFolder(home)
+
 	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
 	if err != nil {
 		return nil, err
@@ -208,7 +216,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, sections, memLines, truncated)
+		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -222,6 +230,14 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 }
 
+func inboxFolder(home string) string {
+	u, err := inbox.Size(home)
+	if err != nil || (u.Bytes <= folderBytes && u.Files <= folderFiles) {
+		return ""
+	}
+	return inbox.Count(u.Files, u.Bytes)
+}
+
 func dropLast(sections []*section) bool {
 	for i := len(sections) - 1; i >= 0; i-- {
 		if s := sections[i]; len(s.rows) > 0 {
@@ -232,7 +248,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -262,6 +278,9 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	if len(timers) > 0 {
 		d.Rows("timers", []string{"id", "due", "note"}, timers)
 	}
+	if folder != "" {
+		d.Field("inbox_folder", folder)
+	}
 	for _, s := range sections {
 		d.Rows(s.name, s.fields, s.rows)
 		if s.cmd != "" && len(s.rows) < s.total {
@@ -280,6 +299,9 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	}
 	if !watch {
 		help = append(help, "Start the watcher: `hand watch`")
+	}
+	if folder != "" {
+		help = append(help, "See what fills the inbox folder: `hand inbox size`")
 	}
 	d.Help(help...)
 	return &d

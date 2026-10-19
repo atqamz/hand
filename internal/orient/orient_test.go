@@ -608,3 +608,57 @@ func TestOrientMarksATimerNoManagedSupervisorFires(t *testing.T) {
 		t.Fatalf("orient =\n%s", out)
 	}
 }
+
+func TestInboxFolderShowsOnlyWhenLarge(t *testing.T) {
+	st, home := setup(t)
+	dir := filepath.Join(home, "inbox")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	build := func() string {
+		t.Helper()
+		doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	for i := range 500 {
+		if err := os.WriteFile(filepath.Join(dir, "20261019-120000-"+strconv.Itoa(i+1)+".png"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out := build(); strings.Contains(out, "inbox_folder") || strings.Contains(out, "hand inbox size") {
+		t.Fatalf("500 files shown:\n%s", out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "20261019-120000-501.png"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := build()
+	if !strings.Contains(out, "\ninbox_folder: \"501 files, 0 MiB\"\n") || !strings.Contains(out, "  - See what fills the inbox folder: `hand inbox size`\n") {
+		t.Fatalf("501 files not shown:\n%s", out)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	big, err := os.Create(filepath.Join(dir, "20261019-120000-1-video.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer big.Close()
+	if err := big.Truncate(100 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if out := build(); strings.Contains(out, "inbox_folder") {
+		t.Fatalf("100 MiB shown:\n%s", out)
+	}
+	if err := big.Truncate(100<<20 + 1); err != nil {
+		t.Fatal(err)
+	}
+	if out := build(); !strings.Contains(out, "\ninbox_folder: \"1 file, 100 MiB\"\n") {
+		t.Fatalf("over 100 MiB not shown:\n%s", out)
+	}
+}
