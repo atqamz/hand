@@ -13,7 +13,7 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 		"const draftMax = 200000;",
 		"localStorage.setItem(key, JSON.stringify({ text, at: Date.now() }));",
 		"text && text.length <= draftMax",
-		"localStorage.removeItem(key);\n\t\t} catch {}",
+		"localStorage.removeItem(key);\n\t\t} catch {\n\t\t\ttry {\n\t\t\t\tlocalStorage.removeItem(key);\n\t\t\t} catch {}\n\t\t}",
 		"localStorage.getItem(key)",
 		"Date.now() - d.at < draftTtl",
 		"if (raw !== null && !d) localStorage.removeItem(key);",
@@ -31,16 +31,17 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 		`if (!key || f.value === seen.get(key)?.text`,
 		`addEventListener("storage", (e) => {`,
 		"e.storageArea !== localStorage || !e.key || !ours(e.key)",
-		"const unchanged = !f.value || (f.value === s?.text && (!d || !s.mine));",
-		"if (!unchanged) continue;",
+		"const take = d ? !f.value || (f.value === s?.text && !s.mine) : !!f.value && f.value === was?.text;",
+		"else if (!d && f.value) seen.set(e.key, { text: null, mine: true });",
 		`"Draft restored"`,
 		"`Draft saved ${clock(Date.now())}`",
-		`if (form.id === "composer") form.reset();`,
 		`const box = form.matches("#composer, .answer") && form.querySelector("textarea");`,
-		"if (box) forget(box);")
+		"const typed = box?.value;",
+		`if (form.id === "composer" && !edited) form.reset();`,
+		"if (box && !edited) forget(box);")
 	lacks(t, "app.js", js, "sessionStorage", "kept(")
 	success, failure, _ := strings.Cut(js, "if (res.status === 409")
-	if !strings.Contains(success, "if (box) forget(box);") || strings.Contains(failure, "forget(") {
+	if !strings.Contains(success, "if (box && !edited) forget(box);") || strings.Contains(failure, "forget(") {
 		t.Fatal("the draft must clear only on a successful send or answer, never on a failed one")
 	}
 }
@@ -48,7 +49,7 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 func TestTheComposerShowsADraftNote(t *testing.T) {
 	contains(t, "fleet page", get(t, newFixture(t).handler(), "/"), `<span class="draft-note"></span>`)
 	contains(t, "board.css", asset(t, "board.css"),
-		".console-box{position:relative}",
+		"border-radius:var(--r-lg);background:var(--bg);position:relative}",
 		".draft-note{position:absolute;top:-9px;right:14px;padding:0 6px;background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}",
 		".draft-note:empty{display:none}")
 }

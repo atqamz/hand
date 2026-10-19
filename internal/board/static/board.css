@@ -264,8 +264,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .md a.ref{text-decoration:underline dotted;text-underline-offset:3px}
 .md th:first-child,.md td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg);white-space:nowrap}
 .md thead th:first-child{background:var(--card)}
-.console-box{flex:none;margin:0 max(16px,calc((100% - 760px)/2)) 16px;padding:4px 4px 8px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--bg)}
-.console-box{position:relative}
+.console-box{flex:none;margin:0 max(16px,calc((100% - 760px)/2)) 16px;padding:4px 4px 8px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--bg);position:relative}
 .console-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .draft-note{position:absolute;top:-9px;right:14px;padding:0 6px;background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}
 .draft-note:empty{display:none}

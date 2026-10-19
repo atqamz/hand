@@ -48,7 +48,11 @@
 				return true;
 			}
 			localStorage.removeItem(key);
-		} catch {}
+		} catch {
+			try {
+				localStorage.removeItem(key);
+			} catch {}
+		}
 		return false;
 	};
 	const clock = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -401,6 +405,8 @@
 		if ("armed" in form.dataset) disarm(action);
 		form.dataset.busy = "";
 		const data = new URLSearchParams(new FormData(form, e.submitter));
+		const box = form.matches("#composer, .answer") && form.querySelector("textarea");
+		const typed = box?.value;
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
@@ -421,9 +427,9 @@
 			return;
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
-			if (form.id === "composer") form.reset();
-			const box = form.matches("#composer, .answer") && form.querySelector("textarea");
-			if (box) forget(box);
+			const edited = box && box.value !== typed;
+			if (form.id === "composer" && !edited) form.reset();
+			if (box && !edited) forget(box);
 			const id = (form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id;
 			if (id) {
 				const label = form.action.endsWith("/answer") ? data.get("choice")?.split(".")[0] || "answer" : (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
@@ -699,13 +705,13 @@
 			return;
 		}
 		const d = e.newValue === null ? null : parsed(e.newValue);
+		const was = e.oldValue === null ? null : parsed(e.oldValue);
 		for (const f of document.querySelectorAll(draftFields)) {
 			if (fieldKey(f) !== e.key) continue;
 			const s = seen.get(e.key);
-			const unchanged = !f.value || (f.value === s?.text && (!d || !s.mine));
-			if (!unchanged) continue;
-			if (d) settle(f, e.key, d.text, `Draft saved ${clock(d.at)}`);
-			else if (f.value) settle(f, e.key, "", "");
+			const take = d ? !f.value || (f.value === s?.text && !s.mine) : !!f.value && f.value === was?.text;
+			if (take) settle(f, e.key, d ? d.text : "", d ? `Draft saved ${clock(d.at)}` : "");
+			else if (!d && f.value) seen.set(e.key, { text: null, mine: true });
 		}
 	});
 	since();
