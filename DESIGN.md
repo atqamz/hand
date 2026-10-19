@@ -615,7 +615,7 @@ When the work pane is under 480px wide (a phone, or a wide chat), a collapsed ro
 - **Slug line:** the refs, harness and model, status and time, separated by an 8px gap and indented to the headline. Refs in the slug take the line's size and colour, and linked ones underline in hairline colour. On a red or amber header the slug text mixes 55% of the tone into the ink. A collapsed row shows only its refs and time.
 - **Headline:** Title type in an open item, Body type at 400 in a row.
 - **Body:** a grid with a 10px gap, padded 10px by 15px by 15px by 41px, holding the item's action:
-  - a blocked supervisor screen shows its terminal excerpt and its keys, then a "Screen misread?" disclosure that holds the hint for a screen Luvus misread and "Type queued messages anyway";
+  - a blocked supervisor screen shows its terminal excerpt and its keys, then a "Screen misread?" disclosure that holds one muted line on what it types ("Types the queued messages, or else the wakes, into its prompt.") and "Type queued messages anyway";
   - a blocked worker screen names the attempt and its task, then shows its excerpt and keys;
   - a decision shows its question without the option lines (up to 40vh, then it scrolls), then the choice list, the note box, the primary Send answer and an "Open dN" link; a sent answer collapses the item to "Sent 2 · waiting…" until the next refresh;
   - a failure shows its reason in muted ink and a "View aN" link;

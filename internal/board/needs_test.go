@@ -292,7 +292,8 @@ func TestNeedsShowAStalledSupervisorUntilWorkResumes(t *testing.T) {
 			}
 			return
 		}
-		contains(t, "needs", q, `data-kind="stalled" id="wait-stalled-s1" open data-tone="wait">`, `data-tone="wait">STALLED</span><span class="ref">s1</span>`, `<span class="wait-title" title="`+want+`">`+want+`</span>`, "only Hand's stall wakes reach it")
+		contains(t, "needs", q, `data-kind="stalled" id="wait-stalled-s1" open data-tone="wait">`, `data-tone="wait">STALLED</span><span class="ref">s1</span>`, `<span class="wait-title" title="`+want+`">`+want+`</span>`, `<p class="reason">No decision is open, so only Hand's stall wakes reach it.</p>`)
+		lacks(t, "needs", q, "Ask it in Chat")
 	}
 	stall := func() {
 		t.Helper()

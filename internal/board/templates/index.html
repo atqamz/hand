@@ -19,7 +19,7 @@
 <textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
 <div class="composer-foot"><span class="hint">{{.ComposerHint}}</span><span class="send"><label class="attach" title="Attach images">{{template "icon-attach"}}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple data-attach><span class="sr">Attach images</span></label><kbd data-send-key>Ctrl Enter</kbd> <button class="primary">Send</button></span></div>
 <span class="draft-note"></span>
-</form></div>{{else}}<p class="hint read-only">This board is read-only: it listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
+</form></div>{{else}}<p class="hint read-only">Read-only: this board listens on a network address. Message the supervisor from a board on loopback.</p>{{end}}
 </div>
 </main>
 {{template "foot"}}{{end}}

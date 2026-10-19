@@ -212,7 +212,7 @@ func TestTheMisreadDisclosureHidesTheForceForm(t *testing.T) {
 	q := region(get(t, fx.handler(), "/"), "queue")
 	contains(t, "misread", q, `<details class="misread" id="misread-s1"><summary>Screen misread?</summary><form class="force" method="post" action="/supervisor/force" data-fetch>`, "Type queued messages anyway")
 	disclosure := q[strings.Index(q, `class="misread"`):]
-	contains(t, "misread", disclosure[:strings.Index(disclosure, "</details>")], "Type queued messages anyway")
+	contains(t, "misread", disclosure[:strings.Index(disclosure, "</details>")], `<p class="hint">Types the queued messages, or else the wakes, into its prompt.</p>`, "Type queued messages anyway")
 	lan := newFixture(t)
 	lan.options.Controls = false
 	lan.status, lan.hint, lan.screen = "blocked", "Esc to cancel · Tab to amend", permission

@@ -73,8 +73,8 @@ func TestTheFleetListIsQuiet(t *testing.T) {
 
 func TestTheFirstRunState(t *testing.T) {
 	body := get(t, board.New(open(t), token, board.Options{Controls: true, Control: func(context.Context, ...string) error { return nil }}), "/")
-	contains(t, "first run", body, "All clear", `action="/supervisor/start"`, `name="harness"`, "No tasks yet. They appear here when you ask the supervisor for something.", `<span class="word">no supervisor</span>`)
-	lacks(t, "first run", body, "hand task add")
+	contains(t, "first run", body, "All clear", `action="/supervisor/start"`, `name="harness"`, `<p class="quiet">No tasks yet.</p>`, `<span class="word">no supervisor</span>`)
+	lacks(t, "first run", body, "hand task add", "They appear here")
 }
 
 func TestTheReadOnlyBoard(t *testing.T) {
@@ -85,7 +85,7 @@ func TestTheReadOnlyBoard(t *testing.T) {
 	seed(t, fx.st)
 	body := get(t, fx.handler(), "/")
 	lacks(t, "read-only board", body, `id="composer"`, `action="/supervisor/keys"`, `action="/supervisor/resume"`, `action="/supervisor/stop"`, `action="/supervisor/interrupt"`, `action="/supervisor/start"`, `class="skip"`, `#composer-text`)
-	contains(t, "read-only board", body, `action="/decision/d1/answer"`, `action="/report/r1/ack"`, "This board is read-only", "from a board on loopback")
+	contains(t, "read-only board", body, `action="/decision/d1/answer"`, `action="/report/r1/ack"`, "Read-only: this board listens on a network address. Message the supervisor from a board on loopback.")
 }
 
 func TestTheReadOnlyBoardSaysWhyWithoutASupervisor(t *testing.T) {
@@ -94,7 +94,7 @@ func TestTheReadOnlyBoardSaysWhyWithoutASupervisor(t *testing.T) {
 	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	body := get(t, fx.handler(), "/")
 	contains(t, "network board", region(body, "queue"), `data-kind="nosup"`, "Start it from a board on loopback.")
-	contains(t, "network board", body, "This board is read-only")
+	contains(t, "network board", body, "Read-only: this board listens on a network address.")
 	lacks(t, "network board", body, "Start one in Chat", `class="skip"`, `id="composer-text"`)
 }
 
