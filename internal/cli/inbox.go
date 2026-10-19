@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -68,7 +69,7 @@ func cmdInboxPrune(r *runner, args []string) error {
 	}
 	defer st.Close()
 	p, err := r.pruneInbox(r.ctx(), st, age, *dry)
-	if err != nil {
+	if err != nil && p.Moved == nil {
 		return err
 	}
 	now := r.env.Now()
@@ -92,13 +93,13 @@ func cmdInboxPrune(r *runner, args []string) error {
 		}
 		d.Rows("failed", []string{"name", "error"}, rows)
 	}
-	if err := r.print(&d); err != nil {
-		return err
+	if perr := r.print(&d); perr != nil {
+		return errors.Join(err, perr)
 	}
 	if len(p.Failed) > 0 {
-		return fmt.Errorf("inbox prune: %d file(s) could not be pruned; see failed", len(p.Failed))
+		err = errors.Join(err, fmt.Errorf("inbox prune: %d file(s) could not be pruned; see failed", len(p.Failed)))
 	}
-	return nil
+	return err
 }
 
 func fileRows(files []inbox.File, now time.Time) [][]string {

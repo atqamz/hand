@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,4 +159,25 @@ func TestInboxPruneTakesTheFleetLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	has(t, "prune", h.ok("inbox", "prune", "--older-than", "30d"), "moved: 1\n")
+}
+
+func TestInboxPruneStillPrintsWhatMovedWhenTheEventFails(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	inboxFile(t, h, "20260801-000000-1.png", 5, 56*day)
+	db, err := sql.Open("sqlite", filepath.Join(h.home, "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER refuse_prune BEFORE INSERT ON event WHEN NEW.kind = 'inbox.pruned' BEGIN SELECT RAISE(ABORT, 'event refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code := h.run("inbox", "prune", "--older-than", "30d")
+	if code != 1 || !strings.Contains(errOut, "event refused") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "prune", out, "moved: 1\n")
 }
