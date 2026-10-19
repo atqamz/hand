@@ -12,6 +12,7 @@ func TestSupervisorRepliesAreBorderedBubbles(t *testing.T) {
 		".timeline>.from-sup{align-self:flex-start;max-width:min(100%,calc(72ch + 30px));padding:9px 13px 11px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--card);font-size:15px}",
 		".from-sup .msg-head .who{color:var(--muted)}",
 		".from-sup .md :is(code,pre){background:var(--bg)}",
+		".from-sup .md pre code{background:none}",
 		".from-sup .md pre{background:linear-gradient(to left,var(--bg) 30%,transparent) right/40px 100% no-repeat local,linear-gradient(to left,var(--shadow),transparent) right/14px 100% no-repeat scroll,var(--bg)}",
 		".from-sup .md blockquote{border-left-color:var(--line-strong)}",
 		".from-sup .md hr{border-top-color:var(--line-strong)}",
@@ -73,7 +74,7 @@ func TestCopyButtonStyles(t *testing.T) {
 		".code>.copy[data-state=copied]{color:var(--pass)}",
 		".code>.copy[data-state=failed]{color:var(--fail)}",
 		".code>.copy:not([data-state])>[data-glyph=copy],.code>.copy[data-state=copied]>[data-glyph=copied],.code>.copy[data-state=failed]>[data-glyph=failed]{display:block}",
-		".sr{position:fixed;",
+		"body>.sr{position:fixed;top:0;left:0;",
 	)
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea,input,select{font-size:16px}"), ".code>.copy{opacity:1}")
 	contains(t, "reduced motion", block(t, css, "@media (prefers-reduced-motion:reduce){"), ".code>.copy{transition:none}")
