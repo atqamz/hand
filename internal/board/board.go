@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -446,7 +447,7 @@ func sentence(msg string) string {
 }
 
 func (b *Board) failErr(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
+	status, msg := http.StatusInternalServerError, Scrub(err.Error())
 	switch {
 	case errors.Is(err, state.ErrNotFound):
 		status = http.StatusNotFound
@@ -454,8 +455,10 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case errors.Is(err, state.ErrInvalid):
 		status = http.StatusBadRequest
+	case errors.Is(err, syscall.ENOSPC):
+		status, msg = http.StatusInsufficientStorage, "the disk is full; free some space and try again"
 	}
-	b.failWith(w, status, Scrub(err.Error()), b.stripData(context.Background()))
+	b.failWith(w, status, msg, b.stripData(context.Background()))
 }
 
 func tint(id any) int {
