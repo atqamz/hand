@@ -493,7 +493,7 @@ func TestADropAnywhereOnTheChatPaneAttaches(t *testing.T) {
 
 func TestAFileDroppedOutsideTheChatNeverOpensInTheTab(t *testing.T) {
 	js := asset(t, "app.js")
-	contains(t, "dragover", listener(t, js, `document.addEventListener("dragover", (e) => {`), "if (!carries(e) || e.defaultPrevented) return;", "e.preventDefault();", `e.dataTransfer.dropEffect = "none";`)
+	contains(t, "dragover", listener(t, js, `document.addEventListener("dragover", (e) => {`), "if (!carries(e) || e.defaultPrevented) return;", "e.preventDefault();", `e.dataTransfer.dropEffect = "none";`, `chat.classList.remove("dropping");`)
 	contains(t, "drop", listener(t, js, `document.addEventListener("drop", (e) => {`), "if (carries(e)) e.preventDefault();")
 }
 

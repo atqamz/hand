@@ -32,8 +32,9 @@
 		const m = f.matches("form.answer textarea[name=answer]") && /\/decision\/([^/]+)\/answer$/.exec(f.form.getAttribute("action") || "");
 		return m ? `${draftPrefix}.${m[1]}` : "";
 	};
-	const filesKey = (key) => `hand.files.${key.slice("hand.draft.".length)}`;
-	const ours = (key) => [draftPrefix, filesKey(draftPrefix)].some((p) => key === p || key.startsWith(`${p}.`));
+	const filesPrefix = `hand.files.${base.slice(1)}`;
+	const filesKey = (key) => filesPrefix + key.slice(draftPrefix.length);
+	const ours = (key) => [draftPrefix, filesPrefix].some((p) => key === p || key.startsWith(`${p}.`));
 	const parsed = (raw) => {
 		try {
 			const d = JSON.parse(raw);
@@ -1208,6 +1209,7 @@
 			if (!carries(e) || e.defaultPrevented) return;
 			e.preventDefault();
 			e.dataTransfer.dropEffect = "none";
+			chat.classList.remove("dropping");
 		});
 		document.addEventListener("drop", (e) => {
 			if (carries(e)) e.preventDefault();
