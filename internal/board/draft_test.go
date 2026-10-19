@@ -5,17 +5,50 @@ import (
 	"testing"
 )
 
-func TestTheDraftSurvivesInPlaceNavigation(t *testing.T) {
+func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 	js := asset(t, "app.js")
 	contains(t, "app.js", js,
-		"const composerKey = `hand.draft${base}`;",
-		"sessionStorage.getItem(composerKey)", "sessionStorage.setItem(composerKey, value)", "sessionStorage.removeItem(composerKey)",
-		"} catch {}",
-		`if (!message.value) message.value = kept();`,
-		`message.addEventListener("input", () => kept(message.value));`,
-		"form.reset();\n\t\t\t\tkept(\"\");")
-	lacks(t, "app.js", js, "localStorage.getItem(composerKey)", "localStorage.setItem(composerKey")
-	if strings.Count(js, "sessionStorage") != 3 {
-		t.Fatalf("app.js reaches sessionStorage %d times, want 3", strings.Count(js, "sessionStorage"))
+		"const draftPrefix = `hand.draft.${base.slice(1)}`;",
+		"const draftTtl = 30 * 24 * 3600 * 1000;",
+		"const draftMax = 200000;",
+		"localStorage.setItem(key, JSON.stringify({ text, at: Date.now() }));",
+		"text && text.length <= draftMax",
+		"localStorage.removeItem(key);\n\t\t} catch {}",
+		"localStorage.getItem(key)",
+		"Date.now() - d.at < draftTtl",
+		"if (raw !== null && !d) localStorage.removeItem(key);",
+		"`${draftPrefix}.${m[1]}`",
+		`/\/decision\/([^/]+)\/answer$/`,
+		`const draftFields = "#composer-text, form.answer textarea[name=answer]";`,
+		`restore(document);`,
+		`restore(el);`,
+		`if (!key || f.value) continue;`,
+		"f.setSelectionRange(text.length, text.length);",
+		"saving = setTimeout(flush, 300);",
+		`if (document.visibilityState === "hidden") flush();`,
+		`addEventListener("pagehide", flush);`,
+		`addEventListener("beforeunload", flush);`,
+		`if (!key || f.value === seen.get(key)?.text`,
+		`addEventListener("storage", (e) => {`,
+		"e.storageArea !== localStorage || !e.key || !ours(e.key)",
+		"const unchanged = !f.value || (f.value === s?.text && (!d || !s.mine));",
+		"if (!unchanged) continue;",
+		`"Draft restored"`,
+		"`Draft saved ${clock(Date.now())}`",
+		`if (form.id === "composer") form.reset();`,
+		`const box = form.matches("#composer, .answer") && form.querySelector("textarea");`,
+		"if (box) forget(box);")
+	lacks(t, "app.js", js, "sessionStorage", "kept(")
+	success, failure, _ := strings.Cut(js, "if (res.status === 409")
+	if !strings.Contains(success, "if (box) forget(box);") || strings.Contains(failure, "forget(") {
+		t.Fatal("the draft must clear only on a successful send or answer, never on a failed one")
 	}
+}
+
+func TestTheComposerShowsADraftNote(t *testing.T) {
+	contains(t, "fleet page", get(t, newFixture(t).handler(), "/"), `<span class="draft-note"></span>`)
+	contains(t, "board.css", asset(t, "board.css"),
+		".console-box{position:relative}",
+		".draft-note{position:absolute;top:-9px;right:14px;padding:0 6px;background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}",
+		".draft-note:empty{display:none}")
 }

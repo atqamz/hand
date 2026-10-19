@@ -21,15 +21,76 @@
 	};
 	const apple = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 	body.dataset.shell = "";
-	const composerKey = `hand.draft${base}`;
-	const kept = (value) => {
-		try {
-			if (value === undefined) return sessionStorage.getItem(composerKey) || "";
-			if (value) sessionStorage.setItem(composerKey, value);
-			else sessionStorage.removeItem(composerKey);
-		} catch {}
-		return "";
+	const draftPrefix = `hand.draft.${base.slice(1)}`;
+	const draftFields = "#composer-text, form.answer textarea[name=answer]";
+	const draftTtl = 30 * 24 * 3600 * 1000;
+	const draftMax = 200000;
+	const draftNote = document.querySelector(".draft-note");
+	const seen = new Map();
+	const fieldKey = (f) => {
+		if (f.id === "composer-text") return draftPrefix;
+		const m = f.matches("form.answer textarea[name=answer]") && /\/decision\/([^/]+)\/answer$/.exec(f.form.getAttribute("action") || "");
+		return m ? `${draftPrefix}.${m[1]}` : "";
 	};
+	const ours = (key) => key === draftPrefix || key.startsWith(`${draftPrefix}.`);
+	const parsed = (raw) => {
+		try {
+			const d = JSON.parse(raw);
+			return typeof d?.text === "string" && d.text && Date.now() - d.at < draftTtl ? d : null;
+		} catch {
+			return null;
+		}
+	};
+	const stash = (key, text) => {
+		try {
+			if (text && text.length <= draftMax) {
+				localStorage.setItem(key, JSON.stringify({ text, at: Date.now() }));
+				return true;
+			}
+			localStorage.removeItem(key);
+		} catch {}
+		return false;
+	};
+	const clock = (at) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+	const say = (key, text) => {
+		if (key === draftPrefix && draftNote) draftNote.textContent = text;
+	};
+	const settle = (f, key, text, note) => {
+		f.value = text;
+		f.setSelectionRange(text.length, text.length);
+		seen.set(key, { text, mine: false });
+		say(key, note);
+	};
+	const restore = (root) => {
+		for (const f of root.querySelectorAll(draftFields)) {
+			const key = fieldKey(f);
+			if (!key || f.value) continue;
+			try {
+				const raw = localStorage.getItem(key);
+				const d = raw === null ? null : parsed(raw);
+				if (raw !== null && !d) localStorage.removeItem(key);
+				if (d) settle(f, key, d.text, "Draft restored");
+			} catch {}
+		}
+	};
+	const save = (f) => {
+		const key = fieldKey(f);
+		if (!key || f.value === seen.get(key)?.text || (!f.value && !seen.has(key))) return;
+		const ok = stash(key, f.value);
+		seen.set(key, { text: ok || !f.value ? f.value : null, mine: true });
+		say(key, ok ? `Draft saved ${clock(Date.now())}` : "");
+	};
+	const flush = () => {
+		for (const f of document.querySelectorAll(draftFields)) save(f);
+	};
+	const forget = (f) => {
+		const key = fieldKey(f);
+		if (!key) return;
+		stash(key, "");
+		seen.set(key, { text: f.value, mine: false });
+		say(key, "");
+	};
+	let saving = 0;
 	const typing = (el) => el.contains(document.activeElement) && document.activeElement.matches("textarea, select, input:not([type=hidden])");
 
 	const reversed = (el) => getComputedStyle(el).flexDirection === "column-reverse";
@@ -209,6 +270,7 @@
 		el.innerHTML = html;
 		for (const f of el.querySelectorAll("input[type=radio]")) if (picked.has(`${key(f)}=${f.value}`)) f.checked = true;
 		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
+		restore(el);
 		for (const f of el.querySelectorAll("form[data-choose]")) otherwise(f);
 		for (const f of el.querySelectorAll("form[data-confirm]")) {
 			if ((arms.get(f.getAttribute("action")) ?? 0) > Date.now()) {
@@ -359,10 +421,9 @@
 			return;
 		}
 		if (res.type === "opaqueredirect" || res.ok) {
-			if (form.id === "composer") {
-				form.reset();
-				kept("");
-			}
+			if (form.id === "composer") form.reset();
+			const box = form.matches("#composer, .answer") && form.querySelector("textarea");
+			if (box) forget(box);
 			const id = (form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id;
 			if (id) {
 				const label = form.action.endsWith("/answer") ? data.get("choice")?.split(".")[0] || "answer" : (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
@@ -391,6 +452,7 @@
 	});
 
 	addEventListener("pageshow", () => {
+		restore(document);
 		for (const f of document.querySelectorAll("form[data-choose]")) otherwise(f);
 	});
 	document.addEventListener("change", (e) => {
@@ -613,11 +675,39 @@
 			c.textContent = left === 0 ? "denying…" : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 		}
 	};
-	const message = document.getElementById("composer-text");
-	if (message) {
-		if (!message.value) message.value = kept();
-		message.addEventListener("input", () => kept(message.value));
-	}
+	try {
+		for (let i = localStorage.length - 1; i >= 0; i--) {
+			const k = localStorage.key(i);
+			if (k && ours(k) && !parsed(localStorage.getItem(k))) localStorage.removeItem(k);
+		}
+	} catch {}
+	restore(document);
+	document.addEventListener("input", (e) => {
+		if (!(e.target instanceof HTMLTextAreaElement) || !fieldKey(e.target)) return;
+		clearTimeout(saving);
+		saving = setTimeout(flush, 300);
+	});
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "hidden") flush();
+	});
+	addEventListener("pagehide", flush);
+	addEventListener("beforeunload", flush);
+	addEventListener("storage", (e) => {
+		try {
+			if (e.storageArea !== localStorage || !e.key || !ours(e.key)) return;
+		} catch {
+			return;
+		}
+		const d = e.newValue === null ? null : parsed(e.newValue);
+		for (const f of document.querySelectorAll(draftFields)) {
+			if (fieldKey(f) !== e.key) continue;
+			const s = seen.get(e.key);
+			const unchanged = !f.value || (f.value === s?.text && (!d || !s.mine));
+			if (!unchanged) continue;
+			if (d) settle(f, e.key, d.text, `Draft saved ${clock(d.at)}`);
+			else if (f.value) settle(f, e.key, "", "");
+		}
+	});
 	since();
 	tick();
 	setInterval(since, 30000);
