@@ -2,7 +2,7 @@
 <input type="hidden" name="csrf" value="{{$r.Token}}">
 {{with $opts}}<fieldset class="options"><legend class="sr">Options for {{$ref}}</legend>{{range .}}<label class="option{{if .Long}} long{{end}}"><input class="sr" type="radio" name="choice" value="{{.Value}}"{{if .Other}} data-other{{end}}><span class="option-key" aria-hidden="true">{{.Key}}</span><span class="option-text"><span class="option-head"><span class="option-label">{{inline .Label}}</span>{{if .Recommended}}<span class="badge" data-tone="pass">Recommended</span>{{end}}</span>{{with .Note}}<span class="option-note">{{inline .}}</span>{{end}}</span></label>{{end}}</fieldset>{{end}}
 <textarea name="answer" rows="{{if $opts}}1{{else}}3{{end}}" placeholder="{{if $opts}}Add a note (optional){{else}}Your answer{{end}}" aria-label="{{if $opts}}Note{{else}}Your answer{{end}}"{{if not $opts}} required{{end}}></textarea>
-<div class="actions"><button class="primary">Send answer</button>{{with $opts}}<span class="hint keys-hint">Press <kbd>1</kbd>{{if gt (len .) 1}}–<kbd>{{if gt (len .) 9}}9{{else}}{{len .}}{{end}}</kbd>{{end}} to pick, <kbd>Enter</kbd> to send</span>{{end}}{{if $.Needs}}<a href="{{$r.Base}}/decision/{{$ref}}" target="_blank" rel="noopener">Open {{$ref}}</a>{{end}}</div>
+<div class="actions"><button class="primary">Send answer</button>{{if $.Needs}}<a href="{{$r.Base}}/decision/{{$ref}}" target="_blank" rel="noopener">Open {{$ref}}</a>{{end}}</div>
 <p class="form-error" role="alert">{{with $r.Notice}}{{.}}{{end}}</p>
 </form>
 {{else}}{{template "answered" $}}{{end}}{{end}}{{end}}

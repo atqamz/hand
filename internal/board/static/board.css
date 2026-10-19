@@ -542,7 +542,6 @@ form[data-busy] button{opacity:.6;cursor:progress}
 .options.done .option:not(.picked) :is(.option-label,.option-key){color:var(--muted)}
 .badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}
 .answer .actions a{margin-left:auto}
-.keys-hint kbd{margin:0 1px}
 .form-error{color:var(--fail)}
 .form-error:empty{display:none}
 .answered-block{display:grid;gap:12px}
@@ -551,7 +550,7 @@ form[data-busy] button{opacity:.6;cursor:progress}
 .answered-block>.card.from-you>.copy{margin:0;padding:10px 12px}
 .answered-block>.card.from-you .who{color:var(--accent);font-weight:600}
 @supports (text-box:trim-both cap alphabetic){.option-key{display:block;line-height:18px;text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((24px - 2px - 1cap)/2)}}
-@media (pointer:coarse){.keys-hint{display:none}.option{min-height:52px;padding-block:14px}.option+.option{padding-top:13px}.answer[data-choose] textarea{min-height:var(--control);padding-block:11px}}
+@media (pointer:coarse){.option{min-height:52px;padding-block:14px}.option+.option{padding-top:13px}.answer[data-choose] textarea{min-height:var(--control);padding-block:11px}}
 .skip{position:absolute;left:-9999px;top:8px;z-index:6;background:var(--bg);color:var(--fg);padding:6px 10px;border:1px solid var(--line);border-radius:var(--r-md)}
 .skip:focus{left:16px}
 .link-state{margin:0;font-size:12px;color:var(--muted)}

@@ -42,10 +42,10 @@ func TestTheChoiceListIsOneComponentInNeedsAndOnThePage(t *testing.T) {
 		`<span class="option-key" aria-hidden="true">1</span><span class="option-text"><span class="option-head"><span class="option-label">Pin 0.14.2</span><span class="badge" data-tone="pass">Recommended</span></span><span class="option-note">reproducible builds; we bump it by hand</span></span>`,
 		`value="3. Other (write your own)" data-other>`,
 		`<textarea name="answer" rows="1" placeholder="Add a note (optional)" aria-label="Note"></textarea>`,
-		`<button class="primary">Send answer</button>`, `<kbd>1</kbd>–<kbd>3</kbd>`, `<p class="form-error" role="alert"></p>`)
-	lacks(t, "page", page, "data-fill", "<ol>", "<li>1.", " required>", `class="open-page"`, "Open d1")
+		`<button class="primary">Send answer</button>`, `<p class="form-error" role="alert"></p>`)
+	lacks(t, "page", page, "data-fill", "<ol>", "<li>1.", " required>", `class="open-page"`, "Open d1", "keys-hint", "<kbd>")
 	contains(t, "needs", needs, `<form class="answer" method="post" action="/decision/d1/answer" data-fetch data-choose>`, `<a href="/decision/d1" target="_blank" rel="noopener">Open d1</a>`, `<a class="ref" `)
-	lacks(t, "needs", needs, "data-fill", "<ol>")
+	lacks(t, "needs", needs, "data-fill", "<ol>", "keys-hint", "<kbd>")
 	if a, b := fieldset(t, needs), fieldset(t, page); a != b {
 		t.Fatalf("Needs and the page differ:\n%s\n%s", a, b)
 	}
@@ -238,6 +238,6 @@ func TestTheChoiceListRows(t *testing.T) {
 		".badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}",
 		".answer[data-choose] textarea{min-height:var(--control);padding-block:5px;resize:none}",
 		"@supports (text-box:trim-both cap alphabetic){.option-key{display:block;line-height:18px;text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((24px - 2px - 1cap)/2)}}",
-		"@media (pointer:coarse){.keys-hint{display:none}.option{min-height:52px;padding-block:14px}.option+.option{padding-top:13px}")
-	lacks(t, "chips", css, ".chips", ".chip{", "data-fill")
+		"@media (pointer:coarse){.option{min-height:52px;padding-block:14px}.option+.option{padding-top:13px}")
+	lacks(t, "chips", css, ".chips", ".chip{", "data-fill", ".keys-hint")
 }
