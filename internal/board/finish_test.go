@@ -31,6 +31,17 @@ func TestThePhoneRowCountsTheWorstKind(t *testing.T) {
 	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `data-worst="failure"><span class="n">1</span> failed`)
 }
 
+func TestTheStatusPillNeverShrinksIntoTheSupervisorText(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "status line", css,
+		".strip .status-line>*{flex:none}",
+		".strip .status-line>.compactions{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}",
+		".strip .status-line>.ctx:has(meter){flex:0 10 auto;min-width:54px}",
+		".ctx .n{min-width:0;overflow:hidden;text-overflow:ellipsis}")
+	contains(t, "tablet", block(t, css, "@media (min-width:600px) and (max-width:899px){"), ".masthead-inner{flex-wrap:wrap}", ".masthead .brand{max-width:20rem}")
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex-shrink:0}", ".masthead .strip-note{width:0;min-width:100%}")
+}
+
 func TestAPressClosesTheItemInPlace(t *testing.T) {
 	contains(t, "app.js", asset(t, "app.js"), "item.open = false", "summary.dataset.sent")
 	css := asset(t, "board.css")
