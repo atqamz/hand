@@ -1,0 +1,15 @@
+# Alerts on your phone
+
+The watcher alerts you when an attempt ends, blocks, hits a usage limit or goes quiet (a repeated turn end, `attempt.idle`, does not alert), when the supervisor asks a decision (`t3 decision: Keep the old cookie name?`), and once when the supervisor has idled 60 minutes with unwatched work ([When the supervisor idles](supervisor.md#when-the-supervisor-idles)). By default that is a desktop notification. To send every alert to your own command instead, put its argv in `routing.json`. This `sh` example is for Linux and macOS:
+
+```json
+"notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: $HAND_NOTIFY_URL\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
+```
+
+Install the ntfy app on your phone and subscribe to that topic. Hand runs the command without a shell, with `HAND_NOTIFY_KIND` (`decision.asked`, `attempt.blocked`, `attempt.quiet`, `attempt.limited`, `attempt.exited`, `attempt.failed`, `attempt.interrupted`, `attempt.long`, `supervisor.limited`, `supervisor.stalled`), `HAND_NOTIFY_REF` (`d3`, `a7`, `supervisor`), `HAND_NOTIFY_TEXT` and `HAND_NOTIFY_URL` set. The URL is the item's board page at the address the running board listens on, and is empty when no board runs. The command gets 10 seconds, and a failure is ignored. When the timeout expires Hand kills the command; on Linux and macOS it kills the whole process group, but on Windows only the command itself, so a child of `sh -c` can outlive the kill. Prefer an argv that runs the program directly, or `exec` inside `sh -c`. A `routing.json` that cannot be read leaves the desktop notifier in use (on Windows there is none, so no alert is sent), and the watcher writes one line about it to its own output, `watch.log` when it runs detached, which no one is shown. `--notify=false` turns all alerts off.
+
+On Windows, this toast recipe uses `powershell.exe` (unverified: it has not been run on a Windows machine). It borrows Windows PowerShell's app ID, because Windows may show no toast for an app ID that nothing registered. Hand starts it without a console window:
+
+```json
+"notify": ["powershell.exe", "-NoProfile", "-Command", "[void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent('ToastText02'); $t = $x.GetElementsByTagName('text'); [void]$t.Item(0).AppendChild($x.CreateTextNode($env:HAND_NOTIFY_REF)); [void]$t.Item(1).AppendChild($x.CreateTextNode($env:HAND_NOTIFY_TEXT)); [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show([Windows.UI.Notifications.ToastNotification]::new($x))"]
+```

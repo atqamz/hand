@@ -58,4 +58,4 @@ A ticked box means `pass`. For a `needs human` check, write your answer on the l
    Give it the title `<ID>: <summary>`, the check ID, a link to the run issue, your hand version and OS, the steps, the expected result, what happened, and the evidence with your names removed. Then write the new issue's number on the check's line of the run issue.
 4. Read each text once more for names, paths and tokens before you press submit.
 
-When a run passes, the maintainer changes the matching row of the README's Platform support table from "CI" to a real-machine result with a link to your run issue.
+When a run passes, the maintainer changes the matching row of the Platform support table in [`docs/platforms.md`](../platforms.md) from "CI" to a real-machine result with a link to your run issue.

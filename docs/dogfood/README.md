@@ -17,7 +17,7 @@ Both paths run the same checks, which live only in the OS files. Each entry poin
 | Windows 10 or 11, amd64, run twice: with Git for Windows and without Git Bash | [`windows.md`](windows.md) | `W0`, `W1`... |
 | Linux without a systemd user session (plain SSH), and Linux arm64 | [`linux.md`](linux.md) | `L0`, `L1`... |
 
-Each check names the row of the README's [Platform support](../../README.md#platform-support) table that it proves, and says whether an agent can run it to the end or it ends in `needs human`: a question that only a person at the screen can answer (a window flash, a notification, a Gatekeeper, SmartScreen or Defender prompt, a logoff and logon, the browser opening, a Startup shortcut). An agent never pretends to see the screen.
+Each check names the row of the [Platform support](../platforms.md) table that it proves, and says whether an agent can run it to the end or it ends in `needs human`: a question that only a person at the screen can answer (a window flash, a notification, a Gatekeeper, SmartScreen or Defender prompt, a logoff and logon, the browser opening, a Startup shortcut). An agent never pretends to see the screen.
 
 ## Result format
 

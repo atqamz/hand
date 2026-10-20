@@ -1,6 +1,6 @@
 # Linux checks
 
-Linux without a systemd user session, such as a plain SSH login to a server or a container, and Linux arm64 if you have one. The README's Platform support table says that this setup has run only in CI. Linux with a user session runs Hand every day, and is not tested here. The shell is bash or zsh. Read [`README.md`](README.md) for the safety rules and the result format, and your entry point ([`human.md`](human.md) or [`agent.md`](agent.md)) for how to run and report.
+Linux without a systemd user session, such as a plain SSH login to a server or a container, and Linux arm64 if you have one. The [Platform support](../platforms.md) table says that this setup has run only in CI. Linux with a user session runs Hand every day, and is not tested here. The shell is bash or zsh. Read [`README.md`](README.md) for the safety rules and the result format, and your entry point ([`human.md`](human.md) or [`agent.md`](agent.md)) for how to run and report.
 
 Nobody has run these commands in a dogfood run before the first one. A command marked `unverified` may be wrong. A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
@@ -16,7 +16,7 @@ In each check, **Run** says whether an agent can run it to the end (`agent`) or 
 
 The order is by risk, riskiest first. `L0` comes first because every other check needs it.
 
-| ID | Check | Proves, in the README's Platform support table | Run | Real sessions |
+| ID | Check | Proves, in the Platform support table | Run | Real sessions |
 |---|---|---|---|---|
 | L0 | Install and the temporary home | Install script; `hand init` and the Luvus pin | agent | 0 |
 | L1 | The supervisor and the watcher start without a user manager | The setup without a systemd user session (the note under the table); Start claude, and accept its trust screen | agent | 1 |
@@ -106,7 +106,7 @@ If it fails: file it with the failing step and its output. If `L0` fails, stop: 
 
 ## L1: The supervisor and the watcher start without a user manager
 
-- **Proves:** the setup without a systemd user session, which has run only in CI, and the Start claude, and accept its trust screen row, with the real harness. The README's lifecycle text says what to expect: Luvus starts directly, and the watcher runs detached with its output in `watch.log`.
+- **Proves:** the setup without a systemd user session, which has run only in CI, and the Start claude, and accept its trust screen row, with the real harness. The lifecycle text in [`docs/autostart.md`](../autostart.md#keep-the-watcher-and-the-board-running) says what to expect: Luvus starts directly, and the watcher runs detached with its output in `watch.log`.
 - **Run:** agent.
 - **Real sessions:** 1 (the supervisor).
 - **Preconditions:** `L0` passed. `claude` is installed and logged in; otherwise skip `L1` to `L4`. No supervisor runs.

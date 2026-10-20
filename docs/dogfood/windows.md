@@ -25,7 +25,7 @@ Which checks differ:
 
 The order is by risk, riskiest first, as the README lists them. `W0` comes first because every other check needs it.
 
-| ID | Check | Proves, in the README's Platform support table | Run | Real sessions |
+| ID | Check | Proves, in the Platform support table | Run | Real sessions |
 |---|---|---|---|---|
 | W0 | Install and the temporary home | Install script; `hand init` and the Luvus pin; Download the tested Luvus | agent, then needs human | 0 |
 | W1 | The supervisor starts under the pseudo console, and Hand accepts the trust screen | Start claude, and accept its trust screen; Luvus server, panes and events | agent | 1 |
@@ -38,9 +38,9 @@ The order is by risk, riskiest first, as the README lists them. `W0` comes first
 | W8 | Stop and clean a worker that has a child process | Stop a worker | agent | 1 |
 | W9 | A worker commits in a worktree with paths over 260 characters | Paths over 260 characters | agent | 1 |
 | W10 | The Startup shortcut starts the board after a logon | Start the board at login | agent, then needs human | 0 (a resume) |
-| W11 | A folder name with a space and a non-ASCII letter | (the README's open item on user profile folders) | agent | 1 |
+| W11 | A folder name with a space and a non-ASCII letter | (the open item on user profile folders in `docs/install.md`) | agent | 1 |
 | W12 | The toast recipe shows a toast | Desktop notifications | needs human | 0 |
-| W13 | The ssh note: the `ssh-agent` service | (the README's note on signing and ssh) | agent | 0 |
+| W13 | The ssh note: the `ssh-agent` service | (the note on signing and ssh in `docs/install.md`) | agent | 0 |
 | W14 | The watcher starts a killed Luvus server again | The watcher starts a killed Luvus server again | agent | 0 |
 
 The checks hand the supervisor on to each other, and each says whether the supervisor must be running or stopped. A supervisor that runs spends nothing while it is idle.
@@ -345,7 +345,7 @@ hand report list
 
 **4.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
 
-Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see README, The supervisor); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for.
+Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for.
 
 Evidence: `& { hand attempt show $a; hand report list; Get-Command $h | Select-Object Name, Source } 2>&1 | Ev W4`.
 
@@ -588,7 +588,7 @@ If it fails: file the output above and `hand attempt read $a`. Say whether the f
 - **Real sessions:** 0 (a resume).
 - **Preconditions:** `W0` passed. A supervisor runs (`hand supervisor resume`). This check writes one file outside the temporary folder, `Hand dogfood board.lnk` in your Startup folder, which it removes; its name is not `Hand board.lnk`, so it cannot overwrite your own. Run A only.
 
-The shortcut differs from the README's recipe in one way: a shortcut cannot set environment variables, so it starts `cmd.exe` to set `SECONDHAND_HOME` and `LUVUS_HOME` for this temporary home first. A shortcut that ran `hand.exe` directly would use your real home.
+The shortcut differs from the recipe in [`docs/autostart.md`](../autostart.md#windows) in one way: a shortcut cannot set environment variables, so it starts `cmd.exe` to set `SECONDHAND_HOME` and `LUVUS_HOME` for this temporary home first. A shortcut that ran `hand.exe` directly would use your real home.
 
 Steps:
 
@@ -633,7 +633,7 @@ If it fails: file what happened after the logon, step by step, with the output a
 
 ## W11: A folder name with a space and a non-ASCII letter
 
-- **Proves:** the README's open item, that a user profile folder with a space or a non-ASCII character is untested. Your own profile folder is the real test; if its name has a space or a non-ASCII character, say so in the run issue, and `W0` already covers it. This check puts a folder with both into the temporary folder, which tests the same paths in Hand's state, worktrees and Luvus pin, though not Claude Code's own use of your profile.
+- **Proves:** the open item in [`docs/install.md`](../install.md#windows), that a user profile folder with a space or a non-ASCII character is untested. Your own profile folder is the real test; if its name has a space or a non-ASCII character, say so in the run issue, and `W0` already covers it. This check puts a folder with both into the temporary folder, which tests the same paths in Hand's state, worktrees and Luvus pin, though not Claude Code's own use of your profile.
 - **Run:** agent.
 - **Real sessions:** 1 (the worker).
 - **Preconditions:** `W0` passed, and `claude` works.
@@ -691,23 +691,23 @@ If it fails: file the failing command and its output, and say which path contain
 
 ## W12: The toast recipe shows a toast
 
-- **Proves:** the Desktop notifications row (`no` in the table), through the README's toast recipe.
+- **Proves:** the Desktop notifications row (`no` in the table), through the toast recipe in [`docs/alerts.md`](../alerts.md).
 - **Run:** needs human.
 - **Real sessions:** 0.
 - **Preconditions:** `W0` passed. Windows may suppress toasts while Focus assist or Do not disturb is on: turn it off for this check.
 
 Steps:
 
-**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's README, section "Alerts on your phone", so that it is the one that README documents (the check fails with a message when that line is not found). `$rev` is the docs revision that an agent recorded in `vars.ps1`, so that the recipe is the one of the guide it follows, and `main` when none was recorded:
+**1.** Stop the supervisor and its watcher, so that the watcher you start reads the recipe, then put the recipe into the throw-away `routing.json`. The line comes from this repository's `docs/alerts.md`, so that it is the one those docs give (the check fails with a message when that line is not found). `$rev` is the docs revision that an agent recorded in `vars.ps1`, so that the recipe is the one of the guide it follows, and `main` when none was recorded:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 if (Test-Path "$D\fleet\watch.pid") { $p = [int](Get-Content "$D\fleet\watch.pid").Split(' ')[0]; if ((Get-Process -Id $p -ErrorAction SilentlyContinue).ProcessName -eq 'hand') { Stop-Process -Id $p } }
 $rev = if ($docsRev) { $docsRev } else { 'main' }
-$readme = irm "https://raw.githubusercontent.com/atqamz/hand/$rev/README.md"
-$line = ($readme -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.StartsWith('"notify": ["powershell.exe"') })[0]
-if (-not $line) { throw 'no toast recipe found in the README' }
+$doc = irm "https://raw.githubusercontent.com/atqamz/hand/$rev/docs/alerts.md"
+$line = ($doc -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_.StartsWith('"notify": ["powershell.exe"') })[0]
+if (-not $line) { throw 'no toast recipe found in docs/alerts.md' }
 Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value ('{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}},' + $line + '}')
 hand route list | Select-Object -First 2
 ```
@@ -737,7 +737,7 @@ If it fails: file what the owner saw, and the watcher's output. The recipe is `u
 
 ## W13: The ssh note: the `ssh-agent` service
 
-- **Proves:** the paragraph that starts `Signing and ssh` in the README's Windows section, which the README says nobody has verified on a Windows machine. This check reads three facts and changes nothing; it does not push, and does not test signing, which needs the `ssh-agent` service started with admin rights.
+- **Proves:** the paragraph that starts `Signing and ssh` in the Windows section of [`docs/install.md`](../install.md#windows), which says nobody has verified it on a Windows machine. This check reads three facts and changes nothing; it does not push, and does not test signing, which needs the `ssh-agent` service started with admin rights.
 - **Run:** agent.
 - **Real sessions:** 0.
 - **Preconditions:** none.
@@ -752,7 +752,7 @@ Get-Command ssh -All | Select-Object Source
 git config --global --get core.sshCommand
 ```
 
-Expected: the `ssh-agent` service exists, with `StartType` `Disabled` (the README says it is disabled by default; any other value means that the note needs a correction, and it is not a failure of Hand); `Get-Command ssh -All` lists Windows' OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) and, with Git for Windows, its own `ssh.exe`; the last command prints a value only if you set one. Pass when the facts match the README's note, and file a documentation issue when they do not. Skip the rest of the note (HTTPS with `gh auth login`, an ssh push) with the reason `needs a remote and admin rights`.
+Expected: the `ssh-agent` service exists, with `StartType` `Disabled` (the note says it is disabled by default; any other value means that the note needs a correction, and it is not a failure of Hand); `Get-Command ssh -All` lists Windows' OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe`) and, with Git for Windows, its own `ssh.exe`; the last command prints a value only if you set one. Pass when the facts match the note, and file a documentation issue when they do not. Skip the rest of the note (HTTPS with `gh auth login`, an ssh push) with the reason `needs a remote and admin rights`.
 
 Evidence: `& { Get-Service ssh-agent -ErrorAction SilentlyContinue | Format-List Name, Status, StartType; Get-Command ssh -All | Select-Object Source } 2>&1 | Ev W13`.
 

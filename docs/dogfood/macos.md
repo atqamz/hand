@@ -10,7 +10,7 @@ In each check, **Run** says whether an agent can run it to the end (`agent`) or 
 
 The order is by risk, riskiest first, as the README lists them. `M0` comes first because every other check needs it.
 
-| ID | Check | Proves, in the README's Platform support table | Run | Real sessions |
+| ID | Check | Proves, in the Platform support table | Run | Real sessions |
 |---|---|---|---|---|
 | M0 | Install and the temporary home | Install script; `hand init` and the Luvus pin | agent, then needs human | 0 |
 | M1 | The supervisor starts, and Hand reaches Luvus | Luvus server, panes and events; Start claude, and accept its trust screen | agent | 1 |
@@ -378,7 +378,7 @@ hand report list
 
 **4.** Stop and clean the worker: `. $D/env.sh; cd $D/fleet; hand attempt stop $A; hand attempt clean $A`.
 
-Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see README, The supervisor); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure.
+Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure.
 
 Evidence: `{ hand attempt show $A; hand report list; } 2>&1 | ev M6`.
 
@@ -529,7 +529,7 @@ Steps:
 test ! -e ~/Library/LaunchAgents/dev.secondhand.dogfood.board.plist && echo free
 ```
 
-**2.** Write the plist from the README's Autostart recipe, with this temporary home, another port, and a `PATH` that finds `claude` and `git`:
+**2.** Write the plist from the macOS recipe in [`docs/autostart.md`](../autostart.md#macos), with this temporary home, another port, and a `PATH` that finds `claude` and `git`:
 
 ```zsh
 . $D/env.sh; cd $D/fleet
