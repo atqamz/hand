@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestRenderSubset(t *testing.T) {
 		{"#not a heading", `<p>#not a heading</p>`},
 		{"", ``},
 	} {
-		if got := string(markdown.Render(c.in)); got != c.want {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -76,7 +77,7 @@ var tables = []struct{ in, want string }{
 
 func TestRenderTables(t *testing.T) {
 	for _, c := range tables {
-		if got := string(markdown.Render(c.in)); got != c.want {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -94,16 +95,17 @@ func TestRenderRefs(t *testing.T) {
 		{"- t1\n- t0", `<ul><li>` + link("t1") + `</li><li>t0</li></ul>`},
 		{"see test_d3.go and t1_done and t3.micro", `<p>see test_d3.go and t1_done and t3.micro</p>`},
 		{"t3. next", `<p>` + link("t3") + `. next</p>`},
+		{`C:\x\t12\a.md and /x/t3/a.md`, `<p>C:\x\t12\a.md and /x/t3/a.md</p>`},
 	} {
-		if got := string(markdown.RenderRefs(c.in, "/f1", nil)); got != c.want {
+		if got := string(markdown.RenderRefs(c.in, "/f1", nil, nil)); got != c.want {
 			t.Errorf("RenderRefs(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	if got := string(markdown.Render("see t12")); got != `<p>see t12</p>` {
+	if got := string(markdown.Render("see t12", nil)); got != `<p>see t12</p>` {
 		t.Errorf("Render links refs: %s", got)
 	}
 	for _, in := range seeds() {
-		if msg := active(string(markdown.RenderRefs(in+" t1 d2", "/f1", nil))); msg != "" {
+		if msg := active(string(markdown.RenderRefs(in+" t1 d2", "/f1", nil, nil))); msg != "" {
 			t.Errorf("RenderRefs(%q): %s", in, msg)
 		}
 	}
@@ -111,7 +113,7 @@ func TestRenderRefs(t *testing.T) {
 
 func TestRenderBlocks(t *testing.T) {
 	for _, c := range blocks {
-		if got := string(markdown.Render(c.in)); got != c.want {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -119,7 +121,7 @@ func TestRenderBlocks(t *testing.T) {
 
 func TestRenderEscapesHTML(t *testing.T) {
 	for _, in := range []string{"<script>alert(1)</script>", "<img src=x onerror=y>", "a & b > c"} {
-		got := string(markdown.Render(in))
+		got := string(markdown.Render(in, nil))
 		if strings.ContainsAny(strings.TrimSuffix(strings.TrimPrefix(got, "<p>"), "</p>"), "<>") {
 			t.Errorf("Render(%q) = %s", in, got)
 		}
@@ -128,7 +130,7 @@ func TestRenderEscapesHTML(t *testing.T) {
 
 func TestRenderRefusesUnsafeLinks(t *testing.T) {
 	for _, u := range []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,x", "vbscript:x", "//evil.io/x", "/relative", "mailto:a@b.c", "https:///nohost"} {
-		if got := string(markdown.Render("[x](" + u + ")")); strings.Contains(got, "<a") {
+		if got := string(markdown.Render("[x]("+u+")", nil)); strings.Contains(got, "<a") {
 			t.Errorf("unsafe link %q rendered %s", u, got)
 		}
 	}
@@ -136,7 +138,7 @@ func TestRenderRefusesUnsafeLinks(t *testing.T) {
 
 func TestRenderAttributeInjection(t *testing.T) {
 	for _, in := range []string{`[x](https://a.io/"onmouseover="y)`, `[x"](https://a.io)`, `https://a.io/"onmouseover="y`, "[x](https://a.io/'onfocus='y)"} {
-		got := string(markdown.Render(in))
+		got := string(markdown.Render(in, nil))
 		if msg := active(got); msg != "" {
 			t.Errorf("Render(%q) = %s: %s", in, got, msg)
 		}
@@ -152,7 +154,7 @@ func TestRenderUnclosedMarkers(t *testing.T) {
 		{"[a](https://x.io", `<p>[a](<a href="https://x.io" target="_blank" rel="noopener noreferrer">https://x.io</a></p>`},
 		{"```\nx\ny", "<pre><code>x\ny</code></pre>"},
 	} {
-		if got := string(markdown.Render(c.in)); got != c.want {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -172,19 +174,46 @@ var docCorpus = []string{
 	"- [ ] todo <b>", "- [x] done", "1. [X] [x](a.md)", "| a |\n|---|\n| ![x](y.png) |", "![x", "![x](", "![[x](a.md)](b.md)",
 }
 
+var pathCorpus = []string{
+	"/fleet/a.md", "see /fleet/a.md.", "`/fleet/a b.md`", `/fleet/"onmouseover="x.md`, "`/fleet/\"><script>`", "/fleet/<b>.md", `C:\fleet\a.md`, "~/a.md",
+	"[/fleet/a.md](https://a.io)", "[`/fleet/a.md`](https://a.io)", "**/fleet/a.md**", "| /fleet/a.md |\n|---|\n| `/x` |", "- t1 /fleet/t1/a.md", "/fleet/a.md:12",
+}
+
+func stub(p string) string { return "/f1/doc/" + p }
+
+func deny(string) string { return "" }
+
+func safeWithPaths(t *testing.T, in string, fail func(string, ...any)) {
+	t.Helper()
+	plain := string(markdown.Render(in, nil))
+	if msg := active(plain); msg != "" {
+		fail("Render(%q): %s", in, msg)
+	}
+	if got := string(markdown.Render(in, deny)); got != plain {
+		fail("Render(%q) with a hook that links nothing = %s, want %s", in, got, plain)
+	}
+	if msg := active(string(markdown.Render(in, stub))); msg != "" {
+		fail("Render(%q) with paths: %s", in, msg)
+	}
+	if msg := active(string(markdown.RenderRefs(in, "/f1", nil, stub))); msg != "" {
+		fail("RenderRefs(%q) with paths: %s", in, msg)
+	}
+	if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil, nil))); msg != "" {
+		fail("RenderDoc(%q): %s", in, msg)
+	}
+	if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil, stub))); msg != "" {
+		fail("RenderDoc(%q) with paths: %s", in, msg)
+	}
+}
+
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
 	for _, in := range seeds() {
-		if msg := active(string(markdown.Render(in))); msg != "" {
-			t.Errorf("Render(%q): %s", in, msg)
-		}
-		if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil))); msg != "" {
-			t.Errorf("RenderDoc(%q): %s", in, msg)
-		}
+		safeWithPaths(t, in, t.Errorf)
 	}
 }
 
 func seeds() []string {
-	out := append(append([]string(nil), corpus...), docCorpus...)
+	out := append(append(append([]string(nil), corpus...), docCorpus...), pathCorpus...)
 	for _, b := range append(blocks, tables...) {
 		out = append(out, b.in)
 	}
@@ -199,12 +228,7 @@ func FuzzRender(f *testing.F) {
 		if !utf8.ValidString(in) {
 			return
 		}
-		if msg := active(string(markdown.Render(in))); msg != "" {
-			t.Fatalf("Render(%q): %s", in, msg)
-		}
-		if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil))); msg != "" {
-			t.Fatalf("RenderDoc(%q): %s", in, msg)
-		}
+		safeWithPaths(t, in, t.Fatalf)
 	})
 }
 
@@ -270,10 +294,10 @@ func markup(out string, doc bool) string {
 			if m[2] == "ol" && a[1] == "start" && startPattern.MatchString(a[2]) {
 				continue
 			}
-			if m[2] == "a" && a[1] == "class" && a[2] == "ref" {
+			if m[2] == "a" && a[1] == "class" && (a[2] == "ref" || a[2] == "path") {
 				continue
 			}
-			if m[2] == "a" && a[1] == "href" && strings.HasPrefix(a[2], "/f1/ref/") {
+			if m[2] == "a" && a[1] == "href" && (strings.HasPrefix(a[2], "/f1/ref/") || strings.HasPrefix(a[2], "/f1/doc/")) {
 				continue
 			}
 			if (m[2] == "th" || m[2] == "td") && a[1] == "class" {
@@ -301,11 +325,12 @@ func markup(out string, doc bool) string {
 }
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
-	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n"} {
+	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n", "/(", "/a ", "`/a` ", "C:\\a "} {
 		in := strings.Repeat(unit, 200<<10/len(unit))
 		start := time.Now()
-		markdown.Render(in)
-		markdown.RenderDoc(in, "/f1", nil)
+		markdown.Render(in, nil)
+		markdown.RenderDoc(in, "/f1", nil, stub)
+		markdown.RenderRefs(in, "/f1", nil, deny)
 		if d := time.Since(start); d > time.Second {
 			t.Errorf("Render and RenderDoc of %d bytes of %q took %v", len(in), unit, d)
 		}
@@ -314,7 +339,7 @@ func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
 
 func TestRenderRefsAddsTitles(t *testing.T) {
 	title := func(ref string) string { return map[string]string{"t1": `Fix "login"`}[ref] }
-	got := string(markdown.RenderRefs("see t1 and a2", "/f1", title))
+	got := string(markdown.RenderRefs("see t1 and a2", "/f1", title, nil))
 	for _, want := range []string{`<a class="ref" href="/f1/ref/t1" title="Fix &#34;login&#34;">t1</a>`, `<a class="ref" href="/f1/ref/a2">a2</a>`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("RenderRefs = %s, want %s", got, want)
@@ -346,7 +371,7 @@ func TestRenderNumberedListsKeepTheirNumbers(t *testing.T) {
 		{"99999999999999999999. a\n2. b", `<ol><li>a</li><li>b</li></ol>`},
 		{"1. a\n   ```\n   <x>\n\n   y\n   ```\n2. b", `<ol><li>a<pre><code>&lt;x&gt;` + "\n\n" + `y</code></pre></li><li>b</li></ol>`},
 	} {
-		if got := string(markdown.Render(c.in)); got != c.want {
+		if got := string(markdown.Render(c.in, nil)); got != c.want {
 			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
@@ -363,7 +388,7 @@ func TestRenderFourNumberedItemsWithBulletsStayOneList(t *testing.T) {
 		fmt.Fprintf(&want, "<li><strong>Step %d</strong><ul><li>first note %d</li><li>second note %d</li><li>third note %d</li></ul></li>", n, n, n, n)
 	}
 	want.WriteString("</ol>")
-	if got := string(markdown.Render(in.String())); got != want.String() {
+	if got := string(markdown.Render(in.String(), nil)); got != want.String() {
 		t.Errorf("Render(%q)\n got %s\nwant %s", in.String(), got, want.String())
 	}
 }
@@ -373,7 +398,7 @@ func TestRenderCapsListNestingKeepingText(t *testing.T) {
 	for n := 0; n < 600; n++ {
 		fmt.Fprintf(&in, "%s1. item%d\n", strings.Repeat(" ", n), n)
 	}
-	got := string(markdown.Render(in.String()))
+	got := string(markdown.Render(in.String(), nil))
 	if n := strings.Count(got, "<ol>"); n != 6 {
 		t.Errorf("got %d nested lists, want 6", n)
 	}
@@ -399,11 +424,11 @@ func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
 		{"see t12", `<p>see <a class="ref" href="/f1/ref/t12">t12</a></p>`},
 		{"| doc |\n|---|\n| [a](a.md) |", wrap + `<thead><tr><th>doc</th></tr></thead><tbody><tr><td><a href="a.md">a</a></td></tr></tbody></table></div>`},
 	} {
-		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil, nil)); got != c.want {
 			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	if got := string(markdown.Render("[API notes](api.md)")); got != `<p>[API notes](api.md)</p>` {
+	if got := string(markdown.Render("[API notes](api.md)", nil)); got != `<p>[API notes](api.md)</p>` {
 		t.Errorf("Render keeps a relative link: %s", got)
 	}
 }
@@ -412,7 +437,7 @@ func TestDocumentModeRefusesSchemesHostsAndBackslashes(t *testing.T) {
 	for _, u := range []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "vbscript:x", "mailto:a@b.c", "c:/x",
 		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", "#top", ""} {
 		for _, in := range []string{"[x](" + u + ")", "![x](" + u + ")"} {
-			if got := string(markdown.RenderDoc(in, "/f1", nil)); strings.Contains(got, "<a") || strings.Contains(got, "<img") {
+			if got := string(markdown.RenderDoc(in, "/f1", nil, nil)); strings.Contains(got, "<a") || strings.Contains(got, "<img") {
 				t.Errorf("RenderDoc(%q) = %s", in, got)
 			}
 		}
@@ -428,11 +453,11 @@ func TestDocumentModeShowsRelativeImages(t *testing.T) {
 		{"![x](data:image/png;base64,AAAA)", `<p>![x](data:image/png;base64,AAAA)</p>`},
 		{"![x", `<p>![x</p>`},
 	} {
-		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil, nil)); got != c.want {
 			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	if got := string(markdown.Render("![x](x.png)")); got != `<p>![x](x.png)</p>` {
+	if got := string(markdown.Render("![x](x.png)", nil)); got != `<p>![x](x.png)</p>` {
 		t.Errorf("Render shows an image: %s", got)
 	}
 }
@@ -444,11 +469,111 @@ func TestTaskListItems(t *testing.T) {
 		{"1. [ ] first\n   - [x] nested", `<ol><li class="task"><span class="sr">to do: </span>first<ul><li class="task done"><span class="sr">done: </span>nested</li></ul></li></ol>`},
 		{"- [y] no\n- [ ]\n- [x]done", `<ul><li>[y] no</li><li>[ ]</li><li>[x]done</li></ul>`},
 	} {
-		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil, nil)); got != c.want {
 			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
 		}
 	}
-	if got := string(markdown.Render("- [ ] todo")); got != `<ul><li>[ ] todo</li></ul>` {
+	if got := string(markdown.Render("- [ ] todo", nil)); got != `<ul><li>[ ] todo</li></ul>` {
 		t.Errorf("Render makes a task item: %s", got)
+	}
+}
+
+func hook(allow ...string) (func(string) string, *[]string) {
+	var calls []string
+	return func(p string) string {
+		calls = append(calls, p)
+		for _, a := range allow {
+			if p == a {
+				return "/f1/doc/" + url.PathEscape(p)
+			}
+		}
+		return ""
+	}, &calls
+}
+
+func path(p, text string) string {
+	return `<a class="path" href="/f1/doc/` + html.EscapeString(url.PathEscape(p)) + `" target="_blank" rel="noopener">` + text + `</a>`
+}
+
+func TestRenderLinksThePathsTheHookAllows(t *testing.T) {
+	a, b := "/fleet/a.md", "/fleet/shots/"
+	for _, c := range []struct{ in, want string }{
+		{"see /fleet/a.md.", `<p>see ` + path(a, a) + `.</p>`},
+		{"(/fleet/a.md), /fleet/a.md: and /fleet/a.md; ok /fleet/a.md!", `<p>(` + path(a, a) + `), ` + path(a, a) + `: and ` + path(a, a) + `; ok ` + path(a, a) + `!</p>`},
+		{"the shots are in /fleet/shots/.", `<p>the shots are in ` + path(b, b) + `.</p>`},
+		{"/fleet/a.md /fleet/shots/\n/fleet/a.md", `<p>` + path(a, a) + ` ` + path(b, b) + `<br>` + path(a, a) + `</p>`},
+		{"`/fleet/a.md`", `<p>` + path(a, `<code>/fleet/a.md</code>`) + `</p>`},
+		{"**/fleet/a.md** and *see /fleet/a.md*", `<p><strong>` + path(a, a) + `</strong> and <em>see ` + path(a, a) + `</em></p>`},
+		{"## /fleet/a.md\n- /fleet/a.md\n\n> /fleet/a.md", `<h3>` + path(a, a) + `</h3><ul><li>` + path(a, a) + `</li></ul><blockquote><p>` + path(a, a) + `</p></blockquote>`},
+		{"| doc |\n|---|\n| /fleet/a.md |", wrap + `<thead><tr><th>doc</th></tr></thead><tbody><tr><td>` + path(a, a) + `</td></tr></tbody></table></div>`},
+		{"/fleet/a.md:12 and `/fleet/a.md:12`", `<p>/fleet/a.md:12 and <code>/fleet/a.md:12</code></p>`},
+		{"/fleet/b.md and `/fleet/a.md and more`", `<p>/fleet/b.md and <code>/fleet/a.md and more</code></p>`},
+		{"```\n/fleet/a.md\n```", `<pre><code>/fleet/a.md</code></pre>`},
+		{"[/fleet/a.md](https://a.io) [`/fleet/a.md`](https://a.io)", `<p><a href="https://a.io" target="_blank" rel="noopener noreferrer">/fleet/a.md</a> <a href="https://a.io" target="_blank" rel="noopener noreferrer"><code>/fleet/a.md</code></a></p>`},
+	} {
+		local, _ := hook(a, b)
+		if got := string(markdown.Render(c.in, local)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRenderPassesOnlyAbsolutePathsToTheHook(t *testing.T) {
+	local, calls := hook()
+	markdown.Render("a/fleet/x ./x ../x //host/x / and/or 1/2 https://a.io/fleet/x C:x c:\\ \\\\host\\share ~user/x ~ /\tx t1/x_/y\n```\n/fleet/x\n```", local)
+	if len(*calls) != 0 {
+		t.Fatalf("the hook saw %q", *calls)
+	}
+	markdown.Render("see /fleet/a.md:12, `/fleet/a b.md`, (C:\\fleet\\a.md) c:/fleet/a.md and ~/fleet/a.md.", local)
+	if want := []string{"/fleet/a.md:12", "/fleet/a b.md", `C:\fleet\a.md`, "c:/fleet/a.md", "~/fleet/a.md"}; !slices.Equal(*calls, want) {
+		t.Fatalf("the hook saw %q, want %q", *calls, want)
+	}
+}
+
+func TestRenderLinksSpacesAndUnicodeInPaths(t *testing.T) {
+	spaced, accented, win := "/fleet/résumé notes.md", "/fleet/naïve-日本.md", `C:\fleet\a b.md`
+	local, _ := hook(spaced, accented, win, "/fleet/résumé")
+	for _, c := range []struct{ in, want string }{
+		{"`/fleet/résumé notes.md`", `<p>` + path(spaced, "<code>"+spaced+"</code>") + `</p>`},
+		{"see /fleet/naïve-日本.md.", `<p>see ` + path(accented, accented) + `.</p>`},
+		{"`C:\\fleet\\a b.md`", `<p>` + path(win, "<code>"+html.EscapeString(win)+"</code>") + `</p>`},
+	} {
+		if got := string(markdown.Render(c.in, local)); got != c.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRenderRefsAndPathsTogether(t *testing.T) {
+	local, _ := hook("/fleet/reports/t1/a.md")
+	got := string(markdown.RenderRefs("t1 wrote /fleet/reports/t1/a.md and /fleet/reports/t2/b.md", "/f1", nil, local))
+	want := `<p><a class="ref" href="/f1/ref/t1">t1</a> wrote ` + path("/fleet/reports/t1/a.md", "/fleet/reports/t1/a.md") + ` and /fleet/reports/t2/b.md</p>`
+	if got != want {
+		t.Fatalf("RenderRefs\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestRenderChecksAtMostFiftyPathsAMessage(t *testing.T) {
+	var in strings.Builder
+	var allow []string
+	for n := range 60 {
+		p := fmt.Sprintf("/fleet/p%d.md", n)
+		allow = append(allow, p)
+		if n%2 == 0 {
+			p = "`" + p + "`"
+		}
+		in.WriteString(p + "\n")
+	}
+	local, calls := hook(allow...)
+	got := string(markdown.Render(in.String(), local))
+	if len(*calls) != 50 || strings.Count(got, `<a class="path"`) != 50 {
+		t.Fatalf("checked %d paths and linked %d, want 50 of each", len(*calls), strings.Count(got, `<a class="path"`))
+	}
+	if !strings.Contains(got, "<br>/fleet/p59.md</p>") {
+		t.Fatalf("a path past the cap is not text: %s", got)
+	}
+	markdown.Render(in.String(), local)
+	if len(*calls) != 100 {
+		t.Fatalf("the cap is not per message: %d checks", len(*calls))
 	}
 }

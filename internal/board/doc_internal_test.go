@@ -62,3 +62,28 @@ func TestAPathSwappedAfterTheCheckIsNotOpened(t *testing.T) {
 		t.Fatalf("a folder swapped for a link to projects/ = %q, %v", got, err)
 	}
 }
+
+func TestOneRenderPassChecksEachPathOnce(t *testing.T) {
+	home := t.TempDir()
+	p := filepath.Join(home, "reports", "a.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &Board{o: Options{Home: home}}
+	local := b.local()
+	if got := local(p); got != "/doc/reports/a.md" {
+		t.Fatalf("first check = %q", got)
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if got := local(p); got != "/doc/reports/a.md" {
+		t.Fatalf("the same pass checked the disk again: %q", got)
+	}
+	if got := b.local()(p); got != "" {
+		t.Fatalf("the next pass links a removed file: %q", got)
+	}
+}

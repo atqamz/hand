@@ -39,7 +39,7 @@ a.ref{color:var(--accent)}
 .badge[data-tone=link]{--tone:var(--accent);--tone-bg:transparent;border-color:var(--line)}
 a.badge:hover{text-decoration:none}
 a.badge[data-tone=link]:hover{border-color:var(--accent)}
-a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}
+a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref,.path)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}
 @supports (text-box:trim-both cap alphabetic){
 .badge{height:auto;line-height:18px;text-box:trim-both cap alphabetic;padding-block:calc((var(--size,var(--badge)) - 1cap)/2 - 1px)}
 .pill>.word,.key>.key-label,.menu>summary>.model{text-box:trim-both cap alphabetic}}

@@ -2,6 +2,9 @@ package board_test
 
 import (
 	"context"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/atqamz/hand/internal/board"
@@ -73,6 +76,27 @@ func TestNeedsLinksOpenANewTab(t *testing.T) {
 
 func TestOutsideLinksCarryACornerMark(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, `a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}`)
+	contains(t, "board.css", css, `a.badge[data-tone=link][target=_blank]::after,.md a[target=_blank]:not(.ref,.path)::after{content:"";display:inline-block;width:5px;height:5px;margin:0 1px 0 4px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;vertical-align:.3em;opacity:.7}`)
 	lacks(t, "board.css", css, "a.ref[target=_blank]::after")
+}
+
+func TestPathLinksOpenANewTab(t *testing.T) {
+	home := fleetFolder(t, pathFiles)
+	for page, body := range pathPages(t, home, "See "+filepath.Join(home, "reports", "t1", "design.md")+" and `"+filepath.Join(home, "shots", "t2")+"`.") {
+		tags := regexp.MustCompile(`<a class="path"[^>]*>`).FindAllString(body, -1)
+		if len(tags) == 0 {
+			t.Fatalf("%s has no path link", page)
+		}
+		for _, tag := range tags {
+			if !strings.HasSuffix(tag, `" `+newTab+`>`) {
+				t.Errorf("%s: %s does not open a new tab", page, tag)
+			}
+		}
+	}
+}
+
+func TestPathLinksCarryNoCornerMark(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css, `.md a[target=_blank]:not(.ref,.path)::after{`)
+	lacks(t, "board.css", css, "a.path::after", "a.path[target=_blank]::after")
 }

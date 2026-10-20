@@ -405,6 +405,9 @@ func (b *Board) render(w http.ResponseWriter, status int, name string, data map[
 	if _, ok := data["Titles"]; !ok {
 		data["Titles"] = b.refTitle(context.Background())
 	}
+	if _, ok := data["Local"]; !ok {
+		data["Local"] = b.local()
+	}
 	data["Fleet"] = "hand"
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"], data["FleetID"] = f.Name, f.ID

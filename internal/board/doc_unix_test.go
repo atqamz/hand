@@ -92,3 +92,12 @@ func TestAFleetFolderBehindASymlinkStillLinks(t *testing.T) {
 	contains(t, "task page", get(t, h, "/task/t1"), `<a class="file" href="/doc/reports/t1/design.md"`)
 	contains(t, "viewer", get(t, h, "/doc/reports/t1/design.md"), "<h3>Export design</h3>")
 }
+
+func TestASymlinkOutOfTheFleetStaysText(t *testing.T) {
+	outside := fleetFolder(t, map[string]string{"secrets/id_ed25519": secret})
+	home := fleetFolder(t, pathFiles)
+	link(t, filepath.Join(outside, "secrets"), filepath.Join(home, "reports", "t1", "escape"))
+	link(t, "../../hand.db", filepath.Join(home, "reports", "t1", "db-link"))
+	link(t, "../../projects", filepath.Join(home, "reports", "t1", "clones"))
+	staysText(t, home, filepath.Join(home, "reports", "t1", "escape", "id_ed25519"), filepath.Join(home, "reports", "t1", "escape"), filepath.Join(home, "reports", "t1", "db-link"), filepath.Join(home, "reports", "t1", "clones", "app", "README.md"))
+}

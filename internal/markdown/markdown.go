@@ -9,25 +9,31 @@ import (
 	"strings"
 )
 
+const maxPaths = 50
+
 type opts struct {
-	refs string
-	doc  bool
+	refs  string
+	doc   bool
+	local func(path string) string
+	left  *int
 }
 
-func Render(text string) template.HTML {
-	return render(text, opts{}, nil)
+func Render(text string, local func(path string) string) template.HTML {
+	return render(text, opts{local: local}, nil)
 }
 
-func RenderRefs(text, base string, title func(ref string) string) template.HTML {
-	return render(text, opts{refs: base + "/ref/"}, title)
+func RenderRefs(text, base string, title, local func(string) string) template.HTML {
+	return render(text, opts{refs: base + "/ref/", local: local}, title)
 }
 
-func RenderDoc(text, base string, title func(ref string) string) template.HTML {
-	return render(text, opts{refs: base + "/ref/", doc: true}, title)
+func RenderDoc(text, base string, title, local func(string) string) template.HTML {
+	return render(text, opts{refs: base + "/ref/", doc: true, local: local}, title)
 }
 
 func render(text string, o opts, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
+	left := maxPaths
+	o.left = &left
 	var b strings.Builder
 	blocks(&b, lines, true, o, 0)
 	return template.HTML(titled(b.String(), title))
@@ -362,7 +368,11 @@ func (sc scan) marker(i int) (string, int) {
 	switch {
 	case rest[0] == '`' && !sc.dead["`"]:
 		if j := strings.IndexByte(rest[1:], '`'); j > 0 {
-			return "<code>" + html.EscapeString(rest[1:1+j]) + "</code>", j + 2
+			code := "<code>" + html.EscapeString(rest[1:1+j]) + "</code>"
+			if href := sc.path(rest[1 : 1+j]); href != "" {
+				code = pathLink(href, code)
+			}
+			return code, j + 2
 		} else if j < 0 {
 			sc.dead["`"] = true
 		}
@@ -406,12 +416,43 @@ func (sc scan) marker(i int) (string, int) {
 		if u, n := bare(rest); n > 0 {
 			return anchor(u, html.EscapeString(u)), n
 		}
-	case sc.o.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/' && s[i-1] != '_'):
+	case sc.room() && pathLike(rest) && (i == 0 || !word(s[i-1]) && !strings.ContainsRune(`/\.~-_:`, rune(s[i-1]))):
+		p := token(rest)
+		if href := sc.path(p); href != "" {
+			return pathLink(href, html.EscapeString(p)), len(p)
+		}
+	case sc.o.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && !strings.ContainsRune(`/\_`, rune(s[i-1]))):
 		if n := refLen(rest); n > 0 {
 			return `<a class="ref" href="` + html.EscapeString(sc.o.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
 		}
 	}
 	return "", 0
+}
+
+func (sc scan) room() bool { return sc.links && sc.o.local != nil && *sc.o.left > 0 }
+
+func (sc scan) path(p string) string {
+	if !sc.room() || !pathLike(p) {
+		return ""
+	}
+	*sc.o.left--
+	return sc.o.local(p)
+}
+
+func pathLike(p string) bool {
+	switch {
+	case strings.HasPrefix(p, "~/"):
+		p = p[1:]
+	case len(p) > 2 && 'a' <= p[0]|0x20 && p[0]|0x20 <= 'z' && p[1] == ':' && (p[2] == '\\' || p[2] == '/'):
+		p = p[2:]
+	case !strings.HasPrefix(p, "/"):
+		return false
+	}
+	return len(p) > 1 && !strings.ContainsRune(" \t/\\", rune(p[1]))
+}
+
+func pathLink(href, text string) string {
+	return `<a class="path" href="` + html.EscapeString(href) + `" target="_blank" rel="noopener">` + text + "</a>"
 }
 
 func closing(s string, i int) int {
@@ -471,18 +512,23 @@ func relative(raw string) bool {
 }
 
 func bare(rest string) (string, int) {
-	n := strings.IndexAny(rest, " \t\n<>\"'`")
-	if n < 0 {
-		n = len(rest)
-	}
-	u := strings.TrimRight(rest[:n], ".,;:!?")
-	if strings.HasSuffix(u, ")") && !strings.Contains(u, "(") {
-		u = strings.TrimRight(u[:len(u)-1], ".,;:!?")
-	}
+	u := token(rest)
 	if !safe(u) {
 		return "", 0
 	}
 	return u, len(u)
+}
+
+func token(rest string) string {
+	n := strings.IndexAny(rest, " \t\n<>\"'`")
+	if n < 0 {
+		n = len(rest)
+	}
+	t := strings.TrimRight(rest[:n], ".,;:!?")
+	if strings.HasSuffix(t, ")") && !strings.Contains(t, "(") {
+		t = strings.TrimRight(t[:len(t)-1], ".,;:!?")
+	}
+	return t
 }
 
 func safe(raw string) bool {
