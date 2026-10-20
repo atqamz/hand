@@ -163,3 +163,53 @@ func TestFileChipIsPlainCappedText(t *testing.T) {
 	contains(t, "board.css", css, ".file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}")
 	lacks(t, "board.css", css, "min(100%,32ch)", ".archive .task-row{")
 }
+
+func TestNewestMergesReportsAndSupervisorEventsByTime(t *testing.T) {
+	d := func(ref, kind string) board.Deliverable { return board.Deliverable{Ref: ref, Kind: kind} }
+	reports := []state.Report{
+		{CreatedAt: "2026-10-20T10:00:00Z", Body: "Delivered: /out/r1.md\nDelivered: https://github.com/a/b/pull/1"},
+		{CreatedAt: "2026-10-20T10:00:01Z", Body: "Delivered: https://docs.example.com/r2"},
+		{CreatedAt: "2026-10-20T10:00:03Z", Body: "Delivered: /out/s1.pdf"},
+	}
+	events := []state.Event{
+		{At: "2026-10-20T10:00:01.5Z", Detail: "/out/s1.pdf"},
+		{At: "2026-10-20T10:00:01.5Z", Detail: "not a deliverable"},
+		{At: "2026-10-20T10:00:01.5Z", Detail: "https://docs.example.com/s2"},
+		{At: "2026-10-20T10:00:04Z", Detail: "/out/s3.pdf"},
+	}
+	want := []board.Deliverable{d("/out/s3.pdf", "file"), d("/out/s1.pdf", "file"), d("https://docs.example.com/s2", "link"), d("https://docs.example.com/r2", "link"), d("https://github.com/a/b/pull/1", "PR"), d("/out/r1.md", "file")}
+	if got := board.Newest(reports, events); !slices.Equal(got, want) {
+		t.Fatalf("Newest = %v\nwant %v", got, want)
+	}
+	if got := board.Newest(nil, events[:3]); !slices.Equal(got, []board.Deliverable{d("https://docs.example.com/s2", "link"), d("/out/s1.pdf", "file")}) {
+		t.Fatalf("supervisor only = %v", got)
+	}
+	if got := board.Newest(reports[:1], nil); !slices.Equal(got, []board.Deliverable{d("https://github.com/a/b/pull/1", "PR"), d("/out/r1.md", "file")}) {
+		t.Fatalf("reports only = %v", got)
+	}
+	if got := board.Newest(nil, nil); got != nil {
+		t.Fatalf("none = %v", got)
+	}
+}
+
+func TestSupervisorDeliverablesShowOnTheCardAndTaskPage(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	task := active(t, st, "Supervisor made a PDF")
+	if _, err := st.Transition(ctx, task.ID, state.StatusDone, "/home/me/out/brief.pdf", "https://docs.example.com/brief"); err != nil {
+		t.Fatal(err)
+	}
+	h := board.New(st, token, board.Options{})
+	link := `<a class="badge" data-tone="link" href="https://docs.example.com/brief" target="_blank" rel="noopener noreferrer">link</a>`
+	file := `<span class="file" title="/home/me/out/brief.pdf">file: brief.pdf</span>`
+	for name, row := range map[string]string{"fleet": checks(get(t, h, "/"))["t1"], "tasks": get(t, h, "/tasks")} {
+		if !strings.Contains(row, link) || strings.Contains(row, file) {
+			t.Fatalf("%s card does not show only the newest deliverable: %s", name, row)
+		}
+	}
+	page := get(t, h, "/task/t1")
+	if l, f := strings.Index(page, link), strings.Index(page, file); l < 0 || f < l {
+		t.Fatalf("task page does not list both, newest first:\n%s", page)
+	}
+	contains(t, "task page", page, `<span class="url">/home/me/out/brief.pdf</span>`, `<span class="url">https://docs.example.com/brief</span>`)
+}

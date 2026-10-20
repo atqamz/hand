@@ -468,10 +468,21 @@ func (b *Board) deliverables(ctx context.Context, tasks []state.Task) (map[int64
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64]Deliverable{}
+	events, err := b.st.DeliveredEvents(ctx, ids...)
+	if err != nil {
+		return nil, err
+	}
+	byReport, byEvent := map[int64][]state.Report{}, map[int64][]state.Event{}
 	for _, r := range reports {
-		if found := Deliverables(r.Body); len(found) > 0 {
-			out[r.TaskID] = found[len(found)-1]
+		byReport[r.TaskID] = append(byReport[r.TaskID], r)
+	}
+	for _, e := range events {
+		byEvent[e.TaskID] = append(byEvent[e.TaskID], e)
+	}
+	out := map[int64]Deliverable{}
+	for _, id := range ids {
+		if found := Newest(byReport[id], byEvent[id]); len(found) > 0 {
+			out[id] = found[0]
 		}
 	}
 	return out, nil

@@ -543,15 +543,11 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	if err != nil {
 		return c, err
 	}
-	for i := len(reports) - 1; i >= 0; i-- {
-		found := Deliverables(reports[i].Body)
-		slices.Reverse(found)
-		for _, d := range found {
-			if !slices.Contains(c.Delivered, d) {
-				c.Delivered = append(c.Delivered, d)
-			}
-		}
+	events, err := b.st.DeliveredEvents(ctx, t.ID)
+	if err != nil {
+		return c, err
 	}
+	c.Delivered = Newest(reports, events)
 	if len(reports) > 0 {
 		c.Report = &reports[len(reports)-1]
 	}

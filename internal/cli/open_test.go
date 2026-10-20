@@ -203,7 +203,7 @@ func TestOpenDelivered(t *testing.T) {
 	if got := len(fx.opened(t)); got != before {
 		t.Fatalf("a UNC deliverable reached the opener: %d lines, was %d", got, before)
 	}
-	if _, errOut, code := fx.h.run("open", "t2", "--delivered"); code != 3 || !strings.Contains(errOut, "t2 has no deliverable in its reports") {
+	if _, errOut, code := fx.h.run("open", "t2", "--delivered"); code != 3 || !strings.Contains(errOut, "t2 has no deliverable") {
 		t.Fatalf("a task with no deliverable: code=%d stderr=%q", code, errOut)
 	}
 	if _, _, code := fx.h.run("open", "d1", "--delivered"); code != 2 {

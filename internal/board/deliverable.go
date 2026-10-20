@@ -5,6 +5,9 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 type Deliverable struct {
@@ -22,7 +25,7 @@ var (
 func Deliverables(body string) []Deliverable {
 	var out []Deliverable
 	add := func(ref string) {
-		if kind := deliverableKind(ref); kind != "" && !slices.ContainsFunc(out, func(d Deliverable) bool { return d.Ref == ref }) {
+		if kind := DeliverableKind(ref); kind != "" && !slices.ContainsFunc(out, func(d Deliverable) bool { return d.Ref == ref }) {
 			out = append(out, Deliverable{ref, kind})
 		}
 	}
@@ -38,7 +41,33 @@ func Deliverables(body string) []Deliverable {
 	return out
 }
 
-func deliverableKind(ref string) string {
+func Newest(reports []state.Report, events []state.Event) []Deliverable {
+	type dated struct {
+		at time.Time
+		d  Deliverable
+	}
+	var all []dated
+	for _, r := range reports {
+		for _, d := range Deliverables(r.Body) {
+			all = append(all, dated{parse(r.CreatedAt), d})
+		}
+	}
+	for _, e := range events {
+		if kind := DeliverableKind(e.Detail); kind != "" {
+			all = append(all, dated{parse(e.At), Deliverable{e.Detail, kind}})
+		}
+	}
+	slices.SortStableFunc(all, func(x, y dated) int { return x.at.Compare(y.at) })
+	var out []Deliverable
+	for i := len(all) - 1; i >= 0; i-- {
+		if !slices.Contains(out, all[i].d) {
+			out = append(out, all[i].d)
+		}
+	}
+	return out
+}
+
+func DeliverableKind(ref string) string {
 	if absolutePath.MatchString(ref) {
 		return "file"
 	}

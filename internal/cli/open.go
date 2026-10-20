@@ -155,12 +155,14 @@ func newestDeliverable(ctx context.Context, st *state.Store, ref string) (board.
 	if err != nil {
 		return board.Deliverable{}, err
 	}
-	for i := len(reports) - 1; i >= 0; i-- {
-		if found := board.Deliverables(reports[i].Body); len(found) > 0 {
-			return found[len(found)-1], nil
-		}
+	events, err := st.DeliveredEvents(ctx, id)
+	if err != nil {
+		return board.Deliverable{}, err
 	}
-	return board.Deliverable{}, fmt.Errorf("%w: %s has no deliverable in its reports", state.ErrNotFound, ref)
+	if found := board.Newest(reports, events); len(found) > 0 {
+		return found[0], nil
+	}
+	return board.Deliverable{}, fmt.Errorf("%w: %s has no deliverable", state.ErrNotFound, ref)
 }
 
 func folderOf(path string) string {
