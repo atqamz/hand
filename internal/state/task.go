@@ -229,6 +229,9 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 	if !slices.Contains(statuses, to) {
 		return Task{}, fmt.Errorf("%w: unknown task status %q", ErrInvalid, to)
 	}
+	if len(delivered) > 0 && to != StatusDone {
+		return Task{}, fmt.Errorf("%w: only a task becoming done takes deliverables", ErrInvalid)
+	}
 	var out Task
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))

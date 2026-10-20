@@ -163,6 +163,9 @@ func TestDoneRecordsOneEventPerDeliverable(t *testing.T) {
 	two, _ := s.AddTask(ctx, "hand", "Two", "")
 	_, _ = s.Transition(ctx, one.ID, StatusActive)
 	_, _ = s.Transition(ctx, two.ID, StatusActive)
+	if _, err := s.Transition(ctx, one.ID, StatusAbandoned, "/out/a.pdf"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("abandon with a deliverable err = %v", err)
+	}
 	if _, err := s.Transition(ctx, one.ID, StatusDone, "/out/a.pdf", "https://docs.example.com/b"); err != nil {
 		t.Fatal(err)
 	}
