@@ -1,14 +1,13 @@
-[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '')]
-[CmdletBinding()]
-param(
-    [string]$Version = $(if ($env:HAND_INSTALL_VERSION) { $env:HAND_INSTALL_VERSION } else { 'latest' }),
-    [switch]$Edge,
-    [string]$Dir = $(if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'hand\bin' }),
-    [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' }),
-    [ValidateRange(1, 86400)][int]$TimeoutSec = 300
-)
-
 & {
+    [CmdletBinding()]
+    param(
+        [string]$Version = $(if ($env:HAND_INSTALL_VERSION) { $env:HAND_INSTALL_VERSION } else { 'latest' }),
+        [switch]$Edge,
+        [string]$Dir = $(if ($env:HAND_INSTALL_DIR) { $env:HAND_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'hand\bin' }),
+        [string]$Base = $(if ($env:HAND_INSTALL_BASE) { $env:HAND_INSTALL_BASE } else { 'https://github.com/atqamz/hand/releases' }),
+        [ValidateRange(1, 86400)][int]$TimeoutSec = 300
+    )
+
     Set-StrictMode -Version 2.0
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
@@ -144,4 +143,4 @@ param(
 
     $first = (& $target version | Select-Object -First 1)
     Write-Output "installed hand $first to $target"
-}
+} @args
