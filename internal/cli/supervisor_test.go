@@ -563,6 +563,31 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 	}
 }
 
+func TestStartSearchesTheBoardsPath(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	var out, errOut bytes.Buffer
+	board := func(path string) func(context.Context, ...string) error {
+		env := h.env(&out, &errOut)
+		getenv := env.Getenv
+		env.Getenv = func(k string) string {
+			if k == "PATH" {
+				return path
+			}
+			return getenv(k)
+		}
+		return cli.Control(env, h.home)
+	}
+	tools := h.vars["PATH"]
+	h.vars["PATH"] = t.TempDir()
+	has(t, "route list", h.ok("route", "list"), `default,claude,sonnet,medium,"invalid: claude not found on PATH; install claude, or add its folder to PATH"`)
+	if err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with; restart the board after you change it); install claude") {
+		t.Fatalf("start without claude on the board's PATH = %v", err)
+	}
+	if err := board(tools)(context.Background(), "supervisor", "start", "--profile", "default"); err != nil {
+		t.Fatalf("start with claude only on the board's PATH = %v", err)
+	}
+}
+
 func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n int32)) {
 	t.Helper()
 	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "sleep": "300s"})

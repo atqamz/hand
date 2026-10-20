@@ -29,6 +29,7 @@ func control(env Env, home string) func(context.Context, ...string) error {
 			return nil
 		}
 		msg := board.Scrub(strings.TrimPrefix(strings.TrimSpace(stderr.String()), "error: "))
+		msg = strings.ReplaceAll(msg, " not found on PATH", " not found on PATH (searched the board's PATH, the one it started with; restart the board after you change it)")
 		switch code {
 		case 2:
 			return controlError{msg, state.ErrInvalid}

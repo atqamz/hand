@@ -14,6 +14,10 @@ func TestInitWritesAStarterRoutingPolicy(t *testing.T) {
 	if out := h.ok("init"); !strings.Contains(out, "routing: "+toon.Value(filepath.Join(h.home, "routing.json"))) {
 		t.Fatalf("init = %q", out)
 	}
+	if list := h.ok("route", "list"); !strings.Contains(list, `default,claude,sonnet,medium,"invalid: claude not found on PATH; install claude, or add its folder to PATH"`) {
+		t.Fatalf("route list without claude = %q", list)
+	}
+	h.vars["PATH"] = fakeBin(t)
 	list := h.ok("route", "list")
 	for _, want := range []string{"profiles[5]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "quick,claude,sonnet,low,yes", "high,claude,sonnet,high,yes", "deep,claude,sonnet,xhigh,yes", "max,claude,sonnet,max,yes", "harnesses: claude codex opencode"} {
 		if !strings.Contains(list, want) {

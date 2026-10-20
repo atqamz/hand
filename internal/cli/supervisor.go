@@ -83,7 +83,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 }
 
 func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec, note string) (state.Supervisor, error) {
-	bin, err := supervisorBin(r, spec)
+	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return state.Supervisor{}, err
 	}
@@ -113,7 +113,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 }
 
 func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Client, spec harness.Spec) error {
-	if _, err := supervisorBin(r, spec); err != nil {
+	if _, err := harnessBin(r, spec); err != nil {
 		return err
 	}
 	unlock, _, err := r.supervisorLock(true)
@@ -217,7 +217,7 @@ func lastStarted(ctx context.Context, st *state.Store) (state.Supervisor, bool, 
 }
 
 func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec) (state.Supervisor, error) {
-	bin, err := supervisorBin(r, spec)
+	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return state.Supervisor{}, err
 	}
@@ -238,7 +238,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 
 func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor) (state.Supervisor, error) {
 	spec := harness.Spec{Harness: sup.Harness, Model: sup.SwitchModel, Effort: sup.SwitchEffort}
-	if _, err := supervisorBin(r, spec); err != nil {
+	if _, err := harnessBin(r, spec); err != nil {
 		return sup, err
 	}
 	to := state.AttemptExited
@@ -382,11 +382,15 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 	}
 }
 
-func supervisorBin(r *runner, spec harness.Spec) (string, error) {
+func harnessBin(r *runner, spec harness.Spec) (string, error) {
 	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
 		return "", err
 	}
-	return harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
+	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
+	if err != nil {
+		return "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, spec.Harness)
+	}
+	return bin, nil
 }
 
 func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.Client, spec state.SupervisorSpec, want string) (state.Supervisor, error) {

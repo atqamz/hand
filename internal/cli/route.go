@@ -32,7 +32,7 @@ func cmdRouteList(r *runner, args []string) error {
 	for _, name := range p.Names() {
 		s := p.Profiles[name]
 		valid := "yes"
-		if err := harness.Validate(s, harness.EnvOf(r.env.Getenv)); err != nil {
+		if _, err := harnessBin(r, s); err != nil {
 			valid = err.Error()
 		}
 		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid})
