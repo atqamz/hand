@@ -1,9 +1,11 @@
 package cli_test
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -68,22 +70,11 @@ func newOpenFixture(t *testing.T) *openFixture {
 	if _, err := st.Ask(ctx, 1, "Keep the old cookie name?"); err != nil {
 		t.Fatal(err)
 	}
-	for i, refs := range extra {
-		w, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: int64(i + 3), Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := st.AttemptRunning(ctx, w.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
-			t.Fatal(err)
-		}
-		for _, ref := range refs {
-			if _, err := st.AddReport(ctx, w.ID, state.ReportProgress, "Done.\nDelivered: "+ref+"\n"); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
+	}
+	for i, refs := range extra {
+		deliverByReport(t, h, int64(i+3), refs...)
 	}
 	fx := &openFixture{h: h, id: field(h.ok("init"), "id"), log: filepath.Join(t.TempDir(), "opened"), dir: dir}
 	bin := t.TempDir()
@@ -92,6 +83,44 @@ func newOpenFixture(t *testing.T) *openFixture {
 	h.vars["XDG_LOG"] = fx.log
 	fx.base, fx.stop = startBoard(t, h, "127.0.0.1")
 	return fx
+}
+
+func deliverByReport(t *testing.T, h *harness, task int64, refs ...string) {
+	t.Helper()
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), func() time.Time { return h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	w, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, w.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range refs {
+		if _, err := st.AddReport(ctx, w.ID, state.ReportProgress, "Done.\nDelivered: "+ref+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (fx *openFixture) deliver(t *testing.T, byReport bool, ref string) string {
+	t.Helper()
+	task := field(fx.h.ok("task", "add", "hand", "Deliver "+filepath.Base(ref)), "task")
+	fx.h.ok("task", "start", task)
+	if byReport {
+		id, err := strconv.ParseInt(task[1:], 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deliverByReport(t, fx.h, id, ref)
+	} else {
+		fx.h.ok("task", "done", "--deliverable", ref, task)
+	}
+	return task
 }
 
 func (fx *openFixture) opened(t *testing.T) []string {
@@ -222,6 +251,110 @@ func TestOpenDelivered(t *testing.T) {
 	fx.stop()
 	if _, errOut, code := fx.h.run("open", "t1", "--delivered"); code != 0 {
 		t.Fatalf("--delivered needs no board: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
+	fx := newOpenFixture(t)
+	dir := filepath.Join(fx.h.home, "reports", "t8")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"notes.md", "my notes.md", "résumé.md", "a#1%.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	loginOut := fx.h.ok("open", "--print", "t1")
+	for _, c := range []struct {
+		byReport   bool
+		name, path string
+	}{
+		{false, "notes.md", "/doc/reports/t8/notes.md"},
+		{true, "notes.md", "/doc/reports/t8/notes.md"},
+		{true, "my notes.md", "/doc/reports/t8/my%20notes.md"},
+		{false, "résumé.md", "/doc/reports/t8/r%C3%A9sum%C3%A9.md"},
+		{true, "a#1%.md", "/doc/reports/t8/a%231%25.md"},
+		{false, "", "/doc/reports/t8"},
+	} {
+		task := fx.deliver(t, c.byReport, filepath.Join(dir, c.name))
+		page := fx.base + "/" + fx.id + c.path
+		out := fx.h.ok("open", task, "--delivered")
+		opened := fx.opened(t)
+		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t) || field(out, "opened") != page {
+			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
+		}
+		if got := fx.h.ok("open", "--print", task, "--delivered"); got != strings.Replace(loginOut, "/task/t1?", c.path+"?", 1) {
+			t.Fatalf("open --print %s --delivered = %q, want the login link of %q", task, got, loginOut)
+		}
+		res, err := client.Get(opened[len(opened)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		if want := "<title>" + cmp.Or(c.name, "t8") + " · "; res.StatusCode != http.StatusOK || res.Request.URL.String() != page || !strings.Contains(string(body), want) {
+			t.Fatalf("GET %s landed on %s: %d, want %s with %q", c.path, res.Request.URL, res.StatusCode, page, want)
+		}
+	}
+}
+
+func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
+	fx := newOpenFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reports := filepath.Join(fx.h.home, "reports", "t8")
+	for _, d := range []string{reports, filepath.Join(fx.h.home, "luvus")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		byReport  bool
+		ref, want string
+	}{
+		{true, filepath.Join(fx.dir, "notes.md"), fx.dir},
+		{false, filepath.Join(fx.dir, "notes.md"), fx.dir},
+		{true, filepath.Join(reports, "gone.md"), reports},
+		{false, filepath.Join(fx.h.home, "hand.db"), fx.h.home},
+		{true, filepath.Join(fx.h.home, "luvus"), filepath.Join(fx.h.home, "luvus")},
+	} {
+		task := fx.deliver(t, c.byReport, c.ref)
+		out := fx.h.ok("open", task, "--delivered")
+		opened := fx.opened(t)
+		if got := opened[len(opened)-1]; got != c.want || field(out, "opened") != c.want {
+			t.Fatalf("open %s --delivered (%s) = %q, printed %q, want %q", task, c.ref, got, out, c.want)
+		}
+	}
+}
+
+func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
+	fx := newOpenFixture(t)
+	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ ref, key, want string }{
+		{"t1", "url", "https://github.com/atqamz/hand/pull/42"},
+		{"t3", "path", filepath.Join(fx.dir, "notes.md")},
+		{"t6", "path", `\\evil\share\dir\report.docx`},
+	}
+	for _, ref := range []string{filepath.Join(fx.h.home, "reports", "t8", "gone.md"), filepath.Join(fx.h.home, "hand.db")} {
+		cases = append(cases, struct{ ref, key, want string }{fx.deliver(t, false, ref), "path", ref})
+	}
+	for _, c := range cases {
+		out, errOut, code := fx.h.run("open", "--print", "--delivered", c.ref)
+		if code != 0 || errOut != "" || field(out, c.key) != c.want || strings.Count(out, "\n") != 1 || strings.Contains(out, "token") {
+			t.Fatalf("open --print --delivered %s: code=%d out=%q stderr=%q, want only %s %q", c.ref, code, out, errOut, c.key, c.want)
+		}
+	}
+	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {
+		t.Fatalf("open --print --delivered launched something: %v", err)
 	}
 }
 

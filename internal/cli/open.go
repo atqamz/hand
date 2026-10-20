@@ -58,30 +58,34 @@ func cmdOpen(r *runner, args []string) error {
 	}
 	defer st.Close()
 	ctx := r.ctx()
+	var path, frag string
 	if *delivered {
 		d, err := newestDeliverable(ctx, st, ref)
 		if err != nil {
 			return err
 		}
-		if *printed {
-			if d.Kind == "file" {
-				var out toon.Doc
-				out.Field("path", d.Ref)
-				return r.print(&out)
-			}
-			return r.printLink(d.Ref, "")
-		}
-		if strings.HasPrefix(d.Ref, `\\`) {
-			return fmt.Errorf("%w: UNC paths are not opened, because Windows would connect to the host they name: %s", state.ErrConflict, d.Ref)
-		}
-		target := d.Ref
 		if d.Kind == "file" {
-			target = folderOf(d.Ref)
+			path = board.DocHref(r.home, "", d.Ref)
 		}
-		return r.launch(target, target, "open "+target+" yourself")
-	}
-	path, frag, err := boardPage(ctx, st, ref)
-	if err != nil {
+		if path == "" {
+			if *printed {
+				if d.Kind == "file" {
+					var out toon.Doc
+					out.Field("path", d.Ref)
+					return r.print(&out)
+				}
+				return r.printLink(d.Ref, "")
+			}
+			if strings.HasPrefix(d.Ref, `\\`) {
+				return fmt.Errorf("%w: UNC paths are not opened, because Windows would connect to the host they name: %s", state.ErrConflict, d.Ref)
+			}
+			target := d.Ref
+			if d.Kind == "file" {
+				target = folderOf(d.Ref)
+			}
+			return r.launch(target, target, "open "+target+" yourself")
+		}
+	} else if path, frag, err = boardPage(ctx, st, ref); err != nil {
 		return err
 	}
 	token, err := boardToken(r.home)

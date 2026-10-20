@@ -91,18 +91,18 @@ func docURL(base, rel string) string {
 	return base + "/doc/" + (&url.URL{Path: rel}).EscapedPath()
 }
 
-func (b *Board) docHref(p string) string {
+func DocHref(home, base, p string) string {
 	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
 		return ""
 	}
-	homes := []string{b.o.Home}
-	if real, err := filepath.EvalSymlinks(b.o.Home); err == nil {
+	homes := []string{home}
+	if real, err := filepath.EvalSymlinks(home); err == nil {
 		homes = append(homes, real)
 	}
-	for _, home := range homes {
-		if rel, err := filepath.Rel(home, p); err == nil && filepath.IsLocal(rel) {
-			if _, _, _, err := Resolve(b.o.Home, filepath.ToSlash(rel)); err == nil {
-				return docURL(b.o.Base, filepath.ToSlash(rel))
+	for _, h := range homes {
+		if rel, err := filepath.Rel(h, p); err == nil && filepath.IsLocal(rel) {
+			if _, _, _, err := Resolve(home, filepath.ToSlash(rel)); err == nil {
+				return docURL(base, filepath.ToSlash(rel))
 			}
 			return ""
 		}
@@ -113,7 +113,7 @@ func (b *Board) docHref(p string) string {
 func (b *Board) linked(ds []Deliverable) []Deliverable {
 	for i, d := range ds {
 		if d.Kind == "file" {
-			ds[i].Href = b.docHref(d.Ref)
+			ds[i].Href = DocHref(b.o.Home, b.o.Base, d.Ref)
 		}
 	}
 	return ds
