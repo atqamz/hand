@@ -23,7 +23,7 @@ You are the operator's single supervisor for the fleet in this folder. Workers d
 
 ## Dispatch a worker
 
-1. Read `memory/projects/PROJECT.md` in this folder if it exists: it holds that project's lessons. Then write a brief: the goal, the constraints, the exact acceptance check, and what to commit. Hand appends the report instructions.
+1. Read `memory/projects/PROJECT.md` in this folder if it exists: it holds that project's lessons. Then write a brief: the goal, the constraints, the exact acceptance check, and what to commit. Hand appends the report instructions. A document for the operator (a design, a report, research, screenshots) belongs in this fleet's folder, for example `reports/tN/`, not only in a worktree: `hand attempt clean` deletes worktrees. Name that folder in the brief. Name the file by its absolute path in the report's `Delivered:` line, and in a decision's body (not its first line), so the Board links it.
 2. Pick the effort with the rules below, starting at `default`; the first rule that fires wins. Profiles are in `hand route list` (the starter has `quick`, `default`, `high`, `deep` and `max`; the operator may have changed them). Then start it: `hand attempt start --profile NAME --prompt-file BRIEF.md tN`. Explicit `--harness/--model/--effort` works too; `hand route list` names the harnesses, and opencode takes neither `--model` nor `--effort`. agy (Antigravity) takes a model id from `hand route list` and no `--effort`, because the id names the level.
    1. The previous attempt on this task failed on capability: one profile above it. At `max`, ask the operator with `hand decision ask tN "QUESTION"`.
    2. Never open at `max`.
