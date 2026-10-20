@@ -220,7 +220,7 @@ Install Hand as described above. You use two commands, then the browser. The oth
 
 The other commands (`hand task`, `hand attempt`, `hand decision`, `hand report`, `hand orient`, `hand wait` and the rest) are what the supervisor and its workers run. You rarely need them, and the [command table](#commands) is a reference.
 
-**If something does not work**, run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses and routing profiles, Luvus, the fleet, the board and the watcher, and prints a fix for each problem. It changes nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](#linux)).
+**If something does not work**, run `hand doctor` in the fleet folder. It checks Hand, git, the harnesses and routing profiles, Luvus, the fleet, the board and the watcher, and prints a fix for each problem. It repairs nothing and spends no tokens, so paste its output into a bug report. The board finds `claude` and the other harnesses on the `PATH` it started with, which can differ from your shell's: restart the board after you install one (a systemd unit keeps the `PATH` from when you ran `hand unit board`, see [Linux](#linux)).
 
 ## The daily loop
 
@@ -543,7 +543,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand unit board` | Print the board's systemd user unit (Linux only; on macOS and Windows it exits 2, see [Autostart](#autostart)). It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check] [--keep-luvus] [--auto]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
-| `hand doctor` | Check this machine and the fleet without changing anything, one `check,state,fix` row each; exits 1 when a check fails. |
+| `hand doctor` | Check this machine and the fleet without repairing anything, one `check,state,fix` row each; exits 1 when a check fails. |
 
 ## Upgrading from 0.7
 

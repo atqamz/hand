@@ -254,6 +254,10 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 	if out, _, code := fx.h.run("doctor"); code != 1 || !strings.Contains(checkRows(t, out)["fleet"][1], "no hand home at") {
 		t.Fatalf("a HAND_HOME without a fleet: code=%d out=%q", code, out)
 	}
+	fx.h.vars["HAND_HOME"], fx.h.vars["SECONDHAND_HOME"], fx.h.vars["HOME"] = "", "", ""
+	if out, _, code := fx.h.run("doctor"); code != 1 || checkRows(t, out)["luvus pin"][0] != "fail" || !strings.Contains(checkRows(t, out)["fleet"][1], "the fleet checks were skipped") {
+		t.Fatalf("no secondhand folder: code=%d out=%q", code, out)
+	}
 	if _, errOut, code := fx.h.run("doctor", "extra"); code != 2 || !strings.Contains(errOut, "doctor: want 0 argument(s)") {
 		t.Fatalf("usage: code=%d stderr=%q", code, errOut)
 	}

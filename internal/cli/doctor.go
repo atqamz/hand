@@ -67,6 +67,7 @@ func cmdDoctor(r *runner, args []string) error {
 	root, err := r.rootDir()
 	if err != nil {
 		c.add("luvus pin", "fail", err.Error())
+		c.add("fleet", "info", "the fleet checks were skipped: they need the secondhand folder")
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned)
@@ -201,13 +202,17 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add(harness.PolicyFile, "fail", err.Error())
 	} else {
 		c.add(harness.PolicyFile, "ok", "")
+		missing := false
 		for _, name := range p.Names() {
 			if _, err := harnessBin(r, p.Profiles[name]); err != nil {
 				c.add("profile "+name, "fail", err.Error())
-				c.help = []string{"The board searches the PATH it started with: restart it after you install a harness or change PATH"}
+				missing = true
 			} else {
 				c.add("profile "+name, "ok", "")
 			}
+		}
+		if missing {
+			c.help = append(c.help, "The board searches the PATH it started with: restart it after you install a harness or change PATH")
 		}
 	}
 	version, err := r.client(fleet.Session(f.ID)).Version(ctx)
