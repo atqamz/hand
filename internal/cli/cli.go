@@ -38,6 +38,7 @@ type Env struct {
 	Getwd    func() (string, error)
 	Exec     func(argv0 string, argv, envv []string) error
 	Terminal func() bool
+	Board    bool
 }
 
 type handler func(*runner, []string) error
