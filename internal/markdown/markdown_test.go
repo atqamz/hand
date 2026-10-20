@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"fmt"
+	"html"
 	"net/url"
 	"regexp"
 	"strings"
@@ -164,16 +165,26 @@ var corpus = []string{
 	"3. a\n   - <b>\n\n4. [x](javascript:y)", "[a](https://b.io)[c](https://d.io)", "**a *b _c `d` e_ f* g**", "\x00<\x00script>", "&lt;script&gt;", "[`x`](https://a.io)",
 }
 
+var docCorpus = []string{
+	"[x](api.md)", "[x](../t286/notes.md)", "[x](sub/a b.md)", "[x](a.md#h)", `[x](a.md"onmouseover="y)`, "[x](../../.ssh/id)",
+	"[x]( javascript:alert(1))", "[x](java\tscript:alert(1))", "[x](  //evil.io/x)", `[x](\\evil.io\x)`, `[x](/\evil.io)`, "[x](#top)",
+	`![a"b](img/x.png)`, "![x](javascript:alert(1))", "![x](//evil.io/x.png)", "![x](https://evil.io/x.png)", "![x](x.svg)", "![](x.png)",
+	"- [ ] todo <b>", "- [x] done", "1. [X] [x](a.md)", "| a |\n|---|\n| ![x](y.png) |", "![x", "![x](", "![[x](a.md)](b.md)",
+}
+
 func TestRenderNeverEmitsActiveMarkup(t *testing.T) {
 	for _, in := range seeds() {
 		if msg := active(string(markdown.Render(in))); msg != "" {
 			t.Errorf("Render(%q): %s", in, msg)
 		}
+		if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil))); msg != "" {
+			t.Errorf("RenderDoc(%q): %s", in, msg)
+		}
 	}
 }
 
 func seeds() []string {
-	out := append([]string(nil), corpus...)
+	out := append(append([]string(nil), corpus...), docCorpus...)
 	for _, b := range append(blocks, tables...) {
 		out = append(out, b.in)
 	}
@@ -191,6 +202,9 @@ func FuzzRender(f *testing.F) {
 		if msg := active(string(markdown.Render(in))); msg != "" {
 			t.Fatalf("Render(%q): %s", in, msg)
 		}
+		if msg := activeDoc(string(markdown.RenderDoc(in, "/f1", nil))); msg != "" {
+			t.Fatalf("RenderDoc(%q): %s", in, msg)
+		}
 	})
 }
 
@@ -203,7 +217,16 @@ var (
 	aligns       = map[string]bool{"l": true, "r": true, "c": true}
 )
 
-func active(out string) string {
+func active(out string) string { return markup(out, false) }
+
+func activeDoc(out string) string { return markup(out, true) }
+
+func relativeRef(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && raw != "" && !strings.ContainsAny(raw[:1], "/# ") && u.Scheme == "" && u.Host == "" && !strings.Contains(raw, `\`)
+}
+
+func markup(out string, doc bool) string {
 	for i := 0; i < len(out); i++ {
 		if out[i] != '<' {
 			continue
@@ -212,10 +235,32 @@ func active(out string) string {
 		if m == nil {
 			return "a bare < that is not an allowed tag at " + out[i:min(len(out), i+20)]
 		}
-		if !allowed[m[2]] {
+		if !allowed[m[2]] && !(doc && (m[2] == "img" || m[2] == "span")) {
 			return "element " + m[2]
 		}
 		for _, a := range attrPattern.FindAllStringSubmatch(m[3], -1) {
+			if doc {
+				switch v := html.UnescapeString(a[2]); m[2] + " " + a[1] {
+				case "img src", "a href":
+					if relativeRef(v) {
+						continue
+					}
+				case "img alt":
+					continue
+				case "img loading":
+					if v == "lazy" {
+						continue
+					}
+				case "li class":
+					if v == "task" || v == "task done" {
+						continue
+					}
+				case "span class":
+					if v == "sr" {
+						continue
+					}
+				}
+			}
 			if want, ok := fixed[m[2]+" "+a[1]]; ok {
 				if a[2] != want {
 					return "value " + a[2] + " for " + a[1] + " on " + m[2]
@@ -256,12 +301,13 @@ func active(out string) string {
 }
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
-	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|"} {
+	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n"} {
 		in := strings.Repeat(unit, 200<<10/len(unit))
 		start := time.Now()
 		markdown.Render(in)
+		markdown.RenderDoc(in, "/f1", nil)
 		if d := time.Since(start); d > time.Second {
-			t.Errorf("Render of %d bytes of %q took %v", len(in), unit, d)
+			t.Errorf("Render and RenderDoc of %d bytes of %q took %v", len(in), unit, d)
 		}
 	}
 }
@@ -338,5 +384,71 @@ func TestRenderCapsListNestingKeepingText(t *testing.T) {
 	}
 	if msg := active(got); msg != "" {
 		t.Error(msg)
+	}
+}
+
+func TestDocumentModeKeepsRelativeLinks(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"[API notes](api.md)", `<p><a href="api.md">API notes</a></p>`},
+		{"[notes](../t286/notes.md)", `<p><a href="../t286/notes.md">notes</a></p>`},
+		{"[x](sub/a b.md)", `<p><a href="sub/a b.md">x</a></p>`},
+		{"[x](a.md#h)", `<p><a href="a.md#h">x</a></p>`},
+		{"[**b**](shots/)", `<p><a href="shots/"><strong>b</strong></a></p>`},
+		{`[x](a.md"onmouseover="y)`, `<p><a href="a.md&#34;onmouseover=&#34;y">x</a></p>`},
+		{"[PR](https://github.com/a/b/pull/1)", `<p><a href="https://github.com/a/b/pull/1" target="_blank" rel="noopener noreferrer">PR</a></p>`},
+		{"see t12", `<p>see <a class="ref" href="/f1/ref/t12">t12</a></p>`},
+		{"| doc |\n|---|\n| [a](a.md) |", wrap + `<thead><tr><th>doc</th></tr></thead><tbody><tr><td><a href="a.md">a</a></td></tr></tbody></table></div>`},
+	} {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := string(markdown.Render("[API notes](api.md)")); got != `<p>[API notes](api.md)</p>` {
+		t.Errorf("Render keeps a relative link: %s", got)
+	}
+}
+
+func TestDocumentModeRefusesSchemesHostsAndBackslashes(t *testing.T) {
+	for _, u := range []string{"javascript:alert(1)", "JaVaScRiPt:alert(1)", " javascript:alert(1)", "java\tscript:alert(1)", "data:text/html,x", "vbscript:x", "mailto:a@b.c", "c:/x",
+		"//evil.io/x", "  //evil.io/x", "https:///nohost", `\\evil.io\x`, `/\evil.io`, `a\..\..\x`, `C:\x`, "/abs/path", "#top", ""} {
+		for _, in := range []string{"[x](" + u + ")", "![x](" + u + ")"} {
+			if got := string(markdown.RenderDoc(in, "/f1", nil)); strings.Contains(got, "<a") || strings.Contains(got, "<img") {
+				t.Errorf("RenderDoc(%q) = %s", in, got)
+			}
+		}
+	}
+}
+
+func TestDocumentModeShowsRelativeImages(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"![The flow](images/flow.png)", `<p><img src="images/flow.png" alt="The flow" loading="lazy"></p>`},
+		{`![a"b<c>](x.png)`, `<p><img src="x.png" alt="a&#34;b&lt;c&gt;" loading="lazy"></p>`},
+		{"![](x.png) after", `<p><img src="x.png" alt="" loading="lazy"> after</p>`},
+		{"![x](https://example.com/x.png)", `<p>!<a href="https://example.com/x.png" target="_blank" rel="noopener noreferrer">x</a></p>`},
+		{"![x](data:image/png;base64,AAAA)", `<p>![x](data:image/png;base64,AAAA)</p>`},
+		{"![x", `<p>![x</p>`},
+	} {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := string(markdown.Render("![x](x.png)")); got != `<p>![x](x.png)</p>` {
+		t.Errorf("Render shows an image: %s", got)
+	}
+}
+
+func TestTaskListItems(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"- [ ] todo <b>", `<ul><li class="task"><span class="sr">to do: </span>todo &lt;b&gt;</li></ul>`},
+		{"- [x] done\n- [X] **also**", `<ul><li class="task done"><span class="sr">done: </span>done</li><li class="task done"><span class="sr">done: </span><strong>also</strong></li></ul>`},
+		{"1. [ ] first\n   - [x] nested", `<ol><li class="task"><span class="sr">to do: </span>first<ul><li class="task done"><span class="sr">done: </span>nested</li></ul></li></ol>`},
+		{"- [y] no\n- [ ]\n- [x]done", `<ul><li>[y] no</li><li>[ ]</li><li>[x]done</li></ul>`},
+	} {
+		if got := string(markdown.RenderDoc(c.in, "/f1", nil)); got != c.want {
+			t.Errorf("RenderDoc(%q)\n got %s\nwant %s", c.in, got, c.want)
+		}
+	}
+	if got := string(markdown.Render("- [ ] todo")); got != `<ul><li>[ ] todo</li></ul>` {
+		t.Errorf("Render makes a task item: %s", got)
 	}
 }

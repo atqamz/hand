@@ -9,27 +9,37 @@ import (
 	"strings"
 )
 
+type opts struct {
+	refs string
+	doc  bool
+}
+
 func Render(text string) template.HTML {
-	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
-	var b strings.Builder
-	blocks(&b, lines, true, "", 0)
-	return template.HTML(b.String())
+	return render(text, opts{}, nil)
 }
 
 func RenderRefs(text, base string, title func(ref string) string) template.HTML {
+	return render(text, opts{refs: base + "/ref/"}, title)
+}
+
+func RenderDoc(text, base string, title func(ref string) string) template.HTML {
+	return render(text, opts{refs: base + "/ref/", doc: true}, title)
+}
+
+func render(text string, o opts, title func(ref string) string) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n")
 	var b strings.Builder
-	blocks(&b, lines, true, base+"/ref/", 0)
+	blocks(&b, lines, true, o, 0)
 	return template.HTML(titled(b.String(), title))
 }
 
 func Inline(text string) template.HTML {
-	return template.HTML(inline(strings.Join(strings.Fields(text), " "), false, ""))
+	return template.HTML(inline(strings.Join(strings.Fields(text), " "), false, opts{}))
 }
 
 func Refs(text, base string, title func(ref string) string) template.HTML {
 	line := strings.Join(strings.Fields(text), " ")
-	return template.HTML(titled(inline(line, false, base+"/ref/"), title))
+	return template.HTML(titled(inline(line, false, opts{refs: base + "/ref/"}), title))
 }
 
 var refLink = regexp.MustCompile(`<a class="ref" href="([^"]*)">([a-z][0-9]+)</a>`)
@@ -50,7 +60,7 @@ func titled(out string, title func(ref string) string) string {
 
 const maxListDepth = 6
 
-func blocks(b *strings.Builder, lines []string, quotes bool, refs string, depth int) {
+func blocks(b *strings.Builder, lines []string, quotes bool, refs opts, depth int) {
 	for i := 0; i < len(lines); {
 		line := lines[i]
 		switch {
@@ -138,7 +148,7 @@ func cells(line string) []string {
 	return out
 }
 
-func table(b *strings.Builder, lines []string, i int, refs string) int {
+func table(b *strings.Builder, lines []string, i int, refs opts) int {
 	head := cells(lines[i])
 	classes := make([]string, len(head))
 	for k, d := range cells(lines[i+1]) {
@@ -180,7 +190,7 @@ func table(b *strings.Builder, lines []string, i int, refs string) int {
 	return i
 }
 
-func cell(tag, class, text, refs string) string {
+func cell(tag, class, text string, refs opts) string {
 	open := "<" + tag + ">"
 	if class != "" {
 		open = "<" + tag + ` class="` + class + `">`
@@ -234,7 +244,7 @@ func heading(line string) int {
 
 func fence(line string) bool { return strings.HasPrefix(strings.TrimSpace(line), "```") }
 
-func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs string, depth int) int {
+func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, refs opts, depth int) int {
 	open := "<" + tag + ">"
 	if ordered {
 		if n, err := strconv.ParseInt(lines[i][:strings.IndexByte(lines[i], '.')], 10, 32); err == nil && n != 1 {
@@ -243,7 +253,11 @@ func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, r
 	}
 	b.WriteString(open)
 	for i < len(lines) && item(lines[i], ordered) != "" {
-		b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs))
+		if class, label, rest := task(item(lines[i], ordered)); refs.doc && class != "" {
+			b.WriteString(`<li class="` + class + `"><span class="sr">` + label + "</span>" + inline(rest, true, refs))
+		} else {
+			b.WriteString("<li>" + inline(item(lines[i], ordered), true, refs))
+		}
 		j := i + 1
 		for j < len(lines) && (strings.TrimSpace(lines[j]) == "" || lines[j][0] == ' ' || lines[j][0] == '\t') {
 			j++
@@ -260,7 +274,7 @@ func list(b *strings.Builder, lines []string, i int, tag string, ordered bool, r
 	return i
 }
 
-func flat(b *strings.Builder, lines []string, refs string) {
+func flat(b *strings.Builder, lines []string, refs opts) {
 	var parts []string
 	for _, l := range lines {
 		if strings.TrimSpace(l) != "" {
@@ -307,15 +321,28 @@ func item(line string, ordered bool) string {
 	return ""
 }
 
+func task(text string) (class, label, rest string) {
+	if len(text) < 4 || text[0] != '[' || text[2] != ']' || text[3] != ' ' {
+		return "", "", ""
+	}
+	switch text[1] {
+	case ' ':
+		return "task", "to do: ", text[4:]
+	case 'x', 'X':
+		return "task done", "done: ", text[4:]
+	}
+	return "", "", ""
+}
+
 type scan struct {
 	s     string
 	links bool
-	refs  string
+	o     opts
 	dead  map[string]bool
 }
 
-func inline(s string, links bool, refs string) string {
-	sc := scan{s: s, links: links, refs: refs, dead: map[string]bool{}}
+func inline(s string, links bool, o opts) string {
+	sc := scan{s: s, links: links, o: o, dead: map[string]bool{}}
 	var b strings.Builder
 	for i := 0; i < len(s); {
 		if out, n := sc.marker(i); n > 0 {
@@ -342,7 +369,7 @@ func (sc scan) marker(i int) (string, int) {
 	case strings.HasPrefix(rest, "~~"):
 		if !sc.dead["~~"] {
 			if j := strings.Index(rest[2:], "~~"); j > 0 {
-				return "<del>" + inline(rest[2:2+j], links, sc.refs) + "</del>", j + 4
+				return "<del>" + inline(rest[2:2+j], links, sc.o) + "</del>", j + 4
 			} else if j < 0 {
 				sc.dead["~~"] = true
 			}
@@ -351,7 +378,7 @@ func (sc scan) marker(i int) (string, int) {
 	case strings.HasPrefix(rest, "**"):
 		if !sc.dead["**"] {
 			if j := strings.Index(rest[2:], "**"); j > 0 {
-				return "<strong>" + inline(rest[2:2+j], links, sc.refs) + "</strong>", j + 4
+				return "<strong>" + inline(rest[2:2+j], links, sc.o) + "</strong>", j + 4
 			} else if j < 0 {
 				sc.dead["**"] = true
 			}
@@ -359,12 +386,18 @@ func (sc scan) marker(i int) (string, int) {
 		return html.EscapeString("**"), 2
 	case (rest[0] == '*' || rest[0] == '_') && !sc.dead[rest[:1]]:
 		if j := closing(s, i); j > 0 {
-			return "<em>" + inline(s[i+1:j], links, sc.refs) + "</em>", j - i + 1
+			return "<em>" + inline(s[i+1:j], links, sc.o) + "</em>", j - i + 1
 		} else if j < 0 {
 			sc.dead[rest[:1]] = true
 		}
+	case strings.HasPrefix(rest, "![") && links && sc.o.doc && !sc.dead["["]:
+		if out, n := picture(rest[1:]); n > 0 {
+			return out, n + 1
+		} else if n < 0 {
+			sc.dead["["] = true
+		}
 	case rest[0] == '[' && links && !sc.dead["["]:
-		if out, n := link(rest); n > 0 {
+		if out, n := link(rest, sc.o.doc); n > 0 {
 			return out, n
 		} else if n < 0 {
 			sc.dead["["] = true
@@ -373,9 +406,9 @@ func (sc scan) marker(i int) (string, int) {
 		if u, n := bare(rest); n > 0 {
 			return anchor(u, html.EscapeString(u)), n
 		}
-	case sc.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/' && s[i-1] != '_'):
+	case sc.o.refs != "" && strings.IndexByte("tdar", rest[0]) >= 0 && (i == 0 || !word(s[i-1]) && s[i-1] != '/' && s[i-1] != '_'):
 		if n := refLen(rest); n > 0 {
-			return `<a class="ref" href="` + html.EscapeString(sc.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
+			return `<a class="ref" href="` + html.EscapeString(sc.o.refs+rest[:n]) + `">` + rest[:n] + `</a>`, n
 		}
 	}
 	return "", 0
@@ -394,7 +427,7 @@ func closing(s string, i int) int {
 	return -1
 }
 
-func link(rest string) (string, int) {
+func link(rest string, doc bool) (string, int) {
 	mid := strings.Index(rest, "](")
 	if mid < 0 {
 		return "", -1
@@ -407,10 +440,34 @@ func link(rest string) (string, int) {
 		return "", -1
 	}
 	u := rest[mid+2 : mid+2+end]
+	if doc && relative(u) {
+		return `<a href="` + html.EscapeString(u) + `">` + inline(rest[1:mid], false, opts{}) + "</a>", mid + 3 + end
+	}
 	if !safe(u) {
 		return "", 0
 	}
-	return anchor(u, inline(rest[1:mid], false, "")), mid + 3 + end
+	return anchor(u, inline(rest[1:mid], false, opts{})), mid + 3 + end
+}
+
+func picture(rest string) (string, int) {
+	mid := strings.Index(rest, "](")
+	if mid < 0 {
+		return "", -1
+	}
+	end := strings.IndexByte(rest[mid+2:], ')')
+	if end < 0 {
+		return "", -1
+	}
+	u := rest[mid+2 : mid+2+end]
+	if !relative(u) {
+		return "", 0
+	}
+	return `<img src="` + html.EscapeString(u) + `" alt="` + html.EscapeString(rest[1:mid]) + `" loading="lazy">`, mid + 3 + end
+}
+
+func relative(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && raw != "" && raw[0] > ' ' && raw[0] != '/' && raw[0] != '#' && u.Scheme == "" && u.Host == "" && !strings.Contains(raw, `\`)
 }
 
 func bare(rest string) (string, int) {
