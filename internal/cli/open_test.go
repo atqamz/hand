@@ -315,16 +315,21 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, c := range []struct {
+	type delivery struct {
 		byReport  bool
 		ref, want string
-	}{
+	}
+	cases := []delivery{
 		{true, filepath.Join(fx.dir, "notes.md"), fx.dir},
 		{false, filepath.Join(fx.dir, "notes.md"), fx.dir},
 		{true, filepath.Join(reports, "gone.md"), reports},
 		{false, filepath.Join(fx.h.home, "hand.db"), fx.h.home},
 		{true, filepath.Join(fx.h.home, "luvus"), filepath.Join(fx.h.home, "luvus")},
-	} {
+	}
+	if link := filepath.Join(reports, "out.md"); os.Symlink(filepath.Join(fx.dir, "notes.md"), link) == nil {
+		cases = append(cases, delivery{false, link, reports})
+	}
+	for _, c := range cases {
 		task := fx.deliver(t, c.byReport, c.ref)
 		out := fx.h.ok("open", task, "--delivered")
 		opened := fx.opened(t)
