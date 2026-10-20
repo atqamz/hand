@@ -127,11 +127,12 @@ func TestAPathInsideTheFleetBecomesALink(t *testing.T) {
 func TestAPathOutsideTheFleetStaysText(t *testing.T) {
 	home := fleetFolder(t, pathFiles)
 	outside := fleetFolder(t, map[string]string{"notes.md": secret})
-	t.Setenv("HOME", outside)
-	t.Setenv("USERPROFILE", outside)
+	t.Setenv("HOME", filepath.Dir(home))
+	t.Setenv("USERPROFILE", filepath.Dir(home))
 	paths := []string{
 		filepath.Join(outside, "notes.md"),
-		"~/notes.md",
+		"~/" + filepath.Base(outside) + "/notes.md",
+		"~/" + filepath.Base(home) + "/reports/../reports/t1/design.md",
 		home + sep + "reports" + sep + ".." + sep + ".." + sep + filepath.Base(outside) + sep + "notes.md",
 		home + sep + "reports" + sep + "t1" + sep + ".." + sep + "t1" + sep + "design.md",
 		"/home/x/../../etc/passwd",

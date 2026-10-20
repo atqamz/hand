@@ -92,6 +92,9 @@ func docURL(base, rel string) string {
 }
 
 func DocHref(home, base, p string) string {
+	if slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+		return ""
+	}
 	if rest, ok := strings.CutPrefix(p, "~/"); ok {
 		user, err := os.UserHomeDir()
 		if err != nil {
@@ -99,7 +102,7 @@ func DocHref(home, base, p string) string {
 		}
 		p = filepath.Join(user, rest)
 	}
-	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") || slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..") {
+	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
 		return ""
 	}
 	homes := []string{home}
