@@ -123,6 +123,15 @@ func (fx *openFixture) deliver(t *testing.T, byReport bool, ref string) string {
 	return task
 }
 
+func (fx *openFixture) home(t *testing.T) string {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
 func (fx *openFixture) opened(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(fx.log)
@@ -256,7 +265,7 @@ func TestOpenDelivered(t *testing.T) {
 
 func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 	fx := newOpenFixture(t)
-	dir := filepath.Join(fx.h.home, "reports", "t8")
+	dir := filepath.Join(fx.home(t), "reports", "t8")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -306,11 +315,12 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 
 func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 	fx := newOpenFixture(t)
+	home := fx.home(t)
 	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	reports := filepath.Join(fx.h.home, "reports", "t8")
-	for _, d := range []string{reports, filepath.Join(fx.h.home, "luvus")} {
+	reports := filepath.Join(home, "reports", "t8")
+	for _, d := range []string{reports, filepath.Join(home, "luvus")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -323,8 +333,8 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 		{true, filepath.Join(fx.dir, "notes.md"), fx.dir},
 		{false, filepath.Join(fx.dir, "notes.md"), fx.dir},
 		{true, filepath.Join(reports, "gone.md"), reports},
-		{false, filepath.Join(fx.h.home, "hand.db"), fx.h.home},
-		{true, filepath.Join(fx.h.home, "luvus"), filepath.Join(fx.h.home, "luvus")},
+		{false, filepath.Join(home, "hand.db"), home},
+		{true, filepath.Join(home, "luvus"), filepath.Join(home, "luvus")},
 	}
 	if link := filepath.Join(reports, "out.md"); os.Symlink(filepath.Join(fx.dir, "notes.md"), link) == nil {
 		cases = append(cases, delivery{false, link, reports})
@@ -341,6 +351,7 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 
 func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
 	fx := newOpenFixture(t)
+	home := fx.home(t)
 	if err := os.WriteFile(filepath.Join(fx.dir, "notes.md"), []byte("# Notes\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +360,7 @@ func TestOpenDeliveredPrintIsUnchanged(t *testing.T) {
 		{"t3", "path", filepath.Join(fx.dir, "notes.md")},
 		{"t6", "path", `\\evil\share\dir\report.docx`},
 	}
-	for _, ref := range []string{filepath.Join(fx.h.home, "reports", "t8", "gone.md"), filepath.Join(fx.h.home, "hand.db")} {
+	for _, ref := range []string{filepath.Join(home, "reports", "t8", "gone.md"), filepath.Join(home, "hand.db")} {
 		cases = append(cases, struct{ ref, key, want string }{fx.deliver(t, false, ref), "path", ref})
 	}
 	for _, c := range cases {
