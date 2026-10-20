@@ -34,7 +34,7 @@ In Hand, the supervisor handles judgement and `hand` handles the mechanics. Work
 
 What you do:
 
-1. Open the fleet's page with `hand open`. The **Needs you** tab lists what waits on you: open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, a supervisor that idles with unwatched work, and a supervisor that stopped unexpectedly.
+1. Open the fleet's page with `hand open`. The **Needs** tab lists what waits on you: open decisions, the supervisor's blocked screens, unread reports, failed, exited or interrupted attempts, a supervisor that idles with unwatched work, and a supervisor that stopped unexpectedly.
 2. Ask for work in the **Chat** tab. The supervisor captures each request as a task before doing anything else.
 3. Answer decisions on their card or their page, or with `hand decision answer dN "ANSWER"`.
 4. Read reports, and press **Mark read** once you have read one.
