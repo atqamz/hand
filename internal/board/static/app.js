@@ -623,6 +623,7 @@
 			const edited = box && box.value !== typed;
 			if (form.id === "composer" && !edited) form.reset();
 			if (box && !edited) forget(box);
+			if (form.id === "composer") form.dispatchEvent(new Event("sent"));
 			const id = (form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id;
 			if (id) {
 				const label = form.action.endsWith("/answer") ? data.get("choice")?.split(".")[0] || "answer" : (e.submitter?.textContent || data.get("key") || "").split(" ")[0];
@@ -1029,7 +1030,11 @@
 		};
 		const kind = (name) => (name.endsWith("/") ? "DIR" : /\.([^.]{1,4})$/.exec(name)?.[1].toUpperCase() || "FILE");
 		const human = (n) => (n < 1024 ? `${n} B` : (n + 512) >> 10 < 1024 ? `${(n + 512) >> 10} KiB` : `${(n / (1 << 20)).toFixed(1)} MiB`);
-		const keep = () => noteFor(textKey, stash(listKey, attached.join("\n")) || text.value ? `Draft saved ${clock(Date.now())}` : "");
+		const keep = () => {
+			const ok = stash(listKey, attached.join("\n"));
+			if (ok) noteFor(textKey, `Draft saved ${clock(Date.now())}`);
+			else if (attached.length || !text.value) noteFor(textKey, "");
+		};
 		const busy = (n) => {
 			running += n;
 			if (running > 0) draft.dataset.attaching = "";
@@ -1159,18 +1164,17 @@
 			const prose = e.formData.get("text") || "";
 			e.formData.set("text", (prose && !prose.endsWith("\n") ? `${prose}\n` : prose) + sending.map((l) => `${l}\n`).join(""));
 		});
-		draft.addEventListener("reset", () => {
+		draft.addEventListener("sent", () => {
 			attached = attached.filter((l) => !sending.includes(l));
 			for (const job of jobs) if (job.error) jobs.delete(job);
-			setTimeout(() => {
-				keep();
-				render();
-			});
+			keep();
+			render();
 		});
 		let stored = [];
 		try {
 			stored = parsed(localStorage.getItem(listKey))?.text.split("\n").filter((l) => line.test(l)) ?? [];
 		} catch {}
+		if (stored.length) busy(stored.length);
 		Promise.all(
 			stored.map(async (l) => {
 				const res = await fetch(`${base}/inbox/${line.exec(l)[3]}`, { method: "HEAD", credentials: "same-origin" }).catch(() => null);
@@ -1179,6 +1183,7 @@
 				return res?.status !== 404;
 			}),
 		).then((here) => {
+			if (stored.length) busy(-stored.length);
 			const gone = stored.filter((_, i) => !here[i]);
 			attached = [...new Set([...stored.filter((_, i) => here[i]), ...attached])];
 			if (gone.length) {

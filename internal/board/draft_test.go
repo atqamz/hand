@@ -54,13 +54,16 @@ func TestAttachedFilesAreKeptAsReferencesBesideTheDraft(t *testing.T) {
 		"const ours = (key) => [draftPrefix, filesPrefix].some((p) => key === p || key.startsWith(`${p}.`));",
 		"stash(key, \"\");\n\t\tstash(filesKey(key), \"\");",
 		"const listKey = filesKey(textKey);",
-		"stash(listKey, attached.join(\"\\n\"))",
 		"stored = parsed(localStorage.getItem(listKey))?.text.split(\"\\n\").filter((l) => line.test(l)) ?? [];",
 		`{ method: "HEAD", credentials: "same-origin" }`,
 		"return res?.status !== 404;",
 		"no longer in inbox/` : \"Draft restored\");",
 		"said.textContent = `${gone.map((l) => label(line.exec(l)[3])).join(\", \")} ${gone.length === 1 ? \"is\" : \"are\"} no longer in inbox/`;")
-	lacks(t, "app.js", js, "heldKey", `"hand.draft.".length`)
+	contains(t, "keep", js[strings.Index(js, "const keep = () => {"):strings.Index(js, "const busy = (n) => {")],
+		"const ok = stash(listKey, attached.join(\"\\n\"));",
+		"if (ok) noteFor(textKey, `Draft saved ${clock(Date.now())}`);",
+		"else if (attached.length || !text.value) noteFor(textKey, \"\");")
+	lacks(t, "app.js", js, "heldKey", `"hand.draft.".length`, "|| text.value ? `Draft saved")
 }
 
 func TestTheComposerShowsADraftNote(t *testing.T) {

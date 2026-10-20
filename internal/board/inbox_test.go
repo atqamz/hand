@@ -420,7 +420,7 @@ func TestUploadsShowProgressAndRemovingOneAbortsIt(t *testing.T) {
 	contains(t, "progress", progress, "job.bar.value = e.loaded / (e.total || 1);", "job.sub.textContent = `${human(job.loaded)} of ${human(job.size)}`;")
 	lacks(t, "progress", progress, "render(")
 	lacks(t, "app.js", js, "fetch(`${base}/supervisor/image`")
-	if strings.Count(js, "busy(1)") != 1 || strings.Count(js, "busy(-1)") != 1 {
+	if strings.Count(js, "busy(1)") != 1 || strings.Count(js, "busy(-1)") != 1 || strings.Count(js, "busy(") != 4 {
 		t.Fatal("each upload must take and release the attaching state once, the release in loadend")
 	}
 }
@@ -457,6 +457,27 @@ func TestTheTextBoxHoldsOnlyTheOperatorsProse(t *testing.T) {
 		"e.formData.set(\"text\", (prose && !prose.endsWith(\"\\n\") ? `${prose}\\n` : prose) + sending.map((l) => `${l}\\n`).join(\"\"));",
 		"attached = attached.filter((l) => !sending.includes(l));")
 	lacks(t, "app.js", js, "text.value = [", "text.value = head + insert", "const at = text.selectionEnd")
+}
+
+func TestASuccessfulSendDropsTheFilesItCarriedEvenWhenTheBoxWasEdited(t *testing.T) {
+	js := asset(t, "app.js")
+	success, failure, _ := strings.Cut(js, "if (res.status === 409")
+	i := strings.Index(success, `if (box && !edited) forget(box);`)
+	sent := strings.Index(success, `if (form.id === "composer") form.dispatchEvent(new Event("sent"));`)
+	if i < 0 || sent < i || strings.Contains(failure[:strings.Index(failure, "});")], `new Event("sent")`) {
+		t.Fatal("only a successful send, edited or not, may tell the composer which files went")
+	}
+	contains(t, "sent", listener(t, js, `draft.addEventListener("sent", () => {`), "attached = attached.filter((l) => !sending.includes(l));", "keep();", "render();")
+	lacks(t, "app.js", js, `draft.addEventListener("reset"`)
+}
+
+func TestSendWaitsWhileRestoredFilesAreChecked(t *testing.T) {
+	js := asset(t, "app.js")
+	hold, check, release := strings.Index(js, "if (stored.length) busy(stored.length);"), strings.Index(js, `{ method: "HEAD", credentials: "same-origin" }`), strings.Index(js, ").then((here) => {\n\t\t\tif (stored.length) busy(-stored.length);")
+	if hold < 0 || check < hold || release < check {
+		t.Fatalf("restore order: hold %d, check %d, release %d", hold, check, release)
+	}
+	contains(t, "app.js", js, `if ("attaching" in form.dataset) {`)
 }
 
 func TestTheComposerWaitsForItsUploads(t *testing.T) {
