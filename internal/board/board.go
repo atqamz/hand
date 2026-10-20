@@ -197,7 +197,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		q := r.URL.Query()
 		q.Del("token")
-		next := b.o.Base + r.URL.Path
+		next := b.o.Base + r.URL.EscapedPath()
 		if len(q) > 0 {
 			next += "?" + q.Encode()
 		}
