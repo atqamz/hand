@@ -203,6 +203,7 @@ jobs:
           '@
           $session = @'
           $probe = { "$ErrorActionPreference $ProgressPreference $(try { $null = $notSet; 'loose' } catch { 'strict' }) [$Version$Edge$Dir$Base$TimeoutSec]" }
+          $Version = $Edge = $Dir = $Base = $TimeoutSec = 'x'
           $before = & $probe
           irm "$env:HAND_INSTALL_BASE/install.ps1" | iex
           "session $(Get-ExecutionPolicy) before [$before] after [$(& $probe)]"
@@ -225,7 +226,7 @@ jobs:
               if (@($user).Count -ne 1) { throw "${shell}: user PATH holds $(@($user).Count) entries for $dir" }
               $bad = Join-Path $env:RUNNER_TEMP 'Hand Bad\bin'
               $policy = if ($shell -eq 'powershell') { 'Restricted' } else { 'RemoteSigned' }
-              $kept = "session $policy before \[Continue Continue loose \[\]\] after \[Continue Continue loose \[\]\]"
+              $kept = "session $policy before \[Continue Continue loose \[xxxxx\]\] after \[Continue Continue loose \[xxxxx\]\]"
               $piped = Join-Path $env:RUNNER_TEMP "Hand Piped $shell\bin"
               $env:HAND_INSTALL_DIR = $piped
               $env:HAND_INSTALL_BASE = $base
