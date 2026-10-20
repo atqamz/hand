@@ -111,7 +111,7 @@ On Windows, run this in PowerShell; [Windows](#windows) has the options:
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-Releases after v0.11.0 and the edge build carry a signed build attestation. To check who built a download: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` (the GitHub CLI, signed in with `gh auth login`). The installers and `hand update` do not check it.
+Releases after v0.11.0 and the edge build also get a signed build attestation, best effort: a failed signing does not hold back the release. To check who built a download: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` (the GitHub CLI, signed in with `gh auth login`). If it fails, treat the download as unverified. The installers and `hand update` do not check it.
 
 To update an installed Hand, run `hand update` from anywhere. It does the following:
 - downloads the newest build of the channel the running `hand` came from, and checks it;
