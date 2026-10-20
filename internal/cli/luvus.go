@@ -179,8 +179,10 @@ func (r *runner) serverFields(d *toon.Doc, session string, pin luvus.Pin, pinned
 	if match != "no" {
 		return nil
 	}
-	return []string{"At a quiet time run `hand update` from a plain terminal; it stops the server of a quiet fleet, and the next hand command starts the pinned copy"}
+	return []string{serverSwitchHint}
 }
+
+const serverSwitchHint = "At a quiet time run `hand update` from a plain terminal; it stops the server of a quiet fleet, and the next hand command starts the pinned copy"
 
 func pinLabel(p luvus.Pin, ok bool) string {
 	if !ok {

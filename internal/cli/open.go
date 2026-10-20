@@ -179,15 +179,26 @@ func folderOf(path string) string {
 }
 
 func boardAddr(ctx context.Context, root, id, token string) (string, error) {
-	b, err := os.ReadFile(filepath.Join(root, "board.addr"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("%w: no board is running; %s", state.ErrNotFound, boardHint)
-	}
+	nonce := rand.Text()
+	addr, proof, err := askBoard(ctx, root, id, nonce)
 	if err != nil {
 		return "", err
 	}
+	if !hmac.Equal([]byte(proof), []byte(board.Proof(token, nonce))) {
+		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrConflict, addr, boardHint)
+	}
+	return addr, nil
+}
+
+func askBoard(ctx context.Context, root, id, nonce string) (string, string, error) {
+	b, err := os.ReadFile(filepath.Join(root, "board.addr"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", fmt.Errorf("%w: no board is running; %s", state.ErrNotFound, boardHint)
+	}
+	if err != nil {
+		return "", "", err
+	}
 	addr := strings.TrimSpace(string(b))
-	nonce := rand.Text()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	proof := ""
@@ -201,12 +212,9 @@ func boardAddr(ctx context.Context, root, id, token string) (string, error) {
 		}
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrNotFound, addr, boardHint)
+		return "", "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrNotFound, addr, boardHint)
 	}
-	if !hmac.Equal([]byte(proof), []byte(board.Proof(token, nonce))) {
-		return "", fmt.Errorf("%w: no board for this fleet answers at %s; %s", state.ErrConflict, addr, boardHint)
-	}
-	return addr, nil
+	return addr, proof, nil
 }
 
 func (r *runner) launch(url, shown, yourself string) error {
