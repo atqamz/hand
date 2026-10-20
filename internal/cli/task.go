@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -98,6 +101,19 @@ func cmdTaskShow(r *runner, args []string) error {
 	} else {
 		d.Field("report", state.ReportRef(rep.ID)+" "+rep.Status)
 	}
+	reports, err := st.Reports(context.Background(), state.ReportFilter{TaskID: id}, 20)
+	if err != nil {
+		return err
+	}
+	events, err := st.DeliveredEvents(context.Background(), id)
+	if err != nil {
+		return err
+	}
+	var delivered [][]string
+	for _, dl := range board.Newest(reports, events) {
+		delivered = append(delivered, []string{dl.Kind, dl.Ref})
+	}
+	d.Rows("delivered", []string{"kind", "ref"}, delivered)
 	ds, err := st.Decisions(context.Background(), id, 20)
 	if err != nil {
 		return err
@@ -179,9 +195,29 @@ func cmdTaskList(r *runner, args []string) error {
 
 func transitionCommand(name, to string) handler {
 	return func(r *runner, args []string) error {
-		pos, err := parse(flags("task "+name), args, 1)
-		if err != nil {
-			return err
+		fs := flags("task " + name)
+		var delivered []string
+		if to == state.StatusDone {
+			fs.Func("deliverable", "a file or link the supervisor produced: an http(s) URL or an absolute path; repeat for each", func(ref string) error {
+				if board.DeliverableKind(ref) == "" {
+					return errors.New("want an http(s) URL or an absolute path")
+				}
+				delivered = append(delivered, ref)
+				return nil
+			})
+		}
+		if err := fs.Parse(args); err != nil {
+			return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+		}
+		pos := fs.Args()
+		if len(pos) > 0 {
+			if err := fs.Parse(pos[1:]); err != nil {
+				return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+			}
+			pos = append(pos[:1:1], fs.Args()...)
+		}
+		if len(pos) != 1 {
+			return usageError{fmt.Sprintf("%s: want 1 argument(s) after flags, got %d", fs.Name(), len(pos))}
 		}
 		id, err := parseID("t", pos[0])
 		if err != nil {
@@ -192,13 +228,19 @@ func transitionCommand(name, to string) handler {
 			return err
 		}
 		defer st.Close()
-		t, err := st.Transition(context.Background(), id, to)
+		t, err := st.Transition(context.Background(), id, to, delivered...)
 		if err != nil {
+			if len(delivered) > 0 {
+				err = fmt.Errorf("%w; no deliverable was recorded", err)
+			}
 			return err
 		}
 		var d toon.Doc
 		d.Field("task", state.TaskRef(t.ID))
 		d.Field("status", t.Status)
+		if len(delivered) > 0 {
+			d.List("delivered", delivered)
+		}
 		return r.print(&d)
 	}
 }

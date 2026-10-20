@@ -44,6 +44,9 @@ func newOpenFixture(t *testing.T) *openFixture {
 		h.ok("task", "add", "hand", "Deliverable task")
 		h.ok("task", "start", "t"+strconv.Itoa(i+3))
 	}
+	h.ok("task", "add", "hand", "Supervisor deliverable")
+	h.ok("task", "start", "t7")
+	h.ok("task", "done", "--deliverable", "https://docs.example.com/supervisor", "--deliverable", filepath.Join(dir, "brief.pdf"), "t7")
 	st, err := state.Open(filepath.Join(h.home, "hand.db"), func() time.Time { return h.now })
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +174,7 @@ func TestOpenDelivered(t *testing.T) {
 		{[]string{"t3", "--delivered"}, fx.dir},
 		{[]string{"t4", "--delivered"}, `C:\Users\me\out`},
 		{[]string{"t5", "--delivered"}, fx.dir},
+		{[]string{"t7", "--delivered"}, fx.dir},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t)
@@ -187,6 +191,7 @@ func TestOpenDelivered(t *testing.T) {
 		{"t1", "url", "https://github.com/atqamz/hand/pull/42"},
 		{"t3", "path", filepath.Join(fx.dir, "notes.md")},
 		{"t4", "path", `C:\Users\me\out\report.docx`},
+		{"t7", "path", filepath.Join(fx.dir, "brief.pdf")},
 	} {
 		if out := fx.h.ok("open", "--print", "--delivered", c.ref); field(out, c.key) != c.want {
 			t.Fatalf("open --print --delivered %s = %q, want %s %q", c.ref, out, c.key, c.want)

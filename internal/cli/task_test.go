@@ -1,8 +1,14 @@
 package cli_test
 
 import (
+	"context"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/atqamz/hand/internal/state"
 )
 
 func initWithProject(t *testing.T) *harness {
@@ -38,6 +44,86 @@ func TestRepeatedTransitionIsRefusedWithExit3(t *testing.T) {
 	_, errOut, code := h.run("task", "done", "t1")
 	if code != 3 || !strings.Contains(errOut, "task t1 is done and cannot become done") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestTaskDoneRecordsDeliverables(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Build the brief")
+	h.ok("task", "start", "t1")
+	for _, bad := range []string{"notes/a.md", "./a.md", "~/a.md", "", " /tmp/a.pdf", "file:///tmp/a.pdf", "ftp://example.com/a", "mailto:a@b.c", "//host/share/a", "https://example.com/a b", "https://"} {
+		for _, args := range [][]string{{"--deliverable", "/tmp/ok.pdf", "--deliverable", bad, "t1"}, {"--deliverable", "/tmp/ok.pdf", "t1", "--deliverable", bad}} {
+			_, errOut, code := h.run(append([]string{"task", "done"}, args...)...)
+			if code != 2 || !strings.Contains(errOut, "invalid value "+strconv.Quote(bad)+" for flag -deliverable") {
+				t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+			}
+		}
+	}
+	for _, args := range [][]string{{"t1", "t2"}, {"t1", "--deliverable", "/tmp/a", "t2"}, {"--deliverable", "/tmp/a"}} {
+		if _, errOut, code := h.run(append([]string{"task", "done"}, args...)...); code != 2 || !strings.Contains(errOut, "task done: want 1 argument(s) after flags") {
+			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
+		}
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: active") || !strings.Contains(show, "delivered[0]{kind,ref}:") {
+		t.Fatalf("a rejected value changed the task: %q", show)
+	}
+	out := h.ok("task", "done", "--deliverable", `C:\Users\me\out\brief.docx`, "--deliverable", `\\server\share\brief.md`, "t1", "--deliverable", "/tmp/brief.pdf", "--deliverable", "https://docs.example.com/brief")
+	if !strings.Contains(out, "status: done") || !strings.Contains(out, "delivered[4]:\n") || !strings.Contains(out, "  - https://docs.example.com/brief\n") {
+		t.Fatalf("task done = %q", out)
+	}
+	want := "delivered[4]{kind,ref}:\n" + `  link,"https://docs.example.com/brief"` + "\n  file,/tmp/brief.pdf\n" + `  file,\\server\share\brief.md` + "\n" + `  file,"C:\\Users\\me\\out\\brief.docx"` + "\n"
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, want) {
+		t.Fatalf("task show = %q, want %q", show, want)
+	}
+	_, errOut, code := h.run("task", "done", "--deliverable", "/tmp/late.pdf", "t1")
+	if code != 3 || !strings.Contains(errOut, "task t1 is done and cannot become done; no deliverable was recorded") {
+		t.Fatalf("done again: code=%d stderr=%q", code, errOut)
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, want) || strings.Contains(show, "late.pdf") {
+		t.Fatalf("done again changed the deliverables: %q", show)
+	}
+	h.ok("task", "add", "hand", "Drop it")
+	if _, errOut, code := h.run("task", "abandon", "--deliverable", "/tmp/x", "t2"); code != 2 || !strings.Contains(errOut, "-deliverable") {
+		t.Fatalf("abandon --deliverable: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestDeliverablesAreNewestFirstAcrossReportsAndDone(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Mixed")
+	h.ok("task", "start", "t1")
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: 1, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.AddReport(ctx, a.ID, state.ReportDone, "Done.\nDelivered: https://github.com/atqamz/hand/pull/7\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptExited, "terminal exited"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AckReport(ctx, r.ID, "supervisor"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.advance(time.Minute)
+	h.ok("task", "done", "--deliverable", "/tmp/brief.pdf", "t1")
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "delivered[2]{kind,ref}:\n  file,/tmp/brief.pdf\n  PR,\"https://github.com/atqamz/hand/pull/7\"\n") {
+		t.Fatalf("task show = %q", show)
+	}
+	if out := h.ok("open", "--print", "--delivered", "t1"); field(out, "path") != "/tmp/brief.pdf" {
+		t.Fatalf("open --print --delivered = %q", out)
 	}
 }
 
