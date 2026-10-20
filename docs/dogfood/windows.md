@@ -23,7 +23,7 @@ Which checks differ:
 
 ## Checks
 
-The order is by risk, riskiest first, as the README lists them. `W0` comes first because every other check needs it.
+The order is by risk, riskiest first. `W0` comes first because every other check needs it.
 
 | ID | Check | Proves, in the Platform support table | Run | Real sessions |
 |---|---|---|---|---|

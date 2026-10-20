@@ -8,7 +8,7 @@ In each check, **Run** says whether an agent can run it to the end (`agent`) or 
 
 ## Checks
 
-The order is by risk, riskiest first, as the README lists them. `M0` comes first because every other check needs it.
+The order is by risk, riskiest first. `M0` comes first because every other check needs it.
 
 | ID | Check | Proves, in the Platform support table | Run | Real sessions |
 |---|---|---|---|---|
