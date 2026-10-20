@@ -27,7 +27,7 @@
 </div>
 <aside class="task-side">
 {{with .Card.Delivered}}<h3>Delivered</h3>
-<ul class="delivered">{{range .}}<li>{{template "deliverable" .}}<span class="url">{{.Ref}}</span></li>{{end}}</ul>
+<ul class="delivered">{{range .}}<li>{{template "deliverable" .}}{{if .Href}}<a class="url" href="{{.Href}}" tabindex="-1" target="_blank" rel="noopener">{{.Ref}}</a>{{else}}<span class="url">{{.Ref}}</span>{{end}}</li>{{end}}</ul>
 {{end}}<h3>Attempts</h3>
 {{with .Attempts}}<ol class="checks attempts">{{range .}}<li class="row check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<span class="ref">{{attempt .Attempt.ID}}</span> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}{{with .Attempt.Continues}} · continues {{attempt .}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
 {{else}}<p class="quiet">No attempts yet.</p>

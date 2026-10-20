@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -88,22 +89,23 @@ func TestTaskCardChipsByKind(t *testing.T) {
 }
 
 func TestPathChipIsEscapedText(t *testing.T) {
-	st := open(t)
-	ctx := context.Background()
-	task := active(t, st, "Odd path")
-	a := attempt(t, st, task.ID, state.AttemptRunning, "")
-	if _, err := st.AddReport(ctx, a.ID, state.ReportProgress, `Delivered: /tmp/a<b&c"d.md`); err != nil {
-		t.Fatal(err)
-	}
-	h := board.New(st, token, board.Options{})
-	for _, page := range []string{get(t, h, "/task/t1"), checks(get(t, h, "/"))["t1"]} {
-		for _, want := range []string{`title="/tmp/a&lt;b&amp;c&#34;d.md"`, `file: a&lt;b&amp;c&#34;d.md</span>`} {
-			if !strings.Contains(page, want) {
-				t.Fatalf("page lacks %q:\n%s", want, page)
-			}
+	home := fleetFolder(t, map[string]string{"reports/a&b'c.md": "x"})
+	odd := filepath.Join(home, "reports", "a&b'c.md")
+	for _, c := range []struct{ name, ref, want, not string }{
+		{"outside", `/tmp/a<b&c"d.md`, `<span class="file" title="/tmp/a&lt;b&amp;c&#34;d.md">file: a&lt;b&amp;c&#34;d.md</span>`, "a<b"},
+		{"missing", filepath.Join(home, `gone<b&c"d.md`), `<span class="file" title="` + filepath.Join(home, "gone&lt;b&amp;c&#34;d.md") + `">file: gone&lt;b&amp;c&#34;d.md</span>`, "gone<b"},
+		{"inside", odd, `<a class="file" href="/doc/reports/a&amp;b%27c.md" title="` + filepath.Join(home, "reports", "a&amp;b&#39;c.md") + `" target="_blank" rel="noopener">file: a&amp;b&#39;c.md</a>`, "a&b'c"},
+	} {
+		st := open(t)
+		task := active(t, st, "Odd path")
+		a := attempt(t, st, task.ID, state.AttemptRunning, "")
+		if _, err := st.AddReport(context.Background(), a.ID, state.ReportProgress, "Delivered: "+c.ref); err != nil {
+			t.Fatal(err)
 		}
-		if strings.Contains(page, "a<b") || strings.Contains(page, `href="/tmp`) {
-			t.Fatalf("path chip is not escaped text:\n%s", page)
+		h := board.New(st, token, board.Options{Home: home})
+		for _, page := range []string{get(t, h, "/task/t1"), checks(get(t, h, "/"))["t1"]} {
+			contains(t, c.name, page, c.want)
+			lacks(t, c.name, page, c.not, `href="/tmp`, `href="`+home)
 		}
 	}
 }
@@ -158,9 +160,9 @@ func TestLongPathChipStaysOnTheMetaLine(t *testing.T) {
 	}
 }
 
-func TestFileChipIsPlainCappedText(t *testing.T) {
+func TestFileChipIsCappedTextAndALinkInsideTheFleet(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, ".file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}")
+	contains(t, "board.css", css, ".file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}", "a.file,.delivered a.url{color:var(--accent)}")
 	lacks(t, "board.css", css, "min(100%,32ch)", ".archive .task-row{")
 }
 

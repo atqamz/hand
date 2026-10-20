@@ -1,0 +1,10 @@
+{{define "doc.html"}}{{template "head" .}}{{template "top" .}}<main class="thread doc" data-region="doc">
+<header class="thread-head">
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a>{{range .Crumbs}} / <a href="{{.Href}}">{{.Name}}</a>{{end}}</p>
+<h2 class="thread-title">{{.Name}}{{if .Folder}}/{{end}}</h2>
+<p class="slug"><span class="doc-path">{{.Path}}</span>{{with .Size}}<span class="meta">{{.}}</span>{{end}}<time datetime="{{.At}}">{{when .At}}</time>{{with .Download}}<a class="doc-download" href="{{.}}">Download</a>{{end}}</p>
+</header>
+<hr class="rule">
+{{with .Notice}}<p class="doc-notice">{{.}}</p>{{end}}{{with .Body}}<article class="doc-body copy md">{{.}}</article>{{end}}{{with .Plain}}<div class="doc-body md"><pre><code>{{.}}</code></pre></div>{{end}}{{if .Folder}}<ul class="listing">{{range .Entries}}<li><a href="{{.Href}}">{{if .Image}}<img src="{{.Href}}" alt="" loading="lazy">{{else}}<span class="badge" aria-hidden="true">{{.Kind}}</span>{{end}}<span class="name">{{.Name}}{{if .Dir}}/{{end}}</span><span class="meta">{{with .Size}}{{.}} · {{end}}<time datetime="{{.At}}">{{when .At}}</time></span></a></li>{{else}}<li class="quiet">This folder is empty.</li>{{end}}</ul>{{with .More}}<p class="more">{{.}} more {{if eq . 1}}entry is{{else}}entries are{{end}} not listed.</p>{{end}}{{end}}
+</main>
+{{template "foot"}}{{end}}

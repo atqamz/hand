@@ -482,7 +482,7 @@ func (b *Board) deliverables(ctx context.Context, tasks []state.Task) (map[int64
 	out := map[int64]Deliverable{}
 	for _, id := range ids {
 		if found := Newest(byReport[id], byEvent[id]); len(found) > 0 {
-			out[id] = found[0]
+			out[id] = b.linked(found[:1])[0]
 		}
 	}
 	return out, nil

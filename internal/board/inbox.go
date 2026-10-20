@@ -49,6 +49,13 @@ func clipName(name string) string {
 	return strings.TrimRight(name[:maxName-len(ext)], ".") + ext
 }
 
+func fileKind(name string) string {
+	if ext := strings.TrimPrefix(filepath.Ext(name), "."); ext != "" && len(ext) <= 4 {
+		return strings.ToUpper(ext)
+	}
+	return "FILE"
+}
+
 func isImage(name string) bool {
 	_, ok := shotTypes[filepath.Ext(name)]
 	return ok
@@ -182,10 +189,7 @@ func shots(text, home string) (string, []attachment) {
 	for _, line := range strings.Split(text, "\n") {
 		if m := shotLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
 			if dir, name := filepath.Split(m[2]); filepath.Clean(dir) == inbox && shotName.MatchString(name) {
-				a := attachment{Name: name, Label: label(name), Path: m[2], Image: isImage(name), Kind: "FILE"}
-				if ext := strings.TrimPrefix(filepath.Ext(a.Label), "."); ext != "" && len(ext) <= 4 {
-					a.Kind = strings.ToUpper(ext)
-				}
+				a := attachment{Name: name, Label: label(name), Path: m[2], Image: isImage(name), Kind: fileKind(label(name))}
 				if fi, err := os.Lstat(filepath.Join(inbox, name)); err == nil && fi.Mode().IsRegular() {
 					a.Size = size(fi.Size())
 				} else {

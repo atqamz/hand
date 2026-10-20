@@ -165,6 +165,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /supervisor/send", b.send)
 	b.mux.HandleFunc("POST /supervisor/image", b.image)
 	b.mux.HandleFunc("GET /inbox/{name}", b.inbox)
+	b.mux.HandleFunc("GET /doc/{path...}", b.doc)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
 	b.mux.HandleFunc("GET /tasks", b.archive)
@@ -547,7 +548,7 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	if err != nil {
 		return c, err
 	}
-	c.Delivered = Newest(reports, events)
+	c.Delivered = b.linked(Newest(reports, events))
 	if len(reports) > 0 {
 		c.Report = &reports[len(reports)-1]
 	}

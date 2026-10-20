@@ -94,7 +94,7 @@ func TestTimelineCommentsAndEvents(t *testing.T) {
 
 func TestTheWholeTaskRowIsTheLink(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "board.css", css, ".task-row{position:relative;min-height:48px}", `.task-row .check-title::after{content:"";position:absolute;inset:0}`, ".task-row :is(.ref,.badge){position:relative;z-index:1}", ".check-sub{display:flex;align-items:baseline;gap:8px;min-width:0}", ".check-sub .meta{min-width:0}", ".check-sub :is(.badge,.file){flex:none;max-width:24ch}", ".row{display:flex;align-items:center;gap:8px;")
+	contains(t, "board.css", css, ".task-row{position:relative;min-height:48px}", `.task-row .check-title::after{content:"";position:absolute;inset:0}`, ".task-row :is(.ref,.badge,a.file){position:relative;z-index:1}", ".check-sub{display:flex;align-items:baseline;gap:8px;min-width:0}", ".check-sub .meta{min-width:0}", ".check-sub :is(.badge,.file){flex:none;max-width:24ch}", ".row{display:flex;align-items:center;gap:8px;")
 }
 
 func TestAttemptRowsKeepTheirOwnLayout(t *testing.T) {

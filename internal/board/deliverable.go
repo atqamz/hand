@@ -13,6 +13,7 @@ import (
 type Deliverable struct {
 	Ref  string
 	Kind string
+	Href string
 }
 
 var (
@@ -26,7 +27,7 @@ func Deliverables(body string) []Deliverable {
 	var out []Deliverable
 	add := func(ref string) {
 		if kind := DeliverableKind(ref); kind != "" && !slices.ContainsFunc(out, func(d Deliverable) bool { return d.Ref == ref }) {
-			out = append(out, Deliverable{ref, kind})
+			out = append(out, Deliverable{Ref: ref, Kind: kind})
 		}
 	}
 	lines := deliveredLine.FindAllStringSubmatch(body, -1)
@@ -54,7 +55,7 @@ func Newest(reports []state.Report, events []state.Event) []Deliverable {
 	}
 	for _, e := range events {
 		if kind := DeliverableKind(e.Detail); kind != "" {
-			all = append(all, dated{parse(e.At), Deliverable{e.Detail, kind}})
+			all = append(all, dated{parse(e.At), Deliverable{Ref: e.Detail, Kind: kind}})
 		}
 	}
 	slices.SortStableFunc(all, func(x, y dated) int { return x.at.Compare(y.at) })
