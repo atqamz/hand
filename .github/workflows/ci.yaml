@@ -169,6 +169,10 @@ jobs:
           Remove-Item hand.exe
           $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
           Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$hash  hand-windows-amd64.zip" -Encoding ascii
+          $edge = Join-Path $root 'download\edge'
+          New-Item -ItemType Directory -Path $edge | Out-Null
+          Copy-Item -Path (Join-Path $rel '*') -Destination $edge
+          Copy-Item -LiteralPath install.ps1 -Destination $root
             $redirector = Join-Path $env:RUNNER_TEMP 'redirect.py'
             Set-Content -Path $redirector -Encoding ascii -Value @'
           import functools, http.server, sys
@@ -213,10 +217,30 @@ jobs:
               if (Get-ChildItem -LiteralPath $dir -Filter '.hand.exe.*.part' -Force) { throw "${shell}: install.ps1 left a temporary file behind" }
               $user = [Environment]::GetEnvironmentVariable('Path', 'User').Split(';') | Where-Object { $_.TrimEnd('\') -eq $dir }
               if (@($user).Count -ne 1) { throw "${shell}: user PATH holds $(@($user).Count) entries for $dir" }
-              Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
               $bad = Join-Path $env:RUNNER_TEMP 'Hand Bad\bin'
+              $piped = Join-Path $env:RUNNER_TEMP "Hand Piped $shell\bin"
+              $env:HAND_INSTALL_DIR = $piped
+              $env:HAND_INSTALL_BASE = $base
+              & $shell -NoProfile -ExecutionPolicy Restricted -Command "irm $base/install.ps1 | iex"
+              if ($LASTEXITCODE) { throw "${shell}: irm | iex exited with $LASTEXITCODE" }
+              if (-not (Test-Path -LiteralPath (Join-Path $piped 'hand.exe'))) { throw "${shell}: irm | iex did not install into HAND_INSTALL_DIR" }
+              $block = Join-Path $env:RUNNER_TEMP "Hand Block $shell\bin"
+              $env:HAND_INSTALL_DIR = $bad
+              $env:HAND_INSTALL_BASE = 'http://127.0.0.1:1'
+              $env:HAND_INSTALL_VERSION = 'v0.0.0'
+              $command = "& ([scriptblock]::Create((irm $base/install.ps1))) -Edge -Dir '$block' -Base $base"
+              & $shell -NoProfile -ExecutionPolicy Restricted -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command)))
+              if ($LASTEXITCODE) { throw "${shell}: the scriptblock with switches exited with $LASTEXITCODE" }
+              if (-not (Test-Path -LiteralPath (Join-Path $block 'hand.exe')) -or (Test-Path -LiteralPath (Join-Path $bad 'hand.exe'))) { throw "${shell}: the switches did not override the environment" }
+              Remove-Item env:HAND_INSTALL_VERSION
+              Set-Content -Path (Join-Path $rel 'hand-windows-amd64.sha256') -Value "$('0' * 64)  hand-windows-amd64.zip" -Encoding ascii
+              $env:HAND_INSTALL_BASE = $base
+              $console = 'Set-StrictMode -Version Latest', "irm $base/install.ps1 | iex", '"alive $ErrorActionPreference"' | & $shell -NoProfile -ExecutionPolicy Restricted -Command - 2>&1 | Out-String
+              Remove-Item env:HAND_INSTALL_DIR, env:HAND_INSTALL_BASE
+              if ($console -notmatch 'install\.ps1: checksum mismatch' -or $console -notmatch 'alive Continue') { throw "${shell}: irm | iex on a wrong checksum did not throw and keep the console: $console" }
+              if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: irm | iex installed after a checksum mismatch" }
               & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base $base
-              if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 accepted a wrong checksum" }
+              if ($LASTEXITCODE -ne 1) { throw "${shell}: install.ps1 exited with $LASTEXITCODE on a wrong checksum" }
               if (Test-Path -LiteralPath (Join-Path $bad 'hand.exe')) { throw "${shell}: install.ps1 installed after a checksum mismatch" }
               & $shell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Dir $bad -Base 'http://example.com/releases'
               if (-not $LASTEXITCODE) { throw "${shell}: install.ps1 accepted a remote http base" }

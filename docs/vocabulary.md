@@ -58,7 +58,7 @@ Where a `hand` binary comes from. `hand version` prints it next to the version a
 - `edge`: the rolling build of `main` that passed CI, published as the `edge` pre-release;
 - `stable`: the binaries attached to a `vX.Y.Z` release.
 
-`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`. On Windows, `install.ps1` does the same with `-Edge` or `-Version`, from `hand-windows-amd64.zip` and its `.sha256`. `hand update` stays on the channel of the running binary, and `hand update --channel edge|stable` moves to the other one.
+`install.sh` installs stable by default, and edge with `HAND_INSTALL_VERSION=edge`. On Windows, `install.ps1` does the same, also with `-Edge` or `-Version`, from `hand-windows-amd64.zip` and its `.sha256`. `hand update` stays on the channel of the running binary, and `hand update --channel edge|stable` moves to the other one.
 
 ### Update
 

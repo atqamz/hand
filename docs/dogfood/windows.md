@@ -110,7 +110,9 @@ Get-Command bash -All -ErrorAction SilentlyContinue | Select-Object Source
 **5.** Install the latest release into the folder. `install.ps1` also adds that folder to your user `PATH` for good: the Teardown removes it. Put the folder first in this shell, so that this copy is the one that runs:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1))) -Dir "$D\bin"
+$env:HAND_INSTALL_DIR = "$D\bin"
+irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
+Remove-Item Env:HAND_INSTALL_DIR
 $env:Path = "$D\bin;$env:Path"
 (Get-Command hand).Source; hand version
 ```

@@ -103,6 +103,12 @@ You can choose another version:
 
 `HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
 
+On Windows, run this in PowerShell; [Windows](#windows) has the options:
+
+```powershell
+irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
+```
+
 To update an installed Hand, run `hand update` from anywhere. It does the following:
 - downloads the newest build of the channel the running `hand` came from, and checks it;
 - backs up every fleet's `hand.db` and the old binary under `~/.secondhand/backups/`;
@@ -161,18 +167,28 @@ Native Windows is supported, without WSL. It has run in CI and not yet on a real
 Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or newer. No admin rights are needed:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1)))
+irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
 The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. Open a new terminal afterwards.
 
-The options go after the command, as in `... -Edge`:
-- `-Edge`: the rolling build of `main` that passed CI;
-- `-Version v0.11.0`: a pinned release;
-- `-Dir PATH`: the folder, which may contain spaces.
-- `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300).
+Set the options as environment variables before the command, as in `$env:HAND_INSTALL_VERSION = 'edge'; irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex`:
+- `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.11.0`;
+- `HAND_INSTALL_DIR`: the folder, which may contain spaces;
+- `HAND_INSTALL_BASE`: the releases URL, as in `install.sh`.
 
-`HAND_INSTALL_VERSION`, `HAND_INSTALL_DIR` and `HAND_INSTALL_BASE` set the same defaults as in `install.sh`.
+They stay set in that PowerShell window until you close it.
+
+Or pass them as switches, which win over the variables:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1))) -Edge
+```
+
+- `-Edge`, or `-Version v0.11.0`;
+- `-Dir PATH`;
+- `-Base URL`;
+- `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300). It has no variable.
 
 Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` set to the same, so a worker's git inherits it unless you already set `GIT_CONFIG_COUNT`. A Luvus server you started yourself does not have it. For the git you run and as a fallback, allow long paths once:
 
