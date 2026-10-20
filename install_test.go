@@ -190,11 +190,37 @@ func TestInstallScriptWorksWithBusyboxSha256sum(t *testing.T) {
 
 func TestInstallScriptRefusesOtherPlatforms(t *testing.T) {
 	srv := fakeRelease(t, "9.9.9", nil)
-	if _, _, errOut, code := runInstall(t, srv, nil, "FreeBSD", "amd64"); code == 0 || !strings.Contains(errOut, "install.sh: Hand runs on Linux and macOS only") {
+	if _, _, errOut, code := runInstall(t, srv, nil, "FreeBSD", "amd64"); code == 0 || !strings.Contains(errOut, "install.sh: Hand runs on Linux, macOS and Windows only") {
 		t.Fatalf("freebsd: code %d %q", code, errOut)
 	}
 	if _, _, errOut, code := runInstall(t, srv, nil, "Linux", "s390x"); code == 0 || !strings.Contains(errOut, "install.sh: unsupported architecture s390x") {
 		t.Fatalf("s390x: code %d %q", code, errOut)
+	}
+}
+
+func TestInstallScriptPointsWindowsShellsToInstallPs1(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", nil)
+	for _, system := range []string{"MINGW64_NT-10.0-26100", "MSYS_NT-10.0-26100", "CYGWIN_NT-10.0-26100"} {
+		dir, _, errOut, code := runInstall(t, srv, nil, system, "x86_64")
+		if code == 0 || !strings.Contains(errOut, "install.sh: on Windows, run install.ps1 in PowerShell instead: see https://github.com/atqamz/hand#windows") || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d %q, installed %q", system, code, errOut, installed(t, dir))
+		}
+	}
+	if len(srv.asked()) != 0 {
+		t.Fatalf("asked %q", srv.asked())
+	}
+}
+
+func TestInstallScriptHintsAFolderMissingFromPath(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", nil)
+	dir, out, errOut, code := runInstall(t, srv, nil, "Linux", "x86_64")
+	if want := dir + ` is not on PATH; add this line to your shell profile: export PATH="` + dir + `:$PATH"` + "\n"; code != 0 || !strings.HasSuffix(out, want) {
+		t.Fatalf("off PATH: code %d %q, out %q", code, errOut, out)
+	}
+	on := t.TempDir()
+	_, out, errOut, code = runInstall(t, srv, map[string]string{"HAND_INSTALL_DIR": on, "PATH": "/usr/bin:" + on + ":" + os.Getenv("PATH")}, "Linux", "x86_64")
+	if code != 0 || out != "installed hand version: 9.9.9 to "+filepath.Join(on, "hand")+"\n" {
+		t.Fatalf("on PATH: code %d %q, out %q", code, errOut, out)
 	}
 }
 

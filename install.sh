@@ -13,7 +13,8 @@ die() {
 case "$(uname -s)" in
 Linux) os=linux ;;
 Darwin) os=darwin ;;
-*) die "Hand runs on Linux and macOS only" ;;
+MINGW* | MSYS* | CYGWIN*) die "on Windows, run install.ps1 in PowerShell instead: see https://github.com/atqamz/hand#windows" ;;
+*) die "Hand runs on Linux, macOS and Windows only" ;;
 esac
 machine=$(uname -m)
 case "$machine" in
@@ -56,3 +57,7 @@ chmod 0755 "$part"
 mv -f "$part" "$dir/hand"
 part=""
 printf 'installed hand %s to %s\n' "$("$dir/hand" version | head -n 1)" "$dir/hand"
+case ":$PATH:" in
+*":$dir:"*) ;;
+*) printf "%s is not on PATH; add this line to your shell profile: export PATH=\"%s:\$PATH\"\n" "$dir" "$dir" ;;
+esac
