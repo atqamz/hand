@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -72,16 +73,18 @@ func Resolve(home, rel string) (root, real string, fi fs.FileInfo, err error) {
 	return root, real, fi, nil
 }
 
-func openSame(root, real string, fi fs.FileInfo) (*os.File, error) {
+func openSame(home, rel, root, real string) (*os.File, fs.FileInfo, error) {
 	f, err := os.OpenInRoot(root, real)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if got, err := f.Stat(); err != nil || !os.SameFile(fi, got) {
+	got, err := f.Stat()
+	_, again, now, rerr := Resolve(home, rel)
+	if err != nil || rerr != nil || again != real || !os.SameFile(got, now) {
 		f.Close()
-		return nil, errChanged
+		return nil, nil, errChanged
 	}
-	return f, nil
+	return f, got, nil
 }
 
 func docURL(base, rel string) string {
@@ -125,13 +128,14 @@ type entry struct {
 
 func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	root, real, fi, err := Resolve(b.o.Home, r.PathValue("path"))
+	root, real, _, err := Resolve(b.o.Home, r.PathValue("path"))
 	var f *os.File
+	var fi fs.FileInfo
 	if err == nil {
-		f, err = openSame(root, real, fi)
+		f, fi, err = openSame(b.o.Home, r.PathValue("path"), root, real)
 	}
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		b.fail(w, http.StatusNotFound, "there is no file or folder at this path")
 		return
 	case errors.Is(err, errChanged):

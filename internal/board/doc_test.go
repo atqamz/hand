@@ -221,6 +221,7 @@ func TestTraversalIsRefused(t *testing.T) {
 		{"/doc/reports%5C..%5Chand.db", http.StatusForbidden},
 		{"/doc/reports/t1/design.md%00.png", http.StatusForbidden},
 		{"/doc/reports/t1/missing.md", http.StatusNotFound},
+		{"/doc/reports/t1/design.md/x", http.StatusNotFound},
 	} {
 		rec := request(h, "GET", c.path, nil, true)
 		if rec.Code != c.code || strings.Contains(rec.Body.String(), secret) {
@@ -269,11 +270,11 @@ func TestABinaryNamedMdIsNotRendered(t *testing.T) {
 }
 
 func TestNamesWithSpacesAndUnicodeAreEscaped(t *testing.T) {
-	h, _ := viewer(t, map[string]string{"reports/t1/résumé notes.md": "# Notes\n", "reports/t1/a#b?c&d.txt": "odd\n", "reports/t 2/x.md": "x"})
+	h, _ := viewer(t, map[string]string{"reports/t1/résumé notes.md": "# Notes\n", "reports/t1/a#b c&d%20.txt": "odd\n", "reports/t 2/x.md": "x"})
 	listing := get(t, h, "/doc/reports/t1")
-	contains(t, "listing", listing, `href="/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md"`, `href="/doc/reports/t1/a%23b%3Fc&amp;d.txt"`, `<span class="name">a#b?c&amp;d.txt</span>`)
+	contains(t, "listing", listing, `href="/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md"`, `href="/doc/reports/t1/a%23b%20c&amp;d%2520.txt"`, `<span class="name">a#b c&amp;d%20.txt</span>`)
 	contains(t, "unicode", get(t, h, "/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md"), `<h2 class="thread-title">résumé notes.md</h2>`, `href="/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md?download"`)
-	contains(t, "odd", get(t, h, "/doc/reports/t1/a%23b%3Fc&d.txt"), "<pre><code>odd")
+	contains(t, "odd", get(t, h, "/doc/reports/t1/a%23b%20c&d%2520.txt"), "<pre><code>odd")
 	contains(t, "space in a folder", get(t, h, "/doc/reports/t%202/x.md"), `<a href="/doc/reports/t%202">t 2</a>`)
 }
 
