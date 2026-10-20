@@ -155,6 +155,42 @@ func TestTransitionRecordsEvent(t *testing.T) {
 	}
 }
 
+func TestDoneRecordsOneEventPerDeliverable(t *testing.T) {
+	s, _ := openTest(t)
+	seedProject(t, s)
+	ctx := context.Background()
+	one, _ := s.AddTask(ctx, "hand", "One", "")
+	two, _ := s.AddTask(ctx, "hand", "Two", "")
+	_, _ = s.Transition(ctx, one.ID, StatusActive)
+	_, _ = s.Transition(ctx, two.ID, StatusActive)
+	if _, err := s.Transition(ctx, one.ID, StatusDone, "/out/a.pdf", "https://docs.example.com/b"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Transition(ctx, two.ID, StatusDone, "/out/c.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.DeliveredEvents(ctx, one.ID)
+	if err != nil || len(events) != 2 || events[0].Detail != "/out/a.pdf" || events[1].Detail != "https://docs.example.com/b" {
+		t.Fatalf("events = %+v, %v", events, err)
+	}
+	all, _ := s.TaskEvents(ctx, one.ID, 10)
+	if kinds := []string{all[2].Kind, all[3].Kind, all[4].Kind}; !slices.Equal(kinds, []string{"task.done", "task.delivered", "task.delivered"}) || all[3].At != all[2].At {
+		t.Fatalf("task events = %+v", all)
+	}
+	if both, err := s.DeliveredEvents(ctx, two.ID, one.ID); err != nil || len(both) != 3 || both[0].TaskID != one.ID || both[2].TaskID != two.ID {
+		t.Fatalf("both = %+v, %v", both, err)
+	}
+	if none, err := s.DeliveredEvents(ctx); err != nil || none != nil {
+		t.Fatalf("no tasks = %+v, %v", none, err)
+	}
+	if _, err := s.Transition(ctx, one.ID, StatusDone, "/out/late.pdf"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("done twice err = %v", err)
+	}
+	if events, _ := s.DeliveredEvents(ctx, one.ID); len(events) != 2 {
+		t.Fatalf("a refused done recorded a deliverable: %+v", events)
+	}
+}
+
 func TestSearchTasks(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
