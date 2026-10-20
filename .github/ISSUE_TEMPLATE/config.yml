@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Test Hand on a real Mac or Windows machine
+    url: https://github.com/atqamz/hand/blob/main/docs/dogfood/README.md
+    about: Run the real-machine checks, then report each failed check with its dogfood form.
+  - name: Report a security problem
+    url: https://github.com/atqamz/hand/security/advisories/new
+    about: Report a vulnerability privately, not in a public issue.

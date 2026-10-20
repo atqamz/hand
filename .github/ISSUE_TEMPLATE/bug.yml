@@ -1,0 +1,91 @@
+name: Bug report
+description: Something in Hand does not work as the README says
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open issues first, and add your evidence to an issue about the same problem when one exists. A check from `docs/dogfood/` that failed has its own form, and a security problem goes to [private vulnerability reporting](https://github.com/atqamz/hand/security/advisories/new), never to an issue. Replace your user name, home folder and machine name with `<user>`, `<home>` and `<machine>`, and never paste a token or a login link.
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: The steps that show the problem, with the exact commands.
+    validations:
+      required: true
+  - type: textarea
+    id: version
+    attributes:
+      label: hand version
+      description: All of `hand version`, or the release you tried to install.
+      render: text
+      placeholder: |
+        version: 0.11.0
+        channel: stable
+        commit: 0123456789ab
+        schema: 10
+        luvus: 0.14.3
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS, version and architecture
+      placeholder: macOS 15.1 (arm64)
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      placeholder: zsh, PowerShell 7.5, Git Bash
+    validations:
+      required: true
+  - type: dropdown
+    id: channel
+    attributes:
+      label: How you installed Hand
+      options:
+        - install.sh or install.ps1, a release
+        - install.sh or install.ps1, edge
+        - built from source
+        - other
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Harness and version
+      description: The harness the supervisor or the worker ran, and its version, such as `claude --version`.
+      placeholder: Claude Code 2.1.3
+  - type: textarea
+    id: luvus
+    attributes:
+      label: hand luvus show
+      description: The output of `hand luvus show`.
+      render: text
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Redacted command output, as text.
+      render: text
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Redaction
+      options:
+        - label: I removed tokens, login links, user names and paths
+          required: true
