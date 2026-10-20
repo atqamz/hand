@@ -111,6 +111,8 @@ On Windows, run this in PowerShell; [Windows](#windows) has the options:
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
+Releases after v0.11.0 and the edge build carry a signed build attestation. To check who built a download: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` (the GitHub CLI, signed in with `gh auth login`). The installers and `hand update` do not check it.
+
 To update an installed Hand, run `hand update` from anywhere. It does the following:
 - downloads the newest build of the channel the running `hand` came from, and checks it;
 - backs up every fleet's `hand.db` and the old binary under `~/.secondhand/backups/`;

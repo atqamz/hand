@@ -20,6 +20,10 @@ concurrency:
 jobs:
   binaries:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -63,3 +67,12 @@ jobs:
             gh release create "$TAG" --draft --title "$TAG" --notes "Draft: write the notes, then publish." --verify-tag
           fi
           gh release upload "$TAG" hand-linux-amd64.tar.gz hand-linux-arm64.tar.gz hand-darwin-amd64.tar.gz hand-darwin-arm64.tar.gz checksums.txt hand-windows-amd64.zip hand-windows-amd64.sha256 --clobber
+      - name: Attest
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            hand-*.tar.gz
+            checksums.txt
+            hand-windows-amd64.zip
+            hand-windows-amd64.sha256

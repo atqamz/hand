@@ -310,6 +310,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     concurrency:
       group: edge
       cancel-in-progress: false
@@ -362,3 +364,12 @@ jobs:
           done
           git push --force origin "$GITHUB_SHA:refs/tags/edge"
           gh release edit edge --prerelease --title Edge --notes "$notes"
+      - name: Attest
+        continue-on-error: true
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            hand-*.tar.gz
+            checksums.txt
+            hand-windows-amd64.zip
+            hand-windows-amd64.sha256
