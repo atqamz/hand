@@ -431,7 +431,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	}
 	for i := range all {
 		if all[i].Role == "operator" {
-			all[i].Text, all[i].Shots = shots(all[i].Text, b.o.Home)
+			all[i].Text, all[i].Shots = shots(all[i].Text, b.o.Home, b.o.Base)
 		}
 	}
 	end := len(all)

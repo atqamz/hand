@@ -68,6 +68,8 @@ func TestTheViewerRendersMarkdown(t *testing.T) {
 		`<h2 class="thread-title">design.md</h2>`,
 		`<span class="doc-path">`+filepath.Join(home, "reports", "t1", "design.md")+`</span>`,
 		`<a class="doc-download" href="/doc/reports/t1/design.md?download">Download</a>`,
+		`<button type="button" class="doc-copy" data-copy="path" data-text="`+filepath.Join(home, "reports", "t1", "design.md")+`">Copy path</button>`,
+		`<button type="button" class="doc-copy" data-copy="contents" data-src="/doc/reports/t1/design.md?raw">Copy contents</button>`,
 		`<article class="doc-body copy md"><h3>Export design</h3>`,
 		`Proposal for <a class="ref" href="/ref/t1">t1</a>`,
 		`<a href="api.md">API notes</a>`, `<a href="../t0/notes.md">old notes</a>`,
@@ -379,4 +381,23 @@ func TestTheDocumentPageIsStyled(t *testing.T) {
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea,input,select{font-size:16px}"),
 		"a.file{padding-block:13px;margin-block:-13px}",
 		".delivered a.url{display:flex;align-items:center;min-height:var(--control)}")
+}
+
+func TestCopyActionsFitThePage(t *testing.T) {
+	h, _ := viewer(t, map[string]string{"reports/a.log": "x\n", "reports/e.zip": "PK\x00\x01\x02", "reports/t1/design.md": design})
+	log := get(t, h, "/doc/reports/a.log")
+	contains(t, "log", log, `data-copy="path"`, `<button type="button" class="doc-copy" data-copy="contents" data-src="/doc/reports/a.log?raw">Copy contents</button>`)
+	zip := get(t, h, "/doc/reports/e.zip")
+	contains(t, "zip", zip, `data-copy="path"`)
+	lacks(t, "zip", zip, `data-copy="contents"`)
+	lacks(t, "folder", get(t, h, "/doc/reports"), `data-copy="contents"`)
+	big := make([]byte, 8<<20+1)
+	for i := range big {
+		big[i] = 'a' + byte(i%26)
+		if i%80 == 79 {
+			big[i] = '\n'
+		}
+	}
+	hb, _ := viewer(t, map[string]string{"reports/big.log": string(big)})
+	contains(t, "big", get(t, hb, "/doc/reports/big.log"), `<button type="button" class="doc-copy" data-copy="contents">Copy window</button>`)
 }

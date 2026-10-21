@@ -160,8 +160,8 @@ func (b *Board) inbox(w http.ResponseWriter, r *http.Request) {
 var shotLine = regexp.MustCompile(`^\[(image|file): ([^\]\n]+)\]$`)
 
 type attachment struct {
-	Name, Label, Kind, Size, Path string
-	Image, Missing                bool
+	Name, Label, Kind, Size, Path, Href string
+	Image, Missing                      bool
 }
 
 func label(name string) string {
@@ -182,15 +182,15 @@ func size(n int64) string {
 	}
 }
 
-func shots(text, home string) (string, []attachment) {
+func shots(text, home, base string) (string, []attachment) {
 	inbox := filepath.Join(home, "inbox")
 	var keep []string
 	var files []attachment
 	for _, line := range strings.Split(text, "\n") {
 		if m := shotLine.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
 			if dir, name := filepath.Split(m[2]); filepath.Clean(dir) == inbox && shotName.MatchString(name) {
-				a := attachment{Name: name, Label: label(name), Path: m[2], Image: isImage(name), Kind: fileKind(label(name))}
-				if fi, err := os.Lstat(filepath.Join(inbox, name)); err == nil && fi.Mode().IsRegular() {
+				a := attachment{Name: name, Label: label(name), Path: m[2], Image: isImage(name), Kind: fileKind(label(name)), Href: DocHref(home, base, m[2])}
+				if fi, err := os.Lstat(filepath.Join(inbox, name)); err == nil && fi.Mode().IsRegular() && a.Href != "" {
 					a.Size = size(fi.Size())
 				} else {
 					a.Missing = true

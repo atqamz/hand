@@ -30,7 +30,7 @@ func TestShotsTakeOnlyThisFleetsInbox(t *testing.T) {
 		"[file: " + inbox + "/20261001-120000-5-../../hand.db]",
 		"[file: /etc/passwd]",
 	}, "\n")
-	rest, files := shots(text, home)
+	rest, files := shots(text, home, "")
 	want := strings.Join([]string{
 		"look",
 		"[image: " + filepath.Join(other, "20261001-120000-2.png") + "]",
@@ -51,7 +51,7 @@ func TestShotsTakeOnlyThisFleetsInbox(t *testing.T) {
 	if a := files[2]; a.Label != "gone.tar.gz" || !a.Missing || a.Kind != "GZ" {
 		t.Fatalf("missing %+v", a)
 	}
-	if rest, files := shots("[image: "+filepath.Join(inbox, "20261001-120000-1.png")+"]\n", home); rest != "" || len(files) != 1 {
+	if rest, files := shots("[image: "+filepath.Join(inbox, "20261001-120000-1.png")+"]\n", home, ""); rest != "" || len(files) != 1 {
 		t.Fatalf("only an image: rest %q files %+v", rest, files)
 	}
 }

@@ -1054,6 +1054,24 @@
 		});
 	};
 	for (const view of document.querySelectorAll(".text-view")) textView(view);
+	document.addEventListener("click", async (e) => {
+		const b = e.target instanceof Element ? e.target.closest(".doc-copy") : null;
+		if (!b) return;
+		let text = b.dataset.text;
+		if (b.dataset.copy === "contents") {
+			try {
+				if (b.dataset.src) {
+					const res = await fetch(b.dataset.src);
+					text = res.ok ? await res.text() : null;
+				} else text = [...document.querySelectorAll(".lines .src")].map((p) => p.textContent).join("");
+			} catch {
+				text = null;
+			}
+		}
+		const what = b.dataset.copy === "path" ? "Path" : b.textContent === "Copy window" ? "Window" : "Contents";
+		if (text != null && (await writeText(text))) show(`${what} copied`, 3000, "receipt");
+		else show(`${what} not copied; select the text and copy it yourself.`, 6000);
+	});
 	document.addEventListener("keydown", (e) => {
 		if (body.dataset.page !== "doc" || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
 		const step = { ArrowLeft: "prev", ArrowRight: "next" }[e.key];

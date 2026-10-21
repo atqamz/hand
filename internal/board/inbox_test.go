@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -326,14 +327,41 @@ func TestAMessageShowsAFileCardForEachFile(t *testing.T) {
 	}
 	timeline := region(get(t, fx.handler(), "/"), "timeline")
 	contains(t, "timeline", timeline,
-		`<a class="sent-file" href="/inbox/20261001-120000-1-report.pdf" download="report.pdf" title="`+template.HTMLEscapeString(pdf)+`"><span class="badge" aria-hidden="true">PDF</span><span class="sent-name">report.pdf</span><span class="meta">PDF · 305 KiB</span></a>`,
+		`<a class="sent-file" href="/doc/inbox/20261001-120000-1-report.pdf" target="_blank" rel="noopener" title="`+template.HTMLEscapeString(pdf)+`"><span class="badge" aria-hidden="true">PDF</span><span class="sent-name">report.pdf</span><span class="meta">PDF · 305 KiB</span></a>`,
 		`<img src="/inbox/20261001-120000-2-shot.png" alt="Attached image shot.png" loading="lazy">`,
 		`<span class="sent-file missing" title="`+template.HTMLEscapeString(gone)+`"><span class="badge" aria-hidden="true">TXT</span><span class="sent-name">notes.txt</span><span class="meta">no longer in inbox/</span></span>`,
 		`<span class="badge" aria-hidden="true">PNG</span><span class="sent-name">20261001-120000-4.png</span><span class="meta">no longer in inbox/</span>`,
 		template.HTMLEscapeString("[file: "+outside+"]"),
 		template.HTMLEscapeString("[file: "+fx.options.Home+"/inbox/../hand.db]"),
 	)
-	lacks(t, "timeline", timeline, "[file: "+template.HTMLEscapeString(pdf), `src="/inbox/20261001-120000-4.png"`, `href="/inbox/20261001-120000-3-notes.txt"`)
+	lacks(t, "timeline", timeline, "[file: "+template.HTMLEscapeString(pdf), `src="/inbox/20261001-120000-4.png"`, `href="/inbox/20261001-120000-3-notes.txt"`, `download=`)
+}
+
+func TestAFileCardLinksTheViewerByThePolicy(t *testing.T) {
+	fx := newFixture(t)
+	home := fx.options.Home
+	name := "20261001-120000-1-run.log"
+	log := inboxFile(t, home, name, 10)
+	pruned := filepath.Join(home, "inbox", "20261001-120000-2-old.log")
+	trashed := inboxFile(t, home, ".trash/20261001-120000-3-bin.log", 10)
+	if _, err := fx.st.AddSupervisorInput(context.Background(), strings.Join([]string{"[file: " + log + "]", "[file: " + pruned + "]", "[file: " + trashed + "]"}, "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if want := board.DocHref(home, "", log); want != "/doc/inbox/"+name {
+		t.Fatalf("DocHref = %q", want)
+	}
+	if _, _, _, err := board.Resolve(home, "inbox/"+name); err != nil {
+		t.Fatalf("Resolve inbox file: %v", err)
+	}
+	if _, _, _, err := board.Resolve(home, "inbox/.trash/20261001-120000-3-bin.log"); err == nil {
+		t.Fatal("Resolve allowed the trash")
+	}
+	if board.DocHref(home, "", trashed) != "" {
+		t.Fatal("DocHref linked the trash")
+	}
+	timeline := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "timeline", timeline, `<a class="sent-file" href="`+board.DocHref(home, "", log)+`" target="_blank" rel="noopener"`, `<span class="sent-file missing" title="`+template.HTMLEscapeString(pruned)+`">`)
+	lacks(t, "timeline", timeline, `/doc/inbox/.trash`, `href="/doc/inbox/20261001-120000-2-old.log"`, "download=")
 }
 
 func TestShotsAreStyledInTheStylesheet(t *testing.T) {
