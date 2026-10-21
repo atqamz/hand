@@ -500,6 +500,9 @@ body[data-shell] .timeline{max-height:none;overflow:visible}
 body[data-shell] .timeline{--sb:0px}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.work>.panel{padding:16px 12px 0}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
+dialog.viewer[open]{width:100vw;height:100dvh;border:0;border-radius:0}
+dialog.viewer[open] .viewer-body.thread.doc{padding:12px 12px 24px}
+dialog.viewer[open] .text-bar{top:-12px}
 .filters .find{grid-template-columns:minmax(0,1fr)}
 .filters .refine{display:grid}
 .filters :is(.field,.range){flex:none}
@@ -737,3 +740,17 @@ a.file,.delivered a.url{color:var(--accent)}
 .d-hunk{color:var(--accent)}
 .d-file{font-weight:600}
 @media (forced-colors:active){.here{border-block:1px solid Highlight}}
+dialog.viewer{width:min(1200px,calc(100vw - 48px));height:calc(100dvh - 48px);max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);color:var(--fg);box-shadow:0 8px 24px var(--shadow);overflow:hidden}
+dialog.viewer[open]{display:flex;flex-direction:column}
+dialog.viewer::backdrop{background:rgb(0 0 0 / .32)}
+html:has(dialog.viewer:modal){overflow:hidden}
+.viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px 6px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.viewer-tab{display:inline-flex;align-items:center;min-height:var(--control)}
+.viewer-close{width:var(--control);padding:0}
+.viewer-body.thread.doc{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:16px 20px 32px;overflow:auto;overscroll-behavior:contain}
+.viewer-body:focus{outline:none}
+.viewer-state{min-width:0;overflow:hidden;color:var(--fg);font-family:var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.viewer .doc-picture img{max-height:calc(100dvh - 300px)}
+.viewer .doc-picture.actual{max-height:calc(100dvh - 260px)}
+.viewer .doc-frame{height:calc(100dvh - 300px)}
+.viewer-body .text-bar{top:-16px}

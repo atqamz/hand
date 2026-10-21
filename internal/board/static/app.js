@@ -4,6 +4,8 @@
 	const base = body.dataset.base || "";
 	const fleet = body.dataset.fleet || document.title;
 	const toast = document.getElementById("toast");
+	const home = location.href;
+	const hosted = () => document.querySelector("dialog.viewer[open]") || body;
 	const regions = new Map();
 	for (const el of document.querySelectorAll("[data-region]")) regions.set(el.dataset.region, el);
 	const held = new Map();
@@ -208,7 +210,7 @@
 				announce = document.createElement("div");
 				announce.className = "sr";
 				announce.setAttribute("role", "status");
-				body.append(announce);
+				hosted().append(announce);
 			}
 			const wrap = document.createElement("div");
 			wrap.className = "code";
@@ -234,7 +236,7 @@
 		box.value = text;
 		box.setAttribute("readonly", "");
 		box.setAttribute("aria-hidden", "true");
-		body.append(box);
+		hosted().append(box);
 		const from = document.activeElement;
 		box.select();
 		box.setSelectionRange(0, text.length);
@@ -876,6 +878,8 @@
 	const textView = (view) => {
 		const lines = view.querySelector(".lines");
 		const marker = lines.querySelector(".text-end");
+		const scroller = view.closest(".viewer-body") || document.scrollingElement;
+		const frame = () => (scroller === document.scrollingElement ? { top: 0, bottom: innerHeight } : scroller.getBoundingClientRect());
 		const lh = 18;
 		const chunkLimit = 500;
 		const findCap = 20000;
@@ -912,7 +916,17 @@
 			if (m) mark(Number(m[1]), true);
 		};
 		jump();
-		window.addEventListener("hashchange", jump);
+		addEventListener("hashchange", jump);
+		let ticking = 0;
+		let timer = 0;
+		const unview = () => {
+			removeEventListener("hashchange", jump);
+			clearInterval(ticking);
+			ticking = 0;
+			clearTimeout(timer);
+			CSS.highlights?.delete("find");
+			CSS.highlights?.delete("find-now");
+		};
 		lines.addEventListener("click", (e) => {
 			const gut = e.target instanceof Element && e.target.closest(".gut");
 			if (!gut) return;
@@ -926,14 +940,14 @@
 		if (view.dataset.whole === "true" && "highlights" in CSS) {
 			let found = [];
 			let at = -1;
-			let timer = 0;
 			const paint = () => {
 				CSS.highlights.set("find", new Highlight(...found));
 				CSS.highlights.set("find-now", new Highlight(...(at >= 0 ? [found[at]] : [])));
 			};
 			const reveal = (r) => {
 				r.startContainer.parentElement.closest(".chunk").scrollIntoView({ block: "start" });
-				document.scrollingElement.scrollTop += r.getBoundingClientRect().top - window.innerHeight / 2;
+				const f = frame();
+				scroller.scrollTop += r.getBoundingClientRect().top - (f.top + f.bottom) / 2;
 			};
 			const go = (step) => {
 				if (!found.length) return;
@@ -999,8 +1013,7 @@
 			if (input.value) search();
 		}
 		const follow = view.querySelector(".text-follow");
-		if (!follow) return;
-		let ticking = 0;
+		if (!follow) return unview;
 		const stop = () => {
 			clearInterval(ticking);
 			ticking = 0;
@@ -1020,7 +1033,7 @@
 				}
 				const html = await res.text();
 				if (!html || !ticking) return;
-				const near = marker.getBoundingClientRect().top - window.innerHeight < 48;
+				const near = marker.getBoundingClientRect().top - frame().bottom < 48;
 				const last = marker.previousElementSibling;
 				if (marker.dataset.partial === "true" && last) {
 					last.querySelector(".partial")?.remove();
@@ -1052,8 +1065,15 @@
 			ticking = setInterval(pull, 2000);
 			pull();
 		});
+		return unview;
 	};
-	for (const view of document.querySelectorAll(".text-view")) textView(view);
+	const docView = (root) => {
+		const stops = [...root.querySelectorAll(".text-view")].map(textView);
+		return () => {
+			for (const stop of stops) stop();
+		};
+	};
+	docView(document);
 	document.addEventListener("click", async (e) => {
 		const b = e.target instanceof Element ? e.target.closest(".doc-copy") : null;
 		if (!b) return;
@@ -1073,11 +1093,149 @@
 		else show(`${what} not copied; select the text and copy it yourself.`, 6000);
 	});
 	document.addEventListener("keydown", (e) => {
-		if (body.dataset.page !== "doc" || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+		const scope = document.querySelector("dialog.viewer[open]") || (body.dataset.page === "doc" ? document : null);
+		if (!scope || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+		const field = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]");
+		const find = e.key === "/" && !field && scope.querySelector(".text-find input");
+		if (find) {
+			e.preventDefault();
+			find.focus();
+			return;
+		}
 		const step = { ArrowLeft: "prev", ArrowRight: "next" }[e.key];
-		if (!step || (e.target instanceof Element && e.target.closest("input, textarea, select, video, audio, .lines, .doc-picture, [contenteditable]")) || !getSelection()?.isCollapsed) return;
-		document.querySelector(`.doc-nav a[rel=${step}]`)?.click();
+		if (!step || e.shiftKey || field || (e.target instanceof Element && e.target.closest("video, audio, .lines, .doc-picture")) || !getSelection()?.isCollapsed) return;
+		scope.querySelector(`.doc-nav a[rel=${step}]`)?.click();
 	});
+	const dlg = document.getElementById("viewer");
+	if (dlg && body.dataset.page !== "doc") {
+		const pane = dlg.querySelector(".viewer-body");
+		const state = dlg.querySelector(".viewer-state");
+		const tab = dlg.querySelector(".viewer-tab");
+		tab.target = "_blank";
+		tab.rel = "noopener";
+		const shot = new RegExp(`^${base}/inbox/([^/]+)$`);
+		const pic = /\.(png|jpe?g|webp|gif)$/i;
+		let unview = () => {};
+		let opener = null;
+		let at = null;
+		let ours = false;
+		let seq = 0;
+		const docURL = (href) => {
+			const u = new URL(href, location.href);
+			if (u.origin !== location.origin) return null;
+			const sent = shot.exec(u.pathname);
+			if (sent) u.pathname = `${base}/doc/inbox/${sent[1]}`;
+			if (!u.pathname.startsWith(`${base}/doc/`) || u.searchParams.has("raw") || u.searchParams.has("download")) return null;
+			if (pic.test(u.pathname) && !u.search) u.search = "?view";
+			return u;
+		};
+		const retry = () => {
+			const p = document.createElement("p");
+			p.className = "doc-notice";
+			const again = document.createElement("button");
+			again.type = "button";
+			again.textContent = "Try again";
+			again.addEventListener("click", () => load(at, "none"));
+			p.append("The Board did not answer; check that hand board is running. ", again);
+			return p;
+		};
+		const load = async (u, how) => {
+			const n = ++seq;
+			unview();
+			unview = () => {};
+			at = u;
+			state.textContent = "Loading…";
+			pane.setAttribute("aria-busy", "true");
+			tab.href = u.href;
+			if (how === "push") history.pushState({ viewer: u.href }, "", u.href);
+			else if (how === "replace") history.replaceState({ viewer: u.href }, "", u.href);
+			ours = true;
+			if (!dlg.open) {
+				dlg.showModal();
+				dlg.append(toast);
+			}
+			const res = await fetch(u.href, { credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
+			const html = res ? await res.text().catch(() => "") : "";
+			if (n !== seq) return;
+			pane.removeAttribute("aria-busy");
+			if (!res) {
+				state.textContent = "";
+				pane.replaceChildren(retry());
+				return;
+			}
+			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
+			pane.replaceChildren(...(main ? main.childNodes : []));
+			const back = pane.querySelector(".error .back");
+			if (back) {
+				const done = document.createElement("button");
+				done.type = "button";
+				done.textContent = "Close";
+				done.addEventListener("click", close);
+				back.replaceChildren(done);
+			}
+			state.textContent = res.ok ? pane.querySelector(".thread-title")?.textContent || "" : "Not shown";
+			local(pane);
+			unview = docView(pane);
+			const spot = u.hash && document.getElementById(u.hash.slice(1));
+			if (spot) spot.scrollIntoView({ block: "center" });
+			else pane.scrollTop = 0;
+			pane.focus({ preventScroll: true });
+		};
+		const close = () => {
+			if (dlg.open) dlg.close();
+		};
+		dlg.addEventListener("close", () => {
+			seq++;
+			unview();
+			unview = () => {};
+			pane.replaceChildren();
+			dlg.before(toast);
+			if (ours) {
+				ours = false;
+				if (history.state?.viewer) history.back();
+			}
+			if (opener && !opener.isConnected) opener = [...document.querySelectorAll("a[href]")].find((a) => a.getAttribute("href") === opener.getAttribute("href"));
+			opener?.focus();
+			opener = null;
+		});
+		addEventListener("popstate", (e) => {
+			if (e.state?.viewer) load(new URL(e.state.viewer), "none");
+			else if (dlg.open) {
+				ours = false;
+				close();
+			}
+		});
+		dlg.querySelector(".viewer-close").addEventListener("click", close);
+		dlg.addEventListener("click", (e) => {
+			if (e.target === dlg) close();
+		});
+		document.addEventListener("click", (e) => {
+			if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+			const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
+			if (!a || a.hasAttribute("download") || a.matches(".viewer-tab")) return;
+			const inside = dlg.contains(a);
+			if (inside && a.getAttribute("href").startsWith("#")) {
+				e.preventDefault();
+				history.replaceState(history.state, "", a.hash);
+				dispatchEvent(new Event("hashchange"));
+				document.getElementById(a.hash.slice(1))?.scrollIntoView({ block: "start" });
+				return;
+			}
+			const u = docURL(a.href);
+			if (!u) return;
+			e.preventDefault();
+			if (!dlg.open) opener = a;
+			load(u, dlg.open ? "replace" : "push");
+		});
+		dlg.addEventListener("submit", (e) => {
+			const f = e.target;
+			const u = f instanceof HTMLFormElement && !e.defaultPrevented && f.method === "get" ? docURL(f.action) : null;
+			if (!u) return;
+			e.preventDefault();
+			u.search = new URLSearchParams(new FormData(f)).toString();
+			load(u, "replace");
+		});
+	}
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
@@ -1181,7 +1339,7 @@
 		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Board offline since ${at}` : "Reconnecting…";
 	};
 	const refresh = async () => {
-		const res = await fetch(location.href, { credentials: "same-origin" }).catch(() => null);
+		const res = await fetch(home, { credentials: "same-origin" }).catch(() => null);
 		linkState(res?.ok, res?.status);
 		if (!res?.ok) return;
 		const doc = new DOMParser().parseFromString(await res.text(), "text/html");
@@ -1200,7 +1358,7 @@
 		clearInterval(poll);
 		poll = 0;
 		if (source) return;
-		source = new EventSource(`${base}/events${location.search}`);
+		source = new EventSource(`${base}/events${new URL(home).search}`);
 		source.addEventListener("open", () => linkState(true));
 		source.addEventListener("error", () => {
 			linkState(false);

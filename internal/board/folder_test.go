@@ -201,9 +201,10 @@ func TestThePagingAndStepsAreStyled(t *testing.T) {
 func TestTheArrowKeysStepOnlyOutsideInputsSelectionsAndScrollers(t *testing.T) {
 	js := asset(t, "app.js")
 	contains(t, "app.js", js,
-		`if (body.dataset.page !== "doc" || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;`,
+		`if (!scope || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;`,
 		`const step = { ArrowLeft: "prev", ArrowRight: "next" }[e.key];`,
-		`e.target.closest("input, textarea, select, video, audio, .lines, .doc-picture, [contenteditable]")`,
+		`const field = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]");`,
+		`e.target.closest("video, audio, .lines, .doc-picture")`,
 		`!getSelection()?.isCollapsed`,
-		"document.querySelector(`.doc-nav a[rel=${step}]`)?.click();")
+		"scope.querySelector(`.doc-nav a[rel=${step}]`)?.click();")
 }

@@ -378,7 +378,7 @@ func TestTheOnCallPalette(t *testing.T) {
 	if !strings.Contains(css, "--mono:ui-monospace") {
 		t.Error("board.css has no --mono stack")
 	}
-	allowed := []string{".console-box", ".menu", "#toast", ".keys button", ".key", "kbd"}
+	allowed := []string{".console-box", ".menu", "#toast", "dialog.viewer", ".keys button", ".key", "kbd"}
 	for rest := css; ; {
 		i := strings.Index(rest, "box-shadow:")
 		if i < 0 {
