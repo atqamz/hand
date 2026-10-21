@@ -650,6 +650,41 @@ a.file,.delivered a.url{color:var(--accent)}
 .listing .badge{text-align:center}
 .listing .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .listing .meta{flex:none;white-space:nowrap}
+.thread.doc:has(.text-view){max-width:1280px}
+body:not([data-page=fleet]):has(.text-view) .masthead-inner{padding-inline:max(16px,calc((100% - 1248px)/2))}
+.text-view{display:grid;gap:8px;min-width:0}
+.text-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;background:var(--bg)}
+.text-find{display:flex;flex:1 1 240px;align-items:center;gap:8px;min-width:0}
+.text-find label{position:relative;display:block;flex:1;min-width:0;max-width:360px}
+.text-find .icon{position:absolute;left:10px;top:50%;margin-top:-8px;color:var(--muted);pointer-events:none}
+.text-find input[type=search]{width:100%;padding-left:34px}
+.text-line{display:flex;align-items:center;gap:8px}
+.text-line input{width:10ch}
+.text-wrap[aria-pressed=true],.text-follow[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.text-to-end,.text-window a,.text-hits a{display:inline-flex;align-items:center;min-height:var(--control)}
+.text-window{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
+.text-hits ol{display:flex;flex-wrap:wrap;gap:0 12px;margin:0;padding:0;list-style:none;font-family:var(--mono);font-size:12px}
+.lines{min-width:0;padding:6px 0;border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);overflow-x:auto}
+.chunk{display:flex;width:max-content;min-width:100%;content-visibility:auto;contain-intrinsic-height:auto 9000px}
+.chunk:last-of-type{content-visibility:visible}
+.chunk>pre{overflow:visible;white-space:pre;overflow-wrap:normal;tab-size:4}
+.chunk>.text{flex:1 0 auto;padding:0 12px}
+.chunk>.gut{order:-1;position:sticky;left:0;flex:none;min-width:calc(6ch + 21px);padding:0 8px 0 12px;border-right:1px solid var(--line);background:var(--card);color:var(--muted);text-align:right;user-select:none;cursor:pointer}
+.lines[data-wrap] .chunk{width:auto}
+.lines[data-wrap] .gut{display:none}
+.lines[data-wrap] .text{flex:1 1 auto;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.x-r{color:var(--fail)}
+.x-g{color:var(--pass)}
+.x-y{color:var(--wait)}
+.x-b,.x-m,.x-c{color:var(--accent)}
+.x-k{color:var(--muted)}
+.x-w{color:var(--fg)}
+.x-bold{font-weight:600}
+.ctl{padding:0 2px;border:1px solid var(--line-strong);border-radius:var(--r-sm);color:var(--fail)}
+.cut{color:var(--muted);font-style:italic}
+::highlight(line){background-color:var(--accent-bg);color:var(--accent)}
+::highlight(find){background-color:var(--wait-bg);color:var(--fg);text-decoration:underline 2px var(--wait)}
+::highlight(find-now){background-color:var(--wait);color:var(--bg)}
 .attempts .check{display:grid;grid-template-columns:16px 32px minmax(0,1fr) auto;grid-template-areas:"icon ref title title" ". . meta time";gap:0 8px;align-items:baseline;padding:8px 4px;white-space:normal}
 .attempts .check>.icon{grid-area:icon;align-self:center}
 .attempts .check>.ref{grid-area:ref}

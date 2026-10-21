@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	maxDoc     = 1 << 20
-	maxListing = 500
+	maxMarkdown = 1 << 20
+	maxListing  = 500
+	notText     = "This file is not text, so the Board does not show it; download it to open it."
 )
 
 var (
@@ -180,15 +181,18 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		b.render(w, http.StatusOK, "doc.html", data)
 		return
 	}
-	head, err := io.ReadAll(io.LimitReader(f, 512))
-	if err != nil {
+	head := make([]byte, headSize)
+	k, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		b.failErr(w, err)
 		return
 	}
+	head = head[:k]
 	sniffed := http.DetectContentType(head)
 	_, image := imageExt[sniffed]
 	image = image && imageLike.MatchString(name)
-	if download := r.URL.Query().Has("download"); download || image {
+	q := r.URL.Query()
+	if download := q.Has("download"); download || image {
 		h := w.Header()
 		h.Set("Content-Type", sniffed)
 		if download {
@@ -201,26 +205,30 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "", fi.ModTime(), f)
 		return
 	}
+	self := docURL(b.o.Base, rel)
 	data["Size"] = size(fi.Size())
-	data["Download"] = docURL(b.o.Base, rel) + "?download"
-	if fi.Size() > maxDoc {
-		data["Notice"] = "This file is " + size(fi.Size()) + ". The Board shows text files up to 1 MiB; download it to read it."
-		b.render(w, http.StatusOK, "doc.html", data)
+	data["Download"] = self + "?download"
+	ext := strings.ToLower(path.Ext(name))
+	switch {
+	case q.Has("from"):
+		b.follow(w, r, f, fi, textHead(head))
 		return
-	}
-	rest, err := io.ReadAll(io.LimitReader(f, maxDoc-int64(len(head))))
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	text := append(head, rest...)
-	switch ext := strings.ToLower(path.Ext(name)); {
-	case !utf8.Valid(text) || bytes.IndexByte(text, 0) >= 0:
-		data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
-	case ext == ".md" || ext == ".markdown":
+	case !textHead(head):
+		data["Notice"] = notText
+	case (ext == ".md" || ext == ".markdown") && fi.Size() <= maxMarkdown:
+		text, err := io.ReadAll(io.NewSectionReader(f, 0, maxMarkdown))
+		if err != nil {
+			b.failErr(w, err)
+			return
+		}
+		if !utf8.Valid(text) || bytes.IndexByte(text, 0) >= 0 {
+			data["Notice"] = notText
+			break
+		}
 		data["Body"] = markdown.RenderDoc(string(text), b.o.Base, b.refTitle(ctx), b.local())
 	default:
-		data["Plain"] = string(text)
+		b.text(w, r, f, fi, self, data)
+		return
 	}
 	b.render(w, http.StatusOK, "doc.html", data)
 }

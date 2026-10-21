@@ -402,6 +402,26 @@ components:
     textColor: "{colors.fg}"
     rounded: "{rounded.md}"
     padding: "10px 12px"
+  text-lines:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.fg}"
+    typography: "{typography.code-block}"
+    rounded: "{rounded.md}"
+    padding: "6px 12px"
+  text-gutter:
+    backgroundColor: "{colors.card}"
+    textColor: "{colors.muted}"
+    typography: "{typography.code-block}"
+    padding: "0 8px 0 12px"
+  text-line-mark:
+    backgroundColor: "{colors.accent-bg}"
+    textColor: "{colors.accent}"
+  text-match:
+    backgroundColor: "{colors.wait-bg}"
+    textColor: "{colors.fg}"
+  text-match-current:
+    backgroundColor: "{colors.wait}"
+    textColor: "{colors.bg}"
   listing-row:
     textColor: "{colors.fg}"
     typography: "{typography.body}"
@@ -787,11 +807,11 @@ Supervisor replies render a safe subset: paragraphs and lists 8px apart, where a
 - **Decision page:** the headline, the question as markdown without its option lines (the whole question shows; only Needs caps it at 40vh), then the choice list with its note and Send answer. Once answered, the answered state takes the form's place.
 - **Document page** (`/<fleet>/doc/<path>`, a file or folder inside the fleet folder): the head is the crumbs (the fleet, then each folder above, each linking to its listing), the name in Display type (a folder's ends in `/`), and a slug line of the absolute path in muted 12px mono that wraps anywhere, the size and time in Meta, and Download (`--control` high) for a file; then one hairline rule. The body is one of four:
   - **Markdown**, in the document mode of Reply markdown: an `article` held to 80ch, 15px with a 1.6 line height, `###` at 18px and `####` at 15px, each with more space above than below;
-  - **Text**, as one code block with its copy button;
-  - **A notice** in Body type on `wait-bg` with a hairline and 6px corners, padded 10px by 12px, when the file is not shown: "This file is 3.1 MiB. The Board shows text files up to 1 MiB; download it to read it." or "This file is not text, so the Board does not show it; download it to open it.";
+  - **Text**, of any size (a Markdown file over 1 MiB as well), as numbered lines in a box on `card` with a hairline and 6px corners, 12px mono on 18px lines. The server streams the lines in blocks of 500, each a pair of `pre`s, the line numbers in a muted gutter that holds at least six digits, stays put when the lines scroll sideways and is out of the selection. Every block skips its layout off screen (`content-visibility:auto`, 9000px held for it), except the last, so the page lays out what is on screen only. Up to 8 MiB the whole file shows; past that a 4 MiB window opens at the file's end, scrolled to its last line, between two rows that name its lines ("Lines 514661–557960. The Board shows 4 MiB of a large file at a time.") and link Start, Earlier and Later. Above the box a bar sticks to the top of the screen: a Find field with the search mark (`/` focuses it), a Line field with Go, Wrap and Follow toggles (pressed: accent ink on `accent-bg` with an accent edge) and an End link, all `--control` high. Find marks every match as you type, on `wait-bg` with a 2px `wait` underline, and the current one in `bg` on `wait`, with "3 of 120" beside the field; Enter steps on and Shift+Enter back. In a windowed file Find asks the server, which lists the first 200 lines that hold the text as mono links under the bar ("3 lines hold “first failure”.") and marks the matches in the lines shown. A line number in the gutter links to its line (`#L12`), which shows in accent ink on `accent-bg`; Line jumps to a line the same way and opens the window that holds it. Wrap wraps the lines and hides the gutter, and is on by default below 600px; the choice is kept in the browser. Follow, offered when the lines reach the end of the file, keeps the end in view and adds the lines the file gains every 2 seconds; a file that shrinks or is replaced stops it with "This file was shortened or replaced. Reload the page to read it again.". ANSI colour shows as the signal inks (red `fail`, green `pass`, yellow `wait`, blue, magenta and cyan `accent`, black and grey `muted`, white `fg`) and bold as 600; other escape codes are dropped, a carriage return keeps what follows it, and control characters and bidirectional or line-breaking marks show as visible symbols ("␇", "U+202E") in `fail` ink inside a `line-strong` hairline box. A line over 256 KiB is cut with "… 1.8 MiB more on this line" in muted italic;
+  - **A notice** in Body type on `wait-bg` with a hairline and 6px corners, padded 10px by 12px, when the file is not shown: "This file is not text, so the Board does not show it; download it to open it." (a NUL byte, or a byte that is not UTF-8, in its first 8 KiB);
   - **A listing** between hairlines: rows 44px high, padded 0 by 4px, each a whole-row link holding a 48 by 32 thumbnail (`object-fit: cover`, 4px corners, a hairline, on `card`) for an image or a 48px kind badge (`DIR`, `LINK`, the extension, `FILE`), the name (one line, ellipsis; a folder ends in `/`), then the size and time in Meta; the hover wash marks the row. Folders come first, then names in any case order; dot entries never show. Past 500 rows, "N more entries are not listed." follows in Meta, and an empty folder reads "This folder is empty.".
 
-  An image whose bytes and name agree opens as the image itself, and Download returns the bytes as an attachment, so neither is a page. `main.thread.doc` is the page's one region and refreshes like the task page, so the page shows the file as it is now (`TestTheViewerIsOneRegion`). A refused path is an error page with the rule's words ("this path leads outside the fleet folder, so the Board does not show it", "the Board does not show Hand's own files, dot files, luvus/, locks/ or projects/", "the Board shows files and folders only"); a missing one reads "There is no file or folder at this path."
+  An image whose bytes and name agree opens as the image itself, and Download returns the bytes as an attachment, so neither is a page. `main.thread.doc` is the page's one region and refreshes like the task page, so the page shows the file as it is now (`TestTheViewerIsOneRegion`); a text page claims no region and does not refresh, so a 5 MiB file is not fetched again every 10 seconds, and Follow brings its new lines instead. A text page is wider, up to 1280px (`TestTheTextViewIsStyled`). A refused path is an error page with the rule's words ("this path leads outside the fleet folder, so the Board does not show it", "the Board does not show Hand's own files, dot files, luvus/, locks/ or projects/", "the Board shows files and folders only"); a missing one reads "There is no file or folder at this path."
 - **Error page:** one card with the status code as a red severity code, the message and a link back. It never shows a path.
 - **Fleet list:** one row per fleet with its mark in its tint, its name and its id.
 

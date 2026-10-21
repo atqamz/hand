@@ -96,7 +96,7 @@ func rootTokens(t *testing.T, block string) map[string]string {
 
 func TestColoursMeetContrast(t *testing.T) {
 	light, dark := themes(t)
-	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"fg", "panel"}, {"muted", "bg"}, {"muted", "card"}, {"muted", "panel"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fail", "card"}, {"pass", "card"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}}
+	pairs := [][2]string{{"fg", "bg"}, {"fg", "card"}, {"fg", "panel"}, {"muted", "bg"}, {"muted", "card"}, {"muted", "panel"}, {"accent", "bg"}, {"accent", "accent-bg"}, {"fail", "fail-bg"}, {"wait", "wait-bg"}, {"pass", "pass-bg"}, {"neutral", "neutral-bg"}, {"fail", "bg"}, {"wait", "bg"}, {"pass", "bg"}, {"fail", "card"}, {"pass", "card"}, {"fg", "accent-bg"}, {"muted", "fail-bg"}, {"muted", "wait-bg"}, {"muted", "pass-bg"}, {"muted", "neutral-bg"}, {"screen-fg", "screen"}, {"on-primary", "primary"}, {"wait", "card"}, {"accent", "card"}, {"fg", "wait-bg"}, {"bg", "wait"}}
 	for _, c := range []struct{ name, block string }{{"light", light}, {"dark", dark}} {
 		tokens := rootTokens(t, c.block)
 		for _, p := range pairs {

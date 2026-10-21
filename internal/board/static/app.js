@@ -873,6 +873,220 @@
 		});
 	}
 
+	const textView = document.querySelector(".text-view");
+	if (textView) {
+		const lines = textView.querySelector(".lines");
+		const whole = textView.dataset.whole === "true";
+		const painted = "highlights" in CSS && typeof Highlight === "function";
+		const cap = 10000;
+		const lineIn = (pre, k) => {
+			const walk = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+			const r = new Range();
+			let seen = 0;
+			let open = k === 0;
+			if (open) r.setStart(pre, 0);
+			for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+				for (let i = t.data.indexOf("\n"); i >= 0; i = t.data.indexOf("\n", i + 1)) {
+					if (open) {
+						r.setEnd(t, i);
+						return r;
+					}
+					if (++seen === k) {
+						r.setStart(t, i + 1);
+						open = true;
+					}
+				}
+			}
+			return null;
+		};
+		const lineAt = (n) => {
+			let chunk = null;
+			for (const c of lines.querySelectorAll(":scope > .chunk")) {
+				if (Number(c.dataset.line) > n) break;
+				chunk = c;
+			}
+			const k = chunk ? n - Number(chunk.dataset.line) : -1;
+			const text = k >= 0 ? lineIn(chunk.querySelector(".text"), k) : null;
+			return text && { chunk, text, gut: lineIn(chunk.querySelector(".gut"), k) };
+		};
+		const reveal = (chunk, range) => {
+			chunk.scrollIntoView({ block: "center", behavior: "instant" });
+			requestAnimationFrame(() => scrollBy({ top: range.getBoundingClientRect().top - innerHeight / 3, behavior: "instant" }));
+		};
+		const pick = (n, go) => {
+			const at = lineAt(n);
+			if (!at) return false;
+			if (painted) CSS.highlights.set("line", new Highlight(...[at.text, at.gut].filter(Boolean)));
+			if (go) reveal(at.chunk, at.text);
+			return true;
+		};
+		const hashLine = () => Number(/^#L(\d+)$/.exec(location.hash)?.[1] || 0);
+		addEventListener("hashchange", () => hashLine() && pick(hashLine(), true));
+		lines.addEventListener("click", (e) => {
+			const gut = e.target instanceof Element ? e.target.closest(".gut") : null;
+			if (!gut) return;
+			const n = Number(gut.parentElement.dataset.line) + Math.floor((e.clientY - gut.getBoundingClientRect().top) / parseFloat(getComputedStyle(gut).lineHeight));
+			if (pick(n, false)) history.replaceState(history.state, "", `#L${n}`);
+		});
+		const finder = textView.querySelector(".text-find");
+		const needle = finder.querySelector("input");
+		const told = finder.querySelector(".find-count");
+		let found = [];
+		let now = -1;
+		let asked = "";
+		const paint = () => {
+			if (!painted) return;
+			const all = new Highlight();
+			for (const r of found) all.add(r);
+			const current = now >= 0 ? new Highlight(found[now]) : new Highlight();
+			all.priority = 1;
+			current.priority = 2;
+			CSS.highlights.set("find", all);
+			CSS.highlights.set("find-now", current);
+		};
+		const step = (by) => {
+			if (!found.length) return;
+			now = (now + by + found.length) % found.length;
+			paint();
+			reveal(found[now].startContainer.parentElement.closest(".chunk"), found[now]);
+			told.textContent = `${now + 1} of ${found.length}${found.length >= cap ? "+" : ""}`;
+		};
+		const search = (go) => {
+			asked = needle.value.trim();
+			found = [];
+			now = -1;
+			if (asked) {
+				const re = new RegExp(asked.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu");
+				for (const pre of lines.querySelectorAll(".text")) {
+					const nodes = [];
+					let text = "";
+					const walk = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+					for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+						nodes.push([t, text.length]);
+						text += t.data;
+					}
+					let j = 0;
+					const point = (o) => {
+						while (j + 1 < nodes.length && nodes[j + 1][1] <= o) j++;
+						return [nodes[j][0], o - nodes[j][1]];
+					};
+					for (const m of text.matchAll(re)) {
+						const r = new Range();
+						r.setStart(...point(m.index));
+						r.setEnd(...point(m.index + m[0].length));
+						if (found.push(r) >= cap) break;
+					}
+					if (found.length >= cap) break;
+				}
+			}
+			told.textContent = asked && !found.length ? (whole ? "Not in this file" : "Not in these lines") : "";
+			paint();
+			if (go) step(1);
+		};
+		if (whole && painted) {
+			let typing = 0;
+			finder.addEventListener("submit", (e) => {
+				e.preventDefault();
+				if (needle.value.trim() === asked && found.length) step(1);
+				else search(true);
+			});
+			needle.addEventListener("input", () => {
+				clearTimeout(typing);
+				typing = setTimeout(() => search(true), 250);
+			});
+			needle.addEventListener("keydown", (e) => {
+				if (e.key === "Enter" && e.shiftKey) {
+					e.preventDefault();
+					step(-1);
+				} else if (e.key === "Escape" && needle.value) {
+					e.preventDefault();
+					needle.value = "";
+					search(false);
+				}
+			});
+		}
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "/" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || document.activeElement?.matches("input, textarea, select, [contenteditable]")) return;
+			e.preventDefault();
+			needle.focus();
+			needle.select();
+		});
+		const jump = textView.querySelector(".text-line");
+		jump.addEventListener("submit", (e) => {
+			const n = Number(jump.querySelector("input").value);
+			if (!(n >= 1)) return;
+			e.preventDefault();
+			if (pick(n, true)) history.replaceState(history.state, "", `#L${n}`);
+			else if (whole) told.textContent = `No line ${n} in this file`;
+			else location.assign(`${location.pathname}?line=${n}#L${n}`);
+		});
+		const wrap = textView.querySelector(".text-wrap");
+		const wrapLines = (on) => {
+			lines.toggleAttribute("data-wrap", on);
+			wrap.setAttribute("aria-pressed", String(on));
+		};
+		let wrapped = null;
+		try {
+			wrapped = localStorage.getItem("hand.wrap");
+		} catch {}
+		wrapLines(wrapped ? wrapped === "on" : matchMedia("(max-width: 599px)").matches);
+		wrap.hidden = false;
+		wrap.addEventListener("click", () => {
+			const on = !lines.hasAttribute("data-wrap");
+			wrapLines(on);
+			try {
+				localStorage.setItem("hand.wrap", on ? "on" : "off");
+			} catch {}
+		});
+		const endMark = () => document.getElementById("text-end");
+		const toEnd = () => {
+			endMark()?.scrollIntoView({ block: "end", behavior: "instant" });
+			requestAnimationFrame(() => endMark()?.scrollIntoView({ block: "end", behavior: "instant" }));
+		};
+		const tailing = textView.querySelector(".text-follow");
+		if (tailing) {
+			let timer = 0;
+			let busy = false;
+			const stop = () => {
+				clearInterval(timer);
+				timer = 0;
+				tailing.setAttribute("aria-pressed", "false");
+			};
+			const pull = async () => {
+				const mark = endMark();
+				if (busy || !mark) return;
+				busy = true;
+				const res = await fetch(`${location.pathname}?from=${mark.dataset.next}&line=${mark.dataset.line}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
+				const reset = res?.headers.has("X-Hand-Reset");
+				const html = res?.status === 200 && !reset ? await res.text().catch(() => "") : "";
+				busy = false;
+				if (!timer) return;
+				if (reset) {
+					stop();
+					show("This file was shortened or replaced. Reload the page to read it again.");
+					return;
+				}
+				if (!html) return;
+				const near = mark.getBoundingClientRect().bottom - innerHeight < 48;
+				lines.querySelector(".chunk[data-partial]")?.remove();
+				mark.remove();
+				lines.insertAdjacentHTML("beforeend", html);
+				if (near) toEnd();
+			};
+			tailing.hidden = false;
+			tailing.addEventListener("click", () => {
+				if (timer) return stop();
+				tailing.setAttribute("aria-pressed", "true");
+				timer = setInterval(pull, 2000);
+				toEnd();
+				pull();
+			});
+		}
+		if (needle.value && painted) search(!hashLine());
+		if (hashLine()) pick(hashLine(), true);
+		else if (!whole && tailing && !location.search && !location.hash) toEnd();
+	}
+
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	const tick = () => {
