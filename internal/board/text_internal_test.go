@@ -3,6 +3,7 @@ package board
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -216,8 +217,36 @@ func TestOnlyTheNumericColumnsAlignRight(t *testing.T) {
 	if got := columns([][]string{{"a", "b", "c"}}); len(got) != 3 || got[0] || got[1] || got[2] {
 		t.Errorf("a header alone = %v", got)
 	}
-	if got := columns([][]string{{"a"}, {"Inf"}, {"NaN"}}); got[0] {
+	if got := columns([][]string{{"a"}, {"Inf"}, {"NaN"}, {"+Inf"}, {"-inf"}}); got[0] {
 		t.Error("words that parse as floats are not numbers")
+	}
+}
+
+func TestIndentMatchesEncodingJSON(t *testing.T) {
+	for _, in := range []string{
+		`{}`, `[]`, ` [ ] `, `{"a":1}`, `[1,2,3]`, `{"a":[],"b":{},"c":[{}],"d":[[]]}`, `[{"k":"v, [x] {y}: \"q\" \\"},"\\\"",null,true,-1.5e3]`,
+		"{\n\t\"a\" :\r\n [ 1 , { \"b\" : \"\u00e9<>&\" } ]\n}\n", `"just a string"`, `12`, `{"a":{"b":{"c":{"d":[1,[2,[3]]]}}}}`, `["a\\","b"]`,
+	} {
+		var want bytes.Buffer
+		if err := json.Indent(&want, []byte(in), "", "  "); err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got := indent([]byte(in), 1<<20); !bytes.Equal(got, bytes.TrimRight(want.Bytes(), " \t\r\n")) {
+			t.Errorf("indent(%q) = %q, want %q", in, got, want.String())
+		}
+	}
+}
+
+func TestIndentStopsAtItsLimit(t *testing.T) {
+	deep := []byte(strings.Repeat("[", 8000) + strings.Repeat("]", 8000))
+	if got := indent(deep, 4<<20); got != nil {
+		t.Errorf("a %d byte file indented to %d bytes", len(deep), len(got))
+	}
+	if got := indent([]byte(`[1,2]`), 5); got != nil {
+		t.Errorf("limit 5 gave %q", got)
+	}
+	if got := indent([]byte(`[1]`), 7); string(got) != "[\n  1\n]" {
+		t.Errorf("limit 7 gave %q", got)
 	}
 }
 

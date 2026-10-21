@@ -206,6 +206,26 @@ func TestJSONIsPrettyPrintedWithAnAsWrittenToggle(t *testing.T) {
 	}
 }
 
+func TestPrettyJSONOverEightMiBIsWindowed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 6 MiB")
+	}
+	big := "[" + strings.Repeat("1,", (6<<20)/2) + "1]\n"
+	deep := strings.Repeat("[", 8000) + strings.Repeat("]", 8000) + "\n"
+	h, _ := viewer(t, map[string]string{"d/big.json": big, "d/deep.json": deep})
+	body := get(t, h, "/doc/d/big.json")
+	contains(t, "big pretty", body, `data-whole="false"`, `<span class="on" aria-current="true">Pretty</span>`, "the Board shows about 4 MiB at a time", "  1,\n  1,\n")
+	lacks(t, "big pretty", body, "doc-notice", `class="text-follow"`)
+	if len(body) > 16<<20 {
+		t.Errorf("the page is %d bytes", len(body))
+	}
+	contains(t, "start", get(t, h, "/doc/d/big.json?at=0"), `<pre class="src">[`+"\n  1,\n  1,", `href="/doc/d/big.json?at=`)
+	contains(t, "earlier", get(t, h, "/doc/d/big.json?at=4194304"), `href="/doc/d/big.json?at=0"`)
+	deepPage := get(t, h, "/doc/d/deep.json")
+	contains(t, "deep", deepPage, "This JSON is too large to pretty-print, so the Board shows it as written.", "[[[[")
+	lacks(t, "deep", deepPage, "doc-toggle")
+}
+
 func TestInvalidJSONFallsBackToText(t *testing.T) {
 	h, _ := viewer(t, map[string]string{"d/bad.json": `{"a": [1, 2,}` + "\n", "d/two.json": `{"a":1}` + "\n" + `{"b":2}` + "\n", "d/empty.json": ""})
 	for _, rel := range []string{"d/bad.json", "d/two.json"} {
@@ -250,7 +270,7 @@ func TestCSVIsATableWithNumbersOnTheRight(t *testing.T) {
 	lacks(t, "csv text", text, "<table")
 }
 
-func TestCSVShowsTheFirst2000RowsOnly(t *testing.T) {
+func TestCSVShowsTheHeaderAndTheFirst2000Rows(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("n,v\n")
 	for i := 1; i <= 2000; i++ {
@@ -258,16 +278,17 @@ func TestCSVShowsTheFirst2000RowsOnly(t *testing.T) {
 	}
 	h, _ := viewer(t, map[string]string{"d/exact.csv": b.String(), "d/more.csv": b.String() + "2001,r2001\n2002,r2002\n"})
 	exact := get(t, h, "/doc/d/exact.csv")
-	if n := strings.Count(exact, "<tr>"); n != 2000 {
-		t.Errorf("a 2001-record file shows %d rows", n)
+	if n := strings.Count(exact, "<tr>"); n != 2001 {
+		t.Errorf("a header and 2000 rows show %d table rows", n)
 	}
-	contains(t, "exact", exact, "r1999", "<td class=\"r\">1999</td>")
+	contains(t, "exact", exact, "r2000", "<td class=\"r\">2000</td>")
+	lacks(t, "exact", exact, "rows are shown")
 	more := get(t, h, "/doc/d/more.csv")
-	if n := strings.Count(more, "<tr>"); n != 2000 {
-		t.Errorf("a longer file shows %d rows", n)
+	if n := strings.Count(more, "<tr>"); n != 2001 {
+		t.Errorf("a longer file shows %d table rows", n)
 	}
-	contains(t, "more", more, `<p class="meta">The first 2000 rows are shown. Text shows the whole file.</p>`, "r1999")
-	lacks(t, "more", more, "r2000", "r2001")
+	contains(t, "more", more, `<p class="meta">The first 2,000 rows are shown. Text shows the whole file.</p>`, "r2000")
+	lacks(t, "more", more, "r2001", "r2002")
 }
 
 func TestAHugeCSVCellIsClippedAndTheFileStaysBounded(t *testing.T) {

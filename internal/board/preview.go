@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	maxPretty = 16 << 20
-	maxRows   = 2000
-	maxCell   = 300
-	sandbox   = "sandbox; default-src 'none'"
+	maxPretty   = 16 << 20
+	maxIndented = 4 * maxPretty
+	maxRows     = 2000
+	maxCell     = 300
+	sandbox     = "sandbox; default-src 'none'"
 )
 
 var (
@@ -97,11 +98,62 @@ func (b *Board) raw(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.Fi
 	http.ServeContent(w, r, "", fi.ModTime(), f)
 }
 
-func indented(r io.Reader) []byte {
+func indented(r io.Reader) ([]byte, string) {
 	raw, err := io.ReadAll(io.LimitReader(r, maxPretty))
+	if err != nil || !json.Valid(raw) {
+		return nil, "This is not valid JSON, so the Board shows it as written."
+	}
+	if out := indent(raw, maxIndented); out != nil {
+		return out, ""
+	}
+	return nil, "This JSON is too large to pretty-print, so the Board shows it as written."
+}
+
+func indent(raw []byte, limit int) []byte {
 	var out bytes.Buffer
-	if err != nil || json.Indent(&out, raw, "", "  ") != nil {
-		return nil
+	depth, inString, escaped := 0, false, false
+	line := func() {
+		out.WriteByte('\n')
+		for range depth {
+			out.WriteString("  ")
+		}
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		switch {
+		case inString:
+			out.WriteByte(c)
+			inString, escaped = !(c == '"' && !escaped), c == '\\' && !escaped
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+		case c == '{' || c == '[':
+			out.WriteByte(c)
+			j := i + 1
+			for j < len(raw) && (raw[j] == ' ' || raw[j] == '\t' || raw[j] == '\r' || raw[j] == '\n') {
+				j++
+			}
+			if j < len(raw) && (raw[j] == '}' || raw[j] == ']') {
+				out.WriteByte(raw[j])
+				i = j
+			} else {
+				depth++
+				line()
+			}
+		case c == '}' || c == ']':
+			depth--
+			line()
+			out.WriteByte(c)
+		case c == ',':
+			out.WriteByte(c)
+			line()
+		case c == ':':
+			out.WriteString(": ")
+		default:
+			out.WriteByte(c)
+			inString = c == '"'
+		}
+		if out.Len() > limit {
+			return nil
+		}
 	}
 	return out.Bytes()
 }
@@ -134,7 +186,7 @@ func visible(s string) string {
 }
 
 func table(r io.Reader, comma rune) (rows [][]string, numeric []bool, cut bool, err error) {
-	lr := &io.LimitedReader{R: r, N: maxWhole}
+	lr := &io.LimitedReader{R: r, N: maxWhole + 1}
 	cr := csv.NewReader(bufio.NewReaderSize(lr, 64<<10))
 	cr.Comma, cr.LazyQuotes, cr.FieldsPerRecord = comma, true, -1
 	for {
@@ -145,7 +197,7 @@ func table(r io.Reader, comma rune) (rows [][]string, numeric []bool, cut bool, 
 		if err != nil {
 			return nil, nil, false, err
 		}
-		if len(rows) == maxRows {
+		if len(rows) == maxRows+1 {
 			cut = true
 			break
 		}
@@ -168,7 +220,7 @@ func columns(rows [][]string) []bool {
 				continue
 			}
 			seen[i] = true
-			if _, err := strconv.ParseFloat(c, 64); err != nil || !strings.ContainsAny(c[:1], "+-.0123456789") {
+			if _, err := strconv.ParseFloat(c, 64); err != nil || !strings.ContainsAny(c[:1], "+-.0123456789") || !strings.ContainsAny(c[len(c)-1:], "0123456789") {
 				numeric[i] = false
 			}
 		}

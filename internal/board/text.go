@@ -389,7 +389,7 @@ func hitLines(ctx context.Context, r io.Reader, needle []byte) []hit {
 	return hits
 }
 
-func countLines(ctx context.Context, f *os.File, upto int64) (int, error) {
+func countLines(ctx context.Context, f io.ReaderAt, upto int64) (int, error) {
 	buf := make([]byte, 1<<20)
 	n := 0
 	for at := int64(0); at < upto; {
@@ -406,7 +406,7 @@ func countLines(ctx context.Context, f *os.File, upto int64) (int, error) {
 	return n, nil
 }
 
-func lineStart(ctx context.Context, f *os.File, size int64, line int) (int64, bool) {
+func lineStart(ctx context.Context, f io.ReaderAt, size int64, line int) (int64, bool) {
 	buf := make([]byte, 1<<20)
 	need := line - 1
 	for at := int64(0); need > 0 && at < size; {
@@ -428,7 +428,7 @@ func lineStart(ctx context.Context, f *os.File, size int64, line int) (int64, bo
 	return 0, line <= 1
 }
 
-func lineAfter(f *os.File, at, size int64) int64 {
+func lineAfter(f io.ReaderAt, at, size int64) int64 {
 	if at <= 0 || at >= size {
 		return min(max(at, 0), size)
 	}
@@ -463,7 +463,7 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 	if pretty != nil {
 		src, total = bytes.NewReader(pretty), int64(len(pretty))
 	}
-	v := &textView{First: 1, SizeText: size(total), Whole: total <= maxWhole || pretty != nil, Empty: total == 0, End: "#text-end", Plain: q.Get("as") == "text"}
+	v := &textView{First: 1, SizeText: size(total), Whole: total <= maxWhole, Empty: total == 0, End: "#text-end", Plain: q.Get("as") == "text"}
 	href := func(kv string) string {
 		switch {
 		case v.Plain && kv != "":
@@ -481,19 +481,19 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 		at = total - window
 		if q.Has("line") {
 			n, _ := strconv.Atoi(q.Get("line"))
-			if start, ok := lineStart(ctx, f, total, n); ok {
+			if start, ok := lineStart(ctx, src, total, n); ok {
 				at = start
 			}
 		} else if q.Has("at") {
 			at, _ = strconv.ParseInt(q.Get("at"), 10, 64)
 		}
-		at = lineAfter(f, min(max(at, 0), total), total)
+		at = lineAfter(src, min(max(at, 0), total), total)
 		if end = at + window; end < total {
-			end = lineAfter(f, end, total)
+			end = lineAfter(src, end, total)
 		} else {
 			end = total
 		}
-		n, err := countLines(ctx, f, at)
+		n, err := countLines(ctx, src, at)
 		if err != nil {
 			return
 		}

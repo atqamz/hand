@@ -248,7 +248,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		if ext == ".tsv" {
 			comma = '\t'
 		}
-		rows, numeric, cut, err := table(io.NewSectionReader(f, 0, maxWhole), comma)
+		rows, numeric, cut, err := table(io.NewSectionReader(f, 0, fi.Size()), comma)
 		if err != nil || len(rows) == 0 {
 			delete(data, "Views")
 			b.textPage(w, r, f, fi, data, nil)
@@ -258,9 +258,10 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	default:
 		var pretty []byte
 		if ext == ".json" && !asText && data["Views"] != nil {
-			if pretty = indented(io.NewSectionReader(f, 0, maxPretty)); pretty == nil {
+			var note string
+			if pretty, note = indented(io.NewSectionReader(f, 0, maxPretty)); pretty == nil {
 				delete(data, "Views")
-				data["Notice"] = "This is not valid JSON, so the Board shows it as written."
+				data["Notice"] = note
 			}
 		}
 		b.textPage(w, r, f, fi, data, pretty)
