@@ -86,7 +86,9 @@ func TestTheViewerDialogFollowsTheHistory(t *testing.T) {
 		`if (e.state?.viewer) load(new URL(e.state.viewer), "none");`,
 		`opener?.focus();`,
 		`dlg.append(toast);`,
+		`if (e.target === dlg && pressed === dlg) close();`,
 		`dlg.before(toast);`,
+		"if (announce.parentElement !== hosted()) hosted().append(announce);",
 		"const res = await fetch(home, { credentials: \"same-origin\" }).catch(() => null);",
 		"new EventSource(`${base}/events${new URL(home).search}`)")
 	lacks(t, "app.js", js, "fetch(location.href", "location.search")
@@ -120,8 +122,11 @@ func TestTheViewerDialogIsStyled(t *testing.T) {
 		".viewer .doc-frame{height:calc(100dvh - 300px)}",
 		".viewer-body .text-bar{top:-16px}")
 	phone := strings.Index(css, "@media (max-width:599px){.work>.panel")
+	if phone < 0 {
+		t.Fatal("board.css has no first max-width:599px block")
+	}
 	rule := strings.Index(css[phone:], "dialog.viewer[open]{width:100vw;height:100dvh;border:0;border-radius:0}\ndialog.viewer[open] .viewer-body.thread.doc{padding:12px 12px 24px}\ndialog.viewer[open] .text-bar{top:-12px}")
-	if end := strings.Index(css[phone+1:], "\n@media"); phone < 0 || rule < 0 || rule > end {
+	if end := strings.Index(css[phone+1:], "\n@media"); rule < 0 || end >= 0 && rule > end {
 		t.Fatalf("the phone rules are not in the first max-width:599px block (%d, %d, %d)", phone, rule, end)
 	}
 }
