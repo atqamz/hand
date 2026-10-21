@@ -162,6 +162,7 @@ func (lw *lineWriter) ctl(r rune, title string) {
 
 func (lw *lineWriter) text(b []byte) {
 	if i := bytes.LastIndexByte(b, '\r'); i >= 0 {
+		lw.track(b[:i])
 		b = b[i+1:]
 	}
 	for len(b) > 0 {
@@ -204,6 +205,16 @@ func (lw *lineWriter) text(b []byte) {
 	}
 }
 
+func (lw *lineWriter) track(b []byte) {
+	for len(b) > 0 {
+		i := bytes.IndexByte(b, 0x1b)
+		if i < 0 {
+			return
+		}
+		b = lw.escape(b[i:])
+	}
+}
+
 func (lw *lineWriter) escape(b []byte) []byte {
 	if len(b) < 2 {
 		return nil
@@ -231,7 +242,8 @@ func (lw *lineWriter) escape(b []byte) []byte {
 	case '(', ')', '*', '+', '#', '%':
 		return b[min(3, len(b)):]
 	}
-	return b[2:]
+	_, n := utf8.DecodeRune(b[1:])
+	return b[1+n:]
 }
 
 type rawLine struct {
@@ -413,7 +425,8 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 		}
 	}
 	v.Follow = end == total
-	if needle := strings.TrimSpace(q.Get("find")); needle != "" && len(needle) <= maxNeedle {
+	if needle := strings.TrimSpace(q.Get("find")); needle != "" {
+		needle = needle[:min(len(needle), maxNeedle)]
 		v.Find = needle
 		v.Hits = hitLines(ctx, io.NewSectionReader(f, 0, total), bytes.ToLower([]byte(needle)))
 		v.Capped = len(v.Hits) == maxHits

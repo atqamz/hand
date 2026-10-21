@@ -139,6 +139,7 @@ func TestFindListsTheLinesOfTheWholeFile(t *testing.T) {
 		t.Errorf("%d hit links", got)
 	}
 	contains(t, "capped", capped, "The first 200 matching lines.")
+	contains(t, "long needle", get(t, h, "/doc/reports/big.log?find="+strings.Repeat("a", 500)), "is not in this file.")
 	contains(t, "none", get(t, h, "/doc/reports/big.log?find=nowhere"), "“nowhere” is not in this file.")
 	lacks(t, "blank", get(t, h, "/doc/reports/big.log?find=%20%20"), "is not in this file", "text-hits")
 
@@ -223,7 +224,12 @@ func TestTextPastTheFirstKiBsIsShownWithVisibleSymbols(t *testing.T) {
 func TestHostileTextNeverBecomesMarkup(t *testing.T) {
 	evil := "<img src=x onerror=alert(1)>\n<script>alert(2)</script>\n\x1b[31m<b>red</b>\x1b[0m\n\"><svg onload=alert(3)>\n&lt;i&gt; &#60;u&#62;\n\x1b]8;;javascript:alert(4)\x07link\x1b]8;;\x07\n‮<a href=//evil>\n"
 	h, _ := viewer(t, map[string]string{"reports/evil.log": evil})
-	body := get(t, h, "/doc/reports/evil.log")
+	rec := request(h, "GET", "/doc/reports/evil.log", nil, true)
+	headers(t, "evil", rec, map[string]string{"Content-Type": "text/html; charset=utf-8", "X-Frame-Options": "DENY"})
+	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'self'") || !strings.Contains(csp, "default-src 'none'") {
+		t.Errorf("text page CSP = %q", csp)
+	}
+	body := rec.Body.String()
 	lacks(t, "evil", body, "<img", "<script>", "<b>", "<svg onload", "<a href=//", "javascript:", "<i>", "<u>")
 	contains(t, "evil", body, "&lt;img src=x onerror=alert(1)&gt;", "&lt;script&gt;alert(2)&lt;/script&gt;", `<span class="x-r">&lt;b&gt;red&lt;/b&gt;</span>`, "&amp;lt;i&amp;gt;", "&amp;#60;u&amp;#62;", "link\n", `title="bidirectional control U+202E">U+202E</span>&lt;a href=//evil&gt;`)
 }

@@ -1006,45 +1006,51 @@
 			ticking = 0;
 			follow.setAttribute("aria-pressed", "false");
 		};
+		let busy = false;
 		const pull = async () => {
-			if (document.hidden) return;
-			const res = await fetch(`${view.dataset.href}?from=${marker.dataset.next}&line=${marker.dataset.line}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
-			if (!res?.ok) return;
-			if (res.headers.get("X-Hand-Reset")) {
-				show("The file was replaced or shortened; reload to read it again.", 6000);
-				stop();
-				return;
+			if (document.hidden || busy) return;
+			busy = true;
+			try {
+				const res = await fetch(`${view.dataset.href}?from=${marker.dataset.next}&line=${marker.dataset.line}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
+				if (!res?.ok || !ticking) return;
+				if (res.headers.get("X-Hand-Reset")) {
+					show("The file was replaced or shortened; reload to read it again.", 6000);
+					stop();
+					return;
+				}
+				const html = await res.text();
+				if (!html || !ticking) return;
+				const near = marker.getBoundingClientRect().top - window.innerHeight < 48;
+				const last = marker.previousElementSibling;
+				if (marker.dataset.partial === "true" && last) {
+					last.querySelector(".partial")?.remove();
+					const gut = last.querySelector(".gut");
+					gut.textContent = gut.textContent.replace(/[^\n]*\n$/, "");
+				}
+				const tpl = document.createElement("template");
+				tpl.innerHTML = html;
+				const fresh = [...tpl.content.children];
+				if (last && fresh.length && Number(marker.dataset.line) - Number(last.dataset.from) < chunkLimit) {
+					const first = fresh.shift();
+					last.querySelector(".src").append(...first.querySelector(".src").childNodes);
+					last.querySelector(".gut").append(...first.querySelector(".gut").childNodes);
+				}
+				marker.before(...fresh);
+				marker.dataset.next = res.headers.get("X-Hand-Next");
+				marker.dataset.line = res.headers.get("X-Hand-Line");
+				marker.dataset.partial = "false";
+				if (near) bottom();
+			} finally {
+				busy = false;
 			}
-			const html = await res.text();
-			if (!html) return;
-			const near = marker.getBoundingClientRect().top - window.innerHeight < 48;
-			const last = marker.previousElementSibling;
-			if (marker.dataset.partial === "true" && last) {
-				last.querySelector(".partial")?.remove();
-				const gut = last.querySelector(".gut");
-				gut.textContent = gut.textContent.replace(/[^\n]*\n$/, "");
-			}
-			const tpl = document.createElement("template");
-			tpl.innerHTML = html;
-			const fresh = [...tpl.content.children];
-			if (last && fresh.length && Number(marker.dataset.line) - Number(last.dataset.from) < chunkLimit) {
-				const first = fresh.shift();
-				last.querySelector(".src").append(...first.querySelector(".src").childNodes);
-				last.querySelector(".gut").append(...first.querySelector(".gut").childNodes);
-			}
-			marker.before(...fresh);
-			marker.dataset.next = res.headers.get("X-Hand-Next");
-			marker.dataset.line = res.headers.get("X-Hand-Line");
-			marker.dataset.partial = "false";
-			if (near) bottom();
 		};
 		follow.hidden = false;
 		follow.addEventListener("click", () => {
 			if (ticking) return stop();
 			follow.setAttribute("aria-pressed", "true");
 			bottom();
-			pull();
 			ticking = setInterval(pull, 2000);
+			pull();
 		});
 	};
 	for (const view of document.querySelectorAll(".text-view")) textView(view);
