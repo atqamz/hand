@@ -661,6 +661,7 @@ a.file,.delivered a.url{color:var(--accent)}
 .doc-nav a{display:inline-flex;align-items:center;gap:8px;min-width:0;min-height:var(--control)}
 .doc-nav a[rel=next]{margin-left:auto}
 .doc-nav .meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thread-head>.doc-nav{min-width:0}
 .doc-picture.actual{overflow:auto;max-height:80vh}
 .doc-picture.actual img{max-width:none;max-height:none}
 .attempts .check{display:grid;grid-template-columns:16px 32px minmax(0,1fr) auto;grid-template-areas:"icon ref title title" ". . meta time";gap:0 8px;align-items:baseline;padding:8px 4px;white-space:normal}

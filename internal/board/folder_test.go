@@ -193,6 +193,7 @@ func TestThePagingAndStepsAreStyled(t *testing.T) {
 		".doc-nav a{display:inline-flex;align-items:center;gap:8px;min-width:0;min-height:var(--control)}",
 		".doc-nav a[rel=next]{margin-left:auto}",
 		".doc-nav .meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+		".thread-head>.doc-nav{min-width:0}",
 		".doc-picture.actual{overflow:auto;max-height:80vh}",
 		".doc-picture.actual img{max-width:none;max-height:none}")
 }
