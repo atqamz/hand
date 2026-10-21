@@ -401,6 +401,10 @@ func (b *Board) valid(t string) bool {
 }
 
 func (b *Board) render(w http.ResponseWriter, status int, name string, data map[string]any) {
+	renderPage(w, status, name, b.pageData(data))
+}
+
+func (b *Board) pageData(data map[string]any) map[string]any {
 	data["Base"], data["Controls"] = b.o.Base, b.o.Controls
 	if _, ok := data["Titles"]; !ok {
 		data["Titles"] = b.refTitle(context.Background())
@@ -412,7 +416,7 @@ func (b *Board) render(w http.ResponseWriter, status int, name string, data map[
 	if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"], data["FleetID"] = f.Name, f.ID
 	}
-	renderPage(w, status, name, data)
+	return data
 }
 
 func renderPage(w http.ResponseWriter, status int, name string, data map[string]any) {

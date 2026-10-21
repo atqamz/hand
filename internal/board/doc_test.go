@@ -82,7 +82,7 @@ func TestTheViewerRendersMarkdown(t *testing.T) {
 func TestTheViewerShowsTextAsPreformatted(t *testing.T) {
 	h, _ := viewer(t, map[string]string{"reports/t1/run.log": "01:00 export <b>ok</b> & done\n"})
 	body := get(t, h, "/doc/reports/t1/run.log")
-	contains(t, "log", body, `<div class="doc-body md"><pre><code>01:00 export &lt;b&gt;ok&lt;/b&gt; &amp; done`, `<span class="meta">30 B</span>`, `href="/doc/reports/t1/run.log?download"`)
+	contains(t, "log", body, `<div class="chunk" data-from="1"><pre class="src">01:00 export &lt;b&gt;ok&lt;/b&gt; &amp; done`+"\n</pre>", `<pre class="gut" aria-hidden="true">1`+"\n</pre>", `<span class="meta">30 B</span>`, `href="/doc/reports/t1/run.log?download"`)
 	lacks(t, "log", body, "<b>ok", `class="doc-notice"`)
 }
 
@@ -97,7 +97,7 @@ func TestActiveFilesAreShownAsTextAndNeverInline(t *testing.T) {
 	for rel, data := range files {
 		rec := request(h, "GET", "/doc/"+rel, nil, true)
 		body := rec.Body.String()
-		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/html; charset=utf-8" || !strings.Contains(body, `<pre><code>`+html.EscapeString(data)+`</code></pre>`) || strings.Contains(body, "<script>alert") || strings.Contains(body, "<svg xmlns") {
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/html; charset=utf-8" || !strings.Contains(body, `<pre class="src"><span class="partial">`+html.EscapeString(data)+`</span></pre>`) || strings.Contains(body, "<script>alert") || strings.Contains(body, "<svg xmlns") {
 			t.Errorf("%s = %d %q:\n%s", rel, rec.Code, rec.Header().Get("Content-Type"), body)
 		}
 	}
@@ -114,7 +114,7 @@ func TestAnImageIsInlineOnlyWhenBytesAndNameAgree(t *testing.T) {
 		}
 		headers(t, rel, rec, map[string]string{"Content-Type": "image/png", "Content-Disposition": "", "Content-Security-Policy": "sandbox; default-src 'none'", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Cache-Control": "private, no-cache"})
 	}
-	for rel, want := range map[string]string{"shots/c.md": "This file is not text", "shots/d.txt": "This file is not text", "shots/e.png": "<pre><code>not a picture"} {
+	for rel, want := range map[string]string{"shots/c.md": "This file is not text", "shots/d.txt": "This file is not text", "shots/e.png": `<pre class="src">not a picture`} {
 		rec := request(h, "GET", "/doc/"+rel, nil, true)
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/html; charset=utf-8" || !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("%s = %d %q:\n%s", rel, rec.Code, rec.Header().Get("Content-Type"), rec.Body)
@@ -247,17 +247,15 @@ func TestTraversalIsRefused(t *testing.T) {
 	}
 }
 
-func TestAFileOverOneMiBIsNotRendered(t *testing.T) {
+func TestAFileOverOneMiBIsShownNotRefused(t *testing.T) {
 	line := "2026-10-19T01:00:00Z export worker heartbeat ok\n"
 	big := strings.Repeat(line, (1<<20)/len(line)+1) + "TAIL-MARKER"
-	fits := strings.Repeat("x", 1<<20-len("END-MARKER")) + "END-MARKER"
-	h, _ := viewer(t, map[string]string{"reports/huge.log": big, "reports/huge.md": big, "reports/fits.log": fits})
+	h, _ := viewer(t, map[string]string{"reports/huge.log": big, "reports/huge.md": big})
 	for _, rel := range []string{"reports/huge.log", "reports/huge.md"} {
 		body := get(t, h, "/doc/"+rel)
-		contains(t, rel, body, `<p class="doc-notice">This file is 1.0 MiB. The Board shows text files up to 1 MiB; download it to read it.</p>`, `href="/doc/`+rel+`?download"`)
-		lacks(t, rel, body, "heartbeat", "TAIL-MARKER", "<pre>")
+		contains(t, rel, body, "heartbeat ok", "TAIL-MARKER", `data-whole="true"`, `href="/doc/`+rel+`?download"`)
+		lacks(t, rel, body, "doc-notice", "download it to read it", "up to 1 MiB")
 	}
-	contains(t, "1 MiB exactly", get(t, h, "/doc/reports/fits.log"), "END-MARKER</code></pre>")
 }
 
 func TestABinaryNamedMdIsNotRendered(t *testing.T) {
@@ -274,7 +272,7 @@ func TestNamesWithSpacesAndUnicodeAreEscaped(t *testing.T) {
 	listing := get(t, h, "/doc/reports/t1")
 	contains(t, "listing", listing, `href="/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md"`, `href="/doc/reports/t1/a%23b%20c&amp;d%2520.txt"`, `<span class="name">a#b c&amp;d%20.txt</span>`)
 	contains(t, "unicode", get(t, h, "/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md"), `<h2 class="thread-title">résumé notes.md</h2>`, `href="/doc/reports/t1/r%C3%A9sum%C3%A9%20notes.md?download"`)
-	contains(t, "odd", get(t, h, "/doc/reports/t1/a%23b%20c&d%2520.txt"), "<pre><code>odd")
+	contains(t, "odd", get(t, h, "/doc/reports/t1/a%23b%20c&d%2520.txt"), `<pre class="src">odd`+"\n</pre>")
 	contains(t, "space in a folder", get(t, h, "/doc/reports/t%202/x.md"), `<a href="/doc/reports/t%202">t 2</a>`)
 }
 

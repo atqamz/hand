@@ -873,6 +873,182 @@
 		});
 	}
 
+	const textView = (view) => {
+		const lines = view.querySelector(".lines");
+		const marker = lines.querySelector(".text-end");
+		const lh = 18;
+		const chunkLimit = 500;
+		const findCap = 20000;
+		const wrap = view.querySelector(".text-wrap");
+		const setWrap = (on) => {
+			wrap.setAttribute("aria-pressed", String(on));
+			if (on) lines.dataset.wrap = "on";
+			else delete lines.dataset.wrap;
+		};
+		wrap.hidden = false;
+		wrap.addEventListener("click", () => setWrap(wrap.getAttribute("aria-pressed") !== "true"));
+		const bottom = () => document.getElementById("text-end").scrollIntoView({ block: "end" });
+		const band = document.createElement("div");
+		band.className = "here";
+		const chunkOf = (n) => {
+			let hit = null;
+			for (const c of lines.querySelectorAll(".chunk")) {
+				if (Number(c.dataset.from) > n) break;
+				hit = c;
+			}
+			return hit && n < Number(hit.dataset.from) + hit.querySelector(".gut").textContent.split("\n").length - 1 ? hit : null;
+		};
+		const mark = (n, scroll) => {
+			band.remove();
+			const c = chunkOf(n);
+			if (!c) return;
+			setWrap(false);
+			band.style.top = `${(n - Number(c.dataset.from)) * lh}px`;
+			c.prepend(band);
+			if (scroll) band.scrollIntoView({ block: "center" });
+		};
+		const jump = () => {
+			const m = /^#L(\d+)$/.exec(location.hash);
+			if (m) mark(Number(m[1]), true);
+		};
+		jump();
+		window.addEventListener("hashchange", jump);
+		lines.addEventListener("click", (e) => {
+			const gut = e.target instanceof Element && e.target.closest(".gut");
+			if (!gut) return;
+			const n = Number(gut.parentElement.dataset.from) + Math.floor((e.clientY - gut.getBoundingClientRect().top) / lh);
+			history.replaceState(history.state, "", `#L${n}`);
+			mark(n, false);
+		});
+		const form = view.querySelector(".text-find");
+		const input = form.querySelector("input");
+		const count = form.querySelector(".find-count");
+		if (view.dataset.whole === "true" && "highlights" in CSS) {
+			let found = [];
+			let at = -1;
+			let timer = 0;
+			const paint = () => {
+				CSS.highlights.set("find", new Highlight(...found));
+				CSS.highlights.set("find-now", new Highlight(...(at >= 0 ? [found[at]] : [])));
+			};
+			const reveal = (r) => {
+				r.startContainer.parentElement.closest(".chunk").scrollIntoView({ block: "start" });
+				document.scrollingElement.scrollTop += r.getBoundingClientRect().top - window.innerHeight / 2;
+			};
+			const go = (step) => {
+				if (!found.length) return;
+				at = (at + step + found.length) % found.length;
+				paint();
+				reveal(found[at]);
+				count.textContent = `${at + 1} of ${found.length}${found.length >= findCap ? "+" : ""}`;
+			};
+			const search = () => {
+				const needle = input.value.trim();
+				found = [];
+				at = -1;
+				if (needle) {
+					const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+					for (const pre of lines.querySelectorAll(".src")) {
+						const nodes = [];
+						const starts = [];
+						let text = "";
+						const walk = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+						for (let t = walk.nextNode(); t; t = walk.nextNode()) {
+							nodes.push(t);
+							starts.push(text.length);
+							text += t.data;
+						}
+						let a = 0;
+						let z = 0;
+						for (let m = re.exec(text); m && found.length < findCap; m = re.exec(text)) {
+							const to = m.index + m[0].length;
+							while (a + 1 < nodes.length && starts[a + 1] <= m.index) a++;
+							while (z + 1 < nodes.length && starts[z + 1] < to) z++;
+							const r = new Range();
+							r.setStart(nodes[a], m.index - starts[a]);
+							r.setEnd(nodes[z], to - starts[z]);
+							found.push(r);
+						}
+						if (found.length >= findCap) break;
+					}
+				}
+				count.textContent = needle && !found.length ? "not in this file" : "";
+				paint();
+				go(1);
+			};
+			form.addEventListener("submit", (e) => {
+				e.preventDefault();
+				if (found.length && input.value.trim().toLowerCase() === found[0].toString().toLowerCase()) go(1);
+				else search();
+			});
+			input.addEventListener("input", () => {
+				clearTimeout(timer);
+				timer = setTimeout(search, 250);
+			});
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter" && e.shiftKey) {
+					e.preventDefault();
+					go(-1);
+				}
+				if (e.key === "Escape" && input.value) {
+					e.preventDefault();
+					input.value = "";
+					search();
+				}
+			});
+			if (input.value) search();
+		}
+		const follow = view.querySelector(".text-follow");
+		if (!follow) return;
+		let ticking = 0;
+		const stop = () => {
+			clearInterval(ticking);
+			ticking = 0;
+			follow.setAttribute("aria-pressed", "false");
+		};
+		const pull = async () => {
+			if (document.hidden) return;
+			const res = await fetch(`${view.dataset.href}?from=${marker.dataset.next}&line=${marker.dataset.line}`, { credentials: "same-origin", cache: "no-store" }).catch(() => null);
+			if (!res?.ok) return;
+			if (res.headers.get("X-Hand-Reset")) {
+				show("The file was replaced or shortened; reload to read it again.", 6000);
+				stop();
+				return;
+			}
+			const html = await res.text();
+			if (!html) return;
+			const near = marker.getBoundingClientRect().top - window.innerHeight < 48;
+			const last = marker.previousElementSibling;
+			if (marker.dataset.partial === "true" && last) {
+				last.querySelector(".partial")?.remove();
+				const gut = last.querySelector(".gut");
+				gut.textContent = gut.textContent.replace(/[^\n]*\n$/, "");
+			}
+			const tpl = document.createElement("template");
+			tpl.innerHTML = html;
+			const fresh = [...tpl.content.children];
+			if (last && fresh.length && Number(marker.dataset.line) - Number(last.dataset.from) < chunkLimit) {
+				const first = fresh.shift();
+				last.querySelector(".src").append(...first.querySelector(".src").childNodes);
+				last.querySelector(".gut").append(...first.querySelector(".gut").childNodes);
+			}
+			marker.before(...fresh);
+			marker.dataset.next = res.headers.get("X-Hand-Next");
+			marker.dataset.line = res.headers.get("X-Hand-Line");
+			marker.dataset.partial = "false";
+			if (near) bottom();
+		};
+		follow.hidden = false;
+		follow.addEventListener("click", () => {
+			if (ticking) return stop();
+			follow.setAttribute("aria-pressed", "true");
+			bottom();
+			pull();
+			ticking = setInterval(pull, 2000);
+		});
+	};
+	for (const view of document.querySelectorAll(".text-view")) textView(view);
+
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);
 	const tick = () => {
