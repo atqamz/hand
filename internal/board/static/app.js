@@ -1054,6 +1054,12 @@
 		});
 	};
 	for (const view of document.querySelectorAll(".text-view")) textView(view);
+	document.addEventListener("keydown", (e) => {
+		if (body.dataset.page !== "doc" || e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+		const step = { ArrowLeft: "prev", ArrowRight: "next" }[e.key];
+		if (!step || (e.target instanceof Element && e.target.closest("input, textarea, select, video, audio, .lines, .doc-picture, [contenteditable]")) || !getSelection()?.isCollapsed) return;
+		document.querySelector(`.doc-nav a[rel=${step}]`)?.click();
+	});
 
 	for (const [name, el] of regions) served.set(name, el.innerHTML);
 	local(document);

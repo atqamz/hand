@@ -3,7 +3,6 @@ package board_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -149,9 +148,6 @@ func TestEveryOtherFileDownloadsAsAnAttachment(t *testing.T) {
 
 func TestTheViewerListsAFolder(t *testing.T) {
 	files := map[string]string{"shots/t1/b.png": string(flowPNG), "shots/t1/A.png": string(flowPNG), "shots/t1/notes.txt": "n\n", "shots/t1/sub/x.md": "x", "shots/t1/.draft.md": secret, "shots/t1/.cache/x": secret, "shots/empty/.keep": ""}
-	for i := range 501 {
-		files[fmt.Sprintf("shots/many/f%03d.txt", i)] = "x"
-	}
 	h, _ := viewer(t, files)
 	body := get(t, h, "/doc/shots/t1")
 	contains(t, "listing", body, `<h2 class="thread-title">t1/</h2>`, `<a href="/doc/shots">shots</a></p>`)
@@ -160,21 +156,15 @@ func TestTheViewerListsAFolder(t *testing.T) {
 	for _, r := range rows {
 		order = append(order, r[1])
 	}
-	if want := []string{"/doc/shots/t1/sub", "/doc/shots/t1/A.png", "/doc/shots/t1/b.png", "/doc/shots/t1/notes.txt"}; strings.Join(order, " ") != strings.Join(want, " ") {
+	if want := []string{"/doc/shots/t1/sub", "/doc/shots/t1/A.png?view", "/doc/shots/t1/b.png?view", "/doc/shots/t1/notes.txt"}; strings.Join(order, " ") != strings.Join(want, " ") {
 		t.Fatalf("listing order = %v, want %v", order, want)
 	}
 	contains(t, "listing", body,
 		`<li><a href="/doc/shots/t1/sub"><span class="badge" aria-hidden="true">DIR</span><span class="name">sub/</span>`,
-		`<li><a href="/doc/shots/t1/A.png"><img src="/doc/shots/t1/A.png" alt="" loading="lazy"><span class="name">A.png</span><span class="meta">40 B · <time`,
+		`<li><a href="/doc/shots/t1/A.png?view"><img src="/doc/shots/t1/A.png" alt="" loading="lazy"><span class="name">A.png</span><span class="meta">40 B · <time`,
 		`<span class="badge" aria-hidden="true">TXT</span><span class="name">notes.txt</span>`)
-	lacks(t, "listing", body, ".draft", ".cache", `class="more"`, `class="doc-download"`)
+	lacks(t, "listing", body, ".draft", ".cache", `class="pager"`, `class="doc-download"`)
 	contains(t, "empty", get(t, h, "/doc/shots/empty"), `<li class="quiet">This folder is empty.</li>`)
-	many := get(t, h, "/doc/shots/many")
-	if n := strings.Count(many[strings.Index(many, `<ul class="listing">`):], `<li><a href=`); n != 500 {
-		t.Fatalf("a 501-entry folder lists %d rows", n)
-	}
-	contains(t, "many", many, `<p class="more">1 more entry is not listed.</p>`, "f499.txt")
-	lacks(t, "many", many, "f500.txt")
 }
 
 var policy = map[string]string{

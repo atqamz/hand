@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,10 +21,7 @@ import (
 	"github.com/atqamz/hand/internal/markdown"
 )
 
-const (
-	maxMarkdown = 1 << 20
-	maxListing  = 500
-)
+const maxMarkdown = 1 << 20
 
 var (
 	errHidden  = errors.New("the Board does not show Hand's own files, dot files, luvus/, locks/ or projects/")
@@ -143,11 +141,6 @@ func (b *Board) linked(ds []Deliverable) []Deliverable {
 
 type crumb struct{ Name, Href string }
 
-type entry struct {
-	Name, Href, Kind, Size, At string
-	Dir, Image                 bool
-}
-
 func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	root, real, _, err := Resolve(b.o.Home, r.PathValue("path"))
@@ -176,7 +169,8 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{"Title": name, "Page": "doc", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Name": name, "Path": filepath.Join(b.o.Home, filepath.FromSlash(rel)), "Crumbs": b.crumbs(rel), "At": fi.ModTime().UTC().Format(time.RFC3339), "Self": docURL(b.o.Base, rel)}
 	if fi.IsDir() {
 		data["Folder"] = true
-		data["Entries"], data["More"] = b.listing(f, rel)
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		data["Entries"], data["Pager"] = b.listing(root, real, f, rel, page)
 		b.render(w, http.StatusOK, "doc.html", data)
 		return
 	}
@@ -200,7 +194,8 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		b.follow(w, r, f, fi)
 		return
 	}
-	if download := q.Has("download"); download || image {
+	view := image && q.Has("view")
+	if download := q.Has("download"); download || image && !view {
 		h := w.Header()
 		h.Set("Content-Type", sniffed)
 		if download {
@@ -216,12 +211,27 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	data["Size"] = size(fi.Size())
 	self := data["Self"].(string)
 	data["Download"] = self + "?download"
+	zoom := q.Get("view") == "actual"
+	tail := "?view"
+	if zoom {
+		tail = "?view=actual"
+	}
+	prev, next, at := b.around(root, rel, view, tail)
+	if prev != nil || next != nil {
+		data["Prev"], data["Next"] = prev, next
+	}
+	if crumbs := data["Crumbs"].([]crumb); at > 1 && len(crumbs) > 0 {
+		crumbs[len(crumbs)-1].Href += "?page=" + strconv.Itoa(at)
+	}
 	ext := strings.ToLower(path.Ext(name))
 	asText := q.Get("as") == "text"
 	if v, ok := views[ext]; ok && text && (ext != ".json" || fi.Size() <= maxPretty) {
 		data["Views"] = []choice{{v[0], self, !asText}, {v[1], self + "?as=text", asText}}
 	}
 	switch kind := media(sniffed, name); {
+	case view:
+		data["Picture"], data["Zoom"] = self, zoom
+		data["Views"] = []choice{{"Fit", self + "?view", !zoom}, {"Actual size", self + "?view=actual", zoom}}
 	case kind != "":
 		data["Media"] = map[string]string{"Tag": strings.SplitN(kind, "/", 2)[0], "Src": self + "?raw"}
 	case isPDF(head, name):
@@ -277,37 +287,4 @@ func (b *Board) crumbs(rel string) []crumb {
 		out = append(out, crumb{parts[i], docURL(b.o.Base, strings.Join(parts[:i+1], "/"))})
 	}
 	return out
-}
-
-func (b *Board) listing(f *os.File, rel string) ([]entry, int) {
-	items, _ := f.ReadDir(-1)
-	items = slices.DeleteFunc(items, func(d fs.DirEntry) bool { return strings.HasPrefix(d.Name(), ".") })
-	slices.SortFunc(items, func(x, y fs.DirEntry) int {
-		if x.IsDir() != y.IsDir() {
-			if x.IsDir() {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(strings.ToLower(x.Name()), strings.ToLower(y.Name()))
-	})
-	more := max(0, len(items)-maxListing)
-	out := make([]entry, 0, len(items)-more)
-	for _, it := range items[:len(items)-more] {
-		e := entry{Name: it.Name(), Href: docURL(b.o.Base, rel+"/"+it.Name()), Dir: it.IsDir(), Kind: "DIR"}
-		switch {
-		case it.Type()&fs.ModeSymlink != 0:
-			e.Kind = "LINK"
-		case !e.Dir:
-			e.Kind, e.Image = fileKind(e.Name), imageLike.MatchString(e.Name)
-		}
-		if info, err := it.Info(); err == nil {
-			e.At = info.ModTime().UTC().Format(time.RFC3339)
-			if info.Mode().IsRegular() {
-				e.Size = size(info.Size())
-			}
-		}
-		out = append(out, e)
-	}
-	return out, more
 }
