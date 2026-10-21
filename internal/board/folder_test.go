@@ -3,6 +3,8 @@ package board_test
 import (
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -91,10 +93,9 @@ func TestAPagedFolderOffersAJump(t *testing.T) {
 }
 
 func TestStepsSkipFoldersAndKeepTheListingOrder(t *testing.T) {
-	h, _ := viewer(t, map[string]string{"r/b.md": "# b", "r/A.txt": "A", "r/a.txt": "a", "r/c.png": string(flowPNG), "r/e.log": "e", "r/sub/z.md": "z", "r/.h.txt": secret, "solo/only.txt": "x"})
+	h, _ := viewer(t, map[string]string{"r/b.md": "# b", "r/a.txt": "a", "r/c.png": string(flowPNG), "r/e.log": "e", "r/sub/z.md": "z", "r/.h.txt": secret, "solo/only.txt": "x"})
 	want := map[string][2]string{
-		"r/A.txt": {"", "/doc/r/a.txt"},
-		"r/a.txt": {"/doc/r/A.txt", "/doc/r/b.md"},
+		"r/a.txt": {"", "/doc/r/b.md"},
 		"r/b.md":  {"/doc/r/a.txt", "/doc/r/c.png?view"},
 		"r/c.png": {"/doc/r/b.md", "/doc/r/e.log"},
 		"r/e.log": {"/doc/r/c.png?view", ""},
@@ -123,8 +124,25 @@ func TestStepsSkipFoldersAndKeepTheListingOrder(t *testing.T) {
 	solo := get(t, h, "/doc/solo/only.txt")
 	lacks(t, "one file", solo, `class="doc-nav"`, `rel="prev"`, `rel="next"`)
 	contains(t, "arrows", get(t, h, "/doc/r/b.md"), `<nav class="doc-nav" aria-label="Files in this folder"><a href="/doc/r/a.txt" rel="prev" aria-keyshortcuts="ArrowLeft">← Previous<span class="meta">a.txt</span></a><a href="/doc/r/c.png?view" rel="next" aria-keyshortcuts="ArrowRight">Next →<span class="meta">c.png</span></a></nav>`)
-	lacks(t, "first file", get(t, h, "/doc/r/A.txt"), `rel="prev"`)
+	lacks(t, "first file", get(t, h, "/doc/r/a.txt"), `rel="prev"`)
 	lacks(t, "dot file", get(t, h, "/doc/r/e.log"), ".h.txt")
+}
+
+func TestNamesThatDifferOnlyByCaseKeepOneOrder(t *testing.T) {
+	h, home := viewer(t, map[string]string{"r/B.txt": "B", "r/c.txt": "c"})
+	if err := os.WriteFile(filepath.Join(home, "r", "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(home, "r", "B.txt")); string(got) != "B" {
+		t.Skip("the file system ignores case")
+	}
+	for range 3 {
+		if got := rowsOf(get(t, h, "/doc/r")); strings.Join(got, " ") != "B.txt b.txt c.txt" {
+			t.Fatalf("rows = %v", got)
+		}
+	}
+	contains(t, "B.txt", get(t, h, "/doc/r/B.txt"), `<a href="/doc/r/b.txt" rel="next"`)
+	contains(t, "b.txt", get(t, h, "/doc/r/b.txt"), `<a href="/doc/r/B.txt" rel="prev"`, `<a href="/doc/r/c.txt" rel="next"`)
 }
 
 func TestTheFolderPageOfAFileIsTheLastCrumb(t *testing.T) {
