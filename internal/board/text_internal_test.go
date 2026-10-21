@@ -64,7 +64,7 @@ func TestTheLineWriterEscapesAndColours(t *testing.T) {
 		"c0":              {"\x01\x07\x08\x0c\x1f\n", `<span class="ctl" title="control character 0x01">␁</span><span class="ctl" title="control character 0x07">␇</span><span class="ctl" title="control character 0x08">␈</span><span class="ctl" title="control character 0x0C">␌</span><span class="ctl" title="control character 0x1F">␟</span>` + "\n"},
 		"del and nul":     {"\x7f\x00\n", `<span class="ctl" title="control character 0x7F">␡</span><span class="ctl" title="control character 0x00">␀</span>` + "\n"},
 		"tab":             {"a\tb\n", "a\tb\n"},
-		"bidi":            {"a‮b⁦c⁩‎؜\n", `a<span class="ctl" title="bidirectional control U+202E">U+202E</span>b<span class="ctl" title="bidirectional control U+2066">U+2066</span>c<span class="ctl" title="bidirectional control U+2069">U+2069</span><span class="ctl" title="bidirectional control U+200E">U+200E</span><span class="ctl" title="bidirectional control U+061C">U+061C</span>` + "\n"},
+		"bidi":            {"a\u202eb\u2066c\u2069\u200e\u061c\n", `a<span class="ctl" title="bidirectional control U+202E">U+202E</span>b<span class="ctl" title="bidirectional control U+2066">U+2066</span>c<span class="ctl" title="bidirectional control U+2069">U+2069</span><span class="ctl" title="bidirectional control U+200E">U+200E</span><span class="ctl" title="bidirectional control U+061C">U+061C</span>` + "\n"},
 		"c1":              {"a\u0085b\u009bc\n", `a<span class="ctl" title="control character U+0085">U+0085</span>b<span class="ctl" title="control character U+009B">U+009B</span>c` + "\n"},
 		"bad utf-8":       {"a\xffb\xc3\n", "a�b�\n"},
 		"unicode":         {"héllo ✓ 日本\n", "héllo ✓ 日本\n"},
@@ -128,6 +128,22 @@ func TestALongLineIsCutWithANote(t *testing.T) {
 	}
 }
 
+func TestControlCharactersCannotBlowUpTheHTML(t *testing.T) {
+	line := strings.Repeat("\x01\u202e", 100) + "\n"
+	in := strings.Repeat(line, 10000)
+	out := renderText(in)
+	if n := strings.Count(out, `<span class="ctl"`); n != maxMarks {
+		t.Errorf("%d marked controls, want %d", n, maxMarks)
+	}
+	if limit := 4*len(in) + 2<<20; len(out) > limit {
+		t.Errorf("%d bytes of input rendered %d bytes of HTML, over %d", len(in), len(out), limit)
+	}
+	if !strings.Contains(out, "␁U+202E␁U+202E\n") {
+		t.Errorf("controls past the budget are not shown as plain marks")
+	}
+	checkMarkup(t, in)
+}
+
 func TestChunksHoldAtMost500Lines(t *testing.T) {
 	var in strings.Builder
 	for i := 1; i <= 1001; i++ {
@@ -162,7 +178,7 @@ func checkMarkup(t *testing.T, in string) {
 
 func FuzzTextEscapes(f *testing.F) {
 	for _, s := range []string{
-		"<img src=x onerror=alert(1)>", "a<b", "\x1b[31m<script>\x1b[0m", "x\r<y", "&lt;", "\"'", "‮<", "\x1b]0;<script>\x07", "\x1b[38;5;31m<b>", "\x1b[1;;31;<m",
+		"<img src=x onerror=alert(1)>", "a<b", "\x1b[31m<script>\x1b[0m", "x\r<y", "&lt;", "\"'", "\u202e<", "\x1b]0;<script>\x07", "\x1b[38;5;31m<b>", "\x1b[1;;31;<m",
 		"\x1b[", "\x1b", "\x1b]", "\x1b]8;;", "\xff<", "\x00<\x01>", "a\x1b[31mb\nc\x1b[0md", "\x1b[31m\x1b[1m\n\x1b[0m<", "x\x1b[999999999999999999999m<", "\x1b[38:2::<:2:3m",
 	} {
 		f.Add(s)
@@ -171,7 +187,7 @@ func FuzzTextEscapes(f *testing.F) {
 }
 
 func TestNoSeedProducesMarkup(t *testing.T) {
-	for _, s := range []string{"<script>alert(1)</script>", "\x1b[31m<b>\x1b[0m</b>", "&#60;script&#62;", "‮<img>", "\x1b]0;<x>\x07<y>", "\x1b[41;38;2;<mx"} {
+	for _, s := range []string{"<script>alert(1)</script>", "\x1b[31m<b>\x1b[0m</b>", "&#60;script&#62;", "\u202e<img>", "\x1b]0;<x>\x07<y>", "\x1b[41;38;2;<mx"} {
 		checkMarkup(t, s)
 	}
 }

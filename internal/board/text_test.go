@@ -222,7 +222,7 @@ func TestTextPastTheFirstKiBsIsShownWithVisibleSymbols(t *testing.T) {
 }
 
 func TestHostileTextNeverBecomesMarkup(t *testing.T) {
-	evil := "<img src=x onerror=alert(1)>\n<script>alert(2)</script>\n\x1b[31m<b>red</b>\x1b[0m\n\"><svg onload=alert(3)>\n&lt;i&gt; &#60;u&#62;\n\x1b]8;;javascript:alert(4)\x07link\x1b]8;;\x07\n‮<a href=//evil>\n"
+	evil := "<img src=x onerror=alert(1)>\n<script>alert(2)</script>\n\x1b[31m<b>red</b>\x1b[0m\n\"><svg onload=alert(3)>\n&lt;i&gt; &#60;u&#62;\n\x1b]8;;javascript:alert(4)\x07link\x1b]8;;\x07\n\u202e<a href=//evil>\n"
 	h, _ := viewer(t, map[string]string{"reports/evil.log": evil})
 	rec := request(h, "GET", "/doc/reports/evil.log", nil, true)
 	headers(t, "evil", rec, map[string]string{"Content-Type": "text/html; charset=utf-8", "X-Frame-Options": "DENY"})

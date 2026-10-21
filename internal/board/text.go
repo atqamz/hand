@@ -24,6 +24,7 @@ const (
 	headBytes  = 8 << 10
 	chunkLines = 500
 	maxHits    = 200
+	maxMarks   = 20000
 	maxNeedle  = 200
 	writeSpan  = 5 * time.Minute
 )
@@ -42,6 +43,7 @@ type lineWriter struct {
 	done     int64
 	partial  bool
 	onlyDone bool
+	marks    int
 }
 
 func textHead(head []byte) bool {
@@ -148,7 +150,11 @@ func plainByte(c byte) bool {
 }
 
 func (lw *lineWriter) ctl(r rune, title string) {
-	fmt.Fprintf(lw.w, `<span class="ctl" title="%s">`, title)
+	marked := lw.marks < maxMarks
+	lw.marks++
+	if marked {
+		fmt.Fprintf(lw.w, `<span class="ctl" title="%s">`, title)
+	}
 	switch {
 	case r < 0x20:
 		lw.w.WriteRune(0x2400 + r)
@@ -157,7 +163,9 @@ func (lw *lineWriter) ctl(r rune, title string) {
 	default:
 		fmt.Fprintf(lw.w, "U+%04X", r)
 	}
-	lw.w.WriteString("</span>")
+	if marked {
+		lw.w.WriteString("</span>")
+	}
 }
 
 func (lw *lineWriter) text(b []byte) {
