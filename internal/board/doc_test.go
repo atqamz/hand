@@ -163,7 +163,7 @@ func TestTheViewerListsAFolder(t *testing.T) {
 		`<li><a href="/doc/shots/t1/sub"><span class="badge" aria-hidden="true">DIR</span><span class="name">sub/</span>`,
 		`<li><a href="/doc/shots/t1/A.png?view"><img src="/doc/shots/t1/A.png" alt="" loading="lazy"><span class="name">A.png</span><span class="meta">40 B · <time`,
 		`<span class="badge" aria-hidden="true">TXT</span><span class="name">notes.txt</span>`)
-	lacks(t, "listing", body, ".draft", ".cache", `class="pager"`, `class="doc-download"`)
+	lacks(t, "listing", body, ".draft", ".cache", `class="folder-pager"`, `class="doc-download"`)
 	contains(t, "empty", get(t, h, "/doc/shots/empty"), `<li class="quiet">This folder is empty.</li>`)
 }
 

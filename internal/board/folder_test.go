@@ -38,7 +38,7 @@ func TestAFolderPagesAllItsEntries(t *testing.T) {
 	}
 	contains(t, "page 1", one, `<span class="meta">1,201 entries, page 1 of 3</span>`, `<a href="/doc/shots?page=2" rel="next">Next</a>`, `<a href="/doc/shots?page=3">Last</a>`)
 	lacks(t, "page 1", one, `rel="prev"`, ">First<", ".hidden", `class="more"`, `class="pager-jump"`)
-	if strings.Count(one, `<nav class="pager"`) != 2 {
+	if strings.Count(one, `<nav class="folder-pager"`) != 2 {
 		t.Error("the pager is not above and below the list")
 	}
 	two := rowsOf(get(t, h, "/doc/shots?page=2"))
@@ -166,8 +166,8 @@ func TestThePagingAndStepsAreStyled(t *testing.T) {
 	contains(t, "board.css", css,
 		".listing .refused{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 4px;border-bottom:1px solid var(--line);color:var(--muted)}",
 		".listing .refused .meta{max-width:60%;white-space:normal;text-align:right}",
-		".pager{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}",
-		".pager a{display:inline-flex;align-items:center;min-height:var(--control)}",
+		".folder-pager{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}",
+		".folder-pager a{display:inline-flex;align-items:center;min-height:var(--control)}",
 		".pager-jump{display:inline-flex;align-items:center;gap:6px}",
 		".pager-jump label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}",
 		".pager-jump input{width:9ch}",

@@ -652,8 +652,8 @@ a.file,.delivered a.url{color:var(--accent)}
 .listing .meta{flex:none;white-space:nowrap}
 .listing .refused{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 4px;border-bottom:1px solid var(--line);color:var(--muted)}
 .listing .refused .meta{max-width:60%;white-space:normal;text-align:right}
-.pager{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
-.pager a{display:inline-flex;align-items:center;min-height:var(--control)}
+.folder-pager{display:flex;flex-wrap:wrap;align-items:center;gap:0 12px}
+.folder-pager a{display:inline-flex;align-items:center;min-height:var(--control)}
 .pager-jump{display:inline-flex;align-items:center;gap:6px}
 .pager-jump label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
 .pager-jump input{width:9ch}
