@@ -32,7 +32,7 @@ func TestTheViewerDialogSitsAfterTheToastOutsideEveryRegion(t *testing.T) {
 		seg := body[dlg : dlg+end]
 		contains(t, page+" dialog", seg,
 			`aria-labelledby="viewer-title" aria-label="File viewer"`,
-			`<span class="viewer-state meta" id="viewer-title" role="status" aria-live="polite"></span>`,
+			`<span class="viewer-state meta" id="viewer-title"></span>`,
 			`<a class="viewer-tab">Open as a page</a>`,
 			`<button type="button" class="viewer-close" aria-label="Close the viewer">`,
 			`<div class="viewer-body thread doc" tabindex="-1"></div>`)
@@ -66,7 +66,7 @@ func TestTheViewerDialogOpensDocLinksInPlace(t *testing.T) {
 	contains(t, "app.js", js,
 		`const dlg = document.getElementById("viewer");`,
 		`if (dlg && body.dataset.page !== "doc") {`,
-		`const shot = new RegExp(`+"`^${base}/inbox/([^/]+)$`"+`);`,
+		"const sent = u.pathname.startsWith(`${base}/inbox/`) && u.pathname.slice(base.length + \"/inbox/\".length);",
 		"if (!u.pathname.startsWith(`${base}/doc/`) || u.searchParams.has(\"raw\") || u.searchParams.has(\"download\")) return null;",
 		`if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;`,
 		`if (!a || a.hasAttribute("download") || a.matches(".viewer-tab")) return;`,

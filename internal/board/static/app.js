@@ -1113,7 +1113,6 @@
 		const tab = dlg.querySelector(".viewer-tab");
 		tab.target = "_blank";
 		tab.rel = "noopener";
-		const shot = new RegExp(`^${base}/inbox/([^/]+)$`);
 		const pic = /\.(png|jpe?g|webp|gif)$/i;
 		let unview = () => {};
 		let opener = null;
@@ -1123,8 +1122,8 @@
 		const docURL = (href) => {
 			const u = new URL(href, location.href);
 			if (u.origin !== location.origin) return null;
-			const sent = shot.exec(u.pathname);
-			if (sent) u.pathname = `${base}/doc/inbox/${sent[1]}`;
+			const sent = u.pathname.startsWith(`${base}/inbox/`) && u.pathname.slice(base.length + "/inbox/".length);
+			if (sent && !sent.includes("/")) u.pathname = `${base}/doc/inbox/${sent}`;
 			if (!u.pathname.startsWith(`${base}/doc/`) || u.searchParams.has("raw") || u.searchParams.has("download")) return null;
 			if (pic.test(u.pathname) && !u.search) u.search = "?view";
 			return u;
@@ -1144,7 +1143,7 @@
 			unview();
 			unview = () => {};
 			at = u;
-			state.textContent = "Loading…";
+			state.textContent = u.pathname.split("/").pop();
 			pane.setAttribute("aria-busy", "true");
 			tab.href = u.href;
 			if (how === "push") history.pushState({ viewer: u.href }, "", u.href);
@@ -1159,7 +1158,6 @@
 			if (n !== seq) return;
 			pane.removeAttribute("aria-busy");
 			if (!res) {
-				state.textContent = "";
 				pane.replaceChildren(retry());
 				return;
 			}
@@ -1173,7 +1171,7 @@
 				done.addEventListener("click", close);
 				back.replaceChildren(done);
 			}
-			state.textContent = res.ok ? pane.querySelector(".thread-title")?.textContent || "" : "Not shown";
+			if (res.ok) state.textContent = pane.querySelector(".thread-title")?.textContent || state.textContent;
 			local(pane);
 			unview = docView(pane);
 			const spot = u.hash && document.getElementById(u.hash.slice(1));
