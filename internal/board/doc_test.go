@@ -88,10 +88,10 @@ func TestTheViewerShowsTextAsPreformatted(t *testing.T) {
 
 func TestActiveFilesAreShownAsTextAndNeverInline(t *testing.T) {
 	files := map[string]string{
-		"reports/t1/page.html": "<!doctype html><script>alert(1)</script>",
-		"reports/t1/x.svg":     `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>`,
-		"reports/t1/app.js":    "alert(document.cookie)",
-		"reports/t1/evil.png":  "<html><script>alert(1)</script>",
+		"reports/t1/page.html.txt": "<!doctype html><script>alert(1)</script>",
+		"reports/t1/x.svg.txt":     `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>`,
+		"reports/t1/app.js":        "alert(document.cookie)",
+		"reports/t1/evil.png":      "<html><script>alert(1)</script>",
 	}
 	h, _ := viewer(t, files)
 	for rel, data := range files {

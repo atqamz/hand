@@ -671,6 +671,7 @@ a.file,.delivered a.url{color:var(--accent)}
 @media (forced-colors:active){.code>.copy{border-color:ButtonText;color:ButtonText}}
 @media (forced-colors:active){.latest{border-color:ButtonText;color:ButtonText}.latest>.badge{border-color:ButtonText}}
 .thread.doc:has(.text-view){max-width:1280px}
+.thread.doc:has(.doc-frame,.doc-table){max-width:1280px}
 .text-view{display:grid;gap:8px;min-width:0}
 .text-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;background:var(--bg)}
 .text-find{display:flex;flex:1 1 260px;align-items:center;gap:8px;min-width:0}
@@ -704,4 +705,21 @@ a.file,.delivered a.url{color:var(--accent)}
 .cut{color:var(--muted);font-style:italic}
 ::highlight(find){background:var(--wait-bg);color:var(--fg)}
 ::highlight(find-now){background:var(--wait);color:var(--bg)}
+.doc-toggle{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-md);overflow:hidden}
+.doc-toggle>*{display:inline-flex;align-items:center;min-height:var(--control);padding:0 12px}
+.doc-toggle>.on{background:var(--card);color:var(--fg);font-weight:600}
+.doc-toggle>a:hover{background:var(--hover);text-decoration:none}
+.doc-frame{display:block;width:100%;height:75vh;min-height:320px;border:1px solid var(--line);border-radius:var(--r-md);background:#fff}
+.doc-media video,.doc-picture img{display:block;max-width:100%;max-height:75vh;border:1px solid var(--line);border-radius:var(--r-md);background:var(--card)}
+.doc-media audio{width:100%}
+.doc-table .table{max-height:75vh;overflow:auto}
+.doc-table th,.doc-table td{max-width:48ch;overflow-wrap:anywhere}
+.doc-table tbody td:first-child{position:static;border-right:0;white-space:normal}
+.doc-table thead th{position:sticky;top:0;z-index:2;white-space:normal}
+.doc-table thead th:first-child{left:auto}
+.d-add,.d-del,.d-hunk,.d-file{display:block}
+.d-add{background:var(--pass-bg)}
+.d-del{background:var(--fail-bg)}
+.d-hunk{color:var(--accent)}
+.d-file{font-weight:600}
 @media (forced-colors:active){.here{border-block:1px solid Highlight}}

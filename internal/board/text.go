@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,7 @@ type lineWriter struct {
 	done     int64
 	partial  bool
 	onlyDone bool
+	diff     bool
 	marks    int
 }
 
@@ -56,10 +58,39 @@ func textHead(head []byte) bool {
 	return utf8.Valid(head)
 }
 
+func diffClass(b []byte) string {
+	for _, p := range []string{"diff ", "index ", "+++ ", "--- "} {
+		if bytes.HasPrefix(b, []byte(p)) {
+			return "d-file"
+		}
+	}
+	switch {
+	case bytes.HasPrefix(b, []byte("@@")):
+		return "d-hunk"
+	case bytes.HasPrefix(b, []byte("+")):
+		return "d-add"
+	case bytes.HasPrefix(b, []byte("-")):
+		return "d-del"
+	}
+	return ""
+}
+
+func isDiff(name string) bool {
+	ext := strings.ToLower(path.Ext(name))
+	return ext == ".diff" || ext == ".patch"
+}
+
 func (lw *lineWriter) line(b []byte, cut int, partial bool) {
 	if lw.chunk == 0 {
 		lw.from = lw.n
 		fmt.Fprintf(lw.w, `<div class="chunk" data-from="%d"><pre class="src">`, lw.n)
+	}
+	var class string
+	if lw.diff {
+		class = diffClass(b)
+	}
+	if class != "" {
+		fmt.Fprintf(lw.w, `<span class="%s">`, class)
 	}
 	if partial {
 		lw.w.WriteString(`<span class="partial">`)
@@ -73,6 +104,9 @@ func (lw *lineWriter) line(b []byte, cut int, partial bool) {
 		lw.w.WriteString("</span>")
 	} else {
 		lw.w.WriteByte('\n')
+	}
+	if class != "" {
+		lw.w.WriteString("</span>")
 	}
 	lw.gut = strconv.AppendInt(lw.gut, int64(lw.n), 10)
 	lw.gut = append(lw.gut, '\n')
@@ -203,7 +237,7 @@ func (lw *lineWriter) text(b []byte) {
 				lw.w.WriteString("�")
 			case r >= 0x80 && r <= 0x9f:
 				lw.ctl(r, fmt.Sprintf("control character U+%04X", r))
-			case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200E, r == 0x200F, r == 0x061C:
+			case bidi(r):
 				lw.ctl(r, fmt.Sprintf("bidirectional control U+%04X", r))
 			default:
 				lw.w.Write(b[:n])
@@ -211,6 +245,10 @@ func (lw *lineWriter) text(b []byte) {
 			b = b[n:]
 		}
 	}
+}
+
+func bidi(r rune) bool {
+	return r >= 0x202A && r <= 0x202E || r >= 0x2066 && r <= 0x2069 || r == 0x200E || r == 0x200F || r == 0x061C
 }
 
 func (lw *lineWriter) track(b []byte) {
@@ -408,20 +446,35 @@ type hit struct {
 }
 
 type textView struct {
-	Whole, Follow, Empty       bool
-	First                      int
-	SizeText, Find             string
-	Start, Earlier, Later, End string
-	Hits                       []hit
-	Capped                     bool
+	Whole, Follow, Empty, Plain bool
+	First                       int
+	SizeText, Find              string
+	Start, Earlier, Later, End  string
+	Hits                        []hit
+	Capped                      bool
 }
 
-func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, data map[string]any) {
+func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi fs.FileInfo, data map[string]any, pretty []byte) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	self := data["Self"].(string)
+	var src io.ReaderAt = f
 	total := fi.Size()
-	v := &textView{First: 1, SizeText: size(total), Whole: total <= maxWhole, Empty: total == 0, End: "#text-end"}
+	if pretty != nil {
+		src, total = bytes.NewReader(pretty), int64(len(pretty))
+	}
+	v := &textView{First: 1, SizeText: size(total), Whole: total <= maxWhole || pretty != nil, Empty: total == 0, End: "#text-end", Plain: q.Get("as") == "text"}
+	href := func(kv string) string {
+		switch {
+		case v.Plain && kv != "":
+			return self + "?as=text&" + kv
+		case v.Plain:
+			return self + "?as=text"
+		case kv != "":
+			return self + "?" + kv
+		}
+		return self
+	}
 	var at, end int64
 	end = total
 	if !v.Whole {
@@ -446,24 +499,24 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 		}
 		v.First = n + 1
 		if at > 0 {
-			v.Start = self + "?at=0"
-			v.Earlier = fmt.Sprintf("%s?at=%d", self, max(at-window, 0))
+			v.Start = href("at=0")
+			v.Earlier = href(fmt.Sprintf("at=%d", max(at-window, 0)))
 		}
 		if end < total {
-			v.Later = fmt.Sprintf("%s?at=%d", self, end)
-			v.End = self
+			v.Later = href(fmt.Sprintf("at=%d", end))
+			v.End = href("")
 		}
 	}
-	v.Follow = end == total
+	v.Follow = end == total && pretty == nil
 	if needle := strings.TrimSpace(q.Get("find")); needle != "" {
 		needle = needle[:min(len(needle), maxNeedle)]
 		v.Find = needle
-		v.Hits = hitLines(ctx, io.NewSectionReader(f, 0, total), bytes.ToLower([]byte(needle)))
+		v.Hits = hitLines(ctx, io.NewSectionReader(src, 0, total), bytes.ToLower([]byte(needle)))
 		v.Capped = len(v.Hits) == maxHits
 		for i := range v.Hits {
 			v.Hits[i].Href = fmt.Sprintf("#L%d", v.Hits[i].Line)
 			if !v.Whole {
-				v.Hits[i].Href = fmt.Sprintf("%s?line=%d#L%d", self, v.Hits[i].Line, v.Hits[i].Line)
+				v.Hits[i].Href = fmt.Sprintf("%s#L%d", href(fmt.Sprintf("line=%d", v.Hits[i].Line)), v.Hits[i].Line)
 			}
 		}
 	}
@@ -483,8 +536,8 @@ func (b *Board) textPage(w http.ResponseWriter, r *http.Request, f *os.File, fi 
 	w.Header().Set("Cache-Control", "no-store")
 	bw := bufio.NewWriterSize(w, 64<<10)
 	bw.WriteString(before)
-	lw := &lineWriter{w: bw, n: v.First}
-	_, _ = lw.stream(io.NewSectionReader(f, at, end-at), end-at)
+	lw := &lineWriter{w: bw, n: v.First, diff: isDiff(data["Name"].(string))}
+	_, _ = lw.stream(io.NewSectionReader(src, at, end-at), end-at)
 	next := lw.n
 	if lw.partial {
 		next--
@@ -532,7 +585,7 @@ func (b *Board) follow(w http.ResponseWriter, r *http.Request, f *os.File, fi fs
 		return
 	}
 	bw := bufio.NewWriterSize(w, 64<<10)
-	lw := &lineWriter{w: bw, n: line, onlyDone: true}
+	lw := &lineWriter{w: bw, n: line, onlyDone: true, diff: isDiff(r.PathValue("path"))}
 	_, _ = lw.stream(io.NewSectionReader(f, from, done), done)
 	_ = bw.Flush()
 }

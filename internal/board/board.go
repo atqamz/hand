@@ -71,7 +71,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 
 const (
 	cookieName = "hand_board"
-	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
+	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 
 func cookieFor(base string) string { return cookieName + strings.ReplaceAll(base, "/", "_") }

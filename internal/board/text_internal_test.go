@@ -19,10 +19,12 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-func renderText(s string) string {
+func renderText(s string) string { return render(s, false) }
+
+func render(s string, diff bool) string {
 	var out bytes.Buffer
 	w := bufio.NewWriter(&out)
-	lw := &lineWriter{w: w, n: 1}
+	lw := &lineWriter{w: w, n: 1, diff: diff}
 	_, _ = lw.stream(strings.NewReader(s), int64(len(s)))
 	_ = w.Flush()
 	return out.String()
@@ -163,16 +165,18 @@ func TestChunksHoldAtMost500Lines(t *testing.T) {
 	}
 }
 
-var allowedMarkup = regexp.MustCompile(`</span>|</pre>|</div>|<span class="(x-[kgrybmcw]( x-bold)?|x-bold|ctl|cut|partial)"( title="[A-Za-z0-9+ ]+")?>|<div class="chunk" data-from="\d+">|<pre class="src">|<pre class="gut" aria-hidden="true">`)
+var allowedMarkup = regexp.MustCompile(`</span>|</pre>|</div>|<span class="(x-[kgrybmcw]( x-bold)?|x-bold|ctl|cut|partial|d-add|d-del|d-hunk|d-file)"( title="[A-Za-z0-9+ ]+")?>|<div class="chunk" data-from="\d+">|<pre class="src">|<pre class="gut" aria-hidden="true">`)
 
 func checkMarkup(t *testing.T, in string) {
 	t.Helper()
-	out := renderText(in)
-	if left := allowedMarkup.ReplaceAllString(out, ""); strings.ContainsAny(left, "<>") {
-		t.Fatalf("%q rendered markup outside the allowlist: %q", in, left)
-	}
-	if strings.Count(out, "<span") != strings.Count(out, "</span>") {
-		t.Fatalf("%q left a span open: %q", in, out)
+	for _, diff := range []bool{false, true} {
+		out := render(in, diff)
+		if left := allowedMarkup.ReplaceAllString(out, ""); strings.ContainsAny(left, "<>") {
+			t.Fatalf("%q (diff %t) rendered markup outside the allowlist: %q", in, diff, left)
+		}
+		if strings.Count(out, "<span") != strings.Count(out, "</span>") {
+			t.Fatalf("%q (diff %t) left a span open: %q", in, diff, out)
+		}
 	}
 }
 
@@ -180,14 +184,60 @@ func FuzzTextEscapes(f *testing.F) {
 	for _, s := range []string{
 		"<img src=x onerror=alert(1)>", "a<b", "\x1b[31m<script>\x1b[0m", "x\r<y", "&lt;", "\"'", "\u202e<", "\x1b]0;<script>\x07", "\x1b[38;5;31m<b>", "\x1b[1;;31;<m",
 		"\x1b[", "\x1b", "\x1b]", "\x1b]8;;", "\xff<", "\x00<\x01>", "a\x1b[31mb\nc\x1b[0md", "\x1b[31m\x1b[1m\n\x1b[0m<", "x\x1b[999999999999999999999m<", "\x1b[38:2::<:2:3m",
+		"+<script>\n-<b>\n@@ <i> @@\n+++ <img>\n--- <a>\n", "+\x1b[31m<b>", "-\x1b[1m\n+x", "@@", "+", "-", "diff <x", "index &lt;", "+\u202e<", "+a\r-b",
 	} {
 		f.Add(s)
 	}
 	f.Fuzz(checkMarkup)
 }
 
+func TestDiffLinesGetOneClassEach(t *testing.T) {
+	out := render("diff a\nindex 1\n--- a\n+++ b\n@@ -1 +1 @@\n-x\n+y\n z\n--x\n", true)
+	for _, want := range []string{"d-file\">diff a", "d-file\">index 1", "d-file\">--- a", "d-file\">+++ b", "d-hunk\">@@ -1 +1 @@", "d-del\">-x", "d-add\">+y", "</span> z\n", "d-del\">--x"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Count(out, `class="d-`) != 8 {
+		t.Errorf("classes = %d in %q", strings.Count(out, `class="d-`), out)
+	}
+	if strings.Contains(render("+x\n", false), "d-") {
+		t.Error("a non-diff file got a diff class")
+	}
+}
+
+func TestOnlyTheNumericColumnsAlignRight(t *testing.T) {
+	rows := [][]string{{"id", "n", "mixed", "word", "blank", "late"}, {"1", "2.5", "3", "a", "", ""}, {"-4", "1e3", "x", "b", " ", "7"}, {"+5"}}
+	got := columns(rows)
+	want := []bool{true, true, false, false, false, true}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("columns = %v, want %v", got, want)
+	}
+	if got := columns([][]string{{"a", "b", "c"}}); len(got) != 3 || got[0] || got[1] || got[2] {
+		t.Errorf("a header alone = %v", got)
+	}
+	if got := columns([][]string{{"a"}, {"Inf"}, {"NaN"}}); got[0] {
+		t.Error("words that parse as floats are not numbers")
+	}
+}
+
+func TestACellIsClippedOnARuneBoundaryAndShowsBidiControls(t *testing.T) {
+	if got := cellText(strings.Repeat("é", 301)); got != strings.Repeat("é", 300)+"…" {
+		t.Errorf("clip = %.20q (%d bytes)", got, len(got))
+	}
+	if got := cellText(strings.Repeat("é", 300)); got != strings.Repeat("é", 300) {
+		t.Errorf("an exact cell was clipped")
+	}
+	if got := cellText(strings.Repeat("x", 300) + "é"); got != strings.Repeat("x", 300)+"…" {
+		t.Errorf("clip = %.20q", got)
+	}
+	if got := visible("a\u202eb\u2066c\u061d"); got != "aU+202EbU+2066c\u061d" {
+		t.Errorf("visible = %q", got)
+	}
+}
+
 func TestNoSeedProducesMarkup(t *testing.T) {
-	for _, s := range []string{"<script>alert(1)</script>", "\x1b[31m<b>\x1b[0m</b>", "&#60;script&#62;", "\u202e<img>", "\x1b]0;<x>\x07<y>", "\x1b[41;38;2;<mx"} {
+	for _, s := range []string{"<script>alert(1)</script>", "\x1b[31m<b>\x1b[0m</b>", "&#60;script&#62;", "\u202e<img>", "\x1b]0;<x>\x07<y>", "\x1b[41;38;2;<mx", "+<script>alert(1)</script>\n-<img src=x onerror=1>"} {
 		checkMarkup(t, s)
 	}
 }
@@ -227,38 +277,45 @@ func TestAHugeFileIsReadInBoundedMemory(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	b := New(st, "tok", Options{Home: home}).(*Board)
-	for _, q := range []string{"", "?at=0", "?line=700000", "?at=33554432", "?find=region", "?find=nowhere", "?from=0&line=1", "?from=60000000&line=1", "?download"} {
-		runtime.GC()
-		var base runtime.MemStats
-		runtime.ReadMemStats(&base)
-		var peak atomic.Uint64
-		stop := make(chan struct{})
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
-			for {
-				select {
-				case <-stop:
-					return
-				default:
+	for _, ext := range []string{"csv", "json", "html", "patch", "svg", "tsv"} {
+		if err := os.Link(filepath.Join(dir, "big.log"), filepath.Join(dir, "big."+ext)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"big.log", "big.csv", "big.json", "big.html", "big.patch", "big.svg", "big.tsv"} {
+		for _, q := range []string{"", "?at=0", "?line=700000", "?at=33554432", "?find=region", "?find=nowhere", "?from=0&line=1", "?from=60000000&line=1", "?download", "?raw", "?as=text", "?raw&as=text"} {
+			runtime.GC()
+			var base runtime.MemStats
+			runtime.ReadMemStats(&base)
+			var peak atomic.Uint64
+			stop := make(chan struct{})
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				s := []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}}
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					metrics.Read(s)
+					if v := s[0].Value.Uint64(); v > peak.Load() {
+						peak.Store(v)
+					}
+					time.Sleep(100 * time.Microsecond)
 				}
-				metrics.Read(s)
-				if v := s[0].Value.Uint64(); v > peak.Load() {
-					peak.Store(v)
-				}
-				time.Sleep(100 * time.Microsecond)
+			}()
+			r := httptest.NewRequest("GET", "/doc/reports/t1/"+name+q, nil)
+			r.SetPathValue("path", "reports/t1/"+name)
+			b.doc(sink{http.Header{}}, r)
+			close(stop)
+			<-done
+			grown := int64(peak.Load()) - int64(base.HeapAlloc)
+			t.Logf("%-9s %-24q +%.1f MiB", name, q, float64(grown)/(1<<20))
+			if grown > 16<<20 {
+				t.Errorf("%s %q grew the heap by %.1f MiB on a 64 MiB file", name, q, float64(grown)/(1<<20))
 			}
-		}()
-		r := httptest.NewRequest("GET", "/doc/reports/t1/big.log"+q, nil)
-		r.SetPathValue("path", "reports/t1/big.log")
-		b.doc(sink{http.Header{}}, r)
-		close(stop)
-		<-done
-		grown := int64(peak.Load()) - int64(base.HeapAlloc)
-		t.Logf("%-24q +%.1f MiB", q, float64(grown)/(1<<20))
-		if grown > 16<<20 {
-			t.Errorf("%q grew the heap by %.1f MiB on a 64 MiB file", q, float64(grown)/(1<<20))
 		}
 	}
 }

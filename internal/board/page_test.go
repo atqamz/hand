@@ -13,7 +13,10 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-const strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
+const (
+	strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
+	priorCSP  = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
+)
 
 var regionOpen = regexp.MustCompile(`<section[^>]*data-region="(status|console|timeline|queue|tasks)"`)
 
@@ -91,6 +94,39 @@ func TestHeadersAreStrict(t *testing.T) {
 		if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
 			t.Fatalf("%s X-Frame-Options = %q", p, got)
 		}
+	}
+}
+
+func directives(csp string) map[string]string {
+	out := map[string]string{}
+	for _, d := range strings.Split(csp, "; ") {
+		name, value, _ := strings.Cut(d, " ")
+		out[name] = value
+	}
+	return out
+}
+
+func TestThePageCSPGainedOnlyMediaAndFrameSources(t *testing.T) {
+	got := directives(strictCSP)
+	want := directives(priorCSP)
+	want["media-src"], want["frame-src"] = "'self'", "'self'"
+	if len(got) != len(want) {
+		t.Fatalf("directives = %v, want %v", got, want)
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("%s = %q, want %q", name, got[name], value)
+		}
+	}
+	rec := request(newFixture(t).handler(), "GET", "/", nil, true)
+	served := directives(rec.Header().Get("Content-Security-Policy"))
+	for name, value := range want {
+		if served[name] != value {
+			t.Errorf("served %s = %q, want %q", name, served[name], value)
+		}
+	}
+	if len(served) != len(want) {
+		t.Errorf("served %v, want %v", served, want)
 	}
 }
 

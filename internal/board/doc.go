@@ -191,11 +191,16 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	_, image := imageExt[sniffed]
 	image = image && imageLike.MatchString(name)
 	text := textHead(head)
-	if r.URL.Query().Has("from") && text {
+	q := r.URL.Query()
+	if q.Has("raw") {
+		b.raw(w, r, f, fi, name, sniffed, head)
+		return
+	}
+	if q.Has("from") && text {
 		b.follow(w, r, f, fi)
 		return
 	}
-	if download := r.URL.Query().Has("download"); download || image {
+	if download := q.Has("download"); download || image {
 		h := w.Header()
 		h.Set("Content-Type", sniffed)
 		if download {
@@ -209,8 +214,18 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data["Size"] = size(fi.Size())
-	data["Download"] = data["Self"].(string) + "?download"
-	switch ext := strings.ToLower(path.Ext(name)); {
+	self := data["Self"].(string)
+	data["Download"] = self + "?download"
+	ext := strings.ToLower(path.Ext(name))
+	asText := q.Get("as") == "text"
+	if v, ok := views[ext]; ok && text && (ext != ".json" || fi.Size() <= maxPretty) {
+		data["Views"] = []choice{{v[0], self, !asText}, {v[1], self + "?as=text", asText}}
+	}
+	switch kind := media(sniffed, name); {
+	case kind != "":
+		data["Media"] = map[string]string{"Tag": strings.SplitN(kind, "/", 2)[0], "Src": self + "?raw"}
+	case isPDF(head, name):
+		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "pdf"}
 	case !text:
 		data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
 	case (ext == ".md" || ext == ".markdown") && fi.Size() <= maxMarkdown:
@@ -224,8 +239,31 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		data["Body"] = markdown.RenderDoc(string(md), b.o.Base, b.refTitle(ctx), b.local())
+	case !asText && isHTML(name):
+		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "html"}
+	case !asText && ext == ".svg":
+		data["Picture"] = self + "?raw"
+	case !asText && (ext == ".csv" || ext == ".tsv"):
+		comma := ','
+		if ext == ".tsv" {
+			comma = '\t'
+		}
+		rows, numeric, cut, err := table(io.NewSectionReader(f, 0, maxWhole), comma)
+		if err != nil || len(rows) == 0 {
+			delete(data, "Views")
+			b.textPage(w, r, f, fi, data, nil)
+			return
+		}
+		data["Rows"], data["Numeric"], data["Cut"] = rows, numeric, cut
 	default:
-		b.textPage(w, r, f, fi, data)
+		var pretty []byte
+		if ext == ".json" && !asText && data["Views"] != nil {
+			if pretty = indented(io.NewSectionReader(f, 0, maxPretty)); pretty == nil {
+				delete(data, "Views")
+				data["Notice"] = "This is not valid JSON, so the Board shows it as written."
+			}
+		}
+		b.textPage(w, r, f, fi, data, pretty)
 		return
 	}
 	b.render(w, http.StatusOK, "doc.html", data)
