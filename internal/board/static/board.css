@@ -745,7 +745,7 @@ dialog.viewer[open]{display:flex;flex-direction:column}
 dialog.viewer::backdrop{background:rgb(0 0 0 / .32)}
 html:has(dialog.viewer:modal){overflow:hidden}
 .viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px 6px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-.viewer-tab{display:inline-flex;align-items:center;min-height:var(--control)}
+.viewer-tab{display:inline-flex;align-items:center;min-height:var(--control);white-space:nowrap}
 .viewer-close{width:var(--control);padding:0}
 .viewer-body.thread.doc{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:16px 20px 32px;overflow:auto;overscroll-behavior:contain}
 .viewer-body:focus{outline:none}
