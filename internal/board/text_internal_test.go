@@ -77,6 +77,28 @@ func TestTheLineWriterEscapesAndColours(t *testing.T) {
 	}
 }
 
+func TestContainsFoldIgnoresCase(t *testing.T) {
+	for _, c := range []struct {
+		line, needle string
+		want         bool
+	}{
+		{"First FAILURE here", "first failure", true},
+		{"first failure", "first failure", true},
+		{"short", "longer needle", false},
+		{"", "a", false},
+		{"abc", "", true},
+		{"ÉCOLE d'été", "école", true},
+		{"ÉCOLE", "ecole", false},
+		{"x\x1b[31my", "x", true},
+		{"AAAB", "aab", true},
+		{"AAB", "aaab", false},
+	} {
+		if got := containsFold([]byte(c.line), []byte(strings.ToLower(c.needle))); got != c.want {
+			t.Errorf("containsFold(%q, %q) = %v, want %v", c.line, c.needle, got, c.want)
+		}
+	}
+}
+
 func TestColourCarriesToTheNextLine(t *testing.T) {
 	got := srcOf(t, renderText("\x1b[31mA\nB\x1b[0m\nC\n"))
 	if want := "<span class=\"x-r\">A</span>\n<span class=\"x-r\">B</span>\nC\n"; got != want {

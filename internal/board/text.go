@@ -304,6 +304,28 @@ func (lw *lineWriter) stream(r io.Reader, limit int64) (int64, error) {
 	}
 }
 
+func containsFold(line, lower []byte) bool {
+	if bytes.ContainsFunc(lower, func(r rune) bool { return r >= utf8.RuneSelf }) {
+		return bytes.Contains(bytes.ToLower(line), lower)
+	}
+	for i := 0; i+len(lower) <= len(line); i++ {
+		j := 0
+		for ; j < len(lower); j++ {
+			c := line[i+j]
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != lower[j] {
+				break
+			}
+		}
+		if j == len(lower) {
+			return true
+		}
+	}
+	return false
+}
+
 func hitLines(ctx context.Context, r io.Reader, needle []byte) []hit {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var buf []byte
@@ -311,7 +333,7 @@ func hitLines(ctx context.Context, r io.Reader, needle []byte) []hit {
 	for n := 1; len(hits) < maxHits; n++ {
 		l, err := readLine(br, buf)
 		buf = l.text
-		if l.hasData && bytes.Contains(bytes.ToLower(l.text), needle) {
+		if l.hasData && containsFold(l.text, needle) {
 			hits = append(hits, hit{Line: n})
 		}
 		if err != nil || n%4096 == 0 && ctx.Err() != nil {
