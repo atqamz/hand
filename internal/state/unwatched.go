@@ -21,16 +21,16 @@ type Unwatched struct {
 }
 
 func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) {
+	now := s.now()
 	var live, open int
 	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM attempt WHERE status IN (?, ?)), (SELECT count(*) FROM decision WHERE status = ?)`, AttemptLaunching, AttemptRunning, DecisionOpen).Scan(&live, &open)
 	if err != nil || live > 0 || open > 0 {
-		return Unwatched{}, err
+		return Unwatched{At: now}, err
 	}
-	now := s.now()
 	var timers []Timer
 	if managed {
-		if timers, err = s.timersAt(ctx, now); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
-			return Unwatched{}, err
+		if timers, err = s.TimersAt(ctx, now); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
+			return Unwatched{At: now}, err
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM task WHERE status = ? ORDER BY id`, StatusActive)
@@ -51,7 +51,7 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 		u.Tasks = append(u.Tasks, id)
 	}
 	if err := rows.Err(); err != nil || len(u.Tasks) == 0 {
-		return Unwatched{}, err
+		return Unwatched{At: now}, err
 	}
 	var seq int64
 	var since string

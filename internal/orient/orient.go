@@ -184,7 +184,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	unwatchedTotal := len(unwatched.Tasks)
 	unwatched.Tasks = unwatched.Tasks[:min(unwatchedTotal, b.Active)]
 
-	timers, err := st.Timers(ctx)
+	timers, err := st.TimersAt(ctx, unwatched.At)
 	if err != nil {
 		return nil, err
 	}

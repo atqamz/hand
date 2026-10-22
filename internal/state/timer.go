@@ -137,10 +137,10 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 }
 
 func (s *Store) Timers(ctx context.Context) ([]Timer, error) {
-	return s.timersAt(ctx, s.now())
+	return s.TimersAt(ctx, s.now())
 }
 
-func (s *Store) timersAt(ctx context.Context, now time.Time) ([]Timer, error) {
+func (s *Store) TimersAt(ctx context.Context, now time.Time) ([]Timer, error) {
 	timers, err := armedTimers(ctx, s.db)
 	horizon := now.Add(timerWatchHorizon)
 	for i := range timers {

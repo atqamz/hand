@@ -587,6 +587,41 @@ func TestOrientMarksATimerBeyondTheHorizon(t *testing.T) {
 	}
 }
 
+func TestOrientReadsTheClockOnceForUnwatchedAndTimers(t *testing.T) {
+	home := t.TempDir()
+	if err := memory.Init(home); err != nil {
+		t.Fatal(err)
+	}
+	now, tick := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), time.Duration(0)
+	st, err := state.Open(filepath.Join(home, "hand.db"), func() time.Time {
+		at := now
+		now = now.Add(tick)
+		return at
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if _, err := st.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = st.AddProject(ctx, "hand", handRepo)
+	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
+	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 6*time.Hour + 30*time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	tick = time.Minute
+	doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := doc.String(); !strings.Contains(out, "unwatched[1]") || !strings.Contains(out, "(beyond the horizon)") {
+		t.Fatalf("orient lists unwatched work with a timer that is not beyond the horizon:\n%s", out)
+	}
+}
+
 func TestOrientMarksATimerNoManagedSupervisorFires(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
