@@ -301,7 +301,7 @@ func TestAWorktreesOwnConfigurationIsCheckedWhereGitReadsIt(t *testing.T) {
 		t.Fatalf("the main worktree does not read another worktree's file: %v", err)
 	}
 	err := r.In(wt).Check(ctx)
-	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `"filter.x.clean (worktree)"`) || !strings.Contains(err.Error(), "remove it there or delete that worktree") {
+	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `"filter.x.clean (worktree)"`) || !strings.Contains(err.Error(), "delete the worktree's folder") {
 		t.Fatalf("Check in the worktree = %v", err)
 	}
 	if _, err := r.In(wt).Git(ctx, "status", "--porcelain"); !errors.Is(err, state.ErrInvalid) {
@@ -426,6 +426,30 @@ func TestChangedComparesNamesAndHashes(t *testing.T) {
 	}
 	if got := (Settings{}).Digest(); got != "v1\n" {
 		t.Fatalf("empty digest = %q", got)
+	}
+}
+
+func TestARefusalIsAChangedErrorThatIsInvalid(t *testing.T) {
+	dir := newRepo(t)
+	r := recorded(t, dir)
+	gitc(t, dir, "config", "core.editor", "vi")
+	err := r.Check(context.Background())
+	var changed ChangedError
+	if !errors.As(err, &changed) || !errors.Is(err, state.ErrInvalid) || !strings.HasPrefix(err.Error(), "invalid: git settings of project app changed") {
+		t.Fatalf("Check = %v", err)
+	}
+	if err := (Repo{Project: "app", Dir: dir}).Check(context.Background()); errors.As(err, &changed) {
+		t.Fatalf("an unrecorded project is not a change: %v", err)
+	}
+}
+
+func TestInitialisedSeesAWorkingTreeAndABareRepository(t *testing.T) {
+	work, bare := newRepo(t), filepath.Join(t.TempDir(), "bare.git")
+	gitc(t, work, "clone", "-q", "--bare", work, bare)
+	for dir, want := range map[string]bool{work: true, bare: true, t.TempDir(): false, filepath.Join(t.TempDir(), "gone"): false} {
+		if got := Initialised(dir); got != want {
+			t.Errorf("Initialised(%s) = %v", dir, got)
+		}
 	}
 }
 

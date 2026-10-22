@@ -159,7 +159,7 @@ func TestCleanIsRefusedAndRemovesNothingWhileASettingIsChanged(t *testing.T) {
 	gitIn(t, fx.repo, "config", "--unset", "filter.x.clean")
 	gitIn(t, fx.repo, "config", "extensions.worktreeConfig", "true")
 	gitIn(t, wt, "config", "--worktree", "diff.x.textconv", command)
-	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 2 || !strings.Contains(errOut, `"diff.x.textconv (worktree)"`) || !strings.Contains(errOut, "delete that worktree") {
+	if _, errOut, code := fx.h.run("attempt", "clean", "a1"); code != 2 || !strings.Contains(errOut, `"diff.x.textconv (worktree)"`) || !strings.Contains(errOut, "delete the worktree's folder") {
 		t.Fatalf("worktree setting: code=%d stderr=%q", code, errOut)
 	}
 	if _, err := os.Stat(wt); err != nil {
@@ -169,6 +169,26 @@ func TestCleanIsRefusedAndRemovesNothingWhileASettingIsChanged(t *testing.T) {
 		t.Fatalf("trust cannot accept a worktree's own setting: %q", out)
 	}
 	gitIn(t, wt, "config", "--worktree", "--unset", "diff.x.textconv")
+	if out := fx.h.ok("attempt", "clean", "a1"); !strings.Contains(out, "removed: ") {
+		t.Fatalf("clean = %q", out)
+	}
+	nothingRan(t, log)
+}
+
+func TestCleanOfAWorktreeFolderDeletedByHandNeedsNoCheckOfIt(t *testing.T) {
+	fx := newAttemptFixture(t)
+	command, log := markerCommand(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	wt := fx.h.worktree("t1-a1")
+	gitIn(t, fx.repo, "config", "extensions.worktreeConfig", "true")
+	gitIn(t, wt, "config", "--worktree", "filter.x.clean", command)
+	if _, errOut, code := fx.h.run("attempt", "clean", "--discard", "a1"); code != 2 || !strings.Contains(errOut, `"filter.x.clean (worktree)"`) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
 	if out := fx.h.ok("attempt", "clean", "a1"); !strings.Contains(out, "removed: ") {
 		t.Fatalf("clean = %q", out)
 	}

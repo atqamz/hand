@@ -272,8 +272,9 @@ func doctorProjects(ctx context.Context, st *state.Store, c *checks) {
 			c.add(check, "info", "its git settings are recorded the first time Hand runs git in it")
 			continue
 		}
+		var changed gitcfg.ChangedError
 		switch err := (gitcfg.Repo{Project: p.Name, Dir: p.Repo, Recorded: p.Settings}).Check(ctx); {
-		case errors.Is(err, state.ErrInvalid):
+		case errors.As(err, &changed):
 			c.add(check, "fail", err.Error())
 		case err != nil:
 			c.add(check, "warn", err.Error())

@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/memory"
@@ -385,7 +386,8 @@ func repairWorktrees(ctx context.Context, st *state.Store) ([]string, error) {
 	var skipped []string
 	for _, p := range projects {
 		g, err := repoGit(ctx, st, p)
-		if errors.Is(err, state.ErrInvalid) {
+		var changed gitcfg.ChangedError
+		if errors.As(err, &changed) {
 			skipped = append(skipped, p.Name)
 			continue
 		}

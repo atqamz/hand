@@ -32,8 +32,11 @@ func cmdProjectAdd(r *runner, args []string) error {
 	defer st.Close()
 	ctx := r.ctx()
 	settings := ""
-	if now, err := gitcfg.Read(ctx, pos[1]); err == nil {
+	switch now, err := gitcfg.Read(ctx, pos[1]); {
+	case err == nil:
 		settings = now.Digest()
+	case gitcfg.Initialised(pos[1]):
+		return err
 	}
 	p, err := st.AddProject(ctx, pos[0], pos[1], settings)
 	if err != nil {

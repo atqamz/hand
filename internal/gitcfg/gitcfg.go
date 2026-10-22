@@ -226,6 +226,21 @@ func (r Repo) Check(ctx context.Context) error {
 	return r.refusal(names)
 }
 
+type ChangedError struct{ msg string }
+
+func (e ChangedError) Error() string { return state.ErrInvalid.Error() + ": " + e.msg }
+
+func (e ChangedError) Unwrap() error { return state.ErrInvalid }
+
+func Initialised(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		return true
+	}
+	_, head := os.Stat(filepath.Join(dir, "HEAD"))
+	_, objects := os.Stat(filepath.Join(dir, "objects"))
+	return head == nil && objects == nil
+}
+
 func (r Repo) refusal(names []string) error {
 	quoted := make([]string, 0, shown+1)
 	inWorktree := false
@@ -240,9 +255,9 @@ func (r Repo) refusal(names []string) error {
 	}
 	msg := fmt.Sprintf("git settings of project %s changed since Hand recorded them: %s; Hand ran nothing. Read them in %s, then accept them with `hand project trust %s`", r.Project, strings.Join(quoted, ", "), r.Dir, r.Project)
 	if inWorktree {
-		msg += "; a setting marked (worktree) is kept in that worktree's own configuration and trust does not accept it: remove it there or delete that worktree"
+		msg += "; a setting marked (worktree) is kept in that worktree's own configuration and trust does not accept it: remove it there, or delete the worktree's folder and run the command again"
 	}
-	return fmt.Errorf("%w: %s", state.ErrInvalid, msg)
+	return ChangedError{msg}
 }
 
 func (r Repo) Git(ctx context.Context, args ...string) (string, error) {
