@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
@@ -266,9 +267,9 @@ func (r *runner) doctorPhone(ctx context.Context, d *toon.Doc, c *checks, addr s
 	case link.URL != "":
 		d.Field("phone", link.URL)
 		c.add("phone", "ok", "")
-	case link.Problem != "" && strings.Contains(link.Problem, "under "):
-		c.add("phone", "warn", link.Problem+"; run `tailscale serve --bg "+link.Port+"`")
-	default:
+	case link.Problem == board.ServeAbsent:
 		c.add("phone", "info", "tailscale serve does not proxy the board yet; open Phone in the board for the steps, or run `tailscale serve --bg "+link.Port+"`")
+	default:
+		c.add("phone", "warn", link.Problem+"; run `tailscale serve --bg "+link.Port+"`")
 	}
 }

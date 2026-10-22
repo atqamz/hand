@@ -22,6 +22,8 @@ func (l PhoneLink) Ready() string {
 	return l.URL
 }
 
+const ServeAbsent = "tailscale serve does not proxy this Board yet"
+
 type serveConfig struct {
 	Web map[string]struct {
 		Handlers map[string]struct{ Proxy string }
@@ -56,7 +58,7 @@ func ServeLink(status []byte, addr string) (link string, funnel bool, problem st
 	case mount != "":
 		return "", funnel, "tailscale serve proxies this Board under " + mount + "; the Board needs the root"
 	}
-	return "", false, "tailscale serve does not proxy this Board yet"
+	return "", false, ServeAbsent
 }
 
 func proxiesTo(proxy, host, port string) bool {

@@ -24,8 +24,13 @@ const (
 var phoneProbe = 2 * time.Second
 
 var tailscaleApps = map[string]func(func(string) string) string{
-	"darwin":  func(func(string) string) string { return "/Applications/Tailscale.app/Contents/MacOS" },
-	"windows": func(getenv func(string) string) string { return filepath.Join(getenv("ProgramFiles"), "Tailscale") },
+	"darwin": func(func(string) string) string { return "/Applications/Tailscale.app/Contents/MacOS" },
+	"windows": func(getenv func(string) string) string {
+		if dir := getenv("ProgramFiles"); dir != "" {
+			return filepath.Join(dir, "Tailscale")
+		}
+		return ""
+	},
 }
 
 type phoneCache struct {
@@ -52,7 +57,9 @@ func (r *runner) detectPhone(ctx context.Context, addr string) board.PhoneLink {
 	link := board.PhoneLink{Port: port}
 	path := r.env.Getenv("PATH")
 	if app := tailscaleApps[runtime.GOOS]; app != nil {
-		path += string(filepath.ListSeparator) + app(r.env.Getenv)
+		if dir := app(r.env.Getenv); dir != "" {
+			path += string(filepath.ListSeparator) + dir
+		}
 	}
 	bin, err := harness.LookPath("tailscale", path)
 	if err != nil {

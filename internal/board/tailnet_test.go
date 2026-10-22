@@ -26,6 +26,7 @@ func TestServeLinkFindsTheBoard(t *testing.T) {
 		{"another https port", serveJSON(name+":8443", "/", "http://127.0.0.1:7777"), "127.0.0.1:7777", "https://" + name + ":8443", "", false},
 		{"ipv6 loopback board", serveJSON(name+":443", "/", "http://[::1]:7777"), "[::1]:7777", "https://" + name, "", false},
 		{"a board on a lan address", serveJSON(name+":443", "/", "http://192.168.1.5:7777"), "192.168.1.5:7777", "https://" + name, "", false},
+		{"ipv6 proxy to an ipv4 board", serveJSON(name+":443", "/", "http://[::1]:7777"), "127.0.0.1:7777", "", "does not proxy", false},
 		{"path mount", serveJSON(name+":443", "/board", "http://127.0.0.1:7777"), "127.0.0.1:7777", "", "under /board", false},
 		{"funnel on the root", `{"Web":{"` + name + `:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:7777"}}}},"AllowFunnel":{"` + name + `:443":true}}`, "127.0.0.1:7777", "https://" + name, "", true},
 		{"funnel on a path mount", `{"Web":{"` + name + `:443":{"Handlers":{"/b":{"Proxy":"http://127.0.0.1:7777"}}}},"AllowFunnel":{"` + name + `:443":true}}`, "127.0.0.1:7777", "", "under /b", true},
