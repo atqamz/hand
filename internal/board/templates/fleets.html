@@ -2,6 +2,6 @@
 <h2>Fleets</h2>
 {{if .Loopback}}{{with .Fleets}}<ul class="fleets">{{range .}}<li class="row fleet tint-{{tint .ID}}">{{template "icon-mark"}}<a class="fleet-name" title="{{.Name}}" href="/{{.ID}}/">{{.Name}}</a> <span class="ref">{{.ID}}</span></li>{{end}}</ul>
 {{else}}<p class="quiet">No fleets yet. Run <code>hand init</code> in a folder.</p>
-{{end}}{{else}}<p class="quiet">Open a fleet's link from <code>hand open</code>.</p>
+{{end}}{{else}}<p class="quiet">Open a fleet's link from <code>hand open</code>. To use a phone, pair it on the fleet's Phone page on your laptop.</p>
 {{end}}</main>
 {{template "foot"}}{{end}}

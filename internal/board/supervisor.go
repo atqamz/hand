@@ -64,7 +64,10 @@ func (b *Board) stripData(ctx context.Context) map[string]any {
 }
 
 func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
-	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.token, "Live": true}
+	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.csrf(ctx), "Live": true}
+	if s, ok := ctx.Value(sessionKey{}).(session); ok && s.Device != nil {
+		data["Session"] = "phone"
+	}
 	f, err := b.facts(ctx)
 	if err != nil {
 		return nil, err

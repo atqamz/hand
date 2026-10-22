@@ -93,6 +93,11 @@ func NewHost(o HostOptions) *Host {
 func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if viaFunnel(r) && !strings.HasPrefix(r.URL.Path, "/static/") {
+		hostFail(w, http.StatusForbidden, funnelRefusal)
+		return
+	}
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -108,9 +113,10 @@ func (h *Host) Close() error {
 	return errors.Join(errs...)
 }
 
-func (h *Host) list(w http.ResponseWriter, _ *http.Request) {
-	data := map[string]any{"Title": "fleets", "Loopback": h.o.Loopback}
-	if h.o.Loopback {
+func (h *Host) list(w http.ResponseWriter, r *http.Request) {
+	loopback := h.o.Loopback && !forwarded(r)
+	data := map[string]any{"Title": "fleets", "Loopback": loopback}
+	if loopback {
 		fleets, err := h.o.List()
 		if err != nil {
 			hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))

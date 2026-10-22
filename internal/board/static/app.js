@@ -1165,7 +1165,7 @@
 				text = null;
 			}
 		}
-		const what = b.dataset.copy === "path" ? "Path" : b.textContent === "Copy window" ? "Window" : "Contents";
+		const what = { path: "Path", link: "Link" }[b.dataset.copy] ?? (b.textContent === "Copy window" ? "Window" : "Contents");
 		if (text != null && (await writeText(text))) show(`${what} copied`, 3000, "receipt");
 		else show(`${what} not copied; select the text and copy it yourself.`, 6000);
 	});
@@ -1362,6 +1362,32 @@
 			else if (!d && f.value) seen.set(e.key, { text: null, mine: true });
 		}
 	});
+	const pairForm = document.querySelector("form[data-pair]");
+	if (pairForm) {
+		const code = pairForm.querySelector("#code");
+		if (location.hash.length > 1) {
+			try {
+				code.value = decodeURIComponent(location.hash.slice(1));
+			} catch {
+				code.value = location.hash.slice(1);
+			}
+			history.replaceState(null, "", location.pathname);
+		}
+		(code.value ? pairForm.querySelector("#name") : code).focus();
+	}
+	const addressForm = document.querySelector("form[data-address]");
+	if (addressForm) {
+		const field = addressForm.querySelector("#base");
+		const addressKey = `hand.phone.address${body.dataset.base}`;
+		try {
+			if (!field.value) field.value = localStorage.getItem(addressKey) ?? "";
+		} catch {}
+		addressForm.addEventListener("submit", () => {
+			try {
+				localStorage.setItem(addressKey, field.value.trim());
+			} catch {}
+		});
+	}
 	since();
 	tick();
 	setInterval(since, 30000);
@@ -1417,7 +1443,7 @@
 		}
 		title();
 		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "Reconnecting…";
+		link.textContent = status === 403 ? (body.dataset.session === "phone" ? "Signed out: pair again on your laptop" : "Log in again: hand open --print") : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "Reconnecting…";
 	};
 	const refresh = async () => {
 		const res = await fetch(home, { credentials: "same-origin" }).catch(() => null);

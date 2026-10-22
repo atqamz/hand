@@ -761,3 +761,19 @@ html:has(dialog.viewer:modal){overflow:hidden}
 .viewer .doc-picture.actual{max-height:calc(100dvh - 260px)}
 .viewer .doc-frame{height:calc(100dvh - 300px)}
 .viewer-body .text-bar{top:-16px}
+.connect-part h3{margin:0}
+.part-body{display:grid;gap:10px;padding:12px}
+.part-body>p{margin:0}
+.pair-code{display:grid;gap:8px}
+.pair-code>p{margin:0}
+.pair-link{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.connect-part code{white-space:normal;overflow-wrap:anywhere}
+.code-big{font-family:var(--mono);font-size:22px;line-height:30px;font-weight:600;letter-spacing:.06em}
+.pair-form{display:grid;gap:8px;max-width:440px}
+.pair-form input{width:100%}
+.pair-form button{justify-self:start}
+.field-error{margin:0;color:var(--fail);font-size:14px}
+.devices{margin:0;padding:0;list-style:none}
+.device{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.dev-text{display:grid;flex:1;gap:2px;min-width:0;overflow-wrap:anywhere}
+.dev-note{color:var(--muted);font-size:12px}

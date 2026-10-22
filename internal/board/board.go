@@ -133,10 +133,11 @@ type Options struct {
 }
 
 type Board struct {
-	st    *state.Store
-	token string
-	o     Options
-	mux   *http.ServeMux
+	st     *state.Store
+	token  string
+	o      Options
+	mux    *http.ServeMux
+	phones phones
 }
 
 type card struct {
@@ -155,7 +156,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Beat <= 0 {
 		o.Beat = 15 * time.Second
 	}
-	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux()}
+	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}}
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor/log", b.history)
 	b.mux.HandleFunc("GET /events", b.events)
@@ -177,12 +178,20 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("GET /decision/{id}", b.decision)
 	b.mux.HandleFunc("POST /decision/{id}/answer", b.answer)
 	b.mux.HandleFunc("POST /report/{id}/ack", b.ack)
+	b.mux.HandleFunc("GET /connect", b.connect)
+	b.mux.HandleFunc("POST /connect/code", b.connectCode)
+	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)
 	return b
 }
 
 func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if viaFunnel(r) {
+		b.fail(w, http.StatusForbidden, funnelRefusal)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/static/") {
 		ServeStatic(w, r)
 		return
@@ -208,10 +217,16 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, next, http.StatusSeeOther)
 		return
 	}
-	if c, err := r.Cookie(cookieFor(b.o.Base)); err != nil || !b.valid(c.Value) {
-		b.fail(w, http.StatusForbidden, "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints.")
+	if r.URL.Path == "/pair" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		b.pair(w, r)
 		return
 	}
+	s, fault := b.session(r)
+	if fault != signedIn {
+		b.fail(w, http.StatusForbidden, sessionFaults(fault, forwarded(r)))
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, maxPost)
 		err := r.ParseForm()
@@ -224,7 +239,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if r.Method == http.MethodPost && !b.valid(r.PostFormValue("csrf")) {
+	if r.Method == http.MethodPost && subtle.ConstantTimeCompare([]byte(r.PostFormValue("csrf")), []byte(s.CSRF)) != 1 {
 		b.fail(w, http.StatusForbidden, "this form is stale; reload the page and try again")
 		return
 	}
@@ -701,7 +716,7 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.render(w, http.StatusOK, "task.html", map[string]any{
-		"Title": state.TaskRef(id), "Page": "task", "Fleets": b.fleets(ctx), "Card": c, "Token": b.token, "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
+		"Title": state.TaskRef(id), "Page": "task", "Fleets": b.fleets(ctx), "Card": c, "Token": b.csrf(ctx), "Pill": taskPill[t.Status], "Attempts": rows, "StripData": b.stripData(ctx), "Decisions": decisions, "Titles": b.refTitle(ctx),
 		"Unread": unread, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 	})
 }
@@ -727,7 +742,7 @@ func (b *Board) decisionPage(w http.ResponseWriter, r *http.Request, id int64, s
 		b.failErr(w, err)
 		return
 	}
-	b.render(w, status, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.token, "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx), "Notice": notice})
+	b.render(w, status, "decision.html", map[string]any{"Title": state.DecisionRef(id), "Page": "decision", "Fleets": b.fleets(ctx), "Decision": d, "Task": t, "Token": b.csrf(ctx), "Pill": decisionPill[d.Status], "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx), "Notice": notice})
 }
 
 func (b *Board) rejected(w http.ResponseWriter, r *http.Request, id int64, status int, msg, notice string) {

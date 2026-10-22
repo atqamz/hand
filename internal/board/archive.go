@@ -103,7 +103,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 		return b.o.Base + "/tasks?" + q.Encode()
 	}
 	data := map[string]any{
-		"Title": "tasks", "Page": "tasks", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": b.token,
+		"Title": "tasks", "Page": "tasks", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": b.csrf(ctx),
 		"Groups": groups, "Total": total, "Projects": projects, "Chips": chips,
 		"Q": query.Q, "Scope": scope, "Scopes": scopes, "Project": query.Project, "Since": query.Since, "Until": query.Until,
 	}

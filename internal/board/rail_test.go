@@ -225,7 +225,7 @@ func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {
 		return out
 	}
 	rail := railOf(t, body)
-	if r, s := links(rail[:strings.Index(rail, "</nav>")]), links(sheetOf(t, body)); len(r) != 6 || strings.Join(r, " ") != strings.Join(s, " ") {
+	if r, s := links(rail[:strings.Index(rail, "</nav>")]), links(sheetOf(t, body)); len(r) != 7 || strings.Join(r, " ") != strings.Join(s, " ") {
 		t.Fatalf("rail %q, sheet %q", r, s)
 	}
 	css := asset(t, "board.css")
@@ -243,17 +243,17 @@ func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {
 	}
 }
 
-func TestTheRailIsSixTabStopsBeforeTheMasthead(t *testing.T) {
+func TestTheRailIsSevenTabStopsBeforeTheMasthead(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	body := get(t, fx.handler(), "/")
 	before := body[:strings.Index(body, `<header class="masthead">`)]
 	before = before[strings.Index(before, `<a class="skip"`):]
 	stops := regexp.MustCompile(`<(?:a|button)\b[^>]*>`).FindAllString(before, -1)
-	if len(stops) != 7 {
-		t.Fatalf("%d links and buttons before the masthead, want the skip link, the label button, three pages and two fleet links: %q", len(stops), stops)
+	if len(stops) != 8 {
+		t.Fatalf("%d links and buttons before the masthead, want the skip link, the label button, four pages and two fleet links: %q", len(stops), stops)
 	}
-	for i, want := range []string{`class="skip"`, `class="rail-toggle"`, `href="/"`, `href="/tasks"`, `href="/supervisor/log"`} {
+	for i, want := range []string{`class="skip"`, `class="rail-toggle"`, `href="/"`, `href="/tasks"`, `href="/supervisor/log"`, `href="/connect"`} {
 		if !strings.Contains(stops[i], want) {
 			t.Fatalf("stop %d = %s, want %s", i, stops[i], want)
 		}

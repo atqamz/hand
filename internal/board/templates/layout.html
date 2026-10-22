@@ -8,13 +8,14 @@
 <link rel="icon" href="{{asset "favicon.svg"}}">
 <script src="{{asset "app.js"}}" defer></script>
 </head>
-<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}">
+<body class="tint-{{tint .FleetID}}" data-page="{{.Page}}" data-base="{{.Base}}" data-fleet="{{.Fleet}}"{{with .Session}} data-session="{{.}}"{{end}}>
 {{end}}
 
 {{define "nav"}}<ul class="nav-pages">
 <li><a href="{{.Base}}/"{{if eq .Page "fleet"}} aria-current="page"{{end}}>{{template "icon-board"}}<span class="label">Board</span>{{if eq .Page "fleet"}}<span class="badge" data-needs data-waiting="{{.Waiting}}" data-worst="{{.Worst}}"{{if not .Waiting}} hidden{{end}}>{{.Waiting}}</span>{{end}}</a></li>
 <li><a href="{{.Base}}/tasks"{{if or (eq .Page "tasks") (eq .Page "task")}} aria-current="page"{{end}}>{{template "icon-tasks"}}<span class="label">Tasks</span></a></li>
 <li><a href="{{.Base}}/supervisor/log"{{if eq .Page "log"}} aria-current="page"{{end}}>{{template "icon-chat"}}<span class="label">Conversation</span>{{if eq .Page "fleet"}}<span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span>{{end}}</a></li>
+<li><a href="{{.Base}}/connect"{{if eq .Page "connect"}} aria-current="page"{{end}}>{{template "icon-phone"}}<span class="label">Phone</span></a></li>
 </ul>
 {{with .Fleets}}<p class="nav-head">Fleets</p><ul class="nav-fleets">{{range $f := .}}<li><a class="tint-{{tint $f.ID}}" href="{{if $f.Current}}{{$.Base}}{{else}}/{{$f.ID}}{{end}}/"{{if $f.Current}} aria-current="true"{{end}}>{{template "icon-mark"}}<span class="label">{{$f.Name}}</span></a></li>{{end}}{{if $.Controls}}<li><a href="/">{{template "icon-fleets"}}<span class="label">All fleets</span></a></li>{{end}}</ul>
 {{end}}{{end}}

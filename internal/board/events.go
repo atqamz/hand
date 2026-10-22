@@ -115,6 +115,9 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 	var last version
 	wrote := time.Now()
 	for {
+		if !b.stillSignedIn(ctx) {
+			return
+		}
 		v, err := b.version(ctx)
 		if err != nil {
 			return
