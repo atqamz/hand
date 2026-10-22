@@ -1314,6 +1314,7 @@
 	let poll = 0;
 	const link = document.getElementById("link");
 	let lost = 0;
+	let heard = Date.now();
 	const word = () => regions.get("status")?.querySelector(".pill .word");
 	const linkState = (ok, status) => {
 		if (!link) return;
@@ -1339,7 +1340,7 @@
 		}
 		title();
 		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Board offline since ${at}` : "Reconnecting…";
+		link.textContent = status === 403 ? "Log in again: hand open --print" : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "Reconnecting…";
 	};
 	const refresh = async () => {
 		const res = await fetch(home, { credentials: "same-origin" }).catch(() => null);
@@ -1362,7 +1363,14 @@
 		poll = 0;
 		if (source) return;
 		source = new EventSource(`${base}/events${new URL(home).search}`);
-		source.addEventListener("open", () => linkState(true));
+		heard = Date.now();
+		source.addEventListener("open", () => {
+			heard = Date.now();
+			linkState(true);
+		});
+		source.addEventListener("beat", () => {
+			heard = Date.now();
+		});
 		source.addEventListener("error", () => {
 			linkState(false);
 			if (source?.readyState === EventSource.CLOSED) {
@@ -1370,8 +1378,21 @@
 				poll ||= setInterval(refresh, 10000);
 			}
 		});
-		for (const name of regions.keys()) source.addEventListener(name, (e) => apply(name, e.data));
+		for (const name of regions.keys())
+			source.addEventListener(name, (e) => {
+				heard = Date.now();
+				apply(name, e.data);
+			});
 	};
+	setInterval(() => {
+		if (lost && link?.textContent === "Reconnecting…") linkState(false);
+		if (source?.readyState !== EventSource.OPEN || Date.now() - heard < 35000) return;
+		source.close();
+		source = null;
+		lost ||= heard;
+		linkState(false);
+		follow();
+	}, 5000);
 	const draft = document.getElementById("composer");
 	const picker = draft?.querySelector("[data-attach]");
 	const chat = draft?.closest("#chat");

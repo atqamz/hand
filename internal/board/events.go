@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -112,6 +113,7 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 	defer tick.Stop()
 	sent := map[string]string{}
 	var last version
+	wrote := time.Now()
 	for {
 		v, err := b.version(ctx)
 		if err != nil {
@@ -130,11 +132,21 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				sent[name] = html[name]
+				wrote = time.Now()
 			}
 			if err := rc.Flush(); err != nil {
 				return
 			}
 			last = v
+		}
+		if time.Since(wrote) >= b.o.Beat {
+			if _, err := io.WriteString(w, "event: beat\ndata:\n\n"); err != nil {
+				return
+			}
+			if err := rc.Flush(); err != nil {
+				return
+			}
+			wrote = time.Now()
 		}
 		select {
 		case <-ctx.Done():

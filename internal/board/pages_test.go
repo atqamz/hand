@@ -264,6 +264,36 @@ func TestALostLinkDimsTheStatusAndQuietsTheIcon(t *testing.T) {
 	contains(t, "app.js", js, `.querySelector(".pill .word")`, `now.dataset.was = now.textContent;`, `now.textContent = "unknown";`, `back.textContent = back.dataset.was;`)
 }
 
+func TestTheLostLinkIsABandUnderTheMasthead(t *testing.T) {
+	fx := newFixture(t)
+	page := get(t, fx.handler(), "/")
+	band, header := strings.Index(page, `<p id="link"`), strings.Index(page, `<header class="masthead">`)
+	if band < header || band > strings.Index(page, `</header>`) || band < strings.Index(page, `<nav class="tabs"`) || band > strings.Index(page, `id="composer"`) {
+		t.Fatal("the link band must close the masthead, after the tabs and before the composer")
+	}
+	css := asset(t, "board.css")
+	contains(t, "css", css,
+		".link-state{margin:0;padding:6px 16px;border-top:1px solid var(--line);background:var(--wait-bg);color:var(--fg);font-size:14px;line-height:20px}",
+		".masthead:has(>.link-state:not([hidden])){flex-wrap:wrap}",
+		".masthead>.link-state{flex:1 0 100%}",
+		"body[data-page=fleet] .link-state{padding-inline:24px}")
+}
+
+func TestASilentStreamIsWatchedAndAnswered(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		`source.addEventListener("beat", () => {`,
+		"heard = Date.now();",
+		"Date.now() - heard < 35000",
+		"lost ||= heard;",
+		"}, 5000);",
+		"`Connection lost since ${at}`")
+	if strings.Count(js, "heard = Date.now();") != 5 {
+		t.Fatal("app.js must declare the heard time and set it at the stream start, open, beat and each region event")
+	}
+	lacks(t, "app.js", js, "Board offline since")
+}
+
 func TestThreadPagesCarryTheToastAndReloadAfterAnAnswer(t *testing.T) {
 	fx := newFixture(t)
 	if _, err := fx.st.Ask(context.Background(), active(t, fx.st, "Fix login").ID, "Keep it?"); err != nil {

@@ -127,6 +127,7 @@ type Options struct {
 	Home       string
 	Base       string
 	Tick       time.Duration
+	Beat       time.Duration
 	Now        func() time.Time
 	Harness    harness.Env
 }
@@ -150,6 +151,9 @@ type card struct {
 func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Tick <= 0 {
 		o.Tick = time.Second
+	}
+	if o.Beat <= 0 {
+		o.Beat = 15 * time.Second
 	}
 	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux()}
 	b.mux.HandleFunc("GET /{$}", b.fleet)

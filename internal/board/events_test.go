@@ -158,6 +158,32 @@ func TestEventsSendEveryRegionOnConnect(t *testing.T) {
 	}
 }
 
+func TestAQuietStreamSendsABeatAndRefreshesNothing(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	base := serve(t, quick(st, board.Options{Beat: 20 * time.Millisecond}))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 5)
+	for _, e := range first(t, ch, 3) {
+		if e.name != "beat" || e.data != "" {
+			t.Fatalf("a quiet stream sent %q with %q", e.name, e.data)
+		}
+	}
+}
+
+func TestTheBeatWaitsFifteenSecondsByDefault(t *testing.T) {
+	st := open(t)
+	seed(t, st)
+	base := serve(t, quick(st, board.Options{}))
+	ch, _ := stream(t, base+"/events")
+	first(t, ch, 5)
+	select {
+	case e := <-ch:
+		t.Fatalf("a quiet stream sent %q within 300ms", e.name)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestEventsSendOnlyChangedRegions(t *testing.T) {
 	st := open(t)
 	seed(t, st)
