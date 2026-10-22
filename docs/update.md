@@ -41,9 +41,10 @@ To restore a backup:
      ```
    - macOS: the start time in whole seconds must equal `MARKER` before its dot:
      ```sh
+     same() { [ "$(date -j -f '%a %b %e %T %Y' "$(ps -o lstart= -p $1 2>/dev/null)" +%s 2>/dev/null)" = "${2%%.*}" ]; }
      read pid marker _ < ~/.secondhand/board.pid
-     [ "$(date -j -f '%a %b %e %T %Y' "$(ps -o lstart= -p $pid)" +%s)" = "${marker%%.*}" ] && kill $pid
-     while kill -0 $pid 2>/dev/null; do sleep 1; done
+     same $pid $marker && kill $pid
+     while same $pid $marker; do sleep 1; done
      ```
    - Windows: the start time as a file time must be within one second (10,000,000 ticks) of `MARKER` after `windows:`:
      ```powershell
