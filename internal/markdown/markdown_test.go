@@ -325,14 +325,21 @@ func markup(out string, doc bool) string {
 }
 
 func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
+	cost := func(in string) time.Duration {
+		best := time.Duration(1<<63 - 1)
+		for range 3 {
+			start := time.Now()
+			markdown.Render(in, nil)
+			markdown.RenderDoc(in, "/f1", nil, stub)
+			markdown.RenderRefs(in, "/f1", nil, deny)
+			best = min(best, time.Since(start))
+		}
+		return best
+	}
 	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n", "/(", "/a ", "`/a` ", "C:\\a "} {
-		in := strings.Repeat(unit, 200<<10/len(unit))
-		start := time.Now()
-		markdown.Render(in, nil)
-		markdown.RenderDoc(in, "/f1", nil, stub)
-		markdown.RenderRefs(in, "/f1", nil, deny)
-		if d := time.Since(start); d > time.Second {
-			t.Errorf("Render and RenderDoc of %d bytes of %q took %v", len(in), unit, d)
+		small, large := cost(strings.Repeat(unit, 8<<10/len(unit))), cost(strings.Repeat(unit, 64<<10/len(unit)))
+		if large > 28*small {
+			t.Errorf("rendering %q took %v for 8 KiB and %v for 64 KiB: 8 times the input must not cost more than 28 times", unit, small, large)
 		}
 	}
 }
