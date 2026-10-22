@@ -10,8 +10,8 @@ Hand sets up none of them and changes no setting. The Phone page, `/<fleet id>/c
 | [SSH tunnel](#ssh-tunnel) | yes | no: plain HTTP on the phone's own loopback | yes | only while the tunnel is up | An SSH server, an SSH app | Whoever can log in over SSH |
 | [Cloudflare Tunnel with Access](#cloudflare-tunnel-with-access) | yes | yes | yes | after you rewrite the link | A domain on Cloudflare, `cloudflared`, an Access policy | Whoever the Access policy admits. Cloudflare can read the traffic |
 | [WireGuard, behind a TLS proxy](#wireguard) | yes | yes, with a private CA on the phone | yes | after you rewrite the link | WireGuard, a proxy, a CA | Every WireGuard peer |
-| [WireGuard, read-only](#wireguard) | no | no: plain HTTP inside the tunnel | yes, read-only | yes | WireGuard | Every WireGuard peer |
-| [A LAN address](#a-lan-address) | no | no: plain HTTP | yes, read-only, over plain HTTP | only with a specific address, not `0.0.0.0` | None | Everyone on the network, who can also sniff the token |
+| [WireGuard, read-only](#wireguard) | no, decisions only | no: plain HTTP inside the tunnel | yes, read-only | yes | WireGuard | Every WireGuard peer |
+| [A LAN address](#a-lan-address) | no, decisions only | no: plain HTTP | yes, read-only, over plain HTTP | only with a specific address, not `0.0.0.0` | None | Everyone on the network, who can also sniff the token |
 
 "Chat, files and supervisor control" are the composer, attachments and the supervisor's Start, Resume, Stop, model and key controls. The board offers them only while it listens on a loopback address. On any other address they are off, and answering decisions and marking reports read still work.
 
@@ -29,7 +29,7 @@ The phone's session is a cookie, `hand_phone_<fleet id>`. When the request carri
 "notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com${HAND_NOTIFY_URL#http://127.0.0.1:7777}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
 ```
 
-`${HAND_NOTIFY_URL#http://127.0.0.1:7777}` removes the local prefix and keeps `/<fleet id>/decision/d3`. A board on another port needs that port in the prefix.
+The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given here, and the link stays the local one. `${HAND_NOTIFY_URL#http://127.0.0.1:7777}` removes the local prefix and keeps `/<fleet id>/decision/d3`. A board on another port needs that port in the prefix.
 
 ## SSH tunnel
 
@@ -38,7 +38,7 @@ The phone's session is a cookie, `hand_phone_<fleet id>`. When the request carri
 **Set up once.**
 
 1. Run an SSH server on the laptop that the phone can reach: on your home network, or from outside through a router port forward or another VPN. A port forward puts the SSH port on the internet: allow keys only.
-2. Install an SSH app on the phone that can forward a local port, and give it a key. No phone app was run for this page, so which apps do this well is not verified here.
+2. Install an SSH app on the phone that can forward a local port, and give it a key.
 3. Open the tunnel from the phone, here as the OpenSSH command line (the app's setting has the same three parts, a local port, the host `127.0.0.1` and the port `7777`):
 
    ```sh
@@ -52,8 +52,8 @@ The phone's session is a cookie, `hand_phone_<fleet id>`. When the request carri
 **Cost and what goes wrong.**
 
 - The tunnel lives as long as the SSH app does. When the phone suspends or kills the app, the tunnel is gone, and a page that is open shows "Connection lost" ([the board's connection band](board.md)). How long a given app keeps the tunnel up in the background was not verified here.
-- The alert link is `http://127.0.0.1:7777/...`. It opens on the phone while the tunnel is up with the same port, and fails otherwise. This follows from the code and was not tried on a phone.
-- Not HTTPS. Browsers treat a loopback address as a secure context ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), [W3C](https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy)), so the Clipboard API works. That is the specification: no phone browser was tried for this page, and Safari on an iPhone is not verified here. A forward that a phone browser reaches by another name, such as the phone's LAN address, is not loopback and is not a secure context.
+- The alert link is `http://127.0.0.1:7777/...`. It opens on the phone while the tunnel is up with the same port, and fails otherwise.
+- Not HTTPS. Browsers treat a loopback address as a secure context ([MDN](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts), [W3C](https://w3c.github.io/webappsec-secure-contexts/#is-origin-trustworthy)), so the Clipboard API is available there, subject to the browser's own rules, such as permission or a user action. The board falls back to `execCommand` when a write fails. That is the specification: no phone browser was tried, and Safari on an iPhone is not verified here. A forward that a phone browser reaches by another name, such as the phone's LAN address, is not loopback and is not a secure context.
 - SSH encrypts the traffic between the phone and the laptop, so plain HTTP on the phone is not sniffable on the network.
 
 **Security.** The board stays on loopback and opens no new port. The SSH server is the new door: its login is the first fence, and the board's token or a pairing is the second. Anyone who can log in to that account over SSH can also forward to the board, which the token still guards.
@@ -84,19 +84,19 @@ The board refuses Funnel traffic by its `Tailscale-Funnel-Request` header. It ha
 **Cost and what goes wrong.**
 
 - A domain, a Cloudflare account, and a service to keep running.
-- Cloudflare serves the hostname, so its edge holds the TLS keys and can read the chat, decisions and files. Cloudflare's own page for this was not read here.
-- **Never use a quick tunnel (`cloudflared tunnel --url`).** Cloudflare says that quick tunnels have no uptime guarantee and "do not support Server-Sent Events (SSE)" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)), which the board uses for its live updates. It also has no Access application.
+- Cloudflare serves the hostname, so its edge holds the TLS keys and can read the chat, decisions and files. Not verified here against Cloudflare's documentation.
+- **Never use a quick tunnel.** Cloudflare says that quick tunnels have no uptime guarantee and "do not support Server-Sent Events (SSE)" ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)), which the board uses for its live updates. The only access control that page offers is an emailed one-time PIN (`--allowed-mail`), not an Access policy.
 - Whether a named tunnel passes the board's event stream without buffering is not verified here. If it does not, the page shows "Connection lost".
 - The alert link needs the rewrite above, with `https://board.example.com`.
 
-**Security.** The hostname is public: scanners find it. The Access policy decides who gets past it, and it is the first fence. Keep it to your own identity, check it from outside after every change, and read [Safe use](safe-use.md): a paired phone can type into agents that skip their permission prompts.
+**Security.** The hostname is public: scanners find it. The Access policy decides who gets past it, and it is the first fence. Behind it, the pairing code or the token is all that stands between a person Access admits and typing into agents that skip their permission prompts. Keep it to your own identity, check it from outside after every change, and read [Safe use](safe-use.md): a paired phone can type into agents that skip their permission prompts.
 
 ## WireGuard
 
 **What it is.** The laptop and the phone are two peers of a WireGuard network. The phone reaches the laptop by its WireGuard address, here `10.8.0.1`. Your choice is how the board listens on that address.
 
 - **Behind a TLS proxy.** The board stays on loopback, and a proxy on the laptop listens on the WireGuard address with TLS and forwards to `http://127.0.0.1:7777`. The phone keeps chat, files and supervisor control, and gets HTTPS, if it trusts the proxy's certificate. You build and run the proxy and a private certificate authority, and install its root on the phone. Pick this only if you already run such a proxy.
-- **Read-only.** The board listens on the WireGuard address itself with `--addr`. That is a network address, so the board turns the supervisor controls off: the token crosses plain HTTP there, and supervisor control means typing into an agent that has its permission prompts skipped. WireGuard encrypts the hop, but the board cannot know that, so the rule stays. Decisions and read marks still work.
+- **Read-only.** The board listens on the WireGuard address itself with `--addr`. That is a network address, so the board turns the supervisor controls off: the login token, or a phone's pairing code and session cookie, crosses plain HTTP there, and supervisor control means typing into an agent that has its permission prompts skipped. WireGuard encrypts the hop, but the board cannot know that, so the rule stays. Decisions and read marks still work.
 
 **Set up once.** The laptop needs a WireGuard endpoint the phone can reach: a UDP port forward on your router, or a server with a public address in between. Neither was run here.
 
