@@ -19,7 +19,7 @@ Hand sets up none of them and changes no setting. The Phone page, `/<fleet id>/c
 
 Open `/<fleet id>/connect` on the laptop, type the address the phone opens in **Address the phone opens**, and choose **Show pairing code**. The address is `http://` or `https://`, a host, an optional port, and no path: the page refuses `https://example.test/board`. The pairing link is `ADDRESS/<fleet id>/pair#CODE`, and the QR code holds it. The page warns when the address is plain HTTP on a network, because the code and the phone's session then cross it unencrypted unless the tunnel encrypts them. It gives no warning for `localhost` or a loopback address such as `127.0.0.1`. Revoke and Sign out work the same on every path.
 
-The phone's session is a cookie, `hand_phone_<fleet id>`. When the request carries `X-Forwarded-Proto: https`, the cookie is `__Host-hand_phone_<fleet id>` and has `Secure`.
+The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet id>`: one code can pair several fleets ([Several fleets on one phone](board.md#several-fleets-on-one-phone)). When the request carries `X-Forwarded-Proto: https`, the cookie is `__Host-hand_phone_<fleet id>` and has `Secure`.
 
 ## Alerts that open on the phone
 
