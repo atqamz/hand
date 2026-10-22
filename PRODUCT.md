@@ -41,7 +41,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **Platform:** Linux, macOS (Apple silicon) and native Windows (amd64), without WSL.
 - **Fleets:** they are registered under `~/.secondhand/fleets`. One board process serves every fleet, each at its own path, `127.0.0.1:7777/<fleet-id>/`. Each page shows one fleet; there is no combined cross-fleet page.
 - **Surfaces:**
-  - the rail (a sheet on a phone): Board, Tasks, Conversation and the fleets this browser can open;
+  - the rail (a sheet on a phone): Board, Tasks, Conversation, Phone and the fleets this browser can open;
   - Needs: the open items in severity bands, with the keys of a blocked screen and the choice list of a decision;
   - the supervisor pane: Start, Resume, New session, Stop, Interrupt, the conversation (the calm view, plus messages still queued) and the message box, with a separator that resizes it;
   - Tasks: the task list on the fleet page, and the Tasks page that searches every task;

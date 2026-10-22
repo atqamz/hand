@@ -358,7 +358,7 @@ A named harness, model and effort in `routing.json` in the fleet home. `hand ini
 
 ### Board
 
-`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`). `hand open` starts a board when none answers its `/<fleet id>/proof` check: `systemctl --user start` of an installed `secondhand-board` unit, else a transient unit of that name, else a detached process (macOS, Windows, no user manager) logging to `board.log`; it waits up to 10 seconds for the proof.
+`hand board`: a local web page from the same binary, and the operator's interface. One board process serves every registered fleet. `/<fleet id>/` is one fleet's page, and `/` lists the fleets while the board listens on a loopback address; on a network address, and for a request that a proxy forwarded (`X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`), `/` shows no list, so open a fleet by its link. The default address is `127.0.0.1:7777` (`--addr`). `hand open` starts a board when none answers its `/<fleet id>/proof` check: `systemctl --user start` of an installed `secondhand-board` unit, else a transient unit of that name, else a detached process (macOS, Windows, no user manager) logging to `board.log`; it waits up to 10 seconds for the proof. `/<fleet id>/connect` is the Phone page, where the laptop shows a [pairing code](#pairing-code) and lists and revokes [paired phones](#paired-phone), and `/<fleet id>/pair` is the page a phone pairs on.
 
 A fleet's page has two parts. At 900px and wider, the work pane (Needs, then Tasks) sits beside the supervisor pane, with a separator between them that the operator drags to size the chat (the board remembers one width); below that Needs, Tasks and Chat are three tabs, which merge into the masthead on short screens. The [rail](#rail) lists the pages and the fleets:
 
@@ -375,11 +375,19 @@ The document viewer opened in place: a `<dialog>` in every Board page, outside t
 
 ### Rail
 
-The Board's navigation: a 56px column of icons at the left edge from 900px, and below that a sheet opened from the masthead's menu button. It holds Board (with the live Needs count), Tasks, Conversation and the fleets. A name shows on hover, on focus, or for every item at once from the label button. It lists the current fleet and only the other fleets whose token the browser holds and that fleet still accepts; it shows no other fleet's Needs count. On a network address it lists only its own fleet.
+The Board's navigation: a 56px column of icons at the left edge from 900px, and below that a sheet opened from the masthead's menu button. It holds Board (with the live Needs count), Tasks, Conversation, Phone and the fleets. A name shows on hover, on focus, or for every item at once from the label button. It lists the current fleet and only the other fleets whose token the browser holds and that fleet still accepts; it shows no other fleet's Needs count. On a network address it lists only its own fleet.
 
 ### Board token
 
-`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser.
+`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser. A [paired phone](#paired-phone) never holds it, and changing it signs every paired phone out.
+
+### Paired phone
+
+A phone the operator signed in from the Board's Phone page, which the state keeps as a device: a number, a name the operator typed on the phone (40 characters at most), the Tailscale login `tailscale serve` sent when it paired, the pairing time, and a hash of its secret in the `device` table of `hand.db` (schema 11). Its cookie is `__Host-hand_phone_<fleet id>` over HTTPS, else `hand_phone_<fleet id>`, and holds the device's number and secret, good for 90 days from pairing: the board refuses it after that, and the Phone page marks the row `signed out after 90 days` until it is revoked. It has its own form token, and no page it loads holds `board.token`. Revoking deletes the device. Pairing records `board.paired` and revoking records `board.revoked`, each with the detail `NUMBER NAME` and no task, in the same transaction as the change; neither is a wake kind. A phone cannot show codes or revoke another phone, and `hand orient` shows the events like any other. Rotating `board.token` makes every secret fail, since each hash is keyed with the token.
+
+### Pairing code
+
+A one-time code of 10 characters from the Crockford alphabet (`0-9` and `A-Z` without `I`, `L`, `O` and `U`; typing `I`, `L` or `O` is read as `1` or `0`), shown on the Phone page as `K7QM3-XRD2P`: 50 bits, from the system's random source. It works once and for 5 minutes, a new code cancels the one before it, ten wrong tries from any phone cancel every code, and a phone address that tries 5 wrong codes within a minute waits up to a minute. Only the laptop's login can show one. Codes live in the board's memory only, so a restart or a changed `board.token` cancels them. The pairing link is `ADDRESS/<fleet id>/pair#CODE`: the code sits in the `#` part, which the browser never sends, and opening the link only shows a form, so a preview cannot spend the code.
 
 ### TOON
 
