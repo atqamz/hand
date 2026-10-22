@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,12 +29,19 @@ type phoneHost struct {
 	now      time.Time
 	opened   map[string]int
 	proofs   map[string]int
+	down     map[string]bool
+	gone     map[string]bool
+	paths    map[string]string
 }
 
 type counted struct {
 	http.Handler
 	p  *phoneHost
 	id string
+}
+
+func (c counted) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
+	return c.Handler.(board.Pairer).PairPhone(ctx, rd)
 }
 
 func (c counted) PhoneSession(r *http.Request) bool {
@@ -57,9 +65,10 @@ func (p *phoneHost) advance(d time.Duration) {
 
 func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
 	t.Helper()
-	p := &phoneHost{t: t, loopback: loopback, now: phoneEpoch}
+	p := &phoneHost{t: t, loopback: loopback, now: phoneEpoch, down: map[string]bool{}, gone: map[string]bool{}, paths: map[string]string{}}
 	for i, name := range names {
-		st, err := state.Open(filepath.Join(t.TempDir(), "hand.db"), p.clock)
+		path := filepath.Join(t.TempDir(), "hand.db")
+		st, err := state.Open(path, p.clock)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,6 +80,7 @@ func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
 		if err != nil {
 			t.Fatal(err)
 		}
+		p.paths[f.ID] = path
 		p.fleets = append(p.fleets, railFleet{id: f.ID, name: name, token: fmt.Sprintf("%032x", i+1), st: st})
 	}
 	p.restart()
@@ -90,8 +100,14 @@ func (p *phoneHost) restart() {
 	p.h = board.NewHost(board.HostOptions{
 		Loopback: p.loopback,
 		Resolve: func(id string) (string, error) {
-			if _, ok := byID[id]; !ok {
+			p.mu.Lock()
+			down, gone := p.down[id], p.gone[id]
+			p.mu.Unlock()
+			if _, ok := byID[id]; !ok || gone {
 				return "", state.ErrNotFound
+			}
+			if down {
+				return "", errors.New("fleet is down")
 			}
 			return "/homes/" + id, nil
 		},
@@ -103,8 +119,23 @@ func (p *phoneHost) restart() {
 			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock})
 			return counted{b, p, id}, closer(func() error { return nil }), nil
 		},
-		List:  func() ([]board.FleetLink, error) { return all, nil },
-		Valid: func(id, token string) bool { f, ok := byID[id]; return ok && f.token == token },
+		List: func() ([]board.FleetLink, error) {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			var out []board.FleetLink
+			for _, l := range all {
+				if !p.gone[l.ID] {
+					out = append(out, l)
+				}
+			}
+			return out, nil
+		},
+		Valid: func(id, token string) bool {
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			f, ok := byID[id]
+			return ok && !p.gone[id] && f.token == token
+		},
 	})
 }
 

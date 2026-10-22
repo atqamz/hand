@@ -27,6 +27,10 @@
 <label for="base">Address the phone opens</label>
 <input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" data-detected="{{.Link.Ready}}" placeholder="https://laptop.tailnet.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
 {{with .AddressError}}<p class="field-error" id="base-error">{{.}}</p>{{end}}
+{{with .Choices}}<fieldset class="pair-fleets"><legend>Fleets this phone may open</legend>
+{{range .}}<label class="pair-fleet"><input type="checkbox" name="fleet" value="{{.ID}}"{{if .Ticked}} checked{{end}}{{if .Current}} disabled{{end}}><span>{{.Name}}{{if .Current}} (this fleet){{end}}</span></label>
+{{end}}<p class="meta">The phone can read every fleet you tick and message its supervisor. Tick only the fleets it needs.</p>
+</fieldset>{{end}}
 <button class="primary">{{if .Code}}New code{{else}}Show pairing code{{end}}</button>
 </form>
 {{with .Code}}<div class="pair-code">
@@ -36,16 +40,17 @@
 <p class="pair-link"><code class="ref">{{$.PairLink}}</code> <button type="button" class="doc-copy" data-copy="link" data-text="{{$.PairLink}}">Copy link</button></p>
 <p>Or open <code class="ref">{{$.PairURL}}</code> and type the code:</p>
 <p class="code-big" aria-label="Pairing code {{.}}">{{.}}</p>
-<p class="meta">It works once, until <time datetime="{{$.Expires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.Expires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
+{{with $.PairsWith}}<p>It pairs the phone with {{.}}.</p>
+{{end}}<p class="meta">It works once, until <time datetime="{{$.Expires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.Expires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
 {{if $.Plain}}<p class="doc-notice">This address is plain HTTP on a network. The code and the phone's session cross it unencrypted unless the tunnel encrypts them, as SSH and WireGuard do.</p>{{end}}
 </div>
 </div>{{end}}
 </div></section>
 <section class="card connect-part" aria-labelledby="dev-head">
 <header class="slug"><h3 id="dev-head">Paired phones</h3></header>
-<div class="part-body">{{with .Devices}}<ul class="devices">{{range .}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span><span class="dev-note">{{if .Expired}}signed out after 90 days · {{end}}{{with .Login}}{{.}} · {{end}}paired <time datetime="{{.PairedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.PairedAt.Format "2 Jan"}}</time>{{if not .Seen.IsZero}}, seen <time datetime="{{.Seen.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{.Seen.Format "15:04"}}</time>{{end}}</span></span><form method="post" action="{{$.Base}}/connect/revoke"><input type="hidden" name="csrf" value="{{$.Token}}"><input type="hidden" name="id" value="{{.ID}}"><button aria-label="Revoke {{.Name}}">Revoke</button></form></li>{{end}}</ul>
+<div class="part-body">{{with .Devices}}<ul class="devices">{{range .}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span><span class="dev-note">{{if .Expired}}signed out after 90 days · {{end}}{{if not .Phone}}this fleet only · {{end}}{{with .Login}}{{.}} · {{end}}paired <time datetime="{{.PairedAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.PairedAt.Format "2 Jan"}}</time>{{if not .Seen.IsZero}}, seen <time datetime="{{.Seen.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{.Seen.Format "15:04"}}</time>{{end}}</span></span><form method="post" action="{{$.Base}}/connect/revoke"><input type="hidden" name="csrf" value="{{$.Token}}"><input type="hidden" name="id" value="{{.ID}}"><button aria-label="Revoke {{.Name}}">Revoke</button></form></li>{{end}}</ul>
 {{else}}<p class="quiet">No phone is paired.</p>{{end}}
-<p class="meta">A phone stays signed in for 90 days, or until you revoke it here. Revoking signs it out of this fleet only; remove a lost phone from your tailnet too.</p>
+<p class="meta">A phone stays signed in for 90 days, or until you revoke it here. Revoking signs it out of this fleet only; remove a lost phone from your tailnet too. A phone that reads “this fleet only” was paired before one code could pair several fleets: pair it again with more fleets ticked.</p>
 </div></section>{{end}}
 </main>
 {{template "foot"}}{{end}}

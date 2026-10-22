@@ -782,3 +782,7 @@ html:has(dialog.viewer:modal){overflow:hidden}
 .device{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
 .dev-text{display:grid;flex:1;gap:2px;min-width:0;overflow-wrap:anywhere}
 .dev-note{color:var(--muted);font-size:12px}
+.pair-fleets{display:grid;gap:2px;min-width:0;margin:0;padding:0;border:0}
+.pair-fleets legend{padding:0;margin-bottom:4px}
+.pair-fleet{display:flex;align-items:center;gap:10px;padding-block:calc((var(--control) - 20px)/2);line-height:20px;cursor:pointer}
+.pair-fleets .pair-fleet>input{flex:none;width:18px;height:18px;margin:0;padding:0;accent-color:var(--accent)}

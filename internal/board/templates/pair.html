@@ -1,5 +1,11 @@
 {{define "pair.html"}}{{template "head" .}}<main class="thread pair">
-<header class="thread-head"><h2 class="thread-title">Pair this phone</h2></header>
+{{if .Paired}}<header class="thread-head"><h2 class="thread-title">Phone paired</h2></header>
+<section class="card pair-card"><div class="part-body">
+<p>Paired with {{.PairedWith}}.</p>
+{{if .Missed}}<p class="doc-notice">{{if eq .Missed 1}}1 fleet was{{else}}{{.Missed}} fleets were{{end}} not reachable. Pair {{if eq .Missed 1}}it{{else}}them{{end}} from {{if eq .Missed 1}}its{{else}}their{{end}} own Phone page on your laptop.</p>{{end}}
+<ul class="devices">{{range .Paired}}<li class="device"><span class="dev-text"><span class="dev-name">{{.Name}}</span></span><form method="get" action="/{{.ID}}/"><button class="primary" aria-label="Open {{.Name}}">Open</button></form></li>{{end}}</ul>
+</div></section>
+{{else}}<header class="thread-head"><h2 class="thread-title">Pair this phone</h2></header>
 <form class="card pair-card" method="post" data-pair><div class="part-body pair-form">
 <label for="code">Code from the Board on your laptop</label>
 <input id="code" name="code" required autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXXX-XXXXX" maxlength="13"{{with .Error}} aria-invalid="true" aria-describedby="code-error"{{end}}>
@@ -8,6 +14,6 @@
 <input id="name" name="name" maxlength="40" autocomplete="off" value="{{.Name}}">
 {{with .Login}}<p class="meta">Pairing for the tailnet login {{.}}.</p>{{end}}
 <button class="primary">Pair</button>
-</div></form>
+</div></form>{{end}}
 </main>
 {{template "foot"}}{{end}}

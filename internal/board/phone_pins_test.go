@@ -37,7 +37,7 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 	} {
 		contains(t, "board.css", css, "\n"+rule+"\n")
 	}
-	block := css[strings.Index(css, "\n.connect-part h3{margin:0}"):]
+	block := css[strings.Index(css, "\n.connect-part h3{margin:0}"):strings.Index(css, "\n.pair-fleets{")]
 	lacks(t, "the phone rules", block, "user-select", "min-height", "\nheight:", ";height:", "{height:", "#fff", "#000", "!important", "@media")
 	for _, m := range regexp.MustCompile(`font-size:(\d+)px`).FindAllStringSubmatch(block, -1) {
 		switch m[1] {
@@ -48,6 +48,24 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 	}
 	if strings.Count(block, "\n") > 27 {
 		t.Fatalf("the phone rules grew past the pinned set:\n%s", block)
+	}
+}
+
+func TestThePairPageStylesTheFleetChoices(t *testing.T) {
+	css := asset(t, "board.css")
+	rules := []string{
+		".pair-fleets{display:grid;gap:2px;min-width:0;margin:0;padding:0;border:0}",
+		".pair-fleets legend{padding:0;margin-bottom:4px}",
+		".pair-fleet{display:flex;align-items:center;gap:10px;padding-block:calc((var(--control) - 20px)/2);line-height:20px;cursor:pointer}",
+		".pair-fleets .pair-fleet>input{flex:none;width:18px;height:18px;margin:0;padding:0;accent-color:var(--accent)}",
+	}
+	for _, rule := range rules {
+		contains(t, "board.css", css, "\n"+rule+"\n")
+	}
+	block := css[strings.Index(css, "\n.pair-fleets{"):]
+	lacks(t, "the fleet choice rules", block, "user-select", "min-height", "#fff", "#000", "!important", "@media")
+	if strings.Count(block, "\n") != len(rules)+1 {
+		t.Fatalf("the fleet choice rules grew past the pinned set:\n%s", block)
 	}
 }
 

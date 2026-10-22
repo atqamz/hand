@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,11 +31,51 @@ const (
 	codeChars  = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 	hostCookie = "__Host-"
 	phoneName  = "hand_phone"
+	pairWait   = 20 * time.Second
 )
 
 type pairCode struct {
-	until time.Time
-	used  bool
+	until  time.Time
+	used   bool
+	fleets []string
+}
+
+type Redeemed struct {
+	mu                         sync.Mutex
+	fleets                     []string
+	done                       map[string]bool
+	secret, name, login, label string
+}
+
+type Paired struct {
+	ID, Name string
+	Device   int64
+}
+
+type Pairer interface {
+	PairPhone(ctx context.Context, r *Redeemed) (Paired, error)
+}
+
+type pairKey struct{}
+
+type laptopKey struct{}
+
+var errNotInCode = errors.New("this pairing code does not name this fleet")
+
+func (r *Redeemed) take(id string) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !slices.Contains(r.fleets, id) || r.done[id] {
+		return false
+	}
+	if r.done == nil {
+		r.done = map[string]bool{}
+	}
+	r.done[id] = true
+	return true
 }
 
 type burst struct {
@@ -98,12 +139,23 @@ const funnelRefusal = "This board does not answer the public internet. Turn Tail
 
 func secure(r *http.Request) bool { return r.Header.Get("X-Forwarded-Proto") == "https" }
 
-func (b *Board) phoneCookie(r *http.Request) string {
-	name := phoneName + strings.ReplaceAll(b.o.Base, "/", "_")
-	if secure(r) {
+func (b *Board) fleetID() string { return strings.TrimPrefix(b.o.Base, "/") }
+
+func phoneCookieName(id string, https bool) string {
+	name := phoneName
+	if id != "" {
+		name += "_" + id
+	}
+	if https {
 		return hostCookie + name
 	}
 	return name
+}
+
+func (b *Board) phoneCookie(r *http.Request) string { return phoneCookieName(b.fleetID(), secure(r)) }
+
+func setPhoneCookie(w http.ResponseWriter, r *http.Request, id string, device int64, secret string) {
+	http.SetCookie(w, &http.Cookie{Name: phoneCookieName(id, secure(r)), Value: strconv.FormatInt(device, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
 }
 
 func tailnetLogin(r *http.Request) string {
@@ -225,7 +277,7 @@ func normCode(s string) string {
 	return s[:5] + "-" + s[5:]
 }
 
-func (b *Board) mint(now time.Time) (string, time.Time) {
+func (b *Board) mint(now time.Time, fleets []string) (string, time.Time) {
 	code, until := newCode(), now.Add(pairLife)
 	b.phones.mu.Lock()
 	defer b.phones.mu.Unlock()
@@ -235,7 +287,7 @@ func (b *Board) mint(now time.Time) (string, time.Time) {
 			delete(b.phones.codes, c)
 		}
 	}
-	b.phones.codes[code] = pairCode{until: until}
+	b.phones.codes[code] = pairCode{until: until, fleets: slices.Clone(fleets)}
 	return code, until
 }
 
@@ -258,16 +310,16 @@ func (p *phones) burn() {
 	p.fails = 0
 }
 
-func (b *Board) redeem(addr, typed string, now time.Time) pairResult {
+func (b *Board) redeem(addr, typed string, now time.Time) (pairResult, []string) {
 	p := &b.phones
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.prune(now)
 	if len(p.codes) == 0 {
-		return pairWrong
+		return pairWrong, nil
 	}
 	if t := p.tries[addr]; t.n >= addrFails {
-		return pairBlocked
+		return pairBlocked, nil
 	}
 	want := normCode(typed)
 	var hit string
@@ -282,7 +334,7 @@ func (b *Board) redeem(addr, typed string, now time.Time) pairResult {
 		p.codes[hit] = entry
 		p.fails = 0
 		delete(p.tries, addr)
-		return pairOK
+		return pairOK, slices.Clone(entry.fleets)
 	}
 	t := p.tries[addr]
 	if t.n == 0 {
@@ -292,15 +344,15 @@ func (b *Board) redeem(addr, typed string, now time.Time) pairResult {
 	p.tries[addr] = t
 	if p.fails++; p.fails >= pairFails {
 		p.burn()
-		return pairBurned
+		return pairBurned, nil
 	}
 	switch {
 	case !found:
-		return pairWrong
+		return pairWrong, nil
 	case entry.used:
-		return pairUsed
+		return pairUsed, nil
 	}
-	return pairExpired
+	return pairExpired, nil
 }
 
 func cleanBase(raw string) (string, error) {
@@ -333,6 +385,32 @@ type deviceRow struct {
 	Expired bool
 }
 
+type fleetChoice struct {
+	ID, Name        string
+	Current, Ticked bool
+}
+
+func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
+	list := b.laptopFleets(ctx)
+	if len(list) < 2 {
+		return nil
+	}
+	out := make([]fleetChoice, len(list))
+	for i, l := range list {
+		out[i] = fleetChoice{ID: l.ID, Name: l.Name, Current: l.Current, Ticked: l.Current || slices.Contains(set, l.ID)}
+	}
+	slices.SortStableFunc(out, func(x, y fleetChoice) int {
+		switch {
+		case x.Current == y.Current:
+			return 0
+		case x.Current:
+			return -1
+		}
+		return 1
+	})
+	return out
+}
+
 func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, extra map[string]any) {
 	ctx := r.Context()
 	s, _ := ctx.Value(sessionKey{}).(session)
@@ -355,6 +433,8 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 			link = b.o.Phone(ctx)
 		}
 		data["Link"], data["Address"] = link, link.Ready()
+		set, _ := extra["Set"].([]string)
+		data["Choices"] = b.pairChoices(ctx, set)
 	}
 	for k, v := range extra {
 		data[k] = v
@@ -362,21 +442,71 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 	b.render(w, status, "connect.html", data)
 }
 
+func (b *Board) chosenFleets(r *http.Request) ([]string, bool) {
+	own := b.fleetID()
+	offered := map[string]bool{}
+	for _, l := range b.laptopFleets(r.Context()) {
+		offered[l.ID] = true
+	}
+	set := []string{own}
+	for _, id := range r.PostForm["fleet"] {
+		if id == own || slices.Contains(set, id) {
+			continue
+		}
+		if !offered[id] {
+			return nil, false
+		}
+		set = append(set, id)
+	}
+	return set, true
+}
+
+func joined(names []string) string {
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+func (b *Board) fleetNames(ctx context.Context, set []string) []string {
+	byID := map[string]string{}
+	for _, l := range b.laptopFleets(ctx) {
+		byID[l.ID] = l.Name
+	}
+	names := make([]string, 0, len(set))
+	for _, id := range set {
+		names = append(names, byID[id])
+	}
+	return names
+}
+
 func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
 		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the code on your laptop")
 		return
 	}
-	base, err := cleanBase(r.PostFormValue("base"))
-	if err != nil {
-		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AddressError": err.Error(), "Address": r.PostFormValue("base")})
+	set, ok := b.chosenFleets(r)
+	if !ok {
+		b.fail(w, http.StatusForbidden, "this browser is not signed in to every fleet you chose; reload the Phone page and choose again")
 		return
 	}
-	code, until := b.mint(b.now())
+	base, err := cleanBase(r.PostFormValue("base"))
+	if err != nil {
+		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AddressError": err.Error(), "Address": r.PostFormValue("base"), "Set": set})
+		return
+	}
+	code, until := b.mint(b.now(), set)
 	link := base + b.o.Base + "/pair#" + code
 	qr, _ := qrSVG(link, "QR code for the pairing link")
 	w.Header().Set("Cache-Control", "no-store")
-	b.connectPage(w, r, http.StatusOK, map[string]any{"Code": code, "PairLink": link, "QR": qr, "Expires": until, "Address": base, "Plain": plainHTTP(base), "PairURL": base + b.o.Base + "/pair"})
+	extra := map[string]any{"Code": code, "PairLink": link, "QR": qr, "Expires": until, "Address": base, "Plain": plainHTTP(base), "PairURL": base + b.o.Base + "/pair", "Set": set}
+	if len(set) > 1 {
+		extra["PairsWith"] = joined(b.fleetNames(r.Context(), set))
+	}
+	b.connectPage(w, r, http.StatusOK, extra)
 }
 
 func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
@@ -421,6 +551,32 @@ func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg
 	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Neutral": true})
 }
 
+func (b *Board) pairFleet(ctx context.Context, rd *Redeemed, id string) (Paired, error) {
+	if id == b.fleetID() {
+		return b.PairPhone(ctx, rd)
+	}
+	if grant, ok := ctx.Value(pairKey{}).(func(context.Context, *Redeemed, string) (Paired, error)); ok {
+		return grant(ctx, rd, id)
+	}
+	return Paired{}, errors.New("this board cannot reach another fleet")
+}
+
+func (b *Board) PairPhone(ctx context.Context, rd *Redeemed) (Paired, error) {
+	id := b.fleetID()
+	if !rd.take(id) {
+		return Paired{}, errNotInCode
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		return Paired{}, err
+	}
+	d, err := b.st.AddDevice(ctx, rd.name, rd.login, b.secretHash(rd.secret), rd.label)
+	if err != nil {
+		return Paired{}, err
+	}
+	return Paired{ID: id, Name: f.Name, Device: d.ID}, nil
+}
+
 func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		b.pairPage(w, r, http.StatusOK, "", "Phone")
@@ -432,17 +588,47 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PostFormValue("name")
-	if res := b.redeem(remote(r), r.PostFormValue("code"), b.now()); res != pairOK {
+	res, set := b.redeem(remote(r), r.PostFormValue("code"), b.now())
+	if res != pairOK {
 		f := pairFailure[res]
 		b.pairPage(w, r, f.status, f.text, name)
 		return
 	}
-	secret := randomText(32)
-	d, err := b.st.AddDevice(r.Context(), name, tailnetLogin(r), b.secretHash(secret), "")
-	if err != nil {
-		b.failNeutralErr(w, err)
+	rd := &Redeemed{fleets: set, done: map[string]bool{}, secret: randomText(32), name: name, login: tailnetLogin(r), label: randomText(state.PhoneLabelLen / 2)}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), pairWait)
+	defer cancel()
+	var paired []Paired
+	var failed error
+	for _, id := range set {
+		p, err := b.pairFleet(ctx, rd, id)
+		if err == nil && p.ID != id {
+			err = errNotInCode
+		}
+		if err != nil {
+			failed = err
+			continue
+		}
+		paired = append(paired, p)
+	}
+	if len(paired) == 0 {
+		if len(set) == 1 {
+			b.failNeutralErr(w, failed)
+			return
+		}
+		b.failNeutral(w, http.StatusInternalServerError, "No fleet could be paired, and the code is spent. Show a new code on your laptop.")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Value: strconv.FormatInt(d.ID, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
-	http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+	for _, p := range paired {
+		setPhoneCookie(w, r, p.ID, p.Device, rd.secret)
+	}
+	if len(set) == 1 {
+		http.Redirect(w, r, b.o.Base+"/", http.StatusSeeOther)
+		return
+	}
+	names := make([]string, len(paired))
+	for i, p := range paired {
+		names[i] = p.Name
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	b.render(w, http.StatusOK, "pair.html", map[string]any{"Title": "paired", "Page": "", "Neutral": true, "Paired": paired, "PairedWith": joined(names), "Missed": len(set) - len(paired)})
 }

@@ -186,6 +186,18 @@ func (f *fleetBoard) PhoneSession(r *http.Request) bool {
 	return err == nil && ok && p.PhoneSession(r)
 }
 
+func (f *fleetBoard) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
+	h, err := f.current()
+	if err != nil {
+		return board.Paired{}, err
+	}
+	p, ok := h.(board.Pairer)
+	if !ok {
+		return board.Paired{}, state.ErrNotFound
+	}
+	return p.PairPhone(ctx, rd)
+}
+
 func (f *fleetBoard) current() (http.Handler, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

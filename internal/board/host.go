@@ -26,7 +26,11 @@ type railLink struct {
 
 const railOthers = 7
 
-func (b *Board) fleets(ctx context.Context) []railLink {
+func (b *Board) fleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, fleetsKey{}) }
+
+func (b *Board) laptopFleets(ctx context.Context) []railLink { return b.fleetsFrom(ctx, laptopKey{}) }
+
+func (b *Board) fleetsFrom(ctx context.Context, key any) []railLink {
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
 		return nil
@@ -34,7 +38,7 @@ func (b *Board) fleets(ctx context.Context) []railLink {
 	current := strings.TrimPrefix(b.o.Base, "/")
 	var out []railLink
 	found := false
-	if list, ok := ctx.Value(fleetsKey{}).(func() []FleetLink); ok {
+	if list, ok := ctx.Value(key).(func() []FleetLink); ok {
 		for _, l := range list() {
 			out = append(out, railLink{l, l.ID == current})
 			found = found || l.ID == current
@@ -161,6 +165,8 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 		defer context.AfterFunc(f.ctx, cancel)()
 		if h.o.Loopback && h.o.List != nil {
 			ctx = context.WithValue(ctx, fleetsKey{}, h.signedIn(id, r))
+			ctx = context.WithValue(ctx, laptopKey{}, h.laptopIn(id, r))
+			ctx = context.WithValue(ctx, pairKey{}, h.pairIn)
 		}
 		http.StripPrefix("/"+id, f.h).ServeHTTP(w, r.WithContext(ctx))
 	}
@@ -195,15 +201,55 @@ func (h *Host) phoneProves(id string, r *http.Request) bool {
 	return ok && p.PhoneSession(r)
 }
 
+func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {
+	proven := map[string]bool{current: true}
+	for _, c := range r.Cookies() {
+		id, ok := strings.CutPrefix(c.Name, cookieName+"_")
+		if ok && state.FleetID.MatchString(id) && h.o.Valid != nil && h.o.Valid(id, c.Value) {
+			proven[id] = true
+		}
+	}
+	return proven
+}
+
+func (h *Host) laptopIn(current string, r *http.Request) func() []FleetLink {
+	return sync.OnceValue(func() []FleetLink {
+		proven := h.tokenFleets(current, r)
+		if len(proven) == 1 {
+			return nil
+		}
+		all, err := h.o.List()
+		if err != nil {
+			return nil
+		}
+		return within(all, proven)
+	})
+}
+
+func (h *Host) pairIn(ctx context.Context, rd *Redeemed, id string) (Paired, error) {
+	if !state.FleetID.MatchString(id) {
+		return Paired{}, state.ErrNotFound
+	}
+	f, err := h.handler(id)
+	if err != nil {
+		log.Printf("board: pairing could not reach fleet %s: %v", id, err)
+		return Paired{}, err
+	}
+	defer f.busy.Done()
+	p, ok := f.h.(Pairer)
+	if !ok {
+		return Paired{}, state.ErrNotFound
+	}
+	got, err := p.PairPhone(ctx, rd)
+	if err != nil {
+		log.Printf("board: pairing with fleet %s failed: %v", id, err)
+	}
+	return got, err
+}
+
 func (h *Host) signedIn(current string, r *http.Request) func() []FleetLink {
 	return sync.OnceValue(func() []FleetLink {
-		proven := map[string]bool{current: true}
-		for _, c := range r.Cookies() {
-			id, ok := strings.CutPrefix(c.Name, cookieName+"_")
-			if ok && state.FleetID.MatchString(id) && h.o.Valid != nil && h.o.Valid(id, c.Value) {
-				proven[id] = true
-			}
-		}
+		proven := h.tokenFleets(current, r)
 		for id := range h.phoneFleets(r, current) {
 			proven[id] = true
 		}

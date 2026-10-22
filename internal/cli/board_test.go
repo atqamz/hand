@@ -312,6 +312,97 @@ func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
 	}
 }
 
+func TestOneCodePairsAPhoneWithSeveralFleetsThroughTheRealBoard(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	c := newHarness(t)
+	c.vars = a.vars
+	c.ok("init", "--name", "gamma")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	urlB, tokenB := fleetPage(t, base, b)
+	urlC, _ := fleetPage(t, base, c)
+	idA, idB, idC := path.Base(urlA), path.Base(urlB), path.Base(urlC)
+	proxied := map[string]string{"X-Forwarded-For": "100.64.0.7"}
+	send := func(method, u string, form url.Values, cookies []*http.Cookie) (*http.Response, string) {
+		t.Helper()
+		var body io.Reader
+		if form != nil {
+			body = strings.NewReader(form.Encode())
+		}
+		req, err := http.NewRequest(method, u, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if form != nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		for k, v := range proxied {
+			req.Header.Set(k, v)
+		}
+		for _, ck := range cookies {
+			req.AddCookie(ck)
+		}
+		res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		out, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res, string(out)
+	}
+	laptop := []*http.Cookie{{Name: "hand_board_" + idA, Value: tokenA}, {Name: "hand_board_" + idB, Value: tokenB}}
+	_, page := send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idC}}, laptop)
+	if strings.Contains(page, "pairing link") || !strings.Contains(page, "not signed in to every fleet you chose") {
+		t.Fatalf("a fleet the laptop holds no token for:\n%s", page)
+	}
+	_, page = send("POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idB}}, laptop)
+	m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
+	if m == nil || !strings.Contains(page, "It pairs the phone with alpha and beta.") {
+		t.Fatalf("no code for two fleets:\n%s", page)
+	}
+	res, result := send("POST", urlA+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
+	if res.StatusCode != http.StatusOK || !strings.Contains(result, "Paired with alpha and beta.") || strings.Contains(result, "gamma") {
+		t.Fatalf("pair = %d:\n%s", res.StatusCode, result)
+	}
+	var phone []*http.Cookie
+	for _, ck := range res.Cookies() {
+		if ck.MaxAge > 0 {
+			phone = append(phone, ck)
+		}
+	}
+	if len(phone) != 2 {
+		t.Fatalf("cookies = %v", phone)
+	}
+	for _, fleetURL := range []string{urlA, urlB} {
+		res, page := send("GET", fleetURL+"/", nil, phone)
+		if res.StatusCode != http.StatusOK || !strings.Contains(page, `href="/`+idA+`/"`) || !strings.Contains(page, `href="/`+idB+`/"`) || strings.Contains(page, "gamma") {
+			t.Fatalf("%s on the phone = %d:\n%s", fleetURL, res.StatusCode, page)
+		}
+		if strings.Contains(page, tokenA) || strings.Contains(page, tokenB) {
+			t.Fatalf("%s holds a fleet token", fleetURL)
+		}
+	}
+	if res, _ := send("GET", urlC+"/", nil, phone); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("a fleet outside the code = %d", res.StatusCode)
+	}
+	if err := os.WriteFile(filepath.Join(b.home, "board.token"), []byte(strings.Repeat("d", 48)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := send("GET", urlB+"/", nil, phone); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("beta after its token changed = %d", res.StatusCode)
+	}
+	if res, _ := send("GET", urlA+"/", nil, phone); res.StatusCode != http.StatusOK {
+		t.Fatalf("alpha after beta's token changed = %d", res.StatusCode)
+	}
+}
+
 func TestAMovedFleetIsFollowed(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("moving a home whose files are open is Unix-only")
