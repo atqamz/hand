@@ -712,7 +712,7 @@ func TestTheLaptopSessionAloneMintsAndListsCodes(t *testing.T) {
 		`data-copy="link" data-text="https://Laptop.Tailnet.Example/pair#`+m[1]+`"`,
 		`>Copy link</button>`, `<button class="primary">New code</button>`, `value="https://Laptop.Tailnet.Example"`,
 		"It works once, until", "kept in memory only")
-	lacks(t, "code page", body, "<svg class=\"qr\"", "doc-notice")
+	lacks(t, "code page", body, "doc-notice")
 	plain := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"http://laptop.lan:7777"}}, laptop, nil).Body.String()
 	contains(t, "plain http", plain, `class="doc-notice"`, "unencrypted")
 	loop := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"http://127.0.0.1:7777"}}, laptop, nil).Body.String()
@@ -1023,5 +1023,62 @@ func TestANewPhoneDoesNotInheritARevokedPhonesLastSeen(t *testing.T) {
 	}
 	if strings.Contains(p.do("GET", "/connect", nil, laptop, nil).Body.String(), ", seen ") {
 		t.Fatal("a new phone shows the last seen time of a revoked one")
+	}
+}
+
+func TestTheCodePageShowsThePairingLinkAsAQRCode(t *testing.T) {
+	p := newPhoneRig(t)
+	show := func() (*httptest.ResponseRecorder, string, string) {
+		rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {"https://laptop.tailnet.example"}}, laptop, nil)
+		body := rec.Body.String()
+		m := codeRe.FindStringSubmatch(body)
+		if rec.Code != http.StatusOK || m == nil {
+			t.Fatalf("connect/code = %d", rec.Code)
+		}
+		return rec, body, m[1]
+	}
+	rec, body, code := show()
+	want, err := board.QRSVG("https://laptop.tailnet.example/pair#"+code, "QR code for the pairing link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "code page", body, string(want), `aria-label="QR code for the pairing link"`, "Scan the code with the phone's camera, or open this link on the phone:",
+		`<code class="ref">https://laptop.tailnet.example/pair#`+code+`</code>`, `class="code-big" aria-label="Pairing code `+code+`"`)
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
+	}
+	if strings.Count(body, `<svg class="qr"`) != 1 || strings.Index(body, `<svg class="qr"`) > strings.Index(body, `class="code-big"`) {
+		t.Fatal("the page holds more than one picture, or the code comes before it")
+	}
+	_, again, next := show()
+	if next == code || strings.Contains(again, string(want)) {
+		t.Fatal("a new code shows the old picture")
+	}
+	if page := p.do("GET", "/connect", nil, laptop, nil).Body.String(); strings.Contains(page, `<svg class="qr"`) {
+		t.Fatal("the Phone page keeps a QR code once the code is gone")
+	}
+}
+
+func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
+	p := newPhoneRig(t)
+	for _, c := range []struct {
+		host    int
+		picture bool
+	}{{188, true}, {189, false}} {
+		base := "https://" + strings.Repeat("a", c.host)
+		rec := p.do("POST", "/connect/code", url.Values{"csrf": {token}, "base": {base}}, laptop, nil)
+		body := rec.Body.String()
+		m := codeRe.FindStringSubmatch(body)
+		if rec.Code != http.StatusOK || m == nil || rec.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%d host bytes: code = %d", c.host, rec.Code)
+		}
+		if got := strings.Contains(body, `<svg class="qr"`); got != c.picture {
+			t.Errorf("%d host bytes: a QR code shows is %v, want %v", c.host, got, c.picture)
+		}
+		contains(t, "code page", body, `<code class="ref">`+base+"/pair#"+m[1]+"</code>", `<button type="button" class="doc-copy" data-copy="link"`)
+		if !c.picture {
+			contains(t, "code page", body, "On the phone, open this link:")
+			lacks(t, "code page", body, "Scan the code", "QR")
+		}
 	}
 }

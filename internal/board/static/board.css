@@ -764,8 +764,10 @@ html:has(dialog.viewer:modal){overflow:hidden}
 .connect-part h3{margin:0}
 .part-body{display:grid;gap:10px;padding:12px}
 .part-body>p{margin:0}
-.pair-code{display:grid;gap:8px}
-.pair-code>p{margin:0}
+.pair-code{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}
+.pair-copy{display:grid;flex:1 1 260px;gap:8px;min-width:0}
+.pair-copy>p{margin:0}
+.qr{display:block;flex:none;width:min(100%,280px);border:1px solid var(--line)}
 .pair-link{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .connect-part code{white-space:normal;overflow-wrap:anywhere}
 .code-big{font-family:var(--mono);font-size:22px;line-height:30px;font-weight:600;letter-spacing:.06em}

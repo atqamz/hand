@@ -351,8 +351,10 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code, until := b.mint(b.now())
+	link := base + b.o.Base + "/pair#" + code
+	qr, _ := qrSVG(link, "QR code for the pairing link")
 	w.Header().Set("Cache-Control", "no-store")
-	b.connectPage(w, r, http.StatusOK, map[string]any{"Code": code, "PairLink": base + b.o.Base + "/pair#" + code, "Expires": until, "Address": base, "Plain": plainHTTP(base), "PairURL": base + b.o.Base + "/pair"})
+	b.connectPage(w, r, http.StatusOK, map[string]any{"Code": code, "PairLink": link, "QR": qr, "Expires": until, "Address": base, "Plain": plainHTTP(base), "PairURL": base + b.o.Base + "/pair"})
 }
 
 func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {

@@ -21,12 +21,15 @@
 <button class="primary">{{if .Code}}New code{{else}}Show pairing code{{end}}</button>
 </form>
 {{with .Code}}<div class="pair-code">
-<p>On the phone, open this link:</p>
+{{with $.QR}}{{.}}
+{{end}}<div class="pair-copy">
+<p>{{if $.QR}}Scan the code with the phone's camera, or open this link on the phone:{{else}}On the phone, open this link:{{end}}</p>
 <p class="pair-link"><code class="ref">{{$.PairLink}}</code> <button type="button" class="doc-copy" data-copy="link" data-text="{{$.PairLink}}">Copy link</button></p>
 <p>Or open <code class="ref">{{$.PairURL}}</code> and type the code:</p>
 <p class="code-big" aria-label="Pairing code {{.}}">{{.}}</p>
 <p class="meta">It works once, until <time datetime="{{$.Expires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.Expires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
 {{if $.Plain}}<p class="doc-notice">This address is plain HTTP on a network. The code and the phone's session cross it unencrypted unless the tunnel encrypts them, as SSH and WireGuard do.</p>{{end}}
+</div>
 </div>{{end}}
 </div></section>
 <section class="card connect-part" aria-labelledby="dev-head">

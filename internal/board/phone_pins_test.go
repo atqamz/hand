@@ -14,8 +14,10 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 		".connect-part h3{margin:0}",
 		".part-body{display:grid;gap:10px;padding:12px}",
 		".part-body>p{margin:0}",
-		".pair-code{display:grid;gap:8px}",
-		".pair-code>p{margin:0}",
+		".pair-code{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}",
+		".pair-copy{display:grid;flex:1 1 260px;gap:8px;min-width:0}",
+		".pair-copy>p{margin:0}",
+		".qr{display:block;flex:none;width:min(100%,280px);border:1px solid var(--line)}",
 		".pair-link{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
 		".connect-part code{white-space:normal;overflow-wrap:anywhere}",
 		".code-big{font-family:var(--mono);font-size:22px;line-height:30px;font-weight:600;letter-spacing:.06em}",
@@ -39,7 +41,7 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 			t.Errorf("the phone rules use a %spx font size", m[0])
 		}
 	}
-	if strings.Count(block, "\n") > 20 {
+	if strings.Count(block, "\n") > 22 {
 		t.Fatalf("the phone rules grew past the pinned set:\n%s", block)
 	}
 }
@@ -82,14 +84,17 @@ func TestThePhonePagesAreStaticMarkupWithNoInlineCode(t *testing.T) {
 		if m := inline.FindString(body); m != "" {
 			t.Errorf("%s page holds inline code %q", name, m)
 		}
-		lacks(t, name+" page", body, "Desk", "<svg class=\"qr\"", "<img ")
+		lacks(t, name+" page", body, "Desk", "<img ")
+		if name != "code" {
+			lacks(t, name+" page", body, `<svg class="qr"`)
+		}
 		if n := strings.Count(body, "<script"); n != 1 {
 			t.Errorf("%s page has %d script tags, want the one app.js", name, n)
 		}
 	}
 	contains(t, "pair", pages["pair"], `<input id="code" name="code" required autocomplete="one-time-code" autocapitalize="characters"`, `<input id="name" name="name" maxlength="40" autocomplete="off" value="Phone">`, `<button class="primary">Pair</button>`)
 	lacks(t, "pair", pages["pair"], `<input type="hidden"`, `name="csrf"`, `name="base"`)
-	contains(t, "code", pages["code"], `<p class="pair-link"><code class="ref">`, `<p class="code-big"`, `<button type="button" class="doc-copy" data-copy="link"`)
+	contains(t, "code", pages["code"], `<div class="pair-code">`+"\n"+`<svg class="qr" viewBox="0 0 41 41" role="img" aria-label="QR code for the pairing link"`, `<div class="pair-copy">`, `<p class="pair-link"><code class="ref">`, `<p class="code-big"`, `<button type="button" class="doc-copy" data-copy="link"`)
 	for _, name := range []string{"connect", "code"} {
 		contains(t, name, pages[name], `<label for="base">Address the phone opens</label>`, `<input id="base" name="base" type="url" inputmode="url"`, `class="pair-form" method="post" action="/connect/code" data-address`)
 	}
