@@ -89,7 +89,7 @@ The board refuses Funnel traffic by its `Tailscale-Funnel-Request` header. It ha
 - Whether a named tunnel passes the board's event stream without buffering is not verified here. If it does not, the page shows "Connection lost".
 - The alert link needs the rewrite above, with `https://board.example.com`.
 
-**Security.** The hostname is public: scanners find it. The Access policy decides who gets past it, and it is the first fence. Behind it, the pairing code or the token is all that stands between a person Access admits and typing into agents that skip their permission prompts. Keep it to your own identity, check it from outside after every change, and read [Safe use](safe-use.md): a paired phone can type into agents that skip their permission prompts.
+**Security.** The hostname is public: scanners find it. The Access policy decides who gets past it, and it is the first fence. Behind it, the pairing code or the token is all that stands between a person Access admits and typing into agents that skip their permission prompts. Keep it to your own identity, check it from outside after every change, and read [Safe use](safe-use.md).
 
 ## WireGuard
 
