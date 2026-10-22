@@ -81,6 +81,7 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [Fleets](docs/fleets.md): where Hand finds a fleet, and what its folder and `~/.secondhand` hold.
 - [Autostart](docs/autostart.md): how the watcher and the board keep running, and how to start the board at login.
 - [The board](docs/board.md): the fleet page, `hand open` and reaching the board from a phone.
+- [Reach the board from a phone without Tailscale](docs/phone.md): an SSH tunnel, Cloudflare Tunnel with Access, WireGuard and a LAN address, with what each exposes.
 - [The supervisor](docs/supervisor.md): its harness flags, trust screens, attachments, reboots, idle wakes and timers.
 - [Alerts on your phone](docs/alerts.md): send every alert to your own command.
 - [Clean the inbox](docs/inbox.md): prune old attachments.
