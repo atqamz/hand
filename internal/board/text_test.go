@@ -245,7 +245,7 @@ func TestTheTextViewIsStyled(t *testing.T) {
 	contains(t, "board.css", css,
 		".thread.doc:has(.text-view){max-width:1280px}",
 		".text-view{display:grid;gap:8px;min-width:0}",
-		".text-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;background:var(--bg)}",
+		".text-bar{position:sticky;top:var(--mast);z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;background:var(--bg)}",
 		".text-find{display:flex;flex:1 1 260px;align-items:center;gap:8px;min-width:0}",
 		".text-find input[type=search]{width:100%;padding-left:34px}",
 		".text-follow[aria-pressed=true],.text-wrap[aria-pressed=true],.doc-wide[aria-pressed=true],.table-pin[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}",

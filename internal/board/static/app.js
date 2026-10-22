@@ -23,6 +23,10 @@
 	};
 	const apple = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 	body.dataset.shell = "";
+	const masthead = document.querySelector(".masthead");
+	if (masthead && "ResizeObserver" in window) {
+		new ResizeObserver(() => document.documentElement.style.setProperty("--mast", `${masthead.getBoundingClientRect().height}px`)).observe(masthead);
+	}
 	const draftPrefix = `hand.draft.${base.slice(1)}`;
 	const draftFields = "#composer-text, form.answer textarea[name=answer]";
 	const draftTtl = 30 * 24 * 3600 * 1000;

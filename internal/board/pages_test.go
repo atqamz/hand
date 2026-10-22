@@ -463,7 +463,7 @@ func TestTheTaskPageStylesItsColumnsAndPhoneOrder(t *testing.T) {
 	contains(t, "columns", css,
 		".thread:has(.task-grid){max-width:1120px}",
 		".task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}",
-		".task-side{position:sticky;top:16px;",
+		".task-side{position:sticky;top:calc(var(--mast) + 16px);max-height:calc(100dvh - var(--mast) - 32px);",
 		".delivered .url{max-width:100%;",
 		"overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-grid{grid-template-columns:minmax(0,1fr)}.task-side{order:-1;position:static;max-height:none;overflow:visible}}")

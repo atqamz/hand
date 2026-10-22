@@ -213,10 +213,6 @@ func TestANeedsItemKeepsLinksOutOfItsSummary(t *testing.T) {
 	contains(t, "worker item", q, `a1 on <a class="ref" href="/task/t1" target="_blank" rel="noopener">t1</a>`)
 }
 
-func TestTabTargetsClearTheStickyTabs(t *testing.T) {
-	contains(t, "board.css", asset(t, "board.css"), "#needs,#tasks,#chat{scroll-margin-top:48px}")
-}
-
 func TestABlockedAndAResumeItemNeverShareAnID(t *testing.T) {
 	blocked := newFixture(t)
 	blocked.status, blocked.hint = "blocked", "Trust this folder?"
