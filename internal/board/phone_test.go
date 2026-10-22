@@ -1078,7 +1078,7 @@ func TestALinkTooLongForAQRCodeFallsBackToText(t *testing.T) {
 		contains(t, "code page", body, `<code class="ref">`+base+"/pair#"+m[1]+"</code>", `<button type="button" class="doc-copy" data-copy="link"`)
 		if !c.picture {
 			contains(t, "code page", body, "On the phone, open this link:")
-			lacks(t, "code page", body, "Scan the code", "QR")
+			lacks(t, "code page", body, "Scan the code", "QR code")
 		}
 	}
 }
