@@ -14,6 +14,11 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 		".connect-part h3{margin:0}",
 		".part-body{display:grid;gap:10px;padding:12px}",
 		".part-body>p{margin:0}",
+		".net{display:grid;gap:10px;margin:0;padding:0;list-style:none}",
+		".net>li{display:flex;align-items:baseline;gap:10px;min-width:0}",
+		".net>li>.badge{flex:none}",
+		".net>li>span:last-child{min-width:0;overflow-wrap:anywhere}",
+		".steps{display:grid;gap:6px;margin:0;padding-left:20px}",
 		".pair-code{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}",
 		".pair-copy{display:grid;flex:1 1 260px;gap:8px;min-width:0}",
 		".pair-copy>p{margin:0}",
@@ -41,7 +46,7 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 			t.Errorf("the phone rules use a %spx font size", m[0])
 		}
 	}
-	if strings.Count(block, "\n") > 22 {
+	if strings.Count(block, "\n") > 27 {
 		t.Fatalf("the phone rules grew past the pinned set:\n%s", block)
 	}
 }
@@ -55,8 +60,9 @@ func TestThePhoneScriptPinsItsFlow(t *testing.T) {
 		`(code.value ? pairForm.querySelector("#name") : code).focus();`,
 		`const addressForm = document.querySelector("form[data-address]");`,
 		"const addressKey = `hand.phone.address${body.dataset.base}`;",
-		`field.value = localStorage.getItem(addressKey) ?? ""`,
-		`localStorage.setItem(addressKey, field.value.trim());`,
+		`field.value = localStorage.getItem(addressKey) || field.value`,
+		`if (typed && typed !== detected) localStorage.setItem(addressKey, typed);`,
+		`else localStorage.removeItem(addressKey);`,
 		`body.dataset.session === "phone" ? "Signed out: pair again on your laptop" : "Log in again: hand open --print"`,
 		`{ path: "Path", link: "Link" }[b.dataset.copy]`)
 	lacks(t, "app.js", js, `location.hash = `, `location.search`, `eval(`, "document.write")

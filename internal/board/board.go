@@ -130,6 +130,7 @@ type Options struct {
 	Beat       time.Duration
 	Now        func() time.Time
 	Harness    harness.Env
+	Phone      func(context.Context) PhoneLink
 }
 
 type Board struct {

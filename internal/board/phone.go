@@ -333,6 +333,11 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 		}
 		b.phones.mu.Unlock()
 		data["Devices"] = rows
+		link := PhoneLink{}
+		if b.o.Phone != nil {
+			link = b.o.Phone(ctx)
+		}
+		data["Link"], data["Address"] = link, link.Ready()
 	}
 	for k, v := range extra {
 		data[k] = v

@@ -9,14 +9,23 @@
 <form method="post" action="{{.Base}}/connect/revoke"><input type="hidden" name="csrf" value="{{.Token}}"><input type="hidden" name="id" value="{{.Phone.ID}}"><button>Sign out this phone</button></form>
 </div></section>{{else}}<section class="card connect-part" aria-labelledby="net-head">
 <header class="slug"><h3 id="net-head">Network</h3></header>
-<div class="part-body"><p>This Board listens on this computer only. A phone reaches it through a private tunnel you set up, such as <code>tailscale serve</code>, an SSH tunnel or WireGuard. Type the address the phone opens, below.</p></div>
+<div class="part-body">{{if .Link.Funnel}}<ul class="net"><li><span class="badge" data-tone="fail">public</span><span>Tailscale Funnel is on for this Board{{with .Link.URL}} at <code class="ref">{{.}}</code>{{end}}, so its address answers the whole internet. The Board refuses those requests. Turn Funnel off: <code>tailscale funnel reset</code></span></li></ul>
+{{else if .Link.URL}}<ul class="net"><li><span class="badge" data-tone="pass">ready</span><span>Your tailnet reaches this Board at <code class="ref">{{.Link.URL}}</code> through <code>tailscale serve</code>. Nothing outside your tailnet can open it. A different address typed below is used instead.</span></li>
+<li><span class="badge" data-tone="{{if .Link.Phones}}pass{{else}}wait{{end}}">{{.Link.Phones}} online</span><span>{{if .Link.Phones}}A phone on your tailnet is online.{{else}}No phone on your tailnet is online.{{end}}</span></li></ul>
+{{else if .Link.Tailscale}}<ul class="net"><li><span class="badge" data-tone="wait">not yet</span><span>{{.Link.Problem}}.</span></li></ul>
+<ol class="steps">
+{{if not .Link.HTTPS}}<li>Turn on HTTPS certificates for your tailnet, once: Tailscale admin console, DNS, HTTPS Certificates. The certificate is public, so this computer's name is listed in certificate transparency logs.</li>{{end}}
+<li>Run <code>tailscale serve --bg {{.Link.Port}}</code> on this computer. On Linux, run <code>sudo tailscale set --operator=$USER</code> once before it.</li>
+<li>Install Tailscale on the phone and log in to the same tailnet.</li>
+</ol>
+{{else}}<p>This Board listens on this computer only. A phone reaches it through a private tunnel you set up, such as <code>tailscale serve</code>, an SSH tunnel or WireGuard. Type the address the phone opens, below.</p>{{end}}</div>
 </section>
 <section class="card connect-part" aria-labelledby="pair-head">
 <header class="slug"><h3 id="pair-head">Pair a phone</h3></header>
 <div class="part-body">
 <form class="pair-form" method="post" action="{{.Base}}/connect/code" data-address><input type="hidden" name="csrf" value="{{.Token}}">
 <label for="base">Address the phone opens</label>
-<input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" placeholder="https://laptop.tailnet.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
+<input id="base" name="base" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="{{.Address}}" data-detected="{{.Link.Ready}}" placeholder="https://laptop.tailnet.example"{{with .AddressError}} aria-invalid="true" aria-describedby="base-error"{{end}}>
 {{with .AddressError}}<p class="field-error" id="base-error">{{.}}</p>{{end}}
 <button class="primary">{{if .Code}}New code{{else}}Show pairing code{{end}}</button>
 </form>

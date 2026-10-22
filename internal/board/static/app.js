@@ -1379,12 +1379,15 @@
 	if (addressForm) {
 		const field = addressForm.querySelector("#base");
 		const addressKey = `hand.phone.address${body.dataset.base}`;
+		const detected = field.dataset.detected ?? "";
 		try {
-			if (!field.value) field.value = localStorage.getItem(addressKey) ?? "";
+			if (!field.value || field.value === detected) field.value = localStorage.getItem(addressKey) || field.value;
 		} catch {}
 		addressForm.addEventListener("submit", () => {
 			try {
-				localStorage.setItem(addressKey, field.value.trim());
+				const typed = field.value.trim();
+				if (typed && typed !== detected) localStorage.setItem(addressKey, typed);
+				else localStorage.removeItem(addressKey);
 			} catch {}
 		});
 	}
