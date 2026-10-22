@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -25,7 +26,12 @@ func cmdProjectAdd(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
-	p, err := st.AddProject(context.Background(), pos[0], pos[1])
+	ctx := r.ctx()
+	settings := ""
+	if now, err := gitcfg.Read(ctx, pos[1]); err == nil {
+		settings = now.Digest()
+	}
+	p, err := st.AddProject(ctx, pos[0], pos[1], settings)
 	if err != nil {
 		return err
 	}

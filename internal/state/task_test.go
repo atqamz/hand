@@ -15,7 +15,7 @@ var handRepo, _ = filepath.Abs("/home/me/hand")
 
 func seedProject(t *testing.T, s *Store) {
 	t.Helper()
-	if _, err := s.AddProject(context.Background(), "hand", handRepo); err != nil {
+	if _, err := s.AddProject(context.Background(), "hand", handRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -24,13 +24,13 @@ func TestAddProjectValidatesNameRepoAndDuplicates(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
 	for _, tc := range []struct{ name, repo string }{{"Hand", "/r"}, {"-x", "/r"}, {"ok", "relative/path"}} {
-		if _, err := s.AddProject(ctx, tc.name, tc.repo); !errors.Is(err, ErrInvalid) {
+		if _, err := s.AddProject(ctx, tc.name, tc.repo, ""); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("AddProject(%q, %q) err = %v, want ErrInvalid", tc.name, tc.repo, err)
 		}
 	}
 	seedProject(t, s)
 	other, _ := filepath.Abs("/other")
-	if _, err := s.AddProject(ctx, "hand", other); !errors.Is(err, ErrConflict) {
+	if _, err := s.AddProject(ctx, "hand", other, ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate err = %v, want ErrConflict", err)
 	}
 }
@@ -199,7 +199,7 @@ func TestSearchTasks(t *testing.T) {
 	ctx := context.Background()
 	seedProject(t, s)
 	other, _ := filepath.Abs("/other")
-	if _, err := s.AddProject(ctx, "docs", other); err != nil {
+	if _, err := s.AddProject(ctx, "docs", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	day := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)

@@ -1,0 +1,1 @@
+ALTER TABLE project ADD COLUMN settings TEXT NOT NULL DEFAULT '';

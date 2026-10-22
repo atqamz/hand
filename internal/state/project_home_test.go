@@ -19,10 +19,10 @@ func TestProjectInsideTheHomeFollowsAMove(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(dir, "elsewhere")
-	if _, err := s.AddProject(ctx, "app", filepath.Join(home, "projects", "app")); err != nil {
+	if _, err := s.AddProject(ctx, "app", filepath.Join(home, "projects", "app"), ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddProject(ctx, "ext", outside); err != nil {
+	if _, err := s.AddProject(ctx, "ext", outside, ""); err != nil {
 		t.Fatal(err)
 	}
 	var raw string
@@ -91,7 +91,7 @@ func TestProjectAddedThroughASymlinkedHomeIsStoredRelative(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.AddProject(ctx, "app", filepath.Join(alias, "projects", "app")); err != nil {
+	if _, err := s.AddProject(ctx, "app", filepath.Join(alias, "projects", "app"), ""); err != nil {
 		t.Fatal(err)
 	}
 	var raw string
@@ -128,7 +128,7 @@ func TestRebaseProjectsMakesPathsUnderTheOldHomeRelative(t *testing.T) {
 func TestAHomeThatIsItsOwnRepoFollowsAMove(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTest(t)
-	if _, err := s.AddProject(ctx, "self", s.home); err != nil {
+	if _, err := s.AddProject(ctx, "self", s.home, ""); err != nil {
 		t.Fatal(err)
 	}
 	var raw string

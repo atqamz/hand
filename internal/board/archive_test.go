@@ -31,7 +31,7 @@ func newArchive(t *testing.T) *archive {
 	if _, err := st.CreateFleet(context.Background(), "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddProject(context.Background(), "hand", handRepo); err != nil {
+	if _, err := st.AddProject(context.Background(), "hand", handRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 	a.st = st
@@ -94,7 +94,7 @@ func TestArchiveGroupsFinishedTasksByDay(t *testing.T) {
 func TestArchiveFiltersAndSaysWhenNothingMatches(t *testing.T) {
 	a := newArchive(t)
 	other, _ := filepath.Abs("/other")
-	if _, err := a.st.AddProject(context.Background(), "docs", other); err != nil {
+	if _, err := a.st.AddProject(context.Background(), "docs", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
@@ -130,7 +130,7 @@ func TestTasksPageSearchesEveryStatus(t *testing.T) {
 	a := newArchive(t)
 	ctx := context.Background()
 	other, _ := filepath.Abs("/other")
-	if _, err := a.st.AddProject(ctx, "docs", other); err != nil {
+	if _, err := a.st.AddProject(ctx, "docs", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	day := func(d int) time.Time { return time.Date(2026, 10, d, 12, 0, 0, 0, time.UTC) }
@@ -223,7 +223,7 @@ func TestArchiveOffersProjectsOnlyWhenThereAreSeveral(t *testing.T) {
 		t.Fatal("one project still gets a project filter")
 	}
 	other, _ := filepath.Abs("/other")
-	if _, err := a.st.AddProject(context.Background(), "docs", other); err != nil {
+	if _, err := a.st.AddProject(context.Background(), "docs", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	contains(t, "two projects", get(t, a.handler(), "/tasks"), `name="project"`, `<option value="docs">docs</option>`)
@@ -351,7 +351,7 @@ func TestTheArchiveStyles(t *testing.T) {
 func TestTheFilterBarShowsEachAppliedFilterAsALinkThatDropsIt(t *testing.T) {
 	a := newArchive(t)
 	other, _ := filepath.Abs("/other")
-	if _, err := a.st.AddProject(context.Background(), "docs", other); err != nil {
+	if _, err := a.st.AddProject(context.Background(), "docs", other, ""); err != nil {
 		t.Fatal(err)
 	}
 	a.finish(t, "docs", "Fix login", state.StatusDone, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC))

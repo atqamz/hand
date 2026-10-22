@@ -251,7 +251,7 @@ func TestKeepLuvusNeverSwitches(t *testing.T) {
 		f := newCycle(t)
 		f.quietStale(t)
 		if !current {
-			f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 12, Luvus: "0.14.3"}
+			f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 13, Luvus: "0.14.3"}
 		}
 		f.o.KeepLuvus = true
 		rep, err := Run(context.Background(), f.o)

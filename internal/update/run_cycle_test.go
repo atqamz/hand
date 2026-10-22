@@ -468,7 +468,7 @@ func (f *fixture) serverRuns(t *testing.T) {
 }
 
 func (f *fixture) current() {
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 12, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 13, Luvus: "0.14.4"}
 }
 
 func alphaLuvus(t *testing.T, rep Report) string {

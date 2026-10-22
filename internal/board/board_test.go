@@ -48,7 +48,7 @@ func seed(t *testing.T, st *state.Store) {
 			t.Fatal(err)
 		}
 	}
-	_, err := st.AddProject(ctx, "hand", handRepo)
+	_, err := st.AddProject(ctx, "hand", handRepo, "")
 	must(err)
 	one, err := st.AddTask(ctx, "hand", "Fix login", "users can log in again")
 	must(err)
@@ -142,7 +142,7 @@ func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 func TestBoardEscapesUserText(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	_, _ = st.AddTask(ctx, "hand", "<script>alert(1)</script>", `"><img src=x onerror=alert(2)>`)
 	body := request(board.New(st, token, board.Options{}), "GET", "/", nil, true).Body.String()
 	if strings.Contains(body, "<script>alert") || strings.Contains(body, "<img src=x") || !strings.Contains(body, "&lt;script&gt;") {
@@ -200,7 +200,7 @@ func TestTaskPageSaysWhenHistoryIsCut(t *testing.T) {
 func TestIndexSaysWhenTasksAreHidden(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for range 501 {
 		if _, err := st.AddTask(ctx, "hand", "Chore", ""); err != nil {
 			t.Fatal(err)
@@ -218,7 +218,7 @@ func TestIndexSaysWhenTasksAreHidden(t *testing.T) {
 func TestIndexShowsActiveTasksBeforeOldInboxTasks(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for range 500 {
 		if _, err := st.AddTask(ctx, "hand", "Old inbox chore", ""); err != nil {
 			t.Fatal(err)

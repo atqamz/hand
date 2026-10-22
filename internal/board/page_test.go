@@ -183,7 +183,7 @@ func TestLinksFollowTheBase(t *testing.T) {
 func TestWaitingCountsAreNotCapped(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
-	if _, err := st.AddProject(ctx, "hand", handRepo); err != nil {
+	if _, err := st.AddProject(ctx, "hand", handRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 	task, err := st.AddTask(ctx, "hand", "Many questions", "")

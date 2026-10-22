@@ -104,7 +104,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 12 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 13 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -274,7 +274,7 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 12 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
@@ -328,7 +328,7 @@ func TestAVersion10HomeLearnsDevices(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 12 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if devices, err := s.Devices(ctx); err != nil || len(devices) != 0 {
@@ -377,7 +377,7 @@ func TestAVersion11HomeKeepsItsPhonesAndLearnsTheLabel(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 12 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	old, ok, err := s.DeviceWithSecret(ctx, 1, hashA)

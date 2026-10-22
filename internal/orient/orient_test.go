@@ -71,7 +71,7 @@ func TestEmptyHomeRendersExactly(t *testing.T) {
 func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	a, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, a.ID, state.StatusActive)
 	_, _ = st.SetPlan(ctx, a.ID, "fix cookie")
@@ -96,7 +96,7 @@ func TestOrientIsDeterministicAndShowsWork(t *testing.T) {
 func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for i := range 500 {
 		task, err := st.AddTask(ctx, "hand", strings.Repeat("x", 150)+string(rune('a'+i%26)), "")
 		if err != nil {
@@ -133,7 +133,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
 	project := strings.Repeat("p", 64)
-	if _, err := st.AddProject(ctx, project, handRepo); err != nil {
+	if _, err := st.AddProject(ctx, project, handRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 	titles := []string{strings.Repeat(`"`, 200), strings.Repeat("🙂", 200), strings.Repeat("漢,", 100)}
@@ -173,7 +173,7 @@ func TestOrientStaysWithinBudgetForWorstCaseText(t *testing.T) {
 func TestOrientShowsTheLatestAttempt(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	if _, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w"); err != nil {
@@ -191,7 +191,7 @@ func TestOrientShowsTheLatestAttempt(t *testing.T) {
 func TestOrientShowsReportsWithinBudget(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for i := range 40 {
 		task, _ := st.AddTask(ctx, "hand", "Task", "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
@@ -225,7 +225,7 @@ func TestOrientShowsReportsWithinBudget(t *testing.T) {
 func TestOrientCutsAReportSummaryAtAWordBoundary(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Task", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}, "/w")
@@ -255,7 +255,7 @@ func TestOrientCutsAReportSummaryAtAWordBoundary(t *testing.T) {
 func TestOrientPairsTheReportWithTheLatestAttempt(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	spec := state.AttemptSpec{TaskID: task.ID, Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
@@ -332,7 +332,7 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 func TestOperatorMemoryOutlastsTheLists(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	if _, err := st.AddProject(ctx, "hand", handRepo); err != nil {
+	if _, err := st.AddProject(ctx, "hand", handRepo, ""); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 200 {
@@ -395,7 +395,7 @@ func TestOrientWatchLine(t *testing.T) {
 func TestOrientShowsWorkerSignal(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	spec := state.AttemptSpec{Harness: "codex", Model: "m", Effort: "low", Argv: []string{"/bin/codex", "x"}}
 	for i, title := range []string{"Fix login", "Ship it", "Write docs"} {
 		task, _ := st.AddTask(ctx, "hand", title, "")
@@ -480,7 +480,7 @@ func TestOrientNamesUnwatchedTasks(t *testing.T) {
 	if _, err := st.CreateFleet(ctx, "test"); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	orient := func() string {
 		t.Helper()
 		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
@@ -521,7 +521,7 @@ func TestOrientNamesUnwatchedTasks(t *testing.T) {
 func TestOrientCapsTheUnwatchedList(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	for range 40 {
 		task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 		_, _ = st.Transition(ctx, task.ID, state.StatusActive)
@@ -539,7 +539,7 @@ func TestOrientCapsTheUnwatchedList(t *testing.T) {
 func TestOrientListsArmedTimers(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	orient := func() string {
@@ -568,7 +568,7 @@ func TestOrientListsArmedTimers(t *testing.T) {
 func TestOrientMarksATimerBeyondTheHorizon(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 7 * time.Hour, Note: "check PR 909"}); err != nil {
@@ -606,7 +606,7 @@ func TestOrientReadsTheClockOnceForUnwatchedAndTimers(t *testing.T) {
 	if _, err := st.CreateFleet(ctx, "test"); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 6*time.Hour + 30*time.Second}); err != nil {
@@ -625,7 +625,7 @@ func TestOrientReadsTheClockOnceForUnwatchedAndTimers(t *testing.T) {
 func TestOrientMarksATimerNoManagedSupervisorFires(t *testing.T) {
 	st, home := setup(t)
 	ctx := context.Background()
-	_, _ = st.AddProject(ctx, "hand", handRepo)
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
 	task, _ := st.AddTask(ctx, "hand", "Fix login", "")
 	_, _ = st.Transition(ctx, task.ID, state.StatusActive)
 	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 30 * time.Minute, Note: "check PR 909"}); err != nil {

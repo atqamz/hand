@@ -34,7 +34,7 @@ func TestRunUpdatesTheFleet(t *testing.T) {
 	if rep.Status != "updated" || rep.Failed || len(rep.Backups) != 2 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "12", "0.14.4") {
+	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "13", "0.14.4") {
 		t.Fatalf("target = %q", b)
 	}
 	for _, p := range rep.Backups {
@@ -117,7 +117,7 @@ func (f *fixture) worker(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	st := f.store(t)
-	if _, err := st.AddProject(ctx, "hand", "/home/me/hand"); err != nil {
+	if _, err := st.AddProject(ctx, "hand", "/home/me/hand", ""); err != nil {
 		t.Fatal(err)
 	}
 	task, err := st.AddTask(ctx, "hand", "Fix login", "")
@@ -253,7 +253,7 @@ func TestRunKeepsAFleetWhoseServerIsNotRunning(t *testing.T) {
 	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "up to date" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 12, Luvus: "0.14.3"}
+	f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 13, Luvus: "0.14.3"}
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || alphaLuvus(t, rep) != "not running" || len(f.log(t, "server.stop")) != 0 {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -347,7 +347,7 @@ func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "12", "dev") {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "13", "dev") {
 		f.srv.set(name, body)
 	}
 	f.current()
