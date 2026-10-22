@@ -6,7 +6,7 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 )
 
-func killGroup(cmd *exec.Cmd, _ bool) {
+func killGroup(cmd *exec.Cmd) {
 	_ = cmd.Process.Kill()
 }
 

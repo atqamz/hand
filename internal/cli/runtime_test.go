@@ -186,7 +186,7 @@ func (rt *fakeRuntime) close(params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	if !exited(term) {
-		killGroup(term.cmd, false)
+		killGroup(term.cmd)
 	}
 	<-term.done
 	rt.mu.Lock()
@@ -354,7 +354,7 @@ func (rt *fakeRuntime) exitAll() {
 	rt.mu.Unlock()
 	for _, term := range terms {
 		if !exited(term) {
-			killGroup(term.cmd, true)
+			killGroup(term.cmd)
 		}
 		<-term.done
 	}
