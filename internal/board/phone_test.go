@@ -1008,3 +1008,20 @@ func TestPairingWritesNothingToTheLog(t *testing.T) {
 		t.Fatalf("the board logged %q", buf.String())
 	}
 }
+
+func TestANewPhoneDoesNotInheritARevokedPhonesLastSeen(t *testing.T) {
+	p := newPhoneRig(t)
+	old := p.pair()
+	p.do("GET", "/", nil, old, viaServe)
+	if !strings.Contains(p.do("GET", "/connect", nil, laptop, nil).Body.String(), ", seen ") {
+		t.Fatal("the list shows no last seen time for a phone that just loaded a page")
+	}
+	p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(old)}}, laptop, nil)
+	fresh := p.pair()
+	if p.deviceID(fresh) == p.deviceID(old) {
+		t.Fatalf("a new phone got the revoked phone's number %s", p.deviceID(fresh))
+	}
+	if strings.Contains(p.do("GET", "/connect", nil, laptop, nil).Body.String(), ", seen ") {
+		t.Fatal("a new phone shows the last seen time of a revoked one")
+	}
+}

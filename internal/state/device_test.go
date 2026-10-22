@@ -148,3 +148,21 @@ func TestADeviceSurvivesABackup(t *testing.T) {
 		t.Fatalf("restored device = %+v, %v, %v", got, ok, err)
 	}
 }
+
+func TestARevokedDevicesNumberIsNeverGivenToAnotherPhone(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	first, _ := s.AddDevice(ctx, "Pixel", "", hashA)
+	last, _ := s.AddDevice(ctx, "iPhone", "", hashB)
+	if _, err := s.RevokeDevice(ctx, last.ID); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.AddDevice(ctx, "Tablet", "", hashA)
+	if err != nil || next.ID == last.ID || next.ID == first.ID {
+		t.Fatalf("a new phone got number %d after %d and %d, %v", next.ID, first.ID, last.ID, err)
+	}
+	want := []string{"board.paired 1 Pixel", "board.paired 2 iPhone", "board.revoked 2 iPhone", "board.paired 3 Tablet"}
+	if got := deviceEvents(t, s); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("events = %q, want %q", got, want)
+	}
+}

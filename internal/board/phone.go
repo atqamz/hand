@@ -370,6 +370,9 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	b.phones.mu.Lock()
+	delete(b.phones.seen, id)
+	b.phones.mu.Unlock()
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
 		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board on your laptop: Phone, in its menu.")
