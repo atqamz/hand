@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/proc"
@@ -199,6 +201,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	} else {
 		c.add("fleet", "ok", "")
 	}
+	doctorProjects(ctx, st, c)
 	if p, err := harness.LoadPolicy(r.home); err != nil {
 		c.add(harness.PolicyFile, "fail", err.Error())
 	} else {
@@ -254,6 +257,29 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("watcher", "warn", "a supervisor runs but no watcher does; a running board starts one within 30 seconds, or run `hand watch`")
 	default:
 		c.add("watcher", "info", "none runs, and none is needed until a supervisor starts")
+	}
+}
+
+func doctorProjects(ctx context.Context, st *state.Store, c *checks) {
+	projects, err := st.Projects(ctx)
+	if err != nil {
+		c.add("projects", "fail", err.Error())
+		return
+	}
+	for _, p := range projects {
+		check := "project " + p.Name
+		if p.Settings == "" {
+			c.add(check, "info", "its git settings are recorded the first time Hand runs git in it")
+			continue
+		}
+		switch err := (gitcfg.Repo{Project: p.Name, Dir: p.Repo, Recorded: p.Settings}).Check(ctx); {
+		case errors.Is(err, state.ErrInvalid):
+			c.add(check, "fail", err.Error())
+		case err != nil:
+			c.add(check, "warn", err.Error())
+		default:
+			c.add(check, "ok", "")
+		}
 	}
 }
 
