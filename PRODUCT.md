@@ -76,7 +76,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - supervisor and worker status comes live from Luvus;
   - the conversation comes from harness transcripts;
   - everything else comes from SQLite.
-- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets. The rail names the fleets this browser holds a valid token for, so it switches fleets, and it never shows another fleet's counts.
+- **Decided on 2026-09-28:** there is no cross-fleet overview. Each page shows one fleet, and `/` only lists the fleets. The rail names the fleets this browser holds a valid token for, or this phone is paired with, so it switches fleets, and it never shows another fleet's counts.
 
 ## Brand Commitments
 

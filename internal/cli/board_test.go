@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -233,6 +234,81 @@ func TestTheRailListsOnlyFleetsTheBrowserHoldsALiveTokenFor(t *testing.T) {
 	}
 	if body := get(urlA + "/"); strings.Contains(body, "beta") {
 		t.Fatalf("a rotated token still lists its fleet:\n%s", body)
+	}
+}
+
+func TestAPairedPhoneListsItsFleetsThroughTheRealBoard(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	c := newHarness(t)
+	c.vars = a.vars
+	c.ok("init", "--name", "gamma")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	urlB, tokenB := fleetPage(t, base, b)
+	fleetPage(t, base, c)
+	proxied := map[string]string{"X-Forwarded-For": "100.64.0.7"}
+	send := func(method, u string, form url.Values, cookies []*http.Cookie) (*http.Response, string) {
+		t.Helper()
+		var body io.Reader
+		if form != nil {
+			body = strings.NewReader(form.Encode())
+		}
+		req, err := http.NewRequest(method, u, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if form != nil {
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		for k, v := range proxied {
+			req.Header.Set(k, v)
+		}
+		for _, ck := range cookies {
+			req.AddCookie(ck)
+		}
+		res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		out, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res, string(out)
+	}
+	pair := func(fleetURL, token, id string) *http.Cookie {
+		t.Helper()
+		_, page := send("POST", fleetURL+"/connect/code", url.Values{"csrf": {token}, "base": {"https://laptop.example"}}, []*http.Cookie{{Name: "hand_board_" + id, Value: token}})
+		m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
+		if m == nil {
+			t.Fatalf("no pairing code:\n%s", page)
+		}
+		res, _ := send("POST", fleetURL+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
+		for _, ck := range res.Cookies() {
+			if ck.Name == "hand_phone_"+id {
+				return ck
+			}
+		}
+		t.Fatalf("pair = %d, no phone cookie", res.StatusCode)
+		return nil
+	}
+	idA, idB := path.Base(urlA), path.Base(urlB)
+	phone := []*http.Cookie{pair(urlA, tokenA, idA), pair(urlB, tokenB, idB)}
+	_, home := send("GET", base+"/", nil, phone)
+	if !strings.Contains(home, ">alpha</a>") || !strings.Contains(home, ">beta</a>") || strings.Contains(home, "gamma") {
+		t.Fatalf("the phone's fleet list:\n%s", home)
+	}
+	if _, nobody := send("GET", base+"/", nil, nil); strings.Contains(nobody, "alpha") || strings.Contains(nobody, "beta") {
+		t.Fatalf("a proxied request with no phone session sees fleets:\n%s", nobody)
+	}
+	res, page := send("GET", urlA+"/", nil, phone)
+	if res.StatusCode != http.StatusOK || !strings.Contains(page, `<span class="label">beta</span>`) || strings.Contains(page, "gamma") {
+		t.Fatalf("alpha's rail on the phone = %d:\n%s", res.StatusCode, page)
 	}
 }
 

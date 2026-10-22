@@ -54,6 +54,8 @@ func (b *Board) fleets(ctx context.Context) []railLink {
 	return kept
 }
 
+type Prover interface{ PhoneSession(r *http.Request) bool }
+
 type HostOptions struct {
 	Loopback bool
 	Grace    time.Duration
@@ -116,11 +118,18 @@ func (h *Host) Close() error {
 func (h *Host) list(w http.ResponseWriter, r *http.Request) {
 	loopback := h.o.Loopback && !forwarded(r)
 	data := map[string]any{"Title": "fleets", "Loopback": loopback}
-	if loopback {
+	var paired map[string]bool
+	if !loopback && h.o.Loopback && h.o.List != nil {
+		paired = h.phoneFleets(r, "")
+	}
+	if loopback || len(paired) > 0 {
 		fleets, err := h.o.List()
 		if err != nil {
 			hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))
 			return
+		}
+		if !loopback {
+			fleets = within(fleets, paired)
 		}
 		data["Fleets"] = fleets
 	}
@@ -151,14 +160,46 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Host) phoneFleets(r *http.Request, current string) map[string]bool {
+	prefix := phoneName + "_"
+	if secure(r) {
+		prefix = hostCookie + prefix
+	}
+	tried, proven := map[string]bool{current: true}, map[string]bool{}
+	for _, c := range r.Cookies() {
+		id, ok := strings.CutPrefix(c.Name, prefix)
+		if !ok || tried[id] || !state.FleetID.MatchString(id) {
+			continue
+		}
+		tried[id] = true
+		if h.phoneProves(id, r) {
+			proven[id] = true
+		}
+	}
+	return proven
+}
+
+func (h *Host) phoneProves(id string, r *http.Request) bool {
+	f, err := h.handler(id)
+	if err != nil {
+		return false
+	}
+	defer f.busy.Done()
+	p, ok := f.h.(Prover)
+	return ok && p.PhoneSession(r)
+}
+
 func (h *Host) signedIn(current string, r *http.Request) func() []FleetLink {
-	return func() []FleetLink {
+	return sync.OnceValue(func() []FleetLink {
 		proven := map[string]bool{current: true}
 		for _, c := range r.Cookies() {
 			id, ok := strings.CutPrefix(c.Name, cookieName+"_")
 			if ok && state.FleetID.MatchString(id) && h.o.Valid != nil && h.o.Valid(id, c.Value) {
 				proven[id] = true
 			}
+		}
+		for id := range h.phoneFleets(r, current) {
+			proven[id] = true
 		}
 		if len(proven) == 1 {
 			return nil
@@ -167,14 +208,18 @@ func (h *Host) signedIn(current string, r *http.Request) func() []FleetLink {
 		if err != nil {
 			return nil
 		}
-		var out []FleetLink
-		for _, l := range all {
-			if proven[l.ID] {
-				out = append(out, l)
-			}
+		return within(all, proven)
+	})
+}
+
+func within(all []FleetLink, ids map[string]bool) []FleetLink {
+	var out []FleetLink
+	for _, l := range all {
+		if ids[l.ID] {
+			out = append(out, l)
 		}
-		return out
 	}
+	return out
 }
 
 func (h *Host) handler(id string) (hosted, error) {

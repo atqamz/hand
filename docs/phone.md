@@ -75,7 +75,7 @@ The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given 
 
 **What the board sees.** `cloudflared` connects to the board from the laptop, so the board sees loopback. Cloudflare adds `X-Forwarded-For` and `X-Forwarded-Proto` ([Cloudflare](https://developers.cloudflare.com/fundamentals/reference/http-headers/)), and Access adds a `Cf-Access-Jwt-Assertion` header ([Cloudflare](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)). They were not captured at the board here. The board then:
 
-- shows no fleet list at `/`, because the request carries `X-Forwarded-For`;
+- shows no fleet list at `/` to a request with no valid phone session, because it carries `X-Forwarded-For`; a paired phone sees only the fleets it is paired with ([Several fleets on one phone](board.md#several-fleets-on-one-phone));
 - sets the `__Host-` and `Secure` phone cookie when `X-Forwarded-Proto` is `https`;
 - uses no `Cf-` header and does not check the Access token. Any process on the laptop can send those headers to `127.0.0.1`, so the board never lets them in. The pairing code, the phone's session or the fleet's token is still needed behind Access.
 
@@ -125,7 +125,7 @@ The board refuses Funnel traffic by its `Tailscale-Funnel-Request` header. It ha
 - In read-only mode the alert link is already `http://10.8.0.1:7777/...`: it is the address the board wrote to `board.addr`. It opens on the phone while WireGuard is up. With a TLS proxy it needs the rewrite above.
 - Every peer can open the board's login page. Do not add a peer you do not trust.
 
-**Security.** Every WireGuard peer reaches the board's port. The token or a pairing still guards every page, and in read-only mode a session can answer decisions, which steer the supervisor. A proxy that sends `X-Forwarded-For` hides the fleet list. Do not bind `0.0.0.0`.
+**Security.** Every WireGuard peer reaches the board's port. The token or a pairing still guards every page, and in read-only mode a session can answer decisions, which steer the supervisor. A proxy that sends `X-Forwarded-For` hides the fleet list from a request that holds no valid phone session. Do not bind `0.0.0.0`.
 
 ## A LAN address
 

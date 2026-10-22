@@ -30,6 +30,19 @@ type phoneHost struct {
 	proofs   map[string]int
 }
 
+type counted struct {
+	http.Handler
+	p  *phoneHost
+	id string
+}
+
+func (c counted) PhoneSession(r *http.Request) bool {
+	c.p.mu.Lock()
+	c.p.proofs[c.id]++
+	c.p.mu.Unlock()
+	return c.Handler.(board.Prover).PhoneSession(r)
+}
+
 func (p *phoneHost) clock() time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -88,7 +101,7 @@ func (p *phoneHost) restart() {
 			p.opened[id]++
 			p.mu.Unlock()
 			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock})
-			return b, closer(func() error { return nil }), nil
+			return counted{b, p, id}, closer(func() error { return nil }), nil
 		},
 		List:  func() ([]board.FleetLink, error) { return all, nil },
 		Valid: func(id, token string) bool { f, ok := byID[id]; return ok && f.token == token },

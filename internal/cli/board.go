@@ -180,6 +180,12 @@ func (f *fleetBoard) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
+func (f *fleetBoard) PhoneSession(r *http.Request) bool {
+	h, err := f.current()
+	p, ok := h.(board.Prover)
+	return err == nil && ok && p.PhoneSession(r)
+}
+
 func (f *fleetBoard) current() (http.Handler, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
