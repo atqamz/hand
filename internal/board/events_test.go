@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,16 +20,11 @@ import (
 
 type sseEvent struct{ name, data string }
 
-func serve(t *testing.T, h http.Handler) (string, *atomic.Int32) {
+func serve(t *testing.T, h http.Handler) string {
 	t.Helper()
-	var live atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		live.Add(1)
-		defer live.Add(-1)
-		h.ServeHTTP(w, r)
-	}))
+	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return srv.URL, &live
+	return srv.URL
 }
 
 func stream(t *testing.T, url string) (<-chan sseEvent, func()) {
@@ -98,38 +92,38 @@ func sseLines(data []byte, atEOF bool) (int, []byte, error) {
 	return 0, nil, nil
 }
 
-func collect(ch <-chan sseEvent, d time.Duration) []sseEvent {
+const hung = time.Minute
+
+func until(t *testing.T, ch <-chan sseEvent, stop func(sseEvent) bool) []sseEvent {
+	t.Helper()
 	var out []sseEvent
-	timer := time.After(d)
+	deadline := time.After(hung)
 	for {
 		select {
 		case e, ok := <-ch:
 			if !ok {
-				return out
+				t.Fatalf("stream closed after %q", eventNames(out))
 			}
 			out = append(out, e)
-		case <-timer:
-			return out
+			if stop(e) {
+				return out
+			}
+		case <-deadline:
+			t.Fatalf("the awaited event did not arrive; got %q", eventNames(out))
 		}
 	}
 }
 
 func first(t *testing.T, ch <-chan sseEvent, n int) []sseEvent {
 	t.Helper()
-	var out []sseEvent
-	deadline := time.After(3 * time.Second)
-	for len(out) < n {
-		select {
-		case e, ok := <-ch:
-			if !ok {
-				t.Fatalf("stream closed after %d events", len(out))
-			}
-			out = append(out, e)
-		case <-deadline:
-			t.Fatalf("only %d events within 3s", len(out))
-		}
+	var seen int
+	return until(t, ch, func(sseEvent) bool { seen++; return seen == n })
+}
+
+func arrives(name string, texts ...string) func(sseEvent) bool {
+	return func(e sseEvent) bool {
+		return e.name == name && !slices.ContainsFunc(texts, func(s string) bool { return !strings.Contains(e.data, s) })
 	}
-	return out
 }
 
 func eventNames(evs []sseEvent) []string {
@@ -157,7 +151,7 @@ func TestEventsNeedTheCookie(t *testing.T) {
 func TestEventsSendEveryRegionOnConnect(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	base, _ := serve(t, quick(st, board.Options{}))
+	base := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
 	if got := eventNames(first(t, ch, 5)); !slices.Equal(got, regionNames) {
 		t.Fatalf("first events = %q", got)
@@ -167,66 +161,63 @@ func TestEventsSendEveryRegionOnConnect(t *testing.T) {
 func TestEventsSendOnlyChangedRegions(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	base, _ := serve(t, quick(st, board.Options{}))
+	base := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
-	if evs := collect(ch, 100*time.Millisecond); len(evs) != 0 {
-		t.Fatalf("a quiet board sent %q", eventNames(evs))
-	}
 	if _, err := st.Ask(context.Background(), 2, "Ship the docs today?"); err != nil {
 		t.Fatal(err)
 	}
-	evs := collect(ch, 300*time.Millisecond)
-	got := eventNames(evs)
-	if !slices.Contains(got, "queue") || slices.Contains(got, "timeline") || len(got) != len(slices.Compact(slices.Sorted(slices.Values(got)))) {
+	evs := until(t, ch, arrives("queue", "Ship the docs today?"))
+	if _, err := st.Ask(context.Background(), 2, "Ship the docs tomorrow?"); err != nil {
+		t.Fatal(err)
+	}
+	next := until(t, ch, arrives("queue", "Ship the docs tomorrow?"))
+	if got := eventNames(evs); !slices.Equal(got, []string{"status", "queue"}) || !strings.Contains(evs[1].data, `data-waiting="4"`) {
 		t.Fatalf("after a decision = %q", got)
 	}
-	for _, e := range evs {
-		if e.name == "queue" && (!strings.Contains(e.data, "Ship the docs today?") || !strings.Contains(e.data, `data-waiting="4"`)) {
-			t.Fatalf("queue event:\n%s", e.data)
-		}
-	}
-	if evs := collect(ch, time.Second); len(evs) != 0 {
-		t.Fatalf("a quiet second sent %q", eventNames(evs))
+	if got := eventNames(next); !slices.Equal(got, []string{"tasks", "status", "queue"}) {
+		t.Fatalf("after a second decision = %q", got)
 	}
 }
 
 func TestEventsFollowTheAgent(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	base, _ := serve(t, quick(fx.st, fx.options))
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
 	fx.mu.Lock()
 	fx.status, fx.hint = "blocked", "Trust this folder?"
 	fx.mu.Unlock()
-	evs := collect(ch, 300*time.Millisecond)
+	evs := first(t, ch, 4)
 	if got := eventNames(evs); !slices.Equal(got, []string{"status", "console", "timeline", "queue"}) || !strings.Contains(evs[3].data, `name="revision" value="7"`) || strings.Contains(evs[2].data, "data-working") || strings.Contains(evs[1].data, "supervisor/interrupt") {
 		t.Fatalf("after the agent blocked = %q", evs)
 	}
-	fx.mu.Lock()
-	fx.revision = 8
-	fx.mu.Unlock()
-	evs = collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"queue"}) || !strings.Contains(evs[0].data, `name="revision" value="8"`) {
-		t.Fatalf("after the screen changed = %q", evs)
+	for rev := 8; rev <= 9; rev++ {
+		fx.mu.Lock()
+		fx.revision = rev
+		fx.mu.Unlock()
+		evs = until(t, ch, arrives("queue"))
+		if got := eventNames(evs); !slices.Equal(got, []string{"queue"}) || !strings.Contains(evs[0].data, fmt.Sprintf(`name="revision" value="%d"`, rev)) {
+			t.Fatalf("after the screen changed to %d = %q", rev, evs)
+		}
 	}
 }
 
 func TestAClosedStreamStopsItsTicker(t *testing.T) {
-	base, live := serve(t, quick(open(t), board.Options{}))
+	h := quick(open(t), board.Options{})
+	left := make(chan struct{})
+	base := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(left)
+		h.ServeHTTP(w, r)
+	}))
 	ch, cancel := stream(t, base+"/events")
 	first(t, ch, 5)
-	if n := live.Load(); n != 1 {
-		t.Fatalf("live streams = %d", n)
-	}
 	cancel()
-	deadline := time.Now().Add(200 * time.Millisecond)
-	for live.Load() != 0 {
-		if time.Now().After(deadline) {
-			t.Fatalf("the stream still runs 200ms after its client left")
-		}
-		time.Sleep(5 * time.Millisecond)
+	select {
+	case <-left:
+	case <-time.After(hung):
+		t.Fatal("the stream still runs after its client left")
 	}
 }
 
@@ -235,7 +226,7 @@ func TestNoRegionHoldsTheComposer(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	h := quick(fx.st, fx.options)
 	contains(t, "fleet page", get(t, h, "/"), `id="composer"`)
-	base, _ := serve(t, h)
+	base := serve(t, h)
 	ch, _ := stream(t, base+"/events")
 	for _, e := range first(t, ch, 5) {
 		if strings.Contains(e.data, `id="composer"`) || strings.Contains(e.data, "<textarea") {
@@ -253,7 +244,7 @@ func TestRegionFragmentsMatchTheFullPage(t *testing.T) {
 	h := quick(fx.st, fx.options)
 	page := get(t, h, "/")
 	contains(t, "page", page, `<time datetime="2026-09-26T00:00:00Z" data-since>144h 0m</time>`)
-	base, _ := serve(t, h)
+	base := serve(t, h)
 	ch, _ := stream(t, base+"/events")
 	for _, e := range first(t, ch, 5) {
 		if e.data == "" || !strings.Contains(page, `data-region="`+e.name+`">`+e.data+"</section>") {
@@ -281,20 +272,21 @@ func TestFailedControlsCarryTheirMessage(t *testing.T) {
 func TestACarriageReturnCannotSplitAnEvent(t *testing.T) {
 	st := open(t)
 	seed(t, st)
-	base, _ := serve(t, quick(st, board.Options{}))
+	base := serve(t, quick(st, board.Options{}))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
 	if _, err := st.Ask(context.Background(), 2, "x\r\revent: status\rdata: forged"); err != nil {
 		t.Fatal(err)
 	}
-	evs := collect(ch, 300*time.Millisecond)
+	evs := until(t, ch, arrives("queue", "event: status"))
+	if _, err := st.Ask(context.Background(), 2, "y"); err != nil {
+		t.Fatal(err)
+	}
+	evs = append(evs, until(t, ch, arrives("queue", ">y<"))...)
 	for _, e := range evs {
 		if (e.name == "status" && e.data == "forged") || e.name == "" || strings.Contains(e.data, "\r") {
 			t.Fatalf("a carriage return split an event: %q", evs)
 		}
-	}
-	if got := eventNames(evs); !slices.Contains(got, "queue") {
-		t.Fatalf("after the decision = %q", got)
 	}
 }
 
@@ -302,13 +294,15 @@ func TestEventsFollowAnEditedTranscript(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("a first draft of the operator message that is long")})
-	base, _ := serve(t, quick(fx.st, fx.options))
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
-	claudeLog(t, fx, []string{userRecord("edited")})
-	evs := collect(ch, 300*time.Millisecond)
-	if got := eventNames(evs); !slices.Equal(got, []string{"timeline"}) || !strings.Contains(evs[0].data, "edited") {
-		t.Fatalf("after the transcript was rewritten = %q", evs)
+	for _, text := range []string{"edited", "again"} {
+		claudeLog(t, fx, []string{userRecord(text)})
+		evs := until(t, ch, arrives("timeline", text))
+		if got := eventNames(evs); !slices.Equal(got, []string{"timeline"}) {
+			t.Fatalf("after the transcript was rewritten to %q = %q", text, got)
+		}
 	}
 }
 
@@ -326,16 +320,11 @@ func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
 		defer mu.Unlock()
 		return now
 	}
-	base, _ := serve(t, quick(fx.st, fx.options))
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
 	mu.Lock()
 	now = now.Add(2 * time.Minute)
 	mu.Unlock()
-	for _, e := range collect(ch, 500*time.Millisecond) {
-		if e.name == "queue" && strings.Contains(e.data, `data-kind="quiet"`) {
-			return
-		}
-	}
-	t.Fatal("no queue event when the quiet worker outlasted the grace")
+	until(t, ch, arrives("queue", `data-kind="quiet"`))
 }

@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
@@ -173,7 +172,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	claudeLog(t, fx, []string{userRecord("hi"), usageRecord(1000)})
-	base, _ := serve(t, quick(fx.st, fx.options))
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
 	f, err := os.OpenFile(filepath.Join(fx.claude, "projects", "-fleet", claudeSession+".jsonl"), os.O_APPEND|os.O_WRONLY, 0)
@@ -184,12 +183,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = f.Close()
-	for _, e := range collect(ch, 2*time.Second) {
-		if e.name == "status" && strings.Contains(e.data, "508K / 1M") {
-			return
-		}
-	}
-	t.Fatal("a context change sent no status event")
+	until(t, ch, arrives("status", "508K / 1M"))
 }
 
 func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {

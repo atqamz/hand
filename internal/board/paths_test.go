@@ -70,7 +70,7 @@ func pathPages(t *testing.T, home, text string) map[string]string {
 		"task":         get(t, h, "/task/t1"),
 		"document":     get(t, h, "/doc/reports/t1/index.md"),
 	}
-	base, _ := serve(t, quick(fx.st, fx.options))
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	for _, e := range first(t, ch, len(regionNames)) {
 		if e.name == "queue" || e.name == "timeline" {

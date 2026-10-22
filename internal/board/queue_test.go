@@ -563,11 +563,28 @@ func TestTheEventLoopLeavesWorkerScreensUnread(t *testing.T) {
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Pick one"); err != nil {
 		t.Fatal(err)
 	}
-	base, _ := serve(t, quick(fx.st, fx.options))
+	looped := make(chan struct{}, 64)
+	fx.options.Now = func() time.Time {
+		select {
+		case looped <- struct{}{}:
+		default:
+		}
+		return time.Now()
+	}
+	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
 	first(t, ch, 5)
+	for len(looped) > 0 {
+		<-looped
+	}
 	before := len(fx.srv.Calls("agent.read"))
-	collect(ch, 300*time.Millisecond)
+	for range 30 {
+		select {
+		case <-looped:
+		case <-time.After(hung):
+			t.Fatal("the event loop stopped ticking")
+		}
+	}
 	if n := len(fx.srv.Calls("agent.read")) - before; n != 0 {
 		t.Fatalf("the event loop read worker screens %d times with nothing changed", n)
 	}
