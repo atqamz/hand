@@ -25,6 +25,8 @@ type Device struct {
 	PairedAt time.Time
 }
 
+func CleanLogin(s string) string { return cleanDeviceText(s, MaxDeviceLogin) }
+
 func cleanDeviceText(s string, max int) string {
 	s = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -52,7 +54,7 @@ func scanDevice(row scanner) (Device, error) {
 }
 
 func (s *Store) AddDevice(ctx context.Context, name, login, secretHash string) (Device, error) {
-	d := Device{Name: cleanDeviceText(name, MaxDeviceName), Login: cleanDeviceText(login, MaxDeviceLogin), PairedAt: s.now().UTC()}
+	d := Device{Name: cleanDeviceText(name, MaxDeviceName), Login: CleanLogin(login), PairedAt: s.now().UTC()}
 	if d.Name == "" {
 		d.Name = "Phone"
 	}

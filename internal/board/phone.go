@@ -108,9 +108,9 @@ func (b *Board) phoneCookie(r *http.Request) string {
 func tailnetLogin(r *http.Request) string {
 	v := r.Header.Get("Tailscale-User-Login")
 	if d, err := new(mime.WordDecoder).DecodeHeader(v); err == nil {
-		return d
+		v = d
 	}
-	return v
+	return state.CleanLogin(v)
 }
 
 func remote(r *http.Request) string {
@@ -366,7 +366,7 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
 		return
 	}
-	if _, err := b.st.RevokeDevice(r.Context(), id); err != nil && (s.Device == nil || !errors.Is(err, state.ErrNotFound)) {
+	if _, err := b.st.RevokeDevice(r.Context(), id); err != nil && !errors.Is(err, state.ErrNotFound) {
 		b.failErr(w, err)
 		return
 	}

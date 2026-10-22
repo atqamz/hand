@@ -484,6 +484,11 @@ func TestACookieWorksOnlyForTheLoginItWasPairedFor(t *testing.T) {
 	if rec := p.do("GET", "/", nil, phone, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("phone cookie under its own login = %d", rec.Code)
 	}
+	spaced := map[string]string{"X-Forwarded-Proto": "https", "Tailscale-User-Login": "Op  Er@example.com"}
+	rec = p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, spaced)
+	if c := phoneCookieOf(rec); c == nil || p.do("GET", "/", nil, c, spaced).Code != http.StatusOK {
+		t.Fatalf("a login the store tidies could not come back: %d", rec.Code)
+	}
 	encoded := map[string]string{"X-Forwarded-Proto": "https", "Tailscale-User-Login": "=?utf-8?q?op=C3=A9rateur@example.com?="}
 	rec = p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, encoded)
 	bound := phoneCookieOf(rec)
@@ -547,8 +552,8 @@ func TestRevokingAPhoneSignsItOutAtOnce(t *testing.T) {
 	if rec := p.do("GET", "/", nil, keep, viaServe); rec.Code != http.StatusOK {
 		t.Fatalf("revoking one phone signed out another = %d", rec.Code)
 	}
-	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, laptop, nil); rec.Code != http.StatusNotFound {
-		t.Fatalf("revoking a phone twice = %d", rec.Code)
+	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {p.deviceID(phone)}}, laptop, nil); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/connect" {
+		t.Fatalf("revoking a phone twice = %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	if rec := p.do("POST", "/connect/revoke", url.Values{"csrf": {token}, "id": {"x"}}, laptop, nil); rec.Code != http.StatusBadRequest {
 		t.Fatalf("revoking no phone = %d", rec.Code)
@@ -750,7 +755,7 @@ func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
 		{"GET", "/", laptop, nil}, {"GET", "/", phone, nil}, {"GET", "/", nil, nil},
 		{"GET", "/pair", nil, nil}, {"POST", "/pair", nil, url.Values{"code": {code}}},
 		{"GET", "/connect", laptop, nil}, {"POST", "/connect/code", laptop, url.Values{"csrf": {token}, "base": {"https://x.example"}}},
-		{"GET", "/events", laptop, nil}, {"GET", "/proof?nonce=x", nil, nil}, {"GET", "/static/board.css", nil, nil},
+		{"GET", "/events", laptop, nil}, {"GET", "/proof?nonce=x", nil, nil},
 		{"GET", "/?token=" + token, nil, nil},
 	} {
 		rec := p.do(c.method, c.path, c.form, c.cookie, funnel(viaServe))
@@ -764,6 +769,14 @@ func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
 		if strings.Contains(body, token) || strings.Contains(body, code) {
 			t.Fatalf("%s %s through Funnel leaked", c.method, c.path)
 		}
+	}
+	refusal := p.do("GET", "/", nil, nil, funnel(nil)).Body.String()
+	sheet := regexp.MustCompile(`href="(/static/board\.[0-9a-f]+\.css)"`).FindStringSubmatch(refusal)
+	if sheet == nil {
+		t.Fatal("the refusal page links no stylesheet")
+	}
+	if rec := p.do("GET", sheet[1], nil, nil, funnel(nil)); rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "text/css") {
+		t.Fatalf("the styles through Funnel = %d", rec.Code)
 	}
 	if rec := p.tryPair(code, "100.64.0.7"); rec.Code != http.StatusSeeOther {
 		t.Fatalf("the code after refused Funnel posts = %d", rec.Code)

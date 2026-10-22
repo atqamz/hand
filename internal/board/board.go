@@ -188,12 +188,12 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	if viaFunnel(r) {
-		b.fail(w, http.StatusForbidden, funnelRefusal)
-		return
-	}
 	if strings.HasPrefix(r.URL.Path, "/static/") {
 		ServeStatic(w, r)
+		return
+	}
+	if viaFunnel(r) {
+		b.fail(w, http.StatusForbidden, funnelRefusal)
 		return
 	}
 	if r.URL.Path == "/proof" && r.Method == http.MethodGet {
