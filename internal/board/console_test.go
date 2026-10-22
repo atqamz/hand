@@ -404,7 +404,7 @@ func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
 	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
 	lacks(t, "after a supervisor", picked, " required>", " selected>")
-	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:12px;padding:16px}", ".starter{flex:1 1 100%", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
+	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:12px;padding:16px}", ".starter{flex:1 1 100%", ".starter .gone{margin:0;color:var(--wait);font-size:14px}", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
 }
 
 func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {

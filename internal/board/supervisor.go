@@ -96,7 +96,9 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	if err != nil {
 		return err
 	}
-	data["Pending"], data["Profiles"], data["Keys"] = len(pending), b.profiles(), keyButtons()
+	profiles := b.profiles()
+	data["Pending"], data["Profiles"], data["Keys"] = len(pending), profiles, keyButtons()
+	data["Chosen"], data["NoneStartable"] = chosenProfile(profiles), noneStartable(profiles)
 	data["Pick"] = q.Get("pick") == "1" || !ok
 	data["Pill"], data["PillLabel"] = "neutral", "No supervisor"
 	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits."
@@ -328,7 +330,7 @@ func (b *Board) models(name string) ([]harness.Model, []string) {
 	return models, efforts
 }
 
-type profile struct{ Name, Label string }
+type profile struct{ Name, Label, Missing string }
 
 func (b *Board) profiles() []profile { return b.profilesFor("") }
 
@@ -337,14 +339,55 @@ func (b *Board) profilesFor(name string) []profile {
 	if err != nil {
 		return nil
 	}
+	missing := map[string]string{}
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n]
-		if name == "" || s.Harness == name {
-			out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " ")})
+		if name != "" && s.Harness != name {
+			continue
 		}
+		reason, seen := missing[s.Harness]
+		if !seen {
+			if _, err := harness.LookPath(s.Harness, b.o.Harness.Path); err != nil {
+				reason = s.Harness + " not found on the board's PATH"
+			}
+			missing[s.Harness] = reason
+		}
+		out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " "), Missing: reason})
 	}
 	return out
+}
+
+func chosenProfile(ps []profile) string {
+	first := ""
+	for _, p := range ps {
+		if p.Missing != "" {
+			continue
+		}
+		if p.Name == "default" {
+			return p.Name
+		}
+		if first == "" {
+			first = p.Name
+		}
+	}
+	if !slices.ContainsFunc(ps, func(p profile) bool { return p.Name == "default" }) {
+		return ""
+	}
+	return first
+}
+
+func noneStartable(ps []profile) string {
+	if len(ps) == 0 || slices.ContainsFunc(ps, func(p profile) bool { return p.Missing == "" }) {
+		return ""
+	}
+	var gone []string
+	for _, p := range ps {
+		if h, _, _ := strings.Cut(p.Missing, " "); !slices.Contains(gone, h) {
+			gone = append(gone, h)
+		}
+	}
+	return strings.Join(gone, ", ") + " not found on the board's PATH. Install the harness or add its folder to PATH, then restart the board."
 }
 
 func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {

@@ -10,12 +10,14 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
@@ -65,8 +67,23 @@ func newFixture(t *testing.T) *fixture {
 		Luvus:      luvus.Client{Socket: fx.srv.Socket},
 		Transcript: &transcript.Reader{Paths: transcript.Paths{Claude: fx.claude}},
 		Home:       t.TempDir(),
+		Harness:    harness.Env{Path: pathWith(t, "claude", "codex", "opencode", "agy")},
 	}
 	return fx
+}
+
+func pathWith(t *testing.T, names ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range names {
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
 }
 
 func (fx *fixture) control(_ context.Context, args ...string) error {
@@ -599,4 +616,39 @@ func TestHeadersSurviveNonASCIIText(t *testing.T) {
 	if !strings.Contains(asset(t, "app.js"), "decodeURIComponent") {
 		t.Fatal("app.js does not decode the headers")
 	}
+}
+
+func TestTheStartPickerMarksProfilesWhoseHarnessIsMissing(t *testing.T) {
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"gpt":{"harness":"codex","model":"gpt-5.5","effort":"high"}}}`
+	start := func(t *testing.T, bins ...string) (*fixture, string) {
+		fx := newFixture(t)
+		fx.options.Harness.Path = pathWith(t, bins...)
+		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return fx, region(get(t, fx.handler(), "/"), "console")
+	}
+	_, both := start(t, "claude", "codex")
+	lacks(t, "both found", both, " disabled", "not found on the board&#39;s PATH", `class="gone"`)
+	contains(t, "both found", both, `<option value="default" selected>`, `<button class="primary">Start</button>`)
+
+	_, noCodex := start(t, "claude")
+	contains(t, "codex missing", noCodex, `<option value="gpt" disabled>gpt · codex gpt-5.5 high · codex not found on the board&#39;s PATH</option>`, `<option value="default" selected>default · claude sonnet medium</option>`, `<option value="deep">deep · claude opus xhigh</option>`)
+	lacks(t, "codex missing", noCodex, `class="gone"`, `<button class="primary" disabled>`)
+
+	fx, noClaude := start(t, "codex")
+	contains(t, "claude missing", noClaude, `<option value="default" disabled>default · claude sonnet medium · claude not found on the board&#39;s PATH</option>`, `<option value="deep" disabled>`, `<option value="gpt" selected>gpt · codex gpt-5.5 high</option>`)
+	lacks(t, "claude missing", noClaude, `class="gone"`)
+	fx.options.Harness.Path = pathWith(t, "claude")
+	contains(t, "installed while running", region(get(t, fx.handler(), "/"), "console"), `<option value="default" selected>`, `<option value="gpt" disabled>`)
+
+	_, none := start(t)
+	contains(t, "none found", none, `<option value="default" disabled>`, `<option value="gpt" disabled>`, `<button class="primary" disabled>Start</button>`, `<p class="gone">claude, codex not found on the board&#39;s PATH. Install the harness or add its folder to PATH, then restart the board.</p>`)
+	lacks(t, "none found", none, " selected>")
+}
+
+func TestTheStartPickerSaysNothingWithoutProfiles(t *testing.T) {
+	fx := newFixture(t)
+	fx.options.Harness.Path = pathWith(t)
+	lacks(t, "no policy", region(get(t, fx.handler(), "/"), "console"), `class="gone"`, " disabled")
 }
