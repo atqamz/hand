@@ -104,7 +104,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 10 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 11 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -274,7 +274,7 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 10 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 11 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
@@ -295,5 +295,53 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	}
 	if _, err := s.db.Exec(`INSERT INTO timer(due_at, task_id, status, created_at) VALUES ('x', 99, 'armed', 'x')`); err == nil || !strings.Contains(err.Error(), "FOREIGN KEY") {
 		t.Fatalf("timer on a missing task = %v", err)
+	}
+}
+
+func TestAVersion10HomeLearnsDevices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:10] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 10`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'fleet.created', NULL, 'f0123456789ab old')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 11 {
+		t.Fatalf("user_version = %d, %v", v, err)
+	}
+	if devices, err := s.Devices(ctx); err != nil || len(devices) != 0 {
+		t.Fatalf("devices on a migrated home = %v, %v", devices, err)
+	}
+	d, err := s.AddDevice(ctx, "Pixel", "operator@example.com", strings.Repeat("a", 64))
+	if err != nil || d.ID != 1 {
+		t.Fatalf("device on a migrated home = %+v, %v", d, err)
+	}
+	if f, err := s.Fleet(ctx); err != nil || f.Name != "old" {
+		t.Fatalf("fleet after migration = %+v, %v", f, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO device(name, secret_hash, paired_at) VALUES ('', ?, 'x')`, strings.Repeat("a", 64)); err == nil || !strings.Contains(err.Error(), "CHECK") {
+		t.Fatalf("device with no name = %v", err)
 	}
 }
