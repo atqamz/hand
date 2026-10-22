@@ -31,16 +31,25 @@ When the binary is already current and no newer Luvus needs pinning, `hand updat
 ## Restore a backup
 
 To restore a backup:
-1. stop the board, then the fleet's watcher, so the board cannot start it again. Their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder, in one line `PID MARKER PATH`, where `MARKER` is the process's start time as Hand reads it. A stale file can name an ID that another program now holds, so prove the process is the one that wrote the file before you stop it, and leave a file that fails the check alone. No `hand` command stops only the board or only the watcher: `hand update` does, with this same check, but it also replaces the binary. Then wait until the process has exited:
-   - Linux: the start time must equal `MARKER`, which is what Hand checks (repeat with `watch.pid`):
+1. stop the board, then the fleet's watcher, so the board cannot start it again. Their process IDs start `board.pid` in `~/.secondhand` and `watch.pid` in the fleet folder, in one line `PID MARKER PATH`, where `MARKER` is the process's start time as Hand read it. A stale file can name an ID that another program now holds, so prove the process is the one that wrote the file before you stop it, and leave a file that fails the check alone. No `hand` command stops only the board or only the watcher: `hand update` does, with this same check, but it also replaces the binary. Run the snippet for your OS, then again with `watch.pid`:
+   - Linux: the start time must equal `MARKER`, which is what Hand checks:
      ```sh
      same() { [ "$(sed 's/.*) //' /proc/$1/stat 2>/dev/null | cut -d' ' -f20)" = "$2" ]; }
      read pid marker _ < ~/.secondhand/board.pid
      same $pid $marker && kill $pid
      while same $pid $marker; do sleep 1; done
      ```
-   - macOS: `ps -o lstart=,command= -p PID` must show the `PATH` of the file (or a link to it) and a start time within a few seconds of the file's, which `stat -f %Sm ~/.secondhand/board.pid` prints. A start time later than the file's is another process. Then `kill PID`;
-   - Windows: `Get-CimInstance Win32_Process -Filter "ProcessId=PID" | Select-Object CreationDate, CommandLine` must show that `PATH` and a `CreationDate` within a few seconds of `(Get-Item ~\.secondhand\board.pid).LastWriteTime`. A later one is another process. Then `Stop-Process -Id PID`;
+   - macOS: the start time in whole seconds must equal `MARKER` before its dot:
+     ```sh
+     read pid marker _ < ~/.secondhand/board.pid
+     [ "$(date -j -f '%a %b %e %T %Y' "$(ps -o lstart= -p $pid)" +%s)" = "${marker%%.*}" ] && kill $pid
+     while kill -0 $pid 2>/dev/null; do sleep 1; done
+     ```
+   - Windows: the start time as a file time must be within one second (10,000,000 ticks) of `MARKER` after `windows:`:
+     ```powershell
+     $id, $marker, $null = (Get-Content ~\.secondhand\board.pid).Split(' ')
+     if ([math]::Abs((Get-Process -Id $id).StartTime.ToFileTime() - [int64]$marker.Replace('windows:', '')) -lt 1e7) { Stop-Process -Id $id; Wait-Process -Id $id -ErrorAction SilentlyContinue }
+     ```
 2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
 3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
 4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
