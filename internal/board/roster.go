@@ -196,11 +196,13 @@ func (b *Board) connectRevokePhone(everywhere bool) http.HandlerFunc {
 			}
 			targets, note = targets[i:i+1], revokeNote{Action: "in", Fleet: id, Phone: label, Button: "Revoke"}
 		}
-		work, cancel := context.WithTimeout(context.WithoutCancel(ctx), pairWait)
-		defer cancel()
+		detached := context.WithoutCancel(ctx)
 		var done, failed []string
 		for _, l := range targets {
-			switch n, err := b.revokeFleet(work, l.ID, label); {
+			work, cancel := context.WithTimeout(detached, pairWait)
+			n, err := b.revokeFleet(work, l.ID, label)
+			cancel()
+			switch {
 			case err != nil:
 				failed = append(failed, l.Name)
 			case n > 0:

@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -187,5 +189,42 @@ func TestAHandlerWithoutTheMethodsIsNeverTakenForAFleetItCanReach(t *testing.T) 
 	}
 	if n, err := h.revokeIn(here, r)(context.Background(), there, "0123456789abcdef"); !errors.Is(err, state.ErrNotFound) || n != 0 {
 		t.Fatalf("a handler with no RevokePhone = %d, %v", n, err)
+	}
+}
+
+func TestEveryFleetOfARevokeEverywhereGetsItsOwnDeadline(t *testing.T) {
+	const token = "00000000000000000000000000000001"
+	b, st, id := pairBoard(t, token)
+	label := "0123456789abcdef"
+	labelled(t, st, "Pixel", label)
+	others := []FleetLink{{ID: id, Name: "alpha"}, {ID: "f000000000002", Name: "beta"}, {ID: "f000000000003", Name: "gamma"}}
+	var mu sync.Mutex
+	deadlines := map[string]time.Time{}
+	revoke := revokeFunc(func(ctx context.Context, fleet, label string) (int, error) {
+		d, ok := ctx.Deadline()
+		if !ok {
+			return 0, errors.New("a revoke with no deadline")
+		}
+		mu.Lock()
+		deadlines[fleet] = d
+		mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+		return 0, nil
+	})
+	r := httptest.NewRequest("POST", "/connect/revoke/everywhere", strings.NewReader(url.Values{"csrf": {token}, "phone": {label}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.AddCookie(&http.Cookie{Name: cookieFor("/" + id), Value: token})
+	ctx := context.WithValue(r.Context(), laptopKey{}, func() []FleetLink { return others })
+	ctx = context.WithValue(ctx, revokeKey{}, revoke)
+	rec := httptest.NewRecorder()
+	b.ServeHTTP(rec, r.WithContext(ctx))
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("revoke everywhere = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if len(deadlines) != 2 || !deadlines["f000000000003"].After(deadlines["f000000000002"]) {
+		t.Fatalf("the fleets share one deadline: %v", deadlines)
+	}
+	if list, _ := st.Devices(context.Background()); len(list) != 0 {
+		t.Fatalf("the current fleet still holds %v", list)
 	}
 }
