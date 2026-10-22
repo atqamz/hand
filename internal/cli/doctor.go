@@ -234,8 +234,10 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 	}
 	if err != nil {
 		c.add("board", "warn", err.Error())
+		c.add("phone", "info", "the board is not running, so its phone address is not checked")
 	} else {
 		c.add("board", "ok", "")
+		r.doctorPhone(ctx, d, c, addr)
 	}
 	held, err := r.watchHeld()
 	_, live, lerr := st.LiveSupervisor(ctx)
@@ -251,5 +253,22 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("watcher", "warn", "a supervisor runs but no watcher does; a running board starts one within 30 seconds, or run `hand watch`")
 	default:
 		c.add("watcher", "info", "none runs, and none is needed until a supervisor starts")
+	}
+}
+
+func (r *runner) doctorPhone(ctx context.Context, d *toon.Doc, c *checks, addr string) {
+	link := r.phoneLink(ctx, addr)
+	switch {
+	case !link.Tailscale:
+		c.add("phone", "info", "no tailscale answered; it is optional: install Tailscale to reach the board from a phone, or use another tunnel and type its address on the board's Phone page")
+	case link.Funnel:
+		c.add("phone", "fail", "tailscale funnel is on for this board, so the internet can reach it and the board refuses those requests; run `tailscale funnel reset`")
+	case link.URL != "":
+		d.Field("phone", link.URL)
+		c.add("phone", "ok", "")
+	case link.Problem != "" && strings.Contains(link.Problem, "under "):
+		c.add("phone", "warn", link.Problem+"; run `tailscale serve --bg "+link.Port+"`")
+	default:
+		c.add("phone", "info", "tailscale serve does not proxy the board yet; open Phone in the board for the steps, or run `tailscale serve --bg "+link.Port+"`")
 	}
 }

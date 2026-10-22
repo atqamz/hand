@@ -52,6 +52,7 @@ type runner struct {
 	addrs   sync.Map
 	exits   *exitLog
 	screens *screenLog
+	phone   phoneCache
 }
 
 type usageError struct{ msg string }

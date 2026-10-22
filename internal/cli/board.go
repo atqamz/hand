@@ -66,7 +66,7 @@ func cmdBoard(r *runner, args []string) error {
 		Loopback: loopback,
 		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
-			return r.openBoard(id, home, loopback, transcripts)
+			return r.openBoard(id, home, local, loopback, transcripts)
 		},
 		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
 		Valid: func(id, token string) bool { return boardTokenIs(root, id, token) },
@@ -133,7 +133,7 @@ func boardHome(root, id string) (string, error) {
 	return home, nil
 }
 
-func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcript.Reader) (http.Handler, io.Closer, error) {
+func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader) (http.Handler, io.Closer, error) {
 	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
 	if err != nil {
 		return nil, nil, err
@@ -150,6 +150,7 @@ func (r *runner) openBoard(id, home string, loopback bool, transcripts *transcri
 		Transcript: transcripts,
 		Home:       home,
 		Base:       "/" + id,
+		Phone:      func(ctx context.Context) board.PhoneLink { return r.phoneLink(ctx, local) },
 	}}
 	if err == nil {
 		_, err = fb.current()

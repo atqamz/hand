@@ -132,8 +132,11 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 			t.Fatalf("%s = %q in %q", check, rows[check], out)
 		}
 	}
-	if len(rows) != len(want)+3 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+3, out)
+	if got := rows["phone"][0]; got != "info" {
+		t.Fatalf("phone = %q with no tailscale in %q", rows["phone"], out)
+	}
+	if len(rows) != len(want)+4 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+4, out)
 	}
 }
 

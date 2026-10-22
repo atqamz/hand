@@ -17,4 +17,5 @@ var (
 	UpdateHooks   = &updateHooks
 	UnitOS        = &unitOS
 	BoardHint     = boardHint
+	PhoneProbe    = &phoneProbe
 )

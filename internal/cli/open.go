@@ -101,6 +101,9 @@ func cmdOpen(r *runner, args []string) error {
 	}
 	page := "http://" + addr + "/" + r.fleet.ID + path
 	if *printed {
+		if phone := r.phoneLink(ctx, addr).Ready(); phone != "" {
+			page = phone + "/" + r.fleet.ID + path
+		}
 		return r.printLink(page+"?token="+token+frag, "The link holds the fleet's token; paste it only into your own browser")
 	}
 	return r.launch(page+"?token="+token+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))

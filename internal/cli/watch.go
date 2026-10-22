@@ -640,7 +640,12 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 	if err != nil {
 		return ""
 	}
-	return "http://" + strings.TrimSpace(string(addr)) + "/" + w.r.fleet.ID + path + fragment
+	host := strings.TrimSpace(string(addr))
+	base := "http://" + host
+	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
+		base = phone
+	}
+	return base + "/" + w.r.fleet.ID + path + fragment
 }
 
 func (w *watcher) say(text string) {
