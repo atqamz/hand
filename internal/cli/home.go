@@ -261,7 +261,8 @@ func cmdInit(r *runner, args []string) error {
 			return err
 		}
 	}
-	if err := repairWorktrees(ctx, st); err != nil {
+	skipped, err := repairWorktrees(ctx, st)
+	if err != nil {
 		return err
 	}
 	if _, err := fleet.Register(root, f.ID, r.home); err != nil {
@@ -278,6 +279,9 @@ func cmdInit(r *runner, args []string) error {
 	d.Field("routing", filepath.Join(r.home, harness.PolicyFile))
 	help := []string{"Write your durable preferences in " + filepath.Join(r.home, "memory", memory.OperatorFile),
 		"Register a repository: `hand project add NAME ABSOLUTE_REPO_PATH`"}
+	for _, name := range skipped {
+		help = append(help, "Worktrees of project "+name+" were not repaired because its git settings changed; read them, run `hand project trust "+name+"`, then run `hand init` again")
+	}
 	switch pin, had, err := luvus.LoadPin(root); {
 	case err != nil:
 		help = append(help, "The Luvus pin is unusable: "+err.Error())
@@ -345,12 +349,12 @@ func within(path, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func repairWorktrees(ctx context.Context, st *state.Store) error {
+func repairWorktrees(ctx context.Context, st *state.Store) ([]string, error) {
 	as, err := st.UncleanedAttempts(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var repos []string
+	var projects []state.Project
 	byRepo := map[string][]string{}
 	for _, a := range as {
 		if _, err := os.Stat(a.Worktree); err != nil {
@@ -360,28 +364,37 @@ func repairWorktrees(ctx context.Context, st *state.Store) error {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			return err
+			return nil, err
 		}
 		t, err := st.Task(ctx, a.TaskID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		p, err := st.Project(ctx, t.Project)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if _, err := os.Stat(p.Repo); err != nil {
 			continue
 		}
 		if _, seen := byRepo[p.Repo]; !seen {
-			repos = append(repos, p.Repo)
+			projects = append(projects, p)
 		}
 		byRepo[p.Repo] = append(byRepo[p.Repo], a.Worktree)
 	}
-	for _, repo := range repos {
-		if _, err := git(ctx, repo, append([]string{"worktree", "repair"}, byRepo[repo]...)...); err != nil {
-			return err
+	var skipped []string
+	for _, p := range projects {
+		g, err := repoGit(ctx, st, p)
+		if errors.Is(err, state.ErrInvalid) {
+			skipped = append(skipped, p.Name)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if _, err := g.Git(ctx, append([]string{"worktree", "repair"}, byRepo[p.Repo]...)...); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return skipped, nil
 }

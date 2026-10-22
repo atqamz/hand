@@ -12,7 +12,6 @@ var (
 	WatcherSweep  = &watcherSweep
 	BoardWait     = &boardStartWait
 	Reconnect     = &reconnectDelay
-	Git           = git
 	UpdateMin     = &updateMin
 	UpdateHooks   = &updateHooks
 	UnitOS        = &unitOS

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -89,24 +90,28 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		g, err := repoGit(ctx, st, project)
+		if err != nil {
+			return err
+		}
 		if continues != 0 {
 			prev, err := st.Attempt(ctx, continues)
 			if err != nil {
 				return err
 			}
-			if _, err := git(ctx, project.Repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+prev.Branch); err != nil {
+			if _, err := g.Git(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+prev.Branch); err != nil {
 				return fmt.Errorf("%w: branch %s of attempt %s no longer exists; start a fresh attempt with --base REF", state.ErrConflict, prev.Branch, state.AttemptRef(prev.ID))
 			}
 		}
 		start, warning := *base, ""
 		if start == "" && continues == 0 {
-			start, warning = defaultBase(ctx, project.Repo)
+			start, warning = defaultBase(ctx, g)
 		}
 		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, project.Repo, start)
+		running, err := launch(ctx, st, c, a, g, start)
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -398,14 +403,14 @@ func makePrivate(fleetDir string) error {
 	return nil
 }
 
-func defaultBase(ctx context.Context, repo string) (base, warning string) {
-	if _, err := git(ctx, repo, "remote", "get-url", "origin"); err != nil {
+func defaultBase(ctx context.Context, g gitcfg.Repo) (base, warning string) {
+	if _, err := g.Git(ctx, "remote", "get-url", "origin"); err != nil {
 		return "HEAD", ""
 	}
 	fctx, cancel := context.WithTimeout(ctx, fetchWait)
-	_, err := git(fctx, repo, "fetch", "origin")
+	_, err := g.Git(fctx, "fetch", "origin")
 	cancel()
-	remote := remoteDefault(ctx, repo)
+	remote := remoteDefault(ctx, g)
 	switch {
 	case err == nil && remote == "":
 		return "HEAD", ""
@@ -416,24 +421,24 @@ func defaultBase(ctx context.Context, repo string) (base, warning string) {
 	if remote == "" {
 		return "HEAD", "fetch failed (" + cause + "); no remote-tracking branch to start from, using the local HEAD"
 	}
-	tip, _ := git(ctx, repo, "log", "-1", "--format=%h, committed %cs", remote)
+	tip, _ := g.Git(ctx, "log", "-1", "--format=%h, committed %cs", remote)
 	return remote, "fetch failed (" + cause + "); using " + remote + " at " + strings.TrimSpace(tip)
 }
 
-func remoteDefault(ctx context.Context, repo string) string {
+func remoteDefault(ctx context.Context, g gitcfg.Repo) string {
 	candidates := []string{"origin/main", "origin/master"}
-	if head, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+	if head, err := g.Git(ctx, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		candidates = slices.Insert(candidates, 0, strings.TrimSpace(head))
 	}
 	for _, ref := range candidates {
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/remotes/"+ref); err == nil {
+		if _, err := g.Git(ctx, "rev-parse", "--verify", "--quiet", "refs/remotes/"+ref); err == nil {
 			return ref
 		}
 	}
 	return ""
 }
 
-func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, repo, base string) (state.Attempt, error) {
+func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
@@ -441,7 +446,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if a.Continues != 0 {
 		add = []string{"worktree", "add", a.Worktree, a.Branch}
 	}
-	if _, err := git(ctx, repo, add...); err != nil {
+	if _, err := g.Git(ctx, add...); err != nil {
 		return a, err
 	}
 	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
@@ -457,13 +462,13 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 		return a, errors.Join(err, closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID))
 	}
 	err = runtimeErr(err)
-	if _, rmErr := git(ctx, repo, "worktree", "remove", "--force", a.Worktree); rmErr != nil {
+	if _, rmErr := g.Git(ctx, "worktree", "remove", "--force", a.Worktree); rmErr != nil {
 		return a, errors.Join(err, rmErr)
 	}
 	if a.Continues != 0 {
 		return a, err
 	}
-	if _, brErr := git(ctx, repo, "branch", "-D", a.Branch); brErr != nil {
+	if _, brErr := g.Git(ctx, "branch", "-D", a.Branch); brErr != nil {
 		return a, errors.Join(err, brErr)
 	}
 	return a, err

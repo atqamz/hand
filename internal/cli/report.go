@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -68,7 +69,7 @@ func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	out, err := git(ctx, wd, "rev-parse", "--show-toplevel")
+	out, err := gitcfg.Toplevel(ctx, wd)
 	if err != nil {
 		return 0, "", fmt.Errorf("%w: %s is not inside a Hand worktree; pass --attempt", state.ErrInvalid, wd)
 	}

@@ -124,6 +124,7 @@ func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
 	if out, err := exec.Command("git", "-C", fx.repo, "config", "core.fsmonitor", script).CombinedOutput(); err != nil {
 		t.Fatalf("git config: %s", out)
 	}
+	fx.h.ok("project", "trust", "app")
 	fx.start()
 	fx.h.ok("attempt", "stop", "a1")
 	fx.h.ok("attempt", "clean", "a1")

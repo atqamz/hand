@@ -1,22 +1,19 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/luvus"
-	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -239,15 +236,16 @@ func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Termin
 	return nil
 }
 
-func git(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "core.longpaths=true", "-C", dir}, args...)...)
-	cmd.WaitDelay = time.Second
-	proc.NoWindow(cmd)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, bytes.TrimSpace(append(stderr.Bytes(), out...)))
+func repoGit(ctx context.Context, st *state.Store, p state.Project) (gitcfg.Repo, error) {
+	g := gitcfg.Repo{Project: p.Name, Dir: p.Repo, Recorded: p.Settings}
+	if g.Recorded == "" {
+		now, err := gitcfg.Read(ctx, p.Repo)
+		if err != nil {
+			return g, err
+		}
+		if g.Recorded, err = st.AdoptProject(ctx, p.Name, now.Digest()); err != nil {
+			return g, err
+		}
 	}
-	return string(out), nil
+	return g, g.Check(ctx)
 }

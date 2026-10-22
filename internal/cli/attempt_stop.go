@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/gitcfg"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -130,7 +131,11 @@ func cmdAttemptClean(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := removeWorktree(ctx, c, project.Repo, a.Worktree, *discard); err != nil {
+		g, err := repoGit(ctx, st, project)
+		if err != nil {
+			return err
+		}
+		if err := removeWorktree(ctx, c, g, a.Worktree, *discard); err != nil {
 			return err
 		}
 		if _, err := st.CleanAttempt(ctx, id); err != nil {
@@ -144,14 +149,15 @@ func cmdAttemptClean(r *runner, args []string) error {
 	})
 }
 
-func removeWorktree(ctx context.Context, c luvus.Client, repo, dir string, discard bool) error {
+func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir string, discard bool) error {
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
-		_, err := git(ctx, repo, "worktree", "prune")
+		_, err := g.Git(ctx, "worktree", "prune")
 		return err
 	} else if err != nil {
 		return err
 	}
-	dirty, err := git(ctx, dir, "status", "--porcelain", "--untracked-files=all")
+	here := g.In(dir)
+	dirty, err := here.Git(ctx, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
@@ -159,7 +165,7 @@ func removeWorktree(ctx context.Context, c luvus.Client, repo, dir string, disca
 		return fmt.Errorf("%w: worktree %s has uncommitted changes; commit them or pass --discard", state.ErrConflict, dir)
 	}
 	if !discard {
-		n, err := git(ctx, dir, "rev-list", "--count", "HEAD", "--not", "--branches", "--tags", "--remotes")
+		n, err := here.Git(ctx, "rev-list", "--count", "HEAD", "--not", "--branches", "--tags", "--remotes")
 		if err != nil {
 			return err
 		}
@@ -174,7 +180,10 @@ func removeWorktree(ctx context.Context, c luvus.Client, repo, dir string, disca
 	if discard {
 		rm = append(rm, "--force")
 	}
-	_, err = git(ctx, repo, append(rm, dir)...)
+	if err := here.Check(ctx); err != nil {
+		return err
+	}
+	_, err = g.Git(ctx, append(rm, dir)...)
 	return err
 }
 
