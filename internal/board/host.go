@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -147,7 +148,12 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, state.ErrNotFound):
 		hostFail(w, http.StatusNotFound, "fleet not found")
 	case err != nil:
-		hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))
+		log.Printf("board: fleet %s did not open: %v", id, err)
+		if h.o.Loopback && !forwarded(r) {
+			hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))
+		} else {
+			hostFail(w, http.StatusNotFound, "fleet not found")
+		}
 	default:
 		defer f.busy.Done()
 		ctx, cancel := context.WithCancel(r.Context())

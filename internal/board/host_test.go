@@ -1,11 +1,16 @@
 package board_test
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -167,6 +172,61 @@ func TestADeadFleetIs404(t *testing.T) {
 		t.Fatalf("dead fleet = %d %q", rec.Code, rec.Body.String())
 	}
 	eventually(t, func() bool { _, closed := f.seen(); return slices.Equal(closed, []string{fleetA + " /homes/a"}) })
+}
+
+func TestAProxiedRequestCannotTellABrokenFleetFromAMissingOne(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	broken := errors.New("open /homes/secretfolder: permission denied")
+	build := func(loopback bool) *board.Host {
+		return board.NewHost(board.HostOptions{
+			Loopback: loopback,
+			Resolve: func(id string) (string, error) {
+				if id == fleetA {
+					return "/homes/secretfolder", nil
+				}
+				return "", state.ErrNotFound
+			},
+			Open: func(string, string) (http.Handler, io.Closer, error) { return nil, nil, broken },
+		})
+	}
+	ask := func(h http.Handler, id string, header map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/"+id+"/", nil)
+		for k, v := range header {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	for _, header := range []map[string]string{
+		{"X-Forwarded-For": "203.0.113.9"},
+		{"Forwarded": "for=203.0.113.9"},
+		{"Tailscale-User-Login": "someone@example.com"},
+		{"Tailscale-Funnel-Request": "?1", "X-Forwarded-For": "203.0.113.9"},
+	} {
+		for _, loopback := range []bool{true, false} {
+			h := build(loopback)
+			got, want := ask(h, fleetA, header), ask(h, fleetB, header)
+			if got.Code != want.Code || got.Body.String() != want.Body.String() || !maps.EqualFunc(got.Header(), want.Header(), slices.Equal) {
+				t.Fatalf("%v loopback=%v: broken = %d %v\n%s\nmissing = %d %v\n%s", header, loopback, got.Code, got.Header(), got.Body, want.Code, want.Header(), want.Body)
+			}
+			if strings.Contains(wholeResponse(got), "secretfolder") {
+				t.Fatalf("%v loopback=%v names the folder:\n%s", header, loopback, wholeResponse(got))
+			}
+		}
+	}
+	if rec := ask(build(true), fleetA, map[string]string{"X-Forwarded-For": "203.0.113.9"}); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "fleet not found") {
+		t.Fatalf("proxied broken fleet = %d\n%s", rec.Code, rec.Body)
+	}
+	rec := ask(build(true), fleetA, nil)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "secretfolder") {
+		t.Fatalf("direct loopback broken fleet = %d\n%s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(logged.String(), fleetA) || !strings.Contains(logged.String(), broken.Error()) {
+		t.Fatalf("the board logged %q, want the fleet and the full error", logged.String())
+	}
 }
 
 func TestTheFleetListIsLoopbackOnly(t *testing.T) {

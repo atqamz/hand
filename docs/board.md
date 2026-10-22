@@ -69,6 +69,7 @@ Through the phone's address the board also:
 - refuses every request that arrives through Tailscale Funnel (`Tailscale-Funnel-Request`) with a page that says so, serving only its stylesheet and script. Never publish the board with Funnel or any other public proxy;
 - shows no fleet list at `/` to a request that carries `X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`, which a proxy adds, unless the request also carries a valid phone session: `/` and the rail's **All fleets** then list exactly the fleets that phone is paired with (see [Several fleets on one phone](#several-fleets-on-one-phone));
 - names no fleet on a page served without a session (the pairing page, the refusals for a missing, revoked or lapsed login, the Funnel refusal): its title, header and text read "this Board";
+- answers a request that carries one of those headers for a fleet whose store cannot be opened exactly as it answers an unknown fleet id (404, "fleet not found"), so it shows neither the error nor whether the fleet exists but is broken. The board writes the full error to its stderr; a direct loopback request still shows it on the page;
 - sends `Referrer-Policy: no-referrer` on every page, so a link out of the board never tells the other site the board's address.
 
 `hand open --print` still prints a login link that holds the fleet's token, which a browser keeps as the laptop's session: pair a phone from the Phone page instead.
