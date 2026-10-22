@@ -438,7 +438,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	secret := randomText(32)
-	d, err := b.st.AddDevice(r.Context(), name, tailnetLogin(r), b.secretHash(secret))
+	d, err := b.st.AddDevice(r.Context(), name, tailnetLogin(r), b.secretHash(secret), "")
 	if err != nil {
 		b.failNeutralErr(w, err)
 		return

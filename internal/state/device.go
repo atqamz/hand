@@ -16,16 +16,33 @@ import (
 const (
 	MaxDeviceName  = 40
 	MaxDeviceLogin = 254
+	PhoneLabelLen  = 16
 )
 
 type Device struct {
 	ID       int64
 	Name     string
 	Login    string
+	Phone    string
 	PairedAt time.Time
 }
 
 func CleanLogin(s string) string { return cleanDeviceText(s, MaxDeviceLogin) }
+
+func validPhoneLabel(s string) bool {
+	if s == "" {
+		return true
+	}
+	if len(s) != PhoneLabelLen {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
 
 func cleanDeviceText(s string, max int) string {
 	s = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
@@ -45,7 +62,7 @@ func (d Device) detail() string { return strconv.FormatInt(d.ID, 10) + " " + d.N
 func scanDevice(row scanner) (Device, error) {
 	var d Device
 	var paired string
-	if err := row.Scan(&d.ID, &d.Name, &d.Login, &paired); err != nil {
+	if err := row.Scan(&d.ID, &d.Name, &d.Login, &d.Phone, &paired); err != nil {
 		return d, err
 	}
 	var err error
@@ -53,17 +70,20 @@ func scanDevice(row scanner) (Device, error) {
 	return d, err
 }
 
-func (s *Store) AddDevice(ctx context.Context, name, login, secretHash string) (Device, error) {
-	d := Device{Name: cleanDeviceText(name, MaxDeviceName), Login: CleanLogin(login), PairedAt: s.now().UTC()}
+func (s *Store) AddDevice(ctx context.Context, name, login, secretHash, phone string) (Device, error) {
+	d := Device{Name: cleanDeviceText(name, MaxDeviceName), Login: CleanLogin(login), Phone: phone, PairedAt: s.now().UTC()}
 	if d.Name == "" {
 		d.Name = "Phone"
 	}
 	if len(secretHash) != 64 {
 		return Device{}, fmt.Errorf("%w: a device secret is stored as a 64-character hash", ErrInvalid)
 	}
+	if !validPhoneLabel(phone) {
+		return Device{}, fmt.Errorf("%w: a phone label is empty or %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
+	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		err := tx.QueryRow(`INSERT INTO device(name, login, secret_hash, paired_at) VALUES (?, ?, ?, ?) RETURNING id`,
-			d.Name, d.Login, secretHash, d.PairedAt.Format(time.RFC3339Nano)).Scan(&d.ID)
+		err := tx.QueryRow(`INSERT INTO device(name, login, secret_hash, phone, paired_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+			d.Name, d.Login, secretHash, d.Phone, d.PairedAt.Format(time.RFC3339Nano)).Scan(&d.ID)
 		if err != nil {
 			return err
 		}
@@ -73,7 +93,7 @@ func (s *Store) AddDevice(ctx context.Context, name, login, secretHash string) (
 }
 
 func (s *Store) Devices(ctx context.Context) ([]Device, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, login, paired_at FROM device ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, login, phone, paired_at FROM device ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -91,10 +111,10 @@ func (s *Store) Devices(ctx context.Context) ([]Device, error) {
 
 func (s *Store) DeviceWithSecret(ctx context.Context, id int64, secretHash string) (Device, bool, error) {
 	var stored string
-	row := s.db.QueryRowContext(ctx, `SELECT secret_hash, id, name, login, paired_at FROM device WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT secret_hash, id, name, login, phone, paired_at FROM device WHERE id = ?`, id)
 	var d Device
 	var paired string
-	err := row.Scan(&stored, &d.ID, &d.Name, &d.Login, &paired)
+	err := row.Scan(&stored, &d.ID, &d.Name, &d.Login, &d.Phone, &paired)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Device{}, false, nil
 	}
@@ -111,7 +131,7 @@ func (s *Store) DeviceWithSecret(ctx context.Context, id int64, secretHash strin
 func (s *Store) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 	var d Device
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		row := tx.QueryRow(`DELETE FROM device WHERE id = ? RETURNING id, name, login, paired_at`, id)
+		row := tx.QueryRow(`DELETE FROM device WHERE id = ? RETURNING id, name, login, phone, paired_at`, id)
 		var err error
 		if d, err = scanDevice(row); errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: no paired phone %d", ErrNotFound, id)

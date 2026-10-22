@@ -50,9 +50,12 @@ var timerSchema string
 //go:embed device.sql
 var deviceSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema, timerSchema, deviceSchema}
+//go:embed phone.sql
+var phoneSchema string
 
-const SchemaVersion = 11
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema, timerSchema, deviceSchema, phoneSchema}
+
+const SchemaVersion = 12
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
