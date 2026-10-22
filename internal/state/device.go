@@ -1,11 +1,13 @@
 package state
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +45,8 @@ func validPhoneLabel(s string) bool {
 	}
 	return true
 }
+
+func ValidPhoneLabel(s string) bool { return s != "" && validPhoneLabel(s) }
 
 func cleanDeviceText(s string, max int) string {
 	s = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
@@ -141,4 +145,41 @@ func (s *Store) RevokeDevice(ctx context.Context, id int64) (Device, error) {
 		return emit(tx, s.stamp(), "board.revoked", 0, d.detail())
 	})
 	return d, err
+}
+
+func (s *Store) RevokePhone(ctx context.Context, label string) ([]Device, error) {
+	if !ValidPhoneLabel(label) {
+		return nil, fmt.Errorf("%w: a phone label is %d lowercase hex characters", ErrInvalid, PhoneLabelLen)
+	}
+	var out []Device
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		out = nil
+		rows, err := tx.Query(`DELETE FROM device WHERE phone = ? RETURNING id, name, login, phone, paired_at`, label)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			d, err := scanDevice(rows)
+			if err != nil {
+				rows.Close()
+				return err
+			}
+			out = append(out, d)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
+		slices.SortFunc(out, func(a, b Device) int { return cmp.Compare(a.ID, b.ID) })
+		now := s.stamp()
+		for _, d := range out {
+			if err := emit(tx, now, "board.revoked", 0, d.detail()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

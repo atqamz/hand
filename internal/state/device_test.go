@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -248,5 +249,130 @@ func TestEveryRecordOfOnePairingKeepsItsOwnSecretHashAndNumber(t *testing.T) {
 	}
 	if _, ok, _ := second.DeviceWithSecret(ctx, b.ID, hashB); !ok {
 		t.Fatal("revoking in one store closed the record in another")
+	}
+}
+
+func TestRevokingAPhoneRemovesEveryRecordOfItsLabelAndOnlyThose(t *testing.T) {
+	label, other := "0123456789abcdef", "fedcba9876543210"
+	hashC := strings.Repeat("c", 64)
+	cases := []struct {
+		what   string
+		revoke string
+		gone   []string
+		kept   []string
+		events []string
+	}{
+		{"one record of the label", label, []string{"Pixel"}, []string{"Old", "Tablet", "Twin"}, []string{"board.revoked 1 Pixel"}},
+		{"another phone's label", other, []string{"Tablet", "Twin"}, []string{"Old", "Pixel"}, []string{"board.revoked 3 Tablet", "board.revoked 4 Twin"}},
+		{"a label nobody holds", "aaaaaaaaaaaaaaaa", nil, []string{"Old", "Pixel", "Tablet", "Twin"}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.what, func(t *testing.T) {
+			s, _ := openTest(t)
+			ctx := context.Background()
+			for _, d := range []struct{ name, hash, label string }{{"Pixel", hashA, label}, {"Old", hashB, ""}, {"Tablet", hashC, other}, {"Twin", hashA, other}} {
+				if _, err := s.AddDevice(ctx, d.name, "operator@example.com", d.hash, d.label); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gone, err := s.RevokePhone(ctx, c.revoke)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, d := range gone {
+				if d.Phone != c.revoke {
+					t.Fatalf("revoked a record of another phone: %+v", d)
+				}
+				names = append(names, d.Name)
+			}
+			if strings.Join(names, ",") != strings.Join(c.gone, ",") {
+				t.Fatalf("revoked %q, want %q", names, c.gone)
+			}
+			list, err := s.Devices(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var kept []string
+			for _, d := range list {
+				kept = append(kept, d.Name)
+			}
+			if slices.Compare(slices.Sorted(slices.Values(kept)), c.kept) != 0 {
+				t.Fatalf("kept %q, want %q", kept, c.kept)
+			}
+			events := deviceEvents(t, s)[4:]
+			if slices.Compare(events, c.events) != 0 {
+				t.Fatalf("events = %q, want %q", events, c.events)
+			}
+			again, err := s.RevokePhone(ctx, c.revoke)
+			if err != nil || len(again) != 0 {
+				t.Fatalf("a repeated revoke = %+v, %v", again, err)
+			}
+			if got := deviceEvents(t, s)[4:]; slices.Compare(got, c.events) != 0 {
+				t.Fatalf("a repeated revoke wrote events: %q", got)
+			}
+		})
+	}
+}
+
+func TestRevokingAPhoneByAnEmptyOrBadLabelRevokesNothing(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	for _, d := range []struct{ hash, label string }{{hashA, ""}, {hashB, "0123456789abcdef"}} {
+		if _, err := s.AddDevice(ctx, "Phone", "", d.hash, d.label); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, label := range map[string]string{
+		"empty":      "",
+		"short":      "0123456789abcde",
+		"upper":      "0123456789ABCDEF",
+		"a wildcard": "%",
+		"a clause":   "0123456789abcdef' OR '1'='1",
+		"two":        "0123456789abcdef0123456789abcdef",
+	} {
+		if got, err := s.RevokePhone(ctx, label); !errors.Is(err, ErrInvalid) || len(got) != 0 {
+			t.Errorf("%s label = %+v, %v", name, got, err)
+		}
+	}
+	if list, err := s.Devices(ctx); err != nil || len(list) != 2 {
+		t.Fatalf("a refused label left %v, %v", list, err)
+	}
+	if got := deviceEvents(t, s); len(got) != 2 {
+		t.Fatalf("a refused label wrote events: %q", got)
+	}
+}
+
+func TestRevokingAPhoneAndItsEventsShareOneTransaction(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	label := "0123456789abcdef"
+	for _, h := range []string{hashA, hashB} {
+		if _, err := s.AddDevice(ctx, "Pixel", "", h, label); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`CREATE TRIGGER no_revoked BEFORE INSERT ON event WHEN NEW.kind = 'board.revoked' AND NEW.detail LIKE '2 %' BEGIN SELECT RAISE(ABORT, 'no event'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.RevokePhone(ctx, label); err == nil || len(got) != 0 {
+		t.Fatalf("RevokePhone survived a failing event: %+v, %v", got, err)
+	}
+	if list, err := s.Devices(ctx); err != nil || len(list) != 2 {
+		t.Fatalf("a revoke outlived its failed event: %v, %v", list, err)
+	}
+}
+
+func TestEveryRecordRevokedByLabelKeepsTheNumbersItHeld(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	label := "0123456789abcdef"
+	first, _ := s.AddDevice(ctx, "Pixel", "", hashA, label)
+	if _, err := s.RevokePhone(ctx, label); err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.AddDevice(ctx, "Pixel", "", hashA, label)
+	if err != nil || next.ID == first.ID {
+		t.Fatalf("a new record got number %d after %d, %v", next.ID, first.ID, err)
 	}
 }
