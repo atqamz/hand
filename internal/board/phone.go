@@ -401,7 +401,7 @@ var pairFailure = map[pairResult]struct {
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
 	w.Header().Set("Cache-Control", "no-store")
-	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r)})
+	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Neutral": true})
 }
 
 func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
@@ -423,7 +423,7 @@ func (b *Board) pair(w http.ResponseWriter, r *http.Request) {
 	secret := randomText(32)
 	d, err := b.st.AddDevice(r.Context(), name, tailnetLogin(r), b.secretHash(secret))
 	if err != nil {
-		b.failErr(w, err)
+		b.failNeutralErr(w, err)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Value: strconv.FormatInt(d.ID, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})

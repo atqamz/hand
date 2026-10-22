@@ -68,6 +68,7 @@ Through the phone's address the board also:
 
 - refuses every request that arrives through Tailscale Funnel (`Tailscale-Funnel-Request`) with a page that says so, serving only its stylesheet and script. Never publish the board with Funnel or any other public proxy;
 - shows no fleet list at `/` to a request that carries `X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`, which a proxy adds;
+- names no fleet on a page served without a session (the pairing page, the refusals for a missing, revoked or lapsed login, the Funnel refusal): its title, header and text read "this Board";
 - sends `Referrer-Policy: no-referrer` on every page, so a link out of the board never tells the other site the board's address.
 
 `hand open --print` still prints a login link that holds the fleet's token, which a browser keeps as the laptop's session: pair a phone from the Phone page instead.

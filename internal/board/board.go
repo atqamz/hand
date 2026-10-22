@@ -194,7 +194,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if viaFunnel(r) {
-		b.fail(w, http.StatusForbidden, funnelRefusal)
+		b.failNeutral(w, http.StatusForbidden, funnelRefusal)
 		return
 	}
 	if r.URL.Path == "/proof" && r.Method == http.MethodGet {
@@ -205,7 +205,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if t := r.URL.Query().Get("token"); t != "" {
 		if !b.valid(t) {
-			b.fail(w, http.StatusForbidden, "this board link is not valid")
+			b.failNeutral(w, http.StatusForbidden, "this board link is not valid")
 			return
 		}
 		http.SetCookie(w, &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
@@ -224,7 +224,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s, fault := b.session(r)
 	if fault != signedIn {
-		b.fail(w, http.StatusForbidden, sessionFaults(fault, forwarded(r)))
+		b.failNeutral(w, http.StatusForbidden, sessionFaults(fault, forwarded(r)))
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
@@ -433,7 +433,9 @@ func (b *Board) pageData(data map[string]any) map[string]any {
 		data["Local"] = b.local()
 	}
 	data["Fleet"] = "hand"
-	if f, err := b.st.Fleet(context.Background()); err == nil {
+	if neutral, _ := data["Neutral"].(bool); neutral {
+		data["Fleet"] = "this Board"
+	} else if f, err := b.st.Fleet(context.Background()); err == nil {
 		data["Fleet"], data["FleetID"] = f.Name, f.ID
 	}
 	return data
@@ -454,9 +456,17 @@ func (b *Board) fail(w http.ResponseWriter, status int, msg string) {
 	b.failWith(w, status, msg, nil)
 }
 
-func (b *Board) failWith(w http.ResponseWriter, status int, msg string, strip map[string]any) {
+func (b *Board) failNeutral(w http.ResponseWriter, status int, msg string) {
+	b.failWith(w, status, msg, map[string]any{"Neutral": true})
+}
+
+func (b *Board) failWith(w http.ResponseWriter, status int, msg string, extra map[string]any) {
 	w.Header().Set("X-Hand-Error", url.PathEscape(strings.Join(strings.Fields(msg), " ")))
-	b.render(w, status, "error.html", map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": sentence(msg), "StripData": strip})
+	data := map[string]any{"Title": strconv.Itoa(status), "Status": status, "Message": sentence(msg)}
+	for k, v := range extra {
+		data[k] = v
+	}
+	b.render(w, status, "error.html", data)
 }
 
 func sentence(msg string) string {
@@ -475,6 +485,16 @@ func sentence(msg string) string {
 }
 
 func (b *Board) failErr(w http.ResponseWriter, err error) {
+	status, msg := failure(err)
+	b.failWith(w, status, msg, map[string]any{"StripData": b.stripData(context.Background())})
+}
+
+func (b *Board) failNeutralErr(w http.ResponseWriter, err error) {
+	status, msg := failure(err)
+	b.failNeutral(w, status, msg)
+}
+
+func failure(err error) (int, string) {
 	status, msg := http.StatusInternalServerError, Scrub(err.Error())
 	switch {
 	case errors.Is(err, state.ErrNotFound):
@@ -486,7 +506,7 @@ func (b *Board) failErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, syscall.ENOSPC):
 		status, msg = http.StatusInsufficientStorage, "the disk is full; free some space and try again"
 	}
-	b.failWith(w, status, msg, b.stripData(context.Background()))
+	return status, msg
 }
 
 func tint(id any) int {
