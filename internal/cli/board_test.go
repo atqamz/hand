@@ -577,3 +577,116 @@ func TestASecondBoardOnTheSameAddressLeavesTheFirstAlone(t *testing.T) {
 	}
 	stop()
 }
+
+func proxiedSend(t *testing.T, method, u string, form url.Values, cookies []*http.Cookie) (*http.Response, string) {
+	t.Helper()
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequest(method, u, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	req.Header.Set("X-Forwarded-For", "100.64.0.7")
+	for _, ck := range cookies {
+		req.AddCookie(ck)
+	}
+	res, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	out, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res, string(out)
+}
+
+func TestARevokeEverywhereReachesEveryFleetThroughTheRealBoard(t *testing.T) {
+	a := newHarness(t)
+	a.ok("init", "--name", "alpha")
+	b := newHarness(t)
+	b.vars = a.vars
+	b.ok("init", "--name", "beta")
+	c := newHarness(t)
+	c.vars = a.vars
+	c.ok("init", "--name", "gamma")
+	d := newHarness(t)
+	d.vars = a.vars
+	d.ok("init", "--name", "delta")
+	base, _ := startBoard(t, a, "127.0.0.1")
+	urlA, tokenA := fleetPage(t, base, a)
+	urlB, tokenB := fleetPage(t, base, b)
+	urlC, tokenC := fleetPage(t, base, c)
+	urlD, tokenD := fleetPage(t, base, d)
+	idA, idB, idC, idD := path.Base(urlA), path.Base(urlB), path.Base(urlC), path.Base(urlD)
+	login := func(id, token string) *http.Cookie { return &http.Cookie{Name: "hand_board_" + id, Value: token} }
+	all := []*http.Cookie{login(idA, tokenA), login(idB, tokenB), login(idC, tokenC), login(idD, tokenD)}
+	_, page := proxiedSend(t, "POST", urlA+"/connect/code", url.Values{"csrf": {tokenA}, "base": {"https://laptop.example"}, "fleet": {idB, idC}}, all)
+	m := regexp.MustCompile(`class="code-big"[^>]*>([0-9A-Z]{5}-[0-9A-Z]{5})<`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatalf("no code:\n%s", page)
+	}
+	res, result := proxiedSend(t, "POST", urlA+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
+	if res.StatusCode != http.StatusOK || !strings.Contains(result, "Paired with alpha, beta and gamma.") {
+		t.Fatalf("pair = %d:\n%s", res.StatusCode, result)
+	}
+	var phone []*http.Cookie
+	for _, ck := range res.Cookies() {
+		if ck.MaxAge > 0 {
+			phone = append(phone, ck)
+		}
+	}
+	if len(phone) != 3 {
+		t.Fatalf("cookies = %v", phone)
+	}
+	opens := func(fleetURL string) int {
+		res, _ := proxiedSend(t, "GET", fleetURL+"/", nil, phone)
+		return res.StatusCode
+	}
+	_, list := proxiedSend(t, "GET", urlA+"/connect", nil, all[:3])
+	for _, want := range []string{`class="device device-group"`, `aria-label="Revoke Pixel in alpha"`, `aria-label="Revoke Pixel in beta"`, `aria-label="Revoke Pixel in gamma"`, `action="/` + idA + `/connect/revoke/everywhere"`} {
+		if !strings.Contains(list, want) {
+			t.Fatalf("the Phone page lacks %q:\n%s", want, list)
+		}
+	}
+	if strings.Contains(list, "delta") {
+		t.Fatalf("the Phone page names a fleet the phone is not in:\n%s", list)
+	}
+	label := regexp.MustCompile(`name="phone" value="([0-9a-f]{16})"`).FindStringSubmatch(list)
+	if label == nil {
+		t.Fatalf("no label in the forms:\n%s", list)
+	}
+	res, _ = proxiedSend(t, "POST", urlA+"/connect/revoke/in", url.Values{"csrf": {tokenA}, "phone": {label[1]}, "fleet": {idB}}, all[:1])
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("a revoke in beta with no login for beta = %d", res.StatusCode)
+	}
+	if got := opens(urlB); got != http.StatusOK {
+		t.Fatalf("beta after a refused revoke = %d", got)
+	}
+	res, _ = proxiedSend(t, "POST", urlA+"/connect/revoke/in", url.Values{"csrf": {tokenA}, "phone": {label[1]}, "fleet": {idB}}, all[:2])
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoke in beta = %d", res.StatusCode)
+	}
+	if opens(urlB) != http.StatusForbidden || opens(urlA) != http.StatusOK || opens(urlC) != http.StatusOK {
+		t.Fatalf("revoking in beta left alpha %d, beta %d, gamma %d", opens(urlA), opens(urlB), opens(urlC))
+	}
+	res, _ = proxiedSend(t, "POST", urlA+"/connect/revoke/everywhere", url.Values{"csrf": {tokenA}, "phone": {label[1]}}, []*http.Cookie{all[0], all[2]})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("revoke everywhere = %d", res.StatusCode)
+	}
+	for name, fleetURL := range map[string]string{"alpha": urlA, "beta": urlB, "gamma": urlC} {
+		if got := opens(fleetURL); got != http.StatusForbidden {
+			t.Fatalf("a revoked phone opens %s = %d", name, got)
+		}
+	}
+	_, after := proxiedSend(t, "GET", urlA+"/connect", nil, all[:3])
+	if !strings.Contains(after, "No phone is paired.") {
+		t.Fatalf("the Phone page after a revoke everywhere:\n%s", after)
+	}
+}

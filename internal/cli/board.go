@@ -198,6 +198,30 @@ func (f *fleetBoard) PairPhone(ctx context.Context, rd *board.Redeemed) (board.P
 	return p.PairPhone(ctx, rd)
 }
 
+func (f *fleetBoard) PhoneRecords(ctx context.Context) ([]board.PhoneRecord, error) {
+	h, err := f.current()
+	if err != nil {
+		return nil, err
+	}
+	l, ok := h.(board.Lister)
+	if !ok {
+		return nil, state.ErrNotFound
+	}
+	return l.PhoneRecords(ctx)
+}
+
+func (f *fleetBoard) RevokePhone(ctx context.Context, rv *board.Revocation) (int, error) {
+	h, err := f.current()
+	if err != nil {
+		return 0, err
+	}
+	r, ok := h.(board.Revoker)
+	if !ok {
+		return 0, state.ErrNotFound
+	}
+	return r.RevokePhone(ctx, rv)
+}
+
 func (f *fleetBoard) current() (http.Handler, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

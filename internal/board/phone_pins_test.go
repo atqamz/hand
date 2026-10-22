@@ -62,10 +62,29 @@ func TestThePairPageStylesTheFleetChoices(t *testing.T) {
 	for _, rule := range rules {
 		contains(t, "board.css", css, "\n"+rule+"\n")
 	}
-	block := css[strings.Index(css, "\n.pair-fleets{"):]
+	block := css[strings.Index(css, "\n.pair-fleets{"):strings.Index(css, "\n.device-group{")]
 	lacks(t, "the fleet choice rules", block, "user-select", "min-height", "#fff", "#000", "!important", "@media")
-	if strings.Count(block, "\n") != len(rules)+1 {
+	if strings.Count(block, "\n") != len(rules) {
 		t.Fatalf("the fleet choice rules grew past the pinned set:\n%s", block)
+	}
+}
+
+func TestThePhonePageStylesAPhoneListedWithItsFleets(t *testing.T) {
+	css := asset(t, "board.css")
+	rules := []string{
+		".device-group{flex-wrap:wrap}",
+		".dev-fleets{display:grid;flex:1 0 100%;gap:2px;margin:0;padding:0 0 0 12px;border-left:2px solid var(--line);list-style:none}",
+		".dev-fleet{display:flex;align-items:center;justify-content:space-between;gap:12px}",
+		".dev-fleet>span{min-width:0;overflow-wrap:anywhere}",
+		".revoke-note{display:grid;gap:10px;justify-items:start}",
+	}
+	for _, rule := range rules {
+		contains(t, "board.css", css, "\n"+rule+"\n")
+	}
+	block := css[strings.Index(css, "\n.device-group{"):]
+	lacks(t, "the grouped phone rules", block, "user-select", "min-height", "height:", "#fff", "#000", "!important", "@media")
+	if strings.Count(block, "\n") != len(rules)+1 {
+		t.Fatalf("the grouped phone rules grew past the pinned set:\n%s", block)
 	}
 }
 

@@ -29,6 +29,9 @@ type phoneHost struct {
 	now      time.Time
 	opened   map[string]int
 	proofs   map[string]int
+	lists    map[string]int
+	revokes  map[string]int
+	bare     map[string]bool
 	down     map[string]bool
 	gone     map[string]bool
 	paths    map[string]string
@@ -43,6 +46,26 @@ type counted struct {
 func (c counted) PairPhone(ctx context.Context, rd *board.Redeemed) (board.Paired, error) {
 	return c.Handler.(board.Pairer).PairPhone(ctx, rd)
 }
+
+func (c counted) PhoneRecords(ctx context.Context) ([]board.PhoneRecord, error) {
+	c.p.mu.Lock()
+	c.p.lists[c.id]++
+	c.p.mu.Unlock()
+	return c.Handler.(board.Lister).PhoneRecords(ctx)
+}
+
+func (c counted) RevokePhone(ctx context.Context, rv *board.Revocation) (int, error) {
+	c.p.mu.Lock()
+	c.p.revokes[c.id]++
+	c.p.mu.Unlock()
+	return c.Handler.(board.Revoker).RevokePhone(ctx, rv)
+}
+
+type bare struct {
+	http.Handler
+}
+
+func (b bare) PhoneSession(r *http.Request) bool { return b.Handler.(board.Prover).PhoneSession(r) }
 
 func (c counted) PhoneSession(r *http.Request) bool {
 	c.p.mu.Lock()
@@ -65,7 +88,7 @@ func (p *phoneHost) advance(d time.Duration) {
 
 func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
 	t.Helper()
-	p := &phoneHost{t: t, loopback: loopback, now: phoneEpoch, down: map[string]bool{}, gone: map[string]bool{}, paths: map[string]string{}}
+	p := &phoneHost{t: t, loopback: loopback, now: phoneEpoch, down: map[string]bool{}, gone: map[string]bool{}, bare: map[string]bool{}, paths: map[string]string{}}
 	for i, name := range names {
 		path := filepath.Join(t.TempDir(), "hand.db")
 		st, err := state.Open(path, p.clock)
@@ -89,7 +112,7 @@ func newPhoneHost(t *testing.T, loopback bool, names ...string) *phoneHost {
 
 func (p *phoneHost) restart() {
 	p.mu.Lock()
-	p.opened, p.proofs = map[string]int{}, map[string]int{}
+	p.opened, p.proofs, p.lists, p.revokes = map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	p.mu.Unlock()
 	byID := map[string]railFleet{}
 	var all []board.FleetLink
@@ -117,6 +140,9 @@ func (p *phoneHost) restart() {
 			p.opened[id]++
 			p.mu.Unlock()
 			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock})
+			if p.bare[id] {
+				return bare{b}, closer(func() error { return nil }), nil
+			}
 			return counted{b, p, id}, closer(func() error { return nil }), nil
 		},
 		List: func() ([]board.FleetLink, error) {

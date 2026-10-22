@@ -167,6 +167,8 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 			ctx = context.WithValue(ctx, fleetsKey{}, h.signedIn(id, r))
 			ctx = context.WithValue(ctx, laptopKey{}, h.laptopIn(id, r))
 			ctx = context.WithValue(ctx, pairKey{}, h.pairIn)
+			ctx = context.WithValue(ctx, listKey{}, listFunc(h.listIn(id, r)))
+			ctx = context.WithValue(ctx, revokeKey{}, revokeFunc(h.revokeIn(id, r)))
 		}
 		http.StripPrefix("/"+id, f.h).ServeHTTP(w, r.WithContext(ctx))
 	}
@@ -210,6 +212,64 @@ func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {
 		}
 	}
 	return proven
+}
+
+func (h *Host) tokenProves(current, id string, r *http.Request) bool {
+	if id == current || !state.FleetID.MatchString(id) || h.o.Valid == nil {
+		return false
+	}
+	for _, c := range r.CookiesNamed(cookieName + "_" + id) {
+		if h.o.Valid(id, c.Value) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Host) listIn(current string, r *http.Request) func(context.Context, string) ([]PhoneRecord, error) {
+	return func(ctx context.Context, id string) ([]PhoneRecord, error) {
+		if !h.tokenProves(current, id, r) {
+			return nil, errNotProven
+		}
+		f, err := h.handler(id)
+		if err != nil {
+			log.Printf("board: the Phone page could not reach fleet %s: %v", id, err)
+			return nil, err
+		}
+		defer f.busy.Done()
+		l, ok := f.h.(Lister)
+		if !ok {
+			return nil, state.ErrNotFound
+		}
+		got, err := l.PhoneRecords(ctx)
+		if err != nil {
+			log.Printf("board: listing the phones of fleet %s failed: %v", id, err)
+		}
+		return got, err
+	}
+}
+
+func (h *Host) revokeIn(current string, r *http.Request) func(context.Context, string, string) (int, error) {
+	return func(ctx context.Context, id, label string) (int, error) {
+		if !h.tokenProves(current, id, r) {
+			return 0, errNotProven
+		}
+		f, err := h.handler(id)
+		if err != nil {
+			log.Printf("board: revoking a phone could not reach fleet %s: %v", id, err)
+			return 0, err
+		}
+		defer f.busy.Done()
+		rv, ok := f.h.(Revoker)
+		if !ok {
+			return 0, state.ErrNotFound
+		}
+		n, err := rv.RevokePhone(ctx, &Revocation{fleet: id, label: label})
+		if err != nil {
+			log.Printf("board: revoking a phone in fleet %s failed: %v", id, err)
+		}
+		return n, err
+	}
 }
 
 func (h *Host) laptopIn(current string, r *http.Request) func() []FleetLink {

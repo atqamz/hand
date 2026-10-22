@@ -786,3 +786,8 @@ html:has(dialog.viewer:modal){overflow:hidden}
 .pair-fleets legend{padding:0;margin-bottom:4px}
 .pair-fleet{display:flex;align-items:center;gap:10px;padding-block:calc((var(--control) - 20px)/2);line-height:20px;cursor:pointer}
 .pair-fleets .pair-fleet>input{flex:none;width:18px;height:18px;margin:0;padding:0;accent-color:var(--accent)}
+.device-group{flex-wrap:wrap}
+.dev-fleets{display:grid;flex:1 0 100%;gap:2px;margin:0;padding:0 0 0 12px;border-left:2px solid var(--line);list-style:none}
+.dev-fleet{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.dev-fleet>span{min-width:0;overflow-wrap:anywhere}
+.revoke-note{display:grid;gap:10px;justify-items:start}

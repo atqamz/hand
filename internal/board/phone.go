@@ -379,12 +379,6 @@ func (b *Board) connect(w http.ResponseWriter, r *http.Request) {
 	b.connectPage(w, r, http.StatusOK, nil)
 }
 
-type deviceRow struct {
-	state.Device
-	Seen    time.Time
-	Expired bool
-}
-
 type fleetChoice struct {
 	ID, Name        string
 	Current, Ticked bool
@@ -416,18 +410,13 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 	s, _ := ctx.Value(sessionKey{}).(session)
 	data := map[string]any{"Title": "phone", "Page": "connect", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": s.CSRF, "Phone": s.Device}
 	if s.Device == nil {
-		devices, err := b.st.Devices(ctx)
+		own, err := b.PhoneRecords(ctx)
 		if err != nil {
 			b.failErr(w, err)
 			return
 		}
-		b.phones.mu.Lock()
-		rows := make([]deviceRow, len(devices))
-		for i, d := range devices {
-			rows[i] = deviceRow{d, b.phones.seen[d.ID], b.lapsed(d)}
-		}
-		b.phones.mu.Unlock()
-		data["Devices"] = rows
+		entries, unread := b.phoneEntries(ctx, own)
+		data["Devices"], data["Unread"] = entries, joined(unread)
 		link := PhoneLink{}
 		if b.o.Phone != nil {
 			link = b.o.Phone(ctx)
