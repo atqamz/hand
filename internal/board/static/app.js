@@ -203,7 +203,41 @@
 		const msg = b.closest("[data-no]");
 		return `${msg?.dataset.no ?? ""}|${copies(msg ?? root).indexOf(b)}`;
 	};
+	const pinKey = "hand.table.pin";
+	const recallPin = () => {
+		try {
+			return localStorage.getItem(pinKey) === "on";
+		} catch {
+			return false;
+		}
+	};
+	let pinFirst = recallPin();
+	const fitTable = (box) => {
+		const pin = box.previousElementSibling;
+		if (!pin?.matches(".table-pin")) return;
+		const over = box.scrollWidth > box.clientWidth;
+		pin.hidden = !over;
+		box.classList.toggle("pinned", over && pinFirst);
+	};
+	const tableSizes = "ResizeObserver" in window ? new ResizeObserver((entries) => {
+		for (const e of entries) {
+			if (e.target.isConnected) fitTable(e.target.closest(".table"));
+			else tableSizes.unobserve(e.target);
+		}
+	}) : null;
 	const enhance = (root) => {
+		for (const box of tableSizes ? root.querySelectorAll(".md:not(.doc-table) .table") : []) {
+			if (box.previousElementSibling?.matches(".table-pin")) continue;
+			const pin = document.createElement("button");
+			pin.type = "button";
+			pin.className = "table-pin";
+			pin.hidden = true;
+			pin.textContent = "Pin first column";
+			pin.setAttribute("aria-pressed", String(pinFirst));
+			box.before(pin);
+			tableSizes.observe(box);
+			tableSizes.observe(box.firstElementChild);
+		}
 		for (const pre of root.querySelectorAll(".md pre")) {
 			if (pre.parentElement.matches(".code")) continue;
 			if (!announce) {
@@ -1068,13 +1102,55 @@
 		});
 		return unview;
 	};
+	const wideKey = "hand.doc.wide";
+	const wideSaved = () => {
+		try {
+			return localStorage.getItem(wideKey);
+		} catch {
+			return null;
+		}
+	};
+	const wideView = (root) => {
+		const button = root.querySelector(".doc-wide");
+		const scope = root === document ? document.querySelector("main.thread.doc") : root.closest("dialog.viewer");
+		if (!button || !scope) return;
+		if (!scope.matches("dialog")) scope.toggleAttribute("data-wide", wideSaved() === "on");
+		button.setAttribute("aria-pressed", String(scope.hasAttribute("data-wide")));
+		button.hidden = false;
+		button.addEventListener("click", () => {
+			const on = !scope.hasAttribute("data-wide");
+			scope.toggleAttribute("data-wide", on);
+			button.setAttribute("aria-pressed", String(on));
+			try {
+				localStorage.setItem(wideKey, on ? "on" : "off");
+			} catch {
+				return;
+			}
+		});
+	};
 	const docView = (root) => {
+		wideView(root);
 		const stops = [...root.querySelectorAll(".text-view")].map(textView);
 		return () => {
 			for (const stop of stops) stop();
 		};
 	};
 	docView(document);
+	document.addEventListener("click", (e) => {
+		if (!(e.target instanceof Element) || !e.target.closest(".table-pin")) return;
+		pinFirst = !pinFirst;
+		try {
+			if (pinFirst) localStorage.setItem(pinKey, "on");
+			else localStorage.removeItem(pinKey);
+		} catch {
+			return;
+		} finally {
+			for (const pin of document.querySelectorAll(".table-pin")) {
+				pin.setAttribute("aria-pressed", String(pinFirst));
+				fitTable(pin.nextElementSibling);
+			}
+		}
+	});
 	document.addEventListener("click", async (e) => {
 		const b = e.target instanceof Element ? e.target.closest(".doc-copy") : null;
 		if (!b) return;
@@ -1110,6 +1186,7 @@
 	const dlg = document.getElementById("viewer");
 	if (dlg && body.dataset.page !== "doc") {
 		const pane = dlg.querySelector(".viewer-body");
+		dlg.toggleAttribute("data-wide", wideSaved() !== "off");
 		const state = dlg.querySelector(".viewer-state");
 		const tab = dlg.querySelector(".viewer-tab");
 		tab.target = "_blank";

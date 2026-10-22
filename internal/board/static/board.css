@@ -287,8 +287,9 @@ body>.sr{position:fixed;top:0;left:0;min-height:0;margin:0;padding:0;border:0}
 .md th.c,.md td.c{text-align:center}
 .md th.l,.md td.l{text-align:left}
 .md a.ref{text-decoration:underline dotted;text-underline-offset:3px}
-.md th:first-child,.md td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg);white-space:nowrap}
-.md thead th:first-child{background:var(--card)}
+.md .table.pinned th:first-child,.md .table.pinned td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg)}
+.md .table.pinned thead th:first-child{background:var(--card)}
+.md .table-pin{display:block;margin:0 0 4px}
 .console-box{flex:none;margin:0 max(16px,calc((100% - 760px)/2)) 16px;padding:4px 4px 8px;border:1px solid var(--line-strong);border-radius:var(--r-lg);background:var(--bg);position:relative}
 .console-box:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .draft-note{position:absolute;top:-9px;right:14px;padding:0 6px;background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}
@@ -642,6 +643,7 @@ a.file,.delivered a.url{color:var(--accent)}
 .doc-body{min-width:0;max-width:80ch;font-size:15px;line-height:1.6}
 .doc-body h3{font-size:18px;line-height:24px;margin-top:24px}
 .doc-body h4{font-size:15px;line-height:22px;margin-top:16px}
+[data-wide] .doc-body{max-width:none}
 .md img{display:block;max-width:100%;height:auto;margin:0 0 8px;border:1px solid var(--line);border-radius:var(--r-md)}
 .md li.task{list-style:none}
 .md li.task::before{content:"";display:inline-block;width:12px;height:12px;margin:0 8px 0 -20px;border:1.5px solid var(--line-strong);border-radius:3px;vertical-align:-1px}
@@ -690,13 +692,14 @@ a.file,.delivered a.url{color:var(--accent)}
 @media (forced-colors:active){.latest{border-color:ButtonText;color:ButtonText}.latest>.badge{border-color:ButtonText}}
 .thread.doc:has(.text-view){max-width:1280px}
 .thread.doc:has(.doc-frame,.doc-table){max-width:1280px}
+.thread.doc[data-wide]{max-width:none;padding-inline:24px}
 .text-view{display:grid;gap:8px;min-width:0}
 .text-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;background:var(--bg)}
 .text-find{display:flex;flex:1 1 260px;align-items:center;gap:8px;min-width:0}
 .text-find label{position:relative;display:block;flex:1;min-width:0;max-width:360px}
 .text-find .icon{position:absolute;left:10px;top:50%;margin-top:-8px;color:var(--muted);pointer-events:none}
 .text-find input[type=search]{width:100%;padding-left:34px}
-.text-follow[aria-pressed=true],.text-wrap[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+.text-follow[aria-pressed=true],.text-wrap[aria-pressed=true],.doc-wide[aria-pressed=true],.table-pin[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
 .text-end-link,.text-window>a,.text-hits a{display:inline-flex;align-items:center;min-height:var(--control)}
 .text-window{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .text-line{display:inline-flex;align-items:center;gap:6px}
@@ -732,9 +735,7 @@ a.file,.delivered a.url{color:var(--accent)}
 .doc-media audio{width:100%}
 .doc-table .table{max-height:75vh;overflow:auto}
 .doc-table th,.doc-table td{max-width:48ch;overflow-wrap:anywhere}
-.doc-table tbody td:first-child{position:static;border-right:0;white-space:normal}
 .doc-table thead th{position:sticky;top:0;z-index:2;white-space:normal}
-.doc-table thead th:first-child{left:auto}
 .d-add,.d-del,.d-hunk,.d-file{display:block}
 .d-add{background:var(--pass-bg)}
 .d-del{background:var(--fail-bg)}
@@ -743,6 +744,8 @@ a.file,.delivered a.url{color:var(--accent)}
 @media (forced-colors:active){.here{border-block:1px solid Highlight}}
 dialog.viewer{width:min(1200px,calc(100vw - 48px));height:calc(100dvh - 48px);max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);color:var(--fg);box-shadow:0 8px 24px var(--shadow);overflow:hidden}
 dialog.viewer[open]{display:flex;flex-direction:column}
+@media (min-width:600px){dialog.viewer[data-wide]{width:calc(100vw - 48px)}}
+@media (max-width:699px){.doc-wide{display:none}}
 dialog.viewer::backdrop{background:rgb(0 0 0 / .32)}
 html:has(dialog.viewer:modal){overflow:hidden}
 .viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px 6px 16px;border-bottom:1px solid var(--line);background:var(--panel)}

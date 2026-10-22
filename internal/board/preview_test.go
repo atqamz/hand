@@ -366,9 +366,7 @@ func TestThePreviewsAreStyled(t *testing.T) {
 		".doc-media audio{width:100%}",
 		".doc-table .table{max-height:75vh;overflow:auto}",
 		".doc-table th,.doc-table td{max-width:48ch;overflow-wrap:anywhere}",
-		".doc-table tbody td:first-child{position:static;border-right:0;white-space:normal}",
 		".doc-table thead th{position:sticky;top:0;z-index:2;white-space:normal}",
-		".doc-table thead th:first-child{left:auto}",
 		".d-add,.d-del,.d-hunk,.d-file{display:block}",
 		".d-add{background:var(--pass-bg)}", ".d-del{background:var(--fail-bg)}", ".d-hunk{color:var(--accent)}", ".d-file{font-weight:600}")
 }

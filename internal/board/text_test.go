@@ -248,7 +248,7 @@ func TestTheTextViewIsStyled(t *testing.T) {
 		".text-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 0;background:var(--bg)}",
 		".text-find{display:flex;flex:1 1 260px;align-items:center;gap:8px;min-width:0}",
 		".text-find input[type=search]{width:100%;padding-left:34px}",
-		".text-follow[aria-pressed=true],.text-wrap[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}",
+		".text-follow[aria-pressed=true],.text-wrap[aria-pressed=true],.doc-wide[aria-pressed=true],.table-pin[aria-pressed=true]{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}",
 		".text-end-link,.text-window>a,.text-hits a{display:inline-flex;align-items:center;min-height:var(--control)}",
 		".lines{min-width:0;padding:6px 0;border:1px solid var(--line);border-radius:var(--r-md);background:var(--card);font-family:var(--mono);font-size:12px;line-height:18px;overflow-x:auto}",
 		".lines pre{margin:0;font:inherit}",

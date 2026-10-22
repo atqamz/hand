@@ -292,7 +292,7 @@ func TestEverySlugStateHasItsColour(t *testing.T) {
 
 func TestRepliesStyleTheirBlocks(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, sel := range []string{".md h3", ".md h4", ".md hr", ".md blockquote", ".md del", ".md .table{", ".md th.r", ".md td.r", ".md th:first-child", ".md table{"} {
+	for _, sel := range []string{".md h3", ".md h4", ".md hr", ".md blockquote", ".md del", ".md .table{", ".md th.r", ".md td.r", ".md .table.pinned th:first-child", ".md table{"} {
 		if !strings.Contains(css, sel) {
 			t.Errorf("board.css has no rule for %s", sel)
 		}
@@ -553,4 +553,53 @@ func TestSelectingATabKeepsALinkedMessageInViewAndOpensWorkAtTheTop(t *testing.T
 		"const nested = linked && !tabs.some((t) => t.dataset.tab === linked.id);",
 		"if (timeline && current === \"chat\" && !(nested && timeline.contains(linked))) pin(timeline);",
 		`if (!nested) document.querySelector(".work")?.scrollTo(0, 0);`)
+}
+
+func TestATableKeepsItsFirstColumnUnpinnedUntilPinned(t *testing.T) {
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		".md .table.pinned th:first-child,.md .table.pinned td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg)}",
+		".md .table.pinned thead th:first-child{background:var(--card)}",
+		".md .table-pin{display:block;margin:0 0 4px}")
+	lacks(t, "board.css", css, "\n.md th:first-child", "\n.md td:first-child", ".md thead th:first-child", ".doc-table tbody td:first-child", ".doc-table thead th:first-child")
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		`const pinKey = "hand.table.pin";`,
+		`localStorage.getItem(pinKey) === "on"`, `localStorage.setItem(pinKey, "on")`, `localStorage.removeItem(pinKey)`,
+		`new ResizeObserver(`, `box.scrollWidth > box.clientWidth`,
+		`box.classList.toggle("pinned", over && pinFirst)`,
+		`root.querySelectorAll(".md:not(.doc-table) .table")`,
+		`pin.className = "table-pin"`, `pin.hidden = true`, `pin.textContent = "Pin first column"`, `pin.setAttribute("aria-pressed"`)
+	lacks(t, "app.js", js, `.table-pin").style`, "hand.table.pin${")
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/")
+	lacks(t, "markup", body, `class="table-pin"`, `class="table pinned"`, "Pin first column")
+}
+
+func TestTheDocumentWidthToggleIsAButtonAndIsRemembered(t *testing.T) {
+	h, _ := viewer(t, map[string]string{"reports/t1/design.md": design, "reports/a.log": "x\n", "reports/p.csv": "a,b\n1,2\n", "reports/e.zip": "PK\x00\x01\x02"})
+	const button = `<button type="button" class="doc-wide" aria-pressed="false" hidden>Wide</button>`
+	for _, page := range []string{"/doc/reports/t1/design.md", "/doc/reports/a.log"} {
+		body := get(t, h, page)
+		contains(t, page, body, `class="doc-copy" data-copy="path"`, `Copy path</button>`+button)
+		lacks(t, page, body, `data-wide`, ` style=`)
+	}
+	for _, page := range []string{"/doc/reports/p.csv", "/doc/reports/e.zip", "/doc/reports"} {
+		lacks(t, page, get(t, h, page), `class="doc-wide"`)
+	}
+	css := asset(t, "board.css")
+	contains(t, "board.css", css,
+		"[data-wide] .doc-body{max-width:none}",
+		".thread.doc[data-wide]{max-width:none;padding-inline:24px}",
+		"@media (min-width:600px){dialog.viewer[data-wide]{width:calc(100vw - 48px)}}",
+		"@media (max-width:699px){.doc-wide{display:none}}")
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		`const wideKey = "hand.doc.wide";`,
+		`localStorage.getItem(wideKey)`, `localStorage.setItem(wideKey, on ? "on" : "off")`,
+		`root.querySelector(".doc-wide")`, `scope.toggleAttribute("data-wide", on)`,
+		`scope.toggleAttribute("data-wide", wideSaved() === "on")`,
+		`dlg.toggleAttribute("data-wide", wideSaved() !== "off")`)
+	lacks(t, "app.js", js, `.doc-wide").style`, "hand.doc.wide${")
 }
