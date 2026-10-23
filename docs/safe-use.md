@@ -67,7 +67,7 @@ sudo -iu hand-agent .local/bin/hand --home /home/hand-agent/fleets/demo open --p
 
 To keep the watcher and the Board running without a login, run `sudo loginctl enable-linger hand-agent`, then see [Autostart](autostart.md).
 
-The commands above are standard Linux administration and were not run here. On macOS and Windows, make a standard (non-administrator) user in the system settings and do the same steps in it: not verified here.
+The commands above are Linux-specific and were not run here. Do not run them on macOS or Windows. On those systems a standard (non-administrator) user can be created in the system settings, but this page gives no verified steps for the account, fleet or autostart setup: not verified here.
 
 ### 2. Keep secrets out of reach
 
@@ -146,6 +146,6 @@ Hand passes the flags above and none of these. Each is the harness's own feature
 | Harness | What Hand passes | What the harness offers instead |
 |---|---|---|
 | Claude Code | `--dangerously-skip-permissions` | Modes `default`, `acceptEdits`, `plan`, `auto` (a classifier reviews each action), `dontAsk` and `bypassPermissions`. Allow, ask and deny rules. A Bash sandbox on Linux and macOS, none on native Windows. [Modes](https://code.claude.com/docs/en/permission-modes.md), [rules](https://code.claude.com/docs/en/permissions.md), [sandbox](https://code.claude.com/docs/en/sandboxing.md) |
-| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` | `--sandbox` with `read-only`, `workspace-write` or `danger-full-access`, and approval policies. By default: workspace-write, approval on request, network off. [Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) |
+| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` | `--sandbox` with `read-only`, `workspace-write` or `danger-full-access`, and approval policies. The Auto preset uses workspace-write and approval on request, with network off by default. Codex recommends it for version-controlled folders and read-only for others. [Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) |
 | opencode | `--standalone --auto` | Per-tool `allow`, `ask` and `deny` with patterns, per agent. Without `--auto` the defaults already allow most tools. `--auto` approves whatever is not denied. [Permissions](https://opencode.ai/docs/permissions/) |
 | Antigravity (`agy`) | `--dangerously-skip-permissions` | `permissions.allow`, `ask` and `deny` in its settings file, where deny wins over ask and ask over allow. Commands ask by default. `agy --help` also lists `--mode` and `--sandbox`: the docs page does not describe them, not verified here. [Permissions](https://antigravity.google/docs/permissions) |
