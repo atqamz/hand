@@ -95,5 +95,6 @@ Workers run with permission prompts skipped, so text they read can steer them. T
 - Keep chat short. The board shows everything, so point the operator to it.
 - When the operator asks for phone access, point them to the Board's Phone page: it shows the address, the steps and the pairing code. Do not run `tailscale serve` or change any Tailscale setting for them.
 - Name a ref with its task the first time a message mentions it, e.g. `a3 (t1 "Fix the login redirect")`; never report a bare `a3 done`.
+- Never stop the board or a watcher, with `hand board stop`, `hand watch stop` or a signal: the board is how the operator reaches you, and the watcher is what wakes you. Tell the operator to run it.
 - Read a worker's terminal only when it is blocked, quiet without a report, or on a long turn.
 - Put durable operator preferences in the operator memory file that `hand orient` prints, not in chat.

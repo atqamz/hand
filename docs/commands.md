@@ -34,6 +34,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand wake --after DURATION\|--at TIME\|--every DURATION [--while tN] [--note TEXT]` | Arm a timer (refused without a running managed supervisor) that wakes it once after a delay, once at an RFC 3339 time, or repeatedly; `--while tN` cancels it when that task is done or abandoned. See [Timers](supervisor.md#timers). |
 | `hand wake list`, `hand wake cancel wN` | List the armed timers, or cancel one. |
 | `hand watch [--every DURATION] [--notify=false]` | Run the fleet's watcher. |
+| `hand watch stop` | Stop this fleet's watcher, and only if `watch.pid` still names the process that wrote it. A running board starts a watcher again within 30 seconds when the fleet needs one: run `hand board stop` first to keep it down. See [Stop the board or a watcher](autostart.md#stop-the-board-or-a-watcher). |
 | `hand supervisor start [--profile NAME]` | Start the managed supervisor; `--harness`, `--model` and `--effort` replace `--profile`, and with no flags it copies the last one. |
 | `hand supervisor resume`, `hand supervisor stop`, `hand supervisor show` | Continue the last session, stop it, or show its state, screen revision and number of queued messages. |
 | `hand supervisor send --text TEXT` | Queue a message for the supervisor (or `--file PATH`, or `--file -` for stdin). |
@@ -42,6 +43,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand supervisor force` | When Luvus misreads the supervisor as blocked but its screen shows an empty Claude Code prompt, type the queued messages (or else the wakes) into it. |
 | `hand supervisor switch --model M --effort E` | Switch the model or effort after this turn; or `--profile NAME`, or `--cancel`. `--harness H` switches to another harness between turns. |
 | `hand board [--addr ADDR] [--update-every DURATION]` | Serve the board for every fleet. |
+| `hand board stop` | Stop the running board, and only if `board.pid` still names the process that wrote it. Watchers keep running. See [Stop the board or a watcher](autostart.md#stop-the-board-or-a-watcher). |
 | `hand open [--print] [REF]`, `hand open tN --delivered` | Open the fleet page, a task, decision, report or attempt, or a task's newest deliverable, starting the board first when none runs. `--print` prints the login link instead, for another device or browser. |
 | `hand attach [supervisor]`, `hand attach aN` | Open the fleet's Luvus session, the supervisor's terminal, or a worker's. |
 | `hand unit board` | Print the board's systemd user unit (Linux only; on macOS and Windows it exits 2, see [Autostart](autostart.md#run-the-board-at-login)). It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |

@@ -643,7 +643,7 @@ func TestTheStartPickerMarksProfilesWhoseHarnessIsMissing(t *testing.T) {
 	contains(t, "installed while running", region(get(t, fx.handler(), "/"), "console"), `<option value="default" selected>`, `<option value="gpt" disabled>`)
 
 	_, none := start(t)
-	contains(t, "none found", none, `<option value="default" disabled>`, `<option value="gpt" disabled>`, `<button class="primary" disabled>Start</button>`, `<p class="gone">claude, codex not found on the board&#39;s PATH. Install the harness or add its folder to PATH, then restart the board.</p>`)
+	contains(t, "none found", none, `<option value="default" disabled>`, `<option value="gpt" disabled>`, `<button class="primary" disabled>Start</button>`, `<p class="gone">claude, codex not found on the board&#39;s PATH. Install the harness or add its folder to PATH, then restart the board: `+"`hand board stop`"+`, then `+"`hand board`"+`, or restart its unit.</p>`)
 	lacks(t, "none found", none, " selected>")
 }
 

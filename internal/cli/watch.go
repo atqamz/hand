@@ -64,6 +64,9 @@ type turn struct {
 }
 
 func cmdWatch(r *runner, args []string) error {
+	if len(args) > 0 && args[0] == "stop" {
+		return cmdWatchStop(r, args[1:])
+	}
 	fs := flags("watch")
 	notify := fs.Bool("notify", true, "send notifications: the routing.json notify command, else notify-send on Linux or osascript on macOS")
 	every := fs.Duration("every", 30*time.Second, "reconcile attempts at least this often")

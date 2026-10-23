@@ -58,3 +58,8 @@ func livePID(path string) (pidEntry, bool) {
 	m, err := luvus.ProcStartMarker(pid)
 	return e, err == nil && m == f[1]
 }
+
+func LivePID(path string) (pid int, marker, exe string, live bool) {
+	e, live := livePID(path)
+	return e.pid, e.marker, e.exe, live
+}

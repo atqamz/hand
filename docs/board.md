@@ -41,7 +41,7 @@ It never shows dot files and dot folders, the files at the top of the fleet fold
 
 The board is where you start, chat with and resume the supervisor. Those controls work only while the board listens on a loopback address, which a tunnel keeps true. On a network address such as `0.0.0.0` the supervisor controls are off; answering decisions and marking reports read still work.
 
-The Start picker lists every routing profile and marks the ones whose harness is not on the board's `PATH` (the one it started with): the option is disabled and reads "claude not found on the board's PATH", and the preselected profile is `default`, or the first available one when `default` is not. When none can start, the Start button is off and a line names the missing harnesses and the fix: install the harness or add its folder to `PATH`, then restart the board. The check is the lookup a start makes, runs no harness and is redone on every refresh, so an install shows after the next one. The "Other harness, model or effort" rows are not marked.
+The Start picker lists every routing profile and marks the ones whose harness is not on the board's `PATH` (the one it started with): the option is disabled and reads "claude not found on the board's PATH", and the preselected profile is `default`, or the first available one when `default` is not. When none can start, the Start button is off and a line names the missing harnesses and the fix: install the harness or add its folder to `PATH`, then restart the board: `hand board stop`, then `hand board`, or restart its unit. The check is the lookup a start makes, runs no harness and is redone on every refresh, so an install shows after the next one. The "Other harness, model or effort" rows are not marked.
 
 ## Pair a phone
 

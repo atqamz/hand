@@ -6,6 +6,14 @@
 
 In a systemd user session, Hand starts each fleet's Luvus server in a transient scope (`systemd-run --user --scope`), so the server leaves the cgroup of whatever started it, and restarting the watcher or the board never stops the agents. The scope has no fixed name and nothing restarts the server in it: when the server dies, the watcher's reconnect starts a new, empty one. Without a user session, for example over plain SSH, or when `systemd-run` fails, Hand starts Luvus directly, and its cgroup is its starter's.
 
+## Stop the board or a watcher
+
+`hand board stop` stops the running board. `hand watch stop`, run in a fleet folder or with `--home DIR`, stops that fleet's watcher. Each reads its pid file (`board.pid` in `~/.secondhand`, `watch.pid` in the fleet folder) and sends SIGTERM (`TerminateProcess` on Windows) only when the process's start time and binary match what the file recorded, the check `hand update` makes: a recycled process ID is never signalled. They wait up to 10 seconds, then print `stopped`, or `not running` when no process runs, in which case a stale pid file is removed. A process that belongs to another binary is left running and the command exits 3, as it does when the process is still alive after the 10 seconds.
+
+The stop is a clean exit, so an installed systemd unit (`Restart=on-failure`) or the transient `secondhand-board` unit does not start the board again, and neither does a LaunchAgent, which has no `KeepAlive`. The unit stays inactive until your next login. `systemctl --user stop secondhand-board` is the same stop through systemd, and what to use when you want `systemctl status` to say so.
+
+Stopping a watcher while the board runs does not keep it down: the board starts it again within 30 seconds when the fleet has a live supervisor, or has `autoresume` set and an ended one, and `hand supervisor start`, `resume` and `switch` start it too. `hand watch stop` says so when a board runs. To keep a fleet's watcher down, run `hand board stop` first, then `hand watch stop`. Stopping the board leaves every watcher running. Neither command starts anything: use `hand board` or `hand open` for the board, and `hand watch` or `hand supervisor start` for a watcher. A supervisor never stops the board or a watcher by itself.
+
 ## Run the board at login
 
 One autostart is enough: run `hand board` once at login. The board starts every fleet's watcher that needs one, so there is no per-fleet unit. Add `--update-every` to its command ([Update on a timer](update.md#update-on-a-timer)) and it also keeps Hand up to date and switches the Luvus server of each fleet that is quiet; without the flag nothing switches by itself. An autostart that already exists needs the flag added to its command (the unit, the plist or the shortcut), and the board restarted, before it does.

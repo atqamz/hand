@@ -33,6 +33,9 @@ func init() {
 }
 
 func cmdBoard(r *runner, args []string) error {
+	if len(args) > 0 && args[0] == "stop" {
+		return cmdBoardStop(r, args[1:])
+	}
 	fs := flags("board")
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
 	every := fs.Duration("update-every", 0, "run `hand update` this often, which also switches a quiet fleet's Luvus server; 0 is off, the least is "+updateMin.String())

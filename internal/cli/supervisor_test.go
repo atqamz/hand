@@ -580,7 +580,7 @@ func TestStartSearchesTheBoardsPath(t *testing.T) {
 	tools := h.vars["PATH"]
 	h.vars["PATH"] = t.TempDir()
 	has(t, "route list", h.ok("route", "list"), `default,claude,sonnet,medium,"invalid: claude not found on PATH; install claude, or add its folder to PATH"`)
-	if err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board") {
+	if err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit") {
 		t.Fatalf("start without claude on the board's PATH = %v", err)
 	}
 	if err := board(tools)(context.Background(), "supervisor", "start", "--profile", "default"); err != nil {

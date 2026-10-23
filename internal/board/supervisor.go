@@ -390,7 +390,7 @@ func noneStartable(ps []profile) string {
 			gone = append(gone, h)
 		}
 	}
-	return strings.Join(gone, ", ") + " not found on the board's PATH. Install the harness or add its folder to PATH, then restart the board."
+	return strings.Join(gone, ", ") + " not found on the board's PATH. Install the harness or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit."
 }
 
 func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {

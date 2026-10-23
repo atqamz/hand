@@ -389,7 +389,7 @@ func harnessBin(r *runner, spec harness.Spec) (string, error) {
 	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
 	switch {
 	case err != nil && r.env.Board:
-		return "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board", err, spec.Harness)
+		return "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit", err, spec.Harness)
 	case err != nil:
 		return "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, spec.Harness)
 	}
