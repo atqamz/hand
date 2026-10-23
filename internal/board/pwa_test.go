@@ -206,6 +206,12 @@ func TestTheOfflinePageHasNothingOfTheFleet(t *testing.T) {
 	if rec := p.send("GET", "/offline", nil, nil, nil); rec.Code != http.StatusOK {
 		t.Errorf("without a session = %d", rec.Code)
 	}
+	script := p.send("GET", staticRef.FindStringSubmatch(body[strings.Index(body, "<script"):])[1], nil, nil, nil).Body.String()
+	for _, want := range []string{`location.pathname === "/offline" ? location.replace("/") : location.reload()`, `if (res?.ok) open();`, `addEventListener("online", probe)`} {
+		if !strings.Contains(script, want) {
+			t.Errorf("offline.js lacks %q", want)
+		}
+	}
 }
 
 func TestFunnelGetsNoManifestOrWorker(t *testing.T) {
