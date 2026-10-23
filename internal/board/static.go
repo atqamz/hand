@@ -22,7 +22,9 @@ type staticAsset struct {
 var (
 	assetNames = map[string]string{}
 	assetFiles = map[string]staticAsset{}
-	assetTypes = map[string]string{".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
+	assetTypes = map[string]string{".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png"}
+
+	workerSource []byte
 )
 
 func init() {
@@ -34,6 +36,10 @@ func init() {
 		body, err := staticFiles.ReadFile("static/" + e.Name())
 		if err != nil {
 			panic(err)
+		}
+		if e.Name() == "sw.js" {
+			workerSource = body
+			continue
 		}
 		sum := sha256.Sum256(body)
 		ext := path.Ext(e.Name())

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'"
+	strictCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
 	priorCSP  = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
 )
 
@@ -106,10 +106,12 @@ func directives(csp string) map[string]string {
 	return out
 }
 
-func TestThePageCSPGainedOnlyMediaAndFrameSources(t *testing.T) {
+func TestThePageCSPGainedOnlyMediaFrameManifestAndWorkerSources(t *testing.T) {
 	got := directives(strictCSP)
 	want := directives(priorCSP)
-	want["media-src"], want["frame-src"] = "'self'", "'self'"
+	for _, name := range []string{"media-src", "frame-src", "manifest-src", "worker-src"} {
+		want[name] = "'self'"
+	}
 	if len(got) != len(want) {
 		t.Fatalf("directives = %v, want %v", got, want)
 	}

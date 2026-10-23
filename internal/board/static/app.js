@@ -1366,6 +1366,25 @@
 			else if (!d && f.value) seen.set(e.key, { text: null, mine: true });
 		}
 	});
+	if (body.hasAttribute("data-worker") && isSecureContext && "serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+	const installCard = document.querySelector("[data-install]");
+	if (installCard) {
+		const offer = installCard.querySelector("[data-install-offer]");
+		let offered = null;
+		installCard.hidden = matchMedia("(display-mode: standalone)").matches;
+		addEventListener("beforeinstallprompt", (e) => {
+			e.preventDefault();
+			offered = e;
+			offer.hidden = false;
+		});
+		addEventListener("appinstalled", () => {
+			offer.hidden = true;
+		});
+		offer.querySelector("button").addEventListener("click", () => {
+			offer.hidden = true;
+			offered?.prompt();
+		});
+	}
 	const pairForm = document.querySelector("form[data-pair]");
 	if (pairForm) {
 		const code = pairForm.querySelector("#code");

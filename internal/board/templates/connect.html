@@ -55,5 +55,12 @@
 {{else}}<p class="quiet">No phone is paired.</p>{{end}}
 <p class="meta">A phone stays signed in for 90 days, or until you revoke it here. Revoke signs a phone out of one fleet{{if .Choices}}, and Revoke everywhere out of every fleet this browser is signed in to; a fleet it is not signed in to is left alone{{end}}. Remove a lost phone from your tailnet too. A phone that reads “this fleet only” was paired before one code could pair several fleets: pair it again with more fleets ticked.</p>
 </div></section>{{end}}
-</main>
+{{if .Worker}}{{template "install"}}
+{{end}}</main>
 {{template "foot"}}{{end}}
+{{define "install"}}<section class="card connect-part" aria-labelledby="app-head" data-install>
+<header class="slug"><h3 id="app-head">Install</h3></header>
+<div class="part-body"><p>Install the Board as an app to open it from the home screen. When the laptop does not answer, the app shows “Laptop unreachable” instead of a browser error.</p>
+<p class="actions" data-install-offer hidden><button type="button" class="primary" data-install-button>Install the Board app</button></p>
+<p>On iPhone and iPad, choose Share, then Add to Home Screen. The installed app has its own storage, separate from Safari, so it starts signed out: pair it again inside the app.</p>
+</div></section>{{end}}

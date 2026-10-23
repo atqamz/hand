@@ -1,0 +1,22 @@
+{{define "offline.html"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laptop unreachable</title>
+<link rel="stylesheet" href="{{asset "board.css"}}">
+<link rel="icon" href="{{asset "favicon.svg"}}">
+<script src="{{asset "offline.js"}}" defer></script>
+</head>
+<body data-page="offline">
+<main class="thread offline">
+<header class="thread-head"><h2 class="thread-title">Laptop unreachable</h2></header>
+<section class="card connect-part"><div class="part-body">
+<p>The Board does not answer. The laptop may be asleep or offline, or the Board may not be running.</p>
+<p class="meta" data-offline-state role="status">Reload this page to try again.</p>
+<p class="actions"><button type="button" class="primary" data-retry>Retry</button></p>
+</div></section>
+</main>
+</body>
+</html>
+{{end}}
