@@ -18,7 +18,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"agy": fakeAgyMain, "opencode": fakeOpencodeMain})
+	fakebin.Main(map[string]func([]string) int{"agy": fakeAgyMain, "opencode": fakeOpencodeMain, "echoargs": echoArgsMain})
 	os.Exit(m.Run())
 }
 
