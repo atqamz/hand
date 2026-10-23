@@ -237,15 +237,19 @@ func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Termin
 }
 
 func repoGit(ctx context.Context, st *state.Store, p state.Project) (gitcfg.Repo, error) {
-	g := gitcfg.Repo{Project: p.Name, Dir: p.Repo, Recorded: p.Settings}
-	if g.Recorded == "" {
+	recorded := p.Settings
+	if recorded == "" {
 		now, err := gitcfg.Read(ctx, p.Repo)
 		if err != nil {
-			return g, err
+			return gitcfg.Repo{}, err
 		}
-		if g.Recorded, err = st.AdoptProject(ctx, p.Name, now.Digest()); err != nil {
-			return g, err
+		if recorded, err = st.AdoptProject(ctx, p.Name, now.Digest()); err != nil {
+			return gitcfg.Repo{}, err
 		}
+	}
+	g, err := gitcfg.Open(ctx, p.Name, p.Repo, recorded)
+	if err != nil {
+		return g, err
 	}
 	return g, g.Check(ctx)
 }

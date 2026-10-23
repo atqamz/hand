@@ -122,11 +122,27 @@ func (s Setting) hash() string {
 
 type Settings []Setting
 
-func Read(ctx context.Context, dir string) (Settings, error) {
+func attributesPath(ctx context.Context, dir string) (string, error) {
 	path, err := run(ctx, dir, "rev-parse", "--git-path", "info/attributes")
+	if err != nil {
+		return "", err
+	}
+	file := filepath.FromSlash(strings.TrimSpace(path))
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(dir, file)
+	}
+	return file, nil
+}
+
+func Read(ctx context.Context, dir string) (Settings, error) {
+	file, err := attributesPath(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
+	return read(ctx, dir, file)
+}
+
+func read(ctx context.Context, dir, file string) (Settings, error) {
 	out, err := run(ctx, dir, "config", "--list", "--show-scope", "--includes", "-z")
 	if err != nil {
 		return nil, err
@@ -149,10 +165,6 @@ func Read(ctx context.Context, dir string) (Settings, error) {
 			name += worktreeSuffix
 		}
 		found[name] = append(found[name], value)
-	}
-	file := filepath.FromSlash(strings.TrimSpace(path))
-	if !filepath.IsAbs(file) {
-		file = filepath.Join(dir, file)
 	}
 	switch content, err := os.ReadFile(file); {
 	case errors.Is(err, fs.ErrNotExist):
@@ -200,10 +212,16 @@ func (s Settings) Changed(recorded string, linked bool) []string {
 }
 
 type Repo struct {
-	Project  string
-	Dir      string
-	Recorded string
-	Linked   bool
+	Project    string
+	Dir        string
+	Recorded   string
+	Linked     bool
+	attributes string
+}
+
+func Open(ctx context.Context, project, dir, recorded string) (Repo, error) {
+	file, err := attributesPath(ctx, dir)
+	return Repo{Project: project, Dir: dir, Recorded: recorded, attributes: file}, err
 }
 
 func (r Repo) In(dir string) Repo {
@@ -215,7 +233,13 @@ func (r Repo) Check(ctx context.Context) error {
 	if r.Recorded == "" {
 		return fmt.Errorf("%w: git settings of project %s are not recorded", state.ErrInvalid, r.Project)
 	}
-	now, err := Read(ctx, r.Dir)
+	var now Settings
+	var err error
+	if r.attributes == "" {
+		now, err = Read(ctx, r.Dir)
+	} else {
+		now, err = read(ctx, r.Dir, r.attributes)
+	}
 	if err != nil {
 		return err
 	}
