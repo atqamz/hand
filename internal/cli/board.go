@@ -149,6 +149,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Controls:   loopback,
 		Control:    control(r.env, home),
 		Harness:    harness.EnvOf(r.env.Getenv),
+		Models:     harness.Options{Environ: r.env.Environ(), Dir: home, Now: r.env.Now},
 		Luvus:      r.client(fleet.Session(id)),
 		Transcript: transcripts,
 		Home:       home,

@@ -587,7 +587,7 @@ func TestModelMenuListsModels(t *testing.T) {
 	fx.status = "idle"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "console", console, `<option value="opus">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna">gpt-6-luna</option>`, `name="harness" value="opencode"`, "Switch to codex", "Switch to opencode")
+	contains(t, "console", console, `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna" data-efforts="low medium">gpt-6-luna</option>`, `name="harness" value="opencode"`, "Switch to codex", "Switch to opencode")
 }
 
 func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {

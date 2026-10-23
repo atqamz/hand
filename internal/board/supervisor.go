@@ -126,7 +126,7 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
-			data["CurrentModels"], data["CurrentEfforts"] = b.models(sup.Harness)
+			data["Current"] = b.picker(sup.Harness)
 			data["OtherHarnesses"] = b.choices(sup.Harness)
 		}
 	}
@@ -305,42 +305,99 @@ func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]
 	data["Blocked"], data["Screen"], data["Revision"], data["Digest"] = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
 }
 
+type modelView struct {
+	Name, Text, Efforts string
+	Unverified          bool
+}
+
+type modelGroup struct {
+	Label  string
+	Models []modelView
+}
+
 type harnessChoice struct {
 	Name    string
-	Models  []harness.Model
+	Groups  []modelGroup
 	Efforts []string
+	Note    string
 }
 
 func (b *Board) choices(except string) []harnessChoice {
 	var out []harnessChoice
 	for _, h := range state.Harnesses {
 		if h != except {
-			models, efforts := b.models(h)
-			out = append(out, harnessChoice{Name: h, Models: models, Efforts: efforts})
+			out = append(out, b.picker(h))
 		}
 	}
 	return out
 }
 
-func (b *Board) models(name string) ([]harness.Model, []string) {
+var modelSources = []harness.Source{harness.SourceBuiltin, harness.SourceDiscovered, harness.SourceCustom}
+
+func (b *Board) picker(name string) harnessChoice {
+	c := harnessChoice{Name: name}
 	models, err := harness.Models(name, b.o.Harness)
-	if err != nil {
-		return nil, nil
+	if err == nil && len(models) == 0 {
+		return c
 	}
-	var efforts []string
-	for _, m := range models {
-		for _, e := range m.Efforts {
-			if !slices.Contains(efforts, e) {
-				efforts = append(efforts, e)
+	now := b.now()
+	c.Note = modelNote(harness.StatusOf(name, b.o.Harness, now), now)
+	for _, src := range modelSources {
+		g := modelGroup{Label: string(src)}
+		unverified := false
+		for _, m := range models {
+			if m.Source != src {
+				continue
+			}
+			unverified = unverified || m.Unverified
+			g.Models = append(g.Models, modelView{Name: m.Name, Text: modelText(m), Efforts: strings.Join(m.Efforts, " "), Unverified: m.Unverified})
+			for _, e := range m.Efforts {
+				if !slices.Contains(c.Efforts, e) {
+					c.Efforts = append(c.Efforts, e)
+				}
 			}
 		}
+		if unverified {
+			g.Label += ", efforts unverified"
+		}
+		if len(g.Models) > 0 {
+			c.Groups = append(c.Groups, g)
+		}
 	}
-	return models, efforts
+	return c
+}
+
+func modelText(m harness.Model) string {
+	if m.Label == "" || m.Label == m.Name {
+		return m.Name
+	}
+	return m.Label + " · " + m.Name
+}
+
+func modelNote(st harness.Status, now time.Time) string {
+	var parts []string
+	if st.Old {
+		parts = append(parts, "listed "+listedAge(now.Sub(st.Listing.At))+" ago")
+	}
+	if f := st.Listing.Failed; f != nil {
+		parts = append(parts, "refresh failed: "+f.Reason)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func listedAge(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%d min", max(1, int(d/time.Minute)))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%d h", int(d/time.Hour))
+	}
+	return fmt.Sprintf("%d d", int(d/(24*time.Hour)))
 }
 
 const batchReason = "found only as a batch file"
 
-type profile struct{ Name, Label, Missing string }
+type profile struct{ Name, Label, Missing, Gone, Warn string }
 
 func (b *Board) profiles() []profile { return b.profilesFor("") }
 
@@ -350,6 +407,12 @@ func (b *Board) profilesFor(name string) []profile {
 		return nil
 	}
 	missing := map[string]string{}
+	type listing struct {
+		st harness.Status
+		ok bool
+	}
+	listed := map[string]listing{}
+	now := b.now()
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n]
@@ -367,15 +430,31 @@ func (b *Board) profilesFor(name string) []profile {
 			}
 			missing[s.Harness] = reason
 		}
-		out = append(out, profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " "), Missing: reason})
+		p := profile{Name: n, Label: strings.Join(strings.Fields(n+" · "+s.Harness+" "+s.Model+" "+s.Effort), " "), Missing: reason}
+		if reason == "" {
+			l, seen := listed[s.Harness]
+			if !seen {
+				_, err := harness.Detected(s.Harness, b.o.Harness)
+				l = listing{harness.StatusOf(s.Harness, b.o.Harness, now), err == nil}
+				listed[s.Harness] = l
+			}
+			if why, hard := l.st.Vanished(s); hard {
+				p.Gone = why
+			} else if warn, err := harness.Check(s, b.o.Harness); err == nil && l.ok {
+				p.Warn = warn
+			}
+		}
+		out = append(out, p)
 	}
 	return out
 }
 
+func (p profile) Off() bool { return p.Missing != "" || p.Gone != "" }
+
 func chosenProfile(ps []profile) string {
 	first := ""
 	for _, p := range ps {
-		if p.Missing != "" {
+		if p.Off() {
 			continue
 		}
 		if p.Name == "default" {
@@ -392,11 +471,17 @@ func chosenProfile(ps []profile) string {
 }
 
 func noneStartable(ps []profile) string {
-	if len(ps) == 0 || slices.ContainsFunc(ps, func(p profile) bool { return p.Missing == "" }) {
+	if len(ps) == 0 || slices.ContainsFunc(ps, func(p profile) bool { return !p.Off() }) {
 		return ""
 	}
-	var gone, batch []string
+	var gone, batch, left []string
 	for _, p := range ps {
+		if p.Missing == "" {
+			if !slices.Contains(left, p.Gone) {
+				left = append(left, p.Gone)
+			}
+			continue
+		}
 		h, _, _ := strings.Cut(p.Missing, " ")
 		list := &gone
 		if strings.HasSuffix(p.Missing, batchReason) {
@@ -413,7 +498,14 @@ func noneStartable(ps []profile) string {
 	if len(batch) > 0 {
 		parts = append(parts, strings.Join(batch, ", ")+" "+batchReason+", which Hand does not start. Install the standalone harness or add the folder of its .exe to PATH")
 	}
-	return strings.Join(parts, ". ") + ", then restart the board: `hand board stop`, then `hand board`, or restart its unit."
+	text := ""
+	if len(parts) > 0 {
+		text = strings.Join(parts, ". ") + ", then restart the board: `hand board stop`, then `hand board`, or restart its unit."
+	}
+	if len(left) > 0 {
+		text = strings.TrimSpace(text + " " + strings.Join(left, ". ") + ".")
+	}
+	return text
 }
 
 func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {

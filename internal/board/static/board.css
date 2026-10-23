@@ -52,6 +52,7 @@ button.primary:hover{background:color-mix(in srgb,var(--primary) 86%,var(--bg))}
 button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((var(--control) - 1cap)/2 - 1px)}}
 textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong);border-radius:var(--r-md)}
 option{background:var(--bg);color:var(--fg)}
+optgroup{background:var(--bg);color:var(--fg)}
 input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}
 textarea{display:block;width:100%;min-height:4.5em;padding:8px 10px;line-height:20px;resize:vertical}
 ::placeholder{color:var(--muted)}
@@ -348,7 +349,10 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .others-body form.start{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 10em}
 .others-body form.start button{grid-column:4;width:100%;white-space:nowrap}
 .others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}
+.unverified{grid-column:1/-1;color:var(--wait);font-size:12px;font-weight:600}
+.model-note{grid-column:1/-1;margin:0;color:var(--wait);font-size:12px}
 @container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}}
+@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}}
 .sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg);border-color:var(--line-strong);color:var(--fg)}
 .timeline>.quiet:only-child{margin:auto;text-align:center}
 .console{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--line)}
@@ -368,6 +372,8 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
 .filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
 .menu-body label input{font-weight:400;width:100%;min-width:0}
+#model-menu .menu-body{width:min(300px,calc(100vw - 24px))}
+#model-menu .menu-body form select{width:0;min-width:100%}
 .filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
 .filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .filters .refine{display:flex;flex-wrap:wrap;gap:8px}
@@ -523,6 +529,7 @@ dialog.viewer[open] .text-bar{top:-12px}
 .needs-count{display:inline-block}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}
+.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}
 .console{padding:8px 12px}.console>.pending{flex:1 1 100%}.sup-ref{display:none}
 .sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}
 .console-box,.sup>.hint.read-only{margin:0 12px 12px}}

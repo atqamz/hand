@@ -457,6 +457,37 @@
 		title();
 	};
 
+	const narrow = (form) => {
+		const model = form.querySelector("select[name=model]");
+		const effort = form.querySelector("select[name=effort]");
+		if (!model || !effort) return;
+		const wrap = effort.closest("label") ?? effort;
+		const typed = !!form.querySelector("input[name=other]")?.value.trim();
+		const pick = typed ? null : model.selectedOptions[0];
+		const has = pick?.dataset.efforts;
+		const allowed = has === undefined ? null : has.split(" ").filter(Boolean);
+		for (const o of effort.options) {
+			if (!o.value) continue;
+			o.disabled = o.hidden = allowed !== null && !allowed.includes(o.value);
+		}
+		if (!effort.selectedOptions[0] || effort.selectedOptions[0].disabled) effort.selectedIndex = [...effort.options].findIndex((o) => !o.disabled);
+		wrap.hidden = effort.disabled = allowed?.length === 0;
+		form.querySelector(".unverified").hidden = !(typed || pick?.hasAttribute("data-unverified"));
+	};
+	const narrowAll = (root) => {
+		for (const f of root.querySelectorAll("form")) narrow(f);
+	};
+	document.addEventListener("input", (e) => {
+		const form = e.target instanceof Element ? e.target.closest("form") : null;
+		if (!form || !e.target.matches("select[name=model], input[name=other]")) return;
+		if (e.target.matches("select")) {
+			const other = form.querySelector("input[name=other]");
+			if (other) other.value = "";
+		}
+		narrow(form);
+	});
+	narrowAll(document);
+
 	const sent = new Map();
 	const collapse = (item) => {
 		const s = item && sent.get(item.id);
@@ -496,7 +527,12 @@
 		const readTop = read?.getBoundingClientRect().top;
 		el.innerHTML = html;
 		for (const f of el.querySelectorAll("input[type=radio]")) if (picked.has(`${key(f)}=${f.value}`)) f.checked = true;
-		for (const f of el.querySelectorAll(fields)) if (drafts.has(key(f))) f.value = drafts.get(key(f));
+		for (const f of el.querySelectorAll(fields)) {
+			if (!drafts.has(key(f))) continue;
+			f.value = drafts.get(key(f));
+			if (f instanceof HTMLSelectElement && (f.selectedIndex < 0 || f.selectedOptions[0].disabled)) f.selectedIndex = Math.max(0, [...f.options].findIndex((o) => o.defaultSelected));
+		}
+		narrowAll(el);
 		restore(el);
 		for (const f of el.querySelectorAll("form[data-choose]")) otherwise(f);
 		for (const f of el.querySelectorAll("form[data-confirm]")) {
@@ -695,6 +731,7 @@
 	});
 
 	addEventListener("pageshow", () => {
+		narrowAll(document);
 		restore(document);
 		for (const f of document.querySelectorAll("form[data-choose]")) otherwise(f);
 	});
