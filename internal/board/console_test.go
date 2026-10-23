@@ -352,9 +352,66 @@ func TestStartFormCodexRowsComeFromTheModelsCache(t *testing.T) {
 
 func TestStartFormFallsBackToTextBoxesWithoutModels(t *testing.T) {
 	fx := newFixture(t)
+	fx.options.Harness.CodexHome = t.TempDir()
+	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "codex")
+	contains(t, "codex row", row, `<input name="model"`, `<input name="effort"`)
+	lacks(t, "codex row", row, "<select", `name="other"`)
+}
+
+func TestStartFormOffersAnOtherModelBesideTheSelect(t *testing.T) {
+	fx := newFixture(t)
+	console := region(get(t, fx.handler(), "/"), "console")
+	row := startRow(t, console, "claude")
+	contains(t, "claude row", row, `<select name="model" aria-label="claude model">`, `<input name="other" placeholder="Other model" size="10" autocomplete="off" aria-label="claude other model">`, `<select name="effort"`)
+	if strings.Index(row, `name="model"`) > strings.Index(row, `name="other"`) || strings.Index(row, `name="other"`) > strings.Index(row, `name="effort"`) {
+		t.Fatalf("the other-model box is not between the model and the effort:\n%s", row)
+	}
+}
+
+func TestStartFormGivesOpencodeNoModelOrEffort(t *testing.T) {
+	fx := newFixture(t)
 	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode")
-	contains(t, "opencode row", row, `<input name="model"`, `<input name="effort"`)
-	lacks(t, "opencode row", row, "<select")
+	contains(t, "opencode row", row, `<span class="own">opencode uses its own configuration</span>`, `<button>Start opencode</button>`)
+	lacks(t, "opencode row", row, "<input name=", "<select", "placeholder")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `name="model"`, `name="other"`)
+}
+
+func TestStartRowPostsTheOtherModelOverTheSelect(t *testing.T) {
+	fx := newFixture(t)
+	post(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "model": {"opus"}, "other": {" acme-opus "}, "effort": {"high"}})
+	post(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "model": {"opus"}, "other": {""}, "effort": {"high"}})
+	calls := fx.called()
+	if got := strings.Join(calls[0], " "); got != "supervisor start --harness claude --model acme-opus --effort high" {
+		t.Fatalf("other model ran %q", got)
+	}
+	if got := strings.Join(calls[1], " "); got != "supervisor start --harness claude --model opus --effort high" {
+		t.Fatalf("empty other ran %q", got)
+	}
+}
+
+func TestSwitchMenuHasAnOtherModelAndPostsIt(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "switch menu", console, `<label>Other model <input name="other" size="10" autocomplete="off"></label>`)
+	post(fx.handler(), "/supervisor/switch", url.Values{"model": {""}, "other": {"acme-opus"}, "effort": {""}})
+	if got := strings.Join(fx.called()[0], " "); got != "supervisor switch --model acme-opus" {
+		t.Fatalf("ran %q", got)
+	}
+}
+
+func TestAWarningReachesTheBrowserNextToTheReceipt(t *testing.T) {
+	fx := newFixture(t)
+	fx.warn = "claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"
+	rec := fetchPost(fx.handler(), "/supervisor/start", url.Values{"harness": {"claude"}, "other": {"acme-opus"}, "effort": {"high"}})
+	got, err := url.PathUnescape(rec.Header().Get("X-Hand-Warn"))
+	if rec.Code != 204 || err != nil || got != fx.warn || rec.Header().Get("X-Hand-Receipt") == "" {
+		t.Fatalf("code %d, warn %q (%v), receipt %q", rec.Code, got, err, rec.Header().Get("X-Hand-Receipt"))
+	}
+	js := asset(t, "app.js")
+	contains(t, "app.js", js, `const warn = header(res, "X-Hand-Warn");`, "show(receipt ? `${receipt} ${warn}` : warn, 12000, \"warn\")")
+	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", ".others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0")
 }
 
 func TestStartRowPostsHarnessModelAndEffort(t *testing.T) {

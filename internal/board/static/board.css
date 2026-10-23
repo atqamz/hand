@@ -339,13 +339,15 @@ form.start{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
 form.start select,form.start input{flex:1 1 8em;min-width:0}
 .starter>form.start select{flex-basis:14em}
 .starter .gone{margin:0;color:var(--wait);font-size:14px}
-.others>summary{display:inline-flex;align-items:center;gap:4px;padding:2px 0;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;list-style:none}
+.others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;list-style:none}
 .others>summary::-webkit-details-marker{display:none}
 .others>summary:hover{color:var(--fg)}
 .others[open]>summary .icon{transform:rotate(180deg)}
 .others-body{display:grid;gap:8px;margin-top:8px}
-.others-body form.start{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 10em}
-.others-body form.start button{grid-column:3;width:100%;white-space:nowrap}
+.others-body form.start{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 10em}
+.others-body form.start button{grid-column:4;width:100%;white-space:nowrap}
+.others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}
+@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}}
 .sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg);border-color:var(--line-strong);color:var(--fg)}
 .timeline>.quiet:only-child{margin:auto;text-align:center}
 .console{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--line)}
@@ -364,6 +366,7 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
 .filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
+.menu-body label input{font-weight:400;width:100%;min-width:0}
 .filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
 .filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .filters .refine{display:flex;flex-wrap:wrap;gap:8px}
@@ -518,7 +521,7 @@ dialog.viewer[open] .text-bar{top:-12px}
 .masthead .strip-note{width:0;min-width:100%}
 .needs-count{display:inline-block}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
-.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}
+.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}
 .console{padding:8px 12px}.console>.pending{flex:1 1 100%}.sup-ref{display:none}
 .sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}
 .console-box,.sup>.hint.read-only{margin:0 12px 12px}}
@@ -615,6 +618,7 @@ form[data-busy] button{opacity:.6;cursor:progress}
 .masthead>.link-state{flex:1 0 100%}
 body[data-link=lost] .strip .status-line{opacity:.45}
 #toast[data-kind=receipt]{border-color:var(--line)}
+#toast[data-kind=warn]{border-color:var(--wait)}
 .summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
 .applied{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;margin:0;padding:0;list-style:none;flex:1}
 .found{margin:0;color:var(--muted);font-size:12px}

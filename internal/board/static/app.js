@@ -674,7 +674,9 @@
 			if (form.closest("details.menu")) closeMenus(null);
 			if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
-			if (receipt) show(receipt, 4000, "receipt");
+			const warn = header(res, "X-Hand-Warn");
+			if (warn) show(receipt ? `${receipt} ${warn}` : warn, 12000, "warn");
+			else if (receipt) show(receipt, 4000, "receipt");
 			else show("", 0);
 			return;
 		}
