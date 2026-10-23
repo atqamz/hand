@@ -349,6 +349,30 @@ func TestCodexFallsBackToItsOwnCacheAndNeverCopiesItsIdentity(t *testing.T) {
 	}
 }
 
+func TestCodexFallbackNeverMarksAModelGone(t *testing.T) {
+	f := newFixture(t)
+	f.install("codex", map[string]string{"stdout": codexBundled(`,{"slug":"gpt-5.5","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}`)})
+	f.refresh("codex")
+	f.install("codex", map[string]string{"exit": "2"})
+	own := `{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`
+	if err := os.WriteFile(filepath.Join(f.vars["CODEX_HOME"], "models_cache.json"), []byte(own), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := f.refresh("codex")
+	if l.Failed != nil || len(l.Models) != 1 || len(l.Gone) != 0 {
+		t.Fatalf("listing = %+v", l)
+	}
+	if why, hard := Vanished(Spec{"codex", "gpt-5.5", "low"}, f.env, f.clock()); why != "" || hard {
+		t.Fatalf("a narrower fallback list made a model vanish: %q %v", why, hard)
+	}
+	f.install("codex", map[string]string{"stdout": codexBundled("")})
+	f.refresh("codex")
+	f.install("codex", map[string]string{"stdout": codexLater2})
+	if l := f.refresh("codex"); !slices.Contains(l.Gone, "gpt-6-luna") {
+		t.Fatalf("a complete list stopped marking gone: %+v", l)
+	}
+}
+
 func TestCodexWithNeitherSourceHasNoListAndAReason(t *testing.T) {
 	f := newFixture(t)
 	f.install("codex", map[string]string{"exit": "2"})
@@ -376,6 +400,8 @@ func TestCodexColdStartReadsItsOwnCacheWithoutRunningAnything(t *testing.T) {
 		t.Fatal("a read ran codex")
 	}
 }
+
+const codexLater2 = `{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`
 
 func TestOpencodeListsNamesWithStandaloneOnly(t *testing.T) {
 	f := newFixture(t)
@@ -557,6 +583,25 @@ func TestCacheFileIsAtomicPrivateAndNameOnly(t *testing.T) {
 		if key, _ := got["key"].(string); strings.Contains(key, bad) {
 			t.Fatalf("the key holds a path: %q", key)
 		}
+	}
+}
+
+func TestAnExistingLooseCacheFolderIsTightened(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("modes are not enforced on Windows")
+	}
+	f := newFixture(t)
+	f.install("agy", map[string]string{"stdout": agyList})
+	dir := filepath.Join(f.root, "models")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.refresh("agy")
+	if fi, err := os.Stat(dir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("mode = %v, %v", fi.Mode().Perm(), err)
 	}
 }
 

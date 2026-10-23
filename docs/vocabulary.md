@@ -360,7 +360,7 @@ A list is stale after 1 hour for Claude Code, whose answer follows environment p
 
 Only three things run a listing command: the watcher, for every stale or missing list, while it runs (it logs a new failure once); `hand models --refresh [HARNESS]`; and `hand route list`, for a harness with no cache yet. The board and every other command read the cache and never run a harness. With no cache, Claude Code shows its four aliases, Codex its own cache file, and opencode and agy no list. `hand models` prints the lists, and `hand doctor` one `models NAME` row per harness.
 
-A model that was in a list and is not in the fresh one has **left the list**. For Codex and agy, whose lists name every model they accept, `hand route list` shows a profile naming it as `valid: no`, with `model X is no longer listed by H` in its `warn` column, while the list is fresh; for Claude Code, whose custom names no list can vouch for, and for a stale list, it stays `valid: yes` with that warning. A model that was never listed is only unverified.
+A model that was in a list and is not in the fresh one has **left the list**. For Codex and agy, whose lists name every model they accept, `hand route list` shows a profile naming it as `valid: no`, with `model X is no longer listed by H` in its `warn` column, while the list is fresh; for Claude Code, whose custom names no list can vouch for, and for a stale list, it stays `valid: yes` with that warning. A model that was never listed is only unverified. A list read from Codex's own cache file can be narrower than its bundled catalog, so it never marks a model as left.
 
 ### Model switch
 

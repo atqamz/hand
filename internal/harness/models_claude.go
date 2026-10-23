@@ -31,16 +31,16 @@ var claudeLister = lister{
 		}
 		return []string{filepath.Join(dir, "settings.json"), filepath.Join(dir, "settings.local.json")}
 	},
-	list: func(ctx context.Context, x runner, _ Env) ([]Model, error) {
+	list: func(ctx context.Context, x runner, _ Env) ([]Model, bool, error) {
 		out, _, err := x.run(ctx, claudeTimeout, initializeRequest, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence")
 		models, derr := decodeClaude(out)
 		switch {
 		case derr == nil:
-			return models, nil
+			return models, true, nil
 		case err != nil:
-			return nil, fmt.Errorf("claude -p %w", err)
+			return nil, false, fmt.Errorf("claude -p %w", err)
 		}
-		return nil, derr
+		return nil, false, derr
 	},
 }
 

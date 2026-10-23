@@ -21,10 +21,10 @@ var opencodeLister = lister{
 		}
 		return []string{filepath.Join(dir, "opencode", "opencode.json"), filepath.Join(dir, "opencode", "opencode.jsonc")}
 	},
-	list: func(ctx context.Context, x runner, _ Env) ([]Model, error) {
+	list: func(ctx context.Context, x runner, _ Env) ([]Model, bool, error) {
 		out, _, err := x.run(ctx, opencodeTimeout, "", "models", "--standalone")
 		if err != nil {
-			return nil, fmt.Errorf("opencode models --standalone %w", err)
+			return nil, false, fmt.Errorf("opencode models --standalone %w", err)
 		}
 		var models []Model
 		for _, line := range strings.Split(string(out), "\n") {
@@ -33,8 +33,8 @@ var opencodeLister = lister{
 			}
 		}
 		if len(models) == 0 {
-			return nil, errors.New("opencode models --standalone printed no model names")
+			return nil, false, errors.New("opencode models --standalone printed no model names")
 		}
-		return models, nil
+		return models, true, nil
 	},
 }

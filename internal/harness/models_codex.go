@@ -17,18 +17,18 @@ var codexLister = lister{
 	ttl:      6 * time.Hour,
 	prefixes: []string{"CODEX_"},
 	files:    func(env Env) []string { return []string{filepath.Join(env.CodexHome, "config.toml"), codexCache(env)} },
-	list: func(ctx context.Context, x runner, env Env) ([]Model, error) {
+	list: func(ctx context.Context, x runner, env Env) ([]Model, bool, error) {
 		out, _, err := x.run(ctx, codexTimeout, "", "debug", "models", "--bundled")
 		if err == nil {
 			var models []Model
 			if models, err = decodeCodex(out, SourceBuiltin); err == nil {
-				return models, nil
+				return models, true, nil
 			}
 		}
 		if models, cerr := readCodexCache(codexCache(env)); cerr == nil {
-			return models, nil
+			return models, false, nil
 		}
-		return nil, fmt.Errorf("codex debug models --bundled %w, and models_cache.json is unusable", err)
+		return nil, false, fmt.Errorf("codex debug models --bundled %w, and models_cache.json is unusable", err)
 	},
 }
 

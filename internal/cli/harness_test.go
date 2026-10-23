@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,7 +72,7 @@ func listerMain(args []string) int {
 		fmt.Println(p["version"])
 		return 0
 	}
-	if p["log"] != "" {
+	if p["log"] != "" && len(args) > 0 && slices.Contains([]string{"models", "debug", "-p"}, args[0]) {
 		fakebin.Append(p["log"], strings.Join(args, " "))
 	}
 	d, _ := time.ParseDuration(p["sleep"])

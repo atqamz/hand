@@ -56,7 +56,7 @@ type lister struct {
 	ttl      time.Duration
 	prefixes []string
 	files    func(Env) []string
-	list     func(ctx context.Context, x runner, env Env) ([]Model, error)
+	list     func(ctx context.Context, x runner, env Env) ([]Model, bool, error)
 }
 
 var listers = map[string]lister{
@@ -269,6 +269,7 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return Listing{}, err
 	}
+	_ = os.Chmod(dir, 0o700)
 	started := time.Now()
 	unlock, waited, err := lock(ctx, filepath.Join(dir, name+".lock"))
 	if err != nil {
@@ -287,7 +288,7 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 	x := runner{bin: bin, environ: childEnv(o.Environ, l.prefixes), dir: o.Dir}
 	key := listingKey(bin, l.files(env))
 	version := x.version(ctx)
-	models, err := l.list(ctx, x, env)
+	models, complete, err := l.list(ctx, x, env)
 	if ctx.Err() != nil {
 		return Listing{}, ctx.Err()
 	}
@@ -295,7 +296,10 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 		err = errors.New("it listed no models")
 	}
 	prev, had := load(name, env)
-	next := Listing{Format: cacheFormat, Harness: name, Version: version, Key: key, At: o.Now(), Models: models, Gone: gone(prev, models)}
+	next := Listing{Format: cacheFormat, Harness: name, Version: version, Key: key, At: o.Now(), Models: models, Gone: prev.Gone}
+	if complete {
+		next.Gone = gone(prev, models)
+	}
 	if err != nil {
 		next = prev
 		next.Format, next.Harness = cacheFormat, name
