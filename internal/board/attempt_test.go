@@ -3,6 +3,7 @@ package board_test
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestTheAttemptPageShowsWhatHandRecorded(t *testing.T) {
 		`<a class="ref" href="/task/t1">t1</a> / <span class="ref">a1</span>`,
 		`<h2 class="thread-title">claude sonnet low</h2>`, `<span class="badge status" data-state="running">running</span>`,
 		`<dt>Pane</dt><dd>7</dd>`, `<time data-since datetime=`,
-		`<dd class="doc-path">hand/`, `<span class="doc-path">/w/t1-a1</span>`, `data-copy="path" data-text="/w/t1-a1"`,
+		`<dd class="doc-path">hand/`, `<span class="doc-path">`+filepath.Join("/w", "t1-a1")+`</span>`, `data-copy="path" data-text="`+filepath.Join("/w", "t1-a1")+`"`,
 		`<pre class="brief" tabindex="0">do it &lt;script&gt;alert(1)&lt;/script&gt; ]]&gt; U&#43;001B[31mredU&#43;001B[0m U&#43;202Eevil &amp; &#34;quoted&#34;</pre>`,
 		`<pre class="brief" tabindex="0">/bin/claude --model sonnet</pre>`,
 		`<article class="card report" id="r1" data-status="done">`, `action="/report/r1/ack"`, ">Mark read</button>",
@@ -114,20 +115,22 @@ func TestTheAttemptPageEndsWithItsStopCleanedAndKeepsPathsIntact(t *testing.T) {
 	st := open(t)
 	ctx := context.Background()
 	task := active(t, st, "Fix login")
-	a := briefed(t, st, task.ID, `C:\Users\Zoë Doe\fleet\worktrees`, []string{"/bin/claude", "go"})
+	root := `C:\Users\Zoë Doe\fleet\worktrees`
+	worktree := filepath.Join(root, "t1-a1")
+	a := briefed(t, st, task.ID, root, []string{"/bin/claude", "go"})
 	if _, err := st.EndAttempt(ctx, a.ID, state.AttemptStopped, "stopped by <b>you</b>"); err != nil {
 		t.Fatal(err)
 	}
 	h := board.New(st, token, board.Options{})
 	running := get(t, h, "/attempt/a1")
-	contains(t, "stopped attempt", running, `<span class="badge status" data-state="idle">stopped</span>`, "stopped by &lt;b&gt;you&lt;/b&gt;", "<dt>Stopped</dt>", "<dt>Duration</dt>", `data-copy="path" data-text="C:\Users\Zoë Doe\fleet\worktrees/t1-a1"`)
+	contains(t, "stopped attempt", running, `<span class="badge status" data-state="idle">stopped</span>`, "stopped by &lt;b&gt;you&lt;/b&gt;", "<dt>Stopped</dt>", "<dt>Duration</dt>", `data-copy="path" data-text="`+worktree+`"`)
 	lacks(t, "stopped attempt", running, "data-since", "<dt>Pane</dt>", "Removed")
 
 	if _, err := st.CleanAttempt(ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
 	cleaned := get(t, h, "/attempt/a1")
-	contains(t, "cleaned attempt", cleaned, "the branch is kept.", "attempt cleaned", `<span class="doc-path">C:\Users\Zoë Doe\fleet\worktrees/t1-a1</span>`)
+	contains(t, "cleaned attempt", cleaned, "the branch is kept.", "attempt cleaned", `<span class="doc-path">`+worktree+`</span>`)
 	lacks(t, "cleaned attempt", cleaned, `data-copy="path"`)
 }
 
