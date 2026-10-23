@@ -335,7 +335,7 @@ If it fails: file the output above, and `tail -30 $D/fleet/watch.log` if it exis
 - **Proves:** the Start codex or agy row, and the Start opencode row.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs.
-- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run codex once yourself before you use it, so that its model cache exists. For agy, `agy models` must list models. opencode uses the model from its own configuration.
+- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For agy, `agy models` must list models. opencode uses the model from its own configuration.
 
 Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the cheapest row of `hand route list` under `models`; opencode takes no model and no effort here):
 

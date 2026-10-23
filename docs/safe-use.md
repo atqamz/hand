@@ -122,6 +122,21 @@ Hand runs git in your projects: `git fetch` and `git worktree add` to start an a
 
 The check covers the repository's own configuration (with the files it includes and a worktree's own `config.worktree`) and `.git/info/attributes`. It does not cover the global or system git configuration, the environment, a submodule's own configuration or the programs on your `PATH`. One command runs git without the check: `hand report add` from a worktree without `--attempt` runs `git rev-parse --show-toplevel`. It is not a sandbox, so the account separation above stays the boundary. Reading the settings and running the command are two steps, so a change made between them is caught by the next command. A project registered by an earlier version accepts the settings it has when Hand first runs git in it: read `git -C REPO config --list --show-origin` once after you upgrade.
 
+### What Hand runs to list models
+
+Hand lists the models of each harness with one command each, with no prompt and no model call, so it spends no tokens:
+
+| Harness | Command | What Hand keeps |
+|---|---|---|
+| Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --no-session-persistence`, with one `initialize` request on stdin | the `models` array of the answer: name, display name, supported efforts. The answer also holds `account` data and the command list; Hand's decoder declares neither and drops them |
+| Codex | `codex debug models --bundled`, else a read of `$CODEX_HOME/models_cache.json` | slug, display name, visibility, effort levels. Not `identity`, `etag` or any instruction text |
+| opencode | `opencode models --standalone` | model names, one per line. Never without `--standalone`, which leaves a server running; never `api`, `auth export` or `debug config`, which can print a key |
+| Antigravity (`agy`) | `agy models` | id and label |
+
+Each is also run as `<harness> --version`, whose first line is kept. Every run has a timeout (5 to 30 seconds), a 4 MiB output limit, no terminal, and its process group is killed when it ends. It gets only `PATH`, the home folders and the variables its own harness reads (`ANTHROPIC_*`, `CLAUDE_*`, `CLOUD_ML_*` and the AWS region and profile for Claude Code, `CODEX_*`, `OPENCODE_*`), not the rest of your environment. Claude Code runs in the fleet home, or the current folder, so its project settings apply. Its stderr is read only for agy's sign-in line and is never printed or stored. Hand reads no `settings.json`, `config.toml`, `opencode.json` or `auth.json`: it only compares the size and modification time of a few of them to know when a list is stale. Nothing is cached but names, labels, efforts and sources, in `~/.secondhand/models/` (folder mode 0700, files 0600): a token, an API key, an account email or an organisation reaches neither that folder, an error, nor a log. If a harness prints one in the part Hand decodes, the decoder keeps it out; tests feed each reader an invented secret and check that it appears nowhere.
+
+Claude Code may reach the network on its own while it answers (an authenticated `GET /v1/models` when you turned on gateway model discovery, and its fast-mode check): that is what every Claude Code start does, with the variables it gets here, and not verified here for a subscription login.
+
 ## What no setup of today prevents
 
 - **Prompt injection that uses access you gave.** A worker that reads hostile text in an issue, a PR or a page can be persuaded to use the repositories, tokens and network it already has. Steps 1 to 4 limit what it can reach. None of them stops it from writing bad code inside that reach, and a prompt would not stop it either: Claude Code's own docs say `bypassPermissions` "offers no protection against prompt injection or unintended actions".

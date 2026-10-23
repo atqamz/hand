@@ -25,7 +25,8 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand decision ask [--file PATH\|-] tN [QUESTION]` | Ask the operator about a task; the first line is the headline (at most 120 characters). |
 | `hand decision answer [--by NAME] dN ANSWER`, `hand decision withdraw dN` | Answer or withdraw a decision. |
 | `hand decision list [--all]`, `hand decision show dN` | List open decisions (or all), and read one with its answer. |
-| `hand route list` | Show the routing profiles (`valid`, and a `warn` column naming a model Hand cannot verify) and the harnesses. |
+| `hand route list` | Show the routing profiles (`valid`, and a `warn` column naming a model Hand cannot verify; `valid: no` for a model that has left a fresh Codex or agy [model list](vocabulary.md#model-list)) and the harnesses. It lists a harness's models once, when no list is cached yet. |
+| `hand models [--refresh] [HARNESS]` | Show each harness's [model list](vocabulary.md#model-list): `models` rows of harness, model, label, efforts and source, and `listings` rows of harness, version, age and state, with the reason when there is no list. It reads the cache and needs no fleet; `--refresh` first runs each harness's listing command (all four, or `HARNESS`) and rewrites its cache. A harness that cannot list is a state, not an error. |
 | `hand luvus pin [BIN]` | Pin a copy of a Luvus binary (default: `luvus` on `PATH`) for every fleet under this `SECONDHAND_HOME`. |
 | `hand luvus show` | Show the pinned Luvus and the version of the fleet's running server (from a UHP `ping`), with `match: yes`, `no`, `not running` or `unknown`. |
 | `hand orient` | Print the bounded fleet summary the supervisor starts every turn with. |
@@ -50,4 +51,4 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand unit board` | Print the board's systemd user unit (Linux only; on macOS and Windows it exits 2, see [Autostart](autostart.md#run-the-board-at-login)). It starts with the graphical session. Your `PATH`, and a `SECONDHAND_HOME` if set, go into the unit. |
 | `hand update [--channel edge\|stable] [--check] [--keep-luvus] [--auto]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
-| `hand doctor` | Check this machine and the fleet without repairing anything, one `check,state,fix` row each; exits 1 when a check fails. |
+| `hand doctor` | Check this machine and the fleet without repairing anything, one `check,state,fix` row each, with an `info` row `models NAME` per harness (how many models it lists and from where, the cache's age, or why there is no list); exits 1 when a check fails. |
