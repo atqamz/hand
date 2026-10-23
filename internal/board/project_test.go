@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,11 +11,16 @@ import (
 
 const longProject = "a-project-with-a-very-long-repository-name-that-keeps-going-on"
 
+func repoOf(name string) string {
+	p, _ := filepath.Abs("/home/me/" + name)
+	return p
+}
+
 func taskIn(t *testing.T, st *state.Store, project, title string) state.Task {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := st.Project(ctx, project); err != nil {
-		if _, err := st.AddProject(ctx, project, "/home/me/"+project, ""); err != nil {
+		if _, err := st.AddProject(ctx, project, repoOf(project), ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,7 +80,7 @@ func TestTaskRowsKeepTheirMarkupWithOneProject(t *testing.T) {
 func TestTheBadgeCountsRegisteredProjectsNotProjectsWithTasks(t *testing.T) {
 	fx := newFixture(t)
 	taskIn(t, fx.st, "hand", "Fix login")
-	if _, err := fx.st.AddProject(context.Background(), "docs", "/home/me/docs", ""); err != nil {
+	if _, err := fx.st.AddProject(context.Background(), "docs", repoOf("docs"), ""); err != nil {
 		t.Fatal(err)
 	}
 	contains(t, "tasks", region(get(t, fx.handler(), "/"), "tasks"), badge("hand"))
@@ -120,7 +126,7 @@ func TestTheArchiveNamesTheProjectWhenTheFleetHasSeveral(t *testing.T) {
 	a.finish(t, "hand", "Fix login", state.StatusDone, a.now)
 	body := get(t, a.handler(), "/tasks")
 	lacks(t, "one project", body, `badge project`, `<option value="docs"`)
-	if _, err := a.st.AddProject(context.Background(), "docs", "/home/me/docs", ""); err != nil {
+	if _, err := a.st.AddProject(context.Background(), "docs", repoOf("docs"), ""); err != nil {
 		t.Fatal(err)
 	}
 	a.finish(t, "docs", "Write docs", state.StatusDone, a.now)
