@@ -331,28 +331,33 @@ func (s trustScreen) names(text string) (folder, repo string, noted bool) {
 		return "", "", false
 	}
 	text = text[i+len(s.folder):]
-	q := strings.Index(text, s.question)
-	if q < 0 {
+	end := strings.Index(text, s.question)
+	if end < 0 {
 		return "", "", false
 	}
-	text = text[:q]
 	if s.repoNote != "" {
-		if n := strings.Index(text, s.repoNote); n >= 0 {
-			note := text[n:]
-			text, noted = text[:n], true
-			if r := strings.Index(note, "root:"); r >= 0 {
-				repo = strings.TrimSpace(note[r+len("root:"):])
+		n, r := strings.Index(text, s.repoNote), strings.Index(text, "root:")
+		noted = n >= 0 || r >= 0
+		if n >= 0 && n < end {
+			end = n
+		}
+		if r >= 0 {
+			repo = text[r+len("root:"):]
+			if q := strings.Index(repo, s.question); q >= 0 {
+				repo = repo[:q]
 			}
+			repo = strings.TrimSpace(repo)
 		}
 	}
-	return strings.TrimSpace(text), repo, noted
+	return strings.TrimSpace(text[:end]), repo, noted
 }
 
 func (s trustScreen) same(shown, want string) bool {
-	if s.wraps {
-		shown, want = strings.Join(strings.Fields(shown), ""), strings.Join(strings.Fields(want), "")
-	}
-	return samePath(shown, want)
+	return samePath(shown, want) || (s.wraps && lostSpaces(canonPath(shown), canonPath(want)))
+}
+
+func (s trustScreen) hasYesRow(text string) bool {
+	return strings.Contains(text, strings.TrimLeft(s.yesCursor, "›❯> "))
 }
 
 func (s trustScreen) alsoProject() string {
@@ -362,20 +367,29 @@ func (s trustScreen) alsoProject() string {
 	return " or project"
 }
 
-func samePath(a, b string) bool {
-	if a == b {
-		return true
+func samePath(a, b string) bool { return canonPath(a) == canonPath(b) }
+
+func canonPath(p string) string {
+	d := strings.TrimPrefix(p, `\\?\`)
+	if len(d) < 3 || d[1] != ':' || (d[2] != '\\' && d[2] != '/') || !driveLetter(d[0]) {
+		return p
 	}
-	a, b = windowsPath(a), windowsPath(b)
-	return a != "" && strings.EqualFold(a, b)
+	return strings.ToLower(strings.TrimRight(strings.ReplaceAll(d, "/", `\`), `\`))
 }
 
-func windowsPath(p string) string {
-	p = strings.TrimPrefix(p, `\\?\`)
-	if len(p) < 3 || p[1] != ':' || (p[2] != '\\' && p[2] != '/') || !(p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z') {
-		return ""
+func driveLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+
+func lostSpaces(shown, want string) bool {
+	i := 0
+	for j := 0; j < len(want); j++ {
+		switch {
+		case i < len(shown) && shown[i] == want[j]:
+			i++
+		case want[j] != ' ':
+			return false
+		}
 	}
-	return strings.TrimRight(strings.ReplaceAll(p, "/", `\`), `\`)
+	return i == len(shown)
 }
 
 func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID, worktree string, repos []string) (trust, note string, pressed []string, saved string) {
@@ -415,9 +429,9 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 				retried = false
 				continue
 			case err == nil && trustCleared(ctx, c, pane, screen.question, tick.C):
-				return "accepted", "", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched)
+				return "accepted", "", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched, true)
 			case err == nil:
-				return "accepted", harness + " trust screen did not clear; check the screen", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched)
+				return "accepted", harness + " trust screen did not clear; check the screen", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched, false)
 			case luvus.Code(err) != "content_revision_conflict" || retried:
 				return "not pressed", trustUnpressed(harness), pressed, ""
 			}
@@ -437,13 +451,16 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	}
 }
 
-func savedTrust(harness string, s trustScreen, worktree string, repos []string, matched int) string {
+func savedTrust(harness string, s trustScreen, worktree string, repos []string, matched int, cleared bool) string {
 	if s.repoNote == "" {
 		return ""
 	}
-	root := worktree
+	root := "this folder"
 	if matched >= 0 {
 		root = repos[matched]
+	}
+	if !cleared {
+		return harness + ` was sent Enter on "` + s.question + `" for folder ` + worktree + `, and the screen stayed; if it saved the trust, that is for ` + root + ` in its config.toml`
 	}
 	return harness + ` accepted "` + s.question + `" for folder ` + worktree + `; it saves the trust for ` + root + ` in its config.toml`
 }

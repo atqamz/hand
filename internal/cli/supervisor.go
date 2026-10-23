@@ -804,7 +804,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	if screens, ok := trustScreens[sup.Harness]; ok {
 		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil {
-			if _, asked := askedScreen(screens, s.Text); asked {
+			if screen, asked := askedScreen(screens, s.Text); asked && screen.hasYesRow(s.Text) {
 				return sup.Harness + " is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
 			}
 		}

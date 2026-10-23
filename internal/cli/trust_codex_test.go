@@ -114,7 +114,7 @@ func TestCodexTrustScreensAreAcceptedForTheirOwnFolderAndRepository(t *testing.T
 						if run.trust != "accepted" || run.note != "" || !slices.Equal(run.keys, []string{"enter"}) || !slices.Equal(run.rt.keysSent(), []string{"enter"}) {
 							t.Fatalf("width %d root %q: trust=%q note=%q keys=%q\n%s", width, root, run.trust, run.note, run.keys, screen)
 						}
-						want := p.worktree
+						want := "this folder"
 						if root != "" {
 							want = p.repo
 						}
@@ -192,6 +192,40 @@ func TestCodexTrustScreenWithAnUnreadableRepositoryNoteIsLeftAlone(t *testing.T)
 		run := runCodexTrust(t, wt, []string{`C:\Users\me\repo`}, func(rt *fakeRuntime) { rt.screen = screen })
 		if run.trust != "not pressed" || len(run.rt.keysSent()) != 0 {
 			t.Fatalf("old=%v trust=%q keys=%q\n%s", old, run.trust, run.rt.keysSent(), screen)
+		}
+	}
+}
+
+func TestCodexTrustScreenWithTheRepositoryNoteAfterTheQuestionIsStillChecked(t *testing.T) {
+	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
+	for _, old := range []bool{false, true} {
+		for root, want := range map[string]string{repo: "accepted", `C:\Users\me\other`: "not pressed"} {
+			screen := codexTrustScreen(old, 120, wt, "", false) + "\n" + wrapped(118, codexRepoNote) + "\n  " + root + "\n"
+			run := runCodexTrust(t, wt, []string{repo}, func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, "› \n" })
+			if run.trust != want || (want == "not pressed" && len(run.rt.keysSent()) != 0) {
+				t.Fatalf("old=%v root %q: trust=%q keys=%q\n%s", old, root, run.trust, run.rt.keysSent(), screen)
+			}
+		}
+	}
+}
+
+func TestCodexTrustScreenToleratesAWrappedAwaySpaceButNeverAnAddedOne(t *testing.T) {
+	for name, c := range map[string]struct{ want, shown, trust string }{
+		"dropped":      {`C:\Users\a b\wt`, `C:\Users\ab\wt`, "accepted"},
+		"kept":         {`C:\Users\a b\wt`, `C:\Users\a b\wt`, "accepted"},
+		"two, one":     {`C:\Users\a b c\wt`, `C:\Users\a bc\wt`, "accepted"},
+		"added":        {`C:\Users\ab\wt`, `C:\Users\a b\wt`, "not pressed"},
+		"other letter": {`C:\Users\a b\wt`, `C:\Users\ac\wt`, "not pressed"},
+		"truncated":    {`C:\Users\a b\wt`, `C:\Users\a b\w`, "not pressed"},
+	} {
+		for _, old := range []bool{false, true} {
+			t.Run(map[bool]string{false: "new", true: "old"}[old]+"/"+name, func(t *testing.T) {
+				screen := codexTrustScreen(old, 120, c.shown, "", false)
+				run := runCodexTrust(t, c.want, nil, func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, "› \n" })
+				if run.trust != c.trust {
+					t.Fatalf("trust=%q keys=%q\n%s", run.trust, run.rt.keysSent(), screen)
+				}
+			})
 		}
 	}
 }
@@ -284,7 +318,7 @@ func TestCodexTrustScreenThatStaysIsNotedAsAccepted(t *testing.T) {
 	wt, repo := `C:\Users\me\.secondhand\worktrees\abc123\t1-a1`, `C:\Users\me\repo`
 	screen := codexTrustScreen(false, 120, wt, repo, false)
 	run := runCodexTrust(t, wt, []string{repo}, func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
-	if run.trust != "accepted" || run.note != "codex trust screen did not clear; check the screen" || !slices.Equal(run.rt.keysSent(), []string{"enter"}) || run.saved == "" {
+	if run.trust != "accepted" || run.note != "codex trust screen did not clear; check the screen" || !slices.Equal(run.rt.keysSent(), []string{"enter"}) || !strings.Contains(run.saved, "was sent Enter on") || strings.Contains(run.saved, "accepted") {
 		t.Fatalf("trust=%q note=%q keys=%q saved=%q", run.trust, run.note, run.rt.keysSent(), run.saved)
 	}
 }
@@ -376,7 +410,7 @@ func TestCodexSupervisorAcceptsTrustOfTheFleetHomeAndRecordsIt(t *testing.T) {
 			t.Fatalf("old=%v keys = %q", old, rt.keysSent())
 		}
 		events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.keys", "supervisor.trusted", "supervisor.blocked"}, 10)
-		if err != nil || len(events) != 2 || events[0].Detail != "s1: enter" || events[1].Kind != "supervisor.trusted" || !strings.Contains(events[1].Detail, "for folder "+h.home+"; it saves the trust for "+h.home+" in its config.toml") {
+		if err != nil || len(events) != 2 || events[0].Detail != "s1: enter" || events[1].Kind != "supervisor.trusted" || !strings.Contains(events[1].Detail, "for folder "+h.home+"; it saves the trust for this folder in its config.toml") {
 			t.Fatalf("old=%v events = %+v, err %v", old, events, err)
 		}
 	}
@@ -405,6 +439,20 @@ func TestDeliveryWaitsWhileCodexAsksForTrust(t *testing.T) {
 		if got := rt.prompts(); len(got) != 0 {
 			t.Fatalf("old=%v typed into the trust screen: %q", old, got)
 		}
+	}
+}
+
+func TestDeliveryIgnoresTheTrustQuestionWhenNoTrustRowsShow(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	fastTrust(t)
+	has(t, "start", startCodexSupervisor(t, h), "trust: not asked")
+	codexSession(t, h)
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.status = "› The Codex screen asks \"Trust this folder?\" before it starts\n", "idle"
+	})
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
+	if got := rt.prompts(); !slices.Equal(got, []string{"hello"}) {
+		t.Fatalf("prompts = %q", got)
 	}
 }
 
