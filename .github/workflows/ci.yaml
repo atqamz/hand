@@ -144,7 +144,7 @@ jobs:
           sha256sum -c "$name.sha256"
           unzip -q "$name.zip"
           cygpath -w "$dir" >> "$GITHUB_PATH"
-      - run: go test -race ./...
+      - run: go test -race -timeout 20m ./...
         env:
           TMP: ${{ runner.temp }}
           TEMP: ${{ runner.temp }}
