@@ -104,7 +104,7 @@ func (b *Board) archive(w http.ResponseWriter, r *http.Request) {
 	}
 	data := map[string]any{
 		"Title": "tasks", "Page": "tasks", "Fleets": b.fleets(ctx), "StripData": b.stripData(ctx), "Token": b.csrf(ctx),
-		"Groups": groups, "Total": total, "Projects": projects, "Chips": chips,
+		"Groups": groups, "Total": total, "Projects": projects, "Multi": len(projects) > 1, "Chips": chips,
 		"Q": query.Q, "Scope": scope, "Scopes": scopes, "Project": query.Project, "Since": query.Since, "Until": query.Until,
 	}
 	if page > 1 {

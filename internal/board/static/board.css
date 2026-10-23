@@ -191,6 +191,7 @@ pre.screen::-webkit-scrollbar-thumb{background:#6b7480;border-radius:999px}
 .check-sub{display:flex;align-items:baseline;gap:8px;min-width:0}
 .check-sub .meta{min-width:0}
 .check-sub :is(.badge,.file){flex:none;max-width:24ch}
+.badge.project{overflow:hidden;max-width:24ch;text-overflow:ellipsis}
 .all-clear{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:12px 0;color:var(--muted)}
 .all-clear .icon{color:var(--pass)}
 .all-clear>span{color:var(--fg);font-weight:600}

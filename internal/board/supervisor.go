@@ -73,6 +73,11 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 		return nil, err
 	}
 	data["facts"] = f
+	projects, err := b.st.Projects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	data["Multi"] = len(projects) > 1
 	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
 		if err := part(ctx, data, q); err != nil {
 			return nil, err
