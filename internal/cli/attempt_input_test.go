@@ -82,6 +82,24 @@ func TestKeysNeedTheRevisionTheOperatorRead(t *testing.T) {
 	}
 }
 
+func TestKeysAndSendAskForAProcessScanWhenLuvusDoesNotKnowTheAgent(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.rt.set(func(rt *fakeRuntime) { rt.needScan, rt.revision = true, 7 })
+	if out := fx.h.ok("attempt", "keys", "--revision", "7", "a1", "enter"); !strings.Contains(out, "keys: enter") {
+		t.Fatalf("keys = %q", out)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.needScan = true })
+	if out := fx.h.ok("attempt", "send", "--text", "keep going", "a1"); !strings.Contains(out, "sent_bytes: 10") {
+		t.Fatalf("send = %q", out)
+	}
+	var scans int
+	fx.rt.set(func(rt *fakeRuntime) { scans = rt.scans })
+	if scans < 2 || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) || !slices.Equal(fx.rt.prompts(), []string{"keep going"}) {
+		t.Fatalf("scans=%d keys=%q prompts=%q", scans, fx.rt.keysSent(), fx.rt.prompts())
+	}
+}
+
 func TestInputIsRefusedAfterARestart(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()

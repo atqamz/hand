@@ -291,3 +291,43 @@ func TestLiveServerRunsInItsOwnScope(t *testing.T) {
 		t.Fatalf("server cgroup = %q, starter cgroup = %q", got, cgroup("self"))
 	}
 }
+
+func screenWith(t *testing.T, c luvus.Client, pane, text string) luvus.Screen {
+	t.Helper()
+	var s luvus.Screen
+	var err error
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		if s, err = c.Read(context.Background(), pane, 60); err == nil && strings.Contains(s.Text, text) {
+			return s
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the screen never showed %q: %q, %v", text, s.Text, err)
+		}
+	}
+}
+
+func TestLiveAnAgentStartedAsAnExeAcceptsKeysAfterAScan(t *testing.T) {
+	_, c, _ := startLive(t, "hand-it-scan")
+	ctx := context.Background()
+	name := "codex.exe"
+	if runtime.GOOS == "windows" {
+		name = "codex"
+	}
+	agent := fakebin.Install(t, t.TempDir(), name, "screen", nil)
+	term, err := c.Create(ctx, t.TempDir(), "hand-it", []string{agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screen := screenWith(t, c, term.PaneID, "Trust and continue")
+	raw := map[string]any{"target": term.PaneID, "keys": []string{"enter"}, "if_content_revision": screen.ContentRevision, "terminal_id": term.TerminalID}
+	if err := c.Call(ctx, "agent.keys", raw, nil); luvus.Code(err) != "agent_not_ready" {
+		t.Fatalf("keys before any scan: err = %v; want agent_not_ready", err)
+	}
+	if err := c.Keys(ctx, term.PaneID, []string{"enter"}, screen.ContentRevision, term.TerminalID); err != nil {
+		t.Fatalf("keys through the client: %v", err)
+	}
+	screenWith(t, c, term.PaneID, "key received")
+	if a, err := c.Explain(ctx, term.PaneID); err != nil || a.Agent != "codex" {
+		t.Fatalf("explain = %+v, %v; want codex after the scan", a, err)
+	}
+}

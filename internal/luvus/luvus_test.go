@@ -1,6 +1,7 @@
 package luvus_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,14 @@ func TestMain(m *testing.M) {
 		if os.WriteFile(p["out"], []byte(b.String()), 0o600) != nil {
 			return 1
 		}
+		return 0
+	}, "screen": func([]string) int {
+		fmt.Print("\r\n  Folder access\r\n  Trust this folder?\r\n\r\n> 1. Trust and continue\r\n  2. Quit\r\n\r\n  enter continue · esc quit\r\n")
+		if _, err := bufio.NewReader(os.Stdin).ReadByte(); err != nil {
+			return 1
+		}
+		fmt.Print("\r\nkey received\r\n")
+		time.Sleep(5 * time.Minute)
 		return 0
 	}, "sleep": func([]string) int {
 		time.Sleep(5 * time.Minute)

@@ -1,6 +1,12 @@
 package luvus
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sync"
+	"time"
+)
 
 type Root struct {
 	PID         int    `json:"pid"`
@@ -95,7 +101,7 @@ func (c Client) Prompt(ctx context.Context, pane, terminalID, text string) error
 	if terminalID != "" {
 		params["terminal_id"] = terminalID
 	}
-	return c.Call(ctx, "agent.prompt", params, nil)
+	return c.identified(ctx, pane, terminalID, func() error { return c.Call(ctx, "agent.prompt", params, nil) })
 }
 
 type Screen struct {
@@ -111,5 +117,61 @@ func (c Client) Read(ctx context.Context, pane string, lines int) (Screen, error
 }
 
 func (c Client) Keys(ctx context.Context, pane string, keys []string, revision int64, terminalID string) error {
-	return c.Call(ctx, "agent.keys", map[string]any{"target": pane, "keys": keys, "if_content_revision": revision, "terminal_id": terminalID}, nil)
+	params := map[string]any{"target": pane, "keys": keys, "if_content_revision": revision, "terminal_id": terminalID}
+	return c.identified(ctx, pane, terminalID, func() error { return c.Call(ctx, "agent.keys", params, nil) })
+}
+
+type Processes struct {
+	Scan        string   `json:"scan"`
+	Executables []string `json:"executables"`
+}
+
+func (c Client) Processes(ctx context.Context, t Terminal) (Processes, error) {
+	var p Processes
+	err := c.Call(ctx, "terminal.backend.processes", t.locator(), &p)
+	return p, err
+}
+
+var (
+	scanTries = 10
+	scanGap   = 200 * time.Millisecond
+	scanned   sync.Map
+)
+
+func (c Client) scan(ctx context.Context, pane, terminalID string, tries int) error {
+	terms, err := c.Inventory(ctx)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(terms, func(t Terminal) bool {
+		return t.PaneID == pane && (terminalID == "" || t.TerminalID == terminalID)
+	})
+	if i < 0 {
+		return fmt.Errorf("pane %s is not in the terminal inventory", pane)
+	}
+	for n := 1; ; n++ {
+		p, err := c.Processes(ctx, terms[i])
+		if err != nil || p.Scan == "observed" || n >= tries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(scanGap):
+		}
+	}
+}
+
+func (c Client) identified(ctx context.Context, pane, terminalID string, send func() error) error {
+	if _, done := scanned.LoadOrStore(c.Socket+"\x00"+pane+"\x00"+terminalID, true); !done {
+		_ = c.scan(ctx, pane, terminalID, 1)
+	}
+	err := send()
+	if Code(err) != "agent_not_ready" {
+		return err
+	}
+	if scanErr := c.scan(ctx, pane, terminalID, scanTries); scanErr != nil {
+		return fmt.Errorf("%w; Luvus could not scan the pane's processes (%v), so an agent started as a .exe may look like a plain shell", err, scanErr)
+	}
+	return send()
 }

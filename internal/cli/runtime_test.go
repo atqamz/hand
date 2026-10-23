@@ -63,6 +63,8 @@ type fakeRuntime struct {
 	blankPane    bool
 	validations  int
 	validateFail bool
+	needScan     bool
+	scans        int
 }
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
@@ -76,6 +78,7 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	rt.srv.Handle("agent.prompt", rt.prompt)
 	rt.srv.Handle("agent.read", rt.read)
 	rt.srv.Handle("agent.keys", rt.keys)
+	rt.srv.Handle("terminal.backend.processes", rt.processes)
 	t.Cleanup(rt.exitAll)
 	return rt
 }
@@ -257,7 +260,7 @@ func (rt *fakeRuntime) prompt(params json.RawMessage) (any, error) {
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if !rt.ready {
+	if !rt.ready || rt.needScan {
 		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "no prompt input was queued"}
 	}
 	rt.sent = append(rt.sent, p.Text)
@@ -301,6 +304,9 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	if rt.keysFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.keysFail, Message: "keys failed"}
 	}
+	if rt.needScan {
+		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "target pane is not a running agent"}
+	}
 	if p.Revision != rt.revision {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}
@@ -316,6 +322,14 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	}
 	rt.stall = rt.afterStall
 	return map[string]any{"type": "ok"}, nil
+}
+
+func (rt *fakeRuntime) processes(json.RawMessage) (any, error) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.scans++
+	rt.needScan = false
+	return map[string]any{"scan": "observed", "executables": []string{"claude"}}, nil
 }
 
 func (rt *fakeRuntime) set(fn func(*fakeRuntime)) {
