@@ -23,6 +23,7 @@ In the table:
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
 | Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
 | Start codex or agy | real | CI, fake | CI, fake |
+| Accept Codex's trust screens for its own worktree and project | CI, fake | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Hand refuses a harness found only as a `.cmd` or `.bat`, and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |

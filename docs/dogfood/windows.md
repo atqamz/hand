@@ -31,7 +31,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W1 | The supervisor starts under the pseudo console, and Hand accepts the trust screen | Start claude, and accept its trust screen; Luvus server, panes and events | agent | 1 |
 | W2 | **Start** on the board runs the supervisor | Luvus server, panes and events | needs human | 1 |
 | W3 | A worker reports, from PowerShell and Git Bash, and the supervisor wakes | A worker reports through the footer | agent | 1 |
-| W4a | codex (the standalone `codex.exe`), agy and opencode start | Start codex or agy; Start opencode; Keys reach an agent whose program has an extension | agent, per harness | 1 each, 2 for codex |
+| W4a | codex (the standalone `codex.exe`), agy and opencode start | Start codex or agy; Start opencode; Keys reach an agent whose program has an extension; Accept Codex's trust screens for its own worktree and project | agent, per harness | 1 each, 2 for codex |
 | W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
 | W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
@@ -299,10 +299,10 @@ If it fails: file the output above. File the Git Bash half as its own issue (`W3
 
 ## W4a: codex (the standalone `codex.exe`), agy and opencode start
 
-- **Proves:** the Start codex or agy row, the Start opencode row, and that keys reach a harness whose program has an extension, which Luvus does not know as an agent until Hand asks it for a process scan.
+- **Proves:** the Start codex or agy row, the Start opencode row, that keys reach a harness whose program has an extension, which Luvus does not know as an agent until Hand asks it for a process scan, and that Hand answers Codex's trust screen for its own worktree or finds none.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 6).
-- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run the harness once yourself before you use it, so that its model cache exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. Run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, so that the worktrees of that repository need no answer. For agy, `agy models` must list models. opencode uses the model from its own configuration. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
+- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run the harness once yourself before you use it, so that its model cache exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. For codex, either run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, which removes the prompt entirely and makes Hand print `trust: not asked`, or leave it untrusted, and Hand presses Codex's trust screen itself: `trust: accepted` and a `trusted:` line naming the worktree and `$D\repo`. Both pass; say which one you ran in the evidence. Either way Codex keeps the trust of `$D\repo` in your real `~\.codex\config.toml`; that is harmless and is not edited here. For agy, `agy models` must list models. opencode uses the model from its own configuration. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
 
 Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`):
 
@@ -329,7 +329,7 @@ Do nothing else.
 '@
 $t = (hand task add --goal "Add hello.txt" demo "dogfood $h" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
 hand task start $t
-$a = (hand attempt start --harness $h --model $model --effort $effort --prompt-file "$D\brief.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+$a = (hand attempt start --harness $h --model $model --effort $effort --prompt-file "$D\brief.md" $t | Tee-Object -FilePath "$D\start-$h.txt" | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 ```
 
@@ -361,17 +361,17 @@ Expected: `keys: down up`. An answer that says the screen changed since the revi
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
-hand supervisor start --harness codex --model $model --effort $effort
+hand supervisor start --harness codex --model $model --effort $effort 2>&1 | Ev W4a
 Start-Sleep 60
-hand supervisor show
+hand supervisor show 2>&1 | Ev W4a
 hand supervisor stop
 ```
 
-Expected: the screen shows the fleet home as Codex's working directory, and its first `hand orient` succeeded, with no `not inside a fleet home`.
+Expected: `hand supervisor start` prints `trust: not asked` (the fleet home is no repository, so Codex shows no screen), or `trust: accepted` if Codex asked and named the fleet home; the screen shows the fleet home as Codex's working directory, and its first `hand orient` succeeded, with no `not inside a fleet home`.
 
-Expected for the worker: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); for codex its first word is the full path of a `codex.exe`, never a `.cmd`, and the line also shows `--cd` with the worktree path; `hand attempt read $a` shows the worktree folder (the `worktree:` line of `hand attempt show $a`) as the harness's directory, never `C:\Windows`: a pane that starts in another folder is a failure. Step 6 checks the same for a codex supervisor. The worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure, except for a codex folder trust screen, which Hand does not answer yet: press Enter yourself with `hand attempt keys`, and say so in the evidence.
+Expected for the worker: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); for codex its first word is the full path of a `codex.exe`, never a `.cmd`, and the line also shows `--cd` with the worktree path; `hand attempt read $a` shows the worktree folder (the `worktree:` line of `hand attempt show $a`) as the harness's directory, never `C:\Windows`: a pane that starts in another folder is a failure. Step 6 checks the same for a codex supervisor. The worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. For codex, `hand attempt start` prints `trust: not asked`, or `trust: accepted` with a `trusted:` line, and `hand attempt keys` was not needed. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. So is `trust: not pressed` for codex with the note `codex asks to trust a folder that is not its worktree or project`: add `hand attempt read $a`, whose screen shows how Codex writes the folder and the repository root (separators, case, a `\\?\` prefix). Codex's `Working directory · Resume` screen is not answered; if it shows, say so.
 
-Evidence: `& { hand attempt show $a; hand attempt read $a; hand report list; Get-Command $h -All | Select-Object Name, Source } 2>&1 | Ev W4a`; for codex, also the output of step 6's `hand supervisor show`.
+Evidence: `& { Get-Content "$D\start-$h.txt"; hand attempt show $a; hand attempt read $a; hand report list; Get-Command $h -All | Select-Object Name, Source } 2>&1 | Ev W4a`; for codex, step 6 has already written its two outputs to the same evidence file; add whether `$D\repo` was trusted before.
 
 If it fails: file one issue per harness, titled `W4a: <harness> ...`, with `hand attempt show $a` and `hand attempt read $a`.
 
@@ -888,4 +888,4 @@ Set-Location $env:TEMP
 Remove-Item -Recurse -Force $D
 ```
 
-The `Where-Object` line must print nothing. If `Remove-Item` reports a file in use, find the process (`Get-Process | Where-Object { $_.Path -like "$D*" }`), stop it, and run it again; if a file stays locked, delete the folder after the next restart. The shortcut is gone: `Test-Path $lnk` prints `False`, unless the `W10` check found a shortcut of your own, which stays. Your real `~\.secondhand` was never used. Claude Code keeps the temporary folders in its list of trusted folders; that is harmless and is not edited here.
+The `Where-Object` line must print nothing. If `Remove-Item` reports a file in use, find the process (`Get-Process | Where-Object { $_.Path -like "$D*" }`), stop it, and run it again; if a file stays locked, delete the folder after the next restart. The shortcut is gone: `Test-Path $lnk` prints `False`, unless the `W10` check found a shortcut of your own, which stays. Your real `~\.secondhand` was never used. Claude Code and Codex keep the temporary folders in their lists of trusted folders; that is harmless and is not edited here.

@@ -89,6 +89,8 @@ Claude asks once per folder whether to trust it, and every worktree is a new fol
 $w = if ($env:SECONDHAND_HOME) { "$env:SECONDHAND_HOME\worktrees" } else { "$HOME\.secondhand\worktrees" }; New-Item -ItemType Directory -Force $w | Out-Null; cd $w; claude
 ```
 
+Codex asks once per repository whether to trust it, and a worktree is trusted through its main repository. Run `codex` once in the repository root and choose Trust, and it asks in none of that repository's worktrees: Hand then presses nothing and prints `trust: not asked`. Without that, Hand presses the screen when it names the worker's own worktree and the project's repository, which saves the trust for that repository in `~\.codex\config.toml` for all of your Codex use; [Safe use](safe-use.md) says what that means. Hand never edits `config.toml`.
+
 Hand tells a Windows worker to write its report to a file outside the worktree and run `hand report add --status done --file PATH`, which works in PowerShell and in Git Bash.
 
 Signing and ssh, from secondary sources that nobody has verified on a Windows machine running Hand: HTTPS with `gh auth login` is the low-ceremony way to push, and needs no agent. Windows' `ssh-agent` service is disabled by default, and Git for Windows' bundled ssh does not talk to it unless you set `git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe`. A worker that signs commits with an ssh key needs both.
