@@ -200,3 +200,23 @@ func TestNoRequestPathRunsAHarness(t *testing.T) {
 		t.Fatalf("the refresh did not run agy models: %q, %v", b, err)
 	}
 }
+
+func loggedRuns(t *testing.T, log string) int {
+	t.Helper()
+	b, err := os.ReadFile(log)
+	if err != nil {
+		return 0
+	}
+	return len(strings.Split(strings.TrimSpace(string(b)), "\n"))
+}
+
+func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
+	fx := newAttemptFixture(t)
+	log := filepath.Join(t.TempDir(), "log")
+	fakebin.Install(t, fx.h.vars["PATH"], "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tG\n", "log": log, "version": "agy 1"})
+	stop := startWatch(t, fx, "--every", "50ms")
+	eventually(t, func() bool { return loggedRuns(t, log) == 1 })
+	fx.h.advance(7 * time.Hour)
+	eventually(t, func() bool { return loggedRuns(t, log) == 2 })
+	stop()
+}

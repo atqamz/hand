@@ -125,6 +125,7 @@ func cmdWatch(r *runner, args []string) error {
 		}
 		w.snapshot(ctx)
 		w.pruneInbox(ctx)
+		w.refreshModels(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):
@@ -212,6 +213,7 @@ func (w *watcher) session(ctx context.Context) error {
 			if err == nil {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
+				w.refreshModels(ctx)
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
