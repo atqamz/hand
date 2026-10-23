@@ -304,3 +304,39 @@ func TestStatusWords(t *testing.T) {
 		}
 	}
 }
+
+func TestDeliverRecordsOnActiveAndDoneTasksOnly(t *testing.T) {
+	s, _ := openTest(t)
+	seedProject(t, s)
+	ctx := context.Background()
+	task, _ := s.AddTask(ctx, "hand", "One", "")
+	if _, _, err := s.Deliver(ctx, task.ID, "/out/a.pdf"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("inbox err = %v", err)
+	}
+	if _, _, err := s.Deliver(ctx, 99, "/out/a.pdf"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing err = %v", err)
+	}
+	_, _ = s.Transition(ctx, task.ID, StatusActive)
+	got, added, err := s.Deliver(ctx, task.ID, "/out/a.pdf", "/out/a.pdf", "https://docs.example.com/b")
+	if err != nil || got.Status != StatusActive || !slices.Equal(added, []string{"/out/a.pdf", "https://docs.example.com/b"}) {
+		t.Fatalf("active = %+v, %v, %v", got, added, err)
+	}
+	_, _ = s.Transition(ctx, task.ID, StatusDone)
+	before, _ := s.Task(ctx, task.ID)
+	got, added, err = s.Deliver(ctx, task.ID, "/out/a.pdf", "/out/c.pdf")
+	if err != nil || got.Status != StatusDone || !slices.Equal(added, []string{"/out/c.pdf"}) {
+		t.Fatalf("done = %+v, %v, %v", got, added, err)
+	}
+	if after, _ := s.Task(ctx, task.ID); after != before {
+		t.Fatalf("task changed: %+v -> %+v", before, after)
+	}
+	if events, _ := s.DeliveredEvents(ctx, task.ID); len(events) != 3 {
+		t.Fatalf("events = %+v", events)
+	}
+	other, _ := s.AddTask(ctx, "hand", "Two", "")
+	_, _ = s.Transition(ctx, other.ID, StatusActive)
+	_, _ = s.Transition(ctx, other.ID, StatusAbandoned)
+	if _, added, err := s.Deliver(ctx, other.ID, "/out/a.pdf"); !errors.Is(err, ErrConflict) || added != nil {
+		t.Fatalf("abandoned = %v, %v", added, err)
+	}
+}

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -234,5 +235,146 @@ func TestTaskListStatusWords(t *testing.T) {
 	_, errOut, code := h.run("task", "list", "--status", "all,done")
 	if code != 2 || !strings.Contains(errOut, "all stands alone") {
 		t.Fatalf("--status all,done code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestTaskDeliverRecordsOnActiveAndDoneTasks(t *testing.T) {
+	h := initWithProject(t)
+	for _, title := range []string{"Done", "Active", "Inbox", "Dropped"} {
+		h.ok("task", "add", "hand", title)
+	}
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "t1")
+	h.ok("task", "start", "t2")
+	h.ok("task", "start", "t4")
+	h.ok("task", "abandon", "t4")
+	before := h.ok("task", "list", "--status", "all")
+
+	out := h.ok("task", "deliver", "t1", "/abs/out.pdf", "https://example.com/pr/1")
+	for _, want := range []string{"task: t1\n", "status: done\n", "delivered[2]:\n  - /abs/out.pdf\n  - https://example.com/pr/1\n", "`hand task show t1`"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("task deliver = %q, missing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "already recorded") {
+		t.Fatalf("task deliver = %q", out)
+	}
+	if after := h.ok("task", "list", "--status", "all"); after != before {
+		t.Fatalf("task list changed:\n%s\n%s", before, after)
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "status: done") || !strings.Contains(show, "delivered[2]{kind,ref}:\n  link,\"https://example.com/pr/1\"\n  file,/abs/out.pdf\n") {
+		t.Fatalf("task show = %q", show)
+	}
+
+	out = h.ok("task", "deliver", "t2", `C:\Users\me\out\brief.docx`, `\\server\share\brief.md`)
+	if !strings.Contains(out, "status: active\n") || !strings.Contains(out, "delivered[2]:\n") {
+		t.Fatalf("task deliver on active = %q", out)
+	}
+	if show := h.ok("task", "show", "t2"); !strings.Contains(show, "status: active") || !strings.Contains(show, `file,\\server\share\brief.md`) || !strings.Contains(show, `file,"C:\\Users\\me\\out\\brief.docx"`) {
+		t.Fatalf("task show = %q", show)
+	}
+
+	for _, c := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"t3", "/abs/a"}, 3, "task t3 is inbox; only an active or done task takes a deliverable; no deliverable was recorded"},
+		{[]string{"t4", "/abs/a"}, 3, "task t4 is abandoned; only an active or done task takes a deliverable; no deliverable was recorded"},
+		{[]string{"t99", "/abs/a"}, 3, "task t99"},
+		{[]string{"t1"}, 2, "task deliver: want a task and at least 1 PATH_OR_URL"},
+		{[]string{}, 2, "task deliver: want a task and at least 1 PATH_OR_URL"},
+		{[]string{"/abs/a", "t1"}, 2, "is not a t id"},
+		{[]string{"t1", "/abs/a", "notes/a.md"}, 2, `invalid value "notes/a.md"`},
+		{[]string{"t1", "notes/a.md", "/abs/a"}, 2, `invalid value "notes/a.md"`},
+		{[]string{"t1", "/abs/ok", ""}, 2, `invalid value ""`},
+		{[]string{"t1", "/abs/ok", " /abs/a"}, 2, `invalid value " /abs/a"`},
+		{[]string{"t1", "/abs/ok", "ftp://example.com/a"}, 2, `invalid value "ftp://example.com/a"`},
+		{[]string{"t1", "/abs/ok", "-x"}, 2, `invalid value "-x"`},
+		{[]string{"-x", "t1", "/abs/ok"}, 2, "task deliver: flag provided but not defined: -x"},
+	} {
+		_, errOut, code := h.run(append([]string{"task", "deliver"}, c.args...)...)
+		if code != c.code || !strings.Contains(errOut, c.want) {
+			t.Fatalf("%q: code=%d stderr=%q, want %d and %q", c.args, code, errOut, c.code, c.want)
+		}
+	}
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "delivered[2]{kind,ref}:") || strings.Contains(show, "/abs/ok") || strings.Contains(show, "/abs/a\n") {
+		t.Fatalf("a refused call recorded something: %q", show)
+	}
+	for _, id := range []string{"t3", "t4"} {
+		if show := h.ok("task", "show", id); !strings.Contains(show, "delivered[0]{kind,ref}:") {
+			t.Fatalf("task show %s = %q", id, show)
+		}
+	}
+	if _, errOut, code := h.run("task", "done", "--deliverable", "/abs/late.pdf", "t1"); code != 3 || !strings.Contains(errOut, "task t1 is done and cannot become done; no deliverable was recorded") {
+		t.Fatalf("done --deliverable on a done task: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestTaskDeliverIsIdempotent(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Backfill")
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "--deliverable", "/abs/first.pdf", "t1")
+	events := func() int {
+		st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		e, err := st.DeliveredEvents(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(e)
+	}
+	out := h.ok("task", "deliver", "t1", "/abs/first.pdf")
+	if !strings.Contains(out, "delivered[0]:") || !strings.Contains(out, "already recorded[1]:\n  - /abs/first.pdf\n") || events() != 1 {
+		t.Fatalf("a value done already recorded: %q, %d events", out, events())
+	}
+	out = h.ok("task", "deliver", "t1", "/abs/first.pdf", "https://example.com/pr/2", "/abs/first.pdf", "https://example.com/pr/2")
+	if !strings.Contains(out, "delivered[1]:\n  - https://example.com/pr/2\n") || !strings.Contains(out, "already recorded[1]:\n  - /abs/first.pdf\n") || events() != 2 {
+		t.Fatalf("mixed call: %q, %d events", out, events())
+	}
+	out = h.ok("task", "deliver", "t1", "https://example.com/pr/2", "/abs/first.pdf")
+	if !strings.Contains(out, "delivered[0]:") || !strings.Contains(out, "already recorded[2]:\n  - https://example.com/pr/2\n  - /abs/first.pdf\n") || events() != 2 {
+		t.Fatalf("repeat run: %q, %d events", out, events())
+	}
+	if show := h.ok("task", "show", "t1"); strings.Count(show, "first.pdf") != 1 {
+		t.Fatalf("task show = %q", show)
+	}
+}
+
+func TestTaskDeliverBackfillsNewestFirst(t *testing.T) {
+	h := initWithProject(t)
+	h.ok("task", "add", "hand", "Old")
+	h.ok("task", "start", "t1")
+	h.ok("task", "done", "--deliverable", "/abs/first.pdf", "t1")
+	h.advance(time.Hour)
+	h.ok("task", "deliver", "t1", "https://github.com/atqamz/hand/pull/9", "/abs/late.pdf")
+	want := "delivered[3]{kind,ref}:\n  file,/abs/late.pdf\n  PR,\"https://github.com/atqamz/hand/pull/9\"\n  file,/abs/first.pdf\n"
+	if show := h.ok("task", "show", "t1"); !strings.Contains(show, want) {
+		t.Fatalf("task show = %q, want %q", show, want)
+	}
+	if out := h.ok("open", "--print", "--delivered", "t1"); field(out, "path") != "/abs/late.pdf" {
+		t.Fatalf("open --print --delivered = %q", out)
+	}
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	events, err := st.TaskEvents(context.Background(), 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for _, e := range events {
+		if e.Kind == "task.delivered" {
+			details = append(details, e.Detail)
+		}
+	}
+	if !slices.Equal(details, []string{"/abs/first.pdf", "https://github.com/atqamz/hand/pull/9", "/abs/late.pdf"}) {
+		t.Fatalf("details = %q", details)
 	}
 }

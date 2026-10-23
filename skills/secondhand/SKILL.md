@@ -83,7 +83,7 @@ Never end a chat reply with a question for the operator; ask every question with
 
 1. Verify the acceptance check yourself: verify the acceptance check (tests, the delivered PR or output).
 2. `hand attempt stop aN` if it is still running, then `hand attempt clean aN`; the branch is kept. Pass `--discard` only when the uncommitted changes are worthless.
-3. `hand task done tN`. It is refused while a report is unread or an attempt is live. When you produced the result yourself, pass `--deliverable PATH_OR_URL` for each file or link (an http(s) URL or an absolute path), as in `hand task done --deliverable /abs/out.pdf tN`.
+3. `hand task done tN`. It is refused while a report is unread or an attempt is live. When you produced the result yourself, pass `--deliverable PATH_OR_URL` for each file or link (an http(s) URL or an absolute path), as in `hand task done --deliverable /abs/out.pdf tN`. For a result that is late or missing on an active or done task, record it with `hand task deliver tN PATH_OR_URL...`.
 
 ## Untrusted text
 

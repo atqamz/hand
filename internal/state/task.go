@@ -291,3 +291,40 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 	})
 	return out, err
 }
+
+func (s *Store) Deliver(ctx context.Context, id int64, refs ...string) (Task, []string, error) {
+	var out Task
+	var added []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: task %s", ErrNotFound, TaskRef(id))
+		}
+		if err != nil {
+			return err
+		}
+		if cur.Status != StatusActive && cur.Status != StatusDone {
+			return fmt.Errorf("%w: task %s is %s; only an active or done task takes a deliverable", ErrConflict, TaskRef(id), cur.Status)
+		}
+		out = cur
+		now := s.stamp()
+		for _, ref := range refs {
+			var have int
+			if err := tx.QueryRow(`SELECT count(*) FROM event WHERE kind = 'task.delivered' AND task_id = ? AND detail = ?`, id, ref).Scan(&have); err != nil {
+				return err
+			}
+			if have > 0 {
+				continue
+			}
+			if err := emit(tx, now, "task.delivered", id, ref); err != nil {
+				return err
+			}
+			added = append(added, ref)
+		}
+		return nil
+	})
+	if err != nil {
+		added = nil
+	}
+	return out, added, err
+}

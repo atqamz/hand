@@ -20,6 +20,7 @@ var taskCommands = map[string]handler{
 	"start":   transitionCommand("start", state.StatusActive),
 	"done":    transitionCommand("done", state.StatusDone),
 	"abandon": transitionCommand("abandon", state.StatusAbandoned),
+	"deliver": cmdTaskDeliver,
 }
 
 func init() {
@@ -243,4 +244,48 @@ func transitionCommand(name, to string) handler {
 		}
 		return r.print(&d)
 	}
+}
+
+func cmdTaskDeliver(r *runner, args []string) error {
+	fs := flags("task deliver")
+	if err := fs.Parse(args); err != nil {
+		return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+	}
+	pos := fs.Args()
+	if len(pos) < 2 {
+		return usageError{fmt.Sprintf("%s: want a task and at least 1 PATH_OR_URL after flags, got %d argument(s)", fs.Name(), len(pos))}
+	}
+	id, err := parseID("t", pos[0])
+	if err != nil {
+		return err
+	}
+	for _, ref := range pos[1:] {
+		if board.DeliverableKind(ref) == "" {
+			return usageError{fmt.Sprintf("%s: invalid value %q: want an http(s) URL or an absolute path; no deliverable was recorded", fs.Name(), ref)}
+		}
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	t, added, err := st.Deliver(context.Background(), id, pos[1:]...)
+	if err != nil {
+		return fmt.Errorf("%w; no deliverable was recorded", err)
+	}
+	var skipped []string
+	for _, ref := range pos[1:] {
+		if !slices.Contains(added, ref) && !slices.Contains(skipped, ref) {
+			skipped = append(skipped, ref)
+		}
+	}
+	var d toon.Doc
+	d.Field("task", state.TaskRef(t.ID))
+	d.Field("status", t.Status)
+	d.List("delivered", added)
+	if len(skipped) > 0 {
+		d.List("already recorded", skipped)
+	}
+	d.Help("See them: `hand task show " + state.TaskRef(t.ID) + "`")
+	return r.print(&d)
 }
