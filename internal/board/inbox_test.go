@@ -257,8 +257,8 @@ func TestAHeadTellsTheComposerAFileIsStillInTheInbox(t *testing.T) {
 func TestAFullDiskIsA507(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	fx.options.Control = func(context.Context, ...string) error {
-		return &os.PathError{Op: "write", Path: filepath.Join(fx.options.Home, "inbox", ".upload-1"), Err: syscall.ENOSPC}
+	fx.options.Control = func(context.Context, ...string) (string, error) {
+		return "", &os.PathError{Op: "write", Path: filepath.Join(fx.options.Home, "inbox", ".upload-1"), Err: syscall.ENOSPC}
 	}
 	res := post(fx.handler(), "/supervisor/interrupt", nil)
 	if res.StatusCode != http.StatusInsufficientStorage || hint(res) != "the disk is full; free some space and try again" {

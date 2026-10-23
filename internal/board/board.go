@@ -121,7 +121,7 @@ const (
 
 type Options struct {
 	Controls   bool
-	Control    func(ctx context.Context, args ...string) error
+	Control    func(ctx context.Context, args ...string) (warn string, err error)
 	Luvus      luvus.Client
 	Transcript *transcript.Reader
 	Home       string

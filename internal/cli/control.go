@@ -19,22 +19,24 @@ func (e controlError) Error() string { return e.msg }
 
 func (e controlError) Unwrap() error { return e.kind }
 
-func control(env Env, home string) func(context.Context, ...string) error {
-	return func(ctx context.Context, args ...string) error {
+func control(env Env, home string) func(context.Context, ...string) (string, error) {
+	return func(ctx context.Context, args ...string) (string, error) {
 		var stderr bytes.Buffer
+		var warns []string
 		run := env
 		run.Stdout, run.Stderr, run.Context, run.Board = io.Discard, &stderr, context.WithoutCancel(ctx), true
+		run.Warned = func(w string) { warns = append(warns, w) }
 		code := Run(append([]string{"--home", home}, args...), run)
 		if code == 0 {
-			return nil
+			return board.Scrub(strings.Join(warns, "; ")), nil
 		}
 		msg := board.Scrub(strings.TrimPrefix(strings.TrimSpace(stderr.String()), "error: "))
 		switch code {
 		case 2:
-			return controlError{msg, state.ErrInvalid}
+			return "", controlError{msg, state.ErrInvalid}
 		case 3:
-			return controlError{msg, state.ErrConflict}
+			return "", controlError{msg, state.ErrConflict}
 		}
-		return controlError{msg: msg}
+		return "", controlError{msg: msg}
 	}
 }

@@ -135,6 +135,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if warning != "" {
 			d.Field("warning", warning)
 		}
+		r.fieldWarn(&d)
 		d.Field("pane", running.PaneID)
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
 		fields, more, err := afterLaunch(r.ctx(), c, launched{

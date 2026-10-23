@@ -39,6 +39,7 @@ type Env struct {
 	Exec     func(argv0 string, argv, envv []string) error
 	Terminal func() bool
 	Board    bool
+	Warned   func(string)
 }
 
 type handler func(*runner, []string) error
@@ -53,6 +54,7 @@ type runner struct {
 	exits   *exitLog
 	screens *screenLog
 	phone   phoneCache
+	warns   []string
 }
 
 type usageError struct{ msg string }

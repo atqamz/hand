@@ -32,6 +32,7 @@ type fixture struct {
 	mu       sync.Mutex
 	calls    [][]string
 	fail     error
+	warn     string
 	status   string
 	panes    map[string]string
 	hint     string
@@ -86,11 +87,11 @@ func pathWith(t *testing.T, names ...string) string {
 	return dir
 }
 
-func (fx *fixture) control(_ context.Context, args ...string) error {
+func (fx *fixture) control(_ context.Context, args ...string) (string, error) {
 	fx.mu.Lock()
 	defer fx.mu.Unlock()
 	fx.calls = append(fx.calls, args)
-	return fx.fail
+	return fx.warn, fx.fail
 }
 
 func (fx *fixture) called() [][]string {

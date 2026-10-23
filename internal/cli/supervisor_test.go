@@ -562,20 +562,20 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 	var out, errOut bytes.Buffer
 	control := cli.Control(h.env(&out, &errOut), h.home)
 	ctx := context.Background()
-	if err := control(ctx, "supervisor", "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
+	if _, err := control(ctx, "supervisor", "resume"); !errors.Is(err, state.ErrNotFound) && !errors.Is(err, state.ErrConflict) {
 		t.Fatalf("resume with none = %v", err)
 	}
-	if err := control(ctx, "supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "models_cache.json") || strings.Contains(err.Error(), h.vars["HOME"]) {
-		t.Fatalf("path in error = %v", err)
+	if _, err := control(ctx, "supervisor", "start", "--harness", "codex", "--model", "gpt 6", "--effort", "low"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), `codex model "gpt 6"`) {
+		t.Fatalf("bad model = %v", err)
 	}
 	startClaudeSupervisor(h)
-	if err := control(ctx, "supervisor", "send", "--text", "hi"); err != nil {
+	if _, err := control(ctx, "supervisor", "send", "--text", "hi"); err != nil {
 		t.Fatal(err)
 	}
 	if got := rt.prompts(); !slices.Equal(got, []string{"hi"}) {
 		t.Fatalf("prompts = %q", got)
 	}
-	if err := control(ctx, "supervisor", "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
+	if _, err := control(ctx, "supervisor", "keys", "--revision", "0", "ctrl+c"); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("bad key = %v", err)
 	}
 	if out.Len() != 0 || errOut.Len() != 0 {
@@ -583,10 +583,20 @@ func TestControlRunsTheCLIAndMapsItsErrors(t *testing.T) {
 	}
 }
 
+func TestControlReturnsTheUnverifiedModelWarning(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	var out, errOut bytes.Buffer
+	control := cli.Control(h.env(&out, &errOut), h.home)
+	warn, err := control(context.Background(), "supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low")
+	if err != nil || !strings.Contains(warn, "codex model gpt-6-luna could not be checked") || !strings.HasSuffix(warn, "starting anyway") || strings.Contains(warn, h.vars["HOME"]) {
+		t.Fatalf("unverified model = %q, %v", warn, err)
+	}
+}
+
 func TestStartSearchesTheBoardsPath(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
 	var out, errOut bytes.Buffer
-	board := func(path string) func(context.Context, ...string) error {
+	board := func(path string) func(context.Context, ...string) (string, error) {
 		env := h.env(&out, &errOut)
 		getenv := env.Getenv
 		env.Getenv = func(k string) string {
@@ -600,10 +610,10 @@ func TestStartSearchesTheBoardsPath(t *testing.T) {
 	tools := h.vars["PATH"]
 	h.vars["PATH"] = t.TempDir()
 	has(t, "route list", h.ok("route", "list"), `default,claude,sonnet,medium,"invalid: claude not found on PATH; install claude, or add its folder to PATH"`)
-	if err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit") {
+	if _, err := board(t.TempDir())(context.Background(), "supervisor", "start", "--profile", "default"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "claude not found on PATH (searched the board's PATH, the one it started with); install claude or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit") {
 		t.Fatalf("start without claude on the board's PATH = %v", err)
 	}
-	if err := board(tools)(context.Background(), "supervisor", "start", "--profile", "default"); err != nil {
+	if _, err := board(tools)(context.Background(), "supervisor", "start", "--profile", "default"); err != nil {
 		t.Fatalf("start with claude only on the board's PATH = %v", err)
 	}
 }
@@ -729,9 +739,9 @@ func TestSwitchRefusals(t *testing.T) {
 	}{
 		{nil, 2, "switch"},
 		{[]string{"--profile", "deep", "--model", "opus"}, 2, "--profile"},
-		{[]string{"--profile", "luna"}, 2, "models_cache.json"},
+		{[]string{"--model", "a b"}, 2, "claude model"},
 		{[]string{"--model", "sonnet", "--effort", "low"}, 3, "already"},
-		{[]string{"--effort", "huge"}, 2, "effort"},
+		{[]string{"--effort", "very high"}, 2, "effort"},
 	} {
 		_, errOut, code := h.run(append([]string{"supervisor", "switch"}, c.args...)...)
 		if code != c.code || !strings.Contains(errOut, c.want) {
@@ -1409,7 +1419,7 @@ func TestBoardStartSurvivesCancelledRequest(t *testing.T) {
 	})
 	var out, errOut bytes.Buffer
 	control := cli.Control(h.env(&out, &errOut), h.home)
-	if err := control(ctx, "supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"); err != nil {
+	if _, err := control(ctx, "supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"); err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(rt.keysSent(), []string{"enter"}) {

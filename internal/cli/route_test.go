@@ -19,7 +19,7 @@ func TestInitWritesAStarterRoutingPolicy(t *testing.T) {
 	}
 	h.vars["PATH"] = fakeBin(t)
 	list := h.ok("route", "list")
-	for _, want := range []string{"profiles[5]{name,harness,model,effort,valid}:", "default,claude,sonnet,medium,yes", "quick,claude,sonnet,low,yes", "high,claude,sonnet,high,yes", "deep,claude,sonnet,xhigh,yes", "max,claude,sonnet,max,yes", "harnesses: claude codex opencode"} {
+	for _, want := range []string{"profiles[5]{name,harness,model,effort,valid,warn}:", `default,claude,sonnet,medium,yes,""`, `quick,claude,sonnet,low,yes,""`, `high,claude,sonnet,high,yes,""`, `deep,claude,sonnet,xhigh,yes,""`, `max,claude,sonnet,max,yes,""`, "harnesses: claude codex opencode"} {
 		if !strings.Contains(list, want) {
 			t.Fatalf("route list = %q, missing %q", list, want)
 		}

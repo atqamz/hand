@@ -312,9 +312,11 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
-		if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
+		warn, err := harness.Check(spec, harness.EnvOf(r.env.Getenv))
+		if err != nil {
 			return err
 		}
+		r.warn(warn)
 		if spec.Model == sup.Model && spec.Effort == sup.Effort {
 			return fmt.Errorf("%w: supervisor %s already runs %s at effort %s", state.ErrConflict, ref, sup.Model, sup.Effort)
 		}
@@ -340,11 +342,13 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			d.Field("switch", "applied")
 			d.Field("model", now.Model)
 			d.Field("effort", now.Effort)
+			r.fieldWarn(&d)
 			return r.print(&d)
 		}
 		d.Field("switch", "pending")
 		d.Field("model", spec.Model)
 		d.Field("effort", spec.Effort)
+		r.fieldWarn(&d)
 		if why != "" {
 			d.Field("why", why)
 		}
@@ -382,23 +386,46 @@ func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 	}
 }
 
+func (r *runner) warn(w string) {
+	if w == "" || slices.Contains(r.warns, w) {
+		return
+	}
+	r.warns = append(r.warns, w)
+	if r.env.Warned != nil {
+		r.env.Warned(w)
+	}
+}
+
+func (r *runner) fieldWarn(d *toon.Doc) {
+	if len(r.warns) > 0 {
+		d.Field("warn", strings.Join(r.warns, "; "))
+	}
+}
+
 func harnessBin(r *runner, spec harness.Spec) (string, error) {
-	if err := harness.Validate(spec, harness.EnvOf(r.env.Getenv)); err != nil {
-		return "", err
+	bin, warn, err := checkedBin(r, spec)
+	r.warn(warn)
+	return bin, err
+}
+
+func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
+	warn, err := harness.Check(spec, harness.EnvOf(r.env.Getenv))
+	if err != nil {
+		return "", "", err
 	}
 	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
 	var batch *harness.BatchFileError
 	switch {
 	case errors.As(err, &batch) && r.env.Board:
-		return "", fmt.Errorf("%w (searched the board's PATH, the one it started with); restart the board after the fix: `hand board stop`, then `hand board`, or restart its unit", err)
+		return "", "", fmt.Errorf("%w (searched the board's PATH, the one it started with); restart the board after the fix: `hand board stop`, then `hand board`, or restart its unit", err)
 	case errors.As(err, &batch):
-		return "", err
+		return "", "", err
 	case err != nil && r.env.Board:
-		return "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit", err, spec.Harness)
+		return "", "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit", err, spec.Harness)
 	case err != nil:
-		return "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, spec.Harness)
+		return "", "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, spec.Harness)
 	}
-	return bin, nil
+	return bin, warn, nil
 }
 
 func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.Client, spec state.SupervisorSpec, want string) (state.Supervisor, error) {
@@ -422,7 +449,7 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 			err = fmt.Errorf("%w: %w; supervisor %s stays launching, and sync fails it %s after it started", errLaunchUnknown, err, ref, launchGrace)
 			return sup, errors.Join(err, closeLabelled(ctx, c, supervisorLabel, ""))
 		}
-		return fail(runtimeErr(err))
+		return fail(fmt.Errorf("%w; launching %s", runtimeErr(err), strings.Join(strings.Fields(spec.Harness+" "+spec.Model), " ")))
 	}
 	running, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 	if err != nil {
@@ -438,6 +465,7 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("status", running.Status)
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
+	r.fieldWarn(&d)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
 	if prompted {
 		fields, more, err := afterLaunch(r.ctx(), c, launched{

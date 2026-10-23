@@ -31,11 +31,13 @@ func cmdRouteList(r *runner, args []string) error {
 	rows := make([][]string, 0, len(p.Profiles))
 	for _, name := range p.Names() {
 		s := p.Profiles[name]
-		valid := "yes"
-		if _, err := harnessBin(r, s); err != nil {
+		valid, warn := "yes", ""
+		if _, w, err := checkedBin(r, s); err != nil {
 			valid = err.Error()
+		} else {
+			warn = w
 		}
-		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid})
+		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid, warn})
 	}
 	var models [][]string
 	for _, name := range state.Harnesses {
@@ -69,7 +71,7 @@ func cmdRouteList(r *runner, args []string) error {
 			fmt.Sprintf("%.2f", float64(t.Sent)/n), fmt.Sprintf("%.2f", float64(t.Wakes)/n), median})
 	}
 	var d toon.Doc
-	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid"}, rows)
+	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid", "warn"}, rows)
 	d.Rows("track", []string{"harness", "model", "effort", "n", "first_try", "reattempt", "stuck", "sent_per", "wakes_per", "median_min"}, track)
 	d.Field("harnesses", strings.Join(state.Harnesses, " "))
 	d.Rows("models", []string{"harness", "model", "efforts"}, models)

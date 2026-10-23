@@ -103,36 +103,102 @@ func holders(t *testing.T) string {
 	return file
 }
 
-func TestValidateClaude(t *testing.T) {
-	for _, ok := range []Spec{{"claude", "sonnet", "low"}, {"claude", "opus[1m]", "max"}, {"claude", "claude-opus-5-5", "xhigh"}} {
-		if err := Validate(ok, Env{CodexHome: t.TempDir()}); err != nil {
-			t.Fatalf("%+v: %v", ok, err)
-		}
-	}
-	for _, bad := range []Spec{{"claude", "gpt-5.5", "low"}, {"claude", "sonnet", "extreme"}, {"gemini", "x", "low"}} {
-		if err := Validate(bad, Env{CodexHome: t.TempDir()}); !errors.Is(err, state.ErrInvalid) {
-			t.Fatalf("%+v err = %v", bad, err)
-		}
-	}
-}
-
 const cache = `{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},{"slug":"gpt-5.5","supported_reasoning_levels":[{"effort":"high"}]}]}`
 
-func TestValidateCodexAgainstTheModelCache(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "models_cache.json"), []byte(cache), 0o644); err != nil {
+func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
+	cached := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cached, "models_cache.json"), []byte(cache), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Validate(Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: home}); err != nil {
+	broken := t.TempDir()
+	if err := os.WriteFile(filepath.Join(broken, "models_cache.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []Spec{{"codex", "gpt-6-sol", "low"}, {"codex", "gpt-5.5", "low"}} {
-		if err := Validate(bad, Env{CodexHome: home}); !errors.Is(err, state.ErrInvalid) {
-			t.Fatalf("%+v err = %v", bad, err)
+	listed, _ := fakeAgy(t, agyList, false)
+	failing, _ := fakeAgy(t, "", true)
+	const (
+		ok     = ""
+		warn   = "warn"
+		refuse = "refuse"
+	)
+	long := strings.Repeat("a", 201)
+	rows := []struct {
+		name string
+		spec Spec
+		env  Env
+		kind string
+		text string
+	}{
+		{"alias", Spec{"claude", "opus", "low"}, Env{}, ok, ""},
+		{"alias with a window", Spec{"claude", "sonnet[1m]", "max"}, Env{}, ok, ""},
+		{"claude id", Spec{"claude", "claude-opus-5-5", "xhigh"}, Env{}, ok, ""},
+		{"claude id with a window", Spec{"claude", "claude-opus-4-6[1m]", "high"}, Env{}, ok, ""},
+		{"gateway name", Spec{"claude", "acme-opus", "high"}, Env{}, warn, "claude model acme-opus is not an alias"},
+		{"bedrock id", Spec{"claude", "us.anthropic.claude-opus-4-8", "high"}, Env{}, warn, "us.anthropic.claude-opus-4-8"},
+		{"bedrock versioned id", Spec{"claude", "us.anthropic.claude-opus-5-5-v1:0", "high"}, Env{}, warn, "starting anyway"},
+		{"arn", Spec{"claude", "arn:aws:bedrock:us-east-1:0:inference-profile/x", "high"}, Env{}, warn, "arn:aws:bedrock"},
+		{"vertex id", Spec{"claude", "claude-sonnet-4-5@20250929", "high"}, Env{}, warn, "starting anyway"},
+		{"provider prefix", Spec{"claude", "anthropic/claude-opus-4-8", "high"}, Env{}, warn, "starting anyway"},
+		{"gateway prefix", Spec{"claude", "my-gateway/claude-opus-5-5", "high"}, Env{}, warn, "starting anyway"},
+		{"opusplan", Spec{"claude", "opusplan", "high"}, Env{}, warn, "claude model opusplan"},
+		{"best", Spec{"claude", "best", "high"}, Env{}, warn, "claude model best"},
+		{"capitals", Spec{"claude", "Claude-Opus-5", "high"}, Env{}, warn, "starting anyway"},
+		{"underscore", Spec{"claude", "claude-opus-4-8_v2", "high"}, Env{}, warn, "starting anyway"},
+		{"other vendor", Spec{"claude", "glm-5", "high"}, Env{}, warn, "starting anyway"},
+		{"unknown effort", Spec{"claude", "sonnet", "ultra"}, Env{}, warn, "effort ultra"},
+		{"empty model", Spec{"claude", "", "low"}, Env{}, refuse, "claude model"},
+		{"empty effort", Spec{"claude", "sonnet", ""}, Env{}, refuse, "claude effort"},
+		{"space", Spec{"claude", "my model", "low"}, Env{}, refuse, "claude model"},
+		{"flag", Spec{"claude", "-x", "low"}, Env{}, refuse, "claude model"},
+		{"nul", Spec{"claude", "a\x00b", "low"}, Env{}, refuse, "claude model"},
+		{"newline", Spec{"claude", "a\nb", "low"}, Env{}, refuse, "claude model"},
+		{"tab", Spec{"claude", "a\tb", "low"}, Env{}, refuse, "claude model"},
+		{"escape", Spec{"claude", "a\x1b[31m", "low"}, Env{}, refuse, "claude model"},
+		{"quote", Spec{"claude", `a"b`, "low"}, Env{}, refuse, "claude model"},
+		{"semicolon", Spec{"claude", "a;b", "low"}, Env{}, refuse, "claude model"},
+		{"dollar", Spec{"claude", "$HOME", "low"}, Env{}, refuse, "claude model"},
+		{"backtick", Spec{"claude", "a`b", "low"}, Env{}, refuse, "claude model"},
+		{"too long", Spec{"claude", long, "low"}, Env{}, refuse, "claude model"},
+		{"effort with a space", Spec{"claude", "sonnet", "very high"}, Env{}, refuse, "claude effort"},
+		{"effort with a flag", Spec{"claude", "sonnet", "--max"}, Env{}, refuse, "claude effort"},
+		{"effort with a newline", Spec{"claude", "sonnet", "low\n"}, Env{}, refuse, "claude effort"},
+		{"unknown harness", Spec{"gemini", "x", "low"}, Env{}, refuse, `harness "gemini"`},
+		{"no harness", Spec{}, Env{}, refuse, "harness"},
+
+		{"codex listed", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: cached}, ok, ""},
+		{"codex unlisted", Spec{"codex", "acme-coder-1", "low"}, Env{CodexHome: cached}, warn, "codex model acme-coder-1 is not in the model cache"},
+		{"codex effort not listed", Spec{"codex", "gpt-5.5", "low"}, Env{CodexHome: cached}, warn, "codex model gpt-5.5 lists efforts high, not low"},
+		{"codex without a cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}, warn, "run codex once"},
+		{"codex with a broken cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: broken}, warn, "no usable models_cache.json"},
+		{"codex empty model", Spec{"codex", "", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex empty effort", Spec{"codex", "gpt-6-luna", ""}, Env{CodexHome: cached}, refuse, "codex effort"},
+		{"codex model with a space", Spec{"codex", "gpt 6", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex flag model", Spec{"codex", "--oss", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
+		{"codex effort with an equals sign", Spec{"codex", "gpt-6-luna", "low=1"}, Env{CodexHome: cached}, refuse, "codex effort"},
+		{"codex custom effort", Spec{"codex", "gpt-6-luna", "ultra"}, Env{CodexHome: cached}, warn, "lists efforts low, medium, not ultra"},
+
+		{"agy listed", Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: listed}, ok, ""},
+		{"agy unlisted", Spec{"agy", "gemini-9", ""}, Env{Path: listed}, warn, "agy model gemini-9 is not in `agy models`"},
+		{"agy listing fails", Spec{"agy", "gemini-9", ""}, Env{Path: failing}, warn, "check that agy is logged in"},
+		{"agy not installed", Spec{"agy", "gemini-9", ""}, Env{Path: t.TempDir()}, warn, "agy model gemini-9 could not be checked"},
+		{"agy effort", Spec{"agy", "gemini-3.8-flash-low", "high"}, Env{Path: listed}, refuse, "agy names the effort in its model id"},
+		{"agy empty model", Spec{"agy", "", ""}, Env{Path: listed}, refuse, "agy model"},
+		{"agy model with a space", Spec{"agy", "gemini 3", ""}, Env{Path: listed}, refuse, "agy model"},
+
+		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
+		{"opencode model", Spec{"opencode", "opencode/big-pickle", ""}, Env{}, refuse, "its own configuration"},
+		{"opencode effort", Spec{"opencode", "", "high"}, Env{}, refuse, "its own configuration"},
+	}
+	for _, row := range rows {
+		got, err := Check(row.spec, row.env)
+		switch {
+		case row.kind == refuse && (!errors.Is(err, state.ErrInvalid) || got != "" || !strings.Contains(err.Error(), row.text)):
+			t.Errorf("%s: warn %q, err %v; want a refusal naming %q", row.name, got, err, row.text)
+		case row.kind == warn && (err != nil || !strings.Contains(got, row.text) || !strings.HasSuffix(got, "starting anyway") || !strings.Contains(got, row.spec.Harness) || !strings.Contains(got, strings.TrimSpace(row.spec.Model))):
+			t.Errorf("%s: warn %q, err %v; want a warning naming %q", row.name, got, err, row.text)
+		case row.kind == ok && (err != nil || got != ""):
+			t.Errorf("%s: warn %q, err %v; want a clean pass", row.name, got, err)
 		}
-	}
-	if err := Validate(Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "run codex once") {
-		t.Fatalf("missing cache err = %v", err)
 	}
 }
 
@@ -169,14 +235,9 @@ func TestArgvIsExact(t *testing.T) {
 	}
 }
 
-func TestOpencodeTakesNoModelOrEffort(t *testing.T) {
-	if err := Validate(Spec{Harness: "opencode"}, Env{CodexHome: t.TempDir()}); err != nil {
+func TestOpencodeStartsBare(t *testing.T) {
+	if _, err := Check(Spec{Harness: "opencode"}, Env{CodexHome: t.TempDir()}); err != nil {
 		t.Fatal(err)
-	}
-	for _, bad := range []Spec{{"opencode", "opencode/big-pickle", ""}, {"opencode", "", "high"}} {
-		if err := Validate(bad, Env{CodexHome: t.TempDir()}); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "its own configuration") {
-			t.Fatalf("%+v err = %v", bad, err)
-		}
 	}
 }
 
@@ -226,24 +287,6 @@ func fakeAgy(t *testing.T, models string, fail bool) (dir, count string) {
 	}
 	fakebin.Install(t, dir, "agy", "agy", map[string]string{"count": count, "models": models, "exit": code})
 	return dir, count
-}
-
-func TestValidateAgyAgainstItsModelList(t *testing.T) {
-	path, _ := fakeAgy(t, agyList, false)
-	env := Env{Path: path}
-	if err := Validate(Spec{"agy", "gemini-3.1-pro-high", ""}, env); err != nil {
-		t.Fatalf("a listed model = %v", err)
-	}
-	if err := Validate(Spec{"agy", "gemini-9", ""}, env); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "is not in `agy models`") {
-		t.Fatalf("an unlisted model = %v", err)
-	}
-	if err := Validate(Spec{"agy", "gemini-3.8-flash-low", "high"}, env); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "effort") {
-		t.Fatalf("an effort = %v", err)
-	}
-	bad, _ := fakeAgy(t, "", true)
-	if err := Validate(Spec{"agy", "gemini-3.8-flash-low", ""}, Env{Path: bad}); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "check that agy is logged in") {
-		t.Fatalf("a failing listing = %v", err)
-	}
 }
 
 func TestAgyArgvIsExact(t *testing.T) {
@@ -332,7 +375,7 @@ func TestAgyModelsSlowListingWithinTimeoutSucceeds(t *testing.T) {
 	agyTimeout = 3 * time.Second
 	dir := t.TempDir()
 	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "1s", "models": agyList})
-	if err := Validate(Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: dir}); err != nil {
-		t.Fatalf("slow listing = %v", err)
+	if warn, err := Check(Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: dir}); err != nil || warn != "" {
+		t.Fatalf("slow listing = %q, %v", warn, err)
 	}
 }

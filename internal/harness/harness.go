@@ -37,40 +37,72 @@ const MaxPromptBytes = 16384
 
 var (
 	claudeModel   = regexp.MustCompile(`^(default|opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)(\[1m\])?$`)
+	modelToken    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]#+-]{0,199}$`)
+	effortToken   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
 
-func Validate(s Spec, env Env) error {
+func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
-	case "claude":
-		if !claudeModel.MatchString(s.Model) {
-			return fmt.Errorf("%w: claude model %q is not an alias (opus, sonnet, haiku, fable) or a claude-* name", state.ErrInvalid, s.Model)
-		}
-		if !slices.Contains(claudeEfforts, s.Effort) {
-			return fmt.Errorf("%w: claude effort %q must be one of %s", state.ErrInvalid, s.Effort, strings.Join(claudeEfforts, ", "))
-		}
-		return nil
-	case "codex":
-		return validateCodex(s, filepath.Join(env.CodexHome, "models_cache.json"))
-	case "agy":
-		if s.Effort != "" {
-			return fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
-		}
-		models, err := agyModels(env)
-		if err != nil {
-			return err
-		}
-		if !slices.ContainsFunc(models, func(m Model) bool { return m.Name == s.Model }) {
-			return fmt.Errorf("%w: agy model %q is not in `agy models`", state.ErrInvalid, s.Model)
-		}
-		return nil
+	case "claude", "codex", "agy":
 	case "opencode":
 		if s.Model != "" || s.Effort != "" {
-			return fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
+			return "", fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
 		}
-		return nil
+		return "", nil
+	default:
+		return "", fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
 	}
-	return fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
+	if !modelToken.MatchString(s.Model) {
+		return "", fmt.Errorf("%w: %s model %q must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit", state.ErrInvalid, s.Harness, s.Model)
+	}
+	if s.Harness == "agy" {
+		if s.Effort != "" {
+			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
+		}
+	} else if !effortToken.MatchString(s.Effort) {
+		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
+	}
+	switch s.Harness {
+	case "claude":
+		return checkClaude(s), nil
+	case "codex":
+		return checkCodex(s, filepath.Join(env.CodexHome, "models_cache.json")), nil
+	}
+	return checkAgy(s, env), nil
+}
+
+func checkClaude(s Spec) string {
+	var warns []string
+	if !claudeModel.MatchString(s.Model) {
+		warns = append(warns, fmt.Sprintf("claude model %s is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models", s.Model))
+	}
+	if !slices.Contains(claudeEfforts, s.Effort) {
+		warns = append(warns, fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(claudeEfforts, ", ")))
+	}
+	return unverified(warns)
+}
+
+func checkAgy(s Spec, env Env) string {
+	models, err := agyModels(env)
+	switch {
+	case err != nil:
+		return unverified([]string{fmt.Sprintf("agy model %s could not be checked: %s", s.Model, plainReason(err))})
+	case !slices.ContainsFunc(models, func(m Model) bool { return m.Name == s.Model }):
+		return unverified([]string{fmt.Sprintf("agy model %s is not in `agy models`", s.Model)})
+	}
+	return ""
+}
+
+func unverified(warns []string) string {
+	if len(warns) == 0 {
+		return ""
+	}
+	return strings.Join(warns, "; ") + "; starting anyway"
+}
+
+func plainReason(err error) string {
+	return strings.Join(strings.Fields(strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": ")), " ")
 }
 
 func Prefills(name string) bool { return name == "opencode" }
@@ -187,23 +219,21 @@ func codexModels(cache string) ([]Model, error) {
 	return out, nil
 }
 
-func validateCodex(s Spec, cache string) error {
+func checkCodex(s Spec, cache string) string {
 	models, err := codexModels(cache)
 	if err != nil {
-		return err
+		return unverified([]string{fmt.Sprintf("codex model %s could not be checked: no usable %s (run codex once)", s.Model, filepath.Base(cache))})
 	}
-	var slugs []string
 	for _, m := range models {
-		slugs = append(slugs, m.Name)
 		if m.Name != s.Model {
 			continue
 		}
 		if !slices.Contains(m.Efforts, s.Effort) {
-			return fmt.Errorf("%w: codex model %s supports effort %s, not %q", state.ErrInvalid, s.Model, strings.Join(m.Efforts, ", "), s.Effort)
+			return unverified([]string{fmt.Sprintf("codex model %s lists efforts %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
 		}
-		return nil
+		return ""
 	}
-	return fmt.Errorf("%w: codex model %q is not in %s (known: %s)", state.ErrInvalid, s.Model, cache, strings.Join(slugs, ", "))
+	return unverified([]string{fmt.Sprintf("codex model %s is not in the model cache", s.Model)})
 }
 
 func CodexHome(getenv func(string) string) string {

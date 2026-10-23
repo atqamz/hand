@@ -135,7 +135,7 @@ func TestAttemptStopRunsNoFsmonitorCommand(t *testing.T) {
 
 func TestAttemptStartRejectsBadRoutingBeforeTouchingGit(t *testing.T) {
 	fx := newAttemptFixture(t)
-	_, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "gpt-5.5", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	_, _, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "gpt 5.5", "--effort", "low", "--prompt-file", fx.brief, "t1")
 	if code != 2 {
 		t.Fatalf("bad model code = %d, want 2", code)
 	}
@@ -692,13 +692,14 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 	}
 }
 
-func TestAgyNeedsItsModelList(t *testing.T) {
+func TestAgyWarnsWhenItsModelListFails(t *testing.T) {
 	fx := agyFixture(t)
 	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1"})
-	if _, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1"); code != 2 || !strings.Contains(errOut, "check that agy is logged in") {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
+	out, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1")
+	if code != 0 || !strings.Contains(out, `warn: "agy model gemini-3.8-flash-low could not be checked`) || !strings.Contains(out, "check that agy is logged in") || !strings.Contains(out, "starting anyway") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
-	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1,") {
+	if list := fx.h.ok("attempt", "list"); !strings.Contains(list, "a1,") {
 		t.Fatalf("list = %q", list)
 	}
 }

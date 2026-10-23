@@ -677,9 +677,13 @@ func (b *Board) allowed(w http.ResponseWriter) bool {
 }
 
 func (b *Board) run(w http.ResponseWriter, r *http.Request, receipt string, args ...string) {
-	if err := b.o.Control(r.Context(), args...); err != nil {
+	warn, err := b.o.Control(r.Context(), args...)
+	if err != nil {
 		b.failErr(w, err)
 		return
+	}
+	if warn != "" {
+		w.Header().Set("X-Hand-Warn", url.PathEscape(warn))
 	}
 	b.done(w, r, b.o.Base+"/", receipt)
 }
@@ -718,6 +722,21 @@ func (b *Board) simple(verb string) http.HandlerFunc {
 	}
 }
 
+func modelEffortArgs(r *http.Request) []string {
+	var args []string
+	model := strings.TrimSpace(r.PostFormValue("other"))
+	if model == "" {
+		model = strings.TrimSpace(r.PostFormValue("model"))
+	}
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if v := strings.TrimSpace(r.PostFormValue("effort")); v != "" {
+		args = append(args, "--effort", v)
+	}
+	return args
+}
+
 func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 	if !b.allowed(w) {
 		return
@@ -727,11 +746,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--profile", p)
 	} else if h := r.PostFormValue("harness"); h != "" {
 		args = append(args, "--harness", h)
-		for _, f := range []string{"model", "effort"} {
-			if v := r.PostFormValue(f); v != "" {
-				args = append(args, "--"+f, v)
-			}
-		}
+		args = append(args, modelEffortArgs(r)...)
 	}
 	b.run(w, r, "Starting the supervisor…", args...)
 }
@@ -771,7 +786,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 	} else {
 		to, _ = b.supRef(r.Context())
 	}
-	if err := b.o.Control(r.Context(), append(args, k)...); err != nil {
+	if _, err := b.o.Control(r.Context(), append(args, k)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			b.fail(w, http.StatusConflict, staleScreen)
 			return
@@ -805,11 +820,10 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 	case r.PostFormValue("profile") != "":
 		args = append(args, "--profile", r.PostFormValue("profile"))
 	default:
-		for _, f := range []string{"harness", "model", "effort"} {
-			if v := strings.TrimSpace(r.PostFormValue(f)); v != "" {
-				args = append(args, "--"+f, v)
-			}
+		if v := strings.TrimSpace(r.PostFormValue("harness")); v != "" {
+			args = append(args, "--harness", v)
 		}
+		args = append(args, modelEffortArgs(r)...)
 	}
 	if len(args) == 2 {
 		b.fail(w, http.StatusBadRequest, "pick a profile or give a model or effort")
