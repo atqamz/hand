@@ -472,7 +472,8 @@
 		}
 		if (!effort.selectedOptions[0] || effort.selectedOptions[0].disabled) effort.selectedIndex = [...effort.options].findIndex((o) => !o.disabled);
 		wrap.hidden = effort.disabled = allowed?.length === 0;
-		form.querySelector(".unverified").hidden = !(typed || pick?.hasAttribute("data-unverified"));
+		const mark = form.querySelector(".unverified");
+		if (mark) mark.hidden = !(typed || pick?.hasAttribute("data-unverified"));
 	};
 	const narrowAll = (root) => {
 		for (const f of root.querySelectorAll("form")) narrow(f);

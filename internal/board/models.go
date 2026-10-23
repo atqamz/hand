@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 	"sync"
@@ -74,7 +75,9 @@ func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.Background(), refreshWait)
 			defer cancel()
 			defer b.refresh.end(name)
-			_, _ = harness.Refresh(ctx, name, b.o.Harness, b.o.Models)
+			if _, err := harness.Refresh(ctx, name, b.o.Harness, b.o.Models); err != nil {
+				log.Printf("board: refreshing the %s models failed: %v", name, err)
+			}
 		}()
 	}
 	if started == 0 {
