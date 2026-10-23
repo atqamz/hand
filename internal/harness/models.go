@@ -296,10 +296,7 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 		err = errors.New("it listed no models")
 	}
 	prev, had := load(name, env)
-	next := Listing{Format: cacheFormat, Harness: name, Version: version, Key: key, At: o.Now(), Models: models, Gone: prev.Gone}
-	if complete {
-		next.Gone = gone(prev, models)
-	}
+	next := Listing{Format: cacheFormat, Harness: name, Version: version, Key: key, At: o.Now(), Models: models, Gone: gone(prev, models, complete)}
 	if err != nil {
 		next = prev
 		next.Format, next.Harness = cacheFormat, name
@@ -336,9 +333,13 @@ func lock(ctx context.Context, path string) (func(), bool, error) {
 	}
 }
 
-func gone(prev Listing, models []Model) []string {
+func gone(prev Listing, models []Model, complete bool) []string {
+	candidates := slices.Clone(prev.Gone)
+	if complete {
+		candidates = append(candidates, names(prev.Models)...)
+	}
 	var out []string
-	for _, n := range append(slices.Clone(prev.Gone), names(prev.Models)...) {
+	for _, n := range candidates {
 		if _, here := find(models, n); !here && !slices.Contains(out, n) {
 			out = append(out, n)
 		}

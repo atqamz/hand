@@ -371,6 +371,20 @@ func TestCodexFallbackNeverMarksAModelGone(t *testing.T) {
 	if l := f.refresh("codex"); !slices.Contains(l.Gone, "gpt-6-luna") {
 		t.Fatalf("a complete list stopped marking gone: %+v", l)
 	}
+	f.install("codex", map[string]string{"exit": "2"})
+	back := `{"models":[{"slug":"gpt-6-luna","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`
+	if err := os.WriteFile(filepath.Join(f.vars["CODEX_HOME"], "models_cache.json"), []byte(back), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if l := f.refresh("codex"); slices.Contains(l.Gone, "gpt-6-luna") || !slices.Contains(l.Gone, "codex-auto-review") {
+		t.Fatalf("a listed model is still gone, or a missing one was forgotten: %+v", l.Gone)
+	}
+	if why, hard := Vanished(Spec{"codex", "gpt-6-luna", "low"}, f.env, f.clock()); why != "" || hard {
+		t.Fatalf("a listed model vanished: %q %v", why, hard)
+	}
+	if warn, err := Check(Spec{"codex", "gpt-6-luna", "low"}, f.env); err != nil || warn != "" {
+		t.Fatalf("a listed model warns: %q, %v", warn, err)
+	}
 }
 
 func TestCodexWithNeitherSourceHasNoListAndAReason(t *testing.T) {
@@ -810,7 +824,7 @@ func TestGoneIsBoundedAndKeepsTheNewest(t *testing.T) {
 	for i := range maxGone + 50 {
 		prev.Models = append(prev.Models, Model{Name: "m" + strconv.Itoa(i)})
 	}
-	out := gone(prev, nil)
+	out := gone(prev, nil, true)
 	if len(out) != maxGone || out[len(out)-1] != "m"+strconv.Itoa(maxGone+49) {
 		t.Fatalf("gone = %d, last %q", len(out), out[len(out)-1])
 	}
