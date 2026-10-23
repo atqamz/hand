@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -286,4 +287,32 @@ func (s *Store) TaskEvents(ctx context.Context, taskID int64, limit int) ([]Even
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) AttemptEvents(ctx context.Context, taskID, attemptID int64, limit int) ([]Event, bool, error) {
+	if limit < 1 {
+		return nil, false, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	ref := AttemptRef(attemptID)
+	names := regexp.MustCompile(`\b` + ref + `\b`)
+	rows, err := s.db.QueryContext(ctx, `SELECT seq, at, kind, task_id, detail FROM event WHERE task_id = ? AND detail LIKE ? ORDER BY seq`, taskID, "%"+ref+"%")
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var events []Event
+	for rows.Next() {
+		var e Event
+		if err := rows.Scan(&e.Seq, &e.At, &e.Kind, &e.TaskID, &e.Detail); err != nil {
+			return nil, false, err
+		}
+		if names.MatchString(e.Detail) {
+			events = append(events, e)
+		}
+	}
+	more := len(events) > limit
+	if more {
+		events = events[len(events)-limit:]
+	}
+	return events, more, rows.Err()
 }

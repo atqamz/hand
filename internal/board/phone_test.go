@@ -163,7 +163,7 @@ func TestNoPageAPhoneLoadsHoldsTheFleetToken(t *testing.T) {
 	seed(t, p.fx.st)
 	phone := p.pair()
 	own := csrfRe.FindStringSubmatch(p.do("GET", "/", nil, phone, viaServe).Body.String())[1]
-	paths := []string{"/", "/?all=1", "/?pick=1", "/tasks", "/tasks?q=fix", "/task/t1", "/task/t2", "/decision/d1", "/ref/t1", "/ref/d1", "/supervisor/log", "/connect", "/pair"}
+	paths := []string{"/", "/?all=1", "/?pick=1", "/tasks", "/tasks?q=fix", "/task/t1", "/task/t2", "/attempt/a1", "/ref/a1", "/decision/d1", "/ref/t1", "/ref/d1", "/supervisor/log", "/connect", "/pair"}
 	laptopSaw := 0
 	for _, path := range paths {
 		rec := p.do("GET", path, nil, phone, viaServe)
@@ -505,7 +505,7 @@ func TestACookieWorksOnlyForTheLoginItWasPairedFor(t *testing.T) {
 
 func TestAnIdentityHeaderAloneGrantsNothing(t *testing.T) {
 	p := newPhoneRig(t)
-	for _, path := range []string{"/", "/connect", "/tasks", "/events", "/supervisor/log", "/task/t1", "/doc/inbox"} {
+	for _, path := range []string{"/", "/connect", "/tasks", "/events", "/supervisor/log", "/task/t1", "/attempt/a1", "/doc/inbox"} {
 		rec := p.do("GET", path, nil, nil, viaServe)
 		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "Pair this phone first") {
 			t.Fatalf("GET %s with an identity header and no session = %d:\n%s", path, rec.Code, rec.Body.String())
@@ -754,6 +754,7 @@ func TestAFunnelRequestGetsARefusalAndNothingElse(t *testing.T) {
 	}{
 		{"GET", "/", laptop, nil}, {"GET", "/", phone, nil}, {"GET", "/", nil, nil},
 		{"GET", "/pair", nil, nil}, {"POST", "/pair", nil, url.Values{"code": {code}}},
+		{"GET", "/attempt/a1", laptop, nil}, {"GET", "/attempt/a1", phone, nil},
 		{"GET", "/connect", laptop, nil}, {"POST", "/connect/code", laptop, url.Values{"csrf": {token}, "base": {"https://x.example"}}},
 		{"GET", "/events", laptop, nil}, {"GET", "/proof?nonce=x", nil, nil},
 		{"GET", "/?token=" + token, nil, nil},

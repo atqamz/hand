@@ -19,7 +19,7 @@
 
 {{define "nav"}}<ul class="nav-pages">
 <li><a href="{{.Base}}/"{{if eq .Page "fleet"}} aria-current="page"{{end}}>{{template "icon-board"}}<span class="label">Board</span>{{if eq .Page "fleet"}}<span class="badge" data-needs data-waiting="{{.Waiting}}" data-worst="{{.Worst}}"{{if not .Waiting}} hidden{{end}}>{{.Waiting}}</span>{{end}}</a></li>
-<li><a href="{{.Base}}/tasks"{{if or (eq .Page "tasks") (eq .Page "task")}} aria-current="page"{{end}}>{{template "icon-tasks"}}<span class="label">Tasks</span></a></li>
+<li><a href="{{.Base}}/tasks"{{if or (eq .Page "tasks") (eq .Page "task") (eq .Page "attempt")}} aria-current="page"{{end}}>{{template "icon-tasks"}}<span class="label">Tasks</span></a></li>
 <li><a href="{{.Base}}/supervisor/log"{{if eq .Page "log"}} aria-current="page"{{end}}>{{template "icon-chat"}}<span class="label">Conversation</span>{{if eq .Page "fleet"}}<span class="dot" data-agent-dot{{if ne .AgentState "working"}} hidden{{end}}></span>{{end}}</a></li>
 <li><a href="{{.Base}}/connect"{{if eq .Page "connect"}} aria-current="page"{{end}}>{{template "icon-phone"}}<span class="label">Phone</span></a></li>
 </ul>

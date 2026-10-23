@@ -121,7 +121,7 @@ func TestRefRouteRedirects(t *testing.T) {
 	st := open(t)
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
-	for ref, want := range map[string]string{"t1": "/task/t1", "d1": "/decision/d1", "a1": "/task/t1#a1", "r1": "/task/t1#r1"} {
+	for ref, want := range map[string]string{"t1": "/task/t1", "d1": "/decision/d1", "a1": "/attempt/a1", "r1": "/task/t1#r1"} {
 		rec := request(h, "GET", "/ref/"+ref, nil, true)
 		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != want {
 			t.Errorf("/ref/%s = %d %q, want %q", ref, rec.Code, rec.Header().Get("Location"), want)
@@ -483,5 +483,5 @@ func TestTheReportHeadGroupsItsMetaAndAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/task/t1")
-	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from a1</span><span class="badge" data-status="done">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
+	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from <a class="ref" href="/attempt/a1">a1</a></span><span class="badge" data-status="done">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
 }

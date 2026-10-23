@@ -139,11 +139,10 @@ func boardPage(ctx context.Context, st *state.Store, ref string) (string, string
 		}
 		return "/task/" + state.TaskRef(rep.TaskID), "#" + state.ReportRef(id), nil
 	default:
-		a, err := st.Attempt(ctx, id)
-		if err != nil {
+		if _, err := st.Attempt(ctx, id); err != nil {
 			return "", "", err
 		}
-		return "/task/" + state.TaskRef(a.TaskID), "#" + state.AttemptRef(id), nil
+		return "/attempt/" + state.AttemptRef(id), "", nil
 	}
 }
 

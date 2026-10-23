@@ -171,7 +171,7 @@ func TestFailingChecksComeAndGo(t *testing.T) {
 	attempt(t, st, task.ID, state.AttemptInterrupted, "pane gone")
 	h := board.New(st, token, board.Options{})
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "failure item", q, `data-kind="failure"`, `href="/task/t1#a1"`, "pane gone")
+	contains(t, "failure item", q, `data-kind="failure"`, `href="/attempt/a1"`, "pane gone")
 	attempt(t, st, task.ID, state.AttemptRunning, "")
 	if kinds, _, _ := waits(get(t, h, "/")); slices.Contains(kinds, "failure") {
 		t.Fatalf("a running attempt left the failure in the queue: %q", kinds)

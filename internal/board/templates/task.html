@@ -14,7 +14,7 @@
 {{with .Card.Task.Goal}}<article class="card" data-role="goal"><header class="slug"><span class="who">goal</span></header><div class="copy plain">{{.}}</div></article>{{end}}
 {{with .Card.Plan}}<article class="card" data-role="plan"><header class="slug"><span class="who">plan {{plan .Revision}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></header><div class="copy md">{{md .Body $.Local}}</div></article>{{end}}
 <h3>Reports</h3>
-{{range .Reports}}<article class="card report" id="{{report .ID}}" data-status="{{.Status}}"><header class="slug"><span class="who">{{report .ID}}</span><span class="report-title">{{inline .Summary}}</span><span class="report-meta"><span class="meta">from {{attempt .AttemptID}}</span><span class="badge" data-status="{{.Status}}">{{.Status}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></span><span class="act">{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.Token}}"><button>Mark read</button></form>{{end}}</span></header>{{with rest .Body}}<div class="copy md">{{md . $.Local}}</div>{{end}}</article>
+{{range .Reports}}{{template "report-card" (rep $ .)}}
 {{else}}<p class="quiet">No reports yet.</p>
 {{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --task {{task .Card.Task.ID}} --limit 500</code>.</p>
 {{end}}<h3>Decisions</h3>
@@ -29,10 +29,12 @@
 {{with .Card.Delivered}}<h3>Delivered</h3>
 <ul class="delivered">{{range .}}<li>{{template "deliverable" .}}{{if .Href}}<a class="url" href="{{.Href}}" tabindex="-1" target="_blank" rel="noopener">{{.Ref}}</a>{{else}}<span class="url">{{.Ref}}</span>{{end}}</li>{{end}}</ul>
 {{end}}<h3>Attempts</h3>
-{{with .Attempts}}<ol class="checks attempts">{{range .}}<li class="row check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<span class="ref">{{attempt .Attempt.ID}}</span> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}{{with .Attempt.Continues}} · continues {{attempt .}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
+{{with .Attempts}}<ol class="checks attempts">{{range .}}<li class="row check" data-state="{{.State}}" id="{{attempt .Attempt.ID}}">{{template "check-icon" .State}}<a class="ref" href="{{$.Base}}/attempt/{{attempt .Attempt.ID}}">{{attempt .Attempt.ID}}</a> <span class="check-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</span> <span class="meta">{{.Attempt.Status}}{{with .Attempt.Reason}} · {{.}}{{end}}{{with .Attempt.Continues}} · continues {{attempt .}}{{end}}</span> <time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></li>{{end}}</ol>
 {{else}}<p class="quiet">No attempts yet.</p>
 {{end}}
 </aside>
 </div>
 </main>
 {{template "foot"}}{{end}}
+
+{{define "report-card"}}{{with .Rep}}<article class="card report" id="{{report .ID}}" data-status="{{.Status}}"><header class="slug"><span class="who">{{report .ID}}</span><span class="report-title">{{inline (shown .Summary)}}</span><span class="report-meta"><span class="meta">from <a class="ref" href="{{$.R.Base}}/attempt/{{attempt .AttemptID}}">{{attempt .AttemptID}}</a></span><span class="badge" data-status="{{.Status}}">{{.Status}}</span><time datetime="{{.CreatedAt}}">{{when .CreatedAt}}</time></span><span class="act">{{if .AckedAt}}<span class="meta">read by {{.AckedBy}}</span>{{else}}<form class="inline" method="post" action="{{$.R.Base}}/report/{{report .ID}}/ack"><input type="hidden" name="csrf" value="{{$.R.Token}}"><button>Mark read</button></form>{{end}}</span></header>{{with rest .Body}}<div class="copy md">{{md (shown .) $.R.Local}}</div>{{end}}</article>{{end}}{{end}}

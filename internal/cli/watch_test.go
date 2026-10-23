@@ -162,7 +162,7 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 		return strings.Contains(string(b), "attempt.quiet|a1|")
 	})
 	b, _ := os.ReadFile(log)
-	if !strings.HasSuffix(strings.TrimSpace(string(b)), "/task/t1#a1") {
+	if !strings.HasSuffix(strings.TrimSpace(string(b)), "/attempt/a1") {
 		t.Fatalf("notify call = %q", b)
 	}
 	write(`["no-such-notifier"]`)

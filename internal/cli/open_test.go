@@ -161,7 +161,7 @@ func TestOpenDeepLinks(t *testing.T) {
 		{[]string{"t2"}, "/task/t2", ""},
 		{[]string{"d1"}, "/decision/d1", ""},
 		{[]string{"r2"}, "/task/t1", "#r2"},
-		{[]string{"a1"}, "/task/t1", "#a1"},
+		{[]string{"a1"}, "/attempt/a1", ""},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t)

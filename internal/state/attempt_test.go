@@ -203,3 +203,34 @@ func TestAttemptListsAndLatest(t *testing.T) {
 		t.Fatalf("project = %+v, %v", p, err)
 	}
 }
+
+func TestAttemptEventsNameOnlyTheAttemptAndKeepTheNewest(t *testing.T) {
+	s, _ := openTest(t)
+	task := activeTask(t, s)
+	ctx := context.Background()
+	spec := claudeSpec
+	spec.TaskID = task.ID
+	one, err := s.AddAttempt(ctx, spec, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"first", "second", "third"} {
+		if err := s.NoteAttempt(ctx, one.ID, "blocked", d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, more, err := s.AttemptEvents(ctx, task.ID, one.ID, 10)
+	if err != nil || more || len(events) != 4 || events[0].Kind != "attempt.launching" || events[3].Detail != "a1: third" {
+		t.Fatalf("events = %+v, %v, %v", events, more, err)
+	}
+	events, more, err = s.AttemptEvents(ctx, task.ID, one.ID, 2)
+	if err != nil || !more || len(events) != 2 || events[0].Detail != "a1: second" {
+		t.Fatalf("limited events = %+v, %v, %v", events, more, err)
+	}
+	if events, _, _ = s.AttemptEvents(ctx, task.ID, 10, 10); len(events) != 0 {
+		t.Fatalf("a10 events = %+v", events)
+	}
+	if _, _, err := s.AttemptEvents(ctx, task.ID, one.ID, 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("limit 0 err = %v", err)
+	}
+}

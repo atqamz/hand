@@ -51,6 +51,7 @@ func TestNoInlineScriptOrStyle(t *testing.T) {
 	pages := map[string]string{
 		"fleet":    get(t, h, "/"),
 		"task":     get(t, h, "/task/t1"),
+		"attempt":  get(t, h, "/attempt/a1"),
 		"decision": get(t, h, "/decision/d1"),
 		"history":  get(t, h, "/supervisor/log"),
 		"error":    request(h, "GET", "/task/t99", nil, true).Body.String(),

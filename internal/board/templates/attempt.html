@@ -1,0 +1,44 @@
+{{define "attempt.html"}}{{template "head" .}}{{template "top" .}}<main class="thread" data-region="attempt">
+<header class="thread-head">
+<p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / <a class="ref" href="{{.Base}}/task/{{task .Task.ID}}">{{task .Task.ID}}</a> / <span class="ref">{{attempt .Attempt.ID}}</span></p>
+<h2 class="thread-title">{{.Attempt.Harness}} {{.Attempt.Model}} {{.Attempt.Effort}}</h2>
+<p class="slug"><span class="badge status" data-state="{{.State}}">{{.Attempt.Status}}</span><span class="ref">{{attempt .Attempt.ID}}</span>{{with .Attempt.Reason}}<span>{{shown .}}</span>{{end}}<a href="{{.Base}}/task/{{task .Task.ID}}">{{.Task.Title}}</a></p>
+</header>
+<hr class="rule">
+<div class="task-grid">
+<div class="task-main">
+<h3>Reports</h3>
+{{range .Reports}}{{template "report-card" (rep $ .)}}
+{{else}}<p class="quiet">No reports yet.</p>
+{{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --attempt {{attempt .Attempt.ID}} --limit 500</code>.</p>
+{{end}}<h3>Brief</h3>
+{{with .Brief}}<pre class="brief" tabindex="0">{{shown .}}</pre>
+{{else}}<p class="quiet">No brief is recorded for this attempt.</p>
+{{end}}<h3>Launch line</h3>
+<pre class="brief" tabindex="0">{{shown .Launch}}</pre>
+<h3>Timeline</h3>
+<ol class="events">{{range .Events}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{words .Kind}}</span><span class="detail">{{refs (plain (shown .Detail)) $.Base $.Titles}}</span></li>
+{{end}}</ol>
+{{if .MoreEvents}}<p class="more">Only the latest 50 events are shown.</p>{{end}}
+</div>
+<aside class="task-side">
+<h3>Details</h3>
+<dl class="facts">
+<dt>Harness</dt><dd>{{.Attempt.Harness}}</dd>
+<dt>Model</dt><dd>{{.Attempt.Model}}</dd>
+<dt>Effort</dt><dd>{{.Attempt.Effort}}</dd>
+<dt>Started</dt><dd><time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></dd>
+{{with .Attempt.EndedAt}}<dt>Stopped</dt><dd><time datetime="{{.}}">{{when .}}</time></dd>
+<dt>Duration</dt><dd>{{$.Duration}}</dd>
+{{else}}<dt>Running for</dt><dd><time data-since datetime="{{.Attempt.CreatedAt}}">{{.Duration}}</time></dd>
+{{end}}{{with .Attempt.Continues}}<dt>Continues</dt><dd><a class="ref" href="{{$.Base}}/attempt/{{attempt .}}">{{attempt .}}</a></dd>
+{{end}}<dt>Branch</dt><dd class="doc-path">{{.Attempt.Branch}}</dd>
+<dt>Worktree</dt><dd><span class="doc-path">{{.Attempt.Worktree}}</span>{{if .Attempt.CleanedAt}}<p class="meta">Removed <time datetime="{{.Attempt.CleanedAt}}">{{when .Attempt.CleanedAt}}</time>; the branch is kept.</p>{{else}}<button type="button" class="doc-copy" data-copy="path" data-text="{{.Attempt.Worktree}}">Copy path</button>{{end}}</dd>
+{{if eq .Attempt.Status "running"}}<dt>Pane</dt><dd>{{.Attempt.PaneID}}</dd>
+{{end}}</dl>
+{{with .Delivered}}<h3>Delivered</h3>
+<ul class="delivered">{{range .}}<li>{{template "deliverable" .}}{{if .Href}}<a class="url" href="{{.Href}}" tabindex="-1" target="_blank" rel="noopener">{{.Ref}}</a>{{else}}<span class="url">{{.Ref}}</span>{{end}}</li>{{end}}</ul>
+{{end}}</aside>
+</div>
+</main>
+{{template "foot"}}{{end}}

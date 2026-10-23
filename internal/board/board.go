@@ -53,6 +53,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"tabonce":  tabOnce,
 	"away":     away,
 	"plain":    plain,
+	"shown":    shown,
 	"rest": func(s string) string {
 		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
 		return strings.TrimSpace(rest)
@@ -63,6 +64,9 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"tint":  tint,
 	"view": func(root map[string]any, w waiting, open bool) map[string]any {
 		return map[string]any{"R": root, "W": w, "Open": open}
+	},
+	"rep": func(root map[string]any, r state.Report) map[string]any {
+		return map[string]any{"R": root, "Rep": r}
 	},
 	"pick": func(root map[string]any, d state.Decision, needs bool) map[string]any {
 		return map[string]any{"R": root, "D": d, "Needs": needs}
@@ -174,6 +178,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("GET /doc/{path...}", b.doc)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
+	b.mux.HandleFunc("GET /attempt/{id}", b.attempt)
 	b.mux.HandleFunc("GET /tasks", b.archive)
 	b.mux.HandleFunc("GET /ref/{ref}", b.ref)
 	b.mux.HandleFunc("GET /decision/{id}", b.decision)
@@ -368,7 +373,7 @@ func (b *Board) refTitle(ctx context.Context) func(string) string {
 		if t, ok := seen[ref]; ok {
 			return t
 		}
-		t := b.describe(ctx, ref)
+		t := shown(b.describe(ctx, ref))
 		seen[ref] = t
 		return t
 	}
@@ -551,7 +556,7 @@ func (b *Board) ref(w http.ResponseWriter, r *http.Request) {
 	case 'a':
 		var a state.Attempt
 		a, err = b.st.Attempt(ctx, id)
-		to = "/task/" + state.TaskRef(a.TaskID) + "#" + ref
+		to = "/attempt/" + state.AttemptRef(a.ID)
 	case 'r':
 		var rep state.Report
 		rep, err = b.st.Report(ctx, id)
@@ -723,16 +728,7 @@ func (b *Board) task(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]check, 0, len(c.Attempts))
 	for _, a := range c.Attempts {
-		row := check{Task: t, Attempt: &a, State: "idle"}
-		switch {
-		case a.Live():
-			row.State = "running"
-		case facts{done: done}.failing(a):
-			row.State = "failing"
-		case done[a.ID]:
-			row.State = "passing"
-		}
-		rows = append(rows, row)
+		rows = append(rows, check{Task: t, Attempt: &a, State: attemptState(a, done)})
 	}
 	decisions, err := b.st.Decisions(ctx, id, historyLimit)
 	if err != nil {
