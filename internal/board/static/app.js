@@ -1143,7 +1143,7 @@
 	const sourceView = (root) => {
 		const [first, second] = root.querySelectorAll(".doc-toggle[data-remember] > *");
 		if (!second || first.tagName === "A" || !sourceSaved()) return;
-		if (root === document) location.replace(second.href + location.hash);
+		if (root === document) location.replace(second.href + (/^#L\d+$/.test(location.hash) ? location.hash : ""));
 		else second.click();
 	};
 	const docView = (root) => {
@@ -1157,7 +1157,7 @@
 	docView(document);
 	document.addEventListener("click", (e) => {
 		const a = e.target instanceof Element ? e.target.closest(".doc-toggle[data-remember] > a") : null;
-		if (!a) return;
+		if (!a || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 		try {
 			if (a.parentElement.lastElementChild === a) localStorage.setItem(sourceKey, "on");
 			else localStorage.removeItem(sourceKey);

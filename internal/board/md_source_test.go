@@ -90,7 +90,8 @@ func TestTheMarkdownViewIsRememberedInOneGuardedKey(t *testing.T) {
 		`localStorage.getItem(sourceKey) === "on"`, `localStorage.setItem(sourceKey, "on")`, `localStorage.removeItem(sourceKey)`,
 		`root.querySelectorAll(".doc-toggle[data-remember] > *")`,
 		`e.target.closest(".doc-toggle[data-remember] > a")`,
-		`location.replace(second.href + location.hash)`, `else second.click()`,
+		`location.replace(second.href + (/^#L\d+$/.test(location.hash) ? location.hash : ""))`,
+		`if (!a || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;`, `else second.click()`,
 		`const input = form.querySelector("input[type=search]");`)
 	lacks(t, "app.js", js, `const input = form.querySelector("input");`)
 	lacks(t, "app.js", js, "hand.doc.source${")

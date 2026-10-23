@@ -252,6 +252,7 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		}
 		if !utf8.Valid(md) || bytes.IndexByte(md, 0) >= 0 {
 			delete(data, "Views")
+			delete(data, "Remember")
 			data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
 			break
 		}
