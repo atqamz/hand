@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/gitcfg"
+	"github.com/atqamz/hand/internal/toon"
 )
 
 func (fx *attemptFixture) startT1() (string, string, int) {
@@ -23,12 +24,12 @@ func TestAStartIsRefusedForEverySettingBeforeAnythingRuns(t *testing.T) {
 	command, log := markerCommand(t)
 	for _, pattern := range gitcfg.Listed {
 		key, value := plant(pattern, command)
-		gitIn(t, fx.repo, "config", "--add", key, value)
+		restore := plantConfig(t, fx.repo, [2]string{key, value})
 		out, errOut, code := fx.startT1()
 		if code != 2 || out != "" || !strings.Contains(errOut, strconv.Quote(strings.ToLower(key))) || !strings.Contains(errOut, "Hand ran nothing") || !strings.Contains(errOut, "`hand project trust app`") {
 			t.Errorf("%s: code=%d out=%q stderr=%q", key, code, out, errOut)
 		}
-		gitIn(t, fx.repo, "config", "--unset-all", key)
+		restore()
 	}
 	nothingRan(t, log)
 	if _, err := os.Stat(filepath.Dir(fx.h.worktree("t1-a1"))); !errors.Is(err, fs.ErrNotExist) {
@@ -52,7 +53,7 @@ func TestTrustingAcceptsTheSettingsAndTheStartRuns(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	out := fx.h.ok("project", "trust", "app")
-	for _, want := range []string{"project: app\n", "status: accepted\n", "settings[3]{setting,value}:\n", "  core.sshcommand," + command + "\n", "  filter.x.smudge,cat\n", "  filter.x.smudge,tr a b\n"} {
+	for _, want := range []string{"project: app\n", "status: accepted\n", "settings[3]{setting,value}:\n", "  core.sshcommand," + toon.Value(command) + "\n", "  filter.x.smudge,cat\n", "  filter.x.smudge,tr a b\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("trust = %q, missing %q", out, want)
 		}
@@ -116,7 +117,7 @@ func TestAProjectWithNothingRecordedAdoptsWhatIsThereOnTheFirstGitRun(t *testing
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	gitIn(t, fx.repo, "config", "core.sshCommand", command)
-	db, err := sql.Open("sqlite", filepath.Join(fx.h.home, "hand.db"))
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(fx.h.home, "hand.db")+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,10 +238,12 @@ func TestAReportFromAWorktreeRunsNoConfiguredProgram(t *testing.T) {
 	fx := newAttemptFixture(t)
 	command, log := markerCommand(t)
 	fx.start()
+	var all [][2]string
 	for _, pattern := range gitcfg.Listed {
 		key, value := plant(pattern, command)
-		gitIn(t, fx.repo, "config", "--add", key, value)
+		all = append(all, [2]string{key, value})
 	}
+	plantConfig(t, fx.repo, all...)
 	if err := os.WriteFile(filepath.Join(fx.repo, ".git", "info", "attributes"), []byte("* filter=x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

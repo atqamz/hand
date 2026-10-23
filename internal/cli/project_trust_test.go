@@ -2,9 +2,11 @@ package cli_test
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,6 +25,33 @@ func nothingRan(t *testing.T, log string) {
 		t.Fatalf("a configured program ran: %q", b)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal(err)
+	}
+}
+
+func plantConfig(t *testing.T, repo string, kvs ...[2]string) (restore func()) {
+	t.Helper()
+	file := filepath.Join(repo, ".git", "config")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, kv := range kvs {
+		parts := strings.Split(kv[0], ".")
+		if sub := strings.Join(parts[1:len(parts)-1], "."); sub != "" {
+			fmt.Fprintf(&b, "[%s %q]\n", parts[0], sub)
+		} else {
+			fmt.Fprintf(&b, "[%s]\n", parts[0])
+		}
+		fmt.Fprintf(&b, "\t%s = %q\n", parts[len(parts)-1], kv[1])
+	}
+	if err := os.WriteFile(file, append(slices.Clone(before), b.String()...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.WriteFile(file, before, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

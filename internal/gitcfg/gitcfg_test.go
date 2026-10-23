@@ -3,9 +3,11 @@ package gitcfg
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,11 +58,44 @@ func ran(t *testing.T, log string) string {
 
 func recorded(t *testing.T, dir string) Repo {
 	t.Helper()
-	now, err := Read(context.Background(), dir)
+	ctx := context.Background()
+	now, err := Read(ctx, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Repo{Project: "app", Dir: dir, Recorded: now.Digest()}
+	r, err := Open(ctx, "app", dir, now.Digest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func plantKeys(t *testing.T, dir, command string) (restore func()) {
+	t.Helper()
+	file := filepath.Join(dir, ".git", "config")
+	before, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, p := range Listed {
+		key := concrete(p)
+		parts := strings.Split(key, ".")
+		if sub := strings.Join(parts[1:len(parts)-1], "."); sub != "" {
+			fmt.Fprintf(&b, "[%s %q]\n", parts[0], sub)
+		} else {
+			fmt.Fprintf(&b, "[%s]\n", parts[0])
+		}
+		fmt.Fprintf(&b, "\t%s = %q\n", parts[len(parts)-1], valueFor(key, command))
+	}
+	if err := os.WriteFile(file, append(slices.Clone(before), b.String()...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.WriteFile(file, before, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func concrete(pattern string) string {
@@ -92,7 +127,7 @@ func TestListedMatchesEveryPatternAndNothingElse(t *testing.T) {
 	}
 }
 
-func TestEverySettingIsReadRefusedAndRunsNothing(t *testing.T) {
+func TestEverySettingIsReadAndNamedAndRunsNothing(t *testing.T) {
 	dir := newRepo(t)
 	command, log := newMark(t)
 	r := recorded(t, dir)
@@ -100,20 +135,36 @@ func TestEverySettingIsReadRefusedAndRunsNothing(t *testing.T) {
 	if err := r.Check(ctx); err != nil {
 		t.Fatalf("unchanged repository: %v", err)
 	}
-	for _, p := range Listed {
-		key := concrete(p)
-		gitc(t, dir, "config", "--add", key, valueFor(key, command))
-		err := r.Check(ctx)
-		if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), strconv.Quote(strings.ToLower(key))) || !strings.Contains(err.Error(), "Hand ran nothing") {
-			t.Errorf("%s: Check = %v", key, err)
-		}
-		if _, err := r.Git(ctx, "rev-parse", "HEAD"); !errors.Is(err, state.ErrInvalid) {
-			t.Errorf("%s: Git = %v", key, err)
-		}
-		gitc(t, dir, "config", "--unset-all", key)
-		if err := r.Check(ctx); err != nil {
-			t.Errorf("%s: after unset: %v", key, err)
-		}
+	restore := plantKeys(t, dir, command)
+	want := make([]string, len(Listed))
+	for i, p := range Listed {
+		want[i] = strings.ToLower(concrete(p))
+	}
+	slices.Sort(want)
+	now, err := Read(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, s := range now {
+		got = append(got, s.Name)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("read %q, want %q", got, want)
+	}
+	if names := now.Changed(r.Recorded, false); !slices.Equal(names, want) {
+		t.Fatalf("changed %q, want %q", names, want)
+	}
+	err = r.Check(ctx)
+	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), strconv.Quote(want[0])) || !strings.Contains(err.Error(), "and "+strconv.Itoa(len(want)-shown)+" more") || !strings.Contains(err.Error(), "Hand ran nothing") {
+		t.Fatalf("Check = %v", err)
+	}
+	if _, err := r.Git(ctx, "rev-parse", "HEAD"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("Git = %v", err)
+	}
+	restore()
+	if err := r.Check(ctx); err != nil {
+		t.Fatalf("after the settings were removed: %v", err)
 	}
 	if got := ran(t, log); got != "" {
 		t.Fatalf("a configured program ran: %q", got)
@@ -469,10 +520,7 @@ func TestACheckWithNothingRecordedOrNoRepositoryFails(t *testing.T) {
 func TestToplevelAndReadRunNothingWithEverySettingPlanted(t *testing.T) {
 	dir := newRepo(t)
 	command, log := newMark(t)
-	for _, p := range Listed {
-		key := concrete(p)
-		gitc(t, dir, "config", "--add", key, valueFor(key, command))
-	}
+	plantKeys(t, dir, command)
 	if err := os.WriteFile(filepath.Join(dir, ".git", "info", "attributes"), []byte("* filter=x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
