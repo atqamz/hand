@@ -11,7 +11,7 @@ related_targets: []
 
 - **Covers:** every board surface, including:
   - the fleet page: the masthead, the rail, the work pane (Needs in severity bands, then Tasks with its search field), the supervisor pane (its controls, the conversation and the composer) and the separator between the panes;
-  - the Tasks page (search over every task), the task page, the decision page, the conversation page and the fleet list at `/`;
+  - the Tasks page (search over every task), the task page, the attempt page, the decision page, the conversation page and the fleet list at `/`;
   - the error pages, the network variant (no supervisor controls; answering decisions and marking reports read still work), and the first-run empty state.
 - **Mode:** Operate.
 

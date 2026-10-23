@@ -46,6 +46,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the supervisor pane: Start, Resume, New session, Stop, Interrupt, the conversation (the calm view, plus messages still queued) and the message box, with a separator that resizes it;
   - Tasks: the task list on the fleet page, and the Tasks page that searches every task;
   - the task page: plan, reports and events;
+  - the attempt page: its brief, launch line, reports and events;
   - the decision page;
   - the conversation page;
   - error pages.

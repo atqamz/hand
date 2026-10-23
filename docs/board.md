@@ -43,6 +43,19 @@ The board is where you start, chat with and resume the supervisor. Those control
 
 The Start picker lists every routing profile and marks the ones whose harness is not on the board's `PATH` (the one it started with): the option is disabled and reads "claude not found on the board's PATH" (on Windows, "codex found only as a batch file" when the only `codex` on `PATH` is a `.cmd` or `.bat`, which Hand never starts), and the preselected profile is `default`, or the first available one when `default` is not. When none can start, the Start button is off and a line names the missing harnesses and the fix: install the harness or add its folder to `PATH` (for a batch file, install the standalone harness or add the folder of its `.exe`), then restart the board: `hand board stop`, then `hand board`, or restart its unit. The check is the lookup a start makes, runs no harness and is redone on every refresh, so an install shows after the next one. The "Other harness, model or effort" rows are not marked.
 
+## The attempt page
+
+Every `aN` on the Board, in a reply, a report, a decision, an event or a Needs item, opens the attempt's page, `/<fleet id>/attempt/aN` (`hand open aN` opens it too; a bare number works as well). The task page's attempt rows and "from aN" lines link to it. It shows only what `hand.db` holds, the same facts as `hand attempt show aN`:
+
+- the header: harness, model and effort, the status with its reason, when it started and stopped and for how long, the branch, the worktree path with a **Copy path** button, the pane while it runs, the attempt it continues, and the PR, MR, link or file chips of its reports;
+- its reports, as on the task page, each with **Mark read** while unread;
+- the **brief**, the briefing the supervisor gave the worker, which Hand stores as the last word of the launch command, and the **launch line**, the rest of that command;
+- a **timeline** of every event that names the attempt, oldest first: its state changes, the turns the watcher saw end or block, the keys pressed on its screen (key names, never text), what was typed into it (a byte count), the folder Codex saved as trusted, its reports and its cleaning.
+
+A worktree that `hand attempt clean` removed is marked as removed, and its branch is kept. The page does not show the worker's screen, the last screen Hand stored, or any transcript; see [Attempt](vocabulary.md#attempt). A running attempt's page refreshes itself like the task page, every 10 seconds, so the timeline and the report fill in without a reload.
+
+The page holds nothing the task page does not already hold, apart from the brief and the launch line, so a paired phone opens it, the network-address board serves it read-only, and Funnel and unauthenticated requests are refused as for every other page.
+
 ## Pair a phone
 
 The rail's **Phone** page, `/<fleet id>/connect`, signs a phone in without giving it the fleet's token. Only a browser logged in with the token, the laptop's, can open the page's controls. The board still listens on loopback, and the phone reaches it through a tunnel you set up: `tailscale serve --bg 7777`, an SSH tunnel or any other. The page sets up no network; its **Network** card reports what it finds, and Hand never changes a Tailscale setting.

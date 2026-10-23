@@ -222,6 +222,8 @@ A task keeps all its attempts. At most one is live, that is `launching` or `runn
 
 When the watcher ends an attempt, it keeps the last screen it read from that attempt's pane, if it read one: about 2 KB from the end, with escape sequences and control characters removed. `hand attempt show aN` prints it as `last_screen`. The screen is stored only in the attempt row. It never appears in an event, a wake, `hand orient` or the board, because a worker can print anything. An attempt the watcher did not end, or whose pane it never read, has no `last_screen`. The screen is read when a turn ends, so it is that turn's last screen and not the pane's final state.
 
+The board's attempt page, `/attempt/aN`, shows what Hand recorded about the attempt: the harness, model and effort, status and reason, times, branch and worktree, the brief and the launch line (both stored as the attempt's launch command, whose last word is the brief), its reports, and every event that names it. It never shows `last_screen`.
+
 `hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes, and commits on no branch, tag or remote, unless `--discard` is given.
 
 ### Report
@@ -429,7 +431,7 @@ Every record has a short ref that commands, the board and wakes share.
 |---|---|---|
 | `tN` | task | across the fleet |
 | `pN` | plan revision | within its task |
-| `aN` | attempt | across the fleet |
+| `aN` | attempt | across the fleet; the board links it to the attempt page |
 | `rN` | report | across the fleet |
 | `dN` | decision | across the fleet |
 | `sN` | supervisor launch | across the fleet |
