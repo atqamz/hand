@@ -24,6 +24,8 @@ In the table:
 | Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
 | Start codex or agy | real | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
+| Hand refuses a harness found only as a `.cmd` or `.bat`, and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
+| Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | A worker reports through the footer | daily | CI, fake | CI, fake |
 | Stop a worker | daily | real Mac (#895), stand-in claude | CI |
 | `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
@@ -37,6 +39,8 @@ In the table:
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
+
+The two `.exe` rows prove Hand's side: that the lookup picks a `.exe` over a `.cmd` and names the shim it refuses (temporary `PATH` folders with files of those names), and that real Luvus refuses a key to a fake `codex.exe` until Hand has asked it for a process scan, and accepts it after. They do not prove that the real Codex, Claude Code or an npm shim behave the same, what `cmd.exe` does with a shim, or Codex's trust screens: [`docs/dogfood/windows.md`](dogfood/windows.md) `W4` checks those on a real machine.
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 

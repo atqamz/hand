@@ -17,7 +17,7 @@ Which checks differ:
 
 | Check | Run A | Run B |
 |---|---|---|
-| `W0`, `W1`, `W4`, `W8`, `W9`, `W11`, `W14` | run | run again: Claude Code may behave differently when there is no Git Bash, and that is a finding |
+| `W0`, `W1`, `W4a`, `W4b`, `W8`, `W9`, `W11`, `W14` | run | run again: Claude Code may behave differently when there is no Git Bash, and that is a finding |
 | `W3` | both halves: the report from PowerShell and from Git Bash | only the PowerShell half; skip the Git Bash half, with the reason |
 | `W2`, `W5`, `W6`, `W7`, `W10`, `W12`, `W13` | run | skip with `covered by run A`: they do not depend on Git Bash |
 
@@ -31,7 +31,8 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W1 | The supervisor starts under the pseudo console, and Hand accepts the trust screen | Start claude, and accept its trust screen; Luvus server, panes and events | agent | 1 |
 | W2 | **Start** on the board runs the supervisor | Luvus server, panes and events | needs human | 1 |
 | W3 | A worker reports, from PowerShell and Git Bash, and the supervisor wakes | A worker reports through the footer | agent | 1 |
-| W4 | codex through its npm shim, agy and opencode start | Start codex or agy; Start opencode | agent, per harness | 1 each, 2 for codex |
+| W4a | codex (the standalone `codex.exe`), agy and opencode start | Start codex or agy; Start opencode; Keys reach an agent whose program has an extension | agent, per harness | 1 each, 2 for codex |
+| W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
 | W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
@@ -296,12 +297,12 @@ Evidence: `& { hand report list; hand attempt show $a; git -C "$D\repo" log --on
 
 If it fails: file the output above. File the Git Bash half as its own issue (`W3: report from Git Bash ...`) when only it fails. If `trust` is `not pressed` or the attempt is `blocked`, add `hand attempt read $a`, which prints the worker's screen. If the worker finished but wrote no report, add the `hand attempt read $a` output: the Windows footer must reach it.
 
-## W4: codex through its npm shim, agy and opencode start
+## W4a: codex (the standalone `codex.exe`), agy and opencode start
 
-- **Proves:** the Start codex or agy row, and the Start opencode row. The codex check includes the `.cmd` shim that `npm` makes for it.
+- **Proves:** the Start codex or agy row, the Start opencode row, and that keys reach a harness whose program has an extension, which Luvus does not know as an agent until Hand asks it for a process scan.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
-- **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 5).
-- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run codex once yourself before you use it, so that its model cache exists. For agy, `agy models` must list models. opencode uses the model from its own configuration. `Get-Command codex` should name a `codex.cmd`: say what it names in the evidence.
+- **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 6).
+- **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run the harness once yourself before you use it, so that its model cache exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. Run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, so that the worktrees of that repository need no answer. For agy, `agy models` must list models. opencode uses the model from its own configuration. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
 
 Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`):
 
@@ -311,7 +312,7 @@ Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from t
 . "$D\env.ps1"; Set-Location "$D\fleet"
 hand supervisor stop
 hand route list
-Get-Command codex, agy, opencode -ErrorAction SilentlyContinue | Select-Object Name, Source
+Get-Command codex, agy, opencode -All -ErrorAction SilentlyContinue | Select-Object Name, Source
 Add-Content "$D\vars.ps1" "`$h = '<harness>'`n`$model = '<model>'`n`$effort = '<effort>'"
 ```
 
@@ -343,9 +344,20 @@ hand attempt show $a
 hand report list
 ```
 
-**4.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
+**4.** Before you stop the worker, press a harmless key pair on it. Hand asks Luvus for a process scan before it sends keys, so an agent started as `codex.exe` must accept them:
 
-**5.** For codex only, start its supervisor, read the screen, and stop it:
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+$rev = (hand attempt read $a | Select-String '^revision: (\d+)').Matches[0].Groups[1].Value
+hand attempt keys --revision $rev $a down up
+hand attempt read $a
+```
+
+Expected: `keys: down up`. An answer that says the screen changed since the revision (exit 3) is not a failure: read again, and press once more. `luvus agent_not_ready: target pane is not a running agent` is the failure this step looks for.
+
+**5.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
+
+**6.** For codex only, start its supervisor, read the screen, and stop it:
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
@@ -357,11 +369,45 @@ hand supervisor stop
 
 Expected: the screen shows the fleet home as Codex's working directory, and its first `hand orient` succeeded, with no `not inside a fleet home`.
 
-Expected for the worker: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for. For codex, the `launch:` line also shows `--cd` with the worktree path, and `hand attempt read $a` shows Codex's working directory as that worktree, never `C:\Windows`: a pane that starts in another folder is a failure. Step 5 checks the same for a codex supervisor.
+Expected for the worker: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); for codex its first word is the full path of a `codex.exe`, never a `.cmd`, and the line also shows `--cd` with the worktree path; `hand attempt read $a` shows the worktree folder (the `worktree:` line of `hand attempt show $a`) as the harness's directory, never `C:\Windows`: a pane that starts in another folder is a failure. Step 6 checks the same for a codex supervisor. The worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure, except for a codex folder trust screen, which Hand does not answer yet: press Enter yourself with `hand attempt keys`, and say so in the evidence.
 
-Evidence: `& { hand attempt show $a; hand report list; Get-Command $h | Select-Object Name, Source } 2>&1 | Ev W4`; for codex, also the output of step 5's `hand supervisor show`.
+Evidence: `& { hand attempt show $a; hand attempt read $a; hand report list; Get-Command $h -All | Select-Object Name, Source } 2>&1 | Ev W4a`; for codex, also the output of step 6's `hand supervisor show`.
 
-If it fails: file one issue per harness, titled `W4: <harness> ...`, with `hand attempt show $a` and `hand attempt read $a`.
+If it fails: file one issue per harness, titled `W4a: <harness> ...`, with `hand attempt show $a` and `hand attempt read $a`.
+
+## W4b: A codex found only as a `.cmd` shim is refused
+
+- **Proves:** the Hand refuses a harness found only as a `.cmd` or `.bat` row of the Platform support table.
+- **Run:** agent.
+- **Real sessions:** 0: nothing starts.
+- **Preconditions:** `W0` passed. No supervisor runs. This check puts a stand-in `codex.cmd` first on the `PATH` of one shell, and takes every folder that holds a `codex.exe` out of it, which is what `npm install -g @openai/codex` leaves you with when the standalone Codex is absent. It installs nothing and changes no setting. The `$model` and `$effort` of the cheapest codex row of `hand route list` come from `W4a`.
+
+Steps:
+
+**1.** Make the stand-in, change the `PATH` of this shell only, and ask Hand to start it:
+
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+New-Item -ItemType Directory -Force "$D\shim" | Out-Null
+Set-Content -Path "$D\shim\codex.cmd" -Value '@exit 0' -Encoding ascii
+$env:Path = (@("$D\shim") + ($env:Path.Split(';') | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'codex.exe')) })) -join ';'
+Get-Command codex -All | Select-Object Name, Source
+hand doctor | Select-String 'harness codex'
+hand supervisor start --harness codex --model $model --effort $effort
+hand supervisor show
+```
+
+Expected:
+- `Get-Command codex -All` lists only `codex.cmd`, in `$D\shim`;
+- the `harness codex` row of `hand doctor` is `warn` and names `codex.cmd`;
+- `hand supervisor start` exits 2 and prints `codex is installed only as ...\shim\codex.cmd, a batch file; Hand does not start batch files, because cmd.exe runs them in the wrong folder and mangles the prompt; install the standalone codex, or add the folder of codex.exe to PATH`;
+- `hand supervisor show` still reports no supervisor: nothing was created.
+
+A real npm shim (`%APPDATA%\npm\codex.cmd`) is refused the same way; this check uses a stand-in so that nothing is downloaded. Close this PowerShell window afterwards: the `PATH` change belongs to it.
+
+Evidence: `& { Get-Command codex -All | Select-Object Name, Source; hand doctor | Select-String 'harness codex'; hand supervisor start --harness codex --model $model --effort $effort; hand supervisor show } 2>&1 | Ev W4b`.
+
+If it fails: file the output above as `W4b: ...`. If Hand started codex through the shim, add `hand supervisor show` and `hand supervisor stop`.
 
 ## W5: `hand update` renames the running `hand.exe`
 

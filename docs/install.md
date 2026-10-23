@@ -7,7 +7,7 @@
   - On Windows, Hand runs natively, without WSL. See [Windows](#windows).
 - git, to make worktrees. Go 1.26.5 or newer only to build Hand from source.
 - Luvus, which Hand needs for its UHP 1.x protocol and was tested with at 0.14. `hand init` pins a copy under `~/.secondhand/luvus/`, so a system upgrade never changes the Luvus a fleet runs: the `luvus` on `PATH` when there is one, otherwise the tested version, which it downloads and checks against the release's SHA-256 (nothing is pinned if the check fails). `hand luvus pin` pins another one.
-- At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. opencode uses the model from its own configuration.
+- At least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode 2.x (`opencode`). Run Codex once before using it, so its model cache exists. On Windows, Hand starts only a real `.exe` for a harness, never a `.cmd` shim: see [Windows](#windows). opencode uses the model from its own configuration.
 - Optional: the Antigravity CLI (`agy`), logged in, so that `agy models` lists its models.
 - Optional: `notify-send` for desktop notifications and `xdg-open` for `hand open` (on macOS, the built-in `osascript` and `open`; on Windows, `hand open` runs `rundll32 url.dll,FileProtocolHandler` and there are no built-in notifications; see [Alerts on your phone](alerts.md) for a PowerShell recipe), and a systemd user session to keep the watcher, the board and Luvus running.
 
@@ -80,6 +80,8 @@ Hand runs its own git with `core.longpaths=true`, and starts Luvus with `GIT_CON
 ```powershell
 git config --global core.longpaths true
 ```
+
+Hand never starts a `.cmd` or `.bat` for a harness: `cmd.exe` would run it in the wrong folder and mangle the prompt, and text from an issue that reaches the prompt could run as a command. `npm install -g @openai/codex` makes such a shim (`%APPDATA%\npm\codex.cmd`), and Hand refuses it, naming the file. Install the standalone Codex instead, from its [README](https://github.com/openai/codex): `powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"`. As of Codex 0.163 it puts `codex.exe` in `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin` and on your user `PATH`. Hand takes a `.exe` anywhere on `PATH` before any `.cmd`, so putting the folder of a `codex.exe` on `PATH` is enough too. `Get-Command codex -All` lists what `PATH` holds, and `hand doctor` and `hand route list` show a harness found only as a batch file as unavailable. The board searches the `PATH` it started with, so restart it after you change `PATH`.
 
 Claude asks once per folder whether to trust it, and every worktree is a new folder. Trust the worktrees folder once from PowerShell, so it does not ask in each one:
 

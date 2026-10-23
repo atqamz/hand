@@ -333,6 +333,8 @@ func (b *Board) models(name string) ([]harness.Model, []string) {
 	return models, efforts
 }
 
+const batchReason = "found only as a batch file"
+
 type profile struct{ Name, Label, Missing string }
 
 func (b *Board) profiles() []profile { return b.profilesFor("") }
@@ -351,7 +353,11 @@ func (b *Board) profilesFor(name string) []profile {
 		}
 		reason, seen := missing[s.Harness]
 		if !seen {
-			if _, err := harness.LookPath(s.Harness, b.o.Harness.Path); err != nil {
+			var batch *harness.BatchFileError
+			switch _, err := harness.LookPath(s.Harness, b.o.Harness.Path); {
+			case errors.As(err, &batch):
+				reason = s.Harness + " " + batchReason
+			case err != nil:
 				reason = s.Harness + " not found on the board's PATH"
 			}
 			missing[s.Harness] = reason
@@ -384,13 +390,25 @@ func noneStartable(ps []profile) string {
 	if len(ps) == 0 || slices.ContainsFunc(ps, func(p profile) bool { return p.Missing == "" }) {
 		return ""
 	}
-	var gone []string
+	var gone, batch []string
 	for _, p := range ps {
-		if h, _, _ := strings.Cut(p.Missing, " "); !slices.Contains(gone, h) {
-			gone = append(gone, h)
+		h, _, _ := strings.Cut(p.Missing, " ")
+		list := &gone
+		if strings.HasSuffix(p.Missing, batchReason) {
+			list = &batch
+		}
+		if !slices.Contains(*list, h) {
+			*list = append(*list, h)
 		}
 	}
-	return strings.Join(gone, ", ") + " not found on the board's PATH. Install the harness or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit."
+	var parts []string
+	if len(gone) > 0 {
+		parts = append(parts, strings.Join(gone, ", ")+" not found on the board's PATH. Install the harness or add its folder to PATH")
+	}
+	if len(batch) > 0 {
+		parts = append(parts, strings.Join(batch, ", ")+" "+batchReason+", which Hand does not start. Install the standalone harness or add the folder of its .exe to PATH")
+	}
+	return strings.Join(parts, ". ") + ", then restart the board: `hand board stop`, then `hand board`, or restart its unit."
 }
 
 func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {

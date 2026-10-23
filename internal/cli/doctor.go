@@ -51,7 +51,12 @@ func cmdDoctor(r *runner, args []string) error {
 	doctorHand(&d, &c, path)
 	r.doctorGit(ctx, &d, &c, path)
 	for _, name := range state.Harnesses {
-		if _, err := harness.LookPath(name, path); err != nil {
+		_, err := harness.LookPath(name, path)
+		var batch *harness.BatchFileError
+		if errors.As(err, &batch) {
+			c.add("harness "+name, "warn", err.Error())
+		}
+		if err != nil {
 			continue
 		}
 		if _, err := harness.Models(name, harness.EnvOf(r.env.Getenv)); err != nil {
