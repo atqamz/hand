@@ -345,7 +345,7 @@ hand report list
 
 **4.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
 
-Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for.
+Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for. For codex, the `launch:` line also shows `--cd` with the worktree path, and `hand attempt read $a` shows Codex's working directory as that worktree, never `C:\Windows`: a pane that starts in another folder is a failure. For a codex supervisor, `hand supervisor show` shows Codex's working directory as the fleet home in the same way, and its first `hand orient` succeeds.
 
 Evidence: `& { hand attempt show $a; hand report list; Get-Command $h | Select-Object Name, Source } 2>&1 | Ev W4`.
 

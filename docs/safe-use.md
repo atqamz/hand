@@ -9,7 +9,7 @@ The supervisor and every worker start with the flag that skips permission prompt
 | Harness | Flags Hand passes (worker; the supervisor passes the same) |
 |---|---|
 | Claude Code | `--dangerously-skip-permissions` |
-| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` |
+| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR` |
 | opencode | `--standalone --auto` |
 | Antigravity (`agy`) | `--dangerously-skip-permissions` |
 
@@ -146,6 +146,6 @@ Hand passes the flags above and none of these. Each is the harness's own feature
 | Harness | What Hand passes | What the harness offers instead |
 |---|---|---|
 | Claude Code | `--dangerously-skip-permissions` | Modes `default`, `acceptEdits`, `plan`, `auto` (a classifier reviews each action), `dontAsk` and `bypassPermissions`. Allow, ask and deny rules. A Bash sandbox on Linux and macOS, none on native Windows. [Modes](https://code.claude.com/docs/en/permission-modes.md), [rules](https://code.claude.com/docs/en/permissions.md), [sandbox](https://code.claude.com/docs/en/sandboxing.md) |
-| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` | `--sandbox` with `read-only`, `workspace-write` or `danger-full-access`, and approval policies. The Auto preset uses workspace-write and approval on request, with network off by default. Codex recommends it for version-controlled folders and read-only for others. [Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) |
+| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR` | `--sandbox` with `read-only`, `workspace-write` or `danger-full-access`, and approval policies. The Auto preset uses workspace-write and approval on request, with network off by default. Codex recommends it for version-controlled folders and read-only for others. [Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) |
 | opencode | `--standalone --auto` | Per-tool `allow`, `ask` and `deny` with patterns, per agent. Without `--auto` the defaults already allow most tools. `--auto` approves whatever is not denied. [Permissions](https://opencode.ai/docs/permissions/) |
 | Antigravity (`agy`) | `--dangerously-skip-permissions` | `permissions.allow`, `ask` and `deny` in its settings file, where deny wins over ask and ask over allow. Commands ask by default. `agy --help` also lists `--mode` and `--sandbox`: the docs page does not describe them, not verified here. [Permissions](https://antigravity.google/docs/permissions) |

@@ -3,11 +3,11 @@
 Hand runs the supervisor in the background in the fleet's Luvus session, in full-auto mode:
 
 - `claude --dangerously-skip-permissions`;
-- `codex --dangerously-bypass-approvals-and-sandbox --disable hooks`;
+- `codex --dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR`;
 - `opencode --standalone --auto`;
 - `agy --model ID --dangerously-skip-permissions`.
 
-Workers run with the same flags, each in its own worktree. [Safe use](safe-use.md) says what that allows and the one prompt Claude Code still shows.
+Workers run with the same flags, each in its own worktree. Codex gets `--cd DIR` with the fleet home for the supervisor, new or resumed, and the worktree for a worker, so it does not depend on the folder it inherits. The supervisor's first message also names the fleet home. [Safe use](safe-use.md) says what that allows and the one prompt Claude Code still shows.
 
 agy asks once per folder whether to trust it. Every attempt is a new folder, and so is a new fleet home. Hand presses Enter on that screen only when it names the attempt's own worktree, or for the supervisor the fleet home. Otherwise it notes the attempt or the supervisor blocked. Claude asks too, with `Quick safety check: Is this a project you created or one you trust?`. Its cursor starts on `No, exit`, so Hand sends Down once, re-reads the screen, and sends Enter only when the cursor is on `Yes, I trust this folder`. A reworded screen is left alone, and the watcher reports the attempt blocked. If the screen is recognized but the cursor never reaches Yes, or the screen does not clear after Enter, Hand notes the attempt or supervisor blocked. The board reads agy's conversation database for Chat and the context bar.
 
