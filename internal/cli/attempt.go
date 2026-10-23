@@ -77,8 +77,9 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	argv, err := harness.Argv(bin, spec, string(prompt)+reportFooter(exe))
-	if err != nil {
+	text := string(prompt) + reportFooter(exe)
+	argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree) }
+	if err := harness.CheckPrompt(text); err != nil {
 		return err
 	}
 	return r.withAttempts(func(ctx context.Context, st *state.Store, c luvus.Client) error {
@@ -107,7 +108,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if start == "" && continues == 0 {
 			start, warning = defaultBase(ctx, g)
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}

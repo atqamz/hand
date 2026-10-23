@@ -28,7 +28,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `([^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\.$")
+var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand fleet \\S+\\. Follow AGENTS\\.md: run `hand orient` now, then work from the operator's messages and from messages that start with \\[hand v1 wake\\]\\. `hand` is `([^`]+)`: when `hand` is not on your PATH, run that path, and never run another `hand`\\. Your fleet home is `([^`]+)`: when `hand orient` says you are not inside a fleet home, `cd` there or pass `--home`\\.$")
 
 func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	t.Helper()
@@ -70,6 +70,8 @@ func TestSupervisorStartLaunchesABackgroundTerminal(t *testing.T) {
 		t.Fatalf("prompt = %q", argv[8])
 	} else if exe, err := os.Executable(); err != nil || m[2] != exe {
 		t.Fatalf("prompt names Hand as %q, want %q (%v)", m[2], exe, err)
+	} else if m[3] != call.CWD {
+		t.Fatalf("prompt names the fleet home as %q, want %q", m[3], call.CWD)
 	}
 	has(t, "start", out, "supervisor: s1", "harness: claude", "status: running", "pane: 2", "session: "+argv[3])
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running", "session: "+argv[3], "agent: working", "pending: 0")
@@ -173,6 +175,9 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	}
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	has(t, "start", h.ok("supervisor", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"), "supervisor: s1", `session: ""`)
+	if call := rt.lastCreate(); !slices.Equal(argsAfter(call.Command, "--cd"), []string{call.CWD}) || call.CWD != h.home {
+		t.Fatalf("new codex supervisor create = %+v", call)
+	}
 	has(t, "send", h.ok("supervisor", "send", "--text", "first"), "delivered: no", "why: ")
 	if got := rt.prompts(); len(got) != 0 {
 		t.Fatalf("sent to a codex supervisor with no session yet (a trust screen reads as idle): %q", got)
@@ -196,6 +201,21 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 		t.Fatalf("prompts = %q", got)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "session: codex-session-1")
+	h.ok("supervisor", "stop")
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "status: running")
+	if call := rt.lastCreate(); call.Command[1] != "resume" || !slices.Equal(argsAfter(call.Command, "--cd"), []string{call.CWD}) || call.CWD != h.home || call.Command[len(call.Command)-1] != "codex-session-1" {
+		t.Fatalf("resumed codex supervisor create = %+v", call)
+	}
+}
+
+func argsAfter(argv []string, flag string) []string {
+	var out []string
+	for i, a := range argv[:len(argv)-1] {
+		if a == flag {
+			out = append(out, argv[i+1])
+		}
+	}
+	return out
 }
 
 func TestSendToAStaleSupervisorIsHeld(t *testing.T) {

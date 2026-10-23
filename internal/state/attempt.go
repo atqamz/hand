@@ -71,6 +71,7 @@ type AttemptSpec struct {
 	Model     string
 	Effort    string
 	Argv      []string
+	ArgvFor   func(worktree string) ([]string, error)
 	Continues int64
 }
 
@@ -128,15 +129,8 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 	if !slices.Contains(Harnesses, spec.Harness) {
 		return Attempt{}, fmt.Errorf("%w: harness %q must be one of %s", ErrInvalid, spec.Harness, strings.Join(Harnesses, ", "))
 	}
-	if len(spec.Argv) == 0 {
-		return Attempt{}, fmt.Errorf("%w: attempt needs a launch command", ErrInvalid)
-	}
-	argv, err := json.Marshal(spec.Argv)
-	if err != nil {
-		return Attempt{}, err
-	}
 	a := Attempt{TaskID: spec.TaskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: spec.Argv, Status: AttemptLaunching, CreatedAt: s.stamp()}
-	err = s.tx(ctx, func(tx *sql.Tx) error {
+	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var status string
 		err := tx.QueryRow(`SELECT status FROM task WHERE id = ?`, spec.TaskID).Scan(&status)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -186,6 +180,18 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 			branch = "hand/" + fleet + "/" + name
 		}
 		a.Worktree, a.Branch = filepath.Join(worktreeRoot, name), branch
+		if spec.ArgvFor != nil {
+			if a.Argv, err = spec.ArgvFor(a.Worktree); err != nil {
+				return err
+			}
+		}
+		if len(a.Argv) == 0 {
+			return fmt.Errorf("%w: attempt needs a launch command", ErrInvalid)
+		}
+		argv, err := json.Marshal(a.Argv)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, continues, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt); err != nil {
 			return err

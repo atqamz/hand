@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,6 +18,12 @@ import (
 
 const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
+func spacedDirs(t *testing.T) []string {
+	t.Helper()
+	base := t.TempDir()
+	return []string{filepath.Join(base, "fleet"), filepath.Join(base, "my fleet"), filepath.Join(base, "flotte café")}
+}
+
 func TestSupervisorArgvIsExact(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -30,27 +37,44 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		{"claude new", "/bin/claude", Spec{"claude", "sonnet", "medium"}, uuid, "go", false, []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", uuid, "--model", "sonnet", "--effort", "medium", "go"}},
 		{"claude resume", "/bin/claude", Spec{"claude", "sonnet", "medium"}, uuid, "", true, []string{"/bin/claude", "--dangerously-skip-permissions", "--resume", uuid, "--model", "sonnet", "--effort", "medium"}},
 		{"claude bare", "/bin/claude", Spec{Harness: "claude"}, uuid, "go", false, []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", uuid, "go"}},
-		{"codex new", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "", "go", false, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "go"}},
-		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
+		{"codex new", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "", "go", false, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "go"}},
+		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
 		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, "", "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--prompt", "go"}},
 		{"opencode resume", "/bin/opencode", Spec{Harness: "opencode"}, "ses_1", "", true, []string{"/bin/opencode", "--standalone", "--auto", "--session", "ses_1"}},
 	}
-	for _, c := range cases {
-		got, err := SupervisorArgv(c.bin, c.spec, c.session, c.prompt, c.resume)
-		if err != nil || !slices.Equal(got, c.want) {
-			t.Fatalf("%s: argv = %q, %v", c.name, got, err)
+	for _, dir := range spacedDirs(t) {
+		for _, c := range cases {
+			got, err := SupervisorArgv(c.bin, c.spec, c.session, c.prompt, dir, c.resume)
+			want := slices.Clone(c.want)
+			for i := range want {
+				if want[i] == "DIR" {
+					want[i] = dir
+				}
+			}
+			if err != nil || !slices.Equal(got, want) {
+				t.Fatalf("%s in %q: argv = %q, %v", c.name, dir, got, err)
+			}
 		}
 	}
 	for name, bad := range map[string]func() ([]string, error){
 		"resume with a prompt": func() ([]string, error) {
-			return SupervisorArgv("/bin/claude", Spec{Harness: "claude"}, uuid, "go", true)
+			return SupervisorArgv("/bin/claude", Spec{Harness: "claude"}, uuid, "go", "", true)
 		},
-		"resume without session": func() ([]string, error) { return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "", true) },
-		"new without a prompt":   func() ([]string, error) { return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "", false) },
+		"resume without session": func() ([]string, error) {
+			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "", "/fleet", true)
+		},
+		"new without a prompt": func() ([]string, error) {
+			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "", "/fleet", false)
+		},
 		"claude session not uuid": func() ([]string, error) {
-			return SupervisorArgv("/bin/claude", Spec{Harness: "claude"}, "nope", "go", false)
+			return SupervisorArgv("/bin/claude", Spec{Harness: "claude"}, "nope", "go", "", false)
 		},
-		"unknown harness": func() ([]string, error) { return SupervisorArgv("/bin/x", Spec{Harness: "gemini"}, "", "go", false) },
+		"codex relative dir": func() ([]string, error) {
+			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "go", "fleet", false)
+		},
+		"unknown harness": func() ([]string, error) {
+			return SupervisorArgv("/bin/x", Spec{Harness: "gemini"}, "", "go", "", false)
+		},
 	} {
 		if _, err := bad(); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("%s: err = %v, want ErrInvalid", name, err)
@@ -74,7 +98,11 @@ func rollout(t *testing.T, home string, at time.Time, id, cwd, prompt string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"id":"` + id + `","cwd":"` + cwd + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `"}}` + "\n"
+	quoted, err := json.Marshal(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `{"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"id":"` + id + `","cwd":` + string(quoted) + `,"timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `"}}` + "\n"
 	user := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"` + prompt + `"}]}}` + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "rollout-"+id+".jsonl"), []byte(line+`{"type":"event_msg"}`+"\n"+user), 0o644); err != nil {
 		t.Fatal(err)
@@ -95,6 +123,20 @@ func TestCodexSessionFindsTheFirstRolloutForTheFolderSinceLaunch(t *testing.T) {
 	}
 	if id, err := CodexSession(t.TempDir(), "/fleet", since, marker); err != nil || id != "" {
 		t.Fatalf("empty home = %q, %v", id, err)
+	}
+}
+
+func TestCodexSessionFindsASessionStartedWithCd(t *testing.T) {
+	for _, dir := range spacedDirs(t) {
+		home := t.TempDir()
+		since := time.Now().Add(-time.Minute)
+		rollout(t, home, since.Add(time.Second), "mine", dir, "\\n"+marker+"x. Follow AGENTS.md")
+		if id, err := CodexSession(home, dir, since, marker); err != nil || id != "mine" {
+			t.Fatalf("session in %q = %q, %v", dir, id, err)
+		}
+		if id, err := CodexSession(home, filepath.Join(dir, "elsewhere"), since, marker); err != nil || id != "" {
+			t.Fatalf("session for another folder = %q, %v", id, err)
+		}
 	}
 }
 
@@ -131,13 +173,13 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 
 func TestAgySupervisorArgv(t *testing.T) {
 	spec := Spec{Harness: "agy", Model: "gemini-3.8-flash-low"}
-	if got, err := SupervisorArgv("/bin/agy", spec, "", "You are supervisor s1", false); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "You are supervisor s1"}) {
+	if got, err := SupervisorArgv("/bin/agy", spec, "", "You are supervisor s1", "", false); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "You are supervisor s1"}) {
 		t.Fatalf("new = %q, %v", got, err)
 	}
-	if got, err := SupervisorArgv("/bin/agy", spec, "c1", "", true); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "--conversation", "c1"}) {
+	if got, err := SupervisorArgv("/bin/agy", spec, "c1", "", "", true); err != nil || !slices.Equal(got, []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "--conversation", "c1"}) {
 		t.Fatalf("resume = %q, %v", got, err)
 	}
-	if _, err := SupervisorArgv("/bin/agy", spec, "c1", "You are supervisor s1", false); err == nil || !strings.Contains(err.Error(), "picks its own session id") {
+	if _, err := SupervisorArgv("/bin/agy", spec, "c1", "You are supervisor s1", "", false); err == nil || !strings.Contains(err.Error(), "picks its own session id") {
 		t.Fatalf("new with a session = %v", err)
 	}
 }

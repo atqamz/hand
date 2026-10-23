@@ -26,7 +26,7 @@ var (
 	sessionPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
 )
 
-func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]string, error) {
+func SupervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
 	if resume {
 		if prompt != "" {
 			return nil, fmt.Errorf("%w: a resumed supervisor takes no launch prompt", state.ErrInvalid)
@@ -35,7 +35,7 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 			return nil, fmt.Errorf("%w: resume needs a session id of letters, digits, '_' and '-', not %q", state.ErrInvalid, session)
 		}
 	} else {
-		if err := checkPrompt(prompt); err != nil {
+		if err := CheckPrompt(prompt); err != nil {
 			return nil, err
 		}
 		if s.Harness == "claude" && !uuidPattern.MatchString(session) {
@@ -44,6 +44,9 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 		if s.Harness != "claude" && session != "" {
 			return nil, fmt.Errorf("%w: %s picks its own session id; pass none", state.ErrInvalid, s.Harness)
 		}
+	}
+	if err := checkDir(s, dir); err != nil {
+		return nil, err
 	}
 	switch s.Harness {
 	case "claude":
@@ -68,7 +71,7 @@ func SupervisorArgv(bin string, s Spec, session, prompt string, resume bool) ([]
 		if resume {
 			argv = append(argv, "resume")
 		}
-		argv = append(argv, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks")
+		argv = append(argv, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir)
 		if s.Model != "" {
 			argv = append(argv, "-m", s.Model)
 		}

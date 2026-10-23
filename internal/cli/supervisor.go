@@ -93,7 +93,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 	}
 	ref := state.SupervisorRef(last.ID + 1)
 	cmd := r.env.command()
-	prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is `" + exe + "`: when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`."
+	prompt := launchMarker(ref) + r.fleet.Name + ". Follow AGENTS.md: run `" + cmd + " orient` now, then work from the operator's messages and from messages that start with " + wakeHeader + ". `" + cmd + "` is `" + exe + "`: when `" + cmd + "` is not on your PATH, run that path, and never run another `hand`. Your fleet home is `" + r.home + "`: when `" + cmd + " orient` says you are not inside a fleet home, `cd` there or pass `--home`."
 	if note != "" {
 		prompt += " " + note
 	}
@@ -101,7 +101,7 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 	if spec.Harness == "claude" {
 		session = harness.NewSessionID()
 	}
-	argv, err := harness.SupervisorArgv(bin, spec, session, prompt, false)
+	argv, err := harness.SupervisorArgv(bin, spec, session, prompt, r.home, false)
 	if err != nil {
 		return state.Supervisor{}, err
 	}
@@ -221,7 +221,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if err != nil {
 		return state.Supervisor{}, err
 	}
-	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", true)
+	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", r.home, true)
 	if err != nil {
 		return state.Supervisor{}, err
 	}

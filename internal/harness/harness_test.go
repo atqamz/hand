@@ -149,16 +149,21 @@ func TestCodexHome(t *testing.T) {
 }
 
 func TestArgvIsExact(t *testing.T) {
-	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it")
+	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "")
 	if err != nil || !slices.Equal(c, []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
-	x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it")
-	if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
-		t.Fatalf("codex argv = %q, %v", x, err)
+	for _, dir := range spacedDirs(t) {
+		x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", dir)
+		if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
+			t.Fatalf("codex argv = %q, %v", x, err)
+		}
+	}
+	if _, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", "relative/dir"); !errors.Is(err, state.ErrInvalid) {
+		t.Fatalf("relative dir err = %v", err)
 	}
 	for _, bad := range []string{"", "  ", "-p trick", "a\x00b", strings.Repeat("x", MaxPromptBytes+1)} {
-		if _, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, bad); !errors.Is(err, state.ErrInvalid) {
+		if _, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, bad, ""); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("prompt %.10q err = %v", bad, err)
 		}
 	}
@@ -176,11 +181,11 @@ func TestOpencodeTakesNoModelOrEffort(t *testing.T) {
 }
 
 func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
-	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it")
+	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it", "")
 	if err != nil || !slices.Equal(o, []string{"/usr/bin/opencode", "--standalone", "--auto", "--prompt", "fix it"}) {
 		t.Fatalf("opencode argv = %q, %v", o, err)
 	}
-	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it"); !errors.Is(err, state.ErrInvalid) {
+	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it", ""); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("unknown harness argv err = %v", err)
 	}
 	if !Prefills("opencode") || Prefills("claude") || Prefills("codex") {
@@ -242,7 +247,7 @@ func TestValidateAgyAgainstItsModelList(t *testing.T) {
 }
 
 func TestAgyArgvIsExact(t *testing.T) {
-	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief")
+	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}

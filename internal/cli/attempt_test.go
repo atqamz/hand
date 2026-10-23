@@ -421,6 +421,27 @@ func TestStaleLaunchStaysLiveWhileItsCleanupFails(t *testing.T) {
 	}
 }
 
+func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
+	fx := newAttemptFixture(t)
+	codexHome := filepath.Join(fx.h.vars["HOME"], ".codex")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"}]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.ok("attempt", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	call := fx.rt.lastCreate()
+	wt := fx.h.worktree("t1-a1")
+	want := []string{"--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", wt, "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low"}
+	if call.CWD != wt || !slices.Equal(call.Command[1:len(call.Command)-1], want) {
+		t.Fatalf("create = %+v", call)
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, wt) {
+		t.Fatalf("show = %q, want the stored launch line to name %s", show, wt)
+	}
+}
+
 func agyFixture(t *testing.T) *attemptFixture {
 	t.Helper()
 	wait, confirm := *cli.TrustWait, *cli.TrustConfirm

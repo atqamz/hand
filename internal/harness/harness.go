@@ -213,7 +213,7 @@ func CodexHome(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".codex")
 }
 
-func checkPrompt(prompt string) error {
+func CheckPrompt(prompt string) error {
 	switch {
 	case strings.TrimSpace(prompt) == "":
 		return fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
@@ -227,8 +227,18 @@ func checkPrompt(prompt string) error {
 	return nil
 }
 
-func Argv(bin string, s Spec, prompt string) ([]string, error) {
-	if err := checkPrompt(prompt); err != nil {
+func checkDir(s Spec, dir string) error {
+	if s.Harness == "codex" && !filepath.IsAbs(dir) {
+		return fmt.Errorf("%w: codex needs an absolute directory for --cd, not %q", state.ErrInvalid, dir)
+	}
+	return nil
+}
+
+func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
+	if err := CheckPrompt(prompt); err != nil {
+		return nil, err
+	}
+	if err := checkDir(s, dir); err != nil {
 		return nil, err
 	}
 	switch s.Harness {
@@ -239,7 +249,7 @@ func Argv(bin string, s Spec, prompt string) ([]string, error) {
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
 	case "codex":
-		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }
