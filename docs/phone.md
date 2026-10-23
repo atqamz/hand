@@ -13,6 +13,8 @@ Hand sets up none of them and changes no setting. The Phone page, `/<fleet id>/c
 | [WireGuard, read-only](#wireguard) | no, decisions only | no: plain HTTP inside the tunnel | yes, read-only | yes | WireGuard | Every WireGuard peer |
 | [A LAN address](#a-lan-address) | no, decisions only | no: plain HTTP | yes, read-only, over plain HTTP | only with a specific address, not `0.0.0.0` | None | Everyone on the network, who can also sniff the token |
 
+A path that reaches the board over HTTPS through a proxy that sends `X-Forwarded-Proto: https` and `X-Forwarded-For` (`tailscale serve`, a Cloudflare Tunnel, a TLS proxy in front of WireGuard) lets the phone install the Board as an app and shows an offline page when the laptop does not answer: see [Install the Board as an app](board.md#install-the-board-as-an-app). An SSH tunnel, a LAN address and WireGuard over plain HTTP do not get it, because their pages are not secure and carry no proxy header.
+
 "Chat, files and supervisor control" are the composer, attachments and the supervisor's Start, Resume, Stop, model and key controls. The board offers them only while it listens on a loopback address. On any other address they are off, and answering decisions and marking reports read still work.
 
 ## What to type in the Phone page

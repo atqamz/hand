@@ -819,7 +819,15 @@ The document page opened in place: one `<dialog class="viewer" id="viewer">` aft
 - **Tab title:** "(!) s1 blocked" for a blocked screen, "(3) fleet" when items wait, "● fleet" while the supervisor works, else the fleet's name.
 - **Notifications:** opt-in from the overflow menu. When the open count rises while the page is hidden, one notification names the worst item.
 
+### Offline page
+`/offline`, the one page the service worker stores, and the page a phone shows in place of a navigation that failed. A standalone document (no masthead, rail or regions, since nobody can be proven signed in) on `board.css`: one `main.thread` with the title "Laptop unreachable", one card holding a sentence, a muted status line ("Unreachable since 12:31. Last tried 12:31. It tries again by itself and opens the Board when it answers.", a polite live region that `offline.js` rewrites) and a primary **Retry** key, `--control` high. It uses no new rule or token, no fleet name, no inline script or style (`TestTheOfflinePageHasNothingOfTheFleet`).
+
+### Install card
+A `card connect-part` titled Install at the foot of the Phone page, for the laptop's and the phone's session, present only where the page qualifies for the app: one sentence, a primary **Install the Board app** key in its own `.actions` row that stays hidden until the browser offers installation, and the iPhone and iPad instruction with the fact that the installed app has its own storage and starts signed out. The whole card hides inside the installed app (`TestTheInstallSectionIsOnThePhonePage`).
+
 ### Named Rules
+**The Nothing Private Offline Rule.** The Board's worker stores the offline page and the three files it links, and nothing else: no page, no event stream, no document, no answer of the board. A page that was ever signed in leaves nothing in the phone's cache storage (`TestTheWorkerCachesOnlyTheOfflinePage`).
+
 **The Copy Stays With The Code Rule.** A code block is copied from its own button, added by `app.js` and never by the renderer, which also serves the CLI. The button copies the block's text byte for byte, says what happened in words and in the live region, and is reachable by keyboard.
 
 **The Bands Rule.** Needs groups its open items under one head per severity word, most severe first, and the head carries the word and its tone, so a row repeats neither. A collapsed row is one calm line and only the open item is a card.

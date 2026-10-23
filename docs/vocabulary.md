@@ -405,6 +405,14 @@ A random 16-character lowercase hex string, written into every [paired phone](#p
 
 A one-time code of 10 characters from the Crockford alphabet (`0-9` and `A-Z` without `I`, `L`, `O` and `U`; typing `I`, `L` or `O` is read as `1` or `0`), shown on the Phone page as `K7QM3-XRD2P`: 50 bits, from the system's random source. It works once and for 5 minutes, a new code cancels the one before it, ten wrong tries from any phone cancel every code, and a phone address that tries 5 wrong codes within a minute waits up to a minute. Only the laptop's login can show one, and it names the fleets it pairs: the fleet whose page shows it, plus any of up to 7 others that the laptop's browser held a valid token for and the operator ticked, kept in the board's memory next to the expiry and the used flag. One code pairs the phone with each of them, at most once. Codes live in the board's memory only, so a restart or a changed `board.token` cancels them. The pairing link is `ADDRESS/<fleet id>/pair#CODE`: the code sits in the `#` part, which the browser never sends, and opening the link only shows a form, so a preview cannot spend the code. The Phone page also draws the link as a QR code, black on white in both themes: the board encodes it itself (byte mode, error-correction level M, versions 1 to 10, so at most 213 bytes) and sends no request for it. A longer link shows as text only.
 
+### Board app
+
+The Board installed on a phone's home screen. One per board: its manifest's `id`, `start_url` and `scope` are `/`, so it opens the fleet list of that phone, not one fleet. It exists only for pages that reached the board through a proxy over HTTPS (`X-Forwarded-Proto: https` with a proxy header, never Funnel), where `app.js` registers `/sw.js`. The installed app on iPhone has storage of its own and starts signed out.
+
+### Offline page
+
+`/offline`: the static page the Board app's worker shows in place of a navigation that failed, timed out after 8 seconds or got a `502`, `503` or `504`. It reads "Laptop unreachable" with the time, has **Retry**, names no fleet and holds no session, and it is the only page the worker stores, with the three static files it links.
+
 ### TOON
 
 The compact text format of every command's output: `key: value` fields, `name[N]{fields}:` tables, and `help[N]:` hints that name the next command.
