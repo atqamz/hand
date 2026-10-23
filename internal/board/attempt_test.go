@@ -74,6 +74,15 @@ func TestTheAttemptPageShowsWhatHandRecorded(t *testing.T) {
 	contains(t, "timeline", body, `<a class="ref" href="/ref/r1" title="Fixed &lt;script&gt;`, `">r1</a> done`, "Do you want to proceed? &lt;script&gt;", "U+202E")
 }
 
+func TestTheAttemptPageKeepsWindowsLineEndingsAndShowsALoneReturn(t *testing.T) {
+	st := open(t)
+	task := active(t, st, "Fix login")
+	briefed(t, st, task.ID, "/w", []string{"/bin/claude", "line one\r\nline two\rovertyped"})
+	body := get(t, board.New(st, token, board.Options{}), "/attempt/a1")
+	contains(t, "brief", body, "line one\nline two"+"U&#43;000Dovertyped")
+	lacks(t, "brief", body, "\r", "U&#43;000D\n")
+}
+
 func TestTheAttemptPageLeavesOtherAttemptsOutOfTheTimeline(t *testing.T) {
 	st := open(t)
 	task := active(t, st, "Fix login")

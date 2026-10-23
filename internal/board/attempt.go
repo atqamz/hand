@@ -12,7 +12,7 @@ import (
 
 func shown(s string) string {
 	var out strings.Builder
-	for _, r := range s {
+	for _, r := range strings.ReplaceAll(s, "\r\n", "\n") {
 		if bidi(r) || unicode.IsControl(r) && r != '\n' && r != '\t' || r == 0x2028 || r == 0x2029 {
 			fmt.Fprintf(&out, "U+%04X", r)
 		} else {
