@@ -35,8 +35,8 @@ For the rolling `edge` build of `main`, or a pinned release such as `v0.11.0`, s
 Read this before you start a supervisor:
 
 - **No sandbox.** Every worker runs as your own OS user, in a git worktree that is not a fence. It can read whatever your account can: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`.
-- **Prompts skipped.** The supervisor and every worker run with their permission prompts skipped, such as `claude --dangerously-skip-permissions`, so nothing asks you before a command runs.
-- **What that means.** A worker that obeys text planted in an issue, a PR or a review can use all of that access. Run Hand as a dedicated OS user or in a VM, with a narrow GitHub token and a protected default branch. [`docs/safe-use.md`](docs/safe-use.md) has the whole setup.
+- **Prompts skipped.** The supervisor and every worker run with their permission prompts skipped, such as `claude --dangerously-skip-permissions`, so ordinary commands run without a prompt. Claude Code still asks before it removes a critical path such as your home folder, and denies after two minutes.
+- **What that means.** A worker that obeys text planted in an issue, a PR or a review can use all of that access. Run Hand as a dedicated OS user or in a VM, with a narrow GitHub token and a protected default branch. [`docs/safe-use.md`](docs/safe-use.md) has the exact flags, the steps ranked by value, and what no setup prevents.
 
 ## Getting started
 
@@ -85,7 +85,7 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [The supervisor](docs/supervisor.md): its harness flags, trust screens, attachments, reboots, idle wakes and timers.
 - [Alerts on your phone](docs/alerts.md): send every alert to your own command.
 - [Clean the inbox](docs/inbox.md): prune old attachments.
-- [Safe use](docs/safe-use.md): the setup around Hand that protects your accounts.
+- [Safe use](docs/safe-use.md): what the agents can do with prompts skipped, how to run Hand safer, and what nothing prevents yet.
 - [Commands](docs/commands.md): every `hand` command.
 - [Upgrading from 0.7](docs/upgrade-from-0.7.md).
 - [Design and non-goals](docs/spec.md) and [vocabulary](docs/vocabulary.md).

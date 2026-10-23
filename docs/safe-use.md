@@ -1,16 +1,151 @@
 # Safe use
 
-Every worker runs with its permission prompts skipped (see [The supervisor](supervisor.md)), as the operator's own OS user. It can read whatever that account can: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`. A worktree is not a fence, and Hand builds no sandbox. A worker that obeys text planted in an issue, a PR or a review can use all of it. The protection is the setup around Hand:
+Hand runs its agents with their permission prompts skipped, as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
 
-- **Own account.** Run Hand as a dedicated OS user, or in a VM, with its own `~/.ssh` and `gh` login and none of your other directories.
-- **Narrow token.** Log that account in to GitHub with a fine-grained personal access token limited to the repositories in use, with the Contents and Pull requests permissions and an expiry date. GitHub does not require an expiry, so set one. Do not use a broad `gh auth login`.
-- **Own signing key.** Sign with a key used only by that account, ideally a FIDO key (`ssh-keygen -t ed25519-sk`) that needs a touch for each signature. An unlocked signing agent signs whatever a process that can reach it asks.
-- **Protected default branch.** Require a pull request and refuse force-pushes, so a hijacked worker can propose a change but not land one. GitHub exempts repository admins from these rules unless "Do not allow bypassing the above settings" is on, so give the account write access rather than admin, or turn that setting on. Keep the account, and any role, team or app it belongs to, off every bypass list in branch protection and rulesets.
-- **Clean environment.** Start fleets from a shell with no cloud or API secrets. Hand drops only `HAND_HOME` and the Claude, Codex and Luvus variables when it starts the Luvus server, and its panes inherit the rest of the environment.
-- **Review and rotate.** Keep production credentials off the machine, read worker PRs before you merge them, and rotate tokens after a suspicious run.
+## What runs without asking
+
+The supervisor and every worker start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option.
+
+| Harness | Flags Hand passes (worker; the supervisor passes the same) |
+|---|---|
+| Claude Code | `--dangerously-skip-permissions` |
+| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` |
+| opencode | `--standalone --auto` |
+| Antigravity (`agy`) | `--dangerously-skip-permissions` |
+
+These come from `internal/harness/harness.go` and `internal/harness/supervisor.go`. The model and effort flags are left out above.
+
+One prompt still appears. Claude Code asks before a recognized `rm` or `rmdir` of a critical path, such as `/`, your home folder or the working directory, even with prompts skipped. Its docs say no allow rule or hook approves one, and that the check can miss some commands, so it is not a safety control ([Claude Code permission modes, Critical paths](https://code.claude.com/docs/en/permission-modes.md)). In `auto` and `bypassPermissions` modes the prompt shows a two-minute countdown. If it runs out, Claude Code denies the command. After three unanswered prompts in a session it denies the next ones at once.
+
+What you see in Hand for that prompt:
+
+- Luvus reads the pane as blocked and the watcher records `attempt.blocked`. The supervisor is woken first. Its skill tells it to answer a permission screen the task needs with `hand attempt keys` and to send anything else to you.
+- The Board shows a worker's blocked screen under Needs only when no supervisor runs, or after 10 minutes. It shows the countdown as a badge, then `denying…` at zero. The countdown is Claude Code's. The Board denies nothing.
+- A paired phone has the same buttons.
+
+What Luvus reads as blocked for Codex, opencode and agy permission screens, and whether the Board parses them: not verified here. The Board's parser is written for Claude's screens.
+
+## What that means
+
+A worker can:
+
+- read every file your OS account can read: `~/.ssh`, `~/.config/gh`, `~/.gnupg`, other fleets and each fleet's `board.token`;
+- run any command as that account;
+- push with any credential in reach, and call any API with any token in its environment;
+- be steered by text it reads: an issue, a PR, a review comment, a web page or a file.
+
+A git worktree is not a fence. It is a folder.
+
+## What to do about it
+
+In order of value for cost. The first two matter most.
+
+### 1. Run Hand as its own OS user, or in a VM
+
+Then a worker cannot read your account's private files: your own `~/.ssh`, `gh` login and other folders stay out of reach. A dedicated user is not a VM. World-readable files, shared paths such as `/tmp`, network services and anything else that user may use stay reachable. Use a VM you can throw away if you want stronger isolation: share no folder with the host.
+
+On Linux, as an administrator:
+
+```sh
+ls -ld ~
+chmod go-rwx ~
+sudo useradd --create-home --shell /bin/bash hand-agent
+sudo -iu hand-agent
+```
+
+`ls -ld ~` shows whether other users can enter your home folder. Skip the `chmod` if it already reads `drwx------`. Otherwise `chmod go-rwx ~` closes it, so the new user cannot read your files. It also locks out anything else that reads your home folder as another user or group, such as a web server or a shared group, so skip it if you rely on that and close the folders that matter instead. As `hand-agent`, install Hand and a harness, and log in to the harness there. The account uses its own harness login, so a worker spends that login's quota.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+```
+
+To reach the Board from your own account, print its login link as that user and open it in your browser. Name the fleet folder with `--home` (replace `fleets/demo` with yours): otherwise Hand looks in the current directory. `.local/bin` is the installer's default folder (see [Install](install.md#install-a-release)); adjust the path if you installed elsewhere. The link carries the fleet's token, so keep it out of chats:
+
+```sh
+sudo -iu hand-agent .local/bin/hand --home /home/hand-agent/fleets/demo open --print
+```
+
+To keep the watcher and the Board running without a login, run `sudo loginctl enable-linger hand-agent`, then see [Autostart](autostart.md).
+
+The commands above are standard Linux administration and were not run here. On macOS and Windows, make a standard (non-administrator) user in the system settings and do the same steps in it: not verified here.
+
+### 2. Keep secrets out of reach
+
+Give the account only what a hijacked worker could use without harm to you.
+
+- **No keys with push rights to repositories that matter.** The account's `~/.ssh` and `gh` login are the ones a worker uses. Make new ones for it.
+- **A narrow GitHub token.** Log the account in with a fine-grained personal access token limited to the repositories in use, with the Contents and Pull requests permissions and an expiry date. GitHub recommends an expiry but does not require one, so set it. GitHub advises the minimal repositories and permissions ([managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)). Pass the token on standard input, so it stays out of your shell history:
+
+  ```sh
+  gh auth login --with-token < token.txt
+  ```
+
+  Delete `token.txt` afterwards. Do not use a broad `gh auth login` from a browser.
+- **A protected default branch.** Require a pull request and approving reviews, and refuse force-pushes, so a hijacked worker can propose a change and cannot land one. GitHub blocks force-pushes on protected branches by default. It exempts people with admin permission unless "Do not allow bypassing the above settings" is on, so give the account write access, not admin ([about protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)). Keep the account, and any role, team or app it belongs to, off every bypass list in branch protection and rulesets.
+- **Signed commits**, if the repository requires them: GitHub then accepts only verified, signed commits on the branch (same page). Sign with a key used only by that account. A key on a FIDO device (`ssh-keygen -t ed25519-sk`) needs a touch for each signature, and an unlocked signing agent signs whatever a process that can reach it asks. To sign with an SSH key:
+
+  ```sh
+  ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519
+  git config --global gpg.format ssh
+  git config --global user.signingkey ~/.ssh/id_ed25519.pub
+  git config --global commit.gpgsign true
+  ```
+
+  Run in a throw-away home, these made `git log --show-signature` report a good signature. That GitHub shows the commit as Verified once you add the public key to the account as a signing key: not verified here.
+- **A clean environment.** Start fleets from a shell with no cloud or API secrets. When it starts the Luvus server, Hand removes `HAND_HOME`, `CLAUDECODE`, `CLAUDE_CODE_*`, `CODEX_*` except `CODEX_HOME`, and `LUVUS_*` except `LUVUS_HOME`. Its panes inherit the remaining environment.
+
+### 3. Do not register repositories that hold production credentials
+
+A worktree holds a full checkout. A `.env` file, a deploy key or a credentials file in the repository is in the worker's hands. Hand has no allowlist of paths. If a repository has them, keep it out of the fleet.
+
+### 4. Review what workers push
+
+Read a worker's PR before you merge it, including its workflow files, scripts and dependency changes. Rotate any token after a run that looked wrong.
+
+### 5. Isolate fleets from each other
+
+Workers of one fleet can read the other fleets of the same OS user, with their `board.token` and databases. Use one OS user, or one VM, for each group of fleets that must not see each other. `~/.secondhand` is per user, so a second user gets its own fleets.
+
+### 6. Board and phone
+
 - **Private board.** Keep the board on loopback and reach it with `ssh -L` or `tailscale serve` instead of exposing it. [Reach the board from a phone without Tailscale](phone.md) lists the other paths and who can reach the board through each. A LAN address is read-only and sends the token in the clear, and a public hostname needs an access policy in front of it.
-- **Pair a phone, do not send the token.** The Board's Phone page signs a phone in with a code that shows only on the laptop, works once and lasts 5 minutes. `hand open --print` puts the fleet's token in a chat or on a clipboard for good. A paired phone has its own session for 90 days and can do everything the board allows over loopback, including typing into agents that skip their permission prompts, so treat an unlocked paired phone like your laptop. One code can pair a phone with up to 8 fleets, and then a stolen phone reaches all of them: the Phone page ticks only the fleet you are on, so tick another only when the phone needs it. If a phone is lost, press **Revoke everywhere** beside it on the Phone page, then remove it from your tailnet in the admin console, which cuts its network path. **Revoke everywhere** covers the fleets that browser is signed in to; for a fleet it is not signed in to, open that fleet and revoke there. When the page says a fleet could not be reached, that fleet's record is still active: press the button again when it is back, and do not rely on the revoke alone. Changing `board.token` signs out every phone and every browser of that fleet: do it for a fleet you cannot reach, or when you cannot tell that the revoke arrived.
-- **Never Funnel.** Do not publish the board with `tailscale funnel`, a quick tunnel or any public proxy: one session guards agents with permission prompts skipped. The board refuses requests that Tailscale marks as Funnel traffic, but it cannot tell other public proxies from a tunnel. With `tailscale serve`, allow port 443 on the laptop only to your own user in the tailnet's access rules.
+- **Pair a phone, do not send the token.** The Board's Phone page signs a phone in with a code that shows only on the laptop, works once and lasts 5 minutes. `hand open --print` puts the fleet's token in a chat or on a clipboard for good. A paired phone has its own session for 90 days and can do everything the board allows over loopback, including answering agents and typing into them, so treat an unlocked paired phone like your laptop. One code can pair a phone with up to 8 fleets, and then a stolen phone reaches all of them: the Phone page ticks only the fleet you are on, so tick another only when the phone needs it.
+- **Revoke a lost phone.** Press **Revoke everywhere** beside it on the Phone page, then remove it from your tailnet in the admin console, which cuts its network path. **Revoke everywhere** covers the fleets that browser is signed in to. For a fleet it is not signed in to, open that fleet and revoke there. When the page says a fleet could not be reached, that fleet's record is still active: press the button again when it is back, and do not rely on the revoke alone. Changing `board.token` signs out every phone and every browser of that fleet: do it for a fleet you cannot reach, or when you cannot tell that the revoke arrived.
+- **Never Funnel.** Do not publish the board with `tailscale funnel`, a quick tunnel or any public proxy: one session reaches agents with permission prompts skipped. The board refuses requests that Tailscale marks as Funnel traffic, but it cannot tell other public proxies from a tunnel. With `tailscale serve`, allow port 443 on the laptop only to your own user in the tailnet's access rules.
 - **Machine names are public.** Turning on HTTPS certificates for `tailscale serve` writes the machine and tailnet names (`laptop.tailnet.ts.net`) to the public certificate transparency logs. Rename a machine whose name reveals anything before you enable it.
-- **What Hand checks before running git.** Hand runs git in your projects: `git fetch` and `git worktree add` to start an attempt, and `git status` and `git worktree remove` to clean one. Some settings in a project's git configuration name programs that git runs, for example `core.sshCommand`, a filter's `smudge`, a credential helper, a config-defined hook or an included file. Hand records the values of those settings when a project is registered (a project registered by an earlier version records them the first time Hand runs git in it) and refuses to run git in the project if they have changed since: it runs nothing, exits 2 and names the settings that changed. Read them with `git -C REPO config --list --show-origin`, then accept them with `hand project trust PROJECT`; `hand doctor` has a row for each project. The check covers the repository's own configuration (with the files it includes and a worktree's own `config.worktree`) and `.git/info/attributes`. It does not cover the global or system git configuration, the environment, a submodule's own configuration or the programs on your `PATH`, and it is not a sandbox, so the account separation above stays the boundary. Reading the settings and running the command are two steps, so a change made between them is caught by the next command. A project registered by an earlier version accepts the settings it has when Hand first runs git in it: read `git -C REPO config --list --show-origin` once after you upgrade.
-- **Worker reach.** Every pane's environment carries `LUVUS_SOCKET_PATH` and `LUVUS_API_ADDRESS`, so a worker can reach the fleet's Luvus socket, list the panes and send keys or prompts to the others, the supervisor's included. Hand does not prevent this, so the worker boundary is the account separation above, not a Hand control.
+
+### What Hand checks before running git
+
+Hand runs git in your projects: `git fetch` and `git worktree add` to start an attempt, and `git status` and `git worktree remove` to clean one. Some settings in a project's git configuration name programs that git runs, for example `core.sshCommand`, a filter's `smudge`, a credential helper, a config-defined hook or an included file. Hand records the values of those settings when a project is registered (a project registered by an earlier version records them the first time Hand runs git in it) and refuses to run git in the project if they have changed since: it runs nothing, exits 2 and names the settings that changed. Read them with `git -C REPO config --list --show-origin`, then accept them with `hand project trust PROJECT`. `hand doctor` has a row for each project.
+
+The check covers the repository's own configuration (with the files it includes and a worktree's own `config.worktree`) and `.git/info/attributes`. It does not cover the global or system git configuration, the environment, a submodule's own configuration or the programs on your `PATH`. It is not a sandbox, so the account separation above stays the boundary. Reading the settings and running the command are two steps, so a change made between them is caught by the next command. A project registered by an earlier version accepts the settings it has when Hand first runs git in it: read `git -C REPO config --list --show-origin` once after you upgrade.
+
+## What no setup of today prevents
+
+- **Prompt injection that uses access you gave.** A worker that reads hostile text in an issue, a PR or a page can be persuaded to use the repositories, tokens and network it already has. Steps 1 to 4 limit what it can reach. None of them stops it from writing bad code inside that reach, and a prompt would not stop it either: Claude Code's own docs say `bypassPermissions` "offers no protection against prompt injection or unintended actions".
+- **One agent typing into another.** Every pane's environment carries `LUVUS_SOCKET_PATH` and `LUVUS_API_ADDRESS`. A worker, or the supervisor, can list the fleet's panes through the Luvus socket and send keys or prompts to the others, including the one that shows a permission prompt. On the same host and account, a permission prompt is friction for a hijacked agent, not a boundary. Hand does not prevent this. Only a separate OS user or VM does.
+- **Programs git runs for you.** Hand now refuses to run git in a project whose program-naming settings changed. The check has the gaps listed under [What Hand checks before running git](#what-hand-checks-before-running-git), and it does not stop a worker that already runs as your account.
+- **A compromised worker on your own account.** Without steps 1 and 2, it has all of your account's access.
+- **Isolation between workers of one OS user**, egress control, protection of `board.token` from its own fleet's workers, and an audit log. Hand has none of these.
+
+## Planned, not built
+
+None of this exists yet. The operator's safe-mode study describes them. It is not in this repository. Which of them get built is decided after this page has been read.
+
+- An opt-in permission mode per routing profile, so a worker can start in a Claude Code mode that is not bypass.
+- An approval flow in the Board: approve once, approve always or deny, with a timeout.
+- Read-only roles for review and research workers.
+- A sandbox. The study advises against a sandbox that Hand builds itself.
+
+Until then, the setup above is the only protection.
+
+## What each harness offers instead
+
+Hand passes the flags above and none of these. Each is the harness's own feature, from its documentation as fetched on 2026-10-22 (UTC). Not verified here: that any of them works under Hand.
+
+| Harness | What Hand passes | What the harness offers instead |
+|---|---|---|
+| Claude Code | `--dangerously-skip-permissions` | Modes `default`, `acceptEdits`, `plan`, `auto` (a classifier reviews each action), `dontAsk` and `bypassPermissions`. Allow, ask and deny rules. A Bash sandbox on Linux and macOS, none on native Windows. [Modes](https://code.claude.com/docs/en/permission-modes.md), [rules](https://code.claude.com/docs/en/permissions.md), [sandbox](https://code.claude.com/docs/en/sandboxing.md) |
+| Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks` | `--sandbox` with `read-only`, `workspace-write` or `danger-full-access`, and approval policies. By default: workspace-write, approval on request, network off. [Agent approvals and security](https://developers.openai.com/codex/agent-approvals-security) |
+| opencode | `--standalone --auto` | Per-tool `allow`, `ask` and `deny` with patterns, per agent. Without `--auto` the defaults already allow most tools. `--auto` approves whatever is not denied. [Permissions](https://opencode.ai/docs/permissions/) |
+| Antigravity (`agy`) | `--dangerously-skip-permissions` | `permissions.allow`, `ask` and `deny` in its settings file, where deny wins over ask and ask over allow. Commands ask by default. `agy --help` also lists `--mode` and `--sandbox`: the docs page does not describe them, not verified here. [Permissions](https://antigravity.google/docs/permissions) |
