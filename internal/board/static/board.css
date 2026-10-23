@@ -346,7 +346,7 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .others>summary:hover{color:var(--fg)}
 .others[open]>summary .icon{transform:rotate(180deg)}
 .others-body{display:grid;gap:8px;margin-top:8px}
-.others-body form.start{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 10em}
+.others-body form.start{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr) minmax(0,1.6fr) 10em}
 .others-body form.start button{grid-column:4;width:100%;white-space:nowrap}
 .others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}
 .unverified{grid-column:1/-1;color:var(--wait);font-size:12px;font-weight:600}

@@ -503,6 +503,7 @@ func TestTheModelPickerRules(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "optgroup", css, "optgroup{background:var(--bg);color:var(--fg)}")
 	contains(t, "unverified mark", css, ".unverified{grid-column:1/-1;color:var(--wait);font-size:12px;font-weight:600}")
+	contains(t, "row columns", css, ".others-body form.start{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr) minmax(0,1.6fr) 10em}")
 	contains(t, "menu width", css, "#model-menu .menu-body{width:min(300px,calc(100vw - 24px))}")
 	contains(t, "menu selects", css, "#model-menu .menu-body form select{width:0;min-width:100%}")
 	contains(t, "note", css, ".model-note{grid-column:1/-1;margin:0;color:var(--wait);font-size:12px}")
