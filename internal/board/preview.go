@@ -36,12 +36,14 @@ var (
 		"audio/ogg":  {".ogg", ".oga", ".opus"},
 	}
 	views = map[string][2]string{
-		".html": {"Preview", "Source"},
-		".htm":  {"Preview", "Source"},
-		".svg":  {"Picture", "Source"},
-		".csv":  {"Table", "Text"},
-		".tsv":  {"Table", "Text"},
-		".json": {"Pretty", "As written"},
+		".html":     {"Preview", "Source"},
+		".htm":      {"Preview", "Source"},
+		".svg":      {"Picture", "Source"},
+		".csv":      {"Table", "Text"},
+		".tsv":      {"Table", "Text"},
+		".json":     {"Pretty", "As written"},
+		".md":       {"Rendered", "Source"},
+		".markdown": {"Rendered", "Source"},
 	}
 )
 

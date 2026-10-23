@@ -974,7 +974,7 @@
 			mark(n, false);
 		});
 		const form = view.querySelector(".text-find");
-		const input = form.querySelector("input");
+		const input = form.querySelector("input[type=search]");
 		const count = form.querySelector(".find-count");
 		if (view.dataset.whole === "true" && "highlights" in CSS) {
 			let found = [];
@@ -1132,7 +1132,22 @@
 			}
 		});
 	};
+	const sourceKey = "hand.doc.source";
+	const sourceSaved = () => {
+		try {
+			return localStorage.getItem(sourceKey) === "on";
+		} catch {
+			return false;
+		}
+	};
+	const sourceView = (root) => {
+		const [first, second] = root.querySelectorAll(".doc-toggle[data-remember] > *");
+		if (!second || first.tagName === "A" || !sourceSaved()) return;
+		if (root === document) location.replace(second.href + location.hash);
+		else second.click();
+	};
 	const docView = (root) => {
+		sourceView(root);
 		wideView(root);
 		const stops = [...root.querySelectorAll(".text-view")].map(textView);
 		return () => {
@@ -1140,6 +1155,16 @@
 		};
 	};
 	docView(document);
+	document.addEventListener("click", (e) => {
+		const a = e.target instanceof Element ? e.target.closest(".doc-toggle[data-remember] > a") : null;
+		if (!a) return;
+		try {
+			if (a.parentElement.lastElementChild === a) localStorage.setItem(sourceKey, "on");
+			else localStorage.removeItem(sourceKey);
+		} catch {
+			return;
+		}
+	});
 	document.addEventListener("click", (e) => {
 		if (!(e.target instanceof Element) || !e.target.closest(".table-pin")) return;
 		pinFirst = !pinFirst;

@@ -150,7 +150,7 @@ func (b *Board) listing(root, real string, f *os.File, rel string, page int) ([]
 	return out, pg
 }
 
-func (b *Board) around(root, rel string, images bool, tail string) (prev, next *step, page int) {
+func (b *Board) around(root, rel string, images bool, tail string, source bool) (prev, next *step, page int) {
 	dir, name := path.Split(rel)
 	d, err := os.OpenInRoot(root, filepath.FromSlash(path.Clean(dir)))
 	if err != nil {
@@ -174,6 +174,8 @@ func (b *Board) around(root, rel string, images bool, tail string) (prev, next *
 			href := docURL(b.o.Base, dir+it.name)
 			if imageLike.MatchString(it.name) {
 				href += tail
+			} else if source && isMarkdown(it.name) {
+				href += "?as=text"
 			}
 			return &step{it.name, href}
 		}

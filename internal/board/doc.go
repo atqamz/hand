@@ -85,6 +85,11 @@ func openSame(home, rel, root, real string) (*os.File, fs.FileInfo, error) {
 	return f, got, nil
 }
 
+func isMarkdown(name string) bool {
+	ext := strings.ToLower(path.Ext(name))
+	return ext == ".md" || ext == ".markdown"
+}
+
 func docURL(base, rel string) string {
 	return base + "/doc/" + (&url.URL{Path: rel}).EscapedPath()
 }
@@ -216,17 +221,18 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 	if zoom {
 		tail = "?view=actual"
 	}
-	prev, next, at := b.around(root, rel, view, tail)
+	ext := strings.ToLower(path.Ext(name))
+	asText := q.Get("as") == "text"
+	prev, next, at := b.around(root, rel, view, tail, asText && isMarkdown(name))
 	if prev != nil || next != nil {
 		data["Prev"], data["Next"] = prev, next
 	}
 	if crumbs := data["Crumbs"].([]crumb); at > 1 && len(crumbs) > 0 {
 		crumbs[len(crumbs)-1].Href += "?page=" + strconv.Itoa(at)
 	}
-	ext := strings.ToLower(path.Ext(name))
-	asText := q.Get("as") == "text"
-	if v, ok := views[ext]; ok && text && (ext != ".json" || fi.Size() <= maxPretty) {
+	if v, ok := views[ext]; ok && text && (ext != ".json" || fi.Size() <= maxPretty) && (!isMarkdown(name) || fi.Size() <= maxMarkdown) {
 		data["Views"] = []choice{{v[0], self, !asText}, {v[1], self + "?as=text", asText}}
+		data["Remember"] = isMarkdown(name)
 	}
 	switch kind := media(sniffed, name); {
 	case view:
@@ -238,13 +244,14 @@ func (b *Board) doc(w http.ResponseWriter, r *http.Request) {
 		data["Frame"] = map[string]string{"Src": self + "?raw", "Kind": "pdf"}
 	case !text:
 		data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
-	case (ext == ".md" || ext == ".markdown") && fi.Size() <= maxMarkdown:
+	case !asText && isMarkdown(name) && fi.Size() <= maxMarkdown:
 		md, err := io.ReadAll(io.NewSectionReader(f, 0, maxMarkdown))
 		if err != nil {
 			b.failErr(w, err)
 			return
 		}
 		if !utf8.Valid(md) || bytes.IndexByte(md, 0) >= 0 {
+			delete(data, "Views")
 			data["Notice"] = "This file is not text, so the Board does not show it; download it to open it."
 			break
 		}
