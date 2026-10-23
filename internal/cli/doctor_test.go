@@ -135,8 +135,40 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if got := rows["phone"][0]; got != "info" {
 		t.Fatalf("phone = %q with no tailscale in %q", rows["phone"], out)
 	}
-	if len(rows) != len(want)+4 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+4, out)
+	for _, name := range state.Harnesses {
+		if row := rows["models "+name]; row[0] != "info" || !strings.Contains(row[1], "no list yet; run `hand models --refresh "+name+"`") {
+			t.Fatalf("models %s = %q in %q", name, row, out)
+		}
+	}
+	if len(rows) != len(want)+8 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+8, out)
+	}
+}
+
+const claudeAnswer = `{"type":"control_response","response":{"subtype":"success","request_id":"hand-models","response":{"models":[{"value":"opus","displayName":"Opus","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},{"value":"acme-opus","displayName":"Acme","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]}],"account":{"email":"INVENTED-SECRET-DO-NOT-LEAK"}}}}` + "\n"
+
+func TestDoctorReportsWhatEachHarnessListed(t *testing.T) {
+	fx := newDoctorFixture(t)
+	fakebin.Install(t, fx.tools, "claude", "fake", map[string]string{"on --version": "claude 9.9\n", "on -p": claudeAnswer})
+	fx.h.ok("models", "--refresh")
+	out := fx.h.ok("doctor")
+	rows := checkRows(t, out)
+	for check, want := range map[string]string{
+		"models claude":   "2 detected (built-in 1, custom 1), cache <1m old",
+		"models codex":    "1 detected (discovered 1), cache <1m old",
+		"models agy":      "1 detected (discovered 1), cache <1m old",
+		"models opencode": "no list: opencode models --standalone printed no model names",
+	} {
+		if row := rows[check]; row[0] != "info" || !strings.Contains(row[1], want) {
+			t.Fatalf("%s = %q, want %q in %q", check, row, want, out)
+		}
+	}
+	if strings.Contains(out, "INVENTED-SECRET-DO-NOT-LEAK") {
+		t.Fatalf("doctor printed the secret: %q", out)
+	}
+	fx.h.advance(2 * time.Hour)
+	if row := checkRows(t, fx.h.ok("doctor"))["models claude"]; !strings.Contains(row[1], "cache 2h old; stale") {
+		t.Fatalf("models claude after 2 hours = %q", row)
 	}
 }
 
@@ -149,7 +181,28 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		{"hand not on PATH", "hand", "warn", "PATH does not lead to this binary; put ", 0, func(fx *doctorFixture) { fx.h.vars["PATH"] = fx.tools }},
 		{"source build", "hand", "info", "--channel edge or --channel stable", 0, func(*doctorFixture) { cli.Channel = "source" }},
 		{"no git", "git", "fail", "install git", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "git")) }},
-		{"no codex cache", "harness codex", "warn", "run codex once", 0, func(fx *doctorFixture) { fx.h.vars["CODEX_HOME"] = fx.h.t.TempDir() }},
+		{"profile with an unverified model", "profile quick", "warn", "claude model acme-opus is not an alias", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"claude","model":"acme-opus","effort":"low"}}}`)
+		}},
+		{"a profile whose model left the list", "profile quick", "warn", "model gpt-5.5 is no longer listed by codex", 0, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"codex","model":"gpt-5.5","effort":"low"}}}`)
+			bundled := func(slugs ...string) string {
+				var models []string
+				for _, s := range slugs {
+					models = append(models, `{"slug":"`+s+`","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}`)
+				}
+				return `{"models":[` + strings.Join(models, ",") + `]}`
+			}
+			fakebin.Install(fx.h.t, fx.tools, "codex", "fake", map[string]string{"on --version": "codex 1\n", "on debug": bundled("gpt-5.5", "gpt-6-luna")})
+			fx.h.ok("models", "--refresh", "codex")
+			fakebin.Install(fx.h.t, fx.tools, "codex", "fake", map[string]string{"on --version": "codex 2\n", "on debug": bundled("gpt-6-luna")})
+			fx.h.ok("models", "--refresh", "codex")
+		}},
+		{"no codex list", "models codex", "info", "no list yet; run `hand models --refresh codex`", 0, func(fx *doctorFixture) {}},
+		{"agy signed out", "models agy", "info", "no list: agy is not signed in; run agy and sign in", 0, func(fx *doctorFixture) {
+			fakebin.Install(fx.h.t, fx.tools, "agy", "fake", map[string]string{"on --version": "agy 1\n", "exit": "1", "stderr": "Error: Please sign in to view available models."})
+			fx.h.ok("models", "--refresh", "agy")
+		}},
 		{"no systemd user session", "systemd", "info", "detached processes", 0, func(fx *doctorFixture) {
 			if runtime.GOOS != "linux" {
 				fx.h.t.Skip("systemd is checked on Linux only")

@@ -18,13 +18,17 @@ func TestSupervisorStartWarnsAboutAnUnverifiedModelAndLaunchesIt(t *testing.T) {
 		warn string
 		flag string
 	}{
-		{"claude gateway name", []string{"--harness", "claude", "--model", "acme-opus", "--effort", "high"}, `warn: "claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"`, "acme-opus"},
+		{"claude gateway name", []string{"--harness", "claude", "--model", "acme-opus", "--effort", "high"}, `warn: "claude model acme-opus is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list; starting anyway"`, "acme-opus"},
 		{"claude bedrock id", []string{"--harness", "claude", "--model", "us.anthropic.claude-opus-5-5-v1:0", "--effort", "high"}, "warn:", "us.anthropic.claude-opus-5-5-v1:0"},
 		{"codex without a cache", []string{"--harness", "codex", "--model", "acme-coder-1", "--effort", "high"}, `warn: "codex model acme-coder-1 could not be checked`, "acme-coder-1"},
 		{"agy unlisted", []string{"--harness", "agy", "--model", "gemini-9"}, "warn: agy model gemini-9 is not in `agy models`", "gemini-9"},
+		{"agy without a list", []string{"--harness", "agy", "--model", "gemini-9"}, "warn: \"agy model gemini-9 could not be checked: no model list yet; run `hand models --refresh agy`", "gemini-9"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			h, rt := newSupervisorFixture(t)
+			if c.name == "agy unlisted" {
+				h.ok("models", "--refresh", "agy")
+			}
 			out := h.ok(append([]string{"supervisor", "start"}, c.args...)...)
 			has(t, "start", out, c.warn, "status: running")
 			if !slices.Contains(rt.lastCreate().Command, c.flag) {
@@ -121,9 +125,9 @@ func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
 	list := h.ok("route", "list")
 	has(t, "route list", list,
 		`alias,claude,sonnet,high,yes,""`,
-		`gateway,claude,acme-opus,high,yes,"claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"`,
+		`gateway,claude,acme-opus,high,yes,"claude model acme-opus is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list; starting anyway"`,
 		`bedrock,claude,"us.anthropic.claude-opus-5-5-v1:0",high,yes,"claude model us.anthropic.claude-opus-5-5-v1:0 is not an alias`,
-		`codex-custom,codex,acme-coder-1,high,yes,"codex model acme-coder-1 could not be checked: no usable models_cache.json (run codex once); starting anyway"`,
+		`codex-custom,codex,acme-coder-1,high,yes,"codex model acme-coder-1 could not be checked: codex debug models --bundled printed output it does not recognise, and models_cache.json is unusable; starting anyway"`,
 		"agy-x,agy,gemini-9,\"\",yes,agy model gemini-9 is not in `agy models`; starting anyway",
 		`oc-plain,opencode,"","",yes,""`,
 		`oc-model,opencode,acme/acme-coder-1,"","invalid: opencode picks its model from its own configuration; leave model and effort empty",""`,

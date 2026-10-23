@@ -692,11 +692,12 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 	}
 }
 
-func TestAgyWarnsWhenItsModelListFails(t *testing.T) {
+func TestAgyWarnsWhenItsModelListFailed(t *testing.T) {
 	fx := agyFixture(t)
-	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1"})
+	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1", "stderr": "Error: Please sign in to view available models."})
+	fx.h.ok("models", "--refresh", "agy")
 	out, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1")
-	if code != 0 || !strings.Contains(out, `warn: "agy model gemini-3.8-flash-low could not be checked`) || !strings.Contains(out, "check that agy is logged in") || !strings.Contains(out, "starting anyway") {
+	if code != 0 || !strings.Contains(out, `warn: "agy model gemini-3.8-flash-low could not be checked: agy is not signed in; run agy and sign in`) || !strings.Contains(out, "starting anyway") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if list := fx.h.ok("attempt", "list"); !strings.Contains(list, "a1,") {

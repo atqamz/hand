@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -21,11 +23,26 @@ func TestMain(m *testing.M) {
 			fmt.Print(fakebin.Params()["models"])
 		}
 		return 0
+	}, "forbidden": func(args []string) int {
+		fakebin.Append(fakebin.Params()["log"], strings.Join(args, " "))
+		return 1
 	}})
 	os.Exit(m.Run())
 }
 
 const agyModels = "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n"
+
+func listedHarness(t *testing.T, fx *fixture, bin string, names ...string) {
+	t.Helper()
+	vars := map[string]string{"PATH": bin, "HOME": t.TempDir(), "SECONDHAND_HOME": t.TempDir()}
+	env := harness.EnvOf(func(k string) string { return vars[k] })
+	for _, name := range names {
+		if l, err := harness.Refresh(context.Background(), name, env, harness.Options{Environ: []string{"PATH=" + bin}, Now: time.Now}); err != nil || l.Failed != nil {
+			t.Fatalf("listing %s: %+v, %v", name, l, err)
+		}
+	}
+	fx.options.Harness = env
+}
 
 func usageRecord(cacheRead int) string {
 	return `{"type":"assistant","timestamp":"2026-09-28T01:00:05Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":2,"cache_creation_input_tokens":170,"cache_read_input_tokens":` + strconv.Itoa(cacheRead) + `},"content":[{"type":"text","text":"Done."}]}}`
@@ -286,7 +303,7 @@ func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 	none := newFixture(t)
 	running := newFixture(t)
 	for _, fx := range []*fixture{none, running} {
-		fx.options.Harness.Path = bin
+		listedHarness(t, fx, bin, "agy")
 		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -303,7 +320,7 @@ func TestTheAgyModelMenuHasNoEffortSelect(t *testing.T) {
 	bin := t.TempDir()
 	fakebin.Install(t, bin, "agy", "agy", map[string]string{"models": agyModels})
 	fx := newFixture(t)
-	fx.options.Harness.Path = bin
+	listedHarness(t, fx, bin, "agy")
 	fx.status = "idle"
 	sup, err := fx.st.AddSupervisor(context.Background(), state.SupervisorSpec{Harness: "agy", Model: "gemini-3.8-flash-low", Argv: []string{"/bin/agy", "-i", "x"}, Session: "c1"})
 	if err != nil {
@@ -497,4 +514,30 @@ func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {
 	console := region(get(t, noDefault.handler(), "/"), "console")
 	contains(t, "no default profile", console, `<select name="profile" aria-label="Profile" required><option value="">profile…</option>`)
 	lacks(t, "no default profile", console, " selected>")
+}
+
+func TestTheBoardNeverRunsAHarness(t *testing.T) {
+	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "log")
+	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
+		fakebin.Install(t, bin, name, "forbidden", map[string]string{"log": log})
+	}
+	policy := `{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"},"default":{"harness":"claude","model":"sonnet","effort":"medium"}}}`
+	none, running := newFixture(t), newFixture(t)
+	running.status = "idle"
+	running.supervisor(t, state.AttemptRunning, "gen-1")
+	for _, fx := range []*fixture{none, running} {
+		vars := map[string]string{"PATH": bin, "HOME": t.TempDir(), "SECONDHAND_HOME": t.TempDir()}
+		fx.options.Harness = harness.EnvOf(func(k string) string { return vars[k] })
+		if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"/", "/?pick=1", "/supervisor/log"} {
+			get(t, fx.handler(), path)
+		}
+	}
+	if b, err := os.ReadFile(log); err == nil {
+		t.Fatalf("the board ran a harness: %q", b)
+	}
+	contains(t, "claude without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="opus">opus</option>`)
+	lacks(t, "agy without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="gemini-3.8-flash-low">`)
 }

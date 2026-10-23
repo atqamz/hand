@@ -1,21 +1,12 @@
 package harness
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -27,10 +18,18 @@ type Spec struct {
 
 type Env struct {
 	CodexHome, Path string
+	Getenv          func(string) string
 }
 
 func EnvOf(getenv func(string) string) Env {
-	return Env{CodexHome: CodexHome(getenv), Path: getenv("PATH")}
+	return Env{CodexHome: CodexHome(getenv), Path: getenv("PATH"), Getenv: getenv}
+}
+
+func (e Env) get(key string) string {
+	if e.Getenv == nil {
+		return ""
+	}
+	return e.Getenv(key)
 }
 
 const MaxPromptBytes = 16384
@@ -65,30 +64,42 @@ func Check(s Spec, env Env) (string, error) {
 	}
 	switch s.Harness {
 	case "claude":
-		return checkClaude(s), nil
+		return checkClaude(s, env), nil
 	case "codex":
-		return checkCodex(s, filepath.Join(env.CodexHome, "models_cache.json")), nil
+		return checkCodex(s, env), nil
 	}
 	return checkAgy(s, env), nil
 }
 
-func checkClaude(s Spec) string {
+func checkClaude(s Spec, env Env) string {
+	l, _ := catalog("claude", env)
+	m, listed := find(l.Models, s.Model)
 	var warns []string
-	if !claudeModel.MatchString(s.Model) {
-		warns = append(warns, fmt.Sprintf("claude model %s is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models", s.Model))
+	switch {
+	case slices.Contains(l.Gone, s.Model):
+		warns = append(warns, goneText(s))
+	case !listed && !claudeModel.MatchString(s.Model):
+		warns = append(warns, fmt.Sprintf("claude model %s is not an alias (opus, sonnet, haiku, fable), a claude-* name or in Claude Code's model list", s.Model))
 	}
-	if !slices.Contains(claudeEfforts, s.Effort) {
-		warns = append(warns, fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(claudeEfforts, ", ")))
+	efforts := claudeEfforts
+	if len(m.Efforts) > 0 {
+		efforts = m.Efforts
+	}
+	if !slices.Contains(efforts, s.Effort) {
+		warns = append(warns, fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(efforts, ", ")))
 	}
 	return unverified(warns)
 }
 
 func checkAgy(s Spec, env Env) string {
-	models, err := agyModels(env)
+	l, err := catalog("agy", env)
 	switch {
 	case err != nil:
 		return unverified([]string{fmt.Sprintf("agy model %s could not be checked: %s", s.Model, plainReason(err))})
-	case !slices.ContainsFunc(models, func(m Model) bool { return m.Name == s.Model }):
+	case slices.Contains(l.Gone, s.Model):
+		return unverified([]string{goneText(s)})
+	}
+	if _, ok := find(l.Models, s.Model); !ok {
 		return unverified([]string{fmt.Sprintf("agy model %s is not in `agy models`", s.Model)})
 	}
 	return ""
@@ -107,133 +118,23 @@ func plainReason(err error) string {
 
 func Prefills(name string) bool { return name == "opencode" }
 
-type Model struct {
-	Name    string
-	Efforts []string
-}
-
 var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
-func Models(name string, env Env) ([]Model, error) {
-	switch name {
-	case "claude":
-		out := make([]Model, 0, len(claudeAliases))
-		for _, m := range claudeAliases {
-			out = append(out, Model{Name: m, Efforts: slices.Clone(claudeEfforts)})
-		}
-		return out, nil
-	case "codex":
-		return codexModels(filepath.Join(env.CodexHome, "models_cache.json"))
-	case "agy":
-		return agyModels(env)
-	case "opencode":
-		return nil, nil
-	}
-	return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
-}
-
-type agyListing struct {
-	models []Model
-	err    error
-	at     time.Time
-}
-
-var (
-	agyRetry   = 60 * time.Second
-	agyTimeout = 30 * time.Second
-)
-
-var agyLists = struct {
-	sync.Mutex
-	byBin map[string]agyListing
-}{byBin: map[string]agyListing{}}
-
-func agyModels(env Env) ([]Model, error) {
-	bin, err := LookPath("agy", env.Path)
+func checkCodex(s Spec, env Env) string {
+	l, err := catalog("codex", env)
 	if err != nil {
-		return nil, err
+		return unverified([]string{fmt.Sprintf("codex model %s could not be checked: %s", s.Model, plainReason(err))})
 	}
-	agyLists.Lock()
-	defer agyLists.Unlock()
-	if l, ok := agyLists.byBin[bin]; ok && (l.err == nil || time.Since(l.at) < agyRetry) {
-		return slices.Clone(l.models), l.err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), agyTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "models")
-	cmd.WaitDelay = time.Second
-	proc.NoWindow(cmd)
-	out, err := cmd.Output()
-	if errors.Is(err, exec.ErrWaitDelay) {
-		err = nil
-	}
-	var models []Model
-	for _, line := range strings.Split(string(out), "\n") {
-		if id, _, ok := strings.Cut(line, "\t"); ok && strings.TrimSpace(id) != "" {
-			models = append(models, Model{Name: strings.TrimSpace(id)})
-		}
-	}
-	var exit *exec.ExitError
-	const hint = "could not list agy models: %v; check that agy is logged in"
+	m, ok := find(l.Models, s.Model)
 	switch {
-	case err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded):
-		err = fmt.Errorf("%w: agy models timed out after %v", state.ErrInvalid, agyTimeout)
-	case errors.As(err, &exit) && len(bytes.TrimSpace(exit.Stderr)) > 0:
-		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, fmt.Sprintf("%v: %s", err, bytes.TrimSpace(exit.Stderr)))
-	case err != nil:
-		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, err)
-	case len(models) == 0:
-		err = fmt.Errorf("%w: "+hint, state.ErrInvalid, "it listed no models")
+	case slices.Contains(l.Gone, s.Model):
+		return unverified([]string{goneText(s)})
+	case !ok:
+		return unverified([]string{fmt.Sprintf("codex model %s is not in codex's model list", s.Model)})
+	case !slices.Contains(m.Efforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("codex model %s lists efforts %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
 	}
-	if err != nil {
-		models = nil
-	}
-	agyLists.byBin[bin] = agyListing{models, err, time.Now()}
-	return slices.Clone(models), err
-}
-
-func codexModels(cache string) ([]Model, error) {
-	b, err := os.ReadFile(cache)
-	if err != nil {
-		return nil, fmt.Errorf("%w: cannot read codex model cache %s (run codex once): %v", state.ErrInvalid, cache, err)
-	}
-	var c struct {
-		Models []struct {
-			Slug   string `json:"slug"`
-			Levels []struct {
-				Effort string `json:"effort"`
-			} `json:"supported_reasoning_levels"`
-		} `json:"models"`
-	}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, fmt.Errorf("%w: codex model cache %s: %v", state.ErrInvalid, cache, err)
-	}
-	out := make([]Model, 0, len(c.Models))
-	for _, m := range c.Models {
-		model := Model{Name: m.Slug}
-		for _, l := range m.Levels {
-			model.Efforts = append(model.Efforts, l.Effort)
-		}
-		out = append(out, model)
-	}
-	return out, nil
-}
-
-func checkCodex(s Spec, cache string) string {
-	models, err := codexModels(cache)
-	if err != nil {
-		return unverified([]string{fmt.Sprintf("codex model %s could not be checked: no usable %s (run codex once)", s.Model, filepath.Base(cache))})
-	}
-	for _, m := range models {
-		if m.Name != s.Model {
-			continue
-		}
-		if !slices.Contains(m.Efforts, s.Effort) {
-			return unverified([]string{fmt.Sprintf("codex model %s lists efforts %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
-		}
-		return ""
-	}
-	return unverified([]string{fmt.Sprintf("codex model %s is not in the model cache", s.Model)})
+	return ""
 }
 
 func CodexHome(getenv func(string) string) string {

@@ -59,11 +59,8 @@ func cmdDoctor(r *runner, args []string) error {
 		if err != nil {
 			continue
 		}
-		if _, err := harness.Models(name, harness.EnvOf(r.env.Getenv)); err != nil {
-			c.add("harness "+name, "warn", err.Error())
-		} else {
-			c.add("harness "+name, "ok", "")
-		}
+		c.add("harness "+name, "ok", "")
+		c.add("models "+name, "info", r.modelSummary(name))
 	}
 	if runtime.GOOS == "linux" {
 		if _, ok := luvus.UserManager(r.env.Environ()); ok {
@@ -213,10 +210,13 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add(harness.PolicyFile, "ok", "")
 		missing := false
 		for _, name := range p.Names() {
-			if _, err := harnessBin(r, p.Profiles[name]); err != nil {
+			switch _, warn, err := checkedBin(r, p.Profiles[name]); {
+			case err != nil:
 				c.add("profile "+name, "fail", err.Error())
 				missing = true
-			} else {
+			case warn != "":
+				c.add("profile "+name, "warn", warn)
+			default:
 				c.add("profile "+name, "ok", "")
 			}
 		}

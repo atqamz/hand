@@ -28,6 +28,15 @@ func cmdRouteList(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	env, opts := r.modelOptions()
+	now := r.env.Now()
+	var unlisted []string
+	for _, name := range state.Harnesses {
+		if st := harness.StatusOf(name, env, now); st.Missing == "" && !st.Found {
+			unlisted = append(unlisted, name)
+		}
+	}
+	_ = r.refreshModels(unlisted, env, opts)
 	rows := make([][]string, 0, len(p.Profiles))
 	for _, name := range p.Names() {
 		s := p.Profiles[name]
@@ -37,11 +46,14 @@ func cmdRouteList(r *runner, args []string) error {
 		} else {
 			warn = w
 		}
+		if why, hard := harness.Vanished(s, env, now); hard && valid == "yes" {
+			valid, warn = "no", why
+		}
 		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid, warn})
 	}
 	var models [][]string
 	for _, name := range state.Harnesses {
-		list, err := harness.Models(name, harness.EnvOf(r.env.Getenv))
+		list, err := harness.Models(name, env)
 		if err != nil {
 			models = append(models, []string{name, "", "unavailable: " + err.Error()})
 			continue

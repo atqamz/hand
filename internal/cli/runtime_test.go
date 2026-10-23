@@ -449,10 +449,10 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 func fakeBin(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, name := range []string{"claude", "codex", "opencode"} {
-		fakebin.Install(t, dir, name, "fake", map[string]string{"sleep": "300s"})
+	for name, listing := range map[string]string{"claude": "on -p", "codex": "on debug", "opencode": "on models"} {
+		fakebin.Install(t, dir, name, "fake", map[string]string{"on --version": "fake 1.0\n", listing: "", "sleep": "300s"})
 	}
-	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
+	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
 	return dir
 }
 

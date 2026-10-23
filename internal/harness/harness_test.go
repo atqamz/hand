@@ -18,27 +18,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"agy": fakeAgyMain, "opencode": fakeOpencodeMain, "echoargs": echoArgsMain})
+	fakebin.Main(map[string]func([]string) int{"lister": fakeListerMain, "opencode": fakeOpencodeMain, "echoargs": echoArgsMain})
 	os.Exit(m.Run())
-}
-
-func fakeAgyMain(args []string) int {
-	p := fakebin.Params()
-	if held(args) || len(args) == 0 || args[0] != "models" {
-		return 0
-	}
-	if p["count"] != "" {
-		fakebin.Append(p["count"], "x")
-	}
-	d, _ := time.ParseDuration(p["sleep"])
-	time.Sleep(d)
-	if p["hold"] != "" {
-		hold()
-	}
-	fmt.Fprint(os.Stderr, p["stderr"])
-	fmt.Print(p["models"])
-	code, _ := strconv.Atoi(p["exit"])
-	return code
 }
 
 func fakeOpencodeMain(args []string) int {
@@ -103,8 +84,6 @@ func holders(t *testing.T) string {
 	return file
 }
 
-const cache = `{"models":[{"slug":"gpt-6-luna","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},{"slug":"gpt-5.5","supported_reasoning_levels":[{"effort":"high"}]}]}`
-
 func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	cached := t.TempDir()
 	if err := os.WriteFile(filepath.Join(cached, "models_cache.json"), []byte(cache), 0o644); err != nil {
@@ -114,8 +93,18 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(broken, "models_cache.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	listed, _ := fakeAgy(t, agyList, false)
-	failing, _ := fakeAgy(t, "", true)
+	agyListed := seeded(t, Listing{Harness: "agy", Models: []Model{{Name: "gemini-3.8-flash-low", Source: SourceDiscovered}, {Name: "gemini-3.1-pro-high", Source: SourceDiscovered}}, Gone: []string{"gemini-2"}})
+	agyFailed := seeded(t, Listing{Harness: "agy", Failed: &Failure{Reason: "agy is not signed in; run agy and sign in"}})
+	agyNone := seeded(t)
+	codexListed := seeded(t, Listing{Harness: "codex", Models: []Model{
+		{Name: "gpt-6-luna", Efforts: []string{"low", "medium"}, Source: SourceBuiltin},
+		{Name: "codex-auto-review", Efforts: []string{"low"}, Source: SourceBuiltin, Hidden: true},
+	}, Gone: []string{"gpt-5.4"}})
+	claudeListed := seeded(t, Listing{Harness: "claude", Models: []Model{
+		{Name: "opus", Efforts: claudeEfforts, Source: SourceBuiltin},
+		{Name: "acme-opus", Efforts: claudeEfforts, Source: SourceCustom, Unverified: true},
+		{Name: "claude-opus-4-6", Efforts: []string{"low", "medium", "high", "max"}, Source: SourceBuiltin},
+	}, Gone: []string{"old-gw"}})
 	const (
 		ok     = ""
 		warn   = "warn"
@@ -166,10 +155,18 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"no harness", Spec{}, Env{}, refuse, "harness"},
 
 		{"codex listed", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: cached}, ok, ""},
-		{"codex unlisted", Spec{"codex", "acme-coder-1", "low"}, Env{CodexHome: cached}, warn, "codex model acme-coder-1 is not in the model cache"},
+		{"codex unlisted", Spec{"codex", "acme-coder-1", "low"}, Env{CodexHome: cached}, warn, "codex model acme-coder-1 is not in codex's model list"},
 		{"codex effort not listed", Spec{"codex", "gpt-5.5", "low"}, Env{CodexHome: cached}, warn, "codex model gpt-5.5 lists efforts high, not low"},
-		{"codex without a cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}, warn, "run codex once"},
-		{"codex with a broken cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: broken}, warn, "no usable models_cache.json"},
+		{"codex without a cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: t.TempDir()}, warn, "no model list yet; run `hand models --refresh codex`"},
+		{"codex with a broken cache", Spec{"codex", "gpt-6-luna", "low"}, Env{CodexHome: broken}, warn, "no model list yet"},
+		{"codex detected", Spec{"codex", "gpt-6-luna", "medium"}, codexListed, ok, ""},
+		{"codex detected effort", Spec{"codex", "gpt-6-luna", "max"}, codexListed, warn, "lists efforts low, medium, not max"},
+		{"codex hidden model", Spec{"codex", "codex-auto-review", "low"}, codexListed, ok, ""},
+		{"codex vanished", Spec{"codex", "gpt-5.4", "low"}, codexListed, warn, "model gpt-5.4 is no longer listed by codex"},
+		{"claude detected custom", Spec{"claude", "acme-opus", "max"}, claudeListed, ok, ""},
+		{"claude detected effort", Spec{"claude", "claude-opus-4-6", "xhigh"}, claudeListed, warn, "effort xhigh is not one of low, medium, high, max"},
+		{"claude vanished", Spec{"claude", "old-gw", "low"}, claudeListed, warn, "model old-gw is no longer listed by claude"},
+		{"claude absent from the list", Spec{"claude", "acme-sonnet", "low"}, claudeListed, warn, "claude model acme-sonnet is not an alias"},
 		{"codex empty model", Spec{"codex", "", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
 		{"codex empty effort", Spec{"codex", "gpt-6-luna", ""}, Env{CodexHome: cached}, refuse, "codex effort"},
 		{"codex model with a space", Spec{"codex", "gpt 6", "low"}, Env{CodexHome: cached}, refuse, "codex model"},
@@ -177,13 +174,14 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"codex effort with an equals sign", Spec{"codex", "gpt-6-luna", "low=1"}, Env{CodexHome: cached}, refuse, "codex effort"},
 		{"codex custom effort", Spec{"codex", "gpt-6-luna", "ultra"}, Env{CodexHome: cached}, warn, "lists efforts low, medium, not ultra"},
 
-		{"agy listed", Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: listed}, ok, ""},
-		{"agy unlisted", Spec{"agy", "gemini-9", ""}, Env{Path: listed}, warn, "agy model gemini-9 is not in `agy models`"},
-		{"agy listing fails", Spec{"agy", "gemini-9", ""}, Env{Path: failing}, warn, "check that agy is logged in"},
-		{"agy not installed", Spec{"agy", "gemini-9", ""}, Env{Path: t.TempDir()}, warn, "agy model gemini-9 could not be checked"},
-		{"agy effort", Spec{"agy", "gemini-3.8-flash-low", "high"}, Env{Path: listed}, refuse, "agy names the effort in its model id"},
-		{"agy empty model", Spec{"agy", "", ""}, Env{Path: listed}, refuse, "agy model"},
-		{"agy model with a space", Spec{"agy", "gemini 3", ""}, Env{Path: listed}, refuse, "agy model"},
+		{"agy listed", Spec{"agy", "gemini-3.1-pro-high", ""}, agyListed, ok, ""},
+		{"agy unlisted", Spec{"agy", "gemini-9", ""}, agyListed, warn, "agy model gemini-9 is not in `agy models`"},
+		{"agy vanished", Spec{"agy", "gemini-2", ""}, agyListed, warn, "model gemini-2 is no longer listed by agy"},
+		{"agy listing failed", Spec{"agy", "gemini-9", ""}, agyFailed, warn, "agy is not signed in"},
+		{"agy no list yet", Spec{"agy", "gemini-9", ""}, agyNone, warn, "agy model gemini-9 could not be checked: no model list yet"},
+		{"agy effort", Spec{"agy", "gemini-3.8-flash-low", "high"}, agyListed, refuse, "agy names the effort in its model id"},
+		{"agy empty model", Spec{"agy", "", ""}, agyListed, refuse, "agy model"},
+		{"agy model with a space", Spec{"agy", "gemini 3", ""}, agyListed, refuse, "agy model"},
 
 		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
 		{"opencode model", Spec{"opencode", "opencode/big-pickle", ""}, Env{}, refuse, "its own configuration"},
@@ -254,128 +252,9 @@ func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
 	}
 }
 
-func TestModelsPerHarness(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "models_cache.json"), []byte(cache), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	claude, err := Models("claude", Env{CodexHome: home})
-	if err != nil || len(claude) != 4 || claude[0].Name != "opus" || !slices.Equal(claude[3].Efforts, claudeEfforts) {
-		t.Fatalf("claude = %+v, %v", claude, err)
-	}
-	codex, err := Models("codex", Env{CodexHome: home})
-	if err != nil || len(codex) != 2 || codex[0].Name != "gpt-6-luna" || !slices.Equal(codex[0].Efforts, []string{"low", "medium"}) || !slices.Equal(codex[1].Efforts, []string{"high"}) {
-		t.Fatalf("codex = %+v, %v", codex, err)
-	}
-	if none, err := Models("opencode", Env{CodexHome: home}); err != nil || none != nil {
-		t.Fatalf("opencode = %+v, %v", none, err)
-	}
-	if _, err := Models("codex", Env{CodexHome: t.TempDir()}); !errors.Is(err, state.ErrInvalid) {
-		t.Fatalf("codex without a cache = %v", err)
-	}
-}
-
-const agyList = "Fetching available models...\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\n"
-
-func fakeAgy(t *testing.T, models string, fail bool) (dir, count string) {
-	t.Helper()
-	dir = t.TempDir()
-	count = filepath.Join(dir, "count")
-	code := "0"
-	if fail {
-		code = "1"
-	}
-	fakebin.Install(t, dir, "agy", "agy", map[string]string{"count": count, "models": models, "exit": code})
-	return dir, count
-}
-
 func TestAgyArgvIsExact(t *testing.T) {
 	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
-	}
-}
-
-func TestAgyModelsAreListed(t *testing.T) {
-	path, _ := fakeAgy(t, agyList, false)
-	got, err := Models("agy", Env{Path: path})
-	if err != nil || len(got) != 2 || got[0].Name != "gemini-3.8-flash-low" || got[1].Name != "gemini-3.1-pro-high" || got[0].Efforts != nil {
-		t.Fatalf("agy models = %+v, %v", got, err)
-	}
-}
-
-func TestAgyModelsFailureIsListedOnceWithItsReason(t *testing.T) {
-	dir := t.TempDir()
-	count := filepath.Join(dir, "count")
-	fakebin.Install(t, dir, "agy", "agy", map[string]string{"count": count, "stderr": "not signed in\n", "exit": "1"})
-	for range 2 {
-		if _, err := Models("agy", Env{Path: dir}); err == nil || !strings.Contains(err.Error(), "not signed in") || !strings.Contains(err.Error(), "check that agy is logged in") {
-			t.Fatalf("err = %v", err)
-		}
-	}
-	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 1 {
-		t.Fatalf("agy models ran %q times, %v", b, err)
-	}
-}
-
-func TestAgyModelsDoNotWaitForAChildHoldingStdout(t *testing.T) {
-	dir := t.TempDir()
-	fakebin.Install(t, dir, "agy", "agy", map[string]string{"models": agyList, "hold": "1", "holders": holders(t)})
-	start := time.Now()
-	m, err := Models("agy", Env{Path: dir})
-	if took := time.Since(start); err != nil || len(m) != 2 || took > 3*time.Second {
-		t.Fatalf("agy models = %v, %v after %v", m, err, took)
-	}
-}
-
-func TestAgyModelsAreListedOnce(t *testing.T) {
-	path, count := fakeAgy(t, agyList, false)
-	for range 2 {
-		if _, err := Models("agy", Env{Path: path}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 1 {
-		t.Fatalf("agy models ran %q times, %v", b, err)
-	}
-}
-
-func TestAgyModelsFailureIsRetriedAfterAWhile(t *testing.T) {
-	path, count := fakeAgy(t, agyList, true)
-	if _, err := Models("agy", Env{Path: path}); err == nil {
-		t.Fatal("a failing listing succeeded")
-	}
-	fakebin.Install(t, path, "agy", "agy", map[string]string{"count": count, "models": agyList, "exit": "0"})
-	if _, err := Models("agy", Env{Path: path}); err == nil {
-		t.Fatal("a cached failure was not kept within agyRetry")
-	}
-	defer func(d time.Duration) { agyRetry = d }(agyRetry)
-	agyRetry = 0
-	if m, err := Models("agy", Env{Path: path}); err != nil || len(m) != 2 {
-		t.Fatalf("after agyRetry = %v, %v", m, err)
-	}
-	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "x") != 2 {
-		t.Fatalf("agy models ran %q times, %v", b, err)
-	}
-}
-
-func TestAgyModelsTimeoutSaysTimedOut(t *testing.T) {
-	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
-	agyTimeout = 200 * time.Millisecond
-	dir := t.TempDir()
-	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "5s"})
-	_, err := Models("agy", Env{Path: dir})
-	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "agy models timed out after 200ms") || strings.Contains(err.Error(), "logged in") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestAgyModelsSlowListingWithinTimeoutSucceeds(t *testing.T) {
-	defer func(d time.Duration) { agyTimeout = d }(agyTimeout)
-	agyTimeout = 3 * time.Second
-	dir := t.TempDir()
-	fakebin.Install(t, dir, "agy", "agy", map[string]string{"sleep": "1s", "models": agyList})
-	if warn, err := Check(Spec{"agy", "gemini-3.1-pro-high", ""}, Env{Path: dir}); err != nil || warn != "" {
-		t.Fatalf("slow listing = %q, %v", warn, err)
 	}
 }
