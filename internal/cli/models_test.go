@@ -212,11 +212,32 @@ func loggedRuns(t *testing.T, log string) int {
 
 func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
 	fx := newAttemptFixture(t)
+	for _, name := range []string{"claude", "codex", "opencode"} {
+		if err := os.Remove(exe(fx.h.vars["PATH"], name)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	log := filepath.Join(t.TempDir(), "log")
 	fakebin.Install(t, fx.h.vars["PATH"], "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tG\n", "log": log, "version": "agy 1"})
+	listed := func(n int) {
+		t.Helper()
+		for deadline := time.Now().Add(30 * time.Second); loggedRuns(t, log) != n; time.Sleep(20 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("agy was listed %d times, want %d", loggedRuns(t, log), n)
+			}
+		}
+	}
 	stop := startWatch(t, fx, "--every", "50ms")
-	eventually(t, func() bool { return loggedRuns(t, log) == 1 })
+	listed(1)
+	written := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "models", "agy.json")
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(written); err == nil {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatal("the first listing never wrote the cache")
+		}
+	}
 	fx.h.advance(7 * time.Hour)
-	eventually(t, func() bool { return loggedRuns(t, log) == 2 })
+	listed(2)
 	stop()
 }
