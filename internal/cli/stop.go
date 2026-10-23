@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -18,12 +19,13 @@ const (
 )
 
 func stopPIDFile(name, path string) (string, bool, error) {
+	recorded, _ := os.ReadFile(path)
 	pid, marker, exe, live := update.LivePID(path)
 	switch {
 	case pid == 0:
 		return notRunning, false, nil
 	case !live:
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := removeIfSame(path, recorded); err != nil {
 			return "", false, err
 		}
 		return notRunning, true, nil
@@ -41,10 +43,20 @@ func stopPIDFile(name, path string) (string, bool, error) {
 	if err := stopOne(pid, marker); err != nil {
 		return "", false, err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := removeIfSame(path, recorded); err != nil {
 		return "", false, err
 	}
 	return stoppedNow, false, nil
+}
+
+func removeIfSame(path string, recorded []byte) error {
+	if now, err := os.ReadFile(path); err != nil || !bytes.Equal(now, recorded) {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (r *runner) stopReport(name, path string, help ...string) error {

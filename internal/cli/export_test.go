@@ -17,4 +17,5 @@ var (
 	UnitOS        = &unitOS
 	BoardHint     = boardHint
 	PhoneProbe    = &phoneProbe
+	RemoveIfSame  = removeIfSame
 )

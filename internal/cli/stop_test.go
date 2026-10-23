@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/update"
 )
@@ -93,5 +94,29 @@ func TestStopTakesNoArguments(t *testing.T) {
 		if _, errOut, code := h.run(c, "stop", "now"); code != 2 || !strings.Contains(errOut, c+" stop: want 0 argument(s)") {
 			t.Fatalf("%s stop now = %d %q", c, code, errOut)
 		}
+	}
+}
+
+func TestStopRemovesOnlyTheRecordItStopped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "board.pid")
+	old, fresh := []byte("1 old /bin/hand\n"), []byte("2 new /bin/hand\n")
+	for _, c := range []struct {
+		name string
+		disk []byte
+		kept bool
+	}{{"same record", old, false}, {"replacement", fresh, true}, {"already gone", nil, false}} {
+		if c.disk != nil {
+			if err := os.WriteFile(path, c.disk, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := cli.RemoveIfSame(path, old); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		_, err := os.Stat(path)
+		if kept := err == nil; kept != c.kept {
+			t.Fatalf("%s: kept = %v, want %v", c.name, kept, c.kept)
+		}
+		_ = os.Remove(path)
 	}
 }
