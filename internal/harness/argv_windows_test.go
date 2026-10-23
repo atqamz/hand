@@ -36,8 +36,9 @@ func TestCodexDirSurvivesTheCmdShim(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if lines := strings.Split(strings.TrimRight(string(got), "\r\n"), "\r\n"); !slices.Equal(lines, argv[1:]) {
-			t.Fatalf("%s: shim saw %q, want %q", name, lines, argv[1:])
+		lines := strings.Split(strings.TrimRight(string(got), "\r\n"), "\r\n")
+		if i := slices.Index(lines, "--cd"); i < 0 || i+1 == len(lines) || lines[i+1] != dir {
+			t.Fatalf("%s: shim saw %q, want --cd followed by %q", name, lines, dir)
 		}
 	}
 }

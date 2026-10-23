@@ -31,7 +31,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W1 | The supervisor starts under the pseudo console, and Hand accepts the trust screen | Start claude, and accept its trust screen; Luvus server, panes and events | agent | 1 |
 | W2 | **Start** on the board runs the supervisor | Luvus server, panes and events | needs human | 1 |
 | W3 | A worker reports, from PowerShell and Git Bash, and the supervisor wakes | A worker reports through the footer | agent | 1 |
-| W4 | codex through its npm shim, agy and opencode start | Start codex or agy; Start opencode | agent, per harness | 1 each |
+| W4 | codex through its npm shim, agy and opencode start | Start codex or agy; Start opencode | agent, per harness | 1 each, 2 for codex |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
 | W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
@@ -300,7 +300,7 @@ If it fails: file the output above. File the Git Bash half as its own issue (`W3
 
 - **Proves:** the Start codex or agy row, and the Start opencode row. The codex check includes the `.cmd` shim that `npm` makes for it.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
-- **Real sessions:** 1 for each harness that runs.
+- **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 5).
 - **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run codex once yourself before you use it, so that its model cache exists. For agy, `agy models` must list models. opencode uses the model from its own configuration. `Get-Command codex` should name a `codex.cmd`: say what it names in the evidence.
 
 Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`):
@@ -345,9 +345,21 @@ hand report list
 
 **4.** Stop and clean the worker: `. "$D\env.ps1"; Set-Location "$D\fleet"; hand attempt stop $a; hand attempt clean $a`.
 
-Expected: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for. For codex, the `launch:` line also shows `--cd` with the worktree path, and `hand attempt read $a` shows Codex's working directory as that worktree, never `C:\Windows`: a pane that starts in another folder is a failure. For a codex supervisor, `hand supervisor show` shows Codex's working directory as the fleet home in the same way, and its first `hand orient` succeeds.
+**5.** For codex only, start its supervisor, read the screen, and stop it:
 
-Evidence: `& { hand attempt show $a; hand report list; Get-Command $h | Select-Object Name, Source } 2>&1 | Ev W4`.
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+hand supervisor start --harness codex --model $model --effort $effort
+Start-Sleep 60
+hand supervisor show
+hand supervisor stop
+```
+
+Expected: the screen shows the fleet home as Codex's working directory, and its first `hand orient` succeeded, with no `not inside a fleet home`.
+
+Expected for the worker: the attempt is `running` right after the start, and its `launch:` line shows the harness's own flags (see [`docs/supervisor.md`](../supervisor.md)); the worker is not left `blocked` on a trust or permission screen that Hand should have handled; a report with status `done` arrives. If the harness asks something Hand does not answer, the attempt shows `blocked_on`: that is a failure. For codex, a quoting error from `cmd.exe` in the `launch:` line or on the screen is the failure to look for. For codex, the `launch:` line also shows `--cd` with the worktree path, and `hand attempt read $a` shows Codex's working directory as that worktree, never `C:\Windows`: a pane that starts in another folder is a failure. Step 5 checks the same for a codex supervisor.
+
+Evidence: `& { hand attempt show $a; hand report list; Get-Command $h | Select-Object Name, Source } 2>&1 | Ev W4`; for codex, also the output of step 5's `hand supervisor show`.
 
 If it fails: file one issue per harness, titled `W4: <harness> ...`, with `hand attempt show $a` and `hand attempt read $a`.
 

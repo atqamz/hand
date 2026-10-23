@@ -437,8 +437,8 @@ func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
 	if call.CWD != wt || !slices.Equal(call.Command[1:len(call.Command)-1], want) {
 		t.Fatalf("create = %+v", call)
 	}
-	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, wt) {
-		t.Fatalf("show = %q, want the stored launch line to name %s", show, wt)
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "launch: "+toon.Value(strings.Join(call.Command[:len(call.Command)-1], " "))) {
+		t.Fatalf("show = %q, want the stored launch line to carry %q", show, call.Command)
 	}
 }
 
