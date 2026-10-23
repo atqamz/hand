@@ -222,7 +222,7 @@ func TestAFleetsLegacyRecordsStayThisFleetOnly(t *testing.T) {
 			t.Fatalf("fleet %s holds %v", f.name, got)
 		}
 	}
-	for what, label := range map[string]string{"an empty label": "", "no label": "x", "a short one": "abc", "an upper-case one": strings.ToUpper(label)} {
+	for what, label := range map[string]string{"an empty label": "", "no label": "x", "a short one": "abc", "an upper-case one": "ABCDEF0123456789"} {
 		rec := p.everywhere(a, label, p.laptops(a, b)...)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("revoke everywhere with %s = %d", what, rec.Code)
@@ -230,6 +230,9 @@ func TestAFleetsLegacyRecordsStayThisFleetOnly(t *testing.T) {
 		if rec := p.revokeAt(a, b, label, p.laptops(a, b)...); rec.Code != http.StatusBadRequest {
 			t.Fatalf("revoke in one fleet with %s = %d", what, rec.Code)
 		}
+	}
+	if rec := p.everywhere(a, "abcdef0123456789", p.laptops(a, b)...); rec.Code != http.StatusSeeOther {
+		t.Fatalf("revoke everywhere with the lower-case form = %d", rec.Code)
 	}
 	for _, f := range p.fleets {
 		if got := holds(p, f); !slices.Equal(got, []string{"Old " + f.name}) || len(p.revoked(f)) != 1 {
