@@ -19,7 +19,7 @@ One prompt still appears. Claude Code asks before a recognized `rm` or `rmdir` o
 
 What you see in Hand for that prompt:
 
-- Luvus reads the pane as blocked and the watcher records `attempt.blocked`. The supervisor is woken first. Its skill tells it to answer a permission screen the task needs with `hand attempt keys` and to send anything else to you.
+- Luvus reads the pane as blocked and the watcher records `attempt.blocked`. The supervisor consumes that persisted wake when it is ready and may finish its current turn first. Its skill tells it to answer a permission screen the task needs with `hand attempt keys` and to send anything else to you.
 - The Board shows a worker's blocked screen under Needs only when no supervisor runs, or after 10 minutes. It shows the countdown as a badge, then `denying…` at zero. The countdown is Claude Code's. The Board denies nothing.
 - A paired phone has the same buttons.
 
