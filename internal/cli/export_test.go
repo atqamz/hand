@@ -18,4 +18,5 @@ var (
 	BoardHint     = boardHint
 	PhoneProbe    = &phoneProbe
 	RemoveIfSame  = removeIfSame
+	AcceptTrust   = acceptTrust
 )

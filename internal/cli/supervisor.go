@@ -802,9 +802,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
 		}
 	}
-	if screen, ok := trustScreens[sup.Harness]; ok {
-		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil && strings.Contains(s.Text, screen.question) {
-			return sup.Harness + " is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
+	if screens, ok := trustScreens[sup.Harness]; ok {
+		if s, err := c.Read(ctx, sup.PaneID, 60); err == nil {
+			if _, asked := askedScreen(screens, s.Text); asked {
+				return sup.Harness + " is asking to trust a folder; answer it in the pane: `" + r.env.command() + " attach supervisor`", nil
+			}
 		}
 	}
 	ag, err := c.Explain(ctx, sup.PaneID)

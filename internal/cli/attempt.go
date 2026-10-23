@@ -139,7 +139,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
 		fields, more, err := afterLaunch(r.ctx(), c, launched{
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
-			marker: reportMarker, thing: "briefing", who: "agent",
+			marker: reportMarker, thing: "briefing", who: "agent", repos: repoRoots(project.Repo),
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
 		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
 		if err != nil {
@@ -182,6 +182,7 @@ var trustWait, trustConfirm, submitConfirm = 15 * time.Second, 5 * time.Second, 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
 	thing, who, look, keys, screen              string
+	repos                                       []string
 }
 
 func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind, detail string) error) (fields [][2]string, help []string, err error) {
@@ -210,13 +211,19 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 		}
 	}
 	if _, ok := trustScreens[l.harness]; ok {
-		trust, blocked, pressed := acceptTrust(ctx, c, l.harness, l.pane, l.terminalID, l.worktree)
+		trust, blocked, pressed, saved := acceptTrust(ctx, c, l.harness, l.pane, l.terminalID, l.worktree, l.repos)
 		if len(pressed) > 0 {
 			if err := note("keys", strings.Join(pressed, " ")); err != nil {
 				return nil, nil, err
 			}
 		}
 		fields = append(fields, [2]string{"trust", trust})
+		if saved != "" {
+			if err := note("trusted", saved); err != nil {
+				return nil, nil, err
+			}
+			fields = append(fields, [2]string{"trusted", saved})
+		}
 		if blocked != "" {
 			if err := note("blocked", blocked); err != nil {
 				return nil, nil, err
@@ -225,6 +232,13 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 		}
 	}
 	return fields, help, nil
+}
+
+func repoRoots(repo string) []string {
+	if real, err := filepath.EvalSymlinks(repo); err == nil && real != repo {
+		return []string{repo, real}
+	}
+	return []string{repo}
 }
 
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
@@ -263,60 +277,149 @@ type trustScreen struct {
 	question  string
 	yesCursor string
 	noCursor  string
+	toYes     string
+	folder    string
+	repoNote  string
+	wraps     bool
 }
 
-var trustScreens = map[string]trustScreen{
-	"agy": {
+var trustScreens = map[string][]trustScreen{
+	"agy": {{
 		question:  "Do you trust the contents of this project?",
 		yesCursor: "> Yes, I trust this folder",
-	},
-	"claude": {
+		folder:    "Accessing workspace:",
+	}},
+	"claude": {{
 		question:  "Quick safety check: Is this a project you created or one you trust?",
 		yesCursor: "❯ Yes, I trust this folder",
 		noCursor:  "❯ No, exit",
-	},
+		toYes:     "down",
+		folder:    "Accessing workspace:",
+	}},
+	"codex": {{
+		question:  "Trust this folder?",
+		yesCursor: "› 1. Trust and continue",
+		noCursor:  "› 2. Quit",
+		toYes:     "up",
+		folder:    "Folder access",
+		repoNote:  "Note:",
+		wraps:     true,
+	}, {
+		question:  "Do you trust the contents of this directory?",
+		yesCursor: "› 1. Yes, continue",
+		noCursor:  "› 2. No, quit",
+		toYes:     "up",
+		folder:    "> You are in",
+		repoNote:  "Note:",
+		wraps:     true,
+	}},
 }
 
-func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID, worktree string) (trust, note string, pressed []string) {
-	screen, ok := trustScreens[harness]
+func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
+	for _, s := range screens {
+		if strings.Contains(text, s.question) {
+			return s, true
+		}
+	}
+	return trustScreen{}, false
+}
+
+func (s trustScreen) names(text string) (folder, repo string, noted bool) {
+	text = unwrap(text)
+	i := strings.Index(text, s.folder)
+	if i < 0 {
+		return "", "", false
+	}
+	text = text[i+len(s.folder):]
+	q := strings.Index(text, s.question)
+	if q < 0 {
+		return "", "", false
+	}
+	text = text[:q]
+	if s.repoNote != "" {
+		if n := strings.Index(text, s.repoNote); n >= 0 {
+			note := text[n:]
+			text, noted = text[:n], true
+			if r := strings.Index(note, "root:"); r >= 0 {
+				repo = strings.TrimSpace(note[r+len("root:"):])
+			}
+		}
+	}
+	return strings.TrimSpace(text), repo, noted
+}
+
+func (s trustScreen) same(shown, want string) bool {
+	if s.wraps {
+		shown, want = strings.Join(strings.Fields(shown), ""), strings.Join(strings.Fields(want), "")
+	}
+	return samePath(shown, want)
+}
+
+func (s trustScreen) alsoProject() string {
+	if s.repoNote == "" {
+		return ""
+	}
+	return " or project"
+}
+
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	a, b = windowsPath(a), windowsPath(b)
+	return a != "" && strings.EqualFold(a, b)
+}
+
+func windowsPath(p string) string {
+	p = strings.TrimPrefix(p, `\\?\`)
+	if len(p) < 3 || p[1] != ':' || (p[2] != '\\' && p[2] != '/') || !(p[0] >= 'a' && p[0] <= 'z' || p[0] >= 'A' && p[0] <= 'Z') {
+		return ""
+	}
+	return strings.TrimRight(strings.ReplaceAll(p, "/", `\`), `\`)
+}
+
+func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID, worktree string, repos []string) (trust, note string, pressed []string, saved string) {
+	screens, ok := trustScreens[harness]
 	if !ok {
-		return "not asked", "", nil
+		return "not asked", "", nil, ""
 	}
 	wait, cancel := context.WithTimeout(ctx, trustWait)
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	own := "Accessing workspace:" + worktree + screen.question
 	seen := false
 	for retried := false; ; {
 		s, err := c.Read(wait, pane, 60)
-		asked := err == nil && strings.Contains(s.Text, screen.question)
+		screen, asked := askedScreen(screens, s.Text)
+		asked = err == nil && asked
 		seen = seen || asked
 		onYes := asked && strings.Contains(s.Text, screen.yesCursor)
 		onNo := asked && !onYes && screen.noCursor != "" && strings.Contains(s.Text, screen.noCursor)
 		switch {
 		case luvus.Code(err) != "":
 			return missed(harness, seen, pressed)
-		case onYes || (onNo && !slices.Contains(pressed, "down")):
-			if !strings.Contains(unwrap(s.Text), own) {
-				return "not pressed", harness + " asks to trust a folder that is not its worktree; check the screen", pressed
+		case onYes || (onNo && !slices.Contains(pressed, screen.toYes)):
+			folder, shown, noted := screen.names(s.Text)
+			matched := slices.IndexFunc(repos, func(r string) bool { return screen.same(shown, r) })
+			if !screen.same(folder, worktree) || (noted && matched < 0) {
+				return "not pressed", harness + " asks to trust a folder that is not its worktree" + screen.alsoProject() + "; check the screen", pressed, ""
 			}
 			key := "enter"
 			if onNo {
-				key = "down"
+				key = screen.toYes
 			}
 			err := c.Keys(wait, pane, []string{key}, s.ContentRevision, terminalID)
 			switch {
-			case err == nil && key == "down":
+			case err == nil && key != "enter":
 				pressed = append(pressed, key)
 				retried = false
 				continue
 			case err == nil && trustCleared(ctx, c, pane, screen.question, tick.C):
-				return "accepted", "", append(pressed, key)
+				return "accepted", "", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched)
 			case err == nil:
-				return "accepted", harness + " trust screen did not clear; check the screen", append(pressed, key)
+				return "accepted", harness + " trust screen did not clear; check the screen", append(pressed, key), savedTrust(harness, screen, worktree, repos, matched)
 			case luvus.Code(err) != "content_revision_conflict" || retried:
-				return "not pressed", trustUnpressed(harness), pressed
+				return "not pressed", trustUnpressed(harness), pressed, ""
 			}
 			retried = true
 			continue
@@ -334,11 +437,22 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	}
 }
 
-func missed(harness string, seen bool, pressed []string) (trust, note string, keys []string) {
-	if seen {
-		return "not pressed", trustUnpressed(harness), pressed
+func savedTrust(harness string, s trustScreen, worktree string, repos []string, matched int) string {
+	if s.repoNote == "" {
+		return ""
 	}
-	return "not asked", "", pressed
+	root := worktree
+	if matched >= 0 {
+		root = repos[matched]
+	}
+	return harness + ` accepted "` + s.question + `" for folder ` + worktree + `; it saves the trust for ` + root + ` in its config.toml`
+}
+
+func missed(harness string, seen bool, pressed []string) (trust, note string, keys []string, saved string) {
+	if seen {
+		return "not pressed", trustUnpressed(harness), pressed, ""
+	}
+	return "not asked", "", pressed, ""
 }
 
 func trustUnpressed(harness string) string {

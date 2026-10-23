@@ -54,6 +54,7 @@ type fakeRuntime struct {
 	readFail     string
 	readFailed   int
 	keysFail     string
+	keysFailOnce string
 	afterKeys    string
 	explainFail  string
 	onPrompt     func()
@@ -303,6 +304,11 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	defer rt.mu.Unlock()
 	if rt.keysFail != "" {
 		return nil, fakeuhp.Fail{Code: rt.keysFail, Message: "keys failed"}
+	}
+	if rt.keysFailOnce != "" {
+		code := rt.keysFailOnce
+		rt.keysFailOnce = ""
+		return nil, fakeuhp.Fail{Code: code, Message: "keys failed"}
 	}
 	if rt.needScan {
 		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "target pane is not a running agent"}
