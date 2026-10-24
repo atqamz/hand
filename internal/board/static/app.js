@@ -1274,7 +1274,10 @@
 		let seq = 0;
 		let polling = 0;
 		let pulling = false;
-		const depth = () => (history.state?.viewer ? history.state.depth : 0);
+		const session = Math.random().toString(36).slice(2);
+		const mine = (s) => !!s?.viewer && s.token === session;
+		const depth = () => (mine(history.state) ? history.state.depth : 0);
+		const entry = (href, level) => ({ viewer: href, depth: level, token: session });
 		const viewable = (href) => {
 			const u = new URL(href, location.href);
 			if (u.origin !== location.origin || !u.pathname.startsWith(`${base}/`)) return null;
@@ -1321,8 +1324,10 @@
 			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
 			if (n !== seq || !main || main.innerHTML === served.get("viewer") || typing(pane)) return;
 			const top = pane.scrollTop;
+			const had = pane.contains(document.activeElement);
 			apply("viewer", main.innerHTML, pane);
 			freeze();
+			if (had && !pane.contains(document.activeElement)) pane.focus({ preventScroll: true });
 			pane.scrollTop = top;
 		};
 		const unwatch = () => {
@@ -1340,8 +1345,8 @@
 			unview = () => {};
 			const here = dlg.open ? depth() : 0;
 			const level = how === "none" ? depth() || 1 : how === "push" && here < stackMax ? here + 1 : Math.max(here, 1);
-			if (how === "push" && level > here) history.pushState({ viewer: u.href, depth: level }, "", u.href);
-			else if (how !== "none") history.replaceState({ viewer: u.href, depth: level }, "", u.href);
+			if (how === "push" && level > here) history.pushState(entry(u.href, level), "", u.href);
+			else if (how !== "none") history.replaceState(entry(u.href, level), "", u.href);
 			back.disabled = level < 2;
 			at = u;
 			state.textContent = u.pathname.split("/").pop();
@@ -1365,7 +1370,7 @@
 				to.hash = u.hash || (/^\/ref\/r\d+$/.test(u.pathname.slice(base.length)) ? `#${u.pathname.split("/").pop()}` : "");
 				at = to;
 				tab.href = to.href;
-				history.replaceState({ viewer: to.href, depth: level }, "", to.href);
+				history.replaceState(entry(to.href, level), "", to.href);
 			}
 			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
 			const shown = main?.innerHTML;
@@ -1410,7 +1415,7 @@
 			opener = null;
 		});
 		addEventListener("popstate", (e) => {
-			if (e.state?.viewer) load(new URL(e.state.viewer), "none");
+			if (mine(e.state)) load(new URL(e.state.viewer), "none");
 			else if (dlg.open) {
 				ours = false;
 				close();
