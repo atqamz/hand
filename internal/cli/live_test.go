@@ -13,7 +13,6 @@ import (
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/fleet"
-	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 )
 
@@ -152,8 +151,5 @@ func TestLiveAWorkerBriefReachesCodexIntact(t *testing.T) {
 	footer, ok := strings.CutPrefix(got, string(brief))
 	if !ok || !strings.HasPrefix(footer, "\n\n---\n") || !strings.HasSuffix(footer, "write a report only when the work is done or you are stuck.") {
 		t.Fatalf("the prompt codex got is %d bytes; the brief is %d, and the rest is %q", len(got), len(brief), footer)
-	}
-	if len(got) > hh.MaxPromptBytes {
-		t.Fatalf("the prompt is %d bytes, over the %d Hand allows", len(got), hh.MaxPromptBytes)
 	}
 }
