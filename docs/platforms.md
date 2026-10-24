@@ -4,21 +4,22 @@ Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tes
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](../SECURITY.md) says.
 
-CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. The Linux arm64 and Intel macOS builds are released but not run in CI.
+CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. A separate workflow, [`e2e-install.yaml`](dogfood/README.md#what-ci-covers-end-to-end), installs a build of the commit with the real installer on each of the three runners and uses it as a user does, with no harness installed. It gates every release. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
 In the table:
 - **daily**: a real Linux machine runs it every day, with the real Luvus and harnesses;
 - **real**: it has run on a real Linux machine, but not every day;
 - **CI**: CI runs it on that OS, with the real system calls;
 - **CI, fake**: CI runs it on that OS, but a fake stands in for the harness, Luvus, the release server, the browser, the notifier or the watcher and board processes;
+- **CI e2e**: the end-to-end workflow runs it on that OS through the installed binary of a release build, as a user would: the real installer, the real Luvus, the Board over HTTP and in Chromium, and the previous release's own `hand update`; only the harness is missing or a stand-in;
 - **real Mac (#895)**: it ran on a real Mac (macOS 26.5.1, Apple silicon) in the first dogfood run, the issue linked. *Stand-in claude*: a script stood in for `claude`, so the run covers Hand's own processes and panes but not the real worker path;
 - **not run**: the code exists but has never run on that OS;
 - **no**: not supported.
 
 | What | Linux | macOS | Windows |
 |---|---|---|---|
-| Install script | CI, fake | real Mac (#895) | CI, fake, in PowerShell 5.1 and 7 |
-| `hand init` and the Luvus pin | daily | real Mac (#895) | CI, real Luvus |
+| Install script | CI e2e | real Mac (#895), CI e2e | CI e2e, in PowerShell 5.1 and 7 |
+| `hand init` and the Luvus pin | daily, CI e2e | real Mac (#895), CI e2e | CI e2e |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
 | Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
@@ -31,12 +32,16 @@ In the table:
 | Stop a worker | daily | real Mac (#895), stand-in claude | CI |
 | `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | real Mac (#895) | CI, fake |
-| `hand update` | daily | real Mac (#895), from v0.11.0 | CI, fake |
+| `hand update` | daily, CI e2e from v0.11.0 | real Mac (#895) and CI e2e, from v0.11.0 | CI e2e from v0.11.0, the running executable renamed to `hand.exe.old` |
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
 | Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |
+| First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `route list`, `models` | CI e2e | CI e2e | CI e2e |
+| The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke, install manifest | CI e2e | CI e2e | CI e2e |
+| The Board in Chromium at 1440 and 390 px: five regions, document dialog, project badges, no console error | CI e2e | CI e2e | CI e2e |
+| Upgrade from v0.11.0 with backups, the old binary refusing a migrated database, and the documented restore | CI e2e | CI e2e | CI e2e |
 | Desktop notifications | daily | real Mac (#895) | no |
-| `hand open` starts the board and opens the browser | CI, fake | real Mac (#895) | CI, fake |
+| `hand open` starts the board and opens the browser | CI e2e starts the board, fake browser | real Mac (#895) | CI e2e starts the board, fake browser |
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |

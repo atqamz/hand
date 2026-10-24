@@ -8,6 +8,7 @@ Personal supervisor layer for agents. Read `docs/spec.md` before changing anythi
 - Every state change goes through `internal/state` in one transaction that also appends an event.
 - Output is TOON via `internal/toon`; keep `hand orient` within its byte budget.
 - Run `gofmt -l .`, `go vet ./...` and `go test -race ./...` before committing.
+- `.github/e2e` drives a release build as a user does, in CI on all three OSes (`docs/dogfood/README.md`); a change to the rows `hand doctor` prints, what `hand update` reports or a Board route changes its assertions too.
 - Luvus is reached only through `internal/luvus`: UHP over its Unix socket (a named pipe on Windows), plus a read of `server.pid` in the session folder, and the four commands that package builds: `luvus server start`, `luvus --version` (to pin a copy), `luvus session list --json` (the Windows pipe address) and the interactive `luvus attach` (UHP has no terminal attach). Never call `luvus worktree`, `task`, `pane send`, or `server restart --all`.
 - A fleet home is any folder holding `hand.db`. `~/.secondhand` (`$SECONDHAND_HOME`) holds `fleets/<id>` links and `worktrees/<id>/`. Tests set `SECONDHAND_HOME` to a temp dir and never touch the real one.
 - `skills/` holds the Hand-owned files `hand init` writes. `bootstrap.md` becomes a fleet's `AGENTS.md`. The `secondhand` skill is installed in every fleet, and `secondhand-migrate` only beside 0.7 data. The binary's name replaces every `` `hand `` and `` `hand` `` in them, so write commands as `` `hand …` ``.
