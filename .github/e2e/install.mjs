@@ -102,7 +102,7 @@ await phase('install', async () => {
   const bad = await serve(badDir);
   try {
     for (const shell of shells) await one(shell, good, bad);
-    for (const n of ['install.sh', 'install.ps1']) check(fs.readFileSync(path.join(distDir, n), 'utf8') === fs.readFileSync(path.join(repoRoot, n), 'utf8'), `${n} served from dist is the file in the repository`);
+    for (const n of ['install.sh', 'install.ps1']) check(fs.readFileSync(path.join(distDir, n), 'utf8') === fs.readFileSync(path.join(repoRoot, n), 'utf8').replace(/\r\n/g, '\n'), `${n} served from dist is the file in the repository`);
     await candidate();
   } finally {
     await good.close();
