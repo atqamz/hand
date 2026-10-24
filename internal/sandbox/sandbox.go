@@ -18,6 +18,8 @@ const (
 
 var Modes = []string{Open, Boxed}
 
+var Prober = Probe
+
 func ValidMode(mode string) bool {
 	return mode == Open || mode == Boxed
 }
@@ -72,6 +74,7 @@ var devicePaths = []string{
 	"/dev/random",
 	"/dev/urandom",
 	"/dev/tty",
+	"/dev/ptmx",
 	"/dev/pts",
 	"/dev/shm",
 }
@@ -140,18 +143,20 @@ func Resolve(req Request) (Policy, error) {
 	for _, dir := range devicePaths {
 		add(dir, true)
 	}
-	add(cache, true)
-	add(stateDir, true)
+	for _, dir := range []string{"mise", "uv", "go-build", "pip", "node-gyp"} {
+		add(filepath.Join(cache, dir), true)
+	}
+	add(filepath.Join(stateDir, "mise"), true)
+	add(filepath.Join(stateDir, "uv"), true)
 	add(filepath.Join(data, "mise"), false)
-	add(filepath.Join(data, "mise", "installs"), true)
 	add(filepath.Join(data, "mise", "downloads"), true)
 	add(filepath.Join(data, "uv"), false)
 	add(filepath.Join(data, "pnpm"), true)
-	add(filepath.Join(data, "opencode"), true)
 	add(filepath.Join(home, ".npm"), true)
 	add(filepath.Join(home, ".bun"), false)
 	add(filepath.Join(home, ".bun", "install"), true)
 	add(filepath.Join(home, ".cargo"), false)
+	add(filepath.Join(home, ".cargo", "bin"), true)
 	add(filepath.Join(home, ".cargo", "registry"), true)
 	add(filepath.Join(home, ".cargo", "git"), true)
 	add(filepath.Join(home, ".rustup"), false)
@@ -163,7 +168,6 @@ func Resolve(req Request) (Policy, error) {
 	add(filepath.Join(home, ".local/bin"), false)
 	add(filepath.Join(config, "git"), false)
 	add(filepath.Join(home, ".gitconfig"), false)
-	add(filepath.Join(home, ".npmrc"), false)
 	harnessDirs(req.Harness, home, config, data, cache, req.Getenv, add)
 	if common, err := existing(req.GitCommon); err == nil {
 		add(common, false)
@@ -176,7 +180,13 @@ func Resolve(req Request) (Policy, error) {
 	}
 	add(req.GitPrivate, true)
 	for _, remote := range req.Remotes {
-		add(remote, true)
+		add(remote, false)
+		for _, dir := range gitWriteDirs {
+			add(filepath.Join(remote, dir), true)
+		}
+		for _, file := range gitWriteFiles {
+			add(filepath.Join(remote, file), true)
+		}
 	}
 	add(req.Bin, false)
 	policy := Policy{Mode: Boxed, Worktree: wt, Temp: temp}

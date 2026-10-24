@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -36,6 +37,21 @@ func TestBoxedDeniesWhatLiesOutsideThePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	abstract := fmt.Sprintf("@hand-sandbox-%d", os.Getpid())
+	aln, err := net.Listen("unix", abstract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer aln.Close()
+	go func() {
+		for {
+			c, err := aln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -53,6 +69,7 @@ func TestBoxedDeniesWhatLiesOutsideThePolicy(t *testing.T) {
 		"SANDBOX_DECOY="+decoy,
 		"SANDBOX_OUTSIDE="+outside,
 		"SANDBOX_SOCK="+sock,
+		"SANDBOX_ABSTRACT="+abstract,
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -63,6 +80,8 @@ func TestBoxedDeniesWhatLiesOutsideThePolicy(t *testing.T) {
 		"read_decoy=false",
 		"write_outside=false",
 		"connect_socket=false",
+		"connect_abstract=false",
+		"signal_outside=false",
 		"luvus_env=false",
 		"tmpdir_private=true",
 	} {
@@ -101,6 +120,12 @@ func TestSandboxHelper(t *testing.T) {
 		conn.Close()
 	}
 	fmt.Printf("connect_socket=%v\n", err == nil)
+	abstractConn, err := net.Dial("unix", os.Getenv("SANDBOX_ABSTRACT"))
+	if err == nil {
+		abstractConn.Close()
+	}
+	fmt.Printf("connect_abstract=%v\n", err == nil)
+	fmt.Printf("signal_outside=%v\n", syscall.Kill(os.Getppid(), syscall.SIGCONT) == nil)
 	_, luvus := envLookup(p.Environ, "LUVUS_HOME")
 	fmt.Printf("luvus_env=%v\n", luvus)
 	fmt.Printf("tmpdir_private=%v\n", envGet(p.Environ, "TMPDIR") == p.Temp)

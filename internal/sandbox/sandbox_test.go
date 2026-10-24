@@ -104,12 +104,18 @@ func TestBoxedGrantsTheGitFolderInParts(t *testing.T) {
 	if err := os.MkdirAll(private, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	remote := filepath.Join(home, "remote.git")
+	for _, dir := range []string{"objects", "refs"} {
+		if err := os.MkdirAll(filepath.Join(remote, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, err := Resolve(Request{
 		Mode:       Boxed,
 		Worktree:   wt,
 		GitCommon:  common,
 		GitPrivate: private,
-		Remotes:    []string{home},
+		Remotes:    []string{remote},
 		Home:       home,
 		Getenv:     testEnv(home),
 		Environ:    []string{"PATH=/usr/bin"},
@@ -137,8 +143,16 @@ func TestBoxedGrantsTheGitFolderInParts(t *testing.T) {
 	if write, ok := got[private]; !ok || !write {
 		t.Fatalf("the linked worktree's git folder is not granted for writing")
 	}
-	if write, ok := got[home]; !ok || !write {
-		t.Fatalf("the local remote is not granted")
+	if write, ok := got[remote]; !ok || write {
+		t.Fatalf("the local remote is not granted read-only")
+	}
+	for _, dir := range []string{"objects", "refs"} {
+		if write, ok := got[filepath.Join(remote, dir)]; !ok || !write {
+			t.Fatalf("the remote's %s is not granted for writing", dir)
+		}
+	}
+	if write, ok := got[filepath.Join(remote, "hooks")]; ok && write {
+		t.Fatalf("the remote's hooks are granted for writing")
 	}
 }
 
@@ -177,12 +191,12 @@ func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
 		filepath.Join(home, "go", "pkg"):             true,
 		filepath.Join(home, "go", "bin"):             false,
 		filepath.Join(home, ".cargo", "registry"):    true,
-		filepath.Join(home, ".cargo", "bin"):         false,
+		filepath.Join(home, ".cargo", "bin"):         true,
 		filepath.Join(home, ".bun", "install"):       true,
 		filepath.Join(home, ".bun", "bin"):           false,
 		filepath.Join(home, ".rustup", "downloads"):  true,
 		filepath.Join(home, ".rustup", "toolchains"): false,
-		filepath.Join(data, "mise", "installs"):      true,
+		filepath.Join(data, "mise", "installs"):      false,
 		filepath.Join(data, "mise", "shims"):         false,
 		filepath.Join(home, ".local", "bin"):         false,
 	}
@@ -212,6 +226,64 @@ func TestBoxedKeepsToolchainBinariesReadOnly(t *testing.T) {
 	for dir, write := range dirs {
 		if got[dir] != write {
 			t.Fatalf("%s write = %v, want %v", dir, got[dir], write)
+		}
+	}
+}
+
+func TestBoxedNamesItsCaches(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	cache := filepath.Join(home, ".cache")
+	stateDir := filepath.Join(home, ".local", "state")
+	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(cache, "other"), filepath.Join(stateDir, "mise"), filepath.Join(stateDir, "other")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: home, Getenv: testEnv(home), Environ: []string{"PATH=/usr/bin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, rule := range p.Rules {
+		got[rule.Path] = rule.Write
+	}
+	for _, dir := range []string{filepath.Join(cache, "mise"), filepath.Join(cache, "go-build"), filepath.Join(stateDir, "mise")} {
+		if write, ok := got[dir]; !ok || !write {
+			t.Fatalf("%s is not granted for writing", dir)
+		}
+	}
+	for _, dir := range []string{cache, stateDir, filepath.Join(cache, "other"), filepath.Join(stateDir, "other")} {
+		if write, ok := got[dir]; ok && write {
+			t.Fatalf("%s is granted for writing", dir)
+		}
+	}
+}
+
+func TestBoxedGrantsOpencodeDataOnlyToOpencode(t *testing.T) {
+	home := realPath(t, t.TempDir())
+	data := filepath.Join(home, ".local", "share", "opencode")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(home, "wt")
+	if err := os.MkdirAll(wt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for harness, want := range map[string]bool{"claude": false, "opencode": true} {
+		p, err := Resolve(Request{Mode: Boxed, Worktree: wt, Home: home, Harness: harness, Getenv: testEnv(home), Environ: []string{"PATH=/usr/bin"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, rule := range p.Rules {
+			got[rule.Path] = rule.Write
+		}
+		if write, ok := got[data]; ok != want || (ok && write != want) {
+			t.Fatalf("%s: opencode data granted = %v, want %v", harness, ok, want)
 		}
 	}
 }

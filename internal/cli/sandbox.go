@@ -1,11 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/atqamz/hand/internal/fleet"
@@ -24,18 +24,25 @@ func init() {
 }
 
 func cmdSandboxExec(r *runner, args []string) error {
+	sep := slices.Index(args, "--")
+	if sep < 0 {
+		return usageError{"sandbox exec: give the command after --"}
+	}
 	fs := flags("sandbox exec")
 	printOnly := fs.Bool("print", false, "show the resolved policy and run nothing")
 	attempt := fs.String("attempt", "", "attempt id; the policy then covers its fleet and harness")
 	worktree := fs.String("worktree", "", "worktree to confine; default: the current folder")
 	harness := fs.String("harness", "", "harness whose login and config folders are granted")
-	access := fs.String("access", sandbox.Open, "open (no confinement) or boxed")
-	if err := fs.Parse(args); err != nil {
+	access := fs.String("access", "", "open (no confinement) or boxed; required")
+	if err := fs.Parse(args[:sep]); err != nil {
 		return usageError{fmt.Sprintf("sandbox exec: %v", err)}
 	}
-	argv := fs.Args()
+	argv := args[sep+1:]
 	if len(argv) == 0 {
 		return usageError{"sandbox exec: give a command after --"}
+	}
+	if *access == "" {
+		return usageError{"sandbox exec: give --access open or boxed"}
 	}
 	if *attempt != "" && *worktree != "" {
 		return usageError{"sandbox exec: give --attempt or --worktree, not both"}
@@ -52,8 +59,7 @@ func cmdSandboxExec(r *runner, args []string) error {
 		return err
 	}
 	home := r.sandboxHome(wt)
-	projects := func() []string { return sandboxProjects(r, home) }
-	common, private := gitDirs(wt, projects)
+	common, private := sandboxGitDirs(r, home, wt)
 	env := r.env.Environ()
 	if env == nil {
 		env = os.Environ()
@@ -63,7 +69,7 @@ func cmdSandboxExec(r *runner, args []string) error {
 		Worktree:   wt,
 		GitCommon:  common,
 		GitPrivate: private,
-		Remotes:    gitRemotes(wt, projects),
+		Remotes:    gitRemotes(wt, func() []string { return sandboxProjects(r, home) }),
 		Harness:    spec,
 		Home:       home,
 		Bin:        bin,
@@ -77,13 +83,14 @@ func cmdSandboxExec(r *runner, args []string) error {
 		return r.print(sandboxDoc(policy))
 	}
 	if *access == sandbox.Boxed {
-		if p := sandbox.Probe(); !p.UnixSockets {
+		if p := sandbox.Prober(); !p.UnixSockets {
 			return fmt.Errorf("%w: boxed is unavailable: %s", state.ErrInvalid, p.Reason)
 		}
 	}
 	if err := sandbox.Apply(policy); err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
+	sandbox.CloseOnExec()
 	argv[0] = bin
 	if r.env.Exec != nil {
 		return r.env.Exec(argv[0], argv, policy.Environ)
@@ -165,29 +172,58 @@ func sandboxProjects(r *runner, home string) []string {
 	return paths
 }
 
-func gitDirs(worktree string, projects func() []string) (common, private string) {
-	common, _ = gitPath(worktree, "--git-common-dir")
-	private, _ = gitPath(worktree, "--git-dir")
-	if common == "" {
-		return "", ""
-	}
-	common = realPath(common)
-	if !trustedGitCommon(worktree, common, projects()) {
-		return "", ""
-	}
-	if private == "" {
-		return common, ""
-	}
-	return common, linkedGitDir(common, private)
-}
-
-func trustedGitCommon(worktree, common string, projects []string) bool {
-	for _, base := range append([]string{worktree}, projects...) {
-		if dir := gitDirAt(base); dir != "" && realPath(dir) == common {
-			return true
+func sandboxGitDirs(r *runner, home, worktree string) (common, private string) {
+	if home != "" {
+		if st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now); err == nil {
+			defer st.Close()
+			if repo, ok := attemptRepo(r, st, worktree); ok {
+				common = gitDirAt(repo)
+				private = linkedAdminDir(common, worktree)
+			}
 		}
 	}
-	return false
+	return common, private
+}
+
+func attemptRepo(r *runner, st *state.Store, worktree string) (string, bool) {
+	a, err := st.AttemptByWorktree(r.ctx(), worktree)
+	if err != nil {
+		return "", false
+	}
+	t, err := st.Task(r.ctx(), a.TaskID)
+	if err != nil {
+		return "", false
+	}
+	p, err := st.Project(r.ctx(), t.Project)
+	if err != nil {
+		return "", false
+	}
+	return p.Repo, true
+}
+
+func linkedAdminDir(common, worktree string) string {
+	if common == "" {
+		return ""
+	}
+	entries, err := filepath.Glob(filepath.Join(common, "worktrees", "*"))
+	if err != nil {
+		return ""
+	}
+	want := realPath(filepath.Join(worktree, ".git"))
+	for _, entry := range entries {
+		b, err := os.ReadFile(filepath.Join(entry, "gitdir"))
+		if err != nil {
+			continue
+		}
+		target := strings.TrimSpace(string(b))
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(entry, target)
+		}
+		if realPath(target) == want {
+			return realPath(entry)
+		}
+	}
+	return ""
 }
 
 func gitDirAt(base string) string {
@@ -206,14 +242,6 @@ func gitDirAt(base string) string {
 		return ""
 	}
 	return base
-}
-
-func linkedGitDir(common, private string) string {
-	rel, err := filepath.Rel(filepath.Join(realPath(common), "worktrees"), realPath(private))
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
-		return ""
-	}
-	return realPath(private)
 }
 
 func gitRemotes(worktree string, projects func() []string) []string {
@@ -241,7 +269,7 @@ func localRemote(url, worktree string, projects func() []string) (string, bool) 
 		url = strings.TrimPrefix(url, "file://")
 	case strings.Contains(url, "://"):
 		return "", false
-	case strings.Contains(url, ":") && !strings.HasPrefix(url, "/"):
+	case !filepath.IsAbs(url) && strings.Contains(url, ":"):
 		return "", false
 	}
 	url = strings.TrimSuffix(url, "/")
@@ -259,24 +287,14 @@ func localRemote(url, worktree string, projects func() []string) (string, bool) 
 	if err != nil {
 		return "", false
 	}
-	if !isRepository(real) {
+	dir := gitDirAt(real)
+	if dir == "" {
 		return "", false
 	}
 	if home, err := os.UserHomeDir(); err == nil && within(real, realPath(home)) && !registered(projects(), real) {
 		return "", false
 	}
-	return real, true
-}
-
-func isRepository(path string) bool {
-	if fi, err := os.Stat(filepath.Join(path, ".git")); err == nil && fi.IsDir() {
-		return true
-	}
-	if fi, err := os.Stat(filepath.Join(path, "HEAD")); err != nil || fi.IsDir() {
-		return false
-	}
-	fi, err := os.Stat(filepath.Join(path, "objects"))
-	return err == nil && fi.IsDir()
+	return realPath(dir), true
 }
 
 func registered(projects []string, path string) bool {
@@ -298,24 +316,10 @@ func realPath(p string) string {
 	return p
 }
 
-func gitPath(worktree, flag string) (string, error) {
-	cmd := exec.Command("git", "-C", worktree, "rev-parse", "--path-format=absolute", flag)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	p := strings.TrimSpace(string(out))
-	if p == "" {
-		return "", errors.New("git named no folder")
-	}
-	return p, nil
-}
-
 func sandboxDoc(p sandbox.Policy) *toon.Doc {
 	var d toon.Doc
 	d.Field("access", p.Mode)
+	d.Field("network", "open")
 	if p.Mode == sandbox.Open {
 		d.Help("Nothing is confined. Give --access boxed to confine the command.")
 		return &d
