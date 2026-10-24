@@ -10,7 +10,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestStartedServiceIsReapedWhenItExits(t *testing.T) {
@@ -29,16 +28,5 @@ func TestStartedServiceIsReapedWhenItExits(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.home, "watch.started")); err != nil {
 		t.Fatal(err)
 	}
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		var ws syscall.WaitStatus
-		switch got, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, nil); {
-		case errors.Is(err, syscall.ECHILD):
-			return
-		case err != nil:
-			t.Fatal(err)
-		case got == pid:
-			t.Fatalf("watcher %d stayed a zombie until the test reaped it", pid)
-		}
-	}
-	t.Fatalf("watcher %d never exited", pid)
+	eventually(t, func() bool { return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) })
 }
