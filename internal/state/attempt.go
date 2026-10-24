@@ -285,6 +285,14 @@ func (s *Store) NoteAttempt(ctx context.Context, id int64, kind, detail string) 
 	})
 }
 
+func (s *Store) AttemptByWorktree(ctx context.Context, worktree string) (Attempt, error) {
+	a, err := scanAttempt(s.db.QueryRowContext(ctx, attemptSelect+` WHERE worktree = ?`, worktree))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Attempt{}, fmt.Errorf("%w: no attempt in %s", ErrNotFound, worktree)
+	}
+	return a, err
+}
+
 func (s *Store) Attempt(ctx context.Context, id int64) (Attempt, error) {
 	a, err := scanAttempt(s.db.QueryRowContext(ctx, attemptSelect+` WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
