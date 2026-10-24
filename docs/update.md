@@ -54,8 +54,12 @@ To restore a backup:
 2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
 3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
 4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
-5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem;
+5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem; an older `hand` refuses a database that a newer one migrated (`newer than this hand`), so step 4 is not optional with it;
 6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
+
+## Updating from 0.11.0
+
+`hand update` runs the code of the build you have until it has swapped the binary, and restarts the watcher and the board with that code. From 0.11.0, with both a watcher and the board running, the new watcher migrates `hand.db` first, and 0.11.0 then refuses to open the migrated database to start the board. The update still replaces the binary, backs everything up and refreshes the fleet, restarts the watcher, and then exits 1 with the unit row `board,start,"failed: invalid: state schema N is newer than this hand (9)"` and the help line `could not start board`. Nothing is lost: run `hand open` to start the board on the new binary. With only the board running, or with neither, the update succeeds without that line.
 
 ## Options
 

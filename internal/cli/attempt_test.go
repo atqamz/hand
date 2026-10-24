@@ -55,6 +55,26 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	}
 }
 
+func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *testing.T) {
+	fx := newAttemptFixture(t)
+	long := filepath.Join(t.TempDir(), "long.md")
+	if err := os.WriteFile(long, []byte(strings.Repeat("Keep the quotes \"as is\".\n", 700)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", long, "t1")
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%q, want exit 2", code, errOut)
+	}
+	for _, want := range []string{"luvus accepts at most 16384 per argument", "write the long text to a file and make the prompt say to read that file"} {
+		if !strings.Contains(errOut, want) {
+			t.Fatalf("stderr=%q, want %q", errOut, want)
+		}
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1") {
+		t.Fatalf("list = %q, want no attempt", list)
+	}
+}
+
 func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T) {
 	fx := newAttemptFixture(t)
 	hook := filepath.Join(fx.repo, ".git", "hooks", "post-checkout")
@@ -624,6 +644,34 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 	}
 }
 
+func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	grace := *cli.TrustGrace
+	*cli.TrustGrace = time.Second
+	t.Cleanup(func() { *cli.TrustGrace = grace })
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screens, rt.screen, rt.revision, rt.keyScreens = []string{"Claude Code v2.1.309\n", "Claude Code v2.1.309\n"}, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
+	fx := claudeFixture(t)
+	grace := *cli.TrustGrace
+	*cli.TrustGrace = 400 * time.Millisecond
+	t.Cleanup(func() { *cli.TrustGrace = grace })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "Claude Code v2.1.309\n❯ \n" })
+	start := time.Now()
+	out := fx.start()
+	if !strings.Contains(out, "trust: not asked") || len(fx.rt.keysSent()) != 0 || time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("start = %q after %s, keys = %q", out, time.Since(start), fx.rt.keysSent())
+	}
+}
+
 func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
 	fx := claudeFixture(t)
 	wt := fx.h.worktree("t1-a1")
@@ -689,6 +737,47 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 	}
 	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: claude trust screen did not clear; check the screen"`) {
 		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	blank := strings.Repeat("   \n", 24)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screens, rt.screen, rt.revision = []string{blank, blank, blank}, claudeTrustScreen(wt), 4
+		rt.keyScreens = []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
+	fx := claudeFixture(t)
+	blank := strings.Repeat("   \n", 24)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = blank })
+	began := time.Now()
+	out := fx.start()
+	if took := time.Since(began); took > 4*time.Second || !strings.Contains(out, "trust: not asked") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("start took %s: %q, keys = %q", time.Since(began), out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revisions = claudeTrustScreen(wt), []int64{4, 5}
+		rt.keyScreens = []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if revs := fx.rt.keyRevisions(); len(revs) == 0 || revs[0] != 5 {
+		t.Fatalf("first key was sent at revision %v, want 5, the one that stayed", revs)
 	}
 }
 

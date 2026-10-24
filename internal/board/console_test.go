@@ -23,6 +23,24 @@ func TestMain(m *testing.M) {
 			fmt.Print(fakebin.Params()["models"])
 		}
 		return 0
+	}, "printer": func(args []string) int {
+		if len(args) == 0 || args[0] != "--version" {
+			fmt.Print(fakebin.Params()["out"])
+		}
+		return 0
+	}, "gated": func(args []string) int {
+		if len(args) == 0 || args[0] != "models" {
+			return 0
+		}
+		fakebin.Append(fakebin.Params()["log"], "models")
+		for gate := fakebin.Params()["gate"]; gate != ""; {
+			if _, err := os.Stat(gate); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		fmt.Print(fakebin.Params()["out"])
+		return 0
 	}, "forbidden": func(args []string) int {
 		fakebin.Append(fakebin.Params()["log"], strings.Join(args, " "))
 		return 1
@@ -308,11 +326,11 @@ func TestTheSupervisorMenusOfferAgy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<button>Start agy</button>`, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`, `<option value="gem">`)
+	contains(t, "start", region(get(t, none.handler(), "/"), "console"), `<button>Start agy</button>`, `<option value="gemini-3.8-flash-low" data-efforts="">Gemini 3.8 Flash (Low) · gemini-3.8-flash-low</option>`, `<option value="gem">`)
 	running.status = "idle"
 	running.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, running.handler(), "/"), "console")
-	contains(t, "other harness", console, `<input type="hidden" name="harness" value="agy">`, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`, `<button>Switch to agy</button>`)
+	contains(t, "other harness", console, `<input type="hidden" name="harness" value="agy">`, `<option value="gemini-3.8-flash-low" data-efforts="">Gemini 3.8 Flash (Low) · gemini-3.8-flash-low</option>`, `<button>Switch to agy</button>`)
 	lacks(t, "other harness", console, `aria-label="agy effort"`)
 }
 
@@ -330,7 +348,7 @@ func TestTheAgyModelMenuHasNoEffortSelect(t *testing.T) {
 		t.Fatal(err)
 	}
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "agy model menu", console, `<option value="gemini-3.8-flash-low">gemini-3.8-flash-low</option>`)
+	contains(t, "agy model menu", console, `<option value="gemini-3.8-flash-low" data-efforts="">Gemini 3.8 Flash (Low) · gemini-3.8-flash-low</option>`)
 	lacks(t, "agy model menu", console, `<select name="effort"><option value="">keep`)
 }
 
@@ -355,7 +373,7 @@ func TestStartFormListsClaudeModelsAndEfforts(t *testing.T) {
 	fx := newFixture(t)
 	console := region(get(t, fx.handler(), "/"), "console")
 	row := startRow(t, console, "claude")
-	contains(t, "claude row", row, `<option value="opus">opus</option>`, `<option value="xhigh">xhigh</option>`, `<button>Start claude</button>`)
+	contains(t, "claude row", row, `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`, `<option value="xhigh">xhigh</option>`, `<button>Start claude</button>`)
 	lacks(t, "claude row", row, `<input name="model"`)
 	contains(t, "profile first", console, `name="profile"`)
 	if strings.Index(console, `name="profile"`) > strings.Index(console, `name="harness"`) {
@@ -370,7 +388,7 @@ func TestStartFormCodexRowsComeFromTheModelsCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "codex")
-	contains(t, "codex row", row, `<option value="gpt-6-luna">gpt-6-luna</option>`, `<option value="medium">medium</option>`)
+	contains(t, "codex row", row, `<option value="gpt-6-luna" data-efforts="low medium">gpt-6-luna</option>`, `<option value="medium">medium</option>`)
 }
 
 func TestStartFormFallsBackToTextBoxesWithoutModels(t *testing.T) {
@@ -538,6 +556,6 @@ func TestTheBoardNeverRunsAHarness(t *testing.T) {
 	if b, err := os.ReadFile(log); err == nil {
 		t.Fatalf("the board ran a harness: %q", b)
 	}
-	contains(t, "claude without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="opus">opus</option>`)
-	lacks(t, "agy without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="gemini-3.8-flash-low">`)
+	contains(t, "claude without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`)
+	lacks(t, "agy without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="gemini-3.8-flash-low"`)
 }

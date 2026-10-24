@@ -34,10 +34,11 @@ type version struct {
 	note        string
 	context     transcript.Status
 	workers     int
+	models      int64
 }
 
 func (b *Board) version(ctx context.Context) (version, error) {
-	var v version
+	v := version{models: b.refresh.done.Load()}
 	var err error
 	if v.seq, err = b.st.LastEventSeq(ctx); err != nil {
 		return v, err

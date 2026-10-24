@@ -647,7 +647,7 @@ func TestStaleByTimeByBinaryAndByConfigFile(t *testing.T) {
 		t.Fatalf("stale after 59 minutes: %+v", st)
 	}
 	f.advance(2 * time.Minute)
-	if st := StatusOf("claude", f.env, f.clock()); !st.Stale || !st.Due {
+	if st := StatusOf("claude", f.env, f.clock()); !st.Stale || !st.Due || !st.Old {
 		t.Fatalf("claude is stale after an hour: %+v", st)
 	}
 	f.refresh("claude")
@@ -655,8 +655,8 @@ func TestStaleByTimeByBinaryAndByConfigFile(t *testing.T) {
 	if err := os.Chtimes(bin, later, later); err != nil {
 		t.Fatal(err)
 	}
-	if st := StatusOf("claude", f.env, f.clock()); !st.Stale || !st.Due {
-		t.Fatalf("a changed binary leaves it fresh: %+v", st)
+	if st := StatusOf("claude", f.env, f.clock()); !st.Stale || !st.Due || st.Old {
+		t.Fatalf("a changed binary leaves it fresh, or makes it old: %+v", st)
 	}
 	f.refresh("claude")
 	dir := filepath.Join(f.vars["HOME"], ".claude")

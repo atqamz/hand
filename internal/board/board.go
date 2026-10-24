@@ -134,15 +134,17 @@ type Options struct {
 	Beat       time.Duration
 	Now        func() time.Time
 	Harness    harness.Env
+	Models     harness.Options
 	Phone      func(context.Context) PhoneLink
 }
 
 type Board struct {
-	st     *state.Store
-	token  string
-	o      Options
-	mux    *http.ServeMux
-	phones phones
+	st      *state.Store
+	token   string
+	o       Options
+	mux     *http.ServeMux
+	phones  phones
+	refresh refresher
 }
 
 type card struct {
@@ -161,7 +163,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	if o.Beat <= 0 {
 		o.Beat = 15 * time.Second
 	}
-	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}}
+	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
 	b.mux.HandleFunc("GET /{$}", b.fleet)
 	b.mux.HandleFunc("GET /supervisor/log", b.history)
 	b.mux.HandleFunc("GET /events", b.events)
@@ -177,6 +179,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("GET /inbox/{name}", b.inbox)
 	b.mux.HandleFunc("GET /doc/{path...}", b.doc)
 	b.mux.HandleFunc("POST /supervisor/switch", b.switchModel)
+	b.mux.HandleFunc("POST /models/refresh", b.refreshModels)
 	b.mux.HandleFunc("GET /task/{id}", b.task)
 	b.mux.HandleFunc("GET /attempt/{id}", b.attempt)
 	b.mux.HandleFunc("GET /tasks", b.archive)

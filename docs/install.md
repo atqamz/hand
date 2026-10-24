@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
 
 You can choose another version:
 - **Edge:** `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`. Edge is the rolling build of `main` that passed CI.
-- **A pinned release:** `HAND_INSTALL_VERSION=v0.11.0`.
+- **A pinned release:** `HAND_INSTALL_VERSION=v0.12.0`.
 
 `HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
 
@@ -58,7 +58,7 @@ irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. Open a new terminal afterwards.
 
 Set the options as environment variables before the command, as in `$env:HAND_INSTALL_VERSION = 'edge'; irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex`:
-- `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.11.0`;
+- `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.12.0`;
 - `HAND_INSTALL_DIR`: the folder, which may contain spaces;
 - `HAND_INSTALL_BASE`: the releases URL, as in `install.sh`.
 
@@ -70,7 +70,7 @@ Or pass them as switches, which win over the variables:
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1))) -Edge
 ```
 
-- `-Edge`, or `-Version v0.11.0`;
+- `-Edge`, or `-Version v0.12.0`;
 - `-Dir PATH`;
 - `-Base URL`;
 - `-TimeoutSec N`: give up on a download that takes longer than N seconds (default 300). It has no variable.

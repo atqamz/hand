@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,17 @@ var (
 )
 
 func SupervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
+	argv, err := supervisorArgv(bin, s, session, prompt, dir, resume)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkCommandLine(runtime.GOOS, argv); err != nil {
+		return nil, err
+	}
+	return argv, nil
+}
+
+func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
 	if resume {
 		if prompt != "" {
 			return nil, fmt.Errorf("%w: a resumed supervisor takes no launch prompt", state.ErrInvalid)

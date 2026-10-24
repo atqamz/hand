@@ -18,7 +18,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  e2e:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-install.yaml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
   binaries:
+    needs: e2e
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -40,24 +48,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Check the tag still names the tested commit
+        env:
+          TESTED: ${{ needs.e2e.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$TESTED"
       - run: go test -race ./...
       - name: Build
-        run: |
-          set -eu
-          pkg=github.com/atqamz/hand/internal/cli
-          commit=$(git rev-parse HEAD)
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            os=${target%/*}
-            arch=${target#*/}
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand .
-            tar -czf "hand-$os-$arch.tar.gz" hand
-            rm hand
-          done
-          sha256sum hand-*.tar.gz > checksums.txt
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand.exe .
-          zip -X hand-windows-amd64.zip hand.exe
-          rm hand.exe
-          sha256sum hand-windows-amd64.zip > hand-windows-amd64.sha256
+        run: sh .github/scripts/build-dist.sh "${TAG#v}" stable "$(git rev-parse HEAD)"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}

@@ -467,7 +467,7 @@ func TestTheTaskPageStylesItsColumnsAndPhoneOrder(t *testing.T) {
 		".delivered .url{max-width:100%;",
 		"overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-grid{grid-template-columns:minmax(0,1fr)}.task-side{order:-1;position:static;max-height:none;overflow:visible}}")
-	contains(t, "masthead", css, "body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}")
+	contains(t, "masthead", css, "body:not([data-page=fleet]):has(main>.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}")
 	contains(t, "report head", css, `.card.report>header.slug{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"who title act" ". meta act";`)
 	if flex, grid := strings.Index(css, ":is(.thread,.task-main)>.card>header.slug{display:flex"), strings.Index(css, ".card.report>header.slug{display:grid"); flex < 0 || grid < flex {
 		t.Fatal("the report header grid must come after the card header flex rule it ties with in specificity")

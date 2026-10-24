@@ -12,7 +12,7 @@
       - any-glob-to-any-file: ['internal/luvus/**']
 'area: harness':
   - changed-files:
-      - any-glob-to-any-file: ['internal/harness/**', 'internal/transcript/**', 'internal/agydb/**', 'internal/fakebin/**']
+      - any-glob-to-any-file: ['internal/harness/**', 'internal/transcript/**', 'internal/agydb/**', 'internal/fakebin/**', 'internal/e2e/**']
 'area: state':
   - changed-files:
       - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']

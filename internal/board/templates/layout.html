@@ -30,7 +30,7 @@
 {{end}}
 
 {{define "foot"}}<div id="toast" role="status" aria-live="polite"></div>
-<dialog class="viewer" id="viewer" aria-labelledby="viewer-title" aria-label="File viewer"><div class="viewer-top"><span class="viewer-state meta" id="viewer-title"></span><span class="spacer"></span><a class="viewer-tab">Open as a page</a><button type="button" class="viewer-close" aria-label="Close the viewer">{{template "icon-close"}}</button></div><div class="viewer-body thread doc" tabindex="-1"></div></dialog>
+<dialog class="viewer" id="viewer" aria-labelledby="viewer-title" aria-label="Viewer"><div class="viewer-top"><button type="button" class="viewer-back" aria-label="Back" disabled>{{template "icon-back"}}</button><span class="viewer-state meta" id="viewer-title"></span><span class="spacer"></span><a class="viewer-tab">Open as a page</a><button type="button" class="viewer-close" aria-label="Close the viewer">{{template "icon-close"}}</button></div><div class="viewer-body thread doc" tabindex="-1"></div></dialog>
 </body>
 </html>
 {{end}}

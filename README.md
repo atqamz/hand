@@ -26,7 +26,7 @@ On Windows, in PowerShell, then open a new terminal; [Windows](docs/install.md#w
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-For the rolling `edge` build of `main`, or a pinned release such as `v0.11.0`, set `HAND_INSTALL_VERSION` first: `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. To update, run `hand update`. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
+For the rolling `edge` build of `main`, or a pinned release such as `v0.12.0`, set `HAND_INSTALL_VERSION` first: `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. To update, run `hand update`. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
 
 [`docs/install.md`](docs/install.md) has every install option and building from source. [`docs/update.md`](docs/update.md) says what `hand update` does and how to restore a backup.
 

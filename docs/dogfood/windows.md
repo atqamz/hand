@@ -4,6 +4,8 @@ Windows 10 or 11, amd64, in an account without admin rights. The shell is PowerS
 
 Nobody has run these commands on a real Windows machine before the first dogfood run. A command marked `unverified` may be wrong. A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
+CI runs the real `claude.exe` and `codex.exe` against a mock model on Windows ([End-to-end tests](../e2e.md)): the trust screens, keys after a process scan, the 15 KB briefing, a worker's report, and the refusal of a `codex.cmd`. `W1`, `W3`, `W4a` and `W4b` still matter for a real login, a real model, a user profile with a space or a non-ASCII letter, and Windows Terminal.
+
 In each check, **Run** says whether an agent can run it to the end (`agent`) or it ends in a question that only a person at the screen can answer (`needs human`). **Real sessions** counts the Claude Code sessions it starts on your account.
 
 ## Two runs: with and without Git Bash
@@ -17,7 +19,7 @@ Which checks differ:
 
 | Check | Run A | Run B |
 |---|---|---|
-| `W0`, `W1`, `W4a`, `W4b`, `W8`, `W9`, `W11`, `W14` | run | run again: Claude Code may behave differently when there is no Git Bash, and that is a finding |
+| `W0`, `W1`, `W4a`, `W4b`, `W4c`, `W8`, `W9`, `W11`, `W14` | run | run again: Claude Code may behave differently when there is no Git Bash, and that is a finding |
 | `W3` | both halves: the report from PowerShell and from Git Bash | only the PowerShell half; skip the Git Bash half, with the reason |
 | `W2`, `W5`, `W6`, `W7`, `W10`, `W12`, `W13` | run | skip with `covered by run A`: they do not depend on Git Bash |
 
@@ -33,6 +35,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W3 | A worker reports, from PowerShell and Git Bash, and the supervisor wakes | A worker reports through the footer | agent | 1 |
 | W4a | codex (the standalone `codex.exe`), agy and opencode start | Start codex or agy; Start opencode; Keys reach an agent whose program has an extension; Accept Codex's trust screens for its own worktree and project | agent, per harness | 1 each, 2 for codex |
 | W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
+| W4c | A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused | A prompt reaches the harness byte for byte when it fits both limits, and Hand refuses one that does not | agent | 1 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
 | W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
@@ -412,9 +415,77 @@ Expected:
 
 A real npm shim (`%APPDATA%\npm\codex.cmd`) is refused the same way; this check uses a stand-in so that nothing is downloaded. Close this PowerShell window afterwards: the `PATH` change belongs to it.
 
+Why Hand refuses it, measured on a Windows runner with the tested Luvus and a stand-in `codex.cmd` that passes its arguments to a program: a one-line prompt of up to about 8,100 characters arrives whole; a prompt with a newline arrives cut at the first newline; `%PATH%` in a prompt is replaced by the variable's value; `cmd.exe` starts in `C:\Windows`, because Luvus gives it a `\\?\` folder (`UNC paths are not supported.  Defaulting to Windows directory.`); and a command line of more than about 8,190 characters ends at once with `The command line is too long.` and exit code 1. That last case is a worker that exits with code 1 on a long prompt, as reported in [#984](https://github.com/atqamz/hand/issues/984). The same prompts reach a `codex.exe` whole (`W4c`).
+
 Evidence: `& { Get-Command codex -All | Select-Object Name, Source; hand doctor | Select-String 'harness codex'; hand supervisor start --harness codex --model $model --effort $effort; hand supervisor show } 2>&1 | Ev W4b`.
 
 If it fails: file the output above as `W4b: ...`. If Hand started codex through the shim, add `hand supervisor show` and `hand supervisor stop`.
+
+## W4c: A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused
+
+- **Proves:** the row of the Platform support table about a prompt of up to 16 KiB, with the real Codex: a brief of about 12 KB that holds many paragraphs, quotes, backslashes, `%PATH%`, `&`, `|`, `<`, `>`, `!`, `^`, accented letters and an emoji comes through whole, and Hand refuses a brief over 16 KiB before it creates anything.
+- **Run:** agent.
+- **Real sessions:** 1.
+- **Preconditions:** `W0` and `W4a` passed for codex, so that `$model` and `$effort` are set and `codex.exe` is the standalone one. No supervisor runs.
+
+The limits are measured in [Long prompts](../supervisor.md#long-prompts): Luvus takes 16384 bytes in one argument, and Windows starts a command line of at most 32,766 characters once quoted.
+
+Steps:
+
+**1.** Write the brief. Its first line holds a head word, its last lines a tail word, and Codex is asked to write both to files, so a cut in the middle or at the end shows:
+
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+$filler = 'Keep "double" and ''single'' quotes, C:\Users\dev\tides\ and a path ending in \, %PATH% ^ & | < > ! and the letters é, 日本語 and 🌊.'
+$text = "Head word: ALPHA-7431`n`n" + ((1..80 | ForEach-Object { "Paragraph ${_}: $filler" }) -join "`n`n") + "`n`nCreate head.txt in the repository root containing exactly the head word on the first line of this brief, and tail.txt containing exactly: OMEGA-9152`nCommit both with the message: dogfood`nDo nothing else.`n"
+[IO.File]::WriteAllText("$D\long.md", $text, [Text.UTF8Encoding]::new($false))
+(Get-Item "$D\long.md").Length
+```
+
+The size must print between 11000 and 15000.
+
+**2.** Start a codex worker on it, and wait for the report:
+
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+$t = (hand task add --goal "Add head.txt and tail.txt" demo "dogfood long brief" | Select-String '^task: (\S+)').Matches[0].Groups[1].Value
+hand task start $t
+$a = (hand attempt start --harness codex --model $model --effort $effort --prompt-file "$D\long.md" $t | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
+Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
+hand wait --timeout 8m
+hand attempt show $a
+```
+
+**3.** Read what Codex wrote, in the worktree that `hand attempt show $a` names on its `worktree:` line:
+
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+$wt = (hand attempt show $a | Select-String '^worktree: (.+)$').Matches[0].Groups[1].Value
+Add-Content "$D\vars.ps1" "`$wt = '$wt'"
+Get-Content "$wt\head.txt", "$wt\tail.txt"
+git -C $wt log --oneline -1
+```
+
+**4.** Stop the worker, then offer Hand a brief of 20,000 bytes:
+
+```powershell
+. "$D\env.ps1"; Set-Location "$D\fleet"
+hand attempt stop $a
+hand attempt clean $a
+[IO.File]::WriteAllText("$D\huge.md", ('x' * 20000), [Text.UTF8Encoding]::new($false))
+hand attempt start --harness codex --model $model --effort $effort --prompt-file "$D\huge.md" $t
+"exit $LASTEXITCODE"
+hand attempt list
+```
+
+Expected:
+- the attempt of step 2 is `running` right after the start and reports `done`;
+- `head.txt` holds `ALPHA-7431` and `tail.txt` holds `OMEGA-9152`, and the last commit is `dogfood`: the first line and the last line of the brief both arrived, and nothing in the middle stopped Codex;
+- step 4 prints `exit 2` and `error: invalid: prompt is 20xxx bytes; luvus accepts at most 16384 per argument; shorten it, or write the long text to a file and make the prompt say to read that file`, and `hand attempt list` shows no new attempt.
+
+Evidence: `& { (Get-Item "$D\long.md").Length; hand attempt show $a; Get-Content "$wt\head.txt", "$wt\tail.txt" } 2>&1 | Ev W4c`, and the output of step 4.
+
+If it fails: file it as `W4c: ...`, with `hand attempt show $a` and `hand attempt read $a` (before you stop the worker). A missing or wrong `head.txt` or `tail.txt` says where the prompt was cut: name which one. A worker that exits at once with code 1 is the failure of [#984](https://github.com/atqamz/hand/issues/984): add the first word of the `launch:` line, which must be a `codex.exe`.
 
 ## W5: `hand update` renames the running `hand.exe`
 

@@ -1,0 +1,149 @@
+name: E2E install
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build and test; the default is the ref that triggered the run.
+        type: string
+        default: ""
+    outputs:
+      sha:
+        description: The commit that was built and tested.
+        value: ${{ jobs.build.outputs.sha }}
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    paths:
+      - install.sh
+      - install.ps1
+      - install_test.go
+      - main.go
+      - go.mod
+      - go.sum
+      - internal/**
+      - .github/e2e/**
+      - .github/scripts/**
+      - .github/workflows/e2e-install.yaml
+      - .github/workflows/release.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-install-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PLAYWRIGHT_VERSION: "1.63.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Build the artifacts as a release does
+        run: sh .github/scripts/e2e-dist.sh dist "$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-dist
+          path: dist
+          retention-days: 3
+          if-no-files-found: error
+
+  e2e:
+    needs: build
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 70
+    env:
+      E2E_FRESH_LUVUS: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || inputs.ref != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+      - name: Set the paths
+        shell: bash
+        run: |
+          echo "E2E_TMP=$RUNNER_TEMP/hand-e2e" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/hand-e2e/browsers" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: e2e-dist
+          path: ${{ runner.temp }}/hand-e2e/dist
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hand-e2e/luvus-cache
+          key: luvus-${{ runner.os }}-${{ hashFiles('internal/luvus/pin.go') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/hand-e2e/browsers
+          key: playwright-${{ env.PLAYWRIGHT_VERSION }}-${{ runner.os }}
+      - name: Install the installers' way
+        timeout-minutes: 10
+        run: node .github/e2e/install.mjs
+      - name: First run, Board and phone pairing
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: node .github/e2e/first-run.mjs
+      - name: Install Playwright
+        if: ${{ !cancelled() }}
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -eu
+          mkdir -p "$E2E_TMP/pw"
+          cd "$E2E_TMP/pw"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          if [ "$RUNNER_OS" = Linux ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+      - name: Board in a browser
+        if: ${{ !cancelled() }}
+        timeout-minutes: 10
+        run: node .github/e2e/smoke.mjs
+      - name: Upgrade from the last release
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/e2e/upgrade.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: e2e-logs-${{ matrix.name }}
+          path: ${{ runner.temp }}/hand-e2e/logs
+          retention-days: 3
+          if-no-files-found: ignore

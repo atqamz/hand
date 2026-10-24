@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -98,5 +99,57 @@ func TestLiveAttemptReports(t *testing.T) {
 			screen, _, _ := h.run("attempt", "read", "a1")
 			t.Fatalf("no attempt.reported within 90s\nshow: %s\nscreen: %s", show, screen)
 		}
+	}
+}
+
+func TestLiveAWorkerBriefReachesCodexIntact(t *testing.T) {
+	if os.Getenv("HAND_LUVUS_IT") != "1" {
+		t.Skip("set HAND_LUVUS_IT=1 to run against the installed luvus")
+	}
+	h := newHarness(t)
+	h.inheritEnv()
+	bin, out := t.TempDir(), filepath.Join(t.TempDir(), "args.json")
+	fakebin.Install(t, bin, "codex", "args", map[string]string{"out": out})
+	h.vars["PATH"] = bin + string(os.PathListSeparator) + os.Getenv("PATH")
+	h.vars["HOME"] = t.TempDir()
+	h.vars["LUVUS_HOME"] = t.TempDir()
+	brief, err := os.ReadFile(filepath.Join("..", "luvus", "testdata", "brief.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	briefFile := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(briefFile, brief, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	luvusBin, err := exec.LookPath("luvus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := fleet.Session(field(h.ok("init"), "id"))
+	t.Cleanup(func() {
+		stop := exec.Command(luvusBin, "--session", session, "server", "stop")
+		stop.Env = h.env(nil, nil).Environ()
+		_ = stop.Run()
+	})
+	*cli.TrustWait = time.Second
+	t.Cleanup(func() { *cli.TrustWait = 15 * time.Second })
+	h.ok("project", "add", "app", gitRepo(t))
+	h.ok("task", "add", "app", "Fix login")
+	h.ok("task", "start", "t1")
+	h.ok("attempt", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low", "--prompt-file", briefFile, "t1")
+	var args []string
+	for deadline := time.Now().Add(60 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		if b, err := os.ReadFile(out); err == nil && json.Unmarshal(b, &args) == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			show, _, _ := h.run("attempt", "show", "a1")
+			t.Fatalf("codex never recorded its arguments\nshow: %s", show)
+		}
+	}
+	got := args[len(args)-1]
+	footer, ok := strings.CutPrefix(got, string(brief))
+	if !ok || !strings.HasPrefix(footer, "\n\n---\n") || !strings.HasSuffix(footer, "write a report only when the work is done or you are stuck.") {
+		t.Fatalf("the prompt codex got is %d bytes; the brief is %d, and the rest is %q", len(got), len(brief), footer)
 	}
 }

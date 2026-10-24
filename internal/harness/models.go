@@ -147,6 +147,7 @@ type Status struct {
 	Found   bool
 	Missing string
 	Stale   bool
+	Old     bool
 	Due     bool
 }
 
@@ -159,7 +160,8 @@ func StatusOf(name string, env Env, now time.Time) Status {
 	s.Listing, s.Found = load(name, env)
 	bin, err := LookPath(name, env.Path)
 	s.Missing = missing(name, err)
-	s.Stale = !s.Found || s.Listing.At.IsZero() || now.Sub(s.Listing.At) >= l.ttl
+	s.Old = s.Found && !s.Listing.At.IsZero() && now.Sub(s.Listing.At) >= l.ttl
+	s.Stale = !s.Found || s.Listing.At.IsZero() || s.Old
 	if s.Missing == "" && !s.Stale {
 		s.Stale = s.Listing.Key != listingKey(bin, l.files(env))
 	}
@@ -219,7 +221,10 @@ func goneText(s Spec) string {
 }
 
 func Vanished(s Spec, env Env, now time.Time) (string, bool) {
-	st := StatusOf(s.Harness, env, now)
+	return StatusOf(s.Harness, env, now).Vanished(s)
+}
+
+func (st Status) Vanished(s Spec) (string, bool) {
 	if s.Model == "" || !slices.Contains(st.Listing.Gone, s.Model) {
 		return "", false
 	}
