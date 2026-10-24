@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fixture } from './fixture.mjs';
-import { Box, candidate, check, equal, logDir, phase, soft, startBoard, stopAll, tmpRoot } from './lib.mjs';
+import { Box, candidate, check, equal, logDir, pass, phase, soft, startBoard, stopAll, tmpRoot } from './lib.mjs';
 
 const playwright = createRequire(import.meta.url)(process.env.E2E_PLAYWRIGHT ?? path.join(tmpRoot, 'pw', 'node_modules', 'playwright'));
 const shots = path.join(logDir, 'shots');
@@ -40,7 +40,8 @@ async function visit(browser, link, id, width) {
     await chip.click();
     const dialog = page.locator('dialog.viewer[open]');
     await dialog.waitFor({ state: 'visible' });
-    check(await dialog.getByRole('heading', { name: 'Export notes' }).isVisible(), `${tag}: the document opens in a dialog over the page`);
+    await dialog.getByRole('heading', { name: 'Export notes' }).waitFor({ state: 'visible' });
+    pass(`${tag}: the document opens in a dialog over the page`);
     check(new URL(page.url()).pathname.endsWith('/doc/docs/export-notes.md'), `${tag}: the address bar shows the file while the dialog is open`);
     await page.screenshot({ path: path.join(shots, `${tag}-dialog.png`) });
     await page.keyboard.press('Escape');
@@ -53,7 +54,8 @@ async function visit(browser, link, id, width) {
     else soft(returned, `${tag}: focus returns to a link to the document (${focused}); the address carries a fragment and Back moves focus to the page`);
 
     await page.goto(new URL(`/${id}/doc/docs/export-notes.md`, link.origin).href, { waitUntil: 'domcontentloaded' });
-    check(await page.getByRole('heading', { name: 'Export notes' }).isVisible(), `${tag}: the document page renders the Markdown`);
+    await page.getByRole('heading', { name: 'Export notes' }).waitFor({ state: 'visible' });
+    pass(`${tag}: the document page renders the Markdown`);
     check(await page.locator('table').first().isVisible(), `${tag}: the document page renders the table`);
     await page.screenshot({ path: path.join(shots, `${tag}-doc.png`) });
 

@@ -16,5 +16,5 @@ layout() {
 }
 
 layout candidate "$commit" "$out"
-layout next "$commit-next" "$out/next"
+layout next "next-$commit" "$out/next"
 cp install.sh install.ps1 "$out/"

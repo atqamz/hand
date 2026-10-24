@@ -22,8 +22,8 @@ export const goos = win ? 'windows' : process.platform;
 export const goarch = process.arch === 'arm64' ? 'arm64' : 'amd64';
 export const asset = win ? 'hand-windows-amd64.zip' : `hand-${goos}-${goarch}.tar.gz`;
 export const sums = win ? 'hand-windows-amd64.sha256' : 'checksums.txt';
-export const commit = () => fs.readFileSync(path.join(distDir, 'commit.txt'), 'utf8').trim();
-export const nextCommit = () => fs.readFileSync(path.join(distDir, 'next', 'commit.txt'), 'utf8').trim();
+export const commit = () => fs.readFileSync(path.join(distDir, 'commit.txt'), 'utf8').trim().slice(0, 12);
+export const nextCommit = () => fs.readFileSync(path.join(distDir, 'next', 'commit.txt'), 'utf8').trim().slice(0, 12);
 
 const boxes = [];
 let transcript = null;
@@ -180,7 +180,7 @@ function pathKey(env) {
 export function cleanEnv() {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (/^(LUVUS_|HAND_|SECONDHAND_|CLAUDE|ANTHROPIC|OPENAI|CODEX|GH_|GITHUB_|ACTIONS_|RUNNER_|XDG_RUNTIME_DIR$|DBUS_SESSION_BUS_ADDRESS$|NODE_OPTIONS$)/i.test(k)) continue;
+    if (/^(PSModulePath$|LUVUS_|HAND_|SECONDHAND_|CLAUDE|ANTHROPIC|OPENAI|CODEX|GH_|GITHUB_|ACTIONS_|RUNNER_|XDG_RUNTIME_DIR$|DBUS_SESSION_BUS_ADDRESS$|NODE_OPTIONS$)/i.test(k)) continue;
     env[k] = v;
   }
   return env;
@@ -315,7 +315,7 @@ export function serve(root) {
 export const shells = win ? ['powershell', 'pwsh'] : ['sh'];
 
 export function install(shell, base, dir, extra = {}, box = null, dirs = []) {
-  const env = box ? box.env({}, dirs) : cleanEnv();
+  const env = box && !win ? box.env({}, dirs) : cleanEnv();
   Object.assign(env, { HAND_INSTALL_BASE: base, HAND_INSTALL_DIR: dir }, extra);
   if (shell === 'sh') return run('sh', ['-c', 'curl -fsSL "$HAND_INSTALL_BASE/install.sh" | sh'], { env });
   return run(shell, ['-NoProfile', '-NonInteractive', '-Command', 'irm "$env:HAND_INSTALL_BASE/install.ps1" | iex'], { env });

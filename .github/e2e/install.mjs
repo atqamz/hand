@@ -1,6 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { Box, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, ok, phase, repoRoot, run, schema, serve, shells, tmpRoot, toon, version, win } from './lib.mjs';
+import { Box, cleanEnv, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, ok, phase, repoRoot, run, schema, serve, shells, tmpRoot, toon, version, win } from './lib.mjs';
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -24,14 +25,16 @@ async function installed(dir, msg) {
   equal([v.version, v.channel, v.commit, v.schema, v.luvus], [version, 'stable', commit(), String(schema), luvusTested], `${msg}: hand version reports the candidate`);
 }
 
+const registry = "[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)";
+
 async function userPath(shell) {
-  const res = await run(shell, ['-NoProfile', '-NonInteractive', '-Command', "[Environment]::GetEnvironmentVariable('Path','User')"], { env: new Box('probe').env({}, []) });
-  return res.out.trim();
+  const script = `$k = ${registry}; $k.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); $k.Close()`;
+  return (await run(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { env: cleanEnv() })).out.trim();
 }
 
 async function setUserPath(shell, value) {
-  const script = `[Environment]::SetEnvironmentVariable('Path', $env:E2E_PATH, 'User')`;
-  await run(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...new Box('probe').env({}, []), E2E_PATH: value } });
+  const script = `$k = ${registry}; $k.SetValue('Path', $env:E2E_PATH, [Microsoft.Win32.RegistryValueKind]::ExpandString); $k.Close()`;
+  await run(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...cleanEnv(), E2E_PATH: value } });
 }
 
 async function one(shell, good, bad) {
@@ -71,18 +74,24 @@ async function one(shell, good, bad) {
   }
 
   const refused = path.join(box.dir, 'refused', 'bin');
-  const res = await fails(await install(shell, bad.base, refused, {}, box), `${shell}: a corrupted archive makes the installer exit non-zero`);
+  const res = await install(shell, bad.base, refused, {}, box);
+  if (win) {
+    const file = await run(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(distDir, 'install.ps1'), '-Dir', refused, '-Base', bad.base], { env: cleanEnv() });
+    equal(file.code, 1, `${shell}: install.ps1 -File exits 1 on a corrupted archive`);
+    matches(file.out + file.err, new RegExp(`install\\.ps1: checksum mismatch for ${escape(asset)}`), `${shell}: install.ps1 -File names the checksum mismatch`);
+  } else {
+    await fails(res, `${shell}: a corrupted archive makes the installer exit non-zero`, 1);
+  }
   matches(res.out + res.err, new RegExp(`install\\.(sh|ps1): checksum mismatch for ${escape(asset)}`), `${shell}: it names the checksum mismatch`);
   check(!fs.existsSync(path.join(refused, `hand${exe}`)), `${shell}: nothing is installed after the mismatch`);
-  if (!win) equal(res.code, 1, `${shell}: the exit code is 1`);
 
-  if (win) check(!fs.existsSync(path.join(box.home, 'AppData', 'Local', 'hand')), `${shell}: HAND_INSTALL_DIR won over the default folder`);
+  if (win) check(!fs.existsSync(path.join(process.env.LOCALAPPDATA, 'hand')), `${shell}: HAND_INSTALL_DIR won over the default folder`);
   else equal(fs.readdirSync(box.home), [], `${shell}: the installer left nothing in the home folder`);
-  equal(fs.readdirSync(box.tmp).filter((n) => /hand-install|^\.hand\./.test(n)), [], `${shell}: the installer left no temporary file`);
+  equal(fs.readdirSync(win ? os.tmpdir() : box.tmp).filter((n) => /^hand-install-|^\.hand\./.test(n)), [], `${shell}: the installer left no temporary file`);
   if (win) {
     await setUserPath(shell, before);
     equal(await userPath(shell), before, `${shell}: the user PATH is back as it was`);
-    const left = await run(shell, ['-NoProfile', '-NonInteractive', '-Command', "[Environment]::GetEnvironmentVariable('HAND_INSTALL_REFRESH','User')"], { env: box.env({}, []) });
+    const left = await run(shell, ['-NoProfile', '-NonInteractive', '-Command', "[Environment]::GetEnvironmentVariable('HAND_INSTALL_REFRESH','User')"], { env: cleanEnv() });
     equal(left.out.trim(), '', `${shell}: no HAND_INSTALL_REFRESH variable is left in the user environment`);
   }
 }
