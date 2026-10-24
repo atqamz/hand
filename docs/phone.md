@@ -25,6 +25,8 @@ The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet 
 
 ## Alerts that open on the phone
 
+Tapping an alert opens the item in the phone's browser with the phone's session, because the phone's cookie is `SameSite=Lax`: a browser sends it when a link from another app opens a page, where `Strict` would be withheld. Lax allows only that page load and withholds the cookie on a form posted from another site, and the form token every change needs, the tailnet login check and the 90-day life of the session still protect the board. A phone paired before this change keeps its `Strict` cookie until it is paired again.
+
 `HAND_NOTIFY_URL` is `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. When the board listens on `0.0.0.0`, that address is still `127.0.0.1`. Only `tailscale serve` changes it by itself. For a path with its own HTTPS name, rewrite the link in the command in `routing.json` ([Alerts on your phone](alerts.md)). With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
 
 ```json

@@ -404,12 +404,12 @@ func TestOnlyThePostOfAFormPairs(t *testing.T) {
 func TestThePhoneCookieIsHardened(t *testing.T) {
 	p := newPhoneRig(t)
 	secure := phoneCookieOf(p.tryPair(p.code(), "100.64.0.7"))
-	if secure.Name != "__Host-hand_phone" || !secure.Secure || !secure.HttpOnly || secure.SameSite != http.SameSiteStrictMode || secure.Path != "/" || secure.Domain != "" || secure.MaxAge != 90*24*3600 {
+	if secure.Name != "__Host-hand_phone" || !secure.Secure || !secure.HttpOnly || secure.SameSite != http.SameSiteLaxMode || secure.Path != "/" || secure.Domain != "" || secure.MaxAge != 90*24*3600 {
 		t.Fatalf("cookie through https = %+v", secure)
 	}
 	rec := p.do("POST", "/pair", url.Values{"code": {p.code()}}, nil, map[string]string{"X-Forwarded-For": "127.0.0.1"})
 	plain := phoneCookieOf(rec)
-	if plain == nil || plain.Name != "hand_phone" || plain.Secure || !plain.HttpOnly || plain.SameSite != http.SameSiteStrictMode || plain.Path != "/" || plain.MaxAge != 90*24*3600 {
+	if plain == nil || plain.Name != "hand_phone" || plain.Secure || !plain.HttpOnly || plain.SameSite != http.SameSiteLaxMode || plain.Path != "/" || plain.MaxAge != 90*24*3600 {
 		t.Fatalf("cookie over plain http = %+v", plain)
 	}
 	if strings.Contains(secure.Value, token) || strings.Contains(plain.Value, token) {

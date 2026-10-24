@@ -155,7 +155,7 @@ func phoneCookieName(id string, https bool) string {
 func (b *Board) phoneCookie(r *http.Request) string { return phoneCookieName(b.fleetID(), secure(r)) }
 
 func setPhoneCookie(w http.ResponseWriter, r *http.Request, id string, device int64, secret string) {
-	http.SetCookie(w, &http.Cookie{Name: phoneCookieName(id, secure(r)), Value: strconv.FormatInt(device, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: phoneCookieName(id, secure(r)), Value: strconv.FormatInt(device, 10) + "." + secret, Path: "/", MaxAge: int(phoneLife / time.Second), HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
 }
 
 func tailnetLogin(r *http.Request) string {
@@ -517,7 +517,7 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	delete(b.phones.seen, id)
 	b.phones.mu.Unlock()
 	if s.Device != nil {
-		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
 		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board on your laptop: Phone, in its menu.")
 		return
 	}

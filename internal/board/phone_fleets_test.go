@@ -230,7 +230,7 @@ func TestTwoFleetsPhoneCookiesCoexist(t *testing.T) {
 	p := newPhoneHost(t, true, "alpha", "bravo")
 	a, b := p.pair(p.fleets[0], op), p.pair(p.fleets[1], op)
 	for i, c := range []*http.Cookie{a, b} {
-		if c.Name != "__Host-hand_phone_"+p.fleets[i].id || c.Path != "/" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode {
+		if c.Name != "__Host-hand_phone_"+p.fleets[i].id || c.Path != "/" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
 			t.Fatalf("cookie %d = %+v", i, c)
 		}
 	}

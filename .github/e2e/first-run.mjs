@@ -144,7 +144,7 @@ async function board(box, srv, made) {
   equal(wrongCode.status, 403, 'a wrong code is refused');
   const paired = await phone.post(`/${id}/pair`, { code: code.toLowerCase(), name: 'E2E phone' });
   equal([paired.status, paired.location], [303, `/${id}/`], 'the right code pairs the phone and redirects to the fleet');
-  check(paired.cookies.some((c) => c.startsWith(`__Host-hand_phone_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c) && /Secure/i.test(c)), 'the phone gets its own HttpOnly, Secure, SameSite=Strict cookie');
+  check(paired.cookies.some((c) => c.startsWith(`__Host-hand_phone_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Lax/i.test(c) && /Secure/i.test(c)), 'the phone gets its own HttpOnly, Secure, SameSite=Lax cookie');
   check(!paired.cookies.some((c) => c.includes(fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim())), 'the phone never receives the fleet token');
   const reuse = await new Client(origin, proxy).post(`/${id}/pair`, { code, name: 'second phone' });
   equal(reuse.status, 403, 'the code works once');
