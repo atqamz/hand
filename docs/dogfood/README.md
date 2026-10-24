@@ -67,7 +67,7 @@ What stays manual, and is checked by the guides in this folder:
 - a systemd user session: CI runs the plain path, where Hand starts the board, the watcher and Luvus as detached processes;
 - a worker or supervisor session with a real model.
 
-To run a phase on your own machine, with Node 22 or newer, build the artifacts and run it from the repository root:
+To run a phase on your own machine you need Node 22 or newer. On Linux, macOS or Git Bash, build the artifacts and run it from the repository root:
 
 ```sh
 sh .github/scripts/e2e-dist.sh /tmp/hand-e2e/dist "$(git rev-parse HEAD)"
@@ -75,7 +75,16 @@ E2E_TMP=/tmp/hand-e2e node .github/e2e/install.mjs
 E2E_TMP=/tmp/hand-e2e node .github/e2e/first-run.mjs
 ```
 
-`smoke.mjs` needs Playwright (`npm install playwright@1.63.0` in `/tmp/hand-e2e/pw`, then `npx playwright install chromium`) and `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one. A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`. A `tailscale` on `PATH` that serves the Board changes the link `hand open --print` prints, so leave it off `E2E_PATH` too.
+On native Windows, with no `sh`, take the artifacts from a CI run instead of building them (they need `gh` signed in, and both Windows PowerShell 5.1 and PowerShell 7 on `PATH`), and run from the repository root in PowerShell:
+
+```powershell
+$Env:E2E_TMP = "$Env:TEMP\hand-e2e"
+gh run download RUN_ID --repo atqamz/hand --name e2e-dist --dir "$Env:E2E_TMP\dist"
+node .github/e2e/install.mjs
+node .github/e2e/first-run.mjs
+```
+
+The install phase changes your user `PATH` in the registry and puts it back when it ends. `smoke.mjs` needs Playwright: `npm install playwright@1.63.0` in `$E2E_TMP/pw` (`$Env:E2E_TMP\pw` in PowerShell), then `npx playwright install chromium` there. `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one (`E2E_PATH=... node ...` in `sh`, `$Env:E2E_PATH = ...` in PowerShell). A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`. A `tailscale` on `PATH` that serves the Board changes the link `hand open --print` prints, so leave it off `E2E_PATH` too.
 
 ## If a command in the guide is wrong
 

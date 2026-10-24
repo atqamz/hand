@@ -4,7 +4,7 @@ Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tes
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](../SECURITY.md) says.
 
-CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. A separate workflow, [`e2e-install.yaml`](dogfood/README.md#what-ci-covers-end-to-end), installs a build of the commit with the real installer on each of the three runners and uses it as a user does, with no harness installed. It gates every release. The Linux arm64 and Intel macOS builds are released but not run in CI.
+CI runs the tests on GitHub's latest Ubuntu (amd64), macOS (Apple silicon) and Windows Server (amd64) runners. Every job installs the tested Luvus and runs the `TestLive*` tests against it; the other tests use a fake one. A separate workflow, [`e2e-install.yaml`](dogfood/README.md#what-ci-covers-end-to-end), installs a build of the commit with the real installer on each of the three runners and uses it as a user does, with no harness installed. It gates every release: `release.yaml` runs it on the tag's own tree, with the tag's own scripts and end-to-end tests, so a manual release works only for a tag that carries them (v0.12.0 and later). An older tag has neither `.github/e2e` nor `.github/scripts`, and its behavior is not what the current tests assert, so attach binaries to such a tag by hand. The Linux arm64 and Intel macOS builds are released but not run in CI.
 
 In the table:
 - **daily**: a real Linux machine runs it every day, with the real Luvus and harnesses;
