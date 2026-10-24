@@ -59,6 +59,6 @@ FORM: The On-Call Board. It takes these raises:
 - from the folding sequence: every action leaves a recoverable trace, namely a receipt, a Hand line and a deep link back to the item;
 - from the cyclorama: state is never colour alone; every pill carries a word and an icon shape;
 Signature interaction: acknowledge in place. A pressed key or a sent answer collapses the item to "Sent 2 · waiting…" with its keys disabled, then resolves it into the conversation as a Hand line. A decision is answered from a choice list (numbered options with their consequences, one marked recommended, and a note), by pointer or by number key. Motion grammar: an arrival wash on new items, one accent working pulse, and the collapse on acknowledge; all of it stops under `prefers-reduced-motion`.
-Link rule: things open in a new tab, places navigate in place, and a draft in the composer survives navigation, new tabs and restarts.
+Link rule: things open in the viewer dialog, places navigate in place, outside links open in a new tab, and a draft in the composer survives navigation, the dialog, new tabs and restarts.
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
