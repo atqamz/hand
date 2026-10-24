@@ -72,8 +72,6 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return false, err
-	}
+	go func() { _ = cmd.Wait() }()
 	return true, s.await(ctx, "read "+s.log)
 }

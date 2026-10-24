@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,9 @@ func fakeWatch(home string) {
 	}
 	_, _ = started.WriteString("started\n")
 	_ = started.Close()
+	if err := os.WriteFile(filepath.Join(home, "watch.child"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		fakeExit(1, err.Error())
+	}
 	lock, err := os.OpenFile(filepath.Join(home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		fakeExit(1, err.Error())
