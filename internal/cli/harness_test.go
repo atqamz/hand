@@ -32,7 +32,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"fake": fakeMain, "lister": listerMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}

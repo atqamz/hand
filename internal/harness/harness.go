@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -149,7 +150,7 @@ func CheckPrompt(prompt string) error {
 	case strings.TrimSpace(prompt) == "":
 		return fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
 	case len(prompt) > MaxPromptBytes:
-		return fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument", state.ErrInvalid, len(prompt), MaxPromptBytes)
+		return fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument; shorten it, or write the long text to a file and make the prompt say to read that file", state.ErrInvalid, len(prompt), MaxPromptBytes)
 	case strings.HasPrefix(prompt, "-"):
 		return fmt.Errorf("%w: prompt must not start with '-', or the harness reads it as a flag", state.ErrInvalid)
 	case strings.ContainsRune(prompt, 0):
@@ -166,6 +167,17 @@ func checkDir(s Spec, dir string) error {
 }
 
 func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
+	argv, err := workerArgv(bin, s, prompt, dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkCommandLine(runtime.GOOS, argv); err != nil {
+		return nil, err
+	}
+	return argv, nil
+}
+
+func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
 	if err := CheckPrompt(prompt); err != nil {
 		return nil, err
 	}

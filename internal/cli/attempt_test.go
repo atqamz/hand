@@ -55,6 +55,23 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 	}
 }
 
+func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *testing.T) {
+	fx := newAttemptFixture(t)
+	long := filepath.Join(t.TempDir(), "long.md")
+	if err := os.WriteFile(long, []byte(strings.Repeat("Keep the quotes \"as is\".\n", 700)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", long, "t1")
+	for _, want := range []string{"luvus accepts at most 16384 per argument", "write the long text to a file and make the prompt say to read that file"} {
+		if code != 2 || !strings.Contains(errOut, want) {
+			t.Fatalf("code=%d stderr=%q, want exit 2 and %q", code, errOut, want)
+		}
+	}
+	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1") {
+		t.Fatalf("list = %q, want no attempt", list)
+	}
+}
+
 func TestAttemptStartRunsNoRepositoryHookAndCreatesWorktreesPrivate(t *testing.T) {
 	fx := newAttemptFixture(t)
 	hook := filepath.Join(fx.repo, ".git", "hooks", "post-checkout")

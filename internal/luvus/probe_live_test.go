@@ -100,4 +100,24 @@ func TestLiveProbeLimits(t *testing.T) {
 	for _, s := range []string{`say "hi"`, `100%`, `%PATH%`, `a & b`, `a | b`, `a ^ b`, `a < b > c`, `!x!`, `C:\dir\ "x"`, "tab\there", "emoji 🌊 é"} {
 		report("cmd shim "+fmt.Sprintf("%q", s), []string{shim, s})
 	}
+	comspec := os.Getenv("ComSpec")
+	for _, tc := range []struct {
+		name string
+		arg  string
+	}{
+		{"one line 8000", strings.ReplaceAll(word(8000), "\n", " ")},
+		{"one line 8300", strings.ReplaceAll(word(8300), "\n", " ")},
+		{"paragraphs 100", word(100)},
+	} {
+		ctx := context.Background()
+		term, err := c.Create(ctx, work, "hand-probe", []string{comspec, "/k", shim, tc.arg})
+		if err != nil {
+			t.Logf("PROBE screen %s: create refused %v", tc.name, err)
+			continue
+		}
+		time.Sleep(4 * time.Second)
+		screen, err := c.Read(ctx, term.PaneID, 60)
+		t.Logf("PROBE screen %s: %q err %v", tc.name, screen.Text, err)
+		_ = c.Close(ctx, term)
+	}
 }
