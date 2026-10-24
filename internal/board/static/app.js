@@ -659,7 +659,7 @@
 		if (posting && !tabled) return e.preventDefault();
 		if (!tabled && !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
-		if (form.dataset.busy) return;
+		if (form.hasAttribute("data-busy")) return;
 		const problem = form.querySelector(".form-error");
 		if (problem) problem.textContent = "";
 		if ("choose" in form.dataset && !choice(form) && !form.querySelector("textarea[name=answer]").value.trim()) {

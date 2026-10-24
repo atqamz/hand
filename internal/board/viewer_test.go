@@ -320,6 +320,7 @@ func TestTheViewerDialogPostsThroughItsTable(t *testing.T) {
 		`if (posting && !tabled) return e.preventDefault();`,
 		`if (!tabled && !form.hasAttribute("data-fetch")) return;`,
 		`if (posting) holding.add(action);`,
+		`if (form.hasAttribute("data-busy")) return;`,
 		"holding.delete(action);",
 		`for (const f of document.querySelectorAll("dialog.viewer form[data-busy]")) if (f.getAttribute("action") === action) unhold(f, f.querySelectorAll("button"));`,
 		`if (posting && e.submitter?.isConnected && !document.querySelector("dialog.viewer").contains(document.activeElement)) e.submitter.focus({ preventScroll: true });`,
@@ -352,7 +353,7 @@ func TestTheViewerDialogPostsThroughItsTable(t *testing.T) {
 	if n := strings.Count(block, "gate();"); n != 2 {
 		t.Errorf("the dialog draws its forms in %d places, want 2 (a new page and a refresh)", n)
 	}
-	lacks(t, "app.js", js, "freeze", "Answer this on the page", "Mark read on the page", "return e.preventDefault();\n\t\tif (!form.hasAttribute")
+	lacks(t, "app.js", js, "if (form.dataset.busy)", "freeze", "Answer this on the page", "Mark read on the page", "return e.preventDefault();\n\t\tif (!form.hasAttribute")
 }
 
 func TestTheViewerDialogKeepsTheDocKeys(t *testing.T) {
