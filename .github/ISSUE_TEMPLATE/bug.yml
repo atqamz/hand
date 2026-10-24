@@ -32,7 +32,7 @@ body:
       description: All of `hand version`, or the release you tried to install.
       render: text
       placeholder: |
-        version: 0.11.0
+        version: 0.12.0
         channel: stable
         commit: 0123456789ab
         schema: 10
