@@ -644,6 +644,34 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 	}
 }
 
+func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	grace := *cli.TrustGrace
+	*cli.TrustGrace = time.Second
+	t.Cleanup(func() { *cli.TrustGrace = grace })
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screens, rt.screen, rt.revision, rt.keyScreens = []string{"Claude Code v2.1.309\n", "Claude Code v2.1.309\n"}, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
+	fx := claudeFixture(t)
+	grace := *cli.TrustGrace
+	*cli.TrustGrace = 400 * time.Millisecond
+	t.Cleanup(func() { *cli.TrustGrace = grace })
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "Claude Code v2.1.309\n❯ \n" })
+	start := time.Now()
+	out := fx.start()
+	if !strings.Contains(out, "trust: not asked") || len(fx.rt.keysSent()) != 0 || time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("start = %q after %s, keys = %q", out, time.Since(start), fx.rt.keysSent())
+	}
+}
+
 func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
 	fx := claudeFixture(t)
 	wt := fx.h.worktree("t1-a1")

@@ -5,6 +5,7 @@ var (
 	WakeDigest    = wakeDigest
 	TrustWait     = &trustWait
 	TrustConfirm  = &trustConfirm
+	TrustGrace    = &trustGrace
 	SubmitConfirm = &submitConfirm
 	ServerMatch   = serverMatch
 	NotifyArgv    = notifyArgv

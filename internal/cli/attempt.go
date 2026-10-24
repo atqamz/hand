@@ -178,7 +178,7 @@ const (
 	submitTries = 3
 )
 
-var trustWait, trustConfirm, submitConfirm = 15 * time.Second, 5 * time.Second, 5 * time.Second
+var trustWait, trustConfirm, trustGrace, submitConfirm = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
@@ -403,6 +403,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	seen, last := false, int64(-1)
+	var quietAt time.Time
 	for retried := false; ; {
 		s, err := c.Read(wait, pane, 60)
 		screen, asked := askedScreen(screens, s.Text)
@@ -419,7 +420,6 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 		case luvus.Code(err) != "":
 			return missed(harness, seen, pressed)
 		case ready && len(pressed) == 0 && !stable:
-			// Claude drops keys sent before it reads input; wait for a frame that stays.
 		case ready:
 			folder, shown, noted := screen.names(s.Text)
 			matched := slices.IndexFunc(repos, func(r string) bool { return screen.same(shown, r) })
@@ -446,8 +446,13 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 			retried = true
 			continue
 		}
-		if !asked && strings.TrimSpace(s.Text) != "" {
-			if ag, err := c.Explain(wait, pane); err == nil && ag.Status == "working" {
+		if asked || strings.TrimSpace(s.Text) == "" {
+			quietAt = time.Time{}
+		} else if quietAt.IsZero() {
+			quietAt = time.Now()
+		}
+		if !quietAt.IsZero() && time.Since(quietAt) >= trustGrace {
+			if ag, err := c.Explain(wait, pane); err == nil && slices.Contains([]string{"working", "idle", "done"}, ag.Status) {
 				return missed(harness, seen, pressed)
 			}
 		}

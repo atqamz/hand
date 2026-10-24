@@ -18,6 +18,7 @@ import (
 
 func TestMain(m *testing.M) {
 	fakebin.Main(fakeBehaviors())
+	*cli.TrustGrace = 0
 	if len(os.Args) > 2 && os.Args[1] == "board" && os.Getenv("HAND_TEST_REAL_BOARD") != "" {
 		realBoard()
 	}
