@@ -1,0 +1,168 @@
+name: E2E harness
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Harness versions to install, pinned in .github/e2e/versions.env or the latest releases.
+        type: choice
+        options: [pinned, latest]
+        default: pinned
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_call:
+    inputs:
+      versions:
+        description: Harness versions to install, pinned in .github/e2e/versions.env or the latest releases.
+        type: string
+        default: pinned
+  pull_request:
+    paths:
+      - internal/harness/**
+      - internal/luvus/**
+      - internal/cli/attempt*.go
+      - internal/cli/supervisor*.go
+      - internal/e2e/**
+      - .github/e2e/versions.env
+      - .github/e2e/install-*.sh
+      - .github/workflows/e2e-harness.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-harness-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  e2e:
+    name: ${{ matrix.harness }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        harness: [claude, codex]
+        experimental: [false]
+        include:
+          - harness: claude
+            tests: ^TestClaude
+          - harness: codex
+            tests: ^TestCodex
+    env:
+      VERSIONS: ${{ inputs.versions || (github.event_name == 'schedule' && 'latest' || 'pinned') }}
+      HAND_E2E: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Pick the harness versions
+        shell: bash
+        run: |
+          set -eu
+          {
+            cat .github/e2e/versions.env
+            echo "HAND_E2E_ARTIFACTS=$RUNNER_TEMP/e2e-artifacts"
+            echo "LUVUS_DIR=$RUNNER_TEMP/luvus"
+            echo "CODEX_DIR=$RUNNER_TEMP/codex"
+          } >> "$GITHUB_ENV"
+          if [ "$VERSIONS" = latest ]; then
+            echo "CLAUDE_VERSION=latest" >> "$GITHUB_ENV"
+            echo "CODEX_VERSION=latest" >> "$GITHUB_ENV"
+          fi
+      - name: Cache Luvus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/luvus
+          key: e2e-luvus-${{ runner.os }}-${{ hashFiles('internal/luvus/pin.go') }}
+      - name: Install Luvus
+        shell: bash
+        run: .github/e2e/install-luvus.sh
+      - name: Cache ${{ matrix.harness }}
+        if: env.VERSIONS == 'pinned'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/codex
+            ~/.local/bin/claude
+            ~/.local/bin/claude.exe
+            ~/.local/share/claude
+          key: e2e-${{ matrix.harness }}-${{ runner.os }}-${{ hashFiles('.github/e2e/versions.env', '.github/e2e/install-*.sh') }}
+      - name: Install Claude Code
+        if: matrix.harness == 'claude'
+        shell: bash
+        run: |
+          set -eu
+          .github/e2e/install-claude.sh "$CLAUDE_VERSION"
+          if [ "$RUNNER_OS" = Windows ]; then
+            ls -l "/c/Program Files/Git/bin/bash.exe"
+          fi
+      - name: Install Codex
+        if: matrix.harness == 'codex'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/e2e/install-codex.sh "$CODEX_VERSION"
+      - name: Show the harness binary
+        shell: bash
+        run: |
+          set -eu
+          if [ "${{ matrix.harness }}" = claude ]; then
+            command -v claude
+            claude --version
+          else
+            command -v codex
+            codex --version
+          fi
+          luvus --version
+          git --version
+      - name: Run the ${{ matrix.harness }} scenarios
+        shell: bash
+        run: |
+          set -eu -o pipefail
+          case "$RUNNER_OS" in
+            macOS) export TMPDIR=/private/tmp ;;
+            Windows) export TMP="$RUNNER_TEMP" TEMP="$RUNNER_TEMP" ;;
+          esac
+          mkdir -p "$HAND_E2E_ARTIFACTS"
+          go test -count=1 -v -timeout 25m -run '${{ matrix.tests }}' ./internal/e2e/ 2>&1 | tee "$HAND_E2E_ARTIFACTS/go-test.log"
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.harness }} on ${{ matrix.os }} (${VERSIONS} versions)"
+            echo
+            if [ "${{ matrix.harness }}" = claude ]; then
+              echo "- Claude Code: $(claude --version 2>&1 | head -n 1)"
+            else
+              echo "- Codex: $(codex --version 2>&1 | head -n 1)"
+            fi
+            echo "- Luvus: $(luvus --version 2>&1 | head -n 1)"
+            echo
+            echo '```'
+            grep -hE '^(--- |ok|FAIL|PASS)' "$HAND_E2E_ARTIFACTS"/go-test*.log 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-${{ matrix.harness }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/e2e-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+
+  result:
+    name: e2e harness
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: test "${{ needs.e2e.result }}" = success
