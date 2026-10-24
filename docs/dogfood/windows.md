@@ -76,7 +76,7 @@ Get-Command luvus -All -ErrorAction SilentlyContinue | Select-Object Source
 
 The last command should print nothing. If it prints a path, `hand init` will pin that copy instead of downloading one, and the download is not tested: write `download not tested, luvus.exe on PATH` in the run issue, and go on. Do not change your `PATH` to hide it, because its folder may also hold tools that you need.
 
-**3.** Write the environment file, and load it. Load it again at the start of every new shell. `Redact` removes your names, and `Ev ID` redacts and saves what a command prints to `$D\evidence\ID.txt`:
+**3.** Write the environment file, and load it. Load it again at the start of every new shell. `Redact` removes your names, `Toon` turns a value that `hand` prints as a quoted TOON string back into plain text, and `Ev ID` redacts and saves what a command prints to `$D\evidence\ID.txt`:
 
 ```powershell
 @"
@@ -86,6 +86,7 @@ The last command should print nothing. If it prints a path, `hand init` will pin
 `$env:Path = "`$D\bin;`$env:Path"
 if (Test-Path "`$D\vars.ps1") { . "`$D\vars.ps1" }
 function Redact { process { ("`$_" -replace [regex]::Escape(`$env:USERPROFILE), '<home>' -replace [regex]::Escape(`$env:USERNAME), '<user>' -replace [regex]::Escape(`$env:COMPUTERNAME), '<machine>' -replace 'token=[A-Za-z0-9._~-]+', 'token=<token>' -replace 'gh[pousr]_[A-Za-z0-9]{20,}', '<token>') } }
+function Toon([string]`$v) { if (`$v.Length -ge 2 -and `$v.StartsWith('"') -and `$v.EndsWith('"')) { `$v.Substring(1, `$v.Length - 2) -replace '\\([\\"])', '`$1' } else { `$v } }
 function Ev([string]`$Id) { `$input | Redact | Tee-Object -FilePath "`$D\evidence\`$Id.txt" -Append }
 function Find-Ping { Get-CimInstance Win32_Process -Filter "Name = 'ping.exe'" | Where-Object { `$_.CommandLine -like '*-n 1234*' } | Select-Object ProcessId, ParentProcessId }
 "@ | Set-Content -Path "$D\env.ps1"
@@ -95,6 +96,8 @@ function Find-Ping { Get-CimInstance Win32_Process -Filter "Name = 'ping.exe'" |
 A user name that is a common word also changes that word in the output: read the redacted text before you post it.
 
 Many agent harnesses start a new shell for every command, so a value that a step sets (`$t`, `$a`, `$cur`, `$wt`, `$deep`) is also appended to `$D\vars.ps1`, which `env.ps1` loads. Start every block, and every Evidence command, with `. "$D\env.ps1"; Set-Location "$D\fleet"`.
+
+`hand` prints a Windows path as a quoted TOON string with doubled backslashes (`worktree: "C:\\Users\\me\\t1-a1"`), because every such path has a colon. A path without a colon, such as a `\\server\share` one, is printed as it is. Pass every path that you capture from `hand` through `Toon`; ids and numbers need nothing.
 
 **4.** **Run B only:** take Git Bash out of every shell that loads `env.ps1`. Unzip a MinGit 64-bit zip (not the busybox one; it comes from the Git for Windows project's release page) into `$D\mingit`, then (`unverified`: it assumes that MinGit has no `bash.exe`):
 
@@ -143,7 +146,7 @@ Copy-Item "$D\fleet\hand.db" "$D\hand.db.backup"
 Set-Content -Path "$D\fleet\routing.json" -Encoding ascii -Value '{"profiles":{"cheap":{"harness":"claude","model":"haiku","effort":"low"}}}'
 hand route list | Select-Object -First 3
 $fid = (Get-ChildItem "$env:SECONDHAND_HOME\fleets").Name
-$luvus = (hand luvus show | Select-String '^pin: \S+ (.*)$').Matches[0].Groups[1].Value
+$luvus = (Toon (hand luvus show | Select-String '^pin: (.*)$').Matches[0].Groups[1].Value) -replace '^\S+ '
 Add-Content "$D\env.ps1" "`$fid = '$fid'`n`$luvus = '$luvus'"
 . "$D\env.ps1"; hand fleet list
 ```
@@ -152,7 +155,7 @@ Add-Content "$D\env.ps1" "`$fid = '$fid'`n`$luvus = '$luvus'"
 
 Expected:
 - the install prints `installed hand version: 0.11.0 to ...\bin\hand.exe` (the version can be newer), and `(Get-Command hand).Source` is that path;
-- `hand init` prints `created: true` and a `luvus: pinned 0.14.3 (...)` line: when no `luvus.exe` was on `PATH`, it downloaded and pinned the tested Luvus, and the pinned file is under `$D\home\luvus`;
+- `hand init` prints `created: true` and a `luvus:` line. With no `luvus.exe` on `PATH` it reads `"downloaded and pinned 0.14.3 (...)"`, and the pinned file is under `$D\home\luvus`; with one on `PATH` it reads `"pinned 0.14.3 (...)"`. Both are quoted, with doubled backslashes;
 - `hand fleet list` shows exactly one fleet, whose home is under the temporary folder, with state `ok`;
 - `hand route list` shows `cheap,claude,haiku,low,yes`;
 - the answer is no.
@@ -184,7 +187,7 @@ Get-ChildItem "$env:LUVUS_HOME\sessions\secondhand-$fid"
 ```
 
 Expected:
-- `hand supervisor start` prints `supervisor: s1`, `status: running`, `trust: accepted` and `prompt: submitted` (`trust: not asked` is also fine if Claude Code did not ask);
+- `hand supervisor start` prints `supervisor: s1`, `status: running` and `trust: accepted` (`trust: not asked` is also fine if Claude Code did not ask), and no `prompt:` line, which only an opencode start prints;
 - `hand supervisor show` prints an `agent:` of `idle`, `working` or `done`, never `blocked`;
 - `hand orient` prints `supervisor: s1 claude running` and `watch: running`;
 - `hand luvus show` prints `match: yes`;
@@ -256,7 +259,7 @@ $cur = (hand orient | Select-String '^cursor: (\d+)').Matches[0].Groups[1].Value
 $out = hand attempt start --profile cheap --prompt-file "$D\brief.md" $t
 $out
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
-$wt = ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value
+$wt = Toon ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'`n`$cur = '$cur'`n`$wt = '$wt'"
 ```
 
@@ -460,7 +463,7 @@ hand attempt show $a
 
 ```powershell
 . "$D\env.ps1"; Set-Location "$D\fleet"
-$wt = (hand attempt show $a | Select-String '^worktree: (.+)$').Matches[0].Groups[1].Value
+$wt = Toon (hand attempt show $a | Select-String '^worktree: (.+)$').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$wt = '$wt'"
 Get-Content "$wt\head.txt", "$wt\tail.txt"
 git -C $wt log --oneline -1
@@ -696,7 +699,7 @@ hand task start $t
 $out = hand attempt start --profile cheap --prompt-file "$D\brief9.md" $t
 $a = ($out | Select-String '^attempt: (\S+)').Matches[0].Groups[1].Value
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
-($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value.Length + $deep.Length + 1
+(Toon ($out | Select-String '^worktree: (.*)$').Matches[0].Groups[1].Value).Length + $deep.Length + 1
 hand wait --timeout 8m
 ```
 
