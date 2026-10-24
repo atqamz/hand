@@ -4,6 +4,8 @@ Linux without a systemd user session, such as a plain SSH login to a server or a
 
 Nobody has run these commands in a dogfood run before the first one. A command marked `unverified` may be wrong. A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
+CI runs the real `claude` and `codex` against a mock model on Linux ([End-to-end tests](../e2e.md)): the trust screens, a worker's report, the keys, the briefing. `L1` and `L2` still matter for a host without a user session, a real login and a real model.
+
 In each check, **Run** says whether an agent can run it to the end (`agent`) or it ends in a question that only a person at the screen can answer (`needs human`). **Real sessions** counts the Claude Code sessions it starts on your account.
 
 ## Which machine

@@ -9,6 +9,10 @@ This page is the path for a coding agent that its owner runs on their own machin
 - To stay near the screen: checks marked `needs human` end with a question that only a person can answer.
 - Tokens: the checks start real worker sessions on the owner's account, and this repository does not measure the cost.
 
+## What CI already proves
+
+CI starts the real `claude` and `codex` against a mock model on Linux, macOS and Windows ([End-to-end tests](../e2e.md)). It proves, with the real binaries and the real Luvus: the trust screens are answered for the worker's own worktree (Claude Code's and Codex's) and for the supervisor's folder (Claude Code's; a Codex supervisor reports `accepted` or `not asked`, because Codex shows no screen for a folder that is no repository), a harness started as `claude.exe` or `codex.exe` accepts Hand's keys, the 15 KB briefing reaches the model unchanged, a worker's report arrives, `attempt stop` and `attempt clean` work, and Hand refuses a `codex.cmd`. A run of this guide therefore spends its real sessions on what CI cannot see: a real login and account, what a real model does with a briefing, usage limits, windows, notifications, the browser, a phone, and everything that differs on a real user profile. Where a check below repeats something CI proves, say in the evidence whether this machine behaved the same.
+
 ## The prompt
 
 Copy this block into the agent:

@@ -4,6 +4,8 @@ Windows 10 or 11, amd64, in an account without admin rights. The shell is PowerS
 
 Nobody has run these commands on a real Windows machine before the first dogfood run. A command marked `unverified` may be wrong. A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
+CI runs the real `claude.exe` and `codex.exe` against a mock model on Windows ([End-to-end tests](../e2e.md)): the trust screens, keys after a process scan, the 15 KB briefing, a worker's report, and the refusal of a `codex.cmd`. `W1`, `W3`, `W4a` and `W4b` still matter for a real login, a real model, a user profile with a space or a non-ASCII letter, and Windows Terminal.
+
 In each check, **Run** says whether an agent can run it to the end (`agent`) or it ends in a question that only a person at the screen can answer (`needs human`). **Real sessions** counts the Claude Code sessions it starts on your account.
 
 ## Two runs: with and without Git Bash

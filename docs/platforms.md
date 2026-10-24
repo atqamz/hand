@@ -12,6 +12,7 @@ In the table:
 - **CI**: CI runs it on that OS, with the real system calls;
 - **CI, fake**: CI runs it on that OS, but a fake stands in for the harness, Luvus, the release server, the browser, the notifier or the watcher and board processes;
 - **CI e2e**: the end-to-end workflow runs it on that OS through the installed binary of a release build, as a user would: the real installer, the real Luvus, the Board over HTTP and in Chromium, and the previous release's own `hand update`; only the harness is missing or a stand-in;
+- **CI, real harness**: CI starts the real `claude` or `codex` binary against a mock model server ([End-to-end tests](e2e.md)). The terminal screens, the trust screens, Luvus's recognition of the agent, and Hand's keys and prompts are real; the model is not, and no account is involved;
 - **real Mac (#895)**: it ran on a real Mac (macOS 26.5.1, Apple silicon) in the first dogfood run, the issue linked. *Stand-in claude*: a script stood in for `claude`, so the run covers Hand's own processes and panes but not the real worker path;
 - **not run**: the code exists but has never run on that OS;
 - **no**: not supported.
@@ -22,15 +23,17 @@ In the table:
 | `hand init` and the Luvus pin | daily, CI e2e | real Mac (#895), CI e2e | CI e2e |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
-| Start claude, and accept its trust screen | daily | CI, fake | CI, fake |
-| Start codex or agy | real | CI, fake | CI, fake |
-| Accept Codex's trust screens for its own worktree and project | CI, fake | CI, fake | CI, fake |
+| Start claude, and accept its trust screen | daily; CI, real harness | CI, real harness | CI, real harness |
+| Start codex or agy | real; codex: CI, real harness | codex: CI, real harness; agy: CI, fake | codex: CI, real harness; agy: CI, fake |
+| Accept Codex's trust screens for its own worktree and project | CI, real harness | CI, real harness | CI, real harness |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Hand refuses a harness found only as a `.cmd` or `.bat`, and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
-| A worker reports through the footer | daily | CI, fake | CI, fake |
-| Stop a worker | daily | real Mac (#895), stand-in claude | CI |
+| A worker reports through the footer | daily; CI, real harness | CI, real harness | CI, real harness |
+| A 15 KB briefing reaches the real harness unchanged | CI, real harness | CI, real harness | CI, real harness |
+| A wake reaches the supervisor's harness and is answered | CI, real harness | CI, real harness | CI, real harness: Hand presses Enter for Codex and types the text into Claude Code where Luvus will not prompt |
+| Stop a worker | daily; CI, real harness | real Mac (#895), stand-in claude; CI, real harness | CI, real harness |
 | `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | real Mac (#895) | CI, fake |
 | `hand update` | daily, CI e2e from v0.11.0 | real Mac (#895) and CI e2e, from v0.11.0 | CI e2e from v0.11.0, the running executable renamed to `hand.exe.old` |
@@ -47,7 +50,7 @@ In the table:
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 
-The two `.exe` rows prove Hand's side: that the lookup picks a `.exe` over a `.cmd` and names the shim it refuses (temporary `PATH` folders with files of those names), and that real Luvus refuses a key to a fake `codex.exe` until Hand has asked it for a process scan, and accepts it after. They do not prove that the real Codex, Claude Code or an npm shim behave the same, what `cmd.exe` does with a shim, or Codex's trust screens: [`docs/dogfood/windows.md`](dogfood/windows.md) `W4` checks those on a real machine. The prompt row proves that real Luvus hands a fake `codex.exe` the exact bytes of prompts of the sampled sizes from 1 byte to 16 KiB, with quotes, backslashes, `%VAR%`, `&`, Unicode and CRLF, for a worker and a supervisor, and that `hand attempt start` passes a representative brief whole; what the real Codex does with it is `W4c`.
+The two `.exe` rows prove Hand's side: that the lookup picks a `.exe` over a `.cmd` and names the shim it refuses (temporary `PATH` folders with files of those names), and that real Luvus refuses a key to a fake `codex.exe` until Hand has asked it for a process scan, and accepts it after. The real `claude.exe` and `codex.exe` run in the [end-to-end tests](e2e.md). Those do not prove what `cmd.exe` does with a real npm shim ([`docs/dogfood/windows.md`](dogfood/windows.md) `W4b` checks Hand's refusal with a stand-in), or anything that depends on a user profile with a space or a non-ASCII letter (`W11` checks a temporary folder with both). The prompt row proves that real Luvus hands a fake `codex.exe` the exact bytes of prompts of the sampled sizes from 1 byte to 16 KiB, with quotes, backslashes, `%VAR%`, `&`, Unicode and CRLF, for a worker and a supervisor, and that `hand attempt start` passes a representative brief whole; the end-to-end tests show the real `claude.exe` and `codex.exe` receiving a 15 KB brief of that kind unchanged, and `W4c` checks the real Codex on a real machine.
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 

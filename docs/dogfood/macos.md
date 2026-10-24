@@ -4,6 +4,8 @@ Apple silicon only: `uname -m` prints `arm64`. Intel is not tested here. The she
 
 One real Mac has run these commands (#895). A command that fails for a reason that is not Hand is a guide bug: file it as `<ID>: guide command fails`.
 
+CI runs the real `claude` and `codex` against a mock model on macOS ([End-to-end tests](../e2e.md)): the trust screens, a worker's report, the keys, the briefing. `M1`, `M2` and `M6` still matter for a real login, a real model, the keychain and everything that a CI runner does not have.
+
 In each check, **Run** says whether an agent can run it to the end (`agent`) or it ends in a question that only a person at the screen can answer (`needs human`). **Real sessions** counts the Claude Code sessions it starts on your account.
 
 ## Checks
