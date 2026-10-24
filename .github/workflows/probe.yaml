@@ -39,7 +39,7 @@ jobs:
           sha256sum -c "$name.sha256"
           unzip -q "$name.zip"
           cygpath -w "$dir" >> "$GITHUB_PATH"
-      - run: go test -count=1 -v -timeout 20m -run '^(TestLiveProbeLimits|TestLiveAPromptReachesAnExeIntact)$' ./internal/luvus
+      - run: go test -count=1 -v -timeout 20m -run '^(TestLiveProbeLimits|TestLiveProbeCmdExit|TestLiveAPromptReachesAnExeIntact)$' ./internal/luvus
         env:
           HAND_LUVUS_IT: "1"
           TMP: ${{ runner.temp }}
