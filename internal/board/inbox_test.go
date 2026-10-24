@@ -490,7 +490,7 @@ func TestTheTextBoxHoldsOnlyTheOperatorsProse(t *testing.T) {
 func TestASuccessfulSendDropsTheFilesItCarriedEvenWhenTheBoxWasEdited(t *testing.T) {
 	js := asset(t, "app.js")
 	success, failure, _ := strings.Cut(js, "if (res.status === 409")
-	i := strings.Index(success, `if (box && !edited) forget(box);`)
+	i := strings.Index(success, `if (box && !edited) forget(box, noteKey);`)
 	sent := strings.Index(success, `if (form.id === "composer") form.dispatchEvent(new Event("sent"));`)
 	if i < 0 || sent < i || strings.Contains(failure[:strings.Index(failure, "});")], `new Event("sent")`) {
 		t.Fatal("only a successful send, edited or not, may tell the composer which files went")

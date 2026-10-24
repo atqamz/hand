@@ -218,7 +218,7 @@ func TestTheChoiceListIsDrivenFromTheKeyboardAndKeepsItsState(t *testing.T) {
 		`e.detail > 0 && e.target instanceof HTMLInputElement && e.target.hasAttribute("data-other")`,
 		`addEventListener("pageshow", () => {`, `const fields = "textarea, select, input:not([type=hidden]):not([type=radio])";`, `input[type=radio]:checked`, `if (picked.has(`, `otherwise(f);`,
 		`(form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id`, `data.get("choice")?.split(".")[0] || "answer"`,
-		`complain(form, "Pick an option or write an answer.");`, `if (res.status === 409 && form.matches(".answer")) {`, `.querySelector(".answered-block")`, "form.replaceWith(next);", `document.querySelector(".thread-head .status")?.replaceWith(status);`, "local(next);",
+		`complain(form, "Pick an option or write an answer.");`, `if (res.status === 409 && form.matches(".answer") && !posting) {`, `.querySelector(".answered-block")`, "form.replaceWith(next);", `document.querySelector(".thread-head .status")?.replaceWith(status);`, "local(next);",
 		`const out = form.matches(".answer") && form.querySelector(".form-error");`)
 	lacks(t, "app.js", js, "data-fill", "button[data-fill]")
 }

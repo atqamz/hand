@@ -17,9 +17,9 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 		"localStorage.getItem(key)",
 		"Date.now() - d.at < draftTtl",
 		"if (raw !== null && !d) localStorage.removeItem(key);",
-		"`${draftPrefix}.${m[1]}`",
+		"`${draftPrefix}.${f.closest(\"dialog.viewer\") ? \"dialog:\" : \"\"}${m[1]}`",
 		`/\/decision\/([^/]+)\/answer$/`,
-		`const draftFields = "#composer-text, form.answer textarea[name=answer]:not(dialog *)";`,
+		`const draftFields = "#composer-text, form.answer textarea[name=answer]";`,
 		`restore(document);`,
 		`restore(el);`,
 		`if (!key || f.value) continue;`,
@@ -38,12 +38,28 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 		`const box = form.matches("#composer, .answer") && form.querySelector("textarea");`,
 		"const typed = box?.value;",
 		`if (form.id === "composer" && !edited) form.reset();`,
-		"if (box && !edited) forget(box);")
+		"if (box && !edited) forget(box, noteKey);")
 	lacks(t, "app.js", js, "sessionStorage", "kept(")
 	success, failure, _ := strings.Cut(js, "if (res.status === 409")
-	if !strings.Contains(success, "if (box && !edited) forget(box);") || strings.Contains(failure, "forget(") {
+	if !strings.Contains(success, "if (box && !edited) forget(box, noteKey);") || strings.Contains(failure, "forget(") {
 		t.Fatal("the draft must clear only on a successful send or answer, never on a failed one")
 	}
+}
+
+func TestTheDialogAnswerBoxKeepsItsOwnDraft(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		"return m ? `${draftPrefix}.${f.closest(\"dialog.viewer\") ? \"dialog:\" : \"\"}${m[1]}` : \"\";",
+		"const forget = (f, key = fieldKey(f)) => {",
+		"const noteKey = box ? fieldKey(box) : \"\";",
+		"const shelve = () => {\n\t\t\tfor (const f of pane.querySelectorAll(draftFields)) save(f);\n\t\t};",
+		"const ours = (key) => [draftPrefix, filesPrefix].some((p) => key === p || key.startsWith(`${p}.`));")
+	block := dialogBlock(t, js)
+	contains(t, "dialog block", block, "local(pane);\n\t\t\trestore(pane);")
+	if n := strings.Count(block, "shelve();"); n != 2 {
+		t.Errorf("the dialog saves its box in %d places, want 2 (before a new page replaces it and when the dialog closes)", n)
+	}
+	lacks(t, "app.js", js, ":not(dialog *)")
 }
 
 func TestAttachedFilesAreKeptAsReferencesBesideTheDraft(t *testing.T) {

@@ -28,7 +28,7 @@
 		new ResizeObserver(() => document.documentElement.style.setProperty("--mast", `${masthead.getBoundingClientRect().height}px`)).observe(masthead);
 	}
 	const draftPrefix = `hand.draft.${base.slice(1)}`;
-	const draftFields = "#composer-text, form.answer textarea[name=answer]:not(dialog *)";
+	const draftFields = "#composer-text, form.answer textarea[name=answer]";
 	const draftTtl = 30 * 24 * 3600 * 1000;
 	const draftMax = 200000;
 	const draftNote = document.querySelector(".draft-note");
@@ -36,7 +36,7 @@
 	const fieldKey = (f) => {
 		if (f.id === "composer-text") return draftPrefix;
 		const m = f.matches("form.answer textarea[name=answer]") && /\/decision\/([^/]+)\/answer$/.exec(f.form.getAttribute("action") || "");
-		return m ? `${draftPrefix}.${m[1]}` : "";
+		return m ? `${draftPrefix}.${f.closest("dialog.viewer") ? "dialog:" : ""}${m[1]}` : "";
 	};
 	const filesPrefix = `hand.files.${base.slice(1)}`;
 	const filesKey = (key) => filesPrefix + key.slice(draftPrefix.length);
@@ -95,8 +95,7 @@
 	const flush = () => {
 		for (const f of document.querySelectorAll(draftFields)) save(f);
 	};
-	const forget = (f) => {
-		const key = fieldKey(f);
+	const forget = (f, key = fieldKey(f)) => {
 		if (!key) return;
 		stash(key, "");
 		stash(filesKey(key), "");
@@ -629,6 +628,15 @@
 		}, ms);
 	};
 
+	const dialogPost = /\/(?:decision\/d\d+\/answer|report\/r\d+\/ack)$/;
+	const holding = new Set();
+	let sync = () => {};
+	const unhold = (f, buttons) => {
+		delete f.dataset.busy;
+		f.removeAttribute("aria-busy");
+		for (const b of buttons) b.disabled = false;
+	};
+
 	const complain = (form, msg) => {
 		const out = form.matches(".answer") && form.querySelector(".form-error");
 		if (out) out.textContent = msg;
@@ -646,8 +654,10 @@
 	document.addEventListener("submit", async (e) => {
 		const form = e.target;
 		if (!(form instanceof HTMLFormElement)) return;
-		if (form.method === "post" && form.closest("dialog.viewer")) return e.preventDefault();
-		if (!form.hasAttribute("data-fetch")) return;
+		const posting = form.method === "post" && !!form.closest("dialog.viewer");
+		const tabled = posting && dialogPost.test(form.getAttribute("action") || "");
+		if (posting && !tabled) return e.preventDefault();
+		if (!tabled && !form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		const problem = form.querySelector(".form-error");
@@ -676,9 +686,11 @@
 		}
 		if ("armed" in form.dataset) disarm(action);
 		form.dataset.busy = "";
+		if (posting) holding.add(action);
 		const data = new URLSearchParams(new FormData(form, e.submitter));
 		const box = form.matches("#composer, .answer") && form.querySelector("textarea");
 		const typed = box?.value;
+		const noteKey = box ? fieldKey(box) : "";
 		form.setAttribute("aria-busy", "true");
 		const buttons = [...form.querySelectorAll("button")].filter((b) => !b.disabled);
 		for (const b of buttons) b.disabled = true;
@@ -688,11 +700,14 @@
 		try {
 			res = await fetch(form.action, { method: "POST", body: data, redirect: "manual", credentials: "same-origin", headers: { "X-Hand-Fetch": "1" } }).catch(() => null);
 		} finally {
-			delete form.dataset.busy;
-			form.removeAttribute("aria-busy");
-			for (const b of buttons) b.disabled = false;
+			unhold(form, buttons);
 			if (label) primary.textContent = label;
+			if (posting) {
+				holding.delete(action);
+				for (const f of document.querySelectorAll("dialog.viewer form[data-busy]")) if (f.getAttribute("action") === action) unhold(f, f.querySelectorAll("button"));
+			}
 		}
+		if (posting && e.submitter?.isConnected && !document.querySelector("dialog.viewer").contains(document.activeElement)) e.submitter.focus({ preventScroll: true });
 		for (const el of regions.values()) if (el.contains(document.activeElement)) document.activeElement.blur();
 		if (!res) {
 			complain(form, "The board did not answer; check that hand board is running.");
@@ -701,7 +716,7 @@
 		if (res.type === "opaqueredirect" || res.ok) {
 			const edited = box && box.value !== typed;
 			if (form.id === "composer" && !edited) form.reset();
-			if (box && !edited) forget(box);
+			if (box && !edited) forget(box, noteKey);
 			if (form.id === "composer") form.dispatchEvent(new Event("sent"));
 			const id = (form.action.endsWith("/keys") || form.action.endsWith("/answer")) && form.closest("details.wait")?.id;
 			if (id) {
@@ -710,7 +725,8 @@
 				collapse(document.getElementById(id));
 			}
 			if (form.closest("details.menu")) closeMenus(null);
-			if (regions.size === 0) location.reload();
+			if (posting) document.querySelector("dialog.viewer").dispatchEvent(new Event("posted"));
+			else if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
 			const warn = header(res, "X-Hand-Warn");
 			if (warn) show(receipt ? `${receipt} ${warn}` : warn, 12000, "warn");
@@ -718,7 +734,7 @@
 			else show("", 0);
 			return;
 		}
-		if (res.status === 409 && form.matches(".answer")) {
+		if (res.status === 409 && form.matches(".answer") && !posting) {
 			const doc = new DOMParser().parseFromString(await res.text(), "text/html");
 			const next = doc.querySelector(".answered-block");
 			if (next) {
@@ -730,6 +746,7 @@
 			}
 		}
 		complain(form, header(res, "X-Hand-Error") || `${res.status} ${res.statusText}`);
+		if (posting && res.status === 409 && !form.matches(".answer")) document.querySelector("dialog.viewer").dispatchEvent(new Event("posted"));
 	});
 
 	addEventListener("pageshow", () => {
@@ -1274,6 +1291,7 @@
 		let seq = 0;
 		let polling = 0;
 		let pulling = false;
+		let pulls = 0;
 		const session = Math.random().toString(36).slice(2);
 		const mine = (s) => !!s?.viewer && s.token === session;
 		const depth = () => (mine(history.state) ? history.state.depth : 0);
@@ -1299,10 +1317,17 @@
 			p.append("The Board did not answer; check that hand board is running. ", again);
 			return p;
 		};
-		const freeze = () => {
+		const gate = () => {
 			const forms = [...pane.querySelectorAll("form")].filter((f) => f.method === "post");
-			for (const f of forms) for (const c of f.elements) c.disabled = true;
-			if (!forms.length) return;
+			const frozen = forms.filter((f) => !dialogPost.test(f.getAttribute("action") || ""));
+			for (const f of frozen) for (const c of f.elements) c.disabled = true;
+			for (const f of forms) {
+				if (!holding.has(f.getAttribute("action"))) continue;
+				f.dataset.busy = "";
+				f.setAttribute("aria-busy", "true");
+				for (const b of f.querySelectorAll("button")) b.disabled = true;
+			}
+			if (!frozen.length) return;
 			const open = document.createElement("a");
 			open.className = "viewer-tab";
 			open.href = at.href;
@@ -1311,22 +1336,27 @@
 			open.textContent = "Open as a page";
 			const line = document.createElement("p");
 			line.className = "doc-notice";
-			line.append(pane.querySelector("form.answer") ? "Answer this on the page. " : "Mark read on the page. ", open);
+			line.append("Do this on the page. ", open);
 			pane.prepend(line);
 		};
-		const pull = async () => {
-			if (pulling || document.visibilityState === "hidden") return;
-			pulling = true;
+		const shelve = () => {
+			for (const f of pane.querySelectorAll(draftFields)) save(f);
+		};
+		const pull = async (force) => {
+			if (!force && (pulling || document.visibilityState === "hidden")) return;
 			const n = seq;
+			const t = ++pulls;
+			pulling = true;
 			const res = await fetch(at.href, { credentials: "same-origin" }).catch(() => null);
 			const html = res?.ok ? await res.text().catch(() => "") : "";
-			pulling = false;
+			if (t === pulls) pulling = false;
 			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
-			if (n !== seq || !main || main.innerHTML === served.get("viewer") || typing(pane)) return;
+			if (n !== seq || t !== pulls || !main || (!force && (main.innerHTML === served.get("viewer") || typing(pane)))) return;
 			const top = pane.scrollTop;
 			const had = pane.contains(document.activeElement);
+			if (force && typing(pane)) document.activeElement.blur();
 			apply("viewer", main.innerHTML, pane);
-			freeze();
+			gate();
 			if (had && !pane.contains(document.activeElement)) pane.focus({ preventScroll: true });
 			pane.scrollTop = top;
 		};
@@ -1340,6 +1370,7 @@
 		});
 		const load = async (u, how) => {
 			const n = ++seq;
+			shelve();
 			unwatch();
 			unview();
 			unview = () => {};
@@ -1385,8 +1416,9 @@
 			}
 			if (res.ok) state.textContent = pane.querySelector(".thread-title")?.textContent || state.textContent;
 			local(pane);
+			restore(pane);
 			unview = docView(pane);
-			freeze();
+			gate();
 			if (res.ok && ["task", "attempt"].includes(main?.dataset.region)) {
 				served.set("viewer", shown);
 				polling = setInterval(pull, pollEvery);
@@ -1399,8 +1431,13 @@
 		const close = () => {
 			if (dlg.open) dlg.close();
 		};
+		dlg.addEventListener("posted", () => {
+			sync();
+			if (dlg.open) pull(true);
+		});
 		dlg.addEventListener("close", () => {
 			seq++;
+			shelve();
 			unwatch();
 			unview();
 			unview = () => {};
@@ -1622,6 +1659,7 @@
 		}
 		follow();
 	};
+	sync = refresh;
 	const follow = () => {
 		if (!live || document.visibilityState === "hidden") {
 			source?.close();

@@ -208,9 +208,9 @@ func TestTheViewerDialogRefreshesLiveThreadPagesAndStopsWithThem(t *testing.T) {
 	block := dialogBlock(t, js)
 	contains(t, "dialog block", block,
 		`const pollEvery = 10000;`,
-		`if (pulling || document.visibilityState === "hidden") return;`,
+		`if (!force && (pulling || document.visibilityState === "hidden")) return;`,
 		"const res = await fetch(at.href, { credentials: \"same-origin\" }).catch(() => null);",
-		`if (n !== seq || !main || main.innerHTML === served.get("viewer") || typing(pane)) return;`,
+		`if (n !== seq || t !== pulls || !main || (!force && (main.innerHTML === served.get("viewer") || typing(pane)))) return;`,
 		`const top = pane.scrollTop;`,
 		`const had = pane.contains(document.activeElement);`,
 		`apply("viewer", main.innerHTML, pane);`,
@@ -230,20 +230,129 @@ func TestTheViewerDialogRefreshesLiveThreadPagesAndStopsWithThem(t *testing.T) {
 	contains(t, "app.js", js, "const apply = (name, html, el = regions.get(name)) => {")
 }
 
-func TestTheViewerDialogNeverPostsAForm(t *testing.T) {
+var postTableLiteral = regexp.MustCompile(`const dialogPost = /(.+)/;`)
+
+func postTable(t *testing.T) *regexp.Regexp {
+	t.Helper()
+	m := postTableLiteral.FindStringSubmatch(asset(t, "app.js"))
+	if m == nil {
+		t.Fatal("app.js has no dialogPost table")
+	}
+	return regexp.MustCompile(m[1])
+}
+
+func TestTheViewerDialogPostTable(t *testing.T) {
+	table := postTable(t)
+	for action, want := range map[string]bool{
+		"/decision/d1/answer":                 true,
+		"/f00000000e012/decision/d420/answer": true,
+		"/report/r1/ack":                      true,
+		"/f00000000e012/report/r12/ack":       true,
+		"/supervisor/start":                   false,
+		"/supervisor/resume":                  false,
+		"/supervisor/stop":                    false,
+		"/supervisor/interrupt":               false,
+		"/supervisor/force":                   false,
+		"/supervisor/keys":                    false,
+		"/supervisor/send":                    false,
+		"/supervisor/switch":                  false,
+		"/supervisor/image":                   false,
+		"/attempt/a1/keys":                    false,
+		"/attempt/a1/stop":                    false,
+		"/models/refresh":                     false,
+		"/connect/code":                       false,
+		"/connect/revoke":                     false,
+		"/connect/revoke/in":                  false,
+		"/connect/revoke/everywhere":          false,
+		"/decision/d1":                        false,
+		"/decision/1/answer":                  false,
+		"/decision/d1/answer/x":               false,
+		"/decision/d1/withdraw":               false,
+		"/report/r1":                          false,
+		"/report/1/ack":                       false,
+		"/report/r1/ack/":                     false,
+		"/task/t1/abandon":                    false,
+	} {
+		if got := table.MatchString(action); got != want {
+			t.Errorf("dialogPost %s = %v, want %v", action, got, want)
+		}
+	}
+}
+
+var postForm = regexp.MustCompile(`<form\b[^>]*\bmethod="post"[^>]*>`)
+var formAction = regexp.MustCompile(`\baction="([^"]*)"`)
+
+func TestEveryPostFormOnAThingsPageIsInTheDialogTable(t *testing.T) {
+	table := postTable(t)
+	st := open(t)
+	seed(t, st)
+	h := board.New(st, token, board.Options{})
+	if _, err := st.Ask(context.Background(), 1, "Second?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Answer(context.Background(), 2, "yes", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, path := range []string{"/task/t1", "/attempt/a1", "/decision/d1", "/decision/d2"} {
+		for _, f := range postForm.FindAllString(get(t, h, path), -1) {
+			m := formAction.FindStringSubmatch(f)
+			if m == nil {
+				t.Fatalf("%s: a post form with no action: %s", path, f)
+			}
+			if !table.MatchString(m[1]) {
+				t.Errorf("%s: the form posting to %s is not in the dialog table, so the dialog would freeze it", path, m[1])
+			}
+			seen[regexp.MustCompile(`\d+`).ReplaceAllString(m[1], "N")] = true
+		}
+	}
+	if len(seen) != 2 || !seen["/decision/dN/answer"] || !seen["/report/rN/ack"] {
+		t.Errorf("the posting forms on a task, attempt, decision or report page are %v, want the answer and Mark read only", seen)
+	}
+}
+
+func TestTheViewerDialogPostsThroughItsTable(t *testing.T) {
 	js := asset(t, "app.js")
+	block := dialogBlock(t, js)
 	contains(t, "app.js", js,
-		`if (form.method === "post" && form.closest("dialog.viewer")) return e.preventDefault();`,
+		`const posting = form.method === "post" && !!form.closest("dialog.viewer");`,
+		`const tabled = posting && dialogPost.test(form.getAttribute("action") || "");`,
+		`if (posting && !tabled) return e.preventDefault();`,
+		`if (!tabled && !form.hasAttribute("data-fetch")) return;`,
+		`if (posting) holding.add(action);`,
+		"holding.delete(action);",
+		`for (const f of document.querySelectorAll("dialog.viewer form[data-busy]")) if (f.getAttribute("action") === action) unhold(f, f.querySelectorAll("button"));`,
+		`if (posting && e.submitter?.isConnected && !document.querySelector("dialog.viewer").contains(document.activeElement)) e.submitter.focus({ preventScroll: true });`,
+		`if (posting) document.querySelector("dialog.viewer").dispatchEvent(new Event("posted"));`,
+		`else if (regions.size === 0) location.reload();`,
+		`if (res.status === 409 && form.matches(".answer") && !posting) {`,
+		`if (posting && res.status === 409 && !form.matches(".answer")) document.querySelector("dialog.viewer").dispatchEvent(new Event("posted"));`,
+		`const dialogPost = /`,
+		`let sync = () => {};`,
+		`sync = refresh;`,
+		`headers: { "X-Hand-Fetch": "1" }`)
+	if n := strings.Count(js, `dispatchEvent(new Event("posted"))`); n != 2 {
+		t.Errorf("a post tells the dialog it changed something in %d places, want 2 (a success and a Mark read of a report read elsewhere)", n)
+	}
+	contains(t, "dialog block", block,
 		`const forms = [...pane.querySelectorAll("form")].filter((f) => f.method === "post");`,
-		`for (const f of forms) for (const c of f.elements) c.disabled = true;`,
-		`pane.querySelector("form.answer") ? "Answer this on the page. " : "Mark read on the page. "`,
+		`const frozen = forms.filter((f) => !dialogPost.test(f.getAttribute("action") || ""));`,
+		`for (const f of frozen) for (const c of f.elements) c.disabled = true;`,
+		`if (!holding.has(f.getAttribute("action"))) continue;`,
+		"f.dataset.busy = \"\";\n\t\t\t\tf.setAttribute(\"aria-busy\", \"true\");\n\t\t\t\tfor (const b of f.querySelectorAll(\"button\")) b.disabled = true;",
+		`line.append("Do this on the page. ", open);`,
 		`open.className = "viewer-tab";`,
 		`open.textContent = "Open as a page";`,
-		`pane.prepend(line);`)
-	if n := strings.Count(dialogBlock(t, js), "freeze();"); n != 2 {
-		t.Errorf("the dialog freezes a page's forms in %d places, want 2 (a new page and a refresh)", n)
+		`pane.prepend(line);`,
+		`const pull = async (force) => {`,
+		`const t = ++pulls;`,
+		`if (t === pulls) pulling = false;`,
+		`if (force && typing(pane)) document.activeElement.blur();`,
+		"dlg.addEventListener(\"posted\", () => {\n\t\t\tsync();\n\t\t\tif (dlg.open) pull(true);\n\t\t});")
+	if n := strings.Count(block, "gate();"); n != 2 {
+		t.Errorf("the dialog draws its forms in %d places, want 2 (a new page and a refresh)", n)
 	}
-	contains(t, "app.js", js, `form.answer textarea[name=answer]:not(dialog *)`)
+	lacks(t, "app.js", js, "freeze", "Answer this on the page", "Mark read on the page", "return e.preventDefault();\n\t\tif (!form.hasAttribute")
 }
 
 func TestTheViewerDialogKeepsTheDocKeys(t *testing.T) {
@@ -273,9 +382,9 @@ func TestTheViewerDialogIsStyled(t *testing.T) {
 		".viewer .doc-picture.actual{max-height:calc(100dvh - 260px)}",
 		".viewer .doc-frame{height:calc(100dvh - 300px)}",
 		".viewer-body .text-bar{top:-16px}",
-		".viewer-body form[method=post]{pointer-events:none}",
 		".question{white-space:pre-wrap;max-height:40vh;overflow-y:auto;overflow-wrap:anywhere}",
 		"@media (min-width:1000px){.viewer-body .task-side{top:0;max-height:calc(100dvh - 61px - var(--control))}}")
+	lacks(t, "board.css", css, "form[method=post]{pointer-events:none}")
 	phone := strings.Index(css, "@media (max-width:599px){.work>.panel")
 	if phone < 0 {
 		t.Fatal("board.css has no first max-width:599px block")
