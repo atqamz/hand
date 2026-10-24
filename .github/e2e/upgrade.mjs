@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Box, Client, soft, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
+import { Box, Client, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
 const previous = 'v0.11.0';
 const previousSchema = 9;
@@ -53,6 +53,12 @@ async function installCandidate(box, srv) {
 }
 
 async function snapshot(box) {
+  const attempts = toon((await ok(await box.hand(['attempt', 'list']), 'hand attempt list')).out).tables.attempts.map((a) => [a.id, a.task, a.harness, a.model, a.status]);
+  const reports = [];
+  for (const r of toon((await ok(await box.hand(['report', 'list']), 'hand report list')).out).tables.reports) {
+    const shown = toon((await ok(await box.hand(['report', 'show', r.id]), `hand report show ${r.id}`)).out).fields;
+    reports.push([r.id, r.attempt, r.task, r.status, shown.body]);
+  }
   const list = toon((await ok(await box.hand(['task', 'list', '--status', 'inbox,active,done,abandoned']), 'hand task list')).out).tables.tasks;
   const tasks = {};
   for (const t of list) {
@@ -62,10 +68,10 @@ async function snapshot(box) {
   }
   const decisions = toon((await ok(await box.hand(['decision', 'list', '--all']), 'hand decision list')).out).tables.decisions.map((d) => [d.id, d.task, d.status, d.question]);
   const orient = toon((await ok(await box.hand(['orient']), 'hand orient')).out);
-  return { tasks, decisions, counts: orient.fields.tasks, cursor: Number(orient.fields.cursor) };
+  return { tasks, decisions, attempts, reports, counts: orient.fields.tasks, cursor: Number(orient.fields.cursor) };
 }
 
-async function seed(box, label) {
+async function seed(box, label, withReport) {
   const alpha = await box.repo('alpha');
   const beta = await box.repo('beta');
   const seeded = seedLuvus(box);
@@ -83,6 +89,15 @@ async function seed(box, label) {
   await ok(await box.hand(['decision', 'ask', '--file', '-', 't2'], { input: 'Should the export include abandoned tasks?\n\n1. Yes\n2. No\n' }), 'decision ask d2');
   await ok(await box.hand(['task', 'start', 't3']), 'task start t3');
   await ok(await box.hand(['task', 'done', 't3']), 'task done t3');
+  if (withReport) {
+    const brief = path.join(box.dir, 'brief.md');
+    fs.writeFileSync(brief, 'Change the redirect so that people land on the home page after signing in.\n');
+    await ok(await box.hand(['task', 'start', 't1']), 'task start t1');
+    const started = await ok(await box.hand(['attempt', 'start', '--harness', 'claude', '--model', 'sonnet', '--effort', 'low', '--prompt-file', brief, 't1'], { harness: stub(box), timeout: 180_000 }), 'attempt start with a stand-in harness');
+    matches(started.out, /^attempt: a1$/m, 'the attempt is a1');
+    await ok(await box.hand(['report', 'add', '--attempt', 'a1', '--status', 'done', '--text', `Changed the redirect.\n\nDelivered: ${path.join(box.fleet, 'AGENTS.md')}`]), 'report add a1');
+    await ok(await box.hand(['attempt', 'stop', 'a1']), 'attempt stop a1');
+  }
   return init.id;
 }
 
@@ -148,6 +163,8 @@ async function update(box, s) {
   const after = await snapshot(box);
   equal(after.tasks, before.tasks, `${name}: every task, plan and decision is unchanged`);
   equal(after.decisions, before.decisions, `${name}: the decision list is unchanged`);
+  equal(after.attempts, before.attempts, `${name}: every attempt is unchanged`);
+  equal(after.reports, before.reports, `${name}: every report is unchanged`);
   equal(after.counts, before.counts, `${name}: the task counts are unchanged`);
   check(after.cursor >= before.cursor, `${name}: the event cursor did not go back (${before.cursor} to ${after.cursor})`);
   return { dbBackup, binBackup };
@@ -214,6 +231,8 @@ async function restore(box, s, backup) {
   equal(userVersion(path.join(box.fleet, 'hand.db')), from.schema, `${name}: the restored database is at schema ${from.schema}`);
   const restored = await snapshot(box);
   equal(restored.tasks, before.tasks, `${name}: the restored fleet has every task, plan and decision`);
+  equal(restored.attempts, before.attempts, `${name}: the restored fleet has every attempt`);
+  equal(restored.reports, before.reports, `${name}: the restored fleet has every report`);
   equal(restored.counts, before.counts, `${name}: the restored task counts match`);
   equal(restored.cursor, before.cursor, `${name}: the restored event cursor matches`);
 
@@ -239,6 +258,7 @@ async function scenario(s) {
   const { box, name, running } = s;
   const before = await snapshot(box);
   check(Object.keys(before.tasks).length === 3 && before.decisions.length === 2, `${name}: the fleet holds three tasks and two decisions`);
+  equal([before.attempts.length, before.reports.length], s.report ? [1, 1] : [0, 0], `${name}: the fleet holds ${s.report ? 'an attempt and a report' : 'no attempt and no report'}`);
   if (running.board) {
     await startBoard(box);
     running.boardPid = Number(box.read('board.pid').split(' ')[0]);
@@ -261,17 +281,17 @@ await phase('upgrade', async () => {
   const next = await serve(path.join(distDir, 'next'));
   let box;
   try {
-    for (const [slug, running] of [['stopped', {}], ['board running', { board: true }], ['board and watcher running', { board: true, watcher: true }]]) {
+    for (const [slug, running, report] of [['stopped', {}, true], ['board running', { board: true }, false], ['board and watcher running', { board: true, watcher: true }, false]]) {
       box = new Box(`upgrade-${slug.replace(/ /g, '-')}`).prepare();
       const from = await installOld(box, previousRoot);
-      const id = await seed(box, previous);
-      await scenario({ box, id, name: `${previous} to the candidate, ${slug}`, from, to: { srv: current, commit: commit() }, running });
+      const id = await seed(box, previous, report);
+      await scenario({ box, id, report, name: `${previous} to the candidate, ${slug}`, from, to: { srv: current, commit: commit() }, running });
       await stopAll(box);
     }
     box = new Box('upgrade-candidate').prepare();
     const from = await installCandidate(box, current);
-    const id = await seed(box, 'the candidate');
-    await scenario({ box, id, name: 'the candidate to the next build', from, to: { srv: next, commit: nextCommit() }, running: { board: true, watcher: true } });
+    const id = await seed(box, 'the candidate', true);
+    await scenario({ box, id, report: true, name: 'the candidate to the next build', from, to: { srv: next, commit: nextCommit() }, running: { board: true, watcher: true } });
     await stopAll(box);
   } finally {
     await current.close();

@@ -205,12 +205,13 @@ export class Box {
     return this;
   }
 
-  env(extra = {}, dirs = [this.bin]) {
+  env(extra = {}, dirs = [this.bin], harness = null) {
     const env = cleanEnv();
     const key = pathKey(env);
     const own = [...dirs, ...(process.env.E2E_PATH ?? env[key] ?? '').split(path.delimiter)].filter(Boolean);
     const stray = harnesses.flatMap((h) => found(h, own));
-    if (stray.length) throw new Error(`a harness is on PATH, so the no-harness checks cannot run: ${stray.join(', ')}`);
+    if (harness) own.unshift(harness);
+    else if (stray.length) throw new Error(`a harness is on PATH, so the no-harness checks cannot run: ${stray.join(', ')}`);
     env[key] = own.join(path.delimiter);
     Object.assign(env, { HOME: this.home, SECONDHAND_HOME: this.root, TMPDIR: this.tmp, TMP: this.tmp, TEMP: this.tmp, LANG: 'C.UTF-8', GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1' });
     if (win) Object.assign(env, { USERPROFILE: this.home, LOCALAPPDATA: path.join(this.home, 'AppData', 'Local'), APPDATA: path.join(this.home, 'AppData', 'Roaming') });
@@ -219,7 +220,7 @@ export class Box {
 
   hand(args, o = {}) {
     const bin = o.bin ?? this.bin;
-    return run(path.join(bin, `hand${exe}`), args, { cwd: o.cwd ?? this.fleet, env: this.env(o.env ?? {}, [bin]), input: o.input, timeout: o.timeout });
+    return run(path.join(bin, `hand${exe}`), args, { cwd: o.cwd ?? this.fleet, env: this.env(o.env ?? {}, [bin], o.harness), input: o.input, timeout: o.timeout });
   }
 
   git(args, cwd) {
@@ -390,6 +391,14 @@ export async function startBoard(box) {
 export async function stopAll(box) {
   await box.hand(['board', 'stop']);
   await box.hand(['watch', 'stop']);
+}
+
+export function stub(box) {
+  const dir = path.join(box.dir, 'harness');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(path.join(distDir, 'stub', `claude-${goos}-${goarch}${exe}`), path.join(dir, `claude${exe}`));
+  fs.chmodSync(path.join(dir, `claude${exe}`), 0o755);
+  return dir;
 }
 
 export const luvusCache = path.join(tmpRoot, 'luvus-cache');

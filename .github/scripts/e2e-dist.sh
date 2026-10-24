@@ -18,3 +18,11 @@ layout() {
 layout candidate "$commit" "$out"
 layout next "next-$commit" "$out/next"
 cp install.sh install.ps1 "$out/"
+mkdir -p "$out/stub"
+for target in linux/amd64 darwin/arm64 windows/amd64; do
+	os=${target%/*}
+	arch=${target#*/}
+	ext=
+	if [ "$os" = windows ]; then ext=.exe; fi
+	CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -o "$out/stub/claude-$os-$arch$ext" .github/e2e/stub/main.go
+done
