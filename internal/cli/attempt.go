@@ -402,18 +402,25 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
-	seen := false
+	seen, last := false, int64(-1)
 	for retried := false; ; {
 		s, err := c.Read(wait, pane, 60)
 		screen, asked := askedScreen(screens, s.Text)
 		asked = err == nil && asked
 		seen = seen || asked
+		stable := err == nil && s.ContentRevision == last
+		if err == nil {
+			last = s.ContentRevision
+		}
 		onYes := asked && strings.Contains(s.Text, screen.yesCursor)
 		onNo := asked && !onYes && screen.noCursor != "" && strings.Contains(s.Text, screen.noCursor)
+		ready := onYes || (onNo && !slices.Contains(pressed, screen.toYes))
 		switch {
 		case luvus.Code(err) != "":
 			return missed(harness, seen, pressed)
-		case onYes || (onNo && !slices.Contains(pressed, screen.toYes)):
+		case ready && len(pressed) == 0 && !stable:
+			// Claude drops keys sent before it reads input; wait for a frame that stays.
+		case ready:
 			folder, shown, noted := screen.names(s.Text)
 			matched := slices.IndexFunc(repos, func(r string) bool { return screen.same(shown, r) })
 			if !screen.same(folder, worktree) || (noted && matched < 0) {
@@ -439,7 +446,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 			retried = true
 			continue
 		}
-		if !asked {
+		if !asked && strings.TrimSpace(s.Text) != "" {
 			if ag, err := c.Explain(wait, pane); err == nil && ag.Status == "working" {
 				return missed(harness, seen, pressed)
 			}

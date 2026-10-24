@@ -42,6 +42,8 @@ type fakeRuntime struct {
 	hint         string
 	ready        bool
 	revision     int64
+	revisions    []int64
+	keyRevs      []int64
 	marker       string
 	sent         []string
 	keyed        []string
@@ -289,6 +291,9 @@ func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	if len(rt.screens) > 0 {
 		text, rt.screens = rt.screens[0], rt.screens[1:]
 	}
+	if len(rt.revisions) > 0 {
+		rt.revision, rt.revisions = rt.revisions[0], rt.revisions[1:]
+	}
 	return map[string]any{"text": text, "content_revision": rt.revision, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 }
 
@@ -317,6 +322,7 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 		return nil, fakeuhp.Fail{Code: "content_revision_conflict", Message: "expected content_revision=" + strconv.FormatInt(p.Revision, 10)}
 	}
 	rt.keyed = append(rt.keyed, p.Keys...)
+	rt.keyRevs = append(rt.keyRevs, p.Revision)
 	if rt.afterKeys != "" {
 		rt.status = rt.afterKeys
 	}
@@ -366,6 +372,12 @@ func (rt *fakeRuntime) keysSent() []string {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return slices.Clone(rt.keyed)
+}
+
+func (rt *fakeRuntime) keyRevisions() []int64 {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return slices.Clone(rt.keyRevs)
 }
 
 func (rt *fakeRuntime) exitAll() {

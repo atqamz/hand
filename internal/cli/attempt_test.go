@@ -692,6 +692,47 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 	}
 }
 
+func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	blank := strings.Repeat("   \n", 24)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screens, rt.screen, rt.revision = []string{blank, blank, blank}, claudeTrustScreen(wt), 4
+		rt.keyScreens = []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
+	fx := claudeFixture(t)
+	blank := strings.Repeat("   \n", 24)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen = blank })
+	began := time.Now()
+	out := fx.start()
+	if took := time.Since(began); took > 4*time.Second || !strings.Contains(out, "trust: not asked") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("start took %s: %q, keys = %q", time.Since(began), out, fx.rt.keysSent())
+	}
+}
+
+func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
+	fx := claudeFixture(t)
+	wt := fx.h.worktree("t1-a1")
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revisions = claudeTrustScreen(wt), []int64{4, 5}
+		rt.keyScreens = []string{claudeTrustScreenYes(wt), "> \n"}
+	})
+	out := fx.start()
+	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+	if revs := fx.rt.keyRevisions(); len(revs) == 0 || revs[0] != 5 {
+		t.Fatalf("first key was sent at revision %v, want 5, the one that stayed", revs)
+	}
+}
+
 func TestAgyWarnsWhenItsModelListFailed(t *testing.T) {
 	fx := agyFixture(t)
 	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1", "stderr": "Error: Please sign in to view available models."})
