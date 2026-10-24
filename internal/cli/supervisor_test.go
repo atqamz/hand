@@ -1647,3 +1647,25 @@ func TestSupervisorStartWithAProfileNeedsNoEarlierSupervisor(t *testing.T) {
 	}
 	has(t, "start", h.ok("supervisor", "start", "--profile", "default"), "supervisor: s1", "harness: claude", "status: running")
 }
+
+func TestSupervisorForceReportsAWakeThatLuvusRefused(t *testing.T) {
+	for code, want := range map[string]string{"agent_not_ready": "supervisor is not at a prompt", "no_such_pane": "luvus refused the wake: luvus no_such_pane: gone"} {
+		t.Run(code, func(t *testing.T) {
+			h, rt := newSupervisorFixture(t)
+			startClaudeSupervisor(h)
+			h.ok("project", "add", "hand", handRepo)
+			h.ok("task", "add", "hand", "Fix login")
+			h.ok("decision", "ask", "t1", "Keep it?")
+			h.ok("decision", "answer", "d1", "yes")
+			rt.set(func(rt *fakeRuntime) { rt.status, rt.ready = "idle", true })
+			rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+				return nil, fakeuhp.Fail{Code: code, Message: "gone"}
+			})
+			out := h.ok("supervisor", "force")
+			has(t, "force", out, want)
+			if strings.Contains(out, "delivered normally") {
+				t.Fatalf("force = %q", out)
+			}
+		})
+	}
+}

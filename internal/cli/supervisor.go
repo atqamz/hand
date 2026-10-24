@@ -866,11 +866,13 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if err != nil {
 		return "", err
 	}
+	status := ag.Status
 	for _, in := range pending {
 		if ctx.Err() != nil {
 			return "", nil
 		}
-		if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, in.Body) }); err != nil {
+		typed, err := sendToSupervisor(ctx, c, sup, status, in.Body)
+		if err != nil {
 			switch luvus.Code(err) {
 			case "":
 				return "", runtimeErr(err)
@@ -881,9 +883,14 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			}
 			return "luvus refused the message: " + err.Error(), nil
 		}
-		if err := detached(ctx, func(ctx context.Context) error { return st.DeliverSupervisorInput(ctx, in.ID, false) }); err != nil {
+		if err := detached(ctx, func(ctx context.Context) error { return st.DeliverSupervisorInput(ctx, in.ID, typed) }); err != nil {
 			return "", err
 		}
+		cur, err := c.Explain(ctx, sup.PaneID)
+		if err != nil {
+			return "supervisor status unknown: " + err.Error(), nil
+		}
+		status = cur.Status
 	}
 	if len(pending) > 0 || (ag.Status != "idle" && ag.Status != "done") {
 		return "", nil
@@ -903,16 +910,58 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if ctx.Err() != nil {
 		return "", nil
 	}
-	if err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, digest) }); err != nil {
+	if _, err := sendToSupervisor(ctx, c, sup, ag.Status, digest); err != nil {
 		switch luvus.Code(err) {
 		case "":
 			return "", runtimeErr(err)
+		case "agent_not_ready":
+			return "supervisor is not at a prompt", nil
 		case "content_revision_conflict":
 			return "supervisor terminal changed", nil
 		}
-		return "", nil
+		return "luvus refused the wake: " + err.Error(), nil
 	}
 	return "", detached(ctx, func(ctx context.Context) error { return st.AdvanceWakeCursor(ctx, sup.ID, last) })
+}
+
+var submitCheck, submitPoll = 1500 * time.Millisecond, 100 * time.Millisecond
+
+func sendToSupervisor(ctx context.Context, c luvus.Client, sup state.Supervisor, status, text string) (bool, error) {
+	err := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, text) })
+	quiet := status == "idle" || status == "done"
+	switch {
+	case err != nil && luvus.Code(err) == "agent_not_ready" && sup.Harness == "claude" && quiet:
+		if detached(ctx, func(ctx context.Context) error { return typeIn(ctx, c, sup, text) }) == nil {
+			return true, nil
+		}
+	case err == nil && sup.Harness == "codex" && quiet:
+		return false, detached(ctx, func(ctx context.Context) error { return submitIfIdle(ctx, c, sup) })
+	}
+	return false, err
+}
+
+func submitIfIdle(ctx context.Context, c luvus.Client, sup state.Supervisor) error {
+	deadline := time.Now().Add(submitCheck)
+	for {
+		ag, err := c.Explain(ctx, sup.PaneID)
+		if err != nil || (ag.Status != "idle" && ag.Status != "done") {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(submitPoll)
+	}
+	for range 2 {
+		s, err := c.Read(ctx, sup.PaneID, 40)
+		if err != nil || s.TerminalID != sup.TerminalID {
+			return nil
+		}
+		if luvus.Code(c.Keys(ctx, sup.PaneID, []string{"enter"}, s.ContentRevision, sup.TerminalID)) != "content_revision_conflict" {
+			return nil
+		}
+	}
+	return nil
 }
 
 func supervisorLimit(ctx context.Context, c luvus.Client, sup state.Supervisor) (string, error) {
