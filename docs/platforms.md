@@ -26,7 +26,7 @@ In the table:
 | Accept Codex's trust screens for its own worktree and project | CI, fake | CI, fake | CI, fake |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Hand refuses a harness found only as a `.cmd` or `.bat`, and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
-| A prompt of up to 16 KiB reaches the harness byte for byte, and a longer one is refused | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
+| A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | A worker reports through the footer | daily | CI, fake | CI, fake |
 | Stop a worker | daily | real Mac (#895), stand-in claude | CI |
@@ -42,7 +42,7 @@ In the table:
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 
-The two `.exe` rows prove Hand's side: that the lookup picks a `.exe` over a `.cmd` and names the shim it refuses (temporary `PATH` folders with files of those names), and that real Luvus refuses a key to a fake `codex.exe` until Hand has asked it for a process scan, and accepts it after. They do not prove that the real Codex, Claude Code or an npm shim behave the same, what `cmd.exe` does with a shim, or Codex's trust screens: [`docs/dogfood/windows.md`](dogfood/windows.md) `W4` checks those on a real machine. The prompt row proves that real Luvus hands a fake `codex.exe` the exact bytes of prompts of every size up to 16 KiB, with quotes, backslashes, `%VAR%`, `&`, Unicode and CRLF, for a worker and a supervisor, and that `hand attempt start` passes a representative brief whole; what the real Codex does with it is `W4c`.
+The two `.exe` rows prove Hand's side: that the lookup picks a `.exe` over a `.cmd` and names the shim it refuses (temporary `PATH` folders with files of those names), and that real Luvus refuses a key to a fake `codex.exe` until Hand has asked it for a process scan, and accepts it after. They do not prove that the real Codex, Claude Code or an npm shim behave the same, what `cmd.exe` does with a shim, or Codex's trust screens: [`docs/dogfood/windows.md`](dogfood/windows.md) `W4` checks those on a real machine. The prompt row proves that real Luvus hands a fake `codex.exe` the exact bytes of prompts of the sampled sizes from 1 byte to 16 KiB, with quotes, backslashes, `%VAR%`, `&`, Unicode and CRLF, for a worker and a supervisor, and that `hand attempt start` passes a representative brief whole; what the real Codex does with it is `W4c`.
 
 On Linux, the setup without a systemd user session (plain SSH, for example) has run only in CI. Hand configures neither commit signing nor ssh on any OS.
 

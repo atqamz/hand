@@ -33,7 +33,7 @@ The order is by risk, riskiest first. `W0` comes first because every other check
 | W3 | A worker reports, from PowerShell and Git Bash, and the supervisor wakes | A worker reports through the footer | agent | 1 |
 | W4a | codex (the standalone `codex.exe`), agy and opencode start | Start codex or agy; Start opencode; Keys reach an agent whose program has an extension; Accept Codex's trust screens for its own worktree and project | agent, per harness | 1 each, 2 for codex |
 | W4b | A codex found only as a `.cmd` shim is refused | Hand refuses a harness found only as a `.cmd` or `.bat` | agent | 0 |
-| W4c | A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused | A prompt of up to 16 KiB reaches the harness byte for byte, and a longer one is refused | agent | 1 |
+| W4c | A long, awkward brief reaches codex whole, and a brief over 16 KiB is refused | A prompt reaches the harness byte for byte when it fits both limits, and Hand refuses one that does not | agent | 1 |
 | W5 | `hand update` renames the running `hand.exe` | `hand update` | agent, then needs human | 0 |
 | W6 | `hand open` starts the board, and no console window flashes | `hand open` starts the board and opens the browser | needs human | 0 |
 | W7 | `hand attach supervisor` in Windows Terminal | `hand attach` | needs human | 0 |
