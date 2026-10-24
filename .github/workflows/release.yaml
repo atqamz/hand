@@ -42,22 +42,7 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
       - name: Build
-        run: |
-          set -eu
-          pkg=github.com/atqamz/hand/internal/cli
-          commit=$(git rev-parse HEAD)
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-            os=${target%/*}
-            arch=${target#*/}
-            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand .
-            tar -czf "hand-$os-$arch.tar.gz" hand
-            rm hand
-          done
-          sha256sum hand-*.tar.gz > checksums.txt
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X $pkg.Version=${TAG#v} -X $pkg.Channel=stable -X $pkg.Commit=$commit" -o hand.exe .
-          zip -X hand-windows-amd64.zip hand.exe
-          rm hand.exe
-          sha256sum hand-windows-amd64.zip > hand-windows-amd64.sha256
+        run: sh .github/scripts/build-dist.sh "${TAG#v}" stable "$(git rev-parse HEAD)"
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
