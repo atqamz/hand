@@ -28,7 +28,7 @@
 		new ResizeObserver(() => document.documentElement.style.setProperty("--mast", `${masthead.getBoundingClientRect().height}px`)).observe(masthead);
 	}
 	const draftPrefix = `hand.draft.${base.slice(1)}`;
-	const draftFields = "#composer-text, form.answer textarea[name=answer]";
+	const draftFields = "#composer-text, form.answer textarea[name=answer]:not(dialog *)";
 	const draftTtl = 30 * 24 * 3600 * 1000;
 	const draftMax = 200000;
 	const draftNote = document.querySelector(".draft-note");
@@ -503,8 +503,7 @@
 		for (const b of item.querySelectorAll(".keys button")) b.disabled = true;
 		item.open = false;
 	};
-	const apply = (name, html) => {
-		const el = regions.get(name);
+	const apply = (name, html, el = regions.get(name)) => {
 		if (!el) return;
 		served.set(name, html);
 		if (typing(el)) {
@@ -646,7 +645,9 @@
 
 	document.addEventListener("submit", async (e) => {
 		const form = e.target;
-		if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-fetch")) return;
+		if (!(form instanceof HTMLFormElement)) return;
+		if (form.method === "post" && form.closest("dialog.viewer")) return e.preventDefault();
+		if (!form.hasAttribute("data-fetch")) return;
 		e.preventDefault();
 		if (form.dataset.busy) return;
 		const problem = form.querySelector(".form-error");
@@ -1258,23 +1259,33 @@
 		dlg.toggleAttribute("data-wide", wideSaved() !== "off");
 		const state = dlg.querySelector(".viewer-state");
 		const tab = dlg.querySelector(".viewer-tab");
+		const back = dlg.querySelector(".viewer-back");
 		tab.target = "_blank";
 		tab.rel = "noopener";
+		const route = /^\/(?:doc\/.|(?:task\/t|attempt\/a|decision\/d)\d+$|ref\/[tdar]\d+$)/;
 		const pic = /\.(png|jpe?g|webp|gif)$/i;
+		const stackMax = 20;
+		const pollEvery = 10000;
 		let unview = () => {};
 		let opener = null;
+		let nth = 0;
 		let at = null;
 		let ours = false;
 		let seq = 0;
-		const docURL = (href) => {
+		let polling = 0;
+		let pulling = false;
+		const depth = () => (history.state?.viewer ? history.state.depth : 0);
+		const viewable = (href) => {
 			const u = new URL(href, location.href);
-			if (u.origin !== location.origin) return null;
+			if (u.origin !== location.origin || !u.pathname.startsWith(`${base}/`)) return null;
 			const sent = u.pathname.startsWith(`${base}/inbox/`) && u.pathname.slice(base.length + "/inbox/".length);
 			if (sent && !sent.includes("/")) u.pathname = `${base}/doc/inbox/${sent}`;
-			if (!u.pathname.startsWith(`${base}/doc/`) || u.searchParams.has("raw") || u.searchParams.has("download")) return null;
+			if (!route.test(u.pathname.slice(base.length)) || u.searchParams.has("raw") || u.searchParams.has("download")) return null;
 			if (pic.test(u.pathname) && !u.search) u.search = "?view";
 			return u;
 		};
+		const within = (id) => id && [...pane.querySelectorAll("[id]")].find((el) => el.id === id);
+		const same = (a) => [...document.querySelectorAll("a[href]")].filter((x) => x.getAttribute("href") === a.getAttribute("href"));
 		const retry = () => {
 			const p = document.createElement("p");
 			p.className = "doc-notice";
@@ -1285,16 +1296,57 @@
 			p.append("The Board did not answer; check that hand board is running. ", again);
 			return p;
 		};
+		const freeze = () => {
+			const forms = [...pane.querySelectorAll("form")].filter((f) => f.method === "post");
+			for (const f of forms) for (const c of f.elements) c.disabled = true;
+			if (!forms.length) return;
+			const open = document.createElement("a");
+			open.className = "viewer-tab";
+			open.href = at.href;
+			open.target = "_blank";
+			open.rel = "noopener";
+			open.textContent = "Open as a page";
+			const line = document.createElement("p");
+			line.className = "doc-notice";
+			line.append(pane.querySelector("form.answer") ? "Answer this on the page. " : "Mark read on the page. ", open);
+			pane.prepend(line);
+		};
+		const pull = async () => {
+			if (pulling || document.visibilityState === "hidden") return;
+			pulling = true;
+			const n = seq;
+			const res = await fetch(at.href, { credentials: "same-origin" }).catch(() => null);
+			const html = res?.ok ? await res.text().catch(() => "") : "";
+			pulling = false;
+			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
+			if (n !== seq || !main || main.innerHTML === served.get("viewer") || typing(pane)) return;
+			const top = pane.scrollTop;
+			apply("viewer", main.innerHTML, pane);
+			freeze();
+			pane.scrollTop = top;
+		};
+		const unwatch = () => {
+			clearInterval(polling);
+			polling = 0;
+			served.delete("viewer");
+		};
+		document.addEventListener("visibilitychange", () => {
+			if (polling && document.visibilityState === "visible") pull();
+		});
 		const load = async (u, how) => {
 			const n = ++seq;
+			unwatch();
 			unview();
 			unview = () => {};
+			const here = dlg.open ? depth() : 0;
+			const level = how === "none" ? depth() || 1 : how === "push" && here < stackMax ? here + 1 : Math.max(here, 1);
+			if (how === "push" && level > here) history.pushState({ viewer: u.href, depth: level }, "", u.href);
+			else if (how !== "none") history.replaceState({ viewer: u.href, depth: level }, "", u.href);
+			back.disabled = level < 2;
 			at = u;
 			state.textContent = u.pathname.split("/").pop();
 			pane.setAttribute("aria-busy", "true");
 			tab.href = u.href;
-			if (how === "push") history.pushState({ viewer: u.href }, "", u.href);
-			else if (how === "replace") history.replaceState({ viewer: u.href }, "", u.href);
 			ours = true;
 			if (!dlg.open) {
 				dlg.showModal();
@@ -1308,20 +1360,33 @@
 				pane.replaceChildren(retry());
 				return;
 			}
+			const to = res.redirected ? viewable(res.url) : null;
+			if (to) {
+				to.hash = u.hash || (/^\/ref\/r\d+$/.test(u.pathname.slice(base.length)) ? `#${u.pathname.split("/").pop()}` : "");
+				at = to;
+				tab.href = to.href;
+				history.replaceState({ viewer: to.href, depth: level }, "", to.href);
+			}
 			const main = new DOMParser().parseFromString(html, "text/html").querySelector("main.thread");
+			const shown = main?.innerHTML;
 			pane.replaceChildren(...(main ? main.childNodes : []));
-			const back = pane.querySelector(".error .back");
-			if (back) {
+			const gone = pane.querySelector(".error .back");
+			if (gone) {
 				const done = document.createElement("button");
 				done.type = "button";
 				done.textContent = "Close";
 				done.addEventListener("click", close);
-				back.replaceChildren(done);
+				gone.replaceChildren(done);
 			}
 			if (res.ok) state.textContent = pane.querySelector(".thread-title")?.textContent || state.textContent;
 			local(pane);
 			unview = docView(pane);
-			const spot = u.hash && document.getElementById(u.hash.slice(1));
+			freeze();
+			if (res.ok && ["task", "attempt"].includes(main?.dataset.region)) {
+				served.set("viewer", shown);
+				polling = setInterval(pull, pollEvery);
+			}
+			const spot = within(at.hash.slice(1));
 			if (spot) spot.scrollIntoView({ block: "center" });
 			else pane.scrollTop = 0;
 			pane.focus({ preventScroll: true });
@@ -1331,15 +1396,16 @@
 		};
 		dlg.addEventListener("close", () => {
 			seq++;
+			unwatch();
 			unview();
 			unview = () => {};
 			pane.replaceChildren();
 			dlg.before(toast);
 			if (ours) {
 				ours = false;
-				if (history.state?.viewer) history.back();
+				if (depth()) history.go(-depth());
 			}
-			if (opener && !opener.isConnected) opener = [...document.querySelectorAll("a[href]")].find((a) => a.getAttribute("href") === opener.getAttribute("href"));
+			if (opener && !opener.isConnected) opener = same(opener)[nth] ?? same(opener)[0];
 			opener?.focus();
 			opener = null;
 		});
@@ -1350,6 +1416,7 @@
 				close();
 			}
 		});
+		back.addEventListener("click", () => history.back());
 		dlg.querySelector(".viewer-close").addEventListener("click", close);
 		let pressed = null;
 		dlg.addEventListener("pointerdown", (e) => {
@@ -1362,23 +1429,27 @@
 			if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 			const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
 			if (!a || a.hasAttribute("download") || a.matches(".viewer-tab")) return;
-			const inside = dlg.contains(a);
-			if (inside && a.getAttribute("href").startsWith("#")) {
+			if (a.getAttribute("href").startsWith("#")) {
+				if (!dlg.contains(a)) return;
 				e.preventDefault();
 				history.replaceState(history.state, "", a.hash);
 				dispatchEvent(new Event("hashchange"));
-				document.getElementById(a.hash.slice(1))?.scrollIntoView({ block: "start" });
+				within(a.hash.slice(1))?.scrollIntoView({ block: "start" });
 				return;
 			}
-			const u = docURL(a.href);
+			const u = viewable(a.href);
 			if (!u) return;
 			e.preventDefault();
-			if (!dlg.open) opener = a;
-			load(u, dlg.open ? "replace" : "push");
+			if (dlg.open && u.href === at.href) return;
+			if (!dlg.open) {
+				opener = a;
+				nth = same(a).indexOf(a);
+			}
+			load(u, "push");
 		});
 		dlg.addEventListener("submit", (e) => {
 			const f = e.target;
-			const u = f instanceof HTMLFormElement && !e.defaultPrevented && f.method === "get" ? docURL(f.action) : null;
+			const u = f instanceof HTMLFormElement && !e.defaultPrevented && f.method === "get" ? viewable(f.action) : null;
 			if (!u) return;
 			e.preventDefault();
 			u.search = new URLSearchParams(new FormData(f)).toString();

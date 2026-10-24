@@ -19,7 +19,7 @@ func TestTheDraftIsKeptInLocalStorageByFleet(t *testing.T) {
 		"if (raw !== null && !d) localStorage.removeItem(key);",
 		"`${draftPrefix}.${m[1]}`",
 		`/\/decision\/([^/]+)\/answer$/`,
-		`const draftFields = "#composer-text, form.answer textarea[name=answer]";`,
+		`const draftFields = "#composer-text, form.answer textarea[name=answer]:not(dialog *)";`,
 		`restore(document);`,
 		`restore(el);`,
 		`if (!key || f.value) continue;`,

@@ -147,7 +147,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% -
 .slug a.ref{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:.2em}
 .code{font-family:var(--mono);letter-spacing:.03em;text-transform:uppercase}
 .wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:10px 15px 15px 41px}
-.question{white-space:pre-wrap;max-height:40vh;overflow-y:auto}
+.question{white-space:pre-wrap;max-height:40vh;overflow-y:auto;overflow-wrap:anywhere}
 .reason{color:var(--muted)}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .answer{display:grid;gap:8px}
@@ -639,7 +639,7 @@ body[data-link=lost] .strip .status-line{opacity:.45}
 @media (pointer:coarse){.pager a{display:inline-flex;align-items:center;min-height:44px}}
 @media (pointer:coarse){.tally a{display:inline-flex;align-items:center;min-height:var(--control);margin-block:-10px}}
 .thread:has(.task-grid){max-width:1120px}
-body:not([data-page=fleet]):has(.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}
+body:not([data-page=fleet]):has(main>.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}
 .task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}
 .task-main,.task-side{display:flex;flex-direction:column;gap:14px;min-width:0}
 .task-side{position:sticky;top:calc(var(--mast) + 16px);max-height:calc(100dvh - var(--mast) - 32px);overflow-y:auto}
@@ -768,9 +768,9 @@ dialog.viewer[open]{display:flex;flex-direction:column}
 @media (max-width:699px){.doc-wide{display:none}}
 dialog.viewer::backdrop{background:rgb(0 0 0 / .32)}
 html:has(dialog.viewer:modal){overflow:hidden}
-.viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px 6px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
-.viewer-tab{display:inline-flex;align-items:center;min-height:var(--control);white-space:nowrap}
-.viewer-close{width:var(--control);padding:0}
+.viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px;border-bottom:1px solid var(--line);background:var(--panel)}
+.viewer-tab{display:inline-flex;align-items:center;min-height:var(--control);padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);font-weight:600;white-space:nowrap}
+.viewer-back,.viewer-close{width:var(--control);padding:0}
 .viewer-body.thread.doc{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:16px 20px 32px;overflow:auto;overscroll-behavior:contain}
 .viewer-body:focus{outline:none}
 .viewer-state{min-width:0;overflow:hidden;color:var(--fg);font-family:var(--mono);text-overflow:ellipsis;white-space:nowrap}
@@ -778,6 +778,8 @@ html:has(dialog.viewer:modal){overflow:hidden}
 .viewer .doc-picture.actual{max-height:calc(100dvh - 260px)}
 .viewer .doc-frame{height:calc(100dvh - 300px)}
 .viewer-body .text-bar{top:-16px}
+.viewer-body form[method=post]{pointer-events:none}
+@media (min-width:1000px){.viewer-body .task-side{top:0;max-height:calc(100dvh - 61px - var(--control))}}
 .connect-part h3{margin:0}
 .part-body{display:grid;gap:10px;padding:12px}
 .part-body>p{margin:0}
