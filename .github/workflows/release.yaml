@@ -18,7 +18,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  e2e:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-install.yaml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+
   binaries:
+    needs: e2e
     runs-on: ubuntu-latest
     permissions:
       contents: write
