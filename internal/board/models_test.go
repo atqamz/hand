@@ -39,10 +39,11 @@ var claudeFixture = claudeReply(
 )
 
 type modelRig struct {
-	fx   *fixture
-	bin  string
-	home string
-	env  harness.Env
+	fx     *fixture
+	bin    string
+	claude string
+	home   string
+	env    harness.Env
 }
 
 func newModelRig(t *testing.T) *modelRig {
@@ -55,9 +56,9 @@ func newModelRig(t *testing.T) *modelRig {
 	return r
 }
 
-func (r *modelRig) install(t *testing.T, name, behavior string, params map[string]string) {
+func (r *modelRig) install(t *testing.T, name, behavior string, params map[string]string) string {
 	t.Helper()
-	fakebin.Install(t, r.bin, name, behavior, params)
+	return fakebin.Install(t, r.bin, name, behavior, params)
 }
 
 func (r *modelRig) refresh(t *testing.T, names ...string) {
@@ -71,7 +72,7 @@ func (r *modelRig) refresh(t *testing.T, names ...string) {
 
 func (r *modelRig) all(t *testing.T) {
 	t.Helper()
-	r.install(t, "claude", "printer", map[string]string{"out": claudeFixture})
+	r.claude = r.install(t, "claude", "printer", map[string]string{"out": claudeFixture})
 	r.install(t, "codex", "printer", map[string]string{"out": codexBundled})
 	r.install(t, "agy", "agy", map[string]string{"models": agyModels})
 	r.install(t, "opencode", "agy", map[string]string{"models": "acme/acme-coder-1\nacme/acme-coder-2\n"})
@@ -195,7 +196,7 @@ func TestTheNoteAppearsOnlyForAStaleListOrAFailure(t *testing.T) {
 	r.fx.options.Now = nil
 	lacks(t, "fresh", r.console(t), "model-note")
 	later := time.Now().Add(time.Hour)
-	if err := os.Chtimes(filepath.Join(r.bin, "claude"), later, later); err != nil {
+	if err := os.Chtimes(r.claude, later, later); err != nil {
 		t.Fatal(err)
 	}
 	if st := harness.StatusOf("claude", r.env, time.Now()); !st.Stale || st.Old {
