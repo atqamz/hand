@@ -120,8 +120,9 @@ func TestLiveAPromptReachesAnExeIntact(t *testing.T) {
 					if err == nil {
 						t.Fatal("Hand accepted a prompt that starts with a dash")
 					}
-					argv, err = shape.build("x")
-					argv[len(argv)-1] = tc.text
+					if argv, err = shape.build("x"); err == nil {
+						argv[len(argv)-1] = tc.text
+					}
 				}
 				if err != nil {
 					t.Fatal(err)

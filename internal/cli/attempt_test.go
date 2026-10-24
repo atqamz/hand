@@ -62,9 +62,12 @@ func TestAttemptStartRefusesABriefTooLongForTheArgumentBeforeAnythingStarts(t *t
 		t.Fatal(err)
 	}
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", long, "t1")
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%q, want exit 2", code, errOut)
+	}
 	for _, want := range []string{"luvus accepts at most 16384 per argument", "write the long text to a file and make the prompt say to read that file"} {
-		if code != 2 || !strings.Contains(errOut, want) {
-			t.Fatalf("code=%d stderr=%q, want exit 2 and %q", code, errOut, want)
+		if !strings.Contains(errOut, want) {
+			t.Fatalf("stderr=%q, want %q", errOut, want)
 		}
 	}
 	if list := fx.h.ok("attempt", "list"); strings.Contains(list, "a1") {

@@ -20,6 +20,7 @@ func TestCommandLineLenCountsWhatWindowsReceives(t *testing.T) {
 		{"an argument with a space", []string{`C:\x.exe`, "two words"}, 8 + 1 + 11},
 		{"an empty argument", []string{`C:\x.exe`, ""}, 8 + 1 + 2},
 		{"quotes", []string{`C:\x.exe`, `say "hi"`}, 8 + 1 + 12},
+		{"a bare quote", []string{`C:\x.exe`, `"`}, 8 + 1 + 4},
 		{"a backslash before a quote", []string{`C:\x.exe`, `a\"b`}, 8 + 1 + 8},
 		{"a trailing backslash in a quoted argument", []string{`C:\x.exe`, `a b\`}, 8 + 1 + 7},
 		{"a newline", []string{`C:\x.exe`, "a\nb"}, 8 + 1 + 5},
