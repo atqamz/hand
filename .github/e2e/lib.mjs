@@ -268,8 +268,24 @@ export async function diagnostics() {
   }
 }
 
+const registry = "[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)";
+
+export async function userPath(shell = 'powershell') {
+  const script = `$k = ${registry}; $k.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); $k.Close()`;
+  const res = await run(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { env: cleanEnv() });
+  if (res.code !== 0) throw new Error(`cannot read the user PATH: ${res.err}`);
+  return res.out.trim();
+}
+
+export async function setUserPath(shell, value) {
+  const script = `$k = ${registry}; $k.SetValue('Path', $env:E2E_PATH, [Microsoft.Win32.RegistryValueKind]::ExpandString); $k.Close()`;
+  const res = await run(shell, ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...cleanEnv(), E2E_PATH: value } });
+  if (res.code !== 0) throw new Error(`cannot restore the user PATH: ${res.err}`);
+}
+
 export async function phase(name, fn) {
   logTo(name);
+  const before = win ? await userPath() : null;
   try {
     await fn();
     note(`PASS ${name}`);
@@ -278,6 +294,8 @@ export async function phase(name, fn) {
     note(`FAIL ${name}: ${e.stack ?? e}`);
     await diagnostics();
     process.exitCode = 1;
+  } finally {
+    if (win) await setUserPath('powershell', before).catch((e) => note(`::warning::${e.message}`));
   }
   process.exit(process.exitCode ?? 0);
 }
@@ -367,6 +385,21 @@ export class Client {
     return this.req('GET', p, o);
   }
 
+  raw(rawPath) {
+    const url = new URL(this.base);
+    const headers = { ...this.headers };
+    if (this.jar.size) headers.cookie = [...this.jar].map(([k, v]) => `${k}=${v}`).join('; ');
+    return new Promise((resolve, reject) => {
+      http
+        .get({ host: url.hostname, port: url.port, path: rawPath, headers, timeout: 20_000 }, (res) => {
+          let text = '';
+          res.on('data', (d) => (text += d));
+          res.on('end', () => resolve({ status: res.statusCode, text, location: res.headers.location ?? null }));
+        })
+        .on('error', reject);
+    });
+  }
+
   post(p, form, o = {}) {
     return this.req('POST', p, { ...o, form });
   }
@@ -403,8 +436,9 @@ export function stub(box) {
 
 export const luvusCache = path.join(tmpRoot, 'luvus-cache');
 
-export function seedLuvus(box) {
-  if (!fs.existsSync(path.join(luvusCache, 'pin.json'))) return false;
+export function seedLuvus(box, wanted) {
+  if (process.env.E2E_FRESH_LUVUS === 'true' || !fs.existsSync(path.join(luvusCache, 'pin.json'))) return false;
+  if (JSON.parse(fs.readFileSync(path.join(luvusCache, 'pin.json'), 'utf8')).version !== wanted) return false;
   const dest = path.join(box.root, 'luvus');
   fs.mkdirSync(box.root, { recursive: true });
   fs.cpSync(luvusCache, dest, { recursive: true });
@@ -418,6 +452,13 @@ export function seedLuvus(box) {
 export function saveLuvus(box) {
   if (fs.existsSync(path.join(luvusCache, 'pin.json')) || !fs.existsSync(path.join(box.root, 'luvus', 'pin.json'))) return;
   fs.cpSync(path.join(box.root, 'luvus'), luvusCache, { recursive: true });
+}
+
+export async function cleaned(dir, probe) {
+  for (let i = 0; i < 6 && fs.readdirSync(dir).some((n) => n.includes('.old')); i++) {
+    await probe();
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 }
 
 export function sha256(file) {

@@ -15,9 +15,10 @@ async function visit(browser, link, id, width) {
   const problems = [];
   page.on('console', (m) => m.type() === 'error' && problems.push(`console: ${m.text()}`));
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
+  const csp = [];
+  await page.exposeFunction('reportCsp', (v) => csp.push(v));
   await page.addInitScript(() => {
-    window.__csp = [];
-    document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+    document.addEventListener('securitypolicyviolation', (e) => window.reportCsp(`${e.violatedDirective} ${e.blockedURI}`));
   });
   try {
     await page.goto(link.href, { waitUntil: 'domcontentloaded' });
@@ -59,7 +60,7 @@ async function visit(browser, link, id, width) {
     check(await page.locator('table').first().isVisible(), `${tag}: the document page renders the table`);
     await page.screenshot({ path: path.join(shots, `${tag}-doc.png`) });
 
-    equal(await page.evaluate(() => window.__csp), [], `${tag}: no CSP violation`);
+    equal(csp, [], `${tag}: no CSP violation on the fleet page, the dialog or the document page`);
     equal(problems, [], `${tag}: no console error or page error`);
   } finally {
     await context.close();

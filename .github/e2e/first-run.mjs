@@ -85,7 +85,7 @@ async function board(box, srv, made) {
   matches(page.headers.get('content-security-policy') ?? '', /default-src 'none'; script-src 'self'; style-src 'self'/, 'the page carries the strict CSP');
   lacks(page.text, /rel="manifest"|data-worker/, 'a loopback page does not offer the install manifest');
   equal((await laptop.get('/')).status, 200, 'the fleet list answers on loopback');
-  matches(textOf((await laptop.get('/')).text), /fleet/, 'the fleet list names the fleet');
+  matches((await laptop.get('/')).text, new RegExp(`href="/${id}/"`), 'the fleet list links the fleet');
 
   const events = await laptop.get(`/${id}/events`, { stream: true, timeout: 40_000 });
   equal(events.status, 200, '/events answers 200');
@@ -108,11 +108,15 @@ async function board(box, srv, made) {
   matches(doc.text, /<h[1-6][^>]*>Export notes<\/h[1-6]>/, 'the viewer renders the Markdown');
   matches((await laptop.get(`/${id}/doc/docs/export-notes.md?raw`)).text, /^# Export notes/, 'the raw file is served too');
   matches(textOf((await laptop.get(`/${id}/doc/docs/nested/log.txt`)).text), /line one/, 'the viewer shows a text file');
-  for (const refused of ['hand.db', 'board.token', 'AGENTS.md', 'luvus/pin.json', 'docs/../hand.db', '.claude']) {
+  const token = fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim();
+  for (const refused of ['hand.db', 'board.token', 'AGENTS.md', 'luvus/note.txt', 'locks/note.txt', 'projects/note.txt', '.claude']) {
     const res = await laptop.get(`/${id}/doc/${refused}`);
-    check(res.status >= 400 && !res.text.includes('SQLite format') && !res.text.includes(fs.readFileSync(path.join(box.fleet, 'board.token'), 'utf8').trim()), `the viewer refuses ${refused} (${res.status})`);
+    check(res.status === 403 && /does not show Hand&#39;s own files/.test(res.text) && !res.text.includes('SQLite format') && !res.text.includes(token) && !res.text.includes('inside '), `the viewer refuses ${refused} with the reason`);
   }
-  matches(textOf((await laptop.get(`/${id}/doc/hand.db`)).text), /does not show Hand's own files/, 'the viewer says why it refuses hand.db');
+  const climbed = await laptop.raw(`/${id}/doc/docs/../hand.db`);
+  check(climbed.status !== 200 && !climbed.text.includes('SQLite format'), `the viewer does not serve hand.db through a .. segment (${climbed.status})`);
+  const encoded = await laptop.raw(`/${id}/doc/docs/%2e%2e/hand.db`);
+  check(encoded.status !== 200 && !encoded.text.includes('SQLite format'), `the viewer does not serve hand.db through an encoded .. segment (${encoded.status})`);
   equal((await new Client(origin).get(`/${id}/doc/docs/export-notes.md`)).status, 403, 'the viewer refuses a request without a session');
 
   const funnel = await new Client(origin, { 'Tailscale-Funnel-Request': '?1' }).get(`/${id}/`);
@@ -152,7 +156,7 @@ async function board(box, srv, made) {
   matches(home.text, /data-worker/, 'behind the proxy headers the page registers its worker');
   const rail = await phone.get('/');
   equal(rail.status, 200, 'the paired phone opens the fleet list');
-  matches(textOf(rail.text), /fleet/, 'the rail lists the fleet the phone is paired with');
+  matches(rail.text, new RegExp(`href="/${id}/"`), 'the rail lists the fleet the phone is paired with');
   equal(phone.cookie(`__Host-hand_phone_${id}`)?.length > 20, true, 'the phone keeps its secret in the cookie');
   const strange = await new Client(origin, proxy).get('/');
   equal(strange.status, 200, 'a proxied request without a session gets the fleet list page');

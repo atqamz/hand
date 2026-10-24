@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ok, saveLuvus, seedLuvus } from './lib.mjs';
+import { luvusTested, ok, saveLuvus, seedLuvus } from './lib.mjs';
 
 export async function initialize(box, msg) {
   let res;
@@ -16,13 +16,17 @@ export async function fixture(box) {
   const out = { repos: {} };
   out.repos.alpha = await box.repo('alpha');
   out.repos.beta = await box.repo('beta');
-  const seeded = seedLuvus(box);
+  const seeded = seedLuvus(box, luvusTested);
   out.init = await initialize(box, `hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`);
   saveLuvus(box);
   const docs = path.join(box.fleet, 'docs');
   fs.mkdirSync(path.join(docs, 'nested'), { recursive: true });
   fs.writeFileSync(path.join(docs, 'export-notes.md'), '# Export notes\n\nThe export writes **one row per task**.\n\n| column | meaning |\n|---|---|\n| id | task ref |\n| title | task title |\n');
   fs.writeFileSync(path.join(docs, 'nested', 'log.txt'), 'line one\nline two\n');
+  for (const hidden of ['luvus', 'locks', 'projects']) {
+    fs.mkdirSync(path.join(box.fleet, hidden), { recursive: true });
+    fs.writeFileSync(path.join(box.fleet, hidden, 'note.txt'), `inside ${hidden}\n`);
+  }
   await ok(await box.hand(['project', 'add', 'alpha', out.repos.alpha]), 'hand project add alpha');
   await ok(await box.hand(['project', 'add', 'beta', out.repos.beta]), 'hand project add beta');
   await ok(await box.hand(['task', 'add', '--goal', 'People land on the home page after signing in.', 'alpha', 'Fix the login redirect']), 'hand task add t1');

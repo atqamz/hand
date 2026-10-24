@@ -8,6 +8,10 @@ on:
         description: Git ref to build and test; the default is the ref that triggered the run.
         type: string
         default: ""
+    outputs:
+      sha:
+        description: The commit that was built and tested.
+        value: ${{ jobs.build.outputs.sha }}
   schedule:
     - cron: "17 3 * * *"
   push:
@@ -18,8 +22,10 @@ on:
       - install.sh
       - install.ps1
       - install_test.go
-      - internal/update/**
-      - internal/state/**
+      - main.go
+      - go.mod
+      - go.sum
+      - internal/**
       - .github/e2e/**
       - .github/scripts/**
       - .github/workflows/e2e-install.yaml
@@ -39,11 +45,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -70,13 +80,13 @@ jobs:
           - name: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 70
     env:
-      GH_TOKEN: ${{ github.token }}
+      E2E_FRESH_LUVUS: ${{ github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || inputs.ref != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.build.outputs.sha }}
           persist-credentials: false
       - name: Set the paths
         shell: bash
@@ -127,9 +137,11 @@ jobs:
       - name: Upgrade from the last release
         if: ${{ !cancelled() }}
         timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node .github/e2e/upgrade.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         with:
           name: e2e-logs-${{ matrix.name }}
           path: ${{ runner.temp }}/hand-e2e/logs

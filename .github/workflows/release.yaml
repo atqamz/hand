@@ -48,6 +48,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Check the tag still names the tested commit
+        env:
+          TESTED: ${{ needs.e2e.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$TESTED"
       - run: go test -race ./...
       - name: Build
         run: sh .github/scripts/build-dist.sh "${TAG#v}" stable "$(git rev-parse HEAD)"

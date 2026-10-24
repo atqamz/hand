@@ -2,10 +2,11 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { initialize } from './fixture.mjs';
-import { Box, Client, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
+import { Box, Client, cleaned, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
 const previous = 'v0.11.0';
 const previousSchema = 9;
+const previousLuvus = '0.14.3';
 const profiles = ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -71,17 +72,22 @@ async function snapshot(box) {
   for (const t of list) {
     const shown = toon((await ok(await box.hand(['task', 'show', t.id]), `hand task show ${t.id}`)).out);
     const f = shown.fields;
-    tasks[t.id] = [f.project, f.title, f.status, f.goal, f.plan, f.attempt, f.report, shown.tables.decisions.map((d) => [d.id, d.status, d.question])];
+    const plan = f.plan === 'none' ? '' : toon((await ok(await box.hand(['plan', 'show', t.id]), `hand plan show ${t.id}`)).out).fields.body;
+    tasks[t.id] = [f.project, f.title, f.status, f.goal, f.plan, plan, f.attempt, f.report, shown.tables.decisions.map((d) => [d.id, d.status, d.question])];
   }
-  const decisions = toon((await ok(await box.hand(['decision', 'list', '--all']), 'hand decision list')).out).tables.decisions.map((d) => [d.id, d.task, d.status, d.question]);
+  const decisions = [];
+  for (const d of toon((await ok(await box.hand(['decision', 'list', '--all']), 'hand decision list')).out).tables.decisions) {
+    const shown = toon((await ok(await box.hand(['decision', 'show', d.id]), `hand decision show ${d.id}`)).out).fields;
+    decisions.push([d.id, d.task, d.status, d.question, shown.answer, shown.answered_by, shown.closed_at]);
+  }
   const orient = toon((await ok(await box.hand(['orient']), 'hand orient')).out);
   return { tasks, decisions, attempts, reports, counts: orient.fields.tasks, cursor: Number(orient.fields.cursor) };
 }
 
-async function seed(box, label, withReport) {
+async function seed(box, label, withReport, pinned) {
   const alpha = await box.repo('alpha');
   const beta = await box.repo('beta');
-  const seeded = seedLuvus(box);
+  const seeded = seedLuvus(box, pinned);
   const init = toon((await initialize(box, `${label} hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`)).out).fields;
   saveLuvus(box);
   await ok(await box.hand(['project', 'add', 'alpha', alpha]), 'project add alpha');
@@ -112,8 +118,12 @@ async function watcher(box) {
   const bin = path.join(box.bin, `hand${exe}`);
   spawn(bin, ['watch', '--notify=false'], { cwd: box.fleet, env: box.env(), stdio: 'ignore', detached: true, windowsHide: true }).unref();
   for (let i = 0; i < 100 && !fs.existsSync(path.join(box.fleet, 'watch.pid')); i++) await new Promise((r) => setTimeout(r, 100));
-  const text = fs.readFileSync(path.join(box.fleet, 'watch.pid'), 'utf8');
-  check(/^\d+ /.test(text), 'a watcher runs and records watch.pid');
+  let text = '';
+  for (let i = 0; i < 50 && !/^\d+ \S+ \S/.test(text); i++) {
+    text = fs.readFileSync(path.join(box.fleet, 'watch.pid'), 'utf8');
+    if (!/^\d+ \S+ \S/.test(text)) await new Promise((r) => setTimeout(r, 100));
+  }
+  check(/^\d+ \S+ \S/.test(text), 'a watcher runs and records watch.pid');
   return Number(text.split(' ')[0]);
 }
 
@@ -166,9 +176,12 @@ async function update(box, s) {
 
   const v = toon((await ok(await box.hand(['version']), `${name}: hand version after the update`)).out).fields;
   equal([v.version, v.channel, v.commit, v.schema], [version, 'stable', to.commit, String(schema)], `${name}: the installed binary is the served build`);
-  if (win) equal(fs.readdirSync(box.bin), ['hand.exe'], `${name}: the next hand run removed hand.exe.old`);
+  if (win) {
+    await cleaned(box.bin, () => box.hand(['version']));
+    equal(fs.readdirSync(box.bin), ['hand.exe'], `${name}: the next hand run removed hand.exe.old`);
+  }
   const after = await snapshot(box);
-  equal(after.tasks, before.tasks, `${name}: every task, plan and decision is unchanged`);
+  equal(after.tasks, before.tasks, `${name}: every task, plan body, decision and answer is unchanged`);
   equal(after.decisions, before.decisions, `${name}: the decision list is unchanged`);
   equal(after.attempts, before.attempts, `${name}: every attempt is unchanged`);
   equal(after.reports, before.reports, `${name}: every report is unchanged`);
@@ -291,13 +304,13 @@ await phase('upgrade', async () => {
     for (const [slug, running, report] of [['stopped', {}, true], ['board running', { board: true }, false], ['board and watcher running', { board: true, watcher: true }, false]]) {
       box = new Box(`upgrade-${slug.replace(/ /g, '-')}`).prepare();
       const from = await installOld(box, previousRoot);
-      const id = await seed(box, previous, report);
+      const id = await seed(box, previous, report, previousLuvus);
       await scenario({ box, id, report, name: `${previous} to the candidate, ${slug}`, from, to: { srv: current, commit: commit() }, running });
       await stopAll(box);
     }
     box = new Box('upgrade-candidate').prepare();
     const from = await installCandidate(box, current);
-    const id = await seed(box, 'the candidate', true);
+    const id = await seed(box, 'the candidate', true, luvusTested);
     await scenario({ box, id, report: true, name: 'the candidate to the next build', from, to: { srv: next, commit: nextCommit() }, running: { board: true, watcher: true } });
     await stopAll(box);
   } finally {
