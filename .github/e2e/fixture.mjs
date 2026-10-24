@@ -1,13 +1,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { check, equal, ok, saveLuvus, seedLuvus, toon } from './lib.mjs';
+import { ok, saveLuvus, seedLuvus } from './lib.mjs';
+
+export async function initialize(box, msg) {
+  let res;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    res = await box.hand(['init']);
+    if (res.code === 0 || !/update: |download|timed out|connection|EOF|reset/i.test(res.err)) break;
+    await new Promise((r) => setTimeout(r, attempt * 5000));
+  }
+  return ok(res, msg);
+}
 
 export async function fixture(box) {
   const out = { repos: {} };
   out.repos.alpha = await box.repo('alpha');
   out.repos.beta = await box.repo('beta');
   const seeded = seedLuvus(box);
-  out.init = await ok(await box.hand(['init']), `hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`);
+  out.init = await initialize(box, `hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`);
   saveLuvus(box);
   const docs = path.join(box.fleet, 'docs');
   fs.mkdirSync(path.join(docs, 'nested'), { recursive: true });
@@ -23,15 +33,4 @@ export async function fixture(box) {
   await ok(await box.hand(['decision', 'ask', '--file', '-', 't2'], { input: 'Which delimiter should the CSV export use?\n\n1. Comma — what most tools expect\n2. Semicolon — what spreadsheet locales in Europe expect\n3. Other\n' }), 'hand decision ask t2');
   await ok(await box.hand(['task', 'deliver', 't2', path.join(docs, 'export-notes.md')]), 'hand task deliver t2');
   return out;
-}
-
-export async function counts(box, opts = {}) {
-  const orient = toon((await ok(await box.hand(['orient'], opts), 'hand orient')).out);
-  const m = orient.fields.tasks.match(/^inbox=(\d+) active=(\d+) done=(\d+) abandoned=(\d+)$/);
-  check(Boolean(m), 'hand orient lists the task counts');
-  return { tasks: m.slice(1).map(Number), cursor: Number(orient.fields.cursor), orient };
-}
-
-export function expectCounts(got, want, msg) {
-  equal(got.tasks, want.tasks, `${msg}: task counts`);
 }

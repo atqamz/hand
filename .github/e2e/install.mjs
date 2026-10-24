@@ -75,12 +75,11 @@ async function one(shell, good, bad) {
 
   const refused = path.join(box.dir, 'refused', 'bin');
   const res = await install(shell, bad.base, refused, {}, box);
+  await fails(res, `${shell}: a corrupted archive makes the installer exit 1`, 1);
   if (win) {
     const file = await run(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(distDir, 'install.ps1'), '-Dir', refused, '-Base', bad.base], { env: cleanEnv() });
     equal(file.code, 1, `${shell}: install.ps1 -File exits 1 on a corrupted archive`);
     matches(file.out + file.err, new RegExp(`install\\.ps1: checksum mismatch for ${escape(asset)}`), `${shell}: install.ps1 -File names the checksum mismatch`);
-  } else {
-    await fails(res, `${shell}: a corrupted archive makes the installer exit non-zero`, 1);
   }
   matches(res.out + res.err, new RegExp(`install\\.(sh|ps1): checksum mismatch for ${escape(asset)}`), `${shell}: it names the checksum mismatch`);
   check(!fs.existsSync(path.join(refused, `hand${exe}`)), `${shell}: nothing is installed after the mismatch`);

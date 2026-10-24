@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { initialize } from './fixture.mjs';
 import { Box, Client, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
 const previous = 'v0.11.0';
@@ -21,7 +22,13 @@ async function released() {
   const dir = path.join(root, 'download', previous);
   if (!fs.existsSync(path.join(dir, asset))) {
     fs.mkdirSync(dir, { recursive: true });
-    await ok(await run('gh', ['release', 'download', previous, '--repo', 'atqamz/hand', '-p', asset, '-p', sums, '-D', dir], { env: process.env }), `gh release download ${previous}`);
+    let got;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      got = await run('gh', ['release', 'download', previous, '--repo', 'atqamz/hand', '--clobber', '-p', asset, '-p', sums, '-D', dir], { env: process.env });
+      if (got.code === 0) break;
+      await new Promise((r) => setTimeout(r, attempt * 5000));
+    }
+    await ok(got, `gh release download ${previous}`);
   }
   for (const script of ['install.sh', 'install.ps1']) fs.copyFileSync(path.join(distDir, script), path.join(root, script));
   const line = fs.readFileSync(path.join(dir, sums), 'utf8').split(/\r?\n/).find((l) => l.trim().endsWith(asset));
@@ -75,7 +82,7 @@ async function seed(box, label, withReport) {
   const alpha = await box.repo('alpha');
   const beta = await box.repo('beta');
   const seeded = seedLuvus(box);
-  const init = toon((await ok(await box.hand(['init']), `${label} hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`)).out).fields;
+  const init = toon((await initialize(box, `${label} hand init${seeded ? ' with the cached Luvus' : ' downloads the pinned Luvus'}`)).out).fields;
   saveLuvus(box);
   await ok(await box.hand(['project', 'add', 'alpha', alpha]), 'project add alpha');
   await ok(await box.hand(['project', 'add', 'beta', beta]), 'project add beta');
