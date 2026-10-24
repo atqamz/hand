@@ -11,6 +11,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 const magic = "\x00fakebin"
@@ -152,4 +153,24 @@ func Append(path, line string) {
 	}
 	defer f.Close()
 	_, _ = f.WriteString(line + "\n")
+}
+
+func RecordArgs(args []string) int {
+	out := Params()["out"]
+	b, err := json.Marshal(args)
+	if err == nil {
+		err = os.WriteFile(out+".part", b, 0o644)
+	}
+	if err == nil {
+		err = os.Rename(out+".part", out)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fakebin:", err)
+		return 1
+	}
+	for i, a := range args {
+		fmt.Printf("arg %d: %d bytes\r\n", i, len(a))
+	}
+	time.Sleep(5 * time.Minute)
+	return 0
 }

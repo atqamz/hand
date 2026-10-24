@@ -20,7 +20,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"tool": func(args []string) int {
+	fakebin.Main(map[string]func([]string) int{"args": fakebin.RecordArgs, "tool": func(args []string) int {
 		p := fakebin.Params()
 		line := p["name"]
 		for _, a := range args {
