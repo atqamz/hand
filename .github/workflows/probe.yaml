@@ -1,0 +1,46 @@
+name: Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe-windows:
+    runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Luvus
+        shell: bash
+        run: |
+          set -eu
+          version=$(sed -n 's/^const Tested = "\(.*\)"$/\1/p' internal/luvus/pin.go)
+          test -n "$version"
+          name=luvus-v$version-x86_64-pc-windows-msvc
+          base=https://github.com/RizRiyz/luvus/releases/download/v$version
+          dir=$(cygpath -u "$RUNNER_TEMP")/luvus
+          mkdir "$dir"
+          cd "$dir"
+          for file in "$name.zip" "$name.sha256"; do
+            for attempt in 1 2 3 4; do
+              curl -fsSLO --connect-timeout 20 --max-time 120 "$base/$file" && break
+              test "$attempt" -lt 4
+              sleep $((attempt * 5))
+            done
+          done
+          sha256sum -c "$name.sha256"
+          unzip -q "$name.zip"
+          cygpath -w "$dir" >> "$GITHUB_PATH"
+      - run: go test -count=1 -v -timeout 20m -run '^(TestLiveProbeLimits|TestLiveAPromptReachesAnExeIntact)$' ./internal/luvus
+        env:
+          HAND_LUVUS_IT: "1"
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
