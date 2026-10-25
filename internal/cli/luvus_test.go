@@ -204,7 +204,7 @@ func TestLuvusShowPrintsTheServerVersion(t *testing.T) {
 	h := newHarness(t)
 	pinnable(t, h, "0.14.3")
 	h.ok("init")
-	sock := filepath.Join(t.TempDir(), "uhp.sock")
+	sock := fakeuhp.ShortSocket(t)
 	h.vars["HAND_LUVUS_SOCKET"] = sock
 	has(t, "not running", h.ok("luvus", "show"), "server: not running", "match: not running")
 	srv := fakeuhp.Start(t, sock)

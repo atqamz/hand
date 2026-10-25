@@ -46,7 +46,7 @@ func newDoctorFixture(t *testing.T) *doctorFixture {
 		t.Fatal(err)
 	}
 	pinnable(t, h, "0.14.3")
-	h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "uhp.sock")
+	h.vars["HAND_LUVUS_SOCKET"] = fakeuhp.ShortSocket(t)
 	fx.id = field(h.ok("init"), "id")
 	fx.srv = fakeuhp.Start(t, h.vars["HAND_LUVUS_SOCKET"])
 	fx.serve("0.14.3")

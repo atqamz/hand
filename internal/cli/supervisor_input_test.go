@@ -2,19 +2,19 @@ package cli_test
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
 
 func supervisorTarget(t *testing.T, harness string, set func(*fakeRuntime)) (luvus.Client, state.Supervisor, *fakeRuntime) {
 	t.Helper()
-	rt := startRuntime(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
 	c := luvus.Client{Socket: rt.srv.Socket}
 	term, err := c.Create(context.Background(), t.TempDir(), "hand-supervisor", []string{exe(fakeBin(t), harness)})
 	if err != nil {

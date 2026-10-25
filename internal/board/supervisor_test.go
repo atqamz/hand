@@ -45,7 +45,7 @@ type fixture struct {
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	fx := &fixture{st: open(t), status: "working", revision: 7, screen: "Trust this folder?\n❯ 1. Yes", claude: t.TempDir()}
-	fx.srv = fakeuhp.Start(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	fx.srv = fakeuhp.Start(t, fakeuhp.ShortSocket(t))
 	fx.srv.Handle("agent.explain", func(raw json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()

@@ -68,7 +68,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func sock(t *testing.T) string { return filepath.Join(t.TempDir(), "uhp.sock") }
+func sock(t *testing.T) string { return fakeuhp.ShortSocket(t) }
 
 func vars(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 

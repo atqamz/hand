@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -181,4 +183,14 @@ func (s *Server) DropSubscribers() {
 	for _, c := range subs {
 		_ = c.Close()
 	}
+}
+
+func ShortSocket(t testing.TB) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "uhp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, "s")
 }

@@ -72,6 +72,7 @@ type fakeRuntime struct {
 
 func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	t.Helper()
+	t.TempDir()
 	rt := &fakeRuntime{srv: fakeuhp.Start(t, socket), status: "working", ready: true}
 	rt.srv.Handle("terminal.backend.create", rt.create)
 	rt.srv.Handle("terminal.backend.validate", rt.validate)
@@ -471,7 +472,7 @@ func fakeBin(t *testing.T) string {
 func newAttemptFixture(t *testing.T) *attemptFixture {
 	t.Helper()
 	fx := &attemptFixture{h: newHarness(t), repo: gitRepo(t)}
-	fx.rt = startRuntime(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
 	fx.h.vars["PATH"] = fakeBin(t)
 	fx.h.vars["HOME"] = t.TempDir()

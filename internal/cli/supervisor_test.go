@@ -33,7 +33,7 @@ var launchPrompt = regexp.MustCompile("^You are supervisor (s[0-9]+) of the Hand
 func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	t.Helper()
 	h := newHarness(t)
-	rt := startRuntime(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
 	h.vars["HAND_LUVUS_SOCKET"] = rt.srv.Socket
 	h.vars["PATH"] = fakeBin(t)
 	h.vars["HOME"] = t.TempDir()

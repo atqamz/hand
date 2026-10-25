@@ -11,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 )
 
 const (
@@ -80,7 +81,7 @@ func runCodexTrust(t *testing.T, worktree string, repos []string, set func(*fake
 	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
 	*cli.TrustWait, *cli.TrustConfirm = time.Second, time.Second
 	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
-	rt := startRuntime(t, filepath.Join(t.TempDir(), "uhp.sock"))
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
 	c := luvus.Client{Socket: rt.srv.Socket}
 	term, err := c.Create(context.Background(), t.TempDir(), "hand-a1", []string{exe(fakeBin(t), "codex")})
 	if err != nil {
