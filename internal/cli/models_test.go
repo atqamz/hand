@@ -181,7 +181,7 @@ func TestNoRequestPathRunsAHarness(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
 	log := filepath.Join(t.TempDir(), "log")
 	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
-		fakebin.Install(t, h.vars["PATH"], name, "lister", map[string]string{"log": log, "stdout": "gemini-3.8-flash-low\tG\n"})
+		fakebin.Install(t, h.vars["PATH"], name, "lister", map[string]string{"log": log, "stdout": "gemini-3.8-flash-low\tG\n", "hold": "300s"})
 	}
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(`{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"gem":{"harness":"agy","model":"gemini-9"},"cx":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`), 0o644); err != nil {
 		t.Fatal(err)

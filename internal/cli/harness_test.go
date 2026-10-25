@@ -72,8 +72,12 @@ func listerMain(args []string) int {
 		fmt.Println(p["version"])
 		return 0
 	}
-	if p["log"] != "" && len(args) > 0 && slices.Contains([]string{"models", "debug", "-p"}, args[0]) {
+	listing := len(args) > 0 && slices.Contains([]string{"models", "debug", "-p"}, args[0])
+	if p["log"] != "" && listing {
 		fakebin.Append(p["log"], strings.Join(args, " "))
+	}
+	if hold, _ := time.ParseDuration(p["hold"]); !listing {
+		time.Sleep(hold)
 	}
 	d, _ := time.ParseDuration(p["sleep"])
 	time.Sleep(d)
