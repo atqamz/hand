@@ -92,7 +92,7 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 
 ## Development
 
-Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` for macOS process start times. Before committing, run:
+Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) before changing anything. [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to send a change and asks for a sign-off on each commit. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` for macOS process start times. Before committing, run:
 
 ```sh
 gofmt -l .

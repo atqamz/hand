@@ -9,6 +9,7 @@
 !/.github/**
 !/.gitattributes
 !/AGENTS.md
+!/CONTRIBUTING.md
 !/DESIGN.md
 !/LICENSE
 !/PRODUCT.md
