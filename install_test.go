@@ -196,6 +196,25 @@ func TestInstallScriptRefusesAnUnwritableFolder(t *testing.T) {
 	}
 }
 
+func TestInstallScriptPrintsOneLineWhenAToolFails(t *testing.T) {
+	noisy := t.TempDir()
+	if err := os.WriteFile(filepath.Join(noisy, "cp"), []byte("#!/bin/sh\necho 'cp: boom' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		env  map[string]string
+		want string
+	}{
+		"no temporary folder": {map[string]string{"TMPDIR": filepath.Join(t.TempDir(), "missing")}, "install.sh: cannot create a temporary folder\n"},
+		"failed copy":         {map[string]string{"PATH": noisy + ":" + os.Getenv("PATH")}, "install.sh: cannot install "},
+	} {
+		dir, _, errOut, code := runInstall(t, fakeRelease(t, "9.9.9", nil), c.env, "Linux", "x86_64")
+		if code != 1 || !strings.HasPrefix(errOut, c.want) || strings.Count(errOut, "\n") != 1 || len(installed(t, dir)) != 0 {
+			t.Fatalf("%s: code %d %q, installed %q", name, code, errOut, installed(t, dir))
+		}
+	}
+}
+
 func TestInstallScriptWorksWithBusyboxSha256sum(t *testing.T) {
 	real, err := exec.LookPath("sha256sum")
 	if err != nil {

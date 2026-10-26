@@ -39,7 +39,7 @@ else
 	url="$base/download/$version"
 fi
 asset="hand-$os-$arch.tar.gz"
-tmp=$(mktemp -d) || die "cannot create a temporary folder"
+tmp=$(mktemp -d 2>/dev/null) || die "cannot create a temporary folder"
 part=""
 trap 'rm -rf "$tmp"; if [ -n "$part" ]; then rm -f "$part"; fi' EXIT
 trap 'exit 1' HUP INT TERM
@@ -52,7 +52,7 @@ tar -xzf "$tmp/$asset" -C "$tmp" hand >/dev/null 2>&1 || die "cannot unpack $ass
 
 mkdir -p "$dir" 2>/dev/null || die "cannot create $dir"
 part=$(mktemp "$dir/.hand.XXXXXX" 2>/dev/null) || die "cannot write to $dir"
-cp "$tmp/hand" "$part" && chmod 0755 "$part" && mv -f "$part" "$dir/hand" || die "cannot install $dir/hand"
+{ cp "$tmp/hand" "$part" && chmod 0755 "$part" && mv -f "$part" "$dir/hand"; } 2>/dev/null || die "cannot install $dir/hand"
 part=""
 printf 'installed hand %s to %s\n' "$("$dir/hand" version | head -n 1)" "$dir/hand"
 case ":$PATH:" in
