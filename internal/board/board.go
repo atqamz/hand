@@ -613,10 +613,13 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 		c.Report = &reports[len(reports)-1]
 	}
 	waits, err := b.st.Waits(ctx)
+	if err != nil {
+		return c, err
+	}
 	if w, ok := waits[t.ID]; ok {
 		c.Waits = &w
 	}
-	return c, err
+	return c, nil
 }
 
 func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values) error {

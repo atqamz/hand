@@ -77,6 +77,40 @@ func TestAnOrdinaryTimerOnATaskStillHidesTheFleet(t *testing.T) {
 	}
 }
 
+func TestAWaitDoesNotChangeWhatAnOrdinaryTimerWatches(t *testing.T) {
+	s, _ := movingStore(t)
+	ctx := context.Background()
+	one, two := twoActiveTasks(t, s)
+	if _, err := s.AddTimer(ctx, TimerSpec{After: threeDays, TaskID: one.ID, Waits: true}); err != nil {
+		t.Fatal(err)
+	}
+	poll, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: two.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := unwatchedIDs(t, s, true); len(got) != 0 {
+		t.Fatalf("an ordinary timer due within 6h beside a wait: unwatched = %v", got)
+	}
+	if _, err := s.CancelTimer(ctx, poll.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := unwatchedIDs(t, s, true); !slices.Equal(got, []int64{two.ID}) {
+		t.Fatalf("after the ordinary timer ended: unwatched = %v", got)
+	}
+}
+
+func TestAnOverdueWaitKeepsItsTaskOutUntilItFires(t *testing.T) {
+	s, advance := movingStore(t)
+	one, two := twoActiveTasks(t, s)
+	if _, err := s.AddTimer(context.Background(), TimerSpec{After: time.Hour, TaskID: one.ID, Waits: true}); err != nil {
+		t.Fatal(err)
+	}
+	advance(2 * time.Hour)
+	if got := unwatchedIDs(t, s, true); !slices.Equal(got, []int64{two.ID}) {
+		t.Fatalf("a wait past its due time, not yet fired: unwatched = %v", got)
+	}
+}
+
 func TestAWaitsTimerCountsOnlyWhileAManagedSupervisorRuns(t *testing.T) {
 	s, _ := movingStore(t)
 	one, two := twoActiveTasks(t, s)

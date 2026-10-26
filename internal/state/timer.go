@@ -170,13 +170,16 @@ func (s *Store) TimersAt(ctx context.Context, now time.Time) ([]Timer, error) {
 
 func (s *Store) Waits(ctx context.Context) (map[int64]Timer, error) {
 	timers, err := armedTimers(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
 	out := map[int64]Timer{}
 	for _, t := range timers {
 		if t.Waits {
 			out[t.TaskID] = t
 		}
 	}
-	return out, err
+	return out, nil
 }
 
 func Ahead(d time.Duration) string {
