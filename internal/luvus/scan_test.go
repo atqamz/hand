@@ -153,8 +153,8 @@ func TestKeysStopsPollingAfterTheScanTries(t *testing.T) {
 	if n := len(f.srv.Calls("terminal.backend.processes")); n != 1+4 {
 		t.Fatalf("processes calls = %d, want the first scan and 4 polls", n)
 	}
-	if n := len(f.srv.Calls("agent.keys")); n != 1+3 {
-		t.Fatalf("keys calls = %d, want the first send and 3 after the scan", n)
+	if n := len(f.srv.Calls("agent.keys")); n != 2 {
+		t.Fatalf("keys calls = %d, want the first send and 1 after a scan that observed nothing", n)
 	}
 }
 
