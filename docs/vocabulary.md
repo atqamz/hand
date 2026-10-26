@@ -274,7 +274,7 @@ The copy of a Luvus binary that Hand runs, kept under `$SECONDHAND_HOME/luvus/<v
 
 The Luvus view of one terminal. The running supervisor and every running attempt each have a pane. Hand reads the screen and sends keys through it, and `hand attach supervisor` or `hand attach aN` opens it in your terminal.
 
-Luvus refuses keys and messages (`agent_not_ready`) to a pane it does not know as an agent, and it names an agent from the program's file name, which never matches `codex.exe` or `claude.exe`. So Hand asks Luvus for a **process scan** of the pane (`terminal.backend.processes`) before the first key or message it sends to that pane in a run, and once more, with a retry of the key, after an `agent_not_ready`. A scan that fails, or a Luvus without the method, never blocks a key that would have worked: the refusal then ends with a note that Luvus could not scan.
+Luvus refuses keys and messages (`agent_not_ready`) to a pane it does not know as an agent, and it names an agent from the program's file name, which never matches `codex.exe` or `claude.exe`. So Hand asks Luvus for a **process scan** of the pane (`terminal.backend.processes`) before the first key or message it sends to that pane in a run, and once more after an `agent_not_ready`, then sends the key up to 3 times, 200 ms apart, because Luvus can still refuse for a few milliseconds after a scan reports `observed`. A scan that fails, or a Luvus without the method, never blocks a key that would have worked: the refusal then ends with a note that Luvus could not scan.
 
 ### Blocked screen and screen revision
 

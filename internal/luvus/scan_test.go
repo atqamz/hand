@@ -103,7 +103,7 @@ func TestKeysAsksForAProcessScanBeforeTheFirstKeyOnly(t *testing.T) {
 	}
 }
 
-func TestKeysScansAgainAfterARefusalAndRetriesOnce(t *testing.T) {
+func TestKeysScansAgainAfterARefusalAndRetries(t *testing.T) {
 	f := newScanFake(t, 2)
 	f.handle("agent.keys", func() error { return nil })
 	c := luvus.Client{Socket: f.srv.Socket}
@@ -120,8 +120,26 @@ func TestKeysScansAgainAfterARefusalAndRetriesOnce(t *testing.T) {
 	if luvus.Code(err) != "agent_not_ready" || strings.Contains(err.Error(), "could not scan") {
 		t.Fatalf("keys err = %v", err)
 	}
-	if got := f.calls(); got != "inventory processes agent.keys inventory processes agent.keys" {
+	if got := f.calls(); got != "inventory processes agent.keys inventory processes agent.keys agent.keys agent.keys" {
 		t.Fatalf("a refusal that stays: calls = %s", got)
+	}
+}
+
+func TestKeysRetryWhileLuvusCatchesUpWithAnObservedScan(t *testing.T) {
+	f := newScanFake(t, 0)
+	late := 2
+	f.handle("agent.keys", func() error {
+		if late > 0 {
+			late--
+			return fakeuhp.Fail{Code: "agent_not_ready", Message: "target pane is not a running agent"}
+		}
+		return nil
+	})
+	if err := (luvus.Client{Socket: f.srv.Socket}).Keys(context.Background(), "5", []string{"enter"}, 7, "tid"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.srv.Calls("agent.keys")); n != 3 {
+		t.Fatalf("keys calls = %d, want 3", n)
 	}
 }
 
@@ -135,8 +153,8 @@ func TestKeysStopsPollingAfterTheScanTries(t *testing.T) {
 	if n := len(f.srv.Calls("terminal.backend.processes")); n != 1+4 {
 		t.Fatalf("processes calls = %d, want the first scan and 4 polls", n)
 	}
-	if n := len(f.srv.Calls("agent.keys")); n != 2 {
-		t.Fatalf("keys calls = %d, want 2", n)
+	if n := len(f.srv.Calls("agent.keys")); n != 1+3 {
+		t.Fatalf("keys calls = %d, want the first send and 3 after the scan", n)
 	}
 }
 

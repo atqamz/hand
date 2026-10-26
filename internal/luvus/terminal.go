@@ -134,6 +134,7 @@ func (c Client) Processes(ctx context.Context, t Terminal) (Processes, error) {
 
 var (
 	scanTries = 10
+	sendTries = 3
 	scanGap   = 200 * time.Millisecond
 	scanned   sync.Map
 )
@@ -173,5 +174,15 @@ func (c Client) identified(ctx context.Context, pane, terminalID string, send fu
 	if scanErr := c.scan(ctx, pane, terminalID, scanTries); scanErr != nil {
 		return fmt.Errorf("%w; Luvus could not scan the pane's processes (%v), so an agent started as a .exe may look like a plain shell", err, scanErr)
 	}
-	return send()
+	for n := 1; ; n++ {
+		err = send()
+		if Code(err) != "agent_not_ready" || n >= sendTries {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(scanGap):
+		}
+	}
 }
