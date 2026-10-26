@@ -76,7 +76,8 @@ func listerMain(args []string) int {
 	if p["log"] != "" && listing {
 		fakebin.Append(p["log"], strings.Join(args, " "))
 	}
-	if hold, _ := time.ParseDuration(p["hold"]); !listing {
+	if !listing {
+		hold, _ := time.ParseDuration(p["hold"])
 		time.Sleep(hold)
 	}
 	d, _ := time.ParseDuration(p["sleep"])
