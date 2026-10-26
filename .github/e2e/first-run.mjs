@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './fixture.mjs';
-import { Box, Client, candidate, check, commit, distDir, equal, exe, fails, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
+import { Box, Client, candidate, check, commit, distDir, equal, exe, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
 
 const missing = (h) => `${h} not found on PATH`;
 const profileFix = 'invalid: claude not found on PATH; install claude, or add its folder to PATH';
@@ -44,17 +44,17 @@ async function cli(box, srv) {
   check(!models.tables.models.some((m) => m.source === 'discovered'), 'hand models discovers no model without a harness');
 
   const doctor = await box.hand(['doctor']);
-  await fails(doctor, 'hand doctor exits 1 because no profile has a harness', 1);
+  await ok(doctor, 'hand doctor exits 0 with no harness installed and the starter routing.json');
   const checks = toon(doctor.out).tables.checks;
   const state = (name) => checks.find((c) => c.check === name)?.state;
   for (const name of ['luvus pin', 'schema', 'fleet', 'routing.json', 'project alpha', 'project beta']) equal(state(name), 'ok', `hand doctor: ${name} is ok`);
   const git = checks.find((c) => c.check === 'git');
   equal([git.state, git.fix], win ? ['warn', 'core.longpaths is off; run `git config --global core.longpaths true`'] : ['ok', ''], `hand doctor: git is ${win ? 'a warning for core.longpaths on Windows' : 'ok'}`);
-  const failing = checks.filter((c) => c.state === 'fail');
-  equal(failing.map((c) => c.check).sort(), ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'], 'hand doctor: only the five profiles fail');
-  check(failing.every((c) => c.fix === profileFix), 'hand doctor: each failing profile names the missing claude');
+  equal(checks.filter((c) => c.state === 'fail'), [], 'hand doctor: no check fails');
+  const warning = checks.filter((c) => c.state === 'warn' && c.check.startsWith('profile '));
+  equal(warning.map((c) => c.check).sort(), ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'], 'hand doctor: the five profiles warn');
+  check(warning.every((c) => c.fix === profileFix), 'hand doctor: each warning profile names the missing claude');
   check(checks.every((c) => !/^harness /.test(c.check) || c.state !== 'fail'), 'hand doctor: no harness row fails');
-  matches(doctor.err, /doctor: 5 check\(s\) failed/, 'hand doctor says how many checks failed');
   equal(toon(doctor.out).fields.server, 'not running', 'hand doctor: the Luvus server is not running yet');
   return made;
 }

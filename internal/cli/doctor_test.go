@@ -89,6 +89,12 @@ func (fx *doctorFixture) remove(path string) {
 	}
 }
 
+func (fx *doctorFixture) removeHarnesses() {
+	for _, name := range state.Harnesses {
+		fx.remove(exe(fx.tools, name))
+	}
+}
+
 func (fx *doctorFixture) write(path, body string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		fx.h.t.Fatal(err)
@@ -230,6 +236,26 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		}},
 		{"bad routing.json", "routing.json", "fail", "routing.json", 1, func(fx *doctorFixture) { fx.write(filepath.Join(fx.h.home, "routing.json"), "{") }},
 		{"no claude", "profile default", "fail", "claude not found on PATH; install claude, or add its folder to PATH", 1, func(fx *doctorFixture) { fx.remove(exe(fx.tools, "claude")) }},
+		{"no harness and a starter routing.json", "profile default", "warn", "claude not found on PATH", 0, (*doctorFixture).removeHarnesses},
+		{"no harness and a profile naming one", "profile default", "fail", "codex not found on PATH", 1, func(fx *doctorFixture) {
+			fx.removeHarnesses()
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`)
+		}},
+		{"no harness and a routing.json cut down to one starter profile", "profile default", "fail", "claude not found on PATH", 1, func(fx *doctorFixture) {
+			fx.removeHarnesses()
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}}`)
+		}},
+		{"no harness and a supervisor running", "profile default", "fail", "claude not found on PATH", 1, func(fx *doctorFixture) {
+			fx.removeHarnesses()
+			st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), time.Now)
+			if err != nil {
+				fx.h.t.Fatal(err)
+			}
+			defer st.Close()
+			if _, err := st.AddSupervisor(context.Background(), state.SupervisorSpec{Harness: "claude", Argv: []string{"claude"}}); err != nil {
+				fx.h.t.Fatal(err)
+			}
+		}},
 		{"server stale", "luvus server", "warn", "run `hand update`", 0, func(fx *doctorFixture) { fx.serve("0.14.2") }},
 		{"server not running", "luvus server", "info", "not running", 0, func(fx *doctorFixture) {
 			fx.h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(fx.h.t.TempDir(), "none.sock")

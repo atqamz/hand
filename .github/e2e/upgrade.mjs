@@ -193,9 +193,10 @@ async function update(box, s) {
 async function afterwards(box, s) {
   const { name, to, running, id } = s;
   const doctor = await box.hand(['doctor']);
-  await fails(doctor, `${name}: hand doctor exits 1 only for the missing harness`, 1);
+  await ok(doctor, `${name}: hand doctor exits 0 with no harness installed`);
   const checks = toon(doctor.out).tables.checks;
-  equal(checks.filter((c) => c.state === 'fail').map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor fails only the five profiles`);
+  equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
+  equal(checks.filter((c) => c.state === 'warn' && profiles.includes(c.check)).map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor warns for the five profiles`);
   for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
   const orient = await ok(await box.hand(['orient']), `${name}: hand orient`);
   check(Buffer.byteLength(orient.out) < 6000, `${name}: hand orient stays under its byte budget`);

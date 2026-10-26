@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,7 @@ func cmdDoctor(r *runner, args []string) error {
 	ctx, path := r.ctx(), r.env.Getenv("PATH")
 	doctorHand(&d, &c, path)
 	r.doctorGit(ctx, &d, &c, path)
+	installed := 0
 	for _, name := range state.Harnesses {
 		_, err := harness.LookPath(name, path)
 		var batch *harness.BatchFileError
@@ -59,6 +61,7 @@ func cmdDoctor(r *runner, args []string) error {
 		if err != nil {
 			continue
 		}
+		installed++
 		c.add("harness "+name, "ok", "")
 		c.add("models "+name, "info", r.modelSummary(name))
 	}
@@ -75,7 +78,7 @@ func cmdDoctor(r *runner, args []string) error {
 		c.add("fleet", "info", "the fleet checks were skipped: they need the secondhand folder")
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
-		r.doctorFleet(ctx, &d, &c, root, pin, pinned)
+		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 	}
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
 	d.Help(c.help...)
@@ -173,7 +176,7 @@ func (r *runner) doctorPin(ctx context.Context, d *toon.Doc, c *checks, root, pa
 	return pin, true
 }
 
-func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root string, pin luvus.Pin, pinned bool) {
+func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root string, pin luvus.Pin, pinned bool, installed int) {
 	if err := r.needHome(); err != nil {
 		level := "fail"
 		if r.home == "" && r.homeErr == nil {
@@ -204,13 +207,18 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		c.add("fleet", "ok", "")
 	}
 	doctorProjects(ctx, st, c)
+	_, live, lerr := st.LiveSupervisor(ctx)
 	if p, err := harness.LoadPolicy(r.home); err != nil {
 		c.add(harness.PolicyFile, "fail", err.Error())
 	} else {
 		c.add(harness.PolicyFile, "ok", "")
+		idle := installed == 0 && lerr == nil && !live && maps.Equal(p.Profiles, harness.StarterPolicy.Profiles)
 		missing := false
 		for _, name := range p.Names() {
 			switch _, warn, err := checkedBin(r, p.Profiles[name]); {
+			case err != nil && idle:
+				c.add("profile "+name, "warn", err.Error())
+				missing = true
 			case err != nil:
 				c.add("profile "+name, "fail", err.Error())
 				missing = true
@@ -249,7 +257,6 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		r.doctorPhone(ctx, d, c, addr)
 	}
 	held, err := r.watchHeld()
-	_, live, lerr := st.LiveSupervisor(ctx)
 	if err == nil {
 		err = lerr
 	}
