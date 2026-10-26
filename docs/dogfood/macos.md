@@ -72,7 +72,7 @@ Many agent harnesses start a new shell for every command, so a value that a step
 **4.** Install the latest release into the folder, and check that this copy is the one that runs:
 
 ```zsh
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/bin sh
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_DIR=$D/bin sh -c "$s"
 hash -r; command -v hand; hand version
 ```
 
@@ -481,7 +481,7 @@ Steps:
 ```zsh
 . $D/env.sh
 mkdir -p $D/old $D/fleet2
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.11.0 sh
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.11.0 sh -c "$s"
 H2=$D/home2
 cd $D/fleet2 && SECONDHAND_HOME=$H2 $D/old/hand init
 cp $D/fleet2/hand.db $D/hand2.db.backup

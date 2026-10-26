@@ -58,7 +58,7 @@ sudo -iu hand-agent
 `ls -ld ~` shows whether other users can enter your home folder. Skip the `chmod` if it already reads `drwx------`. Otherwise `chmod go-rwx ~` closes it, so the new user cannot read your files. It also locks out anything else that reads your home folder as another user or group, such as a web server or a shared group, so skip it if you rely on that and close the folders that matter instead. As `hand-agent`, install Hand and a harness, and log in to the harness there. The account uses its own harness login, so a worker spends that login's quota.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && sh -c "$s"
 ```
 
 To reach the Board from your own account, print its login link as that user and open it in your browser. Name the fleet folder with `--home` (replace `fleets/demo` with yours): otherwise Hand looks in the current directory. `.local/bin` is the installer's default folder (see [Install](install.md#install-a-release)); adjust the path if you installed elsewhere. The link carries the fleet's token, so keep it out of chats:

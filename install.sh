@@ -39,22 +39,20 @@ else
 	url="$base/download/$version"
 fi
 asset="hand-$os-$arch.tar.gz"
-tmp=$(mktemp -d)
+tmp=$(mktemp -d) || die "cannot create a temporary folder"
 part=""
 trap 'rm -rf "$tmp"; if [ -n "$part" ]; then rm -f "$part"; fi' EXIT
 trap 'exit 1' HUP INT TERM
 
-curl -fsSL -o "$tmp/$asset" "$url/$asset"
-curl -fsSL -o "$tmp/checksums.txt" "$url/checksums.txt"
+curl -fsL -o "$tmp/$asset" "$url/$asset" || die "download failed: $url/$asset"
+curl -fsL -o "$tmp/checksums.txt" "$url/checksums.txt" || die "download failed: $url/checksums.txt"
 grep " $asset\$" "$tmp/checksums.txt" >"$tmp/want" || die "checksum mismatch for $asset"
 (cd "$tmp" && $check >/dev/null 2>&1) || die "checksum mismatch for $asset"
-tar -xzf "$tmp/$asset" -C "$tmp" hand
+tar -xzf "$tmp/$asset" -C "$tmp" hand >/dev/null 2>&1 || die "cannot unpack $asset"
 
-mkdir -p "$dir"
-part=$(mktemp "$dir/.hand.XXXXXX")
-cp "$tmp/hand" "$part"
-chmod 0755 "$part"
-mv -f "$part" "$dir/hand"
+mkdir -p "$dir" 2>/dev/null || die "cannot create $dir"
+part=$(mktemp "$dir/.hand.XXXXXX" 2>/dev/null) || die "cannot write to $dir"
+cp "$tmp/hand" "$part" && chmod 0755 "$part" && mv -f "$part" "$dir/hand" || die "cannot install $dir/hand"
 part=""
 printf 'installed hand %s to %s\n' "$("$dir/hand" version | head -n 1)" "$dir/hand"
 case ":$PATH:" in

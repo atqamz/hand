@@ -336,7 +336,7 @@ export const shells = win ? ['powershell', 'pwsh'] : ['sh'];
 export function install(shell, base, dir, extra = {}, box = null, dirs = []) {
   const env = box && !win ? box.env({}, dirs) : cleanEnv();
   Object.assign(env, { HAND_INSTALL_BASE: base, HAND_INSTALL_DIR: dir }, extra);
-  if (shell === 'sh') return run('sh', ['-c', 'curl -fsSL "$HAND_INSTALL_BASE/install.sh" | sh'], { env });
+  if (shell === 'sh') return run('sh', ['-c', 's=$(curl -fsSL "$HAND_INSTALL_BASE/install.sh") && sh -c "$s"'], { env });
   return run(shell, ['-NoProfile', '-NonInteractive', '-Command', 'irm "$env:HAND_INSTALL_BASE/install.ps1" | iex'], { env });
 }
 

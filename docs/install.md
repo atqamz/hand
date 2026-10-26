@@ -16,14 +16,14 @@
 Install the latest release on Linux or macOS (amd64 or arm64):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | sh
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && sh -c "$s"
 ```
 
 You can choose another version:
-- **Edge:** `curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_VERSION=edge sh`. Edge is the rolling build of `main` that passed CI.
+- **Edge:** `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`. Edge is the rolling build of `main` that passed CI.
 - **A pinned release:** `HAND_INSTALL_VERSION=v0.12.0`.
 
-`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match.
+`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match. Do not pipe the download into `sh`: when `curl` fails, `sh` gets empty input and exits 0, as does `sh -c "$(curl ...)"`. The assignment in the command above makes a failed fetch of `install.sh` stop it with `curl`'s exit code, and a failure inside the script exits 1 with one `install.sh:` line. The command needs a POSIX shell (`sh`, `bash`, `zsh`), not fish.
 
 On Windows, run this in PowerShell; [Windows](#windows) has the options:
 

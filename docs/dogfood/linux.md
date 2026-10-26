@@ -72,7 +72,7 @@ Many agent harnesses start a new shell for every command, so a value that a step
 **4.** Install the latest release into the folder, and check that this copy is the one that runs:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh | HAND_INSTALL_DIR=$D/bin sh
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_DIR=$D/bin sh -c "$s"
 hash -r; command -v hand; hand version
 ```
 

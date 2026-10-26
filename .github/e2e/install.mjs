@@ -74,6 +74,12 @@ async function one(shell, good, bad) {
     matches(res.out + res.err, new RegExp(`install\\.(sh|ps1): checksum mismatch for ${escape(asset)}`), `${shell}: it names the checksum mismatch`);
     check(!fs.existsSync(path.join(refused, `hand${exe}`)), `${shell}: nothing is installed after the mismatch`);
 
+    if (!win) {
+      const unfetched = await install(shell, `${good.base}/nope`, refused, {}, box);
+      await fails(unfetched, `${shell}: a failed download of install.sh makes the documented command exit non-zero`, 22);
+      check(!fs.existsSync(path.join(refused, `hand${exe}`)), `${shell}: nothing is installed after a failed download of install.sh`);
+    }
+
     if (win) check(!fs.existsSync(path.join(process.env.LOCALAPPDATA, 'hand')), `${shell}: HAND_INSTALL_DIR won over the default folder`);
     else equal(fs.readdirSync(box.home), [], `${shell}: the installer left nothing in the home folder`);
     if (win) equal(fs.readdirSync(os.tmpdir()).filter((n) => /^hand-install-|^\.hand\./.test(n)), [], `${shell}: the installer left no temporary file`);
