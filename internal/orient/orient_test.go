@@ -697,3 +697,47 @@ func TestInboxFolderShowsOnlyWhenLarge(t *testing.T) {
 		t.Fatalf("over 100 MiB not shown:\n%s", out)
 	}
 }
+
+func TestOrientMarksAWaitingTaskAndItsTimer(t *testing.T) {
+	st, home := setup(t)
+	ctx := context.Background()
+	_, _ = st.AddProject(ctx, "hand", handRepo, "")
+	one, _ := st.AddTask(ctx, "hand", "Review outside PR", "")
+	two, _ := st.AddTask(ctx, "hand", "Write docs", "")
+	_, _ = st.Transition(ctx, one.ID, state.StatusActive)
+	_, _ = st.Transition(ctx, two.ID, state.StatusActive)
+	if _, err := st.AddTimer(ctx, state.TimerSpec{After: 3 * 24 * time.Hour, TaskID: one.ID, Waits: true, Note: "outside PR"}); err != nil {
+		t.Fatal(err)
+	}
+	build := func(managed bool) string {
+		t.Helper()
+		doc, err := Build(ctx, st, home, "", true, managed, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	out := build(true)
+	for _, want := range []string{
+		"unwatched[1]:\n  - t2\n",
+		"timers[1]{id,due,note}:\n  w1,\"2026-09-29T00:00:00Z\",(waits t1) outside PR\n",
+		"  t1,hand,Review outside PR,none,none (waits until 2026-09-29),none,0\n",
+		"  t2,hand,Write docs,none,none,none,0\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient =\n%s\nmissing %q", out, want)
+		}
+	}
+	if strings.Contains(out, "beyond the horizon") {
+		t.Fatalf("a wait is no far timer:\n%s", out)
+	}
+	out = build(false)
+	for _, want := range []string{
+		"unwatched[2]:\n  - t1\n  - t2\n",
+		"w1,\"2026-09-29T00:00:00Z\",\"(no managed supervisor: not fired) (waits t1) outside PR\"\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("orient without a managed supervisor =\n%s\nmissing %q", out, want)
+		}
+	}
+}

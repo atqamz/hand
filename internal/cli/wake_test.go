@@ -50,7 +50,7 @@ func TestWakeRefusesBadTimers(t *testing.T) {
 		code int
 		err  string
 	}{
-		{nil, 2, "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours"},
+		{nil, 2, "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--waits] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours; --waits (needs --while tN, one-shot, at most 30d away) marks tN as waiting on an outside party until it fires"},
 		{[]string{"soon"}, 2, "usage: hand wake --after"},
 		{[]string{"--note", "x"}, 2, "wake: give exactly one of --after, --at or --every"},
 		{[]string{"--after", "30m", "--every", "1h"}, 2, "wake: give exactly one of --after, --at or --every"},
@@ -63,6 +63,13 @@ func TestWakeRefusesBadTimers(t *testing.T) {
 		{[]string{"--after", "1h", "--while", "w1"}, 2, `"w1" is not a t id`},
 		{[]string{"--after", "1h", "--while", "t9"}, 3, "not found: task t9"},
 		{[]string{"--after", "1h", "extra"}, 2, "wake: want 0 argument(s) after flags, got 1"},
+		{[]string{"--after", "3x"}, 2, `invalid value "3x" for flag -after`},
+		{[]string{"--every", "0d"}, 2, `invalid value "0d" for flag -every`},
+		{[]string{"--waits", "--after", "3d"}, 2, "a waits timer needs a task"},
+		{[]string{"--waits", "--while", "t1", "--every", "1d"}, 2, "a waits timer fires once"},
+		{[]string{"--waits", "--while", "t1", "--after", "31d"}, 2, "a waits timer is due within 30d"},
+		{[]string{"--waits", "--while", "t1", "--at", "2026-11-01T00:00:00Z"}, 2, "a waits timer is due within 30d"},
+		{[]string{"--waits", "--while", "t9", "--after", "3d"}, 3, "not found: task t9"},
 		{[]string{"cancel"}, 2, "wake cancel: want 1 argument(s)"},
 		{[]string{"cancel", "t1"}, 2, `"t1" is not a w id`},
 		{[]string{"list", "x"}, 2, "wake list: want 0 argument(s)"},
@@ -261,5 +268,72 @@ func TestOrientShowsUnwatchedWorkWhenNoManagedSupervisorFiresTheTimer(t *testing
 	fx.h.ok("supervisor", "stop")
 	if out := fx.h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || !strings.Contains(out, "\"(no managed supervisor: not fired) check PR 909\"\n") {
 		t.Fatalf("orient without a supervisor = %q", out)
+	}
+}
+
+func TestWakeWaitsArmsShowsAndCancelsAWait(t *testing.T) {
+	fx, _ := stallFleet(t, "")
+	h := fx.h
+	if out := h.ok("wake", "--while", "t1", "--waits", "--after", "3d", "--note", "outside PR"); out != "timer: w1\nstatus: armed\ndue: \"2026-09-29T00:00:00Z\"\nwhile: t1\nwaits: yes\nnote: outside PR\n" {
+		t.Fatalf("waits = %q", out)
+	}
+	if _, errOut, code := h.run("wake", "--while", "t1", "--waits", "--after", "4d"); code != 3 || !strings.Contains(errOut, "task t1 already waits (w1)") {
+		t.Fatalf("second wait: code=%d stderr=%q", code, errOut)
+	}
+	orient := h.ok("orient")
+	for _, want := range []string{
+		"timers[1]{id,due,note}:\n  w1,\"2026-09-29T00:00:00Z\",(waits t1) outside PR\n",
+		"active[1]{id,project,title,plan,attempt,report,open_decisions}:\n  t1,app,Fix login,none,none (waits until 2026-09-29),none,0\n",
+	} {
+		if !strings.Contains(orient, want) {
+			t.Fatalf("orient = %q, missing %q", orient, want)
+		}
+	}
+	if strings.Contains(orient, "unwatched") || strings.Contains(orient, "beyond the horizon") {
+		t.Fatalf("orient = %q", orient)
+	}
+	show := h.ok("task", "show", "t1")
+	has(t, "task show", show, "attempt: none\nwaits: \"w1 until 2026-09-29T00:00:00Z: outside PR\"\n")
+	has(t, "cancel", h.ok("wake", "cancel", "w1"), "timer: w1\nstatus: cancelled\ndue: \"2026-09-29T00:00:00Z\"\nwhile: t1\nwaits: yes\n")
+	if out := h.ok("task", "show", "t1"); strings.Contains(out, "waits:") {
+		t.Fatalf("task show after cancel = %q", out)
+	}
+	if out := h.ok("orient"); !strings.Contains(out, "unwatched[1]:\n  - t1\n") || strings.Contains(out, "waits") {
+		t.Fatalf("orient after cancel = %q", out)
+	}
+}
+
+func TestWakeTakesDaysForAfterAndEvery(t *testing.T) {
+	fx, _ := stallFleet(t, "")
+	has(t, "after", fx.h.ok("wake", "--after", "2d"), "due: \"2026-09-28T00:00:00Z\"\n")
+	has(t, "every", fx.h.ok("wake", "--every", "1d"), "due: \"2026-09-27T00:00:00Z\"\nevery: 24h\n")
+	has(t, "hours", fx.h.ok("wake", "--after", "36h"), "due: \"2026-09-27T12:00:00Z\"\n")
+}
+
+func TestAWaitQuietsTheStallWakeUntilItFires(t *testing.T) {
+	fx, log := stallFleet(t, "")
+	fx.h.ok("wake", "--while", "t1", "--waits", "--after", "3d", "--note", "outside PR")
+	stop := startWatch(t, fx, "--every", "30ms")
+	stallTick(t, fx)
+	fx.h.advance(2 * 24 * time.Hour)
+	stallTick(t, fx)
+	if n, fired := stalls(fx), firedEvents(fx); n != 0 || fired != 0 {
+		t.Fatalf("while the task waits: %d stalls, %d fired", n, fired)
+	}
+	if out := fx.h.ok("orient"); strings.Contains(out, "unwatched") {
+		t.Fatalf("orient while the task waits = %q", out)
+	}
+	fx.h.advance(24 * time.Hour)
+	wantTimerWake(t, fx, 1, "timer.fired w1: outside PR (t1 \"Fix login\")")
+	out := fx.h.ok("orient")
+	if !strings.Contains(out, "unwatched[1]:\n  - t1\n") || strings.Contains(out, "timers") || strings.Contains(out, "waits") {
+		t.Fatalf("orient after the fire = %q", out)
+	}
+	stallTick(t, fx)
+	fx.h.advance(20 * time.Minute)
+	wantStall(t, fx, 1, "t1 is active, no attempt is running, idle 20m")
+	stop()
+	if alerts := stallAlerts(log); len(alerts) != 0 {
+		t.Fatalf("alerts = %q", alerts)
 	}
 }

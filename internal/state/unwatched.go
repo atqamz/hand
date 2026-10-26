@@ -28,9 +28,19 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 		return Unwatched{At: now}, err
 	}
 	var timers []Timer
+	waiting := map[int64]bool{}
 	if managed {
-		if timers, err = s.TimersAt(ctx, now); err != nil || slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
+		if timers, err = s.TimersAt(ctx, now); err != nil {
 			return Unwatched{At: now}, err
+		}
+		for _, t := range timers {
+			if t.Waits {
+				waiting[t.TaskID] = true
+			}
+		}
+		timers = slices.DeleteFunc(timers, func(t Timer) bool { return t.Waits })
+		if slices.ContainsFunc(timers, func(t Timer) bool { return !t.Beyond }) {
+			return Unwatched{At: now}, nil
 		}
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM task WHERE status = ? ORDER BY id`, StatusActive)
@@ -48,7 +58,9 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 		if err := rows.Scan(&id); err != nil {
 			return Unwatched{}, err
 		}
-		u.Tasks = append(u.Tasks, id)
+		if !waiting[id] {
+			u.Tasks = append(u.Tasks, id)
+		}
 	}
 	if err := rows.Err(); err != nil || len(u.Tasks) == 0 {
 		return Unwatched{At: now}, err

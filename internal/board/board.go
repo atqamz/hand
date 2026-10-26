@@ -46,6 +46,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"refs":     markdown.Refs,
 	"inline":   markdown.Inline,
 	"when":     when,
+	"until":    func(t time.Time) string { return t.UTC().Format("Jan 2") },
 	"options":  options,
 	"prose":    prose,
 	"chosen":   chosen,
@@ -154,6 +155,7 @@ type card struct {
 	Report    *state.Report
 	Decisions []state.Decision
 	Delivered []Deliverable
+	Waits     *state.Timer
 }
 
 func New(st *state.Store, token string, o Options) http.Handler {
@@ -610,7 +612,11 @@ func (b *Board) card(ctx context.Context, t state.Task, attempts int) (card, err
 	if len(reports) > 0 {
 		c.Report = &reports[len(reports)-1]
 	}
-	return c, nil
+	waits, err := b.st.Waits(ctx)
+	if w, ok := waits[t.ID]; ok {
+		c.Waits = &w
+	}
+	return c, err
 }
 
 func (b *Board) tasksData(ctx context.Context, data map[string]any, q url.Values) error {

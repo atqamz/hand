@@ -196,6 +196,9 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt); err != nil {
 			return err
 		}
+		if err := cancelWaits(tx, a.TaskID, a.CreatedAt); err != nil {
+			return err
+		}
 		return emit(tx, a.CreatedAt, "attempt."+AttemptLaunching, a.TaskID, AttemptRef(a.ID))
 	})
 	return a, err

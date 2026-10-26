@@ -83,6 +83,10 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
+	waits, err := st.Waits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	activeRows := make([][]string, 0, len(active))
 	for _, t := range active {
 		plan := "none"
@@ -113,6 +117,9 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 					attempt += ": " + clip(hint, 40)
 				}
 			}
+		}
+		if w, waiting := waits[t.ID]; waiting {
+			attempt += " (waits until " + w.Due.Format(time.DateOnly) + ")"
 		}
 		report := "none"
 		if ok {
@@ -191,10 +198,13 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	timerRows := make([][]string, 0, len(timers))
 	for _, t := range timers {
 		note := clip(t.Note, b.TitleBytes)
+		if t.Waits {
+			note = strings.TrimSpace("(waits " + state.TaskRef(t.TaskID) + ") " + note)
+		}
 		switch {
 		case !managed:
 			note = strings.TrimSpace("(no managed supervisor: not fired) " + note)
-		case t.Beyond:
+		case t.Beyond && !t.Waits:
 			note = strings.TrimSpace("(beyond the horizon) " + note)
 		}
 		timerRows = append(timerRows, []string{state.TimerRef(t.ID), t.Due.Format(time.RFC3339), note})

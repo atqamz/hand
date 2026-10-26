@@ -437,6 +437,7 @@ type facts struct {
 	done      map[int64]bool
 	unread    map[int64]bool
 	asked     map[int64]int
+	waits     map[int64]state.Timer
 	delivered map[int64]Deliverable
 }
 
@@ -455,7 +456,10 @@ func (b *Board) facts(ctx context.Context) (facts, error) {
 	if f.unread, err = b.st.UnackedReportTasks(ctx); err != nil {
 		return f, err
 	}
-	f.asked, err = b.st.OpenDecisionCounts(ctx)
+	if f.asked, err = b.st.OpenDecisionCounts(ctx); err != nil {
+		return f, err
+	}
+	f.waits, err = b.st.Waits(ctx)
 	return f, err
 }
 
@@ -505,6 +509,9 @@ func (b *Board) failures(ctx context.Context, f facts) ([]waiting, error) {
 	}
 	var out []waiting
 	for _, t := range tasks {
+		if _, waiting := f.waits[t.ID]; waiting {
+			continue
+		}
 		if a, ok := f.latest[t.ID]; ok && f.failing(a) {
 			out = append(out, waiting{Kind: "failure", Ref: state.AttemptRef(a.ID), Title: t.Title, Task: t, Attempt: &a})
 		}
@@ -550,6 +557,7 @@ type check struct {
 	Attempt   *state.Attempt
 	At        string
 	Delivered *Deliverable
+	Waits     *state.Timer
 }
 
 func (f facts) check(t state.Task) check {
@@ -558,9 +566,13 @@ func (f facts) check(t state.Task) check {
 		c.Delivered = &d
 	}
 	failed, done := false, t.Status == state.StatusDone
+	w, waiting := f.waits[t.ID]
+	if waiting {
+		c.Waits = &w
+	}
 	if a, ok := f.latest[t.ID]; ok {
 		c.Attempt = &a
-		failed = t.Status == state.StatusActive && f.failing(a)
+		failed = t.Status == state.StatusActive && f.failing(a) && !waiting
 		if a.Live() {
 			switch f.signals[a.ID].Kind {
 			case "attempt.blocked":

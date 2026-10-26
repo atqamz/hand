@@ -22,6 +22,7 @@ const (
 	MaxTimers    = 20
 	MaxTimerNote = 200
 	MinTimer     = time.Minute
+	MaxWait      = 30 * 24 * time.Hour
 
 	timerWatchHorizon = 6 * time.Hour
 )
@@ -32,6 +33,7 @@ type TimerSpec struct {
 	Every  time.Duration
 	TaskID int64
 	Note   string
+	Waits  bool
 }
 
 type Timer struct {
@@ -42,15 +44,16 @@ type Timer struct {
 	Note   string
 	Status string
 	Beyond bool
+	Waits  bool
 }
 
-const timerSelect = `SELECT id, due_at, every, COALESCE(task_id, 0), note, status FROM timer`
+const timerSelect = `SELECT id, due_at, every, COALESCE(task_id, 0), note, status, waits FROM timer`
 
 func scanTimer(row scanner) (Timer, error) {
 	var t Timer
 	var due string
 	var every int64
-	if err := row.Scan(&t.ID, &due, &every, &t.TaskID, &t.Note, &t.Status); err != nil {
+	if err := row.Scan(&t.ID, &due, &every, &t.TaskID, &t.Note, &t.Status, &t.Waits); err != nil {
 		return t, err
 	}
 	t.Every = time.Duration(every) * time.Second
@@ -80,7 +83,7 @@ func (t Timer) detail(extra string) string {
 
 func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 	now := s.now()
-	t := Timer{Due: spec.At, Every: spec.Every.Truncate(time.Second), TaskID: spec.TaskID, Note: strings.TrimSpace(spec.Note), Status: TimerArmed}
+	t := Timer{Due: spec.At, Every: spec.Every.Truncate(time.Second), TaskID: spec.TaskID, Note: strings.TrimSpace(spec.Note), Status: TimerArmed, Waits: spec.Waits}
 	if t.Due.IsZero() {
 		t.Due = now.Add(cmp.Or(spec.After, spec.Every))
 	}
@@ -94,6 +97,12 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 		return Timer{}, fmt.Errorf("%w: a timer note is at most %d characters of UTF-8", ErrInvalid, MaxTimerNote)
 	case strings.ContainsFunc(t.Note, unicode.IsControl):
 		return Timer{}, fmt.Errorf("%w: a timer note is one line without control characters", ErrInvalid)
+	case t.Waits && t.TaskID == 0:
+		return Timer{}, fmt.Errorf("%w: a waits timer needs a task: give --while tN", ErrInvalid)
+	case t.Waits && spec.Every != 0:
+		return Timer{}, fmt.Errorf("%w: a waits timer fires once: it cannot repeat", ErrInvalid)
+	case t.Waits && t.Due.Sub(now) > MaxWait:
+		return Timer{}, fmt.Errorf("%w: a waits timer is due within %s from now", ErrInvalid, Ahead(MaxWait))
 	}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var task any
@@ -111,6 +120,16 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 			}
 			task = t.TaskID
 		}
+		if t.Waits {
+			var other int64
+			err := tx.QueryRow(`SELECT id FROM timer WHERE task_id = ? AND waits = 1 AND status = ?`, t.TaskID, TimerArmed).Scan(&other)
+			if err == nil {
+				return fmt.Errorf("%w: task %s already waits (%s); cancel it first: `hand wake cancel %s`", ErrConflict, TaskRef(t.TaskID), TimerRef(other), TimerRef(other))
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
 		var armed int
 		if err := tx.QueryRow(`SELECT count(*) FROM timer WHERE status = ?`, TimerArmed).Scan(&armed); err != nil {
 			return err
@@ -119,8 +138,8 @@ func (s *Store) AddTimer(ctx context.Context, spec TimerSpec) (Timer, error) {
 			return fmt.Errorf("%w: %d timers are armed, the most a fleet keeps; cancel one first: `hand wake cancel wN`", ErrConflict, armed)
 		}
 		at := s.stamp()
-		res, err := tx.Exec(`INSERT INTO timer(due_at, every, task_id, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			t.Due.Format(time.RFC3339Nano), int64(t.Every/time.Second), task, t.Note, TimerArmed, at)
+		res, err := tx.Exec(`INSERT INTO timer(due_at, every, task_id, note, status, created_at, waits) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			t.Due.Format(time.RFC3339Nano), int64(t.Every/time.Second), task, t.Note, TimerArmed, at, t.Waits)
 		if err != nil {
 			return err
 		}
@@ -147,6 +166,17 @@ func (s *Store) TimersAt(ctx context.Context, now time.Time) ([]Timer, error) {
 		timers[i].Beyond = timers[i].Due.After(horizon)
 	}
 	return timers, err
+}
+
+func (s *Store) Waits(ctx context.Context) (map[int64]Timer, error) {
+	timers, err := armedTimers(ctx, s.db)
+	out := map[int64]Timer{}
+	for _, t := range timers {
+		if t.Waits {
+			out[t.TaskID] = t
+		}
+	}
+	return out, err
 }
 
 func Ahead(d time.Duration) string {
@@ -240,6 +270,11 @@ func (s *Store) CancelTimer(ctx context.Context, id int64) (Timer, error) {
 		return emit(tx, at, "timer.cancelled", t.TaskID, TimerRef(id))
 	})
 	return t, err
+}
+
+func cancelWaits(tx *sql.Tx, taskID int64, now string) error {
+	return closeAll(tx, taskID, now, "timer.cancelled", TimerRef, `UPDATE timer SET status = ?, ended_at = ? WHERE task_id = ? AND status = ? AND waits = 1 RETURNING id`,
+		TimerCancelled, now, taskID, TimerArmed)
 }
 
 func cancelTimers(tx *sql.Tx, taskID int64, now string) error {

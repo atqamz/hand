@@ -7,11 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const wakeUsage = "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours"
+const wakeUsage = "usage: hand wake --after DURATION | --at TIME | --every DURATION [--while tN] [--waits] [--note TEXT]; hand wake list; hand wake cancel wN. A timer counts as watching only when it is due within 6 hours; --waits (needs --while tN, one-shot, at most 30d away) marks tN as waiting on an outside party until it fires"
 
 var wakeCommands = map[string]handler{
 	"list":   cmdWakeList,
@@ -33,10 +34,26 @@ func timerDoc(t state.Timer) *toon.Doc {
 	if t.TaskID != 0 {
 		d.Field("while", state.TaskRef(t.TaskID))
 	}
+	if t.Waits {
+		d.Field("waits", "yes")
+	}
 	if t.Note != "" {
 		d.Field("note", t.Note)
 	}
 	return &d
+}
+
+func spanFlag(fs *flag.FlagSet, name, usage string) *time.Duration {
+	d := new(time.Duration)
+	fs.Func(name, usage, func(s string) (err error) {
+		if days, ok := inbox.ParseAge(s); ok {
+			*d = days
+			return nil
+		}
+		*d, err = time.ParseDuration(s)
+		return err
+	})
+	return d
 }
 
 func cmdWake(r *runner, args []string) error {
@@ -49,11 +66,12 @@ func cmdWake(r *runner, args []string) error {
 		return usageError{wakeUsage}
 	}
 	fs := flags("wake")
-	after := fs.Duration("after", 0, "wake the supervisor once, this long from now")
+	after := spanFlag(fs, "after", "wake the supervisor once, this long from now, like 30m or 3d")
 	at := fs.String("at", "", "wake the supervisor once at this RFC 3339 time")
-	every := fs.Duration("every", 0, "wake the supervisor this often")
+	every := spanFlag(fs, "every", "wake the supervisor this often, like 30m or 1d")
 	while := fs.String("while", "", "cancel the timer when this task is done or abandoned")
-	note := fs.String("note", "", "what to check when it fires, at most 200 characters")
+	waits := fs.Bool("waits", false, "mark the --while task as waiting on an outside party until the timer fires")
+	note := fs.String("note", "", "what to check when it fires, or why the task waits, at most 200 characters")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -66,7 +84,7 @@ func cmdWake(r *runner, args []string) error {
 	if len(when) != 1 {
 		return usageError{"wake: give exactly one of --after, --at or --every"}
 	}
-	spec := state.TimerSpec{After: *after, Every: *every, Note: *note}
+	spec := state.TimerSpec{After: *after, Every: *every, Note: *note, Waits: *waits}
 	if when[0] == "at" {
 		t, err := time.Parse(time.RFC3339, *at)
 		if err != nil {

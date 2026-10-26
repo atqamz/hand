@@ -104,7 +104,7 @@ func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
 	}
 	defer s.Close()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 13 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 14 {
 		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
 	}
 	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
@@ -274,7 +274,7 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
@@ -328,7 +328,7 @@ func TestAVersion10HomeLearnsDevices(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	if devices, err := s.Devices(ctx); err != nil || len(devices) != 0 {
@@ -377,7 +377,7 @@ func TestAVersion11HomeKeepsItsPhonesAndLearnsTheLabel(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 13 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
 	old, ok, err := s.DeviceWithSecret(ctx, 1, hashA)
@@ -448,5 +448,71 @@ func TestABackupTakenBeforeTheLabelOpensAndMigrates(t *testing.T) {
 	defer s.Close()
 	if got, ok, err := s.DeviceWithSecret(context.Background(), 1, hashA); err != nil || !ok || got.Phone != "" {
 		t.Fatalf("restored legacy phone = %+v, %v, %v", got, ok, err)
+	}
+}
+
+func TestAVersion13HomeKeepsItsTimersAndLearnsWaits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:13] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, q := range []string{
+		`PRAGMA user_version = 13`,
+		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
+		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x'), (2, 'hand', 'Two', '', 'active', 'x', 'x')`,
+		`INSERT INTO timer(due_at, every, task_id, note, status, created_at) VALUES ('2026-09-26T01:00:00Z', 0, 1, 'check CI', 'armed', 'x'), ('2026-09-26T02:00:00Z', 3600, NULL, '', 'armed', 'x'), ('2026-09-25T22:00:00Z', 0, 2, 'old', 'fired', 'x')`,
+		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'task.active', 1, 'inbox->active')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+		t.Fatalf("user_version = %d, %v", v, err)
+	}
+	timers, err := s.Timers(ctx)
+	if err != nil || len(timers) != 2 || timers[0].Waits || timers[1].Waits || timers[0].Note != "check CI" || timers[1].Every != time.Hour {
+		t.Fatalf("timers after the migration = %+v, %v", timers, err)
+	}
+	if waits, err := s.Waits(ctx); err != nil || len(waits) != 0 {
+		t.Fatalf("waits after the migration = %v, %v", waits, err)
+	}
+	w, err := s.AddTimer(ctx, TimerSpec{After: 3 * 24 * time.Hour, TaskID: 2, Waits: true, Note: "outside PR"})
+	if err != nil || !w.Waits || TimerRef(w.ID) != "w4" {
+		t.Fatalf("a waits timer on a migrated home = %+v, %v", w, err)
+	}
+	if waits, err := s.Waits(ctx); err != nil || len(waits) != 1 || waits[2].ID != w.ID {
+		t.Fatalf("waits = %v, %v", waits, err)
+	}
+	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
+		t.Fatalf("unwatched with the ordinary timer and the wait = %+v, %v", u, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO timer(due_at, task_id, status, created_at, waits) VALUES ('x', 1, 'armed', 'x', 2)`); err == nil || !strings.Contains(err.Error(), "CHECK") {
+		t.Fatalf("a waits value of 2 = %v", err)
+	}
+	rows, err := s.db.Query(`PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Fatal("the migration left foreign key violations")
 	}
 }

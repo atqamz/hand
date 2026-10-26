@@ -2,7 +2,7 @@
 <header class="thread-head">
 <p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / <span class="ref">{{task .Card.Task.ID}}</span></p>
 <h2 class="thread-title">{{.Card.Task.Title}}</h2>
-<p class="slug"><span class="badge status" data-state="{{.Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time></p>
+<p class="slug"><span class="badge status" data-state="{{.Pill}}">{{.Card.Task.Status}}</span><span>{{.Card.Task.Project}}</span>{{with .Card.Plan}}<span>plan {{plan .Revision}}</span>{{end}}{{with .Card.Waits}}<span>Waits until {{until .Due}}{{with .Note}}: {{.}}{{end}}</span>{{end}}<time datetime="{{.Card.Task.CreatedAt}}">{{when .Card.Task.CreatedAt}}</time></p>
 </header>
 <hr class="rule">
 {{if or .Card.Decisions .Unread}}<section class="needs-here" aria-label="Waiting on this task">

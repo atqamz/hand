@@ -754,7 +754,7 @@ One `.row` serves the attempt and task rows, the waiting rows and decision rows 
 - **meta:** the muted meta text (`.meta`), shrinking before the body;
 - **tail:** everything else, in markup order: a time, a form, a link or an answer.
 
-A slot that is missing leaves no gap. `.wrap` lets the waiting and decision rows wrap their body onto its own line on a narrow screen, and a decision's answer takes a line of its own. Task rows keep their 48px height and the whole row as the link; fleet rows are 48px.
+A slot that is missing leaves no gap. `.wrap` lets the waiting and decision rows wrap their body onto its own line on a narrow screen, and a decision's answer takes a line of its own. Task rows keep their 48px height and the whole row as the link; fleet rows are 48px. A task that waits on an outside party (`hand wake --waits`) adds `Waits until Nov 3: reason` to its row's meta line, in the muted `.meta` text and cut with an ellipsis, with no new colour or icon; the task page's slug line carries the same words.
 
 ### Inputs
 Inputs and selects are `--control` high on the ground with a control-edge border, 6px corners and 0 by 10px padding; text boxes pad 8px by 10px. Focus draws a 2px accent outline inset by 1px and hides the border. Placeholders are muted. A select and its options set their own ground and ink (`bg`, `fg`), and `:root` declares `color-scheme: light dark`, so the native list opens in the theme's colours (`TestSelectsAndTheirOptionsKeepTheThemeColours`).

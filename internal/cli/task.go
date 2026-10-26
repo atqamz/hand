@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
@@ -87,6 +88,17 @@ func cmdTaskShow(r *runner, args []string) error {
 		d.Field("attempt", state.AttemptRef(a.ID)+" "+a.Status)
 	} else {
 		d.Field("attempt", "none")
+	}
+	waits, err := st.Waits(context.Background())
+	if err != nil {
+		return err
+	}
+	if w, ok := waits[id]; ok {
+		detail := state.TimerRef(w.ID) + " until " + w.Due.Format(time.RFC3339)
+		if w.Note != "" {
+			detail += ": " + w.Note
+		}
+		d.Field("waits", detail)
 	}
 	var rep state.Report
 	found := false
