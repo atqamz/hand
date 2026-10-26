@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fixture } from './fixture.mjs';
-import { Box, candidate, check, equal, logDir, pass, phase, soft, startBoard, stopAll, tmpRoot } from './lib.mjs';
+import { Box, candidate, check, equal, logDir, pass, phase, startBoard, stopAll, tmpRoot } from './lib.mjs';
 
 const playwright = createRequire(import.meta.url)(process.env.E2E_PLAYWRIGHT ?? path.join(tmpRoot, 'pw', 'node_modules', 'playwright'));
 const shots = path.join(logDir, 'shots');
@@ -36,23 +36,33 @@ async function visit(browser, link, id, width) {
     check(await tasks.getByText('Add a CSV export').first().isVisible(), `${tag}: the Tasks region lists the active task`);
     await page.screenshot({ path: path.join(shots, `${tag}-fleet.png`) });
 
-    const chip = tasks.locator('a[href*="/doc/docs/export-notes.md"]').first();
-    await chip.waitFor({ state: 'visible' });
-    await chip.click();
-    const dialog = page.locator('dialog.viewer[open]');
-    await dialog.waitFor({ state: 'visible' });
-    await dialog.getByRole('heading', { name: 'Export notes' }).waitFor({ state: 'visible' });
-    pass(`${tag}: the document opens in a dialog over the page`);
-    check(new URL(page.url()).pathname.endsWith('/doc/docs/export-notes.md'), `${tag}: the address bar shows the file while the dialog is open`);
-    await page.screenshot({ path: path.join(shots, `${tag}-dialog.png`) });
-    await page.keyboard.press('Escape');
-    await page.locator('dialog.viewer[open]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
-    equal(await page.locator('dialog.viewer[open]').count(), 0, `${tag}: Escape closes the dialog`);
-    await page.waitForFunction((p) => location.pathname === p, `/${id}/`);
-    const focused = await page.evaluate(() => `${document.activeElement.tagName} ${document.activeElement.getAttribute('href') ?? ''} ${location.hash}`);
-    const returned = focused.startsWith('A ') && focused.includes('/doc/docs/export-notes.md');
-    if (width >= 900) check(returned, `${tag}: focus returns to a link to the document (${focused})`);
-    else soft(returned, `${tag}: focus returns to a link to the document (${focused}); the address carries a fragment and Back moves focus to the page`);
+    const closers = {
+      Escape: () => page.keyboard.press('Escape'),
+      'the close button': () => page.locator('dialog.viewer[open] .viewer-close').click(),
+      'a click on the backdrop': () => page.mouse.click(3, 3),
+      'the browser Back button': () => page.goBack(),
+    };
+    for (const [name, close] of Object.entries(closers)) {
+      if (width < 900 && name === 'a click on the backdrop') continue;
+      const chip = tasks.locator('a[href*="/doc/docs/export-notes.md"]').first();
+      await chip.waitFor({ state: 'visible' });
+      await chip.click();
+      const dialog = page.locator('dialog.viewer[open]');
+      await dialog.waitFor({ state: 'visible' });
+      await dialog.getByRole('heading', { name: 'Export notes' }).waitFor({ state: 'visible' });
+      if (name === 'Escape') {
+        pass(`${tag}: the document opens in a dialog over the page`);
+        check(new URL(page.url()).pathname.endsWith('/doc/docs/export-notes.md'), `${tag}: the address bar shows the file while the dialog is open`);
+        await page.screenshot({ path: path.join(shots, `${tag}-dialog.png`) });
+      }
+      await close();
+      await page.locator('dialog.viewer[open]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      equal(await page.locator('dialog.viewer[open]').count(), 0, `${tag}: ${name} closes the dialog`);
+      await page.waitForFunction((p) => location.pathname === p, `/${id}/`);
+      await page.waitForFunction(() => document.activeElement.tagName === 'A', null, { timeout: 2000 }).catch(() => {});
+      const focused = await page.evaluate(() => `${document.activeElement.tagName} ${document.activeElement.getAttribute('href') ?? ''} ${location.hash}`);
+      check(focused.startsWith('A ') && focused.includes('/doc/docs/export-notes.md'), `${tag}: after ${name}, focus returns to a link to the document (${focused})`);
+    }
 
     await page.goto(new URL(`/${id}/doc/docs/export-notes.md`, link.origin).href, { waitUntil: 'domcontentloaded' });
     await page.getByRole('heading', { name: 'Export notes' }).waitFor({ state: 'visible' });

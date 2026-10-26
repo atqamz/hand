@@ -1435,6 +1435,11 @@
 			sync();
 			if (dlg.open) pull(true);
 		});
+		const refocus = () => {
+			if (opener && !opener.isConnected) opener = same(opener)[nth] ?? same(opener)[0];
+			opener?.focus();
+			opener = null;
+		};
 		dlg.addEventListener("close", () => {
 			seq++;
 			shelve();
@@ -1443,13 +1448,11 @@
 			unview = () => {};
 			pane.replaceChildren();
 			dlg.before(toast);
-			if (ours) {
-				ours = false;
-				if (depth()) history.go(-depth());
-			}
-			if (opener && !opener.isConnected) opener = same(opener)[nth] ?? same(opener)[0];
-			opener?.focus();
-			opener = null;
+			const levels = ours ? depth() : 0;
+			ours = false;
+			if (!levels) return refocus();
+			addEventListener("popstate", () => requestAnimationFrame(() => dlg.open || refocus()), { once: true });
+			history.go(-levels);
 		});
 		addEventListener("popstate", (e) => {
 			if (mine(e.state)) load(new URL(e.state.viewer), "none");
