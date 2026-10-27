@@ -20,6 +20,8 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
+const liveAttemptsWarn = 5
+
 var errLaunchUnknown = errors.New("launch outcome unknown")
 
 var attemptCommands = map[string]handler{
@@ -107,6 +109,13 @@ func cmdAttemptStart(r *runner, args []string) error {
 		start, warning := *base, ""
 		if start == "" && continues == 0 {
 			start, warning = defaultBase(ctx, g)
+		}
+		live, err := st.LiveAttempts(ctx)
+		if err != nil {
+			return err
+		}
+		if len(live) >= liveAttemptsWarn {
+			r.warn(fmt.Sprintf("%d attempts are already live in this fleet; each worker, and any dev server or browser it starts, uses memory", len(live)))
 		}
 		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {

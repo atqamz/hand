@@ -48,6 +48,12 @@ The supervisor waits on something outside Hand, such as a PR review or CI, with 
 
 A task that waits for an outside party for days, such as a PR from a contributor, takes a **wait**: `hand wake --while t137 --waits --after 3d --note "outside PR"`. `--waits` needs `--while`, is one-shot (no `--every`), is due at most 30 days away, and a task has one at a time; the note is the reason. While it is armed and the managed supervisor runs, the task is not unwatched, so no stall wake names it, and it leaves the Board's STALLED, FAILED and INTERRUPTED items; another idle task stays unwatched, and a task that is not waiting keeps its red item. The timer fires once as `timer.fired w1: outside PR` (marked late like any timer) and ends, and the task is then plain `active` again: unwatched, with the stall wake counting from the fire. Finishing or abandoning the task, `hand wake cancel wN` and `hand attempt start` on the task end the wait early. `hand orient` marks the timer `(waits t137)` and the task's `attempt` cell `(waits until 2026-11-03)`, `hand task show t137` lists it, and the Board shows `Waits until Nov 3: outside PR` on the task's page and its row.
 
+## Concurrent workers
+
+Each running attempt is a whole agent plus whatever it starts. On one machine, measured with five concurrent workers that each started a dev server and a browser: about 350 to 440 MB per Claude worker, about 0.5 GB per Vite dev server plus its runtime, and about 1.1 GB per Playwright Chromium. Hand itself is small (about 240 MB for the Board and three watchers) and each Luvus server uses 4 to 7 MB. These are one machine's numbers, not guarantees; yours will differ.
+
+Hand limits a task to one live attempt and sets no limit per fleet. `hand attempt start` prints a `warn` field when 5 or more attempts are already live in the fleet, and starts anyway. The lever is the brief: ask a worker to run one dev server and one browser at a time, and to close them when it is done.
+
 ## Long prompts
 
 A worker's prompt (the brief, and the instructions for reporting back that Hand adds) and the supervisor's first message reach the harness as the last argument of its command line. Two limits apply:

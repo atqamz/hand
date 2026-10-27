@@ -228,6 +228,8 @@ The board's attempt page, `/attempt/aN`, shows what Hand recorded about the atte
 
 `hand attempt clean aN` removes an ended attempt's worktree and keeps its branch. It refuses uncommitted changes, and commits on no branch, tag or remote, unless `--discard` is given.
 
+`hand attempt start` prints a `warn` field when 5 or more attempts are already live in the fleet, and starts anyway; see [Concurrent workers](supervisor.md#concurrent-workers).
+
 ### Report
 
 `rN`. A worker's account of its attempt, added with `hand report add --status STATUS` from inside its worktree. Only a `running` attempt can report, and the body is 1 byte to 64 KiB.

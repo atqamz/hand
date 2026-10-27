@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -778,6 +779,25 @@ func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
 	}
 	if revs := fx.rt.keyRevisions(); len(revs) == 0 || revs[0] != 5 {
 		t.Fatalf("first key was sent at revision %v, want 5, the one that stayed", revs)
+	}
+}
+
+func TestAttemptStartWarnsOnceFiveAttemptsAreLive(t *testing.T) {
+	fx := newAttemptFixture(t)
+	for i := 2; i <= 6; i++ {
+		fx.h.ok("task", "add", "app", "Task "+strconv.Itoa(i))
+		fx.h.ok("task", "start", "t"+strconv.Itoa(i))
+	}
+	start := func(task string) string {
+		return fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, task)
+	}
+	for _, task := range []string{"t1", "t2", "t3", "t4", "t5"} {
+		if out := start(task); strings.Contains(out, "already live") {
+			t.Fatalf("%s warned before five were live: %q", task, out)
+		}
+	}
+	if out := start("t6"); !strings.Contains(out, "5 attempts are already live in this fleet") {
+		t.Fatalf("sixth start = %q", out)
 	}
 }
 
