@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -193,5 +194,79 @@ func TestClaudeWindows(t *testing.T) {
 		if got := claudeWindow(model); got != want {
 			t.Errorf("claudeWindow(%q) = %d, want %d", model, got, want)
 		}
+	}
+}
+
+func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
+	const chunk, chunks = 16 << 10, 1536
+	long := strings.Repeat("x", 1<<20)
+	path := filepath.Join(t.TempDir(), "big.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var complete int64
+	write := func(s string) {
+		if _, err := f.WriteString(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < chunks; i++ {
+		l := strings.Repeat("a", chunk) + "\n"
+		write(l)
+		complete += int64(len(l))
+		if i == chunks/2 {
+			write("\n  \n")
+			complete += 4
+			write(long + "\n")
+			complete += int64(len(long)) + 1
+		}
+	}
+	write(`{"partial":`)
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runtime.GC()
+	var peak uint64
+	var longest, lines int
+	s := &session{offsets: map[string]int64{}}
+	err = s.follow(path, func(l []byte) {
+		lines++
+		longest = max(longest, len(l))
+		if lines%256 == 0 {
+			runtime.GC()
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			peak = max(peak, m.HeapInuse)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines != chunks+1 || longest != len(long) || s.lines != lines {
+		t.Fatalf("lines = %d (session %d), longest = %d", lines, s.lines, longest)
+	}
+	if s.offsets[path] != complete {
+		t.Fatalf("offset = %d, want %d", s.offsets[path], complete)
+	}
+	if peak > uint64(complete)/4 {
+		t.Fatalf("heap peaked at %d bytes reading %d", peak, complete)
+	}
+	f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("1}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var rest []string
+	if err := s.follow(path, func(l []byte) { rest = append(rest, string(l)) }); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rest, []string{`{"partial":1}`}) || s.lines != lines+1 {
+		t.Fatalf("resumed lines = %q, session lines = %d", rest, s.lines)
 	}
 }

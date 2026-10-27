@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -139,23 +140,23 @@ func (s *session) follow(path string, line func([]byte)) error {
 	if _, err := f.Seek(off, io.SeekStart); err != nil {
 		return err
 	}
-	b, err := io.ReadAll(f)
-	if err != nil {
-		return err
-	}
-	end := bytes.LastIndexByte(b, '\n')
-	if end < 0 {
-		return nil
-	}
-	for _, l := range bytes.Split(b[:end], []byte{'\n'}) {
+	br := bufio.NewReader(f)
+	for {
+		l, err := br.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		off += int64(len(l))
+		s.offsets[path] = off
 		if len(bytes.TrimSpace(l)) == 0 {
 			continue
 		}
 		s.lines++
-		line(l)
+		line(l[:len(l)-1])
 	}
-	s.offsets[path] = off + int64(end) + 1
-	return nil
 }
 
 func (s *session) add(e Entry) { s.entries = append(s.entries, e) }
