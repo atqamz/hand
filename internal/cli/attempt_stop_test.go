@@ -44,7 +44,7 @@ func TestStopKillsTheWorkerProcessGroup(t *testing.T) {
 
 func TestStopNeverSignalsAProcessWithAnotherStartMarker(t *testing.T) {
 	fx := newAttemptFixture(t)
-	fx.rt.set(func(rt *fakeRuntime) { rt.marker = "1" })
+	fx.rt.set(func(rt *fakeRuntime) { rt.marker, rt.runsIn = "1", t.TempDir() })
 	fx.start()
 	pid := fx.rt.lastPID()
 	out := fx.h.ok("attempt", "stop", "a1")

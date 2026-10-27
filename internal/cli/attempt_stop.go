@@ -86,6 +86,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
 		}
+		sweepWorktree(a.Worktree)
 		ended, err := st.EndAttempt(ctx, id, to, reason)
 		if err != nil {
 			return err
@@ -176,6 +177,7 @@ func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir stri
 	if err := closeTerminalsUnder(ctx, c, dir); err != nil {
 		return err
 	}
+	sweepWorktree(dir)
 	rm := []string{"worktree", "remove"}
 	if discard {
 		rm = append(rm, "--force")
@@ -188,20 +190,13 @@ func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir stri
 }
 
 func closeTerminalsUnder(ctx context.Context, c luvus.Client, dir string) error {
-	roots := []string{dir}
-	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
-		roots = append(roots, real)
-	}
+	roots := realRoots(dir)
 	terms, err := c.Inventory(ctx)
 	if err != nil {
 		return runtimeErr(err)
 	}
 	for _, t := range terms {
-		inside := false
-		for _, root := range roots {
-			inside = inside || t.CWD == root || strings.HasPrefix(t.CWD, root+string(filepath.Separator))
-		}
-		if !inside {
+		if !under(roots, t.CWD) {
 			continue
 		}
 		if err := c.Close(ctx, t); err != nil && !alreadyClosed(err) {
@@ -209,6 +204,23 @@ func closeTerminalsUnder(ctx context.Context, c luvus.Client, dir string) error 
 		}
 	}
 	return nil
+}
+
+func realRoots(dir string) []string {
+	roots := []string{dir}
+	if real, err := filepath.EvalSymlinks(dir); err == nil && real != dir {
+		roots = append(roots, real)
+	}
+	return roots
+}
+
+func under(roots []string, path string) bool {
+	for _, root := range roots {
+		if path == root || strings.HasPrefix(path, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func stopErr(_ string, err error) error { return err }

@@ -45,6 +45,7 @@ type fakeRuntime struct {
 	revisions    []int64
 	keyRevs      []int64
 	marker       string
+	runsIn       string
 	sent         []string
 	keyed        []string
 	screen       string
@@ -90,6 +91,11 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
+	rt.mu.Lock()
+	if rt.runsIn != "" {
+		cmd.Dir = rt.runsIn
+	}
+	rt.mu.Unlock()
 	proc.NewGroup(cmd)
 	if err := cmd.Start(); err != nil {
 		return nil, err

@@ -143,7 +143,9 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 	if err := stopRoot(a.PID, a.StartMarker); err != nil {
 		return err
 	}
-	if err := closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID); err != nil {
+	err = closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID)
+	sweepWorktree(a.Worktree)
+	if err != nil {
 		if a.Status == state.AttemptLaunching {
 			return nil
 		}

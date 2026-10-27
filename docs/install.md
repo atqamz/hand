@@ -100,7 +100,7 @@ Windows user profile folders whose names contain spaces or non-ASCII characters 
 What differs from Linux and macOS:
 - there are no units: no service keeps the watcher, the board or Luvus alive. `hand supervisor start` starts the watcher when it is free, `hand open` starts the board when none answers, the running board starts the watchers again within 30 seconds of a crash, and Luvus starts directly;
 - desktop notifications are off: the watcher's notify step does nothing;
-- stopping a worker ends its whole process tree at once, with no graceful phase;
+- stopping a worker ends the root and its descendants at once, found by parent process ID, with no graceful phase. Linux and macOS signal the worker's process group instead, and Linux also ends the processes left in the attempt's worktree; macOS does not. What each reaches is in [Attempt](vocabulary.md#attempt);
 - `hand update` swaps the binary by renaming the running `hand.exe` to `hand.exe.old`, stops the watcher and the board by their process IDs, and starts them again. The next `hand` run deletes the old file.
 
 See [Autostart](autostart.md#windows) to run the board at logon.

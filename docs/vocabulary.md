@@ -230,6 +230,12 @@ The board's attempt page, `/attempt/aN`, shows what Hand recorded about the atte
 
 `hand attempt start` prints a `warn` field when 5 or more attempts are already live in the fleet, and starts anyway; see [Concurrent workers](supervisor.md#concurrent-workers).
 
+Hand ends a worker in three places: `hand attempt stop aN`; a `hand` command or the watcher that settles an attempt whose terminal is gone, whose server restarted or whose launch failed; and `hand attempt clean aN`, just before it removes the worktree. What it reaches depends on the OS:
+- Linux and macOS send SIGTERM to the worker's process group, SIGKILL after 5 seconds if the root is still alive, and then close the Luvus terminal. A command the worker started in its own session or process group (`setsid`, a daemonised server, a browser) is not in that group, and neither is anything once the root has already exited;
+- Linux then also ends every process of your user whose working folder is the attempt's worktree or inside it: SIGTERM, and SIGKILL after 2 seconds. It runs also when the root is already gone. Hand reads `/proc` before SIGTERM and again before SIGKILL, so a process forked during the grace is ended too and one forked after the second read survives. It takes each process's start marker before it signals, checks it again first so that a recycled process ID is never signalled, and never signals itself or the processes that started it. It sweeps only a path of the form `worktrees/<fleet id>/tN-aN`, never the `worktrees` folder, a fleet's folder, your home folder or `/`. A shell of yours left inside the worktree ends too, so leave the folder first. A leftover that runs in another folder is not found;
+- macOS has no `/proc`, so that second step does nothing there: a command outside the worker's process group survives and Hand does not report it;
+- Windows ends the root and its descendants at once, found by parent process ID, with no graceful phase. A process whose parent already exited is not reached, and Windows has no working-folder sweep.
+
 ### Report
 
 `rN`. A worker's account of its attempt, added with `hand report add --status STATUS` from inside its worktree. Only a `running` attempt can report, and the body is 1 byte to 64 KiB.
