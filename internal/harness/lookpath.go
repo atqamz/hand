@@ -2,8 +2,10 @@ package harness
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -13,7 +15,42 @@ import (
 type BatchFileError struct{ Name, Path string }
 
 func (e *BatchFileError) Error() string {
-	return fmt.Sprintf("%s is installed only as %s, a batch file; Hand does not start batch files, because cmd.exe runs them in the wrong folder and mangles the prompt; install the standalone %s, or add the folder of %s.exe to PATH", e.Name, e.Path, e.Name, e.Name)
+	msg := fmt.Sprintf("%s is installed only as %s, a batch file; Hand does not start batch files, because cmd.exe runs them in the wrong folder and mangles the prompt; install the standalone %s, or add the folder of %s.exe to PATH", e.Name, e.Path, e.Name, e.Name)
+	if _, ok := npmNative[e.Name]; ok {
+		msg += "; an npm install leaves only the shim on PATH"
+	}
+	return msg
+}
+
+const minNativeSize = 1 << 20
+
+var npmNative = map[string]string{
+	"claude":   "node_modules/@anthropic-ai/claude-code/bin/claude.exe",
+	"codex":    "node_modules/@openai/codex/node_modules/@openai/codex-win32-*/vendor/*/bin/codex.exe",
+	"opencode": "node_modules/opencode-ai/bin/opencode.exe",
+}
+
+func npmExe(stem, shim, arch string) (string, bool) {
+	pattern, ok := npmNative[stem]
+	if !ok {
+		return "", false
+	}
+	dir := filepath.Dir(shim)
+	matches, _ := fs.Glob(os.DirFS(dir), pattern)
+	var emulated string
+	for _, m := range matches {
+		p := filepath.Join(dir, filepath.FromSlash(m))
+		if fi, err := os.Stat(p); err != nil || !fi.Mode().IsRegular() || fi.Size() < minNativeSize {
+			continue
+		}
+		switch arm := strings.Contains(m, "arm64"); {
+		case arm == (arch == "arm64"):
+			return p, true
+		case !arm && emulated == "":
+			emulated = p
+		}
+	}
+	return emulated, emulated != ""
 }
 
 func lookPathExt(name, path, pathext string) (string, error) {
@@ -46,6 +83,9 @@ func lookPathExt(name, path, pathext string) (string, error) {
 					continue
 				}
 				if i == 1 {
+					if exe, ok := npmExe(stem, p, runtime.GOARCH); ok {
+						return exe, nil
+					}
 					return "", fmt.Errorf("%w: %w", state.ErrInvalid, &BatchFileError{Name: stem, Path: p})
 				}
 				return p, nil

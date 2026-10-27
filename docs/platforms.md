@@ -27,7 +27,7 @@ In the table:
 | Start codex or agy | real; codex: CI, real harness | codex: CI, real harness; agy: CI, fake | codex: CI, real harness; agy: CI, fake |
 | Accept Codex's trust screens for its own worktree and project | CI, real harness | CI, real harness | CI, real harness |
 | Start opencode | CI, fake | CI, fake | CI, fake |
-| Hand refuses a harness found only as a `.cmd` or `.bat`, and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
+| Hand refuses a harness found only as a `.cmd` or `.bat` (except the `.exe` that npm puts inside the package of `claude`, `codex` and `opencode`, found beside the shim in a layout copied from the npm tarballs, not from a Windows install), and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | A worker reports through the footer | daily; CI, real harness | CI, real harness | CI, real harness |
