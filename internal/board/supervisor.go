@@ -422,7 +422,7 @@ func (b *Board) profilesFor(name string) []profile {
 		reason, seen := missing[s.Harness]
 		if !seen {
 			var batch *harness.BatchFileError
-			switch _, err := harness.LookPath(s.Harness, b.o.Harness.Path); {
+			switch _, err := harness.Find(s.Harness, b.o.Harness); {
 			case errors.As(err, &batch):
 				reason = s.Harness + " " + batchReason
 			case err != nil:

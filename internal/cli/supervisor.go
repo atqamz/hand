@@ -415,11 +415,12 @@ func harnessBin(r *runner, spec harness.Spec) (string, error) {
 }
 
 func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
-	warn, err := harness.Check(spec, harness.EnvOf(r.env.Getenv))
+	env := harness.EnvOf(r.env.Getenv)
+	warn, err := harness.Check(spec, env)
 	if err != nil {
 		return "", "", err
 	}
-	bin, err := harness.LookPath(spec.Harness, r.env.Getenv("PATH"))
+	bin, err := harness.Find(spec.Harness, env)
 	var batch *harness.BatchFileError
 	switch {
 	case errors.As(err, &batch) && r.env.Board:
@@ -436,7 +437,7 @@ func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 
 func installText(name string) string {
 	if name == "copilot" {
-		return "copilot (`npm install -g @github/copilot`, then `copilot login`)"
+		return "copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`)"
 	}
 	return name
 }

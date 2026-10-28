@@ -53,7 +53,7 @@ func cmdDoctor(r *runner, args []string) error {
 	r.doctorGit(ctx, &d, &c, path)
 	installed := 0
 	for _, name := range state.Harnesses {
-		_, err := harness.LookPath(name, path)
+		_, err := harness.Find(name, harness.EnvOf(r.env.Getenv))
 		var batch *harness.BatchFileError
 		if errors.As(err, &batch) {
 			c.add("harness "+name, "warn", err.Error())

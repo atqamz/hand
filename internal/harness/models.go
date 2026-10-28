@@ -159,7 +159,7 @@ func StatusOf(name string, env Env, now time.Time) Status {
 		return s
 	}
 	s.Listing, s.Found = load(name, env)
-	bin, err := LookPath(name, env.Path)
+	bin, err := Find(name, env)
 	s.Missing = missing(name, err)
 	s.Old = s.Found && !s.Listing.At.IsZero() && now.Sub(s.Listing.At) >= l.ttl
 	s.Stale = !s.Found || s.Listing.At.IsZero() || s.Old
@@ -268,7 +268,7 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 	if o.Now == nil {
 		o.Now = time.Now
 	}
-	bin, err := LookPath(name, env.Path)
+	bin, err := Find(name, env)
 	if err != nil {
 		return Listing{Harness: name, Failed: &Failure{At: o.Now(), Reason: missing(name, err)}}, nil
 	}

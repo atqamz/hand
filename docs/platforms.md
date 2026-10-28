@@ -28,6 +28,7 @@ In the table:
 | Accept Codex's trust screens for its own worktree and project | CI, real harness | CI, real harness | CI, real harness |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Start copilot (a worker only), and accept its trust screen | real, auto only; CI, fake | CI, fake | CI, fake |
+| Find `copilot` off `PATH`: in npm's global `bin` folder (`npm prefix -g`), then in the folder `gh copilot` downloads to (`~/.local/share/gh/copilot`, `$XDG_DATA_HOME/gh/copilot`, on Windows `%LOCALAPPDATA%\GitHub CLI\copilot\copilot.exe`) | real, both, then a worker started and reported; unit tests | unit tests; the path is read from the gh source, not from a run | unit tests; the path is read from the gh source, not from a run |
 | Hand refuses a harness found only as a `.cmd` or `.bat` (except the `.exe` that npm puts inside the package of `claude`, `codex`, `opencode` and `copilot`, found beside the shim in a layout copied from the npm tarballs, not from a Windows install), and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
 | Keys reach an agent whose program has an extension (`codex.exe`) after a process scan | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |

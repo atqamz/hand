@@ -26,3 +26,14 @@ func TestLookPathWantsAnAbsoluteExecutable(t *testing.T) {
 		t.Fatalf("lookpath = %s, %v", got, err)
 	}
 }
+
+func TestFindIgnoresANonExecutableGhCopy(t *testing.T) {
+	p := newPlaces(t)
+	bin := exeFile(t, p.gh(), "copilot")
+	if err := os.Chmod(bin, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := p.find("copilot"); err == nil {
+		t.Fatalf("found a non-executable file as %s", got)
+	}
+}

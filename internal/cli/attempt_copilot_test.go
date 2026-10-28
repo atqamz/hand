@@ -145,8 +145,29 @@ func TestCopilotMissingNamesItsInstallAndLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, errOut, code := fx.h.run("attempt", "start", "--harness", "copilot", "--model", "auto", "--prompt-file", fx.brief, "t1")
-	if code == 0 || !strings.Contains(errOut, "copilot not found on PATH; install copilot (`npm install -g @github/copilot`, then `copilot login`), or add its folder to PATH") {
+	if code == 0 || !strings.Contains(errOut, "copilot not found on PATH; install copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`), or add its folder to PATH") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestCopilotStartsFromTheFolderGhCopilotDownloadsTo(t *testing.T) {
+	fx := agyFixture(t)
+	onPath := exe(fx.h.vars["PATH"], "copilot")
+	data := t.TempDir()
+	fx.h.vars["XDG_DATA_HOME"] = data
+	dir := filepath.Join(data, "gh", "copilot")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, filepath.Base(onPath))
+	for _, suffix := range []string{"", ".fake"} {
+		if err := os.Rename(onPath+suffix, want+suffix); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fx.startCopilot()
+	if call := fx.rt.lastCreate().Command; call[0] != want {
+		t.Fatalf("argv[0] = %q, want %q", call[0], want)
 	}
 }
 
