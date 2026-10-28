@@ -15,7 +15,6 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
-	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -142,13 +141,13 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if got := rows["phone"][0]; got != "info" {
 		t.Fatalf("phone = %q with no tailscale in %q", rows["phone"], out)
 	}
-	for _, name := range hh.Listable {
+	for _, name := range state.Harnesses {
 		if row := rows["models "+name]; row[0] != "info" || !strings.Contains(row[1], "no list yet; run `hand models --refresh "+name+"`") {
 			t.Fatalf("models %s = %q in %q", name, row, out)
 		}
 	}
-	if len(rows) != len(want)+8 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+8, out)
+	if len(rows) != len(want)+9 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+9, out)
 	}
 }
 
@@ -164,6 +163,7 @@ func TestDoctorReportsWhatEachHarnessListed(t *testing.T) {
 		"models claude":   "2 detected (built-in 1, custom 1), cache <1m old",
 		"models codex":    "1 detected (discovered 1), cache <1m old",
 		"models agy":      "1 detected (discovered 1), cache <1m old",
+		"models copilot":  "3 detected (discovered 3), cache <1m old",
 		"models opencode": "no list: opencode models --standalone printed no model names",
 	} {
 		if row := rows[check]; row[0] != "info" || !strings.Contains(row[1], want) {

@@ -15,6 +15,7 @@ const invented = "INVENTED-SECRET-DO-NOT-LEAK"
 
 const (
 	codexBundled = `{"models":[{"slug":"gpt-6-luna","display_name":"GPT-6-Luna","visibility":"list","base_instructions":"` + invented + `","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},{"slug":"codex-auto-review","visibility":"hide","supported_reasoning_levels":[{"effort":"low"}]}]}`
+	copilotHelp  = "  `model`: AI model to use for Copilot CLI\n    - \"gpt-6-luna\"\n    - \"claude-sonnet-5.5\"\n\n  `contextTier`: x\n"
 	codexLater   = `{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`
 )
 
@@ -32,6 +33,7 @@ func listers(t *testing.T, h *harness, log string) string {
 	install("codex", codexBundled, nil)
 	install("opencode", "acme/acme-coder-1\nopencode/big-pickle\n", map[string]string{"stderr": "apiKey=" + invented})
 	install("agy", "Fetching...\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", nil)
+	install("copilot", copilotHelp, nil)
 	h.vars["PATH"] = dir
 	h.vars["HOME"] = t.TempDir()
 	h.vars["CODEX_HOME"] = t.TempDir()
@@ -42,23 +44,26 @@ func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
 	h := newHarness(t)
 	listers(t, h, "")
 	cold := h.ok("models")
-	has(t, "cold models", cold, "claude,opus,\"\",low medium high xhigh max,built-in", "listings[4]{harness,version,age,state}:", "claude,\"\",\"\",no list yet; run `hand models --refresh claude`", "opencode,\"\",\"\",no list yet; run `hand models --refresh opencode`")
+	has(t, "cold models", cold, "claude,opus,\"\",low medium high xhigh max,built-in", "listings[5]{harness,version,age,state}:", "claude,\"\",\"\",no list yet; run `hand models --refresh claude`", "opencode,\"\",\"\",no list yet; run `hand models --refresh opencode`")
 	if strings.Contains(cold, "agy,gemini") {
 		t.Fatalf("cold models ran agy: %q", cold)
 	}
 	out := h.ok("models", "--refresh")
 	has(t, "models", out,
-		"models[6]{harness,model,label,efforts,source}:",
+		"models[9]{harness,model,label,efforts,source}:",
 		"claude,opus,Opus,low medium high xhigh max,built-in",
 		"claude,acme-opus,Acme,low medium high xhigh max (unverified),custom",
 		"codex,gpt-6-luna,GPT-6-Luna,low medium,built-in",
 		"opencode,acme/acme-coder-1,\"\",\"\",discovered",
 		"agy,gemini-3.8-flash-low,Gemini 3.8 Flash (Low),\"\",discovered",
-		"listings[4]{harness,version,age,state}:",
+		"copilot,auto,\"\",\"\",discovered",
+		"copilot,gpt-6-luna,\"\",none minimal low medium high xhigh max (unverified),discovered",
+		"listings[5]{harness,version,age,state}:",
 		"claude,claude 9.9,<1m,ok",
 		"codex,codex 9.9,<1m,ok",
 		"opencode,opencode 9.9,<1m,ok",
-		"agy,agy 9.9,<1m,ok")
+		"agy,agy 9.9,<1m,ok",
+		"copilot,copilot 9.9,<1m,ok")
 	if strings.Contains(out, "codex-auto-review") || strings.Contains(out, "Run each harness") {
 		t.Fatalf("a hidden model is offered, or the refresh hint stayed: %q", out)
 	}
@@ -77,7 +82,7 @@ func TestModelsOneHarnessAndUsage(t *testing.T) {
 		want string
 		code int
 	}{
-		{[]string{"models", "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy`, 2},
+		{[]string{"models", "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot`, 2},
 		{[]string{"models", "agy", "codex"}, "want at most 1 argument", 2},
 		{[]string{"models", "--bogus"}, "models:", 2},
 	} {
@@ -92,6 +97,7 @@ func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
 	dir := listers(t, h, "")
 	fakebin.Install(t, dir, "claude", "lister", map[string]string{"stdout": "{" + invented + "\n", "version": "claude 1"})
 	fakebin.Install(t, dir, "agy", "lister", map[string]string{"exit": "1", "stderr": "Error: Please sign in " + invented})
+	fakebin.Install(t, dir, "copilot", "lister", map[string]string{"stdout": "  `model`: x\n    * \"gpt-6\"\n", "version": "copilot 1"})
 	if err := os.Remove(exe(dir, "opencode")); err != nil {
 		t.Fatal(err)
 	}
@@ -102,10 +108,20 @@ func TestModelsRefreshFailureIsAStateNotAnError(t *testing.T) {
 	has(t, "models", out,
 		"claude,claude 1,\"\",\"no list: claude gave no initialize response; it may be too old\"",
 		"opencode,\"\",\"\",opencode not found on PATH",
+		"copilot,copilot 1,\"\",\"no list: copilot help config lists no models under `model`; its format may have changed\"",
 		"agy,\"\",\"\",\"no list: agy is not signed in; run agy and sign in\"")
 	if strings.Contains(out+errOut, invented) {
 		t.Fatalf("output holds the secret: %q %q", out, errOut)
 	}
+}
+
+func TestModelsReportsAMissingCopilot(t *testing.T) {
+	h := newHarness(t)
+	dir := listers(t, h, "")
+	if err := os.Remove(exe(dir, "copilot")); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "models copilot", h.ok("models", "--refresh", "copilot"), "copilot,\"\",\"\",copilot not found on PATH")
 }
 
 func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
@@ -119,7 +135,7 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 		}
 	}
 	files, err := filepath.Glob(filepath.Join(h.vars["SECONDHAND_HOME"], "models", "*"))
-	if err != nil || len(files) != 8 {
+	if err != nil || len(files) != 10 {
 		t.Fatalf("cache files = %v, %v", files, err)
 	}
 	for _, f := range files {

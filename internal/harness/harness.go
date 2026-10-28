@@ -71,7 +71,7 @@ func Check(s Spec, env Env) (string, error) {
 	case "codex":
 		return checkCodex(s, env), nil
 	case "copilot":
-		return "", nil
+		return checkCopilot(s, env), nil
 	}
 	return checkAgy(s, env), nil
 }
@@ -106,6 +106,28 @@ func checkAgy(s Spec, env Env) string {
 	}
 	if _, ok := find(l.Models, s.Model); !ok {
 		return unverified([]string{fmt.Sprintf("agy model %s is not in `agy models`", s.Model)})
+	}
+	return ""
+}
+
+func checkCopilot(s Spec, env Env) string {
+	switch {
+	case s.Effort != "" && !slices.Contains(copilotEfforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("copilot model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(copilotEfforts, ", "))})
+	case s.Model == "auto" && s.Effort != "":
+		return unverified([]string{"copilot model auto takes no effort"})
+	case s.Model == "auto":
+		return ""
+	}
+	l, err := catalog("copilot", env)
+	switch {
+	case err != nil:
+		return unverified([]string{fmt.Sprintf("copilot model %s could not be checked: %s", s.Model, plainReason(err))})
+	case slices.Contains(l.Gone, s.Model):
+		return unverified([]string{goneText(s)})
+	}
+	if _, ok := find(l.Models, s.Model); !ok {
+		return unverified([]string{fmt.Sprintf("copilot model %s is not in `copilot help config`", s.Model)})
 	}
 	return ""
 }

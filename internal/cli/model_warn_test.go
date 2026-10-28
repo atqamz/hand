@@ -118,7 +118,7 @@ func TestAttemptStartWarnsWithoutACodexCacheAndRefusesOpencodeInputs(t *testing.
 
 func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
-	policy := `{"profiles":{"alias":{"harness":"claude","model":"sonnet","effort":"high"},"gateway":{"harness":"claude","model":"acme-opus","effort":"high"},"bedrock":{"harness":"claude","model":"us.anthropic.claude-opus-5-5-v1:0","effort":"high"},"codex-custom":{"harness":"codex","model":"acme-coder-1","effort":"high"},"agy-x":{"harness":"agy","model":"gemini-9"},"oc-plain":{"harness":"opencode"},"oc-model":{"harness":"opencode","model":"acme/acme-coder-1"},"spaced":{"harness":"claude","model":"my model","effort":"high"}}}`
+	policy := `{"profiles":{"alias":{"harness":"claude","model":"sonnet","effort":"high"},"gateway":{"harness":"claude","model":"acme-opus","effort":"high"},"bedrock":{"harness":"claude","model":"us.anthropic.claude-opus-5-5-v1:0","effort":"high"},"codex-custom":{"harness":"codex","model":"acme-coder-1","effort":"high"},"agy-x":{"harness":"agy","model":"gemini-9"},"cp-auto":{"harness":"copilot","model":"auto"},"cp-listed":{"harness":"copilot","model":"gpt-6-luna","effort":"high"},"cp-unlisted":{"harness":"copilot","model":"acme-coder-1"},"cp-auto-effort":{"harness":"copilot","model":"auto","effort":"high"},"oc-plain":{"harness":"opencode"},"oc-model":{"harness":"opencode","model":"acme/acme-coder-1"},"spaced":{"harness":"claude","model":"my model","effort":"high"}}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +129,11 @@ func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
 		`bedrock,claude,"us.anthropic.claude-opus-5-5-v1:0",high,yes,"claude model us.anthropic.claude-opus-5-5-v1:0 is not an alias`,
 		`codex-custom,codex,acme-coder-1,high,yes,"codex model acme-coder-1 could not be checked: codex debug models --bundled printed output it does not recognise, and models_cache.json is unusable; starting anyway"`,
 		"agy-x,agy,gemini-9,\"\",yes,agy model gemini-9 is not in `agy models`; starting anyway",
+		`cp-auto,copilot,auto,"",yes,""`,
+		`cp-listed,copilot,gpt-6-luna,high,yes,""`,
+		"cp-unlisted,copilot,acme-coder-1,\"\",yes,copilot model acme-coder-1 is not in `copilot help config`; starting anyway",
+		`cp-auto-effort,copilot,auto,high,yes,copilot model auto takes no effort; starting anyway`,
+		"copilot,gpt-6-luna,none minimal low medium high xhigh max",
 		`oc-plain,opencode,"","",yes,""`,
 		`oc-model,opencode,acme/acme-coder-1,"","invalid: opencode picks its model from its own configuration; leave model and effort empty",""`,
 		`spaced,claude,my model,high,"invalid: claude model \"my model\" must be`,

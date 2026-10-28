@@ -39,7 +39,7 @@ async function cli(box, srv) {
   check(profiles.every((p) => p.valid === profileFix), 'every profile says why it is invalid, with a fix');
 
   const models = toon((await ok(await box.hand(['models']), 'hand models exits 0 with no harness installed')).out);
-  equal(models.tables.listings.map((l) => [l.harness, l.state]), ['claude', 'codex', 'opencode', 'agy'].map((h) => [h, missing(h)]), 'hand models gives each harness a reason, not an error');
+  equal(models.tables.listings.map((l) => [l.harness, l.state]), ['claude', 'codex', 'opencode', 'agy', 'copilot'].map((h) => [h, missing(h)]), 'hand models gives each harness a reason, not an error');
   check(models.tables.models.some((m) => m.harness === 'claude' && m.source === 'built-in'), 'hand models lists the built-in Claude models');
   check(!models.tables.models.some((m) => m.source === 'discovered'), 'hand models discovers no model without a harness');
 

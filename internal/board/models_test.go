@@ -480,6 +480,18 @@ func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
 	}
 }
 
+func TestTheRefreshActionListsCopilot(t *testing.T) {
+	r := newModelRig(t)
+	r.install(t, "copilot", "printer", map[string]string{"out": "  `model`: AI model\n    - \"gpt-6-luna\"\n\n  `other`: x\n"})
+	if rec := fetchPost(r.fx.handler(), "/models/refresh", url.Values{"harness": {"copilot"}}); rec.Code != http.StatusNoContent {
+		t.Fatalf("refresh copilot = %d", rec.Code)
+	}
+	waitFor(t, "the copilot list", func() bool { return harness.StatusOf("copilot", r.env, time.Now()).Found })
+	if models, err := harness.Detected("copilot", r.env); err != nil || len(models) != 2 || models[0].Name != "auto" || models[1].Name != "gpt-6-luna" {
+		t.Fatalf("detected %v, %v", models, err)
+	}
+}
+
 func TestARefreshOfEveryHarnessAnswersAtOnceAndAReadOnlyBoardRefuses(t *testing.T) {
 	r := newModelRig(t)
 	gate := filepath.Join(t.TempDir(), "gate")

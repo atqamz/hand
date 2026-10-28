@@ -467,6 +467,88 @@ func TestAgyListsIdsAndLabels(t *testing.T) {
 	}
 }
 
+func copilotHelp(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "copilot-help-config.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestCopilotListsAutoAndTheBundledModels(t *testing.T) {
+	f := newFixture(t)
+	f.install("copilot", map[string]string{"stdout": copilotHelp(t), "args": filepath.Join(f.root, "args")})
+	l := f.refresh("copilot")
+	if l.Failed != nil || len(l.Models) != 32 || l.Models[0].Name != "auto" || len(l.Models[0].Efforts) != 0 || l.Models[1].Name != "claude-sonnet-5.5" || l.Models[31].Name != "kimi-k3" {
+		t.Fatalf("listing = %+v", l)
+	}
+	for _, m := range l.Models {
+		if m.Source != SourceDiscovered || m.Hidden {
+			t.Fatalf("model = %+v", m)
+		}
+	}
+	if m := l.Models[2]; !slices.Equal(m.Efforts, []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}) || !m.Unverified {
+		t.Fatalf("model = %+v", m)
+	}
+	if got, _ := os.ReadFile(filepath.Join(f.root, "args")); strings.TrimSpace(string(got)) != "help config" {
+		t.Fatalf("args = %q", got)
+	}
+	if st := StatusOf("copilot", f.env, f.clock()); st.Stale || st.Missing != "" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestCopilotKeepsItsLastListWhenTheFormatChanges(t *testing.T) {
+	f := newFixture(t)
+	f.install("copilot", map[string]string{"stdout": copilotHelp(t)})
+	f.refresh("copilot")
+	for name, out := range map[string]string{
+		"no model section": "Configuration Settings:\n\n  `theme`: color palette\n",
+		"empty":            "",
+		"models moved":     "  `model`: AI model\n    - claude-sonnet-5.5\n    * \"gpt-6\"\n",
+		"binary":           "\x00\xff\"- \"\n  `model`:",
+	} {
+		f.install("copilot", map[string]string{"stdout": out})
+		l := f.refresh("copilot")
+		if l.Failed == nil || !strings.Contains(l.Failed.Reason, "its format may have changed") || len(l.Models) != 32 {
+			t.Fatalf("%s: listing = %+v", name, l)
+		}
+	}
+}
+
+func TestCopilotNamesStopAtTheEndOfTheModelSection(t *testing.T) {
+	help := "  `model`: AI model\r\n    - \"a-1\"\r\n    - \"b.2\"\r\n\r\n  `other`: x\r\n    - \"c-3\"\r\n"
+	if got := copilotModelNames(help); !slices.Equal(got, []string{"a-1", "b.2"}) {
+		t.Fatalf("names = %q", got)
+	}
+	split := "  `model`: AI model\n    - \"a-1\"\n\n    - \"b.2\"\n\n  `other`: x\n    - \"c-3\"\n"
+	if got := copilotModelNames(split); !slices.Equal(got, []string{"a-1", "b.2"}) {
+		t.Fatalf("names across a blank line = %q", got)
+	}
+}
+
+func TestCopilotFailuresAreShort(t *testing.T) {
+	f := newFixture(t)
+	f.install("copilot", map[string]string{"exit": "1", "stderr": "kaboom " + secret})
+	l := f.refresh("copilot")
+	if l.Failed == nil || l.Failed.Reason != "copilot help config exited with code 1" {
+		t.Fatalf("listing = %+v", l)
+	}
+	noSecret(t, "copilot cache", f.cacheFile("copilot"))
+}
+
+func TestCopilotMissingFromPath(t *testing.T) {
+	f := newFixture(t)
+	l, err := Refresh(context.Background(), "copilot", f.env, f.opts)
+	if err != nil || l.Failed == nil || l.Failed.Reason != "copilot not found on PATH" || len(l.Models) != 0 {
+		t.Fatalf("listing = %+v, err %v", l, err)
+	}
+	if st := StatusOf("copilot", f.env, f.clock()); st.Missing != "copilot not found on PATH" || st.Due {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 func TestTheVersionIsOneCleanShortLine(t *testing.T) {
 	f := newFixture(t)
 	f.install("agy", map[string]string{"stdout": agyList, "version": "agy \x1b[31m1.4.4\x1b[0m " + strings.Repeat("v", 200) + "\nsecond line " + secret})

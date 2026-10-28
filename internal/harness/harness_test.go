@@ -96,6 +96,10 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	agyListed := seeded(t, Listing{Harness: "agy", Models: []Model{{Name: "gemini-3.8-flash-low", Source: SourceDiscovered}, {Name: "gemini-3.1-pro-high", Source: SourceDiscovered}}, Gone: []string{"gemini-2"}})
 	agyFailed := seeded(t, Listing{Harness: "agy", Failed: &Failure{Reason: "agy is not signed in; run agy and sign in"}})
 	agyNone := seeded(t)
+	copilotListed := seeded(t, Listing{Harness: "copilot", Models: []Model{
+		{Name: "auto", Source: SourceDiscovered},
+		{Name: "gpt-6-luna", Efforts: copilotEfforts, Source: SourceDiscovered, Unverified: true},
+	}, Gone: []string{"gpt-5.5"}})
 	codexListed := seeded(t, Listing{Harness: "codex", Models: []Model{
 		{Name: "gpt-6-luna", Efforts: []string{"low", "medium"}, Source: SourceBuiltin},
 		{Name: "codex-auto-review", Efforts: []string{"low"}, Source: SourceBuiltin, Hidden: true},
@@ -184,7 +188,16 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"agy model with a space", Spec{"agy", "gemini 3", ""}, agyListed, refuse, "agy model"},
 
 		{"copilot auto", Spec{"copilot", "auto", ""}, Env{}, ok, ""},
-		{"copilot with an effort", Spec{"copilot", "auto", "high"}, Env{}, ok, ""},
+		{"copilot auto with a list", Spec{"copilot", "auto", ""}, copilotListed, ok, ""},
+		{"copilot auto with an effort", Spec{"copilot", "auto", "high"}, copilotListed, warn, "copilot model auto takes no effort"},
+		{"copilot listed", Spec{"copilot", "gpt-6-luna", "xhigh"}, copilotListed, ok, ""},
+		{"copilot listed without an effort", Spec{"copilot", "gpt-6-luna", ""}, copilotListed, ok, ""},
+		{"copilot unlisted", Spec{"copilot", "acme-coder-1", ""}, copilotListed, warn, "copilot model acme-coder-1 is not in `copilot help config`"},
+		{"copilot vanished", Spec{"copilot", "gpt-5.5", ""}, copilotListed, warn, "model gpt-5.5 is no longer listed by copilot"},
+		{"copilot effort not offered", Spec{"copilot", "gpt-6-luna", "ultra"}, copilotListed, warn, "effort ultra is not one of none, minimal, low, medium, high, xhigh, max"},
+		{"copilot effort not offered without a list", Spec{"copilot", "gpt-6-luna", "ultra"}, agyNone, warn, "effort ultra is not one of"},
+		{"copilot auto with a bad effort", Spec{"copilot", "auto", "ultra"}, copilotListed, warn, "effort ultra is not one of"},
+		{"copilot no list yet", Spec{"copilot", "gpt-6-luna", ""}, agyNone, warn, "copilot model gpt-6-luna could not be checked: no model list yet; run `hand models --refresh copilot`"},
 		{"copilot bad effort", Spec{"copilot", "auto", "High"}, Env{}, refuse, "copilot effort"},
 		{"copilot empty model", Spec{"copilot", "", ""}, Env{}, refuse, "copilot model"},
 
