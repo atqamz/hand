@@ -262,7 +262,7 @@ type launchScreen struct {
 
 var launchScreens = map[string]launchScreen{
 	"copilot": {banner: "uses AI.", problems: []launchProblem{{
-		seen: regexp.MustCompile(`Model"([^"]+)"from--modelflagisnotavailable`),
+		seen: regexp.MustCompile(`Model"([^"]+)"from--modelflagisnotavailable\.Using"auto"instead`),
 		note: func(m []string) string {
 			return `copilot does not have model "` + m[1] + `" and runs on auto instead; check the screen`
 		},

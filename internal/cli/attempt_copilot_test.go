@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -239,6 +241,48 @@ func TestCopilotLaunchWordsPrintedLaterByTheWorkerAreNotAProblem(t *testing.T) {
 func TestCopilotLaunchWordsAfterTheBannerScrolledAwayAreNotAProblem(t *testing.T) {
 	screen := wrapAt(`Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`, 80) + "❯\n"
 	fx, out := startCopilotLaunch(t, screen)
+	if strings.Contains(out, "hand attempt read a1") {
+		t.Fatalf("start = %q", out)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestCopilotLaunchWithoutAnEchoEndsAtTheScreenWait(t *testing.T) {
+	fx, out := startCopilotLaunch(t, copilotLaunchScreen("", 80, false, ""))
+	if strings.Contains(out, "hand attempt read a1") {
+		t.Fatalf("start = %q", out)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestCopilotLaunchLineThatAppearsOnALaterReadIsNoted(t *testing.T) {
+	fx := agyFixture(t)
+	*cli.ScreenWait = 5 * time.Second
+	t.Cleanup(func() { *cli.ScreenWait = 300 * time.Millisecond })
+	trust := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, 1)
+	problem := `✗ Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.afterScreen = trust, 4, copilotLaunchScreen("", 80, false, "")
+	})
+	go func() {
+		for len(fx.rt.keysSent()) == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen = copilotLaunchScreen(problem, 80, true, "") })
+	}()
+	fx.startCopilot()
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `runs on auto instead`) {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestCopilotModelLineWithoutTheFallbackClauseIsNotAProblem(t *testing.T) {
+	fx, out := startCopilotLaunch(t, copilotLaunchScreen(`✗ Model "gpt-nosuch" from --model flag is not available.`, 80, true, ""))
 	if strings.Contains(out, "hand attempt read a1") {
 		t.Fatalf("start = %q", out)
 	}
