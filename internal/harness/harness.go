@@ -156,6 +156,13 @@ func CodexHome(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".codex")
 }
 
+func CopilotHome(getenv func(string) string) string {
+	if h := getenv("COPILOT_HOME"); h != "" {
+		return h
+	}
+	return filepath.Join(getenv("HOME"), ".copilot")
+}
+
 func CheckPrompt(prompt string) error {
 	switch {
 	case strings.TrimSpace(prompt) == "":

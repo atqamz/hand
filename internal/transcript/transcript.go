@@ -20,6 +20,7 @@ import (
 type Status struct {
 	Context, Window int64
 	Compactions     int
+	Selected, Used  string
 }
 
 type Entry struct {
@@ -40,6 +41,7 @@ type Paths struct {
 	Opencode     string
 	OpencodeData string
 	Agy          string
+	Copilot      string
 }
 
 type Reader struct {
@@ -98,6 +100,8 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 		err = r.opencode(ctx, s, id, dir)
 	case "agy":
 		err = r.agy(s, id)
+	case "copilot":
+		err = r.copilot(s, id)
 	default:
 		err = fmt.Errorf("transcript: harness %q has no reader", harness)
 	}

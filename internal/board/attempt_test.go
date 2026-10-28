@@ -3,6 +3,7 @@ package board_test
 import (
 	"context"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/atqamz/hand/internal/board"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 const hostile = "<script>alert(1)</script> ]]> \x1b[31mred\x1b[0m \u202eevil & \"quoted\""
@@ -226,4 +228,68 @@ func TestTheAttemptPageStylesItsFactsBriefAndPhoneOrder(t *testing.T) {
 		".facts .doc-copy{display:block;margin-top:4px}")
 	contains(t, "brief", css, ".brief{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);max-height:24em;overflow:auto;font:12px/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-side:has(.facts){order:0}}")
+}
+
+const copilotSession = "0f8fad5b-d9cb-469f-a165-70867728950e"
+
+func copilotAttempt(t *testing.T, st *state.Store, model string) state.Attempt {
+	t.Helper()
+	ctx := context.Background()
+	argv := []string{"/bin/copilot", "--model", model, "--session-id", copilotSession, "-i", "do it"}
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: active(t, st, "Port it").ID, Harness: "copilot", Model: model, Argv: argv}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+func copilotEvents(t *testing.T, lines ...string) transcript.Paths {
+	t.Helper()
+	home := t.TempDir()
+	dir := filepath.Join(home, "session-state", copilotSession)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return transcript.Paths{Copilot: home}
+}
+
+func TestTheAttemptPageShowsACopilotWorkersTurnsAndTheModelThatAnswered(t *testing.T) {
+	st := open(t)
+	copilotAttempt(t, st, "gpt-nosuch")
+	paths := copilotEvents(t,
+		`{"type":"session.start","data":{"selectedModel":"gpt-nosuch"},"timestamp":"2026-10-28T10:07:57.914Z"}`,
+		`{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"go test ./... "}},"timestamp":"2026-10-28T10:08:01.000Z"}`,
+		`{"type":"assistant.message","data":{"model":"gpt-5.6-luna","content":"done "}}`,
+		`{"type":"assistant.message","data":{"model":"gpt-5.6-luna","content":"`+hostile[:12]+` \u202e <b>"},"timestamp":"2026-10-28T10:08:04.058Z"}`)
+	body := get(t, board.New(st, token, board.Options{Transcript: &transcript.Reader{Paths: paths}}), "/attempt/a1")
+	contains(t, "attempt page", body,
+		"<h3>Transcript</h3>", `<p class="warn">Asked for gpt-nosuch, answered by gpt-5.6-luna.</p>`,
+		`<span class="kind">tool</span><span class="detail">bash: go test ./...</span>`,
+		`<span class="kind">worker</span><span class="detail">done</span>`, `&lt;script&gt;`, "U&#43;202E", "&lt;b&gt;",
+		"<dt>Answered by</dt><dd>gpt-5.6-luna</dd>")
+	lacks(t, "attempt page", body, "<script>alert", "\u202e", "<b>")
+}
+
+func TestTheAttemptPageSaysNothingOfASubstitutionWhenAutoChoseTheModel(t *testing.T) {
+	st := open(t)
+	copilotAttempt(t, st, "auto")
+	paths := copilotEvents(t,
+		`{"type":"session.start","data":{"selectedModel":"auto"}}`,
+		`{"type":"assistant.message","data":{"model":"gpt-5.6-luna","content":"ok"}}`)
+	body := get(t, board.New(st, token, board.Options{Transcript: &transcript.Reader{Paths: paths}}), "/attempt/a1")
+	contains(t, "attempt page", body, "<h3>Transcript</h3>", "<dt>Answered by</dt><dd>gpt-5.6-luna</dd>")
+	lacks(t, "attempt page", body, `class="warn"`, "Asked for")
+}
+
+func TestTheAttemptPageWaitsForACopilotSessionAndLeavesOtherHarnessesAlone(t *testing.T) {
+	st := open(t)
+	copilotAttempt(t, st, "auto")
+	briefed(t, st, active(t, st, "Other").ID, "/w", []string{"/bin/claude", "--session-id", copilotSession, "go"})
+	h := board.New(st, token, board.Options{Transcript: &transcript.Reader{Paths: transcript.Paths{Copilot: t.TempDir()}}})
+	contains(t, "copilot attempt", get(t, h, "/attempt/a1"), "<h3>Transcript</h3>", `<p class="quiet">waiting for the session…</p>`)
+	lacks(t, "claude attempt", get(t, h, "/attempt/a2"), "Transcript")
+	lacks(t, "no reader", get(t, board.New(st, token, board.Options{}), "/attempt/a1"), "Transcript")
 }

@@ -51,16 +51,17 @@ Each of those rows, and the model menu, picks a model from the harness's model l
 
 ## The attempt page
 
-Every `aN` on the Board, in a reply, a report, a decision, an event or a Needs item, opens the attempt's page, `/<fleet id>/attempt/aN` (`hand open aN` opens it too; a bare number works as well). The task page's attempt rows and "from aN" lines link to it. It shows only what `hand.db` holds, the same facts as `hand attempt show aN`:
+Every `aN` on the Board, in a reply, a report, a decision, an event or a Needs item, opens the attempt's page, `/<fleet id>/attempt/aN` (`hand open aN` opens it too; a bare number works as well). The task page's attempt rows and "from aN" lines link to it. It shows what `hand.db` holds, the same facts as `hand attempt show aN`, and a `copilot` worker's transcript:
 
 - the header: harness, model and effort, the status with its reason, when it started and stopped and for how long, the branch, the worktree path with a **Copy path** button, the pane while it runs, the attempt it continues, and the PR, MR, link or file chips of its reports;
 - its reports, as on the task page, each with **Mark read** while unread;
 - the **brief**, the briefing the supervisor gave the worker, which Hand stores as the last word of the launch command, and the **launch line**, the rest of that command;
+- for a `copilot` worker, its **transcript**: the latest 50 messages and tool calls (the command or path, never the output), with the model that answered under Details, and a warning when that is not the model Copilot was started on (see [Transcript](vocabulary.md#transcript)); Hand reads it from `$COPILOT_HOME/session-state` (default `~/.copilot`), so it shows "waiting for the session…" until the worker's first event;
 - a **timeline** of every event that names the attempt, oldest first: its state changes, the turns the watcher saw end or block, the keys pressed on its screen (key names, never text), what was typed into it (a byte count), the folder Codex saved as trusted, its reports and its cleaning.
 
-A worktree that `hand attempt clean` removed is marked as removed, and its branch is kept. The page does not show the worker's screen, the last screen Hand stored, or any transcript; see [Attempt](vocabulary.md#attempt). A running attempt's page refreshes itself like the task page, every 10 seconds, so the timeline and the report fill in without a reload.
+A worktree that `hand attempt clean` removed is marked as removed, and its branch is kept. The page does not show the worker's screen or the last screen Hand stored, and has no transcript for a harness other than `copilot`; see [Attempt](vocabulary.md#attempt). A running attempt's page refreshes itself like the task page, every 10 seconds, so the timeline and the report fill in without a reload.
 
-The page holds nothing the task page does not already hold, apart from the brief and the launch line, so a paired phone opens it, the network-address board serves it read-only, and Funnel and unauthenticated requests are refused as for every other page.
+The page holds nothing the task page does not already hold, apart from the brief, the launch line and a `copilot` worker's transcript, so a paired phone opens it, the network-address board serves it read-only, and Funnel and unauthenticated requests are refused as for every other page.
 
 ## Pair a phone
 

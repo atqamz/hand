@@ -16,7 +16,12 @@
 {{else}}<p class="quiet">No brief is recorded for this attempt.</p>
 {{end}}<h3>Launch line</h3>
 <pre class="brief" tabindex="0">{{shown .Launch}}</pre>
-<h3>Timeline</h3>
+{{if .Transcribed}}<h3>Transcript</h3>
+{{with .ModelNote}}<p class="warn">{{.}}</p>
+{{end}}{{if .Turns}}<ol class="events">{{range .Turns}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{.Role}}</span><span class="detail">{{shown .Text}}</span></li>
+{{end}}</ol>
+{{else}}<p class="quiet">{{with .TurnsNote}}{{.}}{{else}}Nothing in the transcript yet.{{end}}</p>
+{{end}}{{end}}<h3>Timeline</h3>
 <ol class="events">{{range .Events}}<li class="event"><time datetime="{{.At}}">{{when .At}}</time><span class="kind">{{words .Kind}}</span><span class="detail">{{refs (plain (shown .Detail)) $.Base $.Titles}}</span></li>
 {{end}}</ol>
 {{if .MoreEvents}}<p class="more">Only the latest 50 events are shown.</p>{{end}}
@@ -27,7 +32,8 @@
 <dt>Harness</dt><dd>{{.Attempt.Harness}}</dd>
 <dt>Model</dt><dd>{{.Attempt.Model}}</dd>
 <dt>Effort</dt><dd>{{.Attempt.Effort}}</dd>
-<dt>Started</dt><dd><time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></dd>
+{{with .Answered}}<dt>Answered by</dt><dd>{{.}}</dd>
+{{end}}<dt>Started</dt><dd><time datetime="{{.Attempt.CreatedAt}}">{{when .Attempt.CreatedAt}}</time></dd>
 {{with .Attempt.EndedAt}}<dt>Stopped</dt><dd><time datetime="{{.}}">{{when .}}</time></dd>
 <dt>Duration</dt><dd>{{$.Duration}}</dd>
 {{else}}<dt>Running for</dt><dd><time data-since datetime="{{.Attempt.CreatedAt}}">{{.Duration}}</time></dd>
