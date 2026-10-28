@@ -12,6 +12,7 @@ The supervisor and every worker start with the flag that skips permission prompt
 | Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR` |
 | opencode | `--standalone --auto` |
 | Antigravity (`agy`) | `--dangerously-skip-permissions` |
+| GitHub Copilot (`copilot`; workers only) | `--allow-all-tools --allow-all-paths` |
 
 These come from `internal/harness/harness.go` and `internal/harness/supervisor.go`. The model and effort flags are left out above.
 
@@ -25,7 +26,9 @@ What you see in Hand for that prompt:
 - The Board shows a worker's blocked screen under Needs only when no supervisor runs, or after 10 minutes. It shows the countdown as a badge, then `denying…` at zero. The countdown is Claude Code's. The Board denies nothing.
 - A paired phone has the same buttons.
 
-What Luvus reads as blocked for Codex, opencode and agy permission screens, and whether the Board parses them: not verified here. The Board's parser is written for Claude's screens.
+What Luvus reads as blocked for Codex, opencode and agy permission screens, and whether the Board parses them: not verified here. The Board's parser is written for Claude's screens. For Copilot, Luvus 0.14.3 read its trust and permission screens as blocked in one check on Linux; the footer of a worker started with the flags above still says "Manual Approval", although tools and paths run without asking.
+
+Copilot asks whether to trust a folder, and the flags above do not skip that. Hand presses `1. Yes` when the screen names the attempt's own worktree and never `2. Yes, and remember this folder`, which would save the folder in your Copilot config for all your Copilot use. After the trust, Copilot loads the repository's own configuration: hooks (`.github/hooks`, and the hooks in `.claude/settings.json`), MCP servers and skills. It has no flag to turn hooks off, only the `disableAllHooks` setting, so a repository's hooks run in a Copilot worker, unlike `--disable hooks` for Codex.
 
 ## What that means
 

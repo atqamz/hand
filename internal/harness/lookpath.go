@@ -27,6 +27,7 @@ const minNativeSize = 1 << 20
 var npmNative = map[string]string{
 	"claude":   "node_modules/@anthropic-ai/claude-code/bin/claude.exe",
 	"codex":    "node_modules/@openai/codex/node_modules/@openai/codex-win32-*/vendor/*/bin/codex.exe",
+	"copilot":  "node_modules/@github/copilot/node_modules/@github/copilot-win32-*/copilot.exe",
 	"opencode": "node_modules/opencode-ai/bin/opencode.exe",
 }
 

@@ -58,6 +58,9 @@ func cmdSupervisorStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := harness.CheckSupervisor(spec); err != nil {
+		return err
+	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
 		unlock, _, err := r.supervisorLock(true)
 		if err != nil {
@@ -276,6 +279,9 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := harness.CheckSupervisor(routed); err != nil {
+		return err
+	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
@@ -421,11 +427,18 @@ func checkedBin(r *runner, spec harness.Spec) (string, string, error) {
 	case errors.As(err, &batch):
 		return "", "", err
 	case err != nil && r.env.Board:
-		return "", "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit", err, spec.Harness)
+		return "", "", fmt.Errorf("%w (searched the board's PATH, the one it started with); install %s or add its folder to PATH, then restart the board: `hand board stop`, then `hand board`, or restart its unit", err, installText(spec.Harness))
 	case err != nil:
-		return "", "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, spec.Harness)
+		return "", "", fmt.Errorf("%w; install %s, or add its folder to PATH", err, installText(spec.Harness))
 	}
 	return bin, warn, nil
+}
+
+func installText(name string) string {
+	if name == "copilot" {
+		return "copilot (`npm install -g @github/copilot`, then `copilot login`)"
+	}
+	return name
 }
 
 func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.Client, spec state.SupervisorSpec, want string) (state.Supervisor, error) {

@@ -36,7 +36,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude, codex, opencode or agy")
+	name := fs.String("harness", "", "claude, codex, opencode, agy or copilot")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -291,6 +291,7 @@ type trustScreen struct {
 	folder    string
 	repoNote  string
 	wraps     bool
+	boxed     bool
 }
 
 var trustScreens = map[string][]trustScreen{
@@ -323,6 +324,15 @@ var trustScreens = map[string][]trustScreen{
 		repoNote:  "Note:",
 		wraps:     true,
 	}},
+	"copilot": {{
+		question:  "Do you trust the files in this folder?",
+		yesCursor: "❯ 1. Yes",
+		noCursor:  "3. No (Esc)",
+		toYes:     "up",
+		folder:    "Confirm folder trust",
+		wraps:     true,
+		boxed:     true,
+	}},
 }
 
 func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
@@ -335,6 +345,9 @@ func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
 }
 
 func (s trustScreen) names(text string) (folder, repo string, noted bool) {
+	if s.boxed {
+		return boxedFolder(text, s.folder), "", false
+	}
 	text = unwrap(text)
 	i := strings.Index(text, s.folder)
 	if i < 0 {
@@ -511,6 +524,24 @@ func trustCleared(ctx context.Context, c luvus.Client, pane, question string, ti
 		case <-tick:
 		}
 	}
+}
+
+func boxedFolder(screen, title string) string {
+	var b strings.Builder
+	past, began := false, false
+	for _, line := range strings.Split(screen, "\n") {
+		clean := strings.Trim(line, "│╭╮╰╯─ \t")
+		switch {
+		case !past:
+			past = strings.Contains(line, title)
+		case clean != "":
+			b.WriteString(clean)
+			began = true
+		case began:
+			return b.String()
+		}
+	}
+	return ""
 }
 
 func unwrap(screen string) string {

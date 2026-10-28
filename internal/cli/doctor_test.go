@@ -15,6 +15,7 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
+	hh "github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
@@ -129,7 +130,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 		t.Fatalf("luvus = %q", field(out, "luvus"))
 	}
 	rows := checkRows(t, out)
-	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "luvus server", "board", "watcher"}
+	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "luvus server", "board", "watcher"}
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
@@ -141,7 +142,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if got := rows["phone"][0]; got != "info" {
 		t.Fatalf("phone = %q with no tailscale in %q", rows["phone"], out)
 	}
-	for _, name := range state.Harnesses {
+	for _, name := range hh.Listable {
 		if row := rows["models "+name]; row[0] != "info" || !strings.Contains(row[1], "no list yet; run `hand models --refresh "+name+"`") {
 			t.Fatalf("models %s = %q in %q", name, row, out)
 		}

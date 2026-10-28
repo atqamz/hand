@@ -166,7 +166,7 @@ export function toon(text) {
   return doc;
 }
 
-const harnesses = ['claude', 'codex', 'opencode', 'agy'];
+const harnesses = ['claude', 'codex', 'opencode', 'agy', 'copilot'];
 
 function found(name, dirs) {
   const exts = win ? ['', '.exe', '.cmd', '.bat', '.com', '.ps1'] : [''];

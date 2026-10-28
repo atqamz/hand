@@ -23,12 +23,12 @@ func cmdModels(r *runner, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("models: %v", err)}
 	}
-	targets := state.Harnesses
+	targets := harness.Listable
 	switch fs.NArg() {
 	case 0:
 	case 1:
-		if !slices.Contains(state.Harnesses, fs.Arg(0)) {
-			return fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, fs.Arg(0), strings.Join(state.Harnesses, ", "))
+		if !slices.Contains(harness.Listable, fs.Arg(0)) {
+			return fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, fs.Arg(0), strings.Join(harness.Listable, ", "))
 		}
 		targets = fs.Args()
 	default:

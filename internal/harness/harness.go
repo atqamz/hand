@@ -44,7 +44,7 @@ var (
 
 func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
-	case "claude", "codex", "agy":
+	case "claude", "codex", "agy", "copilot":
 	case "opencode":
 		if s.Model != "" || s.Effort != "" {
 			return "", fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
@@ -60,7 +60,7 @@ func Check(s Spec, env Env) (string, error) {
 		if s.Effort != "" {
 			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
 		}
-	} else if !effortToken.MatchString(s.Effort) {
+	} else if !effortToken.MatchString(s.Effort) && (s.Effort != "" || s.Harness != "copilot") {
 		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
 	}
 	switch s.Harness {
@@ -68,6 +68,8 @@ func Check(s Spec, env Env) (string, error) {
 		return checkClaude(s, env), nil
 	case "codex":
 		return checkCodex(s, env), nil
+	case "copilot":
+		return "", nil
 	}
 	return checkAgy(s, env), nil
 }
@@ -118,6 +120,13 @@ func plainReason(err error) string {
 }
 
 func Prefills(name string) bool { return name == "opencode" }
+
+func CheckSupervisor(s Spec) error {
+	if s.Harness == "copilot" {
+		return fmt.Errorf("%w: copilot starts workers only; run the supervisor on claude, codex, opencode or agy", state.ErrInvalid)
+	}
+	return nil
+}
 
 var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
@@ -191,6 +200,12 @@ func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
 		return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
+	case "copilot":
+		argv := []string{bin, "--no-auto-update", "--model", s.Model}
+		if s.Effort != "" {
+			argv = append(argv, "--reasoning-effort", s.Effort)
+		}
+		return append(argv, "--allow-all-tools", "--allow-all-paths", "--session-id", NewSessionID(), "-i", prompt), nil
 	case "codex":
 		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
 	}

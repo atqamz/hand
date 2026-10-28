@@ -325,7 +325,7 @@ type harnessChoice struct {
 func (b *Board) choices(except string) []harnessChoice {
 	var out []harnessChoice
 	for _, h := range state.Harnesses {
-		if h != except {
+		if h != except && harness.CheckSupervisor(harness.Spec{Harness: h}) == nil {
 			out = append(out, b.picker(h))
 		}
 	}
@@ -416,7 +416,7 @@ func (b *Board) profilesFor(name string) []profile {
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n]
-		if name != "" && s.Harness != name {
+		if (name != "" && s.Harness != name) || harness.CheckSupervisor(s) != nil {
 			continue
 		}
 		reason, seen := missing[s.Harness]

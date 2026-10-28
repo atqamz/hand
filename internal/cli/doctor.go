@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,7 +64,9 @@ func cmdDoctor(r *runner, args []string) error {
 		}
 		installed++
 		c.add("harness "+name, "ok", "")
-		c.add("models "+name, "info", r.modelSummary(name))
+		if slices.Contains(harness.Listable, name) {
+			c.add("models "+name, "info", r.modelSummary(name))
+		}
 	}
 	if runtime.GOOS == "linux" {
 		if _, ok := luvus.UserManager(r.env.Environ()); ok {

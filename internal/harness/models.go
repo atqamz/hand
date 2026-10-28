@@ -66,6 +66,11 @@ var listers = map[string]lister{
 	"agy":      agyLister,
 }
 
+var Listable = slices.DeleteFunc(slices.Clone(state.Harnesses), func(name string) bool {
+	_, ok := listers[name]
+	return !ok
+})
+
 const (
 	cacheFormat = 1
 	failRetry   = 15 * time.Minute
@@ -233,7 +238,7 @@ func (st Status) Vanished(s Spec) (string, bool) {
 
 func Detected(name string, env Env) ([]Model, error) {
 	if _, ok := listers[name]; !ok {
-		return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
+		return nil, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(Listable, ", "))
 	}
 	l, err := catalog(name, env)
 	if err != nil {
@@ -258,7 +263,7 @@ type Options struct {
 func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, error) {
 	l, ok := listers[name]
 	if !ok {
-		return Listing{}, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(state.Harnesses, ", "))
+		return Listing{}, fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, name, strings.Join(Listable, ", "))
 	}
 	dir := cacheDir(env)
 	if dir == "" {

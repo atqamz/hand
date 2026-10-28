@@ -183,6 +183,11 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"agy empty model", Spec{"agy", "", ""}, agyListed, refuse, "agy model"},
 		{"agy model with a space", Spec{"agy", "gemini 3", ""}, agyListed, refuse, "agy model"},
 
+		{"copilot auto", Spec{"copilot", "auto", ""}, Env{}, ok, ""},
+		{"copilot with an effort", Spec{"copilot", "auto", "high"}, Env{}, ok, ""},
+		{"copilot bad effort", Spec{"copilot", "auto", "High"}, Env{}, refuse, "copilot effort"},
+		{"copilot empty model", Spec{"copilot", "", ""}, Env{}, refuse, "copilot model"},
+
 		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
 		{"opencode model", Spec{"opencode", "opencode/big-pickle", ""}, Env{}, refuse, "its own configuration"},
 		{"opencode effort", Spec{"opencode", "", "high"}, Env{}, refuse, "its own configuration"},
@@ -249,6 +254,38 @@ func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
 	}
 	if !Prefills("opencode") || Prefills("claude") || Prefills("codex") {
 		t.Fatal("only opencode pre-fills its prompt")
+	}
+}
+
+func TestCopilotArgvIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		effort string
+		pre    []string
+	}{
+		{"", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
+		{"high", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--reasoning-effort", "high", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
+	} {
+		got, err := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		n := len(tc.pre)
+		if err != nil || len(got) != n+3 || !slices.Equal(got[:n], tc.pre) || !uuidPattern.MatchString(got[n]) || !slices.Equal(got[n+1:], []string{"-i", "brief"}) {
+			t.Fatalf("effort %q: argv = %q, %v", tc.effort, got, err)
+		}
+		again, _ := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		if again[n] == got[n] {
+			t.Fatalf("two launches share the session id %s", got[n])
+		}
+	}
+}
+
+func TestCopilotStartsWorkersOnly(t *testing.T) {
+	spec := Spec{Harness: "copilot", Model: "auto"}
+	for _, resume := range []bool{false, true} {
+		if _, err := SupervisorArgv("/bin/copilot", spec, "", "You are supervisor s1", "", resume); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "copilot starts workers only") {
+			t.Fatalf("resume %v: err = %v", resume, err)
+		}
+	}
+	if err := CheckSupervisor(Spec{Harness: "agy"}); err != nil {
+		t.Fatalf("agy: %v", err)
 	}
 }
 

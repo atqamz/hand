@@ -91,6 +91,9 @@ func TestLookPathExtResolvesTheExeNpmInstallsBesideAShim(t *testing.T) {
 		{name: "claude", shim: "claude.cmd", exe: "node_modules/@anthropic-ai/claude-code-win32-x64/claude.exe"},
 		{name: "claude", shim: "claude.cmd", exe: "node_modules/@anthropic-ai/claude-code/bin/claude.exe", stub: true},
 		{name: "opencode", shim: "opencode.cmd", exe: "node_modules/opencode-ai/bin/opencode.exe", want: true},
+		{name: "copilot", shim: "copilot.cmd", exe: "node_modules/@github/copilot/node_modules/@github/copilot-win32-x64/copilot.exe", want: true},
+		{name: "copilot", shim: "copilot.cmd", exe: "node_modules/@github/copilot/node_modules/@github/copilot-linux-x64/copilot"},
+		{name: "copilot", shim: "copilot.cmd", exe: "node_modules/@github/copilot-win32-x64/copilot.exe"},
 		{name: "agy", shim: "agy.cmd", exe: "node_modules/@openai/codex/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe"},
 		{name: "claude", shim: "claude.cmd", exe: "node_modules/opencode-ai/bin/opencode.exe"},
 	} {

@@ -39,6 +39,9 @@ func SupervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 }
 
 func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
+	if err := CheckSupervisor(s); err != nil {
+		return nil, err
+	}
 	if resume {
 		if prompt != "" {
 			return nil, fmt.Errorf("%w: a resumed supervisor takes no launch prompt", state.ErrInvalid)

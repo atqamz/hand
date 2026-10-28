@@ -472,6 +472,7 @@ func fakeBin(t *testing.T) string {
 		fakebin.Install(t, dir, name, "fake", map[string]string{"on --version": "fake 1.0\n", listing: "", "sleep": "300s"})
 	}
 	fakebin.Install(t, dir, "agy", "fake", map[string]string{"on --version": "fake 1.0\n", "on models": "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", "sleep": "300s"})
+	fakebin.Install(t, dir, "copilot", "fake", map[string]string{"on --version": "fake 1.0\n", "sleep": "300s"})
 	return dir
 }
 
