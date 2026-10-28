@@ -96,13 +96,28 @@ func TestTrackRecordCountsEndedAttemptsPerSpec(t *testing.T) {
 	t3 := task("three")
 	start(t3, "opus")
 
+	t4 := task("four")
+	step(200)
+	a4 := start(t4, "haiku")
+	report(a4, ReportDone)
+	end(a4)
+
+	t5 := task("five")
+	step(210)
+	a5 := start(t5, "haiku")
+	end(a5)
+	if _, err := s.Transition(ctx, t5, StatusAbandoned); err != nil {
+		t.Fatal(err)
+	}
+
 	got, err := s.TrackRecord(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Track{
+		{Harness: "claude", Model: "haiku", Effort: "low", N: 2, Median: 0, Timed: true},
 		{Harness: "claude", Model: "opus", Effort: "low", N: 1, FirstTry: 1, Sent: 1, Median: 30, Timed: true},
-		{Harness: "claude", Model: "sonnet", Effort: "low", N: 2, FirstTry: 1, Reattempt: 1, Stuck: 1, Sent: 2, Wakes: 2, Median: 10, Timed: true},
+		{Harness: "claude", Model: "sonnet", Effort: "low", N: 2, Reattempt: 1, Stuck: 1, Sent: 2, Wakes: 2, Median: 10, Timed: true},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("track = %+v", got)

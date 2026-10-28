@@ -52,3 +52,13 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand update [--channel edge\|stable] [--check] [--keep-luvus] [--auto]` | Update the binary from its channel, back up and refresh every fleet, restart each fleet's watcher and the board, and pin the tested Luvus. |
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 | `hand doctor` | Check this machine and the fleet without repairing anything, one `check,state,fix` row each, with an `info` row `models NAME` per harness (how many models it lists and from where, the cache's age, or why there is no list); exits 1 when a check fails. With no harness installed, an untouched starter `routing.json` and no running supervisor, the `profile NAME` rows are `warn`, not `fail`. |
+
+`hand route list` also prints a `track` table: one row per harness, model and effort, counting the attempts that have ended. Every column except `n` and `median_min` is a share of `n`.
+
+- `n`: ended attempts.
+- `first_try`: attempts that were the first on their task, with that task `done` and no later attempt. A task finished by its second attempt counts for neither attempt.
+- `reattempt`: attempts followed by a later attempt on the same task.
+- `stuck`: attempts with a `stuck` report.
+- `sent_per`: `attempt.sent` events per attempt.
+- `wakes_per`: `attempt.quiet` and `attempt.blocked` events per attempt.
+- `median_min`: the median of minutes from the attempt's creation to its first `done` report, over the attempts that have one. It includes waiting on builds, CI and locks. Empty when no attempt has a `done` report.
