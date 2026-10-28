@@ -56,11 +56,13 @@ func Check(s Spec, env Env) (string, error) {
 	if !modelToken.MatchString(s.Model) {
 		return "", fmt.Errorf("%w: %s model %q must be 1 to 200 characters of letters, digits and . _ : / @ [ ] # + -, starting with a letter or digit", state.ErrInvalid, s.Harness, s.Model)
 	}
-	if s.Harness == "agy" {
+	switch {
+	case s.Harness == "agy":
 		if s.Effort != "" {
 			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
 		}
-	} else if !effortToken.MatchString(s.Effort) && (s.Effort != "" || s.Harness != "copilot") {
+	case s.Harness == "copilot" && s.Effort == "":
+	case !effortToken.MatchString(s.Effort):
 		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
 	}
 	switch s.Harness {
