@@ -419,6 +419,7 @@ func TestAWorkerBlockedWithoutASupervisorJoinsNeeds(t *testing.T) {
 
 func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
 	fx := newFixture(t)
+	fx.status = "idle"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	ctx := context.Background()
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
@@ -444,6 +445,24 @@ func TestAQuietWorkerJoinsNeedsOnlyAfterTheGrace(t *testing.T) {
 	_, refs, _ := waits(get(t, fx.handler(), "/"))
 	if slices.Contains(refs, "a2") {
 		t.Fatalf("a quiet turn that reported joined Needs: %q", refs)
+	}
+}
+
+func TestAnAPIErrorQuietWorkerLeavesNeedsOnceItsPaneWorks(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	if _, _, err := fx.st.RecordQuiet(context.Background(), a.ID, "API Error: 400 thinking block"); err != nil {
+		t.Fatal(err)
+	}
+	fx.options.Now = func() time.Time { return time.Date(2026, 9, 26, 0, 11, 0, 0, time.UTC) }
+	fx.panes = map[string]string{"3": "idle"}
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); !slices.Contains(kinds, "quiet") {
+		t.Fatalf("an idle API-error worker stayed out of Needs: %q", kinds)
+	}
+	fx.panes = map[string]string{"3": "working"}
+	if kinds, _, _ := waits(get(t, fx.handler(), "/")); slices.Contains(kinds, "quiet") {
+		t.Fatalf("a working worker still sits in Needs as quiet: %q", kinds)
 	}
 }
 
@@ -592,6 +611,7 @@ func TestTheEventLoopLeavesWorkerScreensUnread(t *testing.T) {
 
 func TestARepeatedQuietTurnKeepsTheWorkerQuiet(t *testing.T) {
 	fx := newFixture(t)
+	fx.status = "idle"
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	for range 2 {
 		if _, _, err := fx.st.RecordQuiet(context.Background(), a.ID, ""); err != nil {

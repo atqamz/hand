@@ -334,6 +334,7 @@ func TestEventsFollowAnEditedTranscript(t *testing.T) {
 
 func TestEventsPushWhenAQuietWorkerOutlastsTheGrace(t *testing.T) {
 	fx := newFixture(t)
+	fx.status = "idle"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	a := workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
 	if _, _, err := fx.st.RecordQuiet(context.Background(), a.ID, ""); err != nil {

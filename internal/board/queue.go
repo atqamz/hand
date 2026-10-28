@@ -357,14 +357,14 @@ func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]st
 	}
 	for _, a := range live {
 		kind := out[a.ID].Kind
-		if kind != "attempt.blocked" && kind != "attempt.limited" && kind != "attempt.long" {
+		if kind != "attempt.blocked" && kind != "attempt.limited" && kind != "attempt.long" && kind != "attempt.quiet" && kind != "attempt.idle" {
 			continue
 		}
 		ag, err := b.o.Luvus.Explain(ctx, a.PaneID)
 		if err != nil {
 			continue
 		}
-		if (kind == "attempt.blocked" && ag.Status != "blocked" && ag.Status != "idle") || (kind == "attempt.limited" && ag.Status == "working") || (kind == "attempt.long" && ag.Status != "working") {
+		if (kind == "attempt.blocked" && ag.Status != "blocked" && ag.Status != "idle") || (kind == "attempt.limited" && ag.Status == "working") || (kind == "attempt.long" && ag.Status != "working") || ((kind == "attempt.quiet" || kind == "attempt.idle") && ag.Status == "working") {
 			delete(out, a.ID)
 		}
 	}
