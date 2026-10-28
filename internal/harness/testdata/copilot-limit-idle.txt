@@ -1,0 +1,8 @@
+ [Current]  Sessions   Issues   Pull requests   Gists
+   I’ve continued the sequence to 12000 and nothing else remains to do.                                                ┃
+ ● Session limit reached. Increase or unset the session limit to continue.                                             ┃
+ ~/project                                           Plan: 41/200 (20% used) · Session: 30.55 AIC used
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ← open sidebar · Interactive · Manual Approval · / commands · ? help · tab next tab          Auto → mai-code-1.1-flash

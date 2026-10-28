@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -45,6 +47,55 @@ func TestLimitJoinsAgyWrappedQuotaLineAndAddsTheResetTime(t *testing.T) {
 		}
 		if want := before.Add(118*time.Hour + 19*time.Minute + 26*time.Second); at.Before(want.Add(-time.Second)) || at.After(want.Add(time.Minute)) {
 			t.Fatalf("reset time %s, want about %s", at, want.UTC())
+		}
+	}
+}
+
+func copilotScreen(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestLimitMatchesACopilotSessionLimitOnItsCapturedAndWrappedScreens(t *testing.T) {
+	const want = "Session limit reached. Increase or unset the session limit to continue."
+	for name, screen := range map[string]string{
+		"captured":  copilotScreen(t, "copilot-limit-idle.txt"),
+		"dialog":    copilotScreen(t, "copilot-limit-dialog.txt"),
+		"width 56":  "● Done\n● Session limit reached. Increase or unset the\n   session limit to continue.\n❯\n",
+		"width 44":  "● Session limit reached. Increase or\n   unset the session limit to\n   continue.\n❯\n",
+		"no bullet": "Session limit reached. Increase or unset the session limit to continue.\n❯\n",
+	} {
+		if got, ok := Limit("copilot", screen); !ok || got != want {
+			t.Errorf("%s: Limit(copilot) = %q, %v; want %q", name, got, ok, want)
+		}
+	}
+}
+
+func TestLimitIgnoresCopilotWarningsTheBareDialogAndQuotedLines(t *testing.T) {
+	dialog := copilotScreen(t, "copilot-limit-dialog.txt")
+	for name, screen := range map[string]string{
+		"50%":         "● Session limits: 16.31/30 AI credits used.\n❯\n",
+		"final call":  "● Session limits: 27.23/30 AI credits used. If this session continues, the next model call is final; tools will be disabled.\n❯\n",
+		"bare dialog": dialog[strings.Index(dialog, "╭"):],
+		"quoted":      "● The banner reads \"Session limit reached. Increase or unset the session limit to continue.\"\n❯\n",
+		"mid line":    "● Hit it: Session limit reached. Increase or unset the session limit to continue.\n❯\n",
+		"prompt echo": "❯ Session limit reached. Increase or unset the session limit to continue.\n❯\n",
+		"quote":       "\"Session limit reached. Increase or unset the session limit to continue.\"\n❯\n",
+		"boxed":       "│ Session limit reached. Increase or unset the session limit to continue. │\n❯\n",
+		"claude":      "  ⎿  You've hit your session limit · resets 6:10am (Asia/Jakarta)\n❯\n",
+	} {
+		if got, ok := Limit("copilot", screen); ok {
+			t.Errorf("%s: Limit(copilot) = %q, want no match", name, got)
+		}
+	}
+	line := "● Session limit reached. Increase or unset the session limit to continue.\n❯\n"
+	for _, name := range []string{"claude", "codex", "agy", "opencode"} {
+		if got, ok := Limit(name, line); ok {
+			t.Errorf("Limit(%s) = %q, want no match", name, got)
 		}
 	}
 }

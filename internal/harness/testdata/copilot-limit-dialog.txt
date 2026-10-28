@@ -1,0 +1,17 @@
+ [Current]  Sessions   Issues   Pull requests   Gists
+   I’ve continued the sequence to 12000 and nothing else remains to do.                                                ┃
+ ● Session limit reached. Increase or unset the session limit to continue.                                             ┃
+ ❯ Reply with the single word ok                                                                                 21:21 ┃
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Session limit reached                                                                                                │
+│ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│ This session has used 30.6 of 30 AI credits. Increase or remove the session limit to continue.                       │
+│                                                                                                                      │
+│ ❯ 1. Raise to Additional headroom (193 AI credits)                                                                   │
+│   2. Add AI credits                                                                                                  │
+│   3. Set new AI credit limit                                                                                         │
+│   4. Remove session limit                                                                                            │
+│   5. Cancel (Esc)                                                                                                    │
+│                                                                                                                      │
+│ ↑/↓ to navigate · enter to select · esc to cancel                                                                    │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

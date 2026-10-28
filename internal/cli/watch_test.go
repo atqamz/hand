@@ -769,6 +769,25 @@ func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
 	}
 }
 
+func TestWatchRecordsACopilotSessionLimitOnceAndAQuietTurnWhenItIsSentAgain(t *testing.T) {
+	fx := agyFixture(t)
+	fx.startCopilot()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "● Session limit reached. Increase or unset the session limit to continue.\n\n❯\n"
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "copilot"})
+	eventually(t, func() bool { return woken(fx, "attempt.limited") })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "copilot"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "copilot"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if n := strings.Count(got, ",attempt.limited,"); n != 1 || !strings.Contains(got, "a1: Session limit reached. Increase or unset the session limit to continue.") {
+		t.Fatalf("wait = %q", got)
+	}
+}
+
 func TestWatchRecordsNoTurnWhileItCannotReadTheScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()

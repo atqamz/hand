@@ -8,9 +8,10 @@ import (
 
 var (
 	limitLines = map[string]*regexp.Regexp{
-		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your [^\n]*limit[^\n]*)`),
-		"codex":  regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your usage limit[^\n]*)`),
-		"agy":    regexp.MustCompile(`(?m)^[^\w\n]*(Individual quota reached\.(?:[^\n]*\n){0,2}?[^\n]*?Resets\s+in\s+(\w+)\.)`),
+		"claude":  regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your [^\n]*limit[^\n]*)`),
+		"codex":   regexp.MustCompile(`(?m)^[^\w\n]*(You've hit your usage limit[^\n]*)`),
+		"agy":     regexp.MustCompile(`(?m)^[^\w\n]*(Individual quota reached\.(?:[^\n]*\n){0,2}?[^\n]*?Resets\s+in\s+(\w+)\.)`),
+		"copilot": regexp.MustCompile(`(?m)^[ \t]*(?:●[ \t]*)?(Session\s+limit\s+reached\.\s+Increase\s+or\s+unset\s+the\s+session\s+limit\s+to\s+continue\.)`),
 	}
 	apiErrorLines = map[string]*regexp.Regexp{
 		"claude": regexp.MustCompile(`(?m)^[^\w\n]*(API Error:[^\n]*)`),
