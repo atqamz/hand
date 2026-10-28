@@ -9,7 +9,10 @@ import (
 	"strings"
 )
 
-const copilotKeep = 200
+const (
+	copilotKeep = 200
+	copilotText = 4000
+)
 
 func (r *Reader) copilot(s *session, id string) error {
 	if r.Paths.Copilot == "" {
@@ -43,7 +46,7 @@ func (s *session) copilotLine(line []byte) {
 	case "session.start":
 		s.status.Selected = d.SelectedModel
 	case "user.message":
-		if d.TurnID != "0" {
+		if d.TurnID != "" && d.TurnID != "0" {
 			s.user(d.Content, rec.Timestamp)
 		}
 	case "assistant.message":
@@ -51,6 +54,9 @@ func (s *session) copilotLine(line []byte) {
 			s.status.Used = d.Model
 		}
 		if t := strings.TrimSpace(d.Content); t != "" {
+			if len(t) > copilotText {
+				t = strings.ToValidUTF8(t[:copilotText], "") + "…"
+			}
 			s.add(Entry{Role: "worker", Text: t, At: rec.Timestamp})
 		}
 	case "tool.execution_start":

@@ -77,6 +77,7 @@ func TestCopilotSkipsWhatItDoesNotKnow(t *testing.T) {
 		`{"data":{"content":"typeless"}}`,
 		`{"type":"assistant.message","data":{"content":"  ","model":"m"}}`,
 		`{"type":"user.message","data":{"content":"brief","turnId":"0"}}`,
+		`{"type":"user.message","data":{"content":"no turn"}}`,
 		`{"type":"user.message","data":{"content":"keep going","turnId":"3"},"timestamp":"t3"}`,
 		`{"type":"assistant.message","data":{"content":"half`,
 	}, "\n")
@@ -105,6 +106,15 @@ func TestCopilotSkipsWhatItDoesNotKnow(t *testing.T) {
 	_ = f.Close()
 	if got, err = r.Read(ctx, "copilot", sessionUUID, "/f"); err != nil || len(got) != 4 || got[3].Text != "half end" {
 		t.Fatalf("after the line ended = %+v, %v", got, err)
+	}
+}
+
+func TestCopilotClipsALongMessage(t *testing.T) {
+	long := strings.Repeat("é", copilotText)
+	home, _ := copilotHome(t, `{"type":"assistant.message","data":{"content":"`+long+`"}}`+"\n")
+	got, err := (&Reader{Paths: Paths{Copilot: home}}).Read(context.Background(), "copilot", sessionUUID, "/f")
+	if err != nil || len(got) != 1 || len(got[0].Text) > copilotText+len("…") || !strings.HasSuffix(got[0].Text, "é…") {
+		t.Fatalf("%d entries, err %v", len(got), err)
 	}
 }
 

@@ -293,3 +293,27 @@ func TestTheAttemptPageWaitsForACopilotSessionAndLeavesOtherHarnessesAlone(t *te
 	lacks(t, "claude attempt", get(t, h, "/attempt/a2"), "Transcript")
 	lacks(t, "no reader", get(t, board.New(st, token, board.Options{}), "/attempt/a1"), "Transcript")
 }
+
+func TestTheAttemptPageDoesNotWarnWithoutAStartRecordAndSaysWhenItIsCut(t *testing.T) {
+	st := open(t)
+	copilotAttempt(t, st, "gpt-5")
+	lines := []string{`{"type":"assistant.message","data":{"model":"gpt-5.6-luna","content":"first"}}`}
+	for range 50 {
+		lines = append(lines, `{"type":"assistant.message","data":{"content":"later"}}`)
+	}
+	paths := copilotEvents(t, lines...)
+	body := get(t, board.New(st, token, board.Options{Transcript: &transcript.Reader{Paths: paths}}), "/attempt/a1")
+	contains(t, "attempt page", body, `<p class="more">Only the latest 50 entries are shown.</p>`, "<dt>Answered by</dt><dd>gpt-5.6-luna</dd>")
+	lacks(t, "attempt page", body, `class="warn"`, ">first<")
+}
+
+func TestTheAttemptPageSaysWhenACopilotLaunchLineHasNoSessionID(t *testing.T) {
+	st := open(t)
+	a, err := st.AddAttempt(context.Background(), state.AttemptSpec{TaskID: active(t, st, "Old").ID, Harness: "copilot", Model: "auto", Argv: []string{"/bin/copilot", "go"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := get(t, board.New(st, token, board.Options{Transcript: &transcript.Reader{Paths: copilotEvents(t, "{}")}}), "/attempt/"+state.AttemptRef(a.ID))
+	contains(t, "attempt page", body, "<h3>Transcript</h3>", "has no session id")
+	lacks(t, "attempt page", body, "Nothing in the transcript yet")
+}
