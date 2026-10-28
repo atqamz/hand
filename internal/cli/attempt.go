@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -187,7 +188,7 @@ const (
 	submitTries = 3
 )
 
-var trustWait, trustConfirm, trustGrace, submitConfirm = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second
+var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
@@ -239,9 +240,88 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 				return nil, nil, err
 			}
 			help = append(help, "Read the screen: `"+l.screen+"`")
+		} else if problem := scanLaunch(ctx, c, l.harness, l.pane); problem != "" {
+			if err := note("blocked", problem); err != nil {
+				return nil, nil, err
+			}
+			help = append(help, "Read the screen: `"+l.screen+"`")
 		}
 	}
 	return fields, help, nil
+}
+
+type launchProblem struct {
+	seen *regexp.Regexp
+	note func(match []string) string
+}
+
+type launchScreen struct {
+	banner   string
+	problems []launchProblem
+}
+
+var launchScreens = map[string]launchScreen{
+	"copilot": {banner: "uses AI.", problems: []launchProblem{{
+		seen: regexp.MustCompile(`Model"([^"]+)"from--modelflagisnotavailable`),
+		note: func(m []string) string {
+			return `copilot does not have model "` + m[1] + `" and runs on auto instead; check the screen`
+		},
+	}, {
+		seen: regexp.MustCompile(`Pleaseuse/logintosigninto`),
+		note: func([]string) string {
+			return "copilot is not signed in and ignored the brief; run `copilot login`, then start the attempt again"
+		},
+	}}},
+}
+
+func scanLaunch(ctx context.Context, c luvus.Client, harness, pane string) string {
+	launch, ok := launchScreens[harness]
+	if !ok {
+		return ""
+	}
+	wait, cancel := context.WithTimeout(ctx, screenWait)
+	defer cancel()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for banner := false; ; {
+		s, err := c.Read(wait, pane, 60)
+		if luvus.Code(err) != "" {
+			return ""
+		}
+		if err == nil {
+			head, shown, echoed := launchHead(s.Text, launch.banner)
+			squeezed := strings.Join(strings.Fields(head), "")
+			for _, p := range launch.problems {
+				if m := p.seen.FindStringSubmatch(squeezed); m != nil {
+					return p.note(m)
+				}
+			}
+			if (banner && !shown) || echoed {
+				return ""
+			}
+			banner = banner || shown
+		}
+		select {
+		case <-wait.Done():
+			return ""
+		case <-tick.C:
+		}
+	}
+}
+
+func launchHead(screen, banner string) (head string, shown, echoed bool) {
+	lines := strings.Split(screen, "\n")
+	start := slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, banner) })
+	if start < 0 {
+		return "", false, false
+	}
+	prompt := func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "❯") }
+	rest := lines[start+1:]
+	first := slices.IndexFunc(rest, prompt)
+	if first < 0 {
+		return strings.Join(rest, "\n"), true, false
+	}
+	return strings.Join(rest[:first], "\n"), true, slices.ContainsFunc(rest[first+1:], prompt)
 }
 
 func repoRoots(repo string) []string {

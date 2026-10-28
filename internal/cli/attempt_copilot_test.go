@@ -156,3 +156,93 @@ func TestCopilotAttemptsAreStoredAsWorkers(t *testing.T) {
 		t.Fatalf("attempt = %+v, %v", a, err)
 	}
 }
+
+func wrapAt(text string, width int) string {
+	var b strings.Builder
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) > width:
+			b.WriteString(line + "\n")
+			line = "   " + word
+		default:
+			line += " " + word
+		}
+	}
+	return b.String() + line + "\n"
+}
+
+func copilotLaunchScreen(problem string, width int, echoed bool, later string) string {
+	screen := " ╭─╮╭─╮\n ╰─╯╰─╯  Copilot v1.0.105 uses AI.\n ● Tip: /init\n   └ Initialize Copilot instructions for this repository\n"
+	if problem != "" {
+		screen += wrapAt(problem, width)
+	}
+	if echoed {
+		screen += "❯ Reply with the single word ok\n"
+	}
+	return screen + later + strings.Repeat("─", width) + "\n❯\n"
+}
+
+func startCopilotLaunch(t *testing.T, launch string) (*attemptFixture, string) {
+	t.Helper()
+	fx := agyFixture(t)
+	trust := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, 1)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.revision, rt.afterScreen = trust, 4, launch })
+	return fx, fx.startCopilot()
+}
+
+func TestCopilotLaunchThatFellBackToAutoIsNotedBlockedAtEveryWidth(t *testing.T) {
+	problem := `✗ Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`
+	for _, width := range []int{120, 80, 56} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			fx, out := startCopilotLaunch(t, copilotLaunchScreen(problem, width, true, ""))
+			if !strings.Contains(out, "trust: accepted") || !strings.Contains(out, "hand attempt read a1") {
+				t.Fatalf("start = %q", out)
+			}
+			if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, `,attempt.blocked,t1,"a1: copilot does not have model \"gpt-nosuch\" and runs on auto instead; check the screen"`) {
+				t.Fatalf("wait = %q", woke)
+			}
+			if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "running") {
+				t.Fatalf("show = %q: the attempt must keep running", show)
+			}
+		})
+	}
+}
+
+func TestCopilotLaunchThatIsSignedOutIsNotedBlockedAtEveryWidth(t *testing.T) {
+	for _, width := range []int{120, 80, 56} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			fx, out := startCopilotLaunch(t, copilotLaunchScreen("Please use /login to sign in to use Copilot", width, false, ""))
+			if !strings.Contains(out, "hand attempt read a1") {
+				t.Fatalf("start = %q", out)
+			}
+			if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); !strings.Contains(woke, "a1: copilot is not signed in and ignored the brief; run `copilot login`, then start the attempt again") {
+				t.Fatalf("wait = %q", woke)
+			}
+		})
+	}
+}
+
+func TestCopilotLaunchWordsPrintedLaterByTheWorkerAreNotAProblem(t *testing.T) {
+	later := wrapAt(`Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`, 80) + "Please use /login to sign in to use Copilot\n"
+	fx, out := startCopilotLaunch(t, copilotLaunchScreen("", 80, true, later))
+	if strings.Contains(out, "hand attempt read a1") {
+		t.Fatalf("start = %q", out)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+}
+
+func TestCopilotLaunchWordsAfterTheBannerScrolledAwayAreNotAProblem(t *testing.T) {
+	screen := wrapAt(`Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`, 80) + "❯\n"
+	fx, out := startCopilotLaunch(t, screen)
+	if strings.Contains(out, "hand attempt read a1") {
+		t.Fatalf("start = %q", out)
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+}

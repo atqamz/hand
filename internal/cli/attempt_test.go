@@ -465,9 +465,9 @@ func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
 
 func agyFixture(t *testing.T) *attemptFixture {
 	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
+	wait, confirm, screen := *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait
+	*cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = 2*time.Second, time.Second, 300*time.Millisecond
+	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = wait, confirm, screen })
 	return newAttemptFixture(t)
 }
 

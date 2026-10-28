@@ -6,6 +6,7 @@ var (
 	TrustWait        = &trustWait
 	TrustConfirm     = &trustConfirm
 	TrustGrace       = &trustGrace
+	ScreenWait       = &screenWait
 	SubmitCheck      = &submitCheck
 	SendToSupervisor = sendToSupervisor
 	SubmitConfirm    = &submitConfirm
