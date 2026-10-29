@@ -68,6 +68,10 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	agyListed := seeded(t, Listing{Harness: "agy", Models: []Model{{Name: "gemini-3.8-flash-low", Source: SourceDiscovered}, {Name: "gemini-3.1-pro-high", Source: SourceDiscovered}}, Gone: []string{"gemini-2"}})
 	agyFailed := seeded(t, Listing{Harness: "agy", Failed: &Failure{Reason: "agy is not signed in; run agy and sign in"}})
 	agyNone := seeded(t)
+	ocListed := seeded(t, Listing{Harness: "opencode", Models: []Model{
+		{Name: "local/m2", Source: SourceDiscovered},
+		{Name: "openrouter/meta/llama-3.1:free@v2 beta", Source: SourceDiscovered},
+	}})
 	copilotListed := seeded(t, Listing{Harness: "copilot", Models: []Model{
 		{Name: "auto", Source: SourceDiscovered},
 		{Name: "gpt-6-luna", Efforts: copilotEfforts, Source: SourceDiscovered, Unverified: true},
@@ -174,8 +178,18 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"copilot empty model", Spec{"copilot", "", ""}, Env{}, refuse, "copilot model"},
 
 		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
-		{"opencode model", Spec{"opencode", "opencode/big-pickle", ""}, Env{}, refuse, "its own configuration"},
-		{"opencode effort", Spec{"opencode", "", "high"}, Env{}, refuse, "its own configuration"},
+		{"opencode model with a variant", Spec{"opencode", "local/m2", "deep"}, ocListed, ok, ""},
+		{"opencode model without a variant", Spec{"opencode", "local/m2", ""}, ocListed, ok, ""},
+		{"opencode id with slashes, colon, at and space", Spec{"opencode", "openrouter/meta/llama-3.1:free@v2 beta", "thinking"}, ocListed, ok, ""},
+		{"opencode unlisted", Spec{"opencode", "local/m9", "deep"}, ocListed, warn, "opencode model local/m9 is not in `opencode models`"},
+		{"opencode no list yet", Spec{"opencode", "local/m2", ""}, agyNone, warn, "opencode model local/m2 could not be checked: no model list yet"},
+		{"opencode hash in the model", Spec{"opencode", "local/m2#deep", ""}, ocListed, refuse, "opencode model"},
+		{"opencode no provider", Spec{"opencode", "m2", ""}, ocListed, refuse, "provider/id"},
+		{"opencode empty id", Spec{"opencode", "local/", ""}, ocListed, refuse, "provider/id"},
+		{"opencode empty provider", Spec{"opencode", "/m2", ""}, ocListed, refuse, "provider/id"},
+		{"opencode newline in the id", Spec{"opencode", "local/m\n2", ""}, ocListed, refuse, "provider/id"},
+		{"opencode variant with a space", Spec{"opencode", "local/m2", "very deep"}, ocListed, refuse, "opencode variant"},
+		{"opencode variant without a model", Spec{"opencode", "", "high"}, ocListed, refuse, "variant of a model"},
 	}
 	for _, row := range rows {
 		got, err := Check(row.spec, row.env)

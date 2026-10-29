@@ -243,13 +243,6 @@ func Detected(name string, env Env) ([]Model, error) {
 	return slices.DeleteFunc(slices.Clone(l.Models), func(m Model) bool { return m.Hidden }), nil
 }
 
-func Models(name string, env Env) ([]Model, error) {
-	if name == "opencode" {
-		return nil, nil
-	}
-	return Detected(name, env)
-}
-
 type Options struct {
 	Environ []string
 	Dir     string

@@ -345,9 +345,9 @@ func TestWatcherForgetsTheTranscriptsOfEndedSessions(t *testing.T) {
 	}
 }
 
-func TestLastSpecDropsTheModelOpencodeReported(t *testing.T) {
+func TestLastSpecKeepsTheModelOpencodeReported(t *testing.T) {
 	got := lastSpec(state.Supervisor{Harness: "opencode", Model: "anthropic/claude-sonnet-5-5", Effort: "high"})
-	if got.Model != "" || got.Effort != "" {
+	if got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "high" {
 		t.Fatalf("spec = %+v", got)
 	}
 	if got := lastSpec(state.Supervisor{Harness: "claude", Model: "sonnet", Effort: "high"}); got.Model != "sonnet" || got.Effort != "high" {

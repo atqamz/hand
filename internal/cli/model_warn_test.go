@@ -55,7 +55,9 @@ func TestSupervisorStartRefusesWhatIsMalformed(t *testing.T) {
 		{[]string{"--harness", "claude", "--model", "opus"}, "claude effort"},
 		{[]string{"--harness", "codex", "--model", "gpt-6-luna", "--effort", "--max"}, "codex effort"},
 		{[]string{"--harness", "agy", "--model", "gemini-3.8-flash-low", "--effort", "high"}, "agy names the effort"},
-		{[]string{"--harness", "opencode", "--model", "acme/acme-coder-1"}, "its own configuration"},
+		{[]string{"--harness", "opencode", "--model", "acme/acme-coder-1#deep"}, "provider/id"},
+		{[]string{"--harness", "opencode", "--model", "acme-coder-1"}, "provider/id"},
+		{[]string{"--harness", "opencode", "--effort", "deep"}, "variant of a model"},
 		{[]string{"--harness", "gemini", "--model", "x", "--effort", "low"}, `harness "gemini"`},
 	} {
 		h, rt := newSupervisorFixture(t)
@@ -105,20 +107,16 @@ func TestAttemptStartWarnsAboutAnUnverifiedModel(t *testing.T) {
 	}
 }
 
-func TestAttemptStartWarnsWithoutACodexCacheAndRefusesOpencodeInputs(t *testing.T) {
+func TestAttemptStartWarnsWithoutACodexCache(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.h.vars["HOME"] = t.TempDir()
 	out := fx.h.ok("attempt", "start", "--harness", "codex", "--model", "acme-coder-1", "--effort", "high", "--prompt-file", fx.brief, "t1")
 	has(t, "start", out, `warn: "codex model acme-coder-1 could not be checked`)
-	_, errOut, code := fx.h.run("attempt", "start", "--harness", "opencode", "--model", "acme/acme-coder-1", "--prompt-file", fx.brief, "t1")
-	if code != 2 || !strings.Contains(errOut, "its own configuration") {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
-	}
 }
 
 func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
 	h, _ := newSupervisorFixture(t)
-	policy := `{"profiles":{"alias":{"harness":"claude","model":"sonnet","effort":"high"},"gateway":{"harness":"claude","model":"acme-opus","effort":"high"},"bedrock":{"harness":"claude","model":"us.anthropic.claude-opus-5-5-v1:0","effort":"high"},"codex-custom":{"harness":"codex","model":"acme-coder-1","effort":"high"},"agy-x":{"harness":"agy","model":"gemini-9"},"cp-auto":{"harness":"copilot","model":"auto"},"cp-listed":{"harness":"copilot","model":"gpt-6-luna","effort":"high"},"cp-unlisted":{"harness":"copilot","model":"acme-coder-1"},"cp-auto-effort":{"harness":"copilot","model":"auto","effort":"high"},"oc-plain":{"harness":"opencode"},"oc-model":{"harness":"opencode","model":"acme/acme-coder-1"},"spaced":{"harness":"claude","model":"my model","effort":"high"}}}`
+	policy := `{"profiles":{"alias":{"harness":"claude","model":"sonnet","effort":"high"},"gateway":{"harness":"claude","model":"acme-opus","effort":"high"},"bedrock":{"harness":"claude","model":"us.anthropic.claude-opus-5-5-v1:0","effort":"high"},"codex-custom":{"harness":"codex","model":"acme-coder-1","effort":"high"},"agy-x":{"harness":"agy","model":"gemini-9"},"cp-auto":{"harness":"copilot","model":"auto"},"cp-listed":{"harness":"copilot","model":"gpt-6-luna","effort":"high"},"cp-unlisted":{"harness":"copilot","model":"acme-coder-1"},"cp-auto-effort":{"harness":"copilot","model":"auto","effort":"high"},"oc-plain":{"harness":"opencode"},"oc-model":{"harness":"opencode","model":"acme/acme-coder-1"},"oc-deep":{"harness":"opencode","model":"local/m2","effort":"deep"},"oc-hash":{"harness":"opencode","model":"local/m2#deep"},"spaced":{"harness":"claude","model":"my model","effort":"high"}}}`
 	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +133,9 @@ func TestRouteListKeepsValidYesAndAddsTheWarning(t *testing.T) {
 		`cp-auto-effort,copilot,auto,high,yes,copilot model auto takes no effort; starting anyway`,
 		"copilot,gpt-6-luna,none minimal low medium high xhigh max",
 		`oc-plain,opencode,"","",yes,""`,
-		`oc-model,opencode,acme/acme-coder-1,"","invalid: opencode picks its model from its own configuration; leave model and effort empty",""`,
+		`oc-model,opencode,acme/acme-coder-1,"",yes,"opencode model acme/acme-coder-1 could not be checked: `,
+		`oc-deep,opencode,local/m2,deep,yes,"opencode model local/m2 could not be checked: `,
+		`oc-hash,opencode,local/m2#deep,"","invalid: opencode model \"local/m2#deep\" must be provider/id`,
 		`spaced,claude,my model,high,"invalid: claude model \"my model\" must be`,
 	)
 }

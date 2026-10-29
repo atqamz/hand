@@ -32,7 +32,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
@@ -60,6 +60,31 @@ func ocexportMain(args []string) int {
 		return 1
 	}
 	fmt.Print(p["export"])
+	return 0
+}
+
+func ocapiMain(args []string) int {
+	p := fakebin.Params()
+	switch {
+	case len(args) == 1 && args[0] == "--version":
+		fmt.Println("opencode 9.9")
+	case len(args) > 0 && args[0] == "models":
+		fmt.Print(p["models"])
+	case len(args) > 4 && args[0] == "api" && args[2] == "session.create":
+		fakebin.Append(p["log"], "create "+args[4])
+		if p["die"] != "" {
+			fmt.Fprintln(os.Stderr, p["die"])
+			return 1
+		}
+		if p["reject"] != "" {
+			fmt.Printf(`{"_tag":"InvalidRequestError","message":%q,"kind":"Payload"}`+"\n", p["reject"])
+			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
+			return 1
+		}
+		fmt.Print(`{"data":{"id":"ses_hand"}}`)
+	default:
+		time.Sleep(5 * time.Minute)
+	}
 	return 0
 }
 

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -305,9 +306,53 @@ func Opencode(ctx context.Context, bin, dir string, args ...string) ([]byte, err
 	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
-			return nil, fmt.Errorf("opencode %s %s: %v: %s", args[0], args[1], err, exit.Stderr)
+			return out, fmt.Errorf("opencode %s %s: %v: %s", args[0], args[1], err, exit.Stderr)
 		}
-		return nil, fmt.Errorf("opencode %s %s: %w", args[0], args[1], err)
+		return out, fmt.Errorf("opencode %s %s: %w", args[0], args[1], err)
 	}
 	return out, nil
+}
+
+type opencodeModel struct {
+	Provider string `json:"providerID"`
+	ID       string `json:"id"`
+	Variant  string `json:"variant,omitempty"`
+}
+
+func OpencodeCreate(ctx context.Context, bin, dir, id string, s Spec) error {
+	provider, model, _ := strings.Cut(s.Model, "/")
+	var body struct {
+		ID       string        `json:"id"`
+		Model    opencodeModel `json:"model"`
+		Location struct {
+			Directory string `json:"directory"`
+		} `json:"location"`
+	}
+	body.ID, body.Model, body.Location.Directory = id, opencodeModel{provider, model, s.Effort}, dir
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	out, err := Opencode(ctx, bin, dir, "api", "--standalone", "session.create", "-d", string(b))
+	if err != nil {
+		var reply struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal(out, &reply) == nil && reply.Message != "" {
+			err = fmt.Errorf("%w: %s", err, reply.Message)
+		}
+		return fmt.Errorf("creating opencode session %s on %s: %s", id, s.Model, strings.Join(strings.Fields(err.Error()), " "))
+	}
+	return nil
+}
+
+func OpencodeCreateFor(ctx context.Context, argv []string, dir string, s Spec) error {
+	if s.Harness != "opencode" || s.Model == "" {
+		return nil
+	}
+	i := slices.Index(argv, "--session")
+	if i < 0 || i+1 >= len(argv) {
+		return fmt.Errorf("%w: the opencode command has no --session id", state.ErrInvalid)
+	}
+	return OpencodeCreate(ctx, argv[0], dir, argv[i+1], s)
 }

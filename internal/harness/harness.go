@@ -38,6 +38,7 @@ const MaxPromptBytes = 16384
 var (
 	claudeModel   = regexp.MustCompile(`^(default|opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)(\[1m\])?$`)
 	modelToken    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]#+-]{0,199}$`)
+	opencodeName  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[^\s#\p{Cc}][^#\p{Cc}]{0,198}$`)
 	effortToken   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
@@ -46,10 +47,7 @@ func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
 	case "claude", "codex", "agy", "copilot":
 	case "opencode":
-		if s.Model != "" || s.Effort != "" {
-			return "", fmt.Errorf("%w: opencode picks its model from its own configuration; leave model and effort empty", state.ErrInvalid)
-		}
-		return "", nil
+		return checkOpencode(s, env)
 	default:
 		return "", fmt.Errorf("%w: harness %q must be one of %s", state.ErrInvalid, s.Harness, strings.Join(state.Harnesses, ", "))
 	}
@@ -94,6 +92,29 @@ func checkClaude(s Spec, env Env) string {
 		warns = append(warns, fmt.Sprintf("claude model %s: effort %s is not one of %s", s.Model, s.Effort, strings.Join(efforts, ", ")))
 	}
 	return unverified(warns)
+}
+
+func checkOpencode(s Spec, env Env) (string, error) {
+	if s.Model == "" {
+		if s.Effort != "" {
+			return "", fmt.Errorf("%w: opencode effort %q is a variant of a model; give the model as provider/id, or leave effort empty", state.ErrInvalid, s.Effort)
+		}
+		return "", nil
+	}
+	if !opencodeName.MatchString(s.Model) {
+		return "", fmt.Errorf("%w: opencode model %q must be provider/id: 1 to 200 characters, no # and no control characters", state.ErrInvalid, s.Model)
+	}
+	if s.Effort != "" && !effortToken.MatchString(s.Effort) {
+		return "", fmt.Errorf("%w: opencode variant %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Effort)
+	}
+	l, err := catalog("opencode", env)
+	if err != nil {
+		return unverified([]string{fmt.Sprintf("opencode model %s could not be checked: %s", s.Model, plainReason(err))}), nil
+	}
+	if _, ok := find(l.Models, s.Model); !ok {
+		return unverified([]string{fmt.Sprintf("opencode model %s is not in `opencode models`", s.Model)}), nil
+	}
+	return "", nil
 }
 
 func checkAgy(s Spec, env Env) string {

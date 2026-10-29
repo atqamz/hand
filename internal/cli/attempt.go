@@ -714,6 +714,9 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if _, err := g.Git(ctx, add...); err != nil {
 		return a, err
 	}
+	if err := harness.OpencodeCreateFor(ctx, a.Argv, a.Worktree, harness.Spec{Harness: a.Harness, Model: a.Model, Effort: a.Effort}); err != nil {
+		return a, discard(ctx, g, a, err)
+	}
 	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
 	if err == nil {
 		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
@@ -726,17 +729,20 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 		err = fmt.Errorf("%w: %w; attempt %s stays launching, and sync fails it %s after it started", errLaunchUnknown, err, state.AttemptRef(a.ID), launchGrace)
 		return a, errors.Join(err, closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID))
 	}
-	err = runtimeErr(err)
+	return a, discard(ctx, g, a, runtimeErr(err))
+}
+
+func discard(ctx context.Context, g gitcfg.Repo, a state.Attempt, err error) error {
 	if _, rmErr := g.Git(ctx, "worktree", "remove", "--force", a.Worktree); rmErr != nil {
-		return a, errors.Join(err, rmErr)
+		return errors.Join(err, rmErr)
 	}
 	if a.Continues != 0 {
-		return a, err
+		return err
 	}
 	if _, brErr := g.Git(ctx, "branch", "-D", a.Branch); brErr != nil {
-		return a, errors.Join(err, brErr)
+		return errors.Join(err, brErr)
 	}
-	return a, err
+	return err
 }
 
 func cmdAttemptList(r *runner, args []string) error {

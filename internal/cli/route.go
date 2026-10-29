@@ -53,7 +53,7 @@ func cmdRouteList(r *runner, args []string) error {
 	}
 	var models [][]string
 	for _, name := range state.Harnesses {
-		list, err := harness.Models(name, env)
+		list, err := harness.Detected(name, env)
 		if err != nil {
 			models = append(models, []string{name, "", "unavailable: " + err.Error()})
 			continue

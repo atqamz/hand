@@ -210,9 +210,6 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 }
 
 func lastSpec(last state.Supervisor) harness.Spec {
-	if last.Harness == "opencode" {
-		return harness.Spec{Harness: last.Harness}
-	}
 	return harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
 }
 
@@ -466,6 +463,11 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 	}
 	if want != "" && ref != want {
 		return fail(fmt.Errorf("%w: the launch prompt names %s but the supervisor was numbered %s", state.ErrConflict, want, ref))
+	}
+	if want != "" {
+		if err := harness.OpencodeCreateFor(ctx, spec.Argv, r.home, harness.Spec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort}); err != nil {
+			return fail(err)
+		}
 	}
 	term, err := c.Create(ctx, r.home, supervisorLabel, spec.Argv)
 	if err != nil {
