@@ -198,7 +198,7 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 	}
 	if last.Session == "" {
 		if auto {
-			return state.Supervisor{}, nil
+			return state.Supervisor{}, fmt.Errorf("%s has no known session; start a new one", state.SupervisorRef(last.ID))
 		}
 		return state.Supervisor{}, fmt.Errorf("%w: supervisor %s has no known session to resume; start a new one: `hand supervisor start`", state.ErrConflict, state.SupervisorRef(last.ID))
 	}

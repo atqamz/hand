@@ -1387,6 +1387,34 @@ func TestWakesAreHeldWhileASwitchIsPending(t *testing.T) {
 	}
 }
 
+func TestAutoresumeSaysWhenTheSupervisorHasNoSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	st := openStore(t, h)
+	if err := st.SetSupervisorSession(context.Background(), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	rt.srv.SetGeneration("gen-2")
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	eventually(t, func() bool {
+		sup, _, err := st.LatestSupervisor(context.Background())
+		return err == nil && sup.Status == "interrupted"
+	})
+	time.Sleep(200 * time.Millisecond)
+	out, _ := stop()
+	if !strings.Contains(out, "autoresume: s1 has no known session; start a new one") {
+		t.Fatalf("watch out = %q", out)
+	}
+	if n := len(rt.srv.Calls("terminal.backend.create")); n != 1 {
+		t.Fatalf("autoresume made %d create calls", n)
+	}
+}
+
 func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
@@ -1453,6 +1481,39 @@ func TestOpencodeSupervisorResumesItsChosenSession(t *testing.T) {
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+session)
 	if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--standalone", "--auto", "--session", session}) {
 		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestOpencodeSupervisorFromAnOlderHandResumesByItsStoredSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	h.ok("supervisor", "stop")
+	const older = "ses_2b1c9f00affeXYZabc123456"
+	if err := openStore(t, h).SetSupervisorSession(context.Background(), 1, older); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+older)
+	if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--standalone", "--auto", "--session", older}) {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestOpencodeSupervisorWithNoStoredSessionIsNotResumed(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	h.ok("supervisor", "stop")
+	if err := openStore(t, h).SetSupervisorSession(context.Background(), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	creates := len(rt.srv.Calls("terminal.backend.create"))
+	_, errOut, code := h.run("supervisor", "resume")
+	if code != 3 || !strings.Contains(errOut, "supervisor s1 has no known session to resume") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if n := len(rt.srv.Calls("terminal.backend.create")); n != creates {
+		t.Fatalf("resume made %d create calls", n-creates)
 	}
 }
 
