@@ -305,13 +305,13 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude running\n") || strings.Contains(out, "supervisor resume") {
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude sonnet low running\n") || strings.Contains(out, "supervisor resume") {
 		t.Fatalf("running = %q", out)
 	}
 	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptInterrupted, "luvus server restarted"); err != nil {
 		t.Fatal(err)
 	}
-	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude interrupted\n") || !strings.Contains(out, "  - Resume the supervisor: `hand supervisor resume`\n") {
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude sonnet low interrupted\n") || !strings.Contains(out, "  - Resume the supervisor: `hand supervisor resume`\n") {
 		t.Fatalf("interrupted = %q", out)
 	}
 	if err := st.SetSupervisorSession(ctx, sup.ID, "S"); err != nil {
@@ -324,8 +324,38 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	if _, err := st.SupervisorRunning(ctx, resumed.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t2", PaneID: "3", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	if out := orient(); !strings.Contains(out, "\nsupervisor: s2 claude running (resumes s1)\n") {
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s2 claude sonnet low running (resumes s1)\n") {
 		t.Fatalf("resumed = %q, want the live ref and the ref the session's launch prompt named", out)
+	}
+}
+
+func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
+	for _, c := range []struct {
+		spec state.SupervisorSpec
+		want string
+	}{
+		{state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "high"}, "supervisor: s1 claude sonnet high running\n"},
+		{state.SupervisorSpec{Harness: "opencode", Model: "anthropic/claude-sonnet-5-5"}, "supervisor: s1 opencode anthropic/claude-sonnet-5-5 running\n"},
+		{state.SupervisorSpec{Harness: "codex", Effort: "low"}, "supervisor: s1 codex low running\n"},
+		{state.SupervisorSpec{Harness: "agy"}, "supervisor: s1 agy running\n"},
+	} {
+		st, home := setup(t)
+		ctx := context.Background()
+		c.spec.Argv = []string{"/bin/x"}
+		sup, err := st.AddSupervisor(ctx, c.spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := Build(ctx, st, home, "", true, true, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out := doc.String(); !strings.Contains(out, "\n"+c.want) {
+			t.Fatalf("%+v: %q", c.spec, out)
+		}
 	}
 }
 

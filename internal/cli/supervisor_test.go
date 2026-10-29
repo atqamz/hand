@@ -109,7 +109,7 @@ func TestSupervisorResumeContinuesTheSession(t *testing.T) {
 	h.ok("supervisor", "stop")
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "status: running", "session: "+session)
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "resumes: s1")
-	if !strings.Contains(h.ok("orient"), "supervisor: s2 claude running (resumes s1)") {
+	if !strings.Contains(h.ok("orient"), "supervisor: s2 claude sonnet low running (resumes s1)") {
 		t.Fatal("orient must name the live supervisor and the ref its session's launch prompt used")
 	}
 	argv := rt.lastCreate().Command

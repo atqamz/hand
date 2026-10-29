@@ -133,7 +133,7 @@ cut -d' ' -f1 $SD/server.pid | xargs -I{} cat /proc/{}/cgroup
 Expected:
 - `hand supervisor start` prints `supervisor: s1`, `status: running`, `trust: accepted` and `prompt: submitted` (`trust: not asked` is also fine if Claude Code did not ask);
 - `hand supervisor show` prints an `agent:` of `idle`, `working` or `done`, never `blocked`;
-- `hand orient` prints `supervisor: s1 claude running` and `watch: running`;
+- `hand orient` prints `supervisor: s1 claude haiku low running` and `watch: running`;
 - `hand luvus show` prints `match: yes`;
 - `watch.log` and `watch.pid` exist, and the watcher's process is `hand`: it runs detached, not as a unit;
 - the server's cgroup is the cgroup of your login, not a `*.scope` of its own: without a user manager Hand starts Luvus directly. Say what the cgroup line shows, whatever it is (on a host without systemd `/proc/<pid>/cgroup` may be empty or `0::/`).

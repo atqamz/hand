@@ -74,7 +74,7 @@ func runSupervisor(t *testing.T, k kit, wake bool) {
 		return ok
 	})
 	outs := second.ToolOutputs()
-	if len(outs) != 1 || !strings.Contains(outs[0], "supervisor: s1 "+k.name+" running") || strings.Contains(outs[0], "not inside a fleet home") {
+	if len(outs) != 1 || !strings.Contains(outs[0], "supervisor: s1 "+k.name+" "+k.model+" "+k.effort+" running") || strings.Contains(outs[0], "not inside a fleet home") {
 		t.Fatalf("hand orient from the supervisor's tool call printed %q", outs)
 	}
 

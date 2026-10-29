@@ -189,7 +189,7 @@ Get-ChildItem "$env:LUVUS_HOME\sessions\secondhand-$fid"
 Expected:
 - `hand supervisor start` prints `supervisor: s1`, `status: running` and `trust: accepted` (`trust: not asked` is also fine if Claude Code did not ask), and no `prompt:` line, which only an opencode start prints;
 - `hand supervisor show` prints an `agent:` of `idle`, `working` or `done`, never `blocked`;
-- `hand orient` prints `supervisor: s1 claude running` and `watch: running`;
+- `hand orient` prints `supervisor: s1 claude haiku low running` and `watch: running`;
 - `hand luvus show` prints `match: yes`;
 - `luvus session list --json` lists `secondhand-<fleet id>` with `"transport": "windows_named_pipe"` and `"running": true`. The session folder may not be under `$env:LUVUS_HOME`: `LUVUS_HOME` on Windows is `unverified`, and then the Teardown must stop the session by name.
 
@@ -227,7 +227,7 @@ The last command prints a link that holds this fleet's token. Show it to the own
 Start-Sleep -Seconds 20; hand supervisor show; hand orient | Select-Object -First 5
 ```
 
-Expected: the answer is yes, `hand supervisor show` prints `status: running` and an `agent:` that is not `blocked`, and `hand orient` prints `supervisor: s2 claude running` and `watch: running`.
+Expected: the answer is yes, `hand supervisor show` prints `status: running` and an `agent:` that is not `blocked`, and `hand orient` prints `supervisor: s2 claude haiku low running` and `watch: running`.
 
 Leave the supervisor running, and the board.
 

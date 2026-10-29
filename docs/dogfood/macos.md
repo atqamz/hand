@@ -133,7 +133,7 @@ echo "TMPDIR=$TMPDIR"
 Expected:
 - `hand supervisor start` prints `supervisor: s1`, `status: running`, `trust: accepted` and `prompt: submitted` (`trust: not asked` is also fine if Claude Code did not ask);
 - `hand supervisor show` prints an `agent:` of `idle`, `working` or `done`, never `blocked`;
-- `hand orient` prints `supervisor: s1 claude running` and `watch: running`;
+- `hand orient` prints `supervisor: s1 claude haiku low running` and `watch: running`;
 - `hand luvus show` prints `match: yes`;
 - the session folder exists and holds `server.pid`.
 
@@ -225,7 +225,7 @@ The last command prints a link that holds this fleet's token. Show it to the own
 sleep 20; hand supervisor show; hand orient | sed -n 1,5p
 ```
 
-Expected: the answer is yes, `hand supervisor show` prints `status: running` and an `agent:` that is not `blocked`, and `hand orient` prints `supervisor: s2 claude running` and `watch: running`.
+Expected: the answer is yes, `hand supervisor show` prints `status: running` and an `agent:` that is not `blocked`, and `hand orient` prints `supervisor: s2 claude haiku low running` and `watch: running`.
 
 Leave the supervisor running, and the board.
 
@@ -605,7 +605,7 @@ Logging out ends this session, and the supervisor. An agent cannot finish this s
 Expected:
 - the plist loads, `launchctl list` shows the label with a process ID, `board-answers` prints, and the board's `PATH=` holds the folders of `claude` and `git`;
 - the board starts a new watcher within 60 seconds of the kill;
-- after login, the board runs again, and the board's watcher resumed the supervisor (`supervisor: s... claude running`, perhaps `(resumes s...)`), which proves that the board's `PATH` finds `claude`;
+- after login, the board runs again, and the board's watcher resumed the supervisor (`supervisor: s... claude haiku low running`, perhaps `(resumes s...)`), which proves that the board's `PATH` finds `claude`;
 - the answer is yes.
 
 Evidence: `{ launchctl list | grep dev.secondhand.dogfood; hand orient | sed -n 1,5p; ps eww -p $(cut -d' ' -f1 $SECONDHAND_HOME/board.pid) | tr ' ' '\n' | grep '^PATH='; } 2>&1 | ev M11`, and the owner's answer.
