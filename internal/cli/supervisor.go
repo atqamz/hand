@@ -746,7 +746,7 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	case "opencode":
 		var bin string
 		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
-			id, err = harness.OpencodeSession(bin, dir, since, marker)
+			id, err = harness.OpencodeSession(ctx, bin, dir, since, marker)
 		}
 	case "agy":
 		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")

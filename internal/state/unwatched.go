@@ -67,7 +67,7 @@ func (s *Store) Unwatched(ctx context.Context, managed bool) (Unwatched, error) 
 	}
 	var seq int64
 	var since string
-	if err := s.db.QueryRowContext(ctx, `SELECT seq, at FROM event WHERE kind NOT IN ('supervisor.stalled', 'supervisor.delivered') ORDER BY seq DESC LIMIT 1`).Scan(&seq, &since); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT seq, at FROM event WHERE kind NOT IN ('supervisor.stalled', 'supervisor.delivered', 'model.changed') ORDER BY seq DESC LIMIT 1`).Scan(&seq, &since); err != nil {
 		return Unwatched{}, err
 	}
 	if u.Since, err = time.Parse(time.RFC3339Nano, since); err != nil {

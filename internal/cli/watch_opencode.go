@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -10,7 +11,11 @@ import (
 	"github.com/atqamz/hand/internal/transcript"
 )
 
-const promptPrefix = 200
+const (
+	promptPrefix = 200
+	lookupSweeps = 10
+	lookupWindow = 10 * time.Minute
+)
 
 func (w *watcher) opencodeModels(ctx context.Context) {
 	if !w.opencodeBusy.CompareAndSwap(false, true) {
@@ -23,12 +28,19 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 		if w.transcripts == nil {
 			w.transcripts = &transcript.Reader{Paths: w.r.transcriptPaths()}
 			w.opencodeSessions = map[int64]string{}
+			w.opencodeMisses = map[int64]int{}
 		}
+		supSession := ""
 		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.Harness == "opencode" && sup.Session != "" {
+			supSession = sup.Session
 			model, effort := w.opencodeModel(ctx, sup.Session)
 			if model != "" && ctx.Err() == nil {
 				_ = w.st.SetSupervisorModel(ctx, sup.ID, model, effort)
 			}
+		}
+		if w.opencodeSup != supSession {
+			w.transcripts.Forget("opencode", w.opencodeSup)
+			w.opencodeSup = supSession
 		}
 		live, err := w.st.LiveAttempts(ctx)
 		if err != nil {
@@ -41,8 +53,10 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 				continue
 			}
 			id := w.opencodeSessions[a.ID]
-			if id == "" {
-				id = w.workerSession(a)
+			if id == "" && w.opencodeMisses[a.ID] < lookupSweeps {
+				if id = w.workerSession(ctx, a); id == "" {
+					w.opencodeMisses[a.ID]++
+				}
 				w.opencodeSessions[a.ID] = id
 			}
 			if id == "" {
@@ -52,9 +66,11 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
 		}
-		for id := range w.opencodeSessions {
+		for id, session := range w.opencodeSessions {
 			if !running[id] {
+				w.transcripts.Forget("opencode", session)
 				delete(w.opencodeSessions, id)
+				delete(w.opencodeMisses, id)
 			}
 		}
 	}()
@@ -68,17 +84,17 @@ func (w *watcher) opencodeModel(ctx context.Context, session string) (string, st
 	return s.Model, s.Effort
 }
 
-func (w *watcher) workerSession(a state.Attempt) string {
+func (w *watcher) workerSession(ctx context.Context, a state.Attempt) string {
 	bin := w.r.transcriptPaths().Opencode
 	created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
-	if bin == "" || a.Worktree == "" || len(a.Argv) == 0 || err != nil {
+	if bin == "" || a.Worktree == "" || len(a.Argv) == 0 || err != nil || w.r.env.Now().Sub(created) > lookupWindow {
 		return ""
 	}
 	dir := a.Worktree
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = real
 	}
-	prompt := a.Argv[len(a.Argv)-1]
-	id, _ := harness.OpencodeSession(bin, dir, created.Truncate(time.Second), prompt[:min(len(prompt), promptPrefix)])
+	prompt := strings.TrimLeft(a.Argv[len(a.Argv)-1], "\" \t\r\n")
+	id, _ := harness.OpencodeSession(ctx, bin, dir, created.Truncate(time.Second), prompt[:min(len(prompt), promptPrefix)])
 	return id
 }

@@ -27,7 +27,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 	case !stamp.IsZero() && stamp.Equal(s.stamp):
 		return nil
 	}
-	out, err := harness.Opencode(r.Paths.Opencode, dir, "session", "export", "--standalone", id)
+	out, err := harness.Opencode(ctx, r.Paths.Opencode, dir, "session", "export", "--standalone", id)
 	if err != nil {
 		return err
 	}

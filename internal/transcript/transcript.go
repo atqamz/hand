@@ -115,6 +115,12 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 	return slices.Clone(s.entries), nil
 }
 
+func (r *Reader) Forget(harness, id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.logs, harness+":"+id)
+}
+
 func (r *Reader) Status(harness, id string) Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()

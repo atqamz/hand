@@ -278,3 +278,33 @@ func TestUnwatchedReadsTheClockOnce(t *testing.T) {
 		t.Fatalf("unwatched = %+v, %v; want t%d idle 20m, w%d due in 6h40m", u, err, task.ID, far.ID)
 	}
 }
+
+func TestAModelChangeDoesNotRestartTheIdleClock(t *testing.T) {
+	var mu sync.Mutex
+	now := fixed
+	s, err := Open(filepath.Join(t.TempDir(), "hand.db"), func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	ctx := context.Background()
+	task := activeTask(t, s)
+	sup, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	now = now.Add(30 * time.Minute)
+	mu.Unlock()
+	if err := s.SetSupervisorModel(ctx, sup.ID, "anthropic/claude-sonnet-5-5", ""); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.Unwatched(ctx, true)
+	if err != nil || !slices.Equal(u.Tasks, []int64{task.ID}) || u.Idle != 30*time.Minute {
+		t.Fatalf("unwatched = %+v, %v; want t%d idle 30m", u, err, task.ID)
+	}
+}

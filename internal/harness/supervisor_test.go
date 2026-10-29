@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -155,7 +156,7 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	}
 	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
 	began := time.Now()
-	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
+	if id, err := OpencodeSession(context.Background(), bin, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("session = %q, %v", id, err)
 	}
 	if took := time.Since(began); took > 4*time.Second {
@@ -163,11 +164,16 @@ func TestOpencodeSessionParsesTheList(t *testing.T) {
 	}
 	exports["ses_newer000000000000000000001"] = `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"` + marker + `demo."}]}]}`
 	parts := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
-	if id, err := OpencodeSession(parts, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
+	if id, err := OpencodeSession(context.Background(), parts, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
 		t.Fatalf("parts-shaped export: session = %q, %v", id, err)
 	}
-	if id, err := OpencodeSession(bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
+	if id, err := OpencodeSession(context.Background(), bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
 		t.Fatalf("nothing newer = %q, %v", id, err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if id, err := OpencodeSession(cancelled, bin, dir, time.UnixMilli(1790570400000), marker); !errors.Is(err, context.Canceled) || id != "" {
+		t.Fatalf("cancelled lookup = %q, %v", id, err)
 	}
 }
 
