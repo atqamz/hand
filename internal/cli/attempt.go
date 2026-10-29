@@ -408,6 +408,8 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		switch {
 		case luvus.Code(err) != "":
 			return sent, false
+		case err == nil && leftInputBox(s.Text, marker) && working(ctx, c, pane):
+			return sent, true
 		case err == nil && strings.Contains(s.Text, marker) && idle(ctx, c, pane):
 			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
 			if err == nil {
@@ -428,6 +430,19 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		}
 	}
 	return sent, false
+}
+
+func leftInputBox(screen, marker string) bool {
+	lines := strings.Split(screen, "\n")
+	bar := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "╹") })
+	if bar < 0 {
+		return false
+	}
+	box := bar
+	for box > 0 && strings.HasPrefix(strings.TrimSpace(lines[box-1]), "┃") {
+		box--
+	}
+	return strings.Contains(strings.Join(lines[:box], "\n"), marker) && !strings.Contains(strings.Join(lines[box:bar], "\n"), marker)
 }
 
 type trustScreen struct {
@@ -702,6 +717,11 @@ func unwrap(screen string) string {
 func idle(ctx context.Context, c luvus.Client, pane string) bool {
 	ag, err := c.Explain(ctx, pane)
 	return err == nil && ag.Status == "idle"
+}
+
+func working(ctx context.Context, c luvus.Client, pane string) bool {
+	ag, err := c.Explain(ctx, pane)
+	return err == nil && ag.Status == "working"
 }
 
 func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {

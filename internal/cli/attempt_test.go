@@ -172,6 +172,59 @@ func hasOpencodeID(id string) bool {
 	return regexp.MustCompile(`^ses_hand[0-9a-f]{26}$`).MatchString(id)
 }
 
+const opencodeBar = "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"
+
+const opencodeBrief = "  ┃\n  ┃  Fix the login bug, commit, then stop.\n  ┃\n  ┃  ---\n  ┃  When you finish, report to Hand from inside this worktree, passing the\n  ┃  report on stdin so no file is left in it:\n  ┃  hand report add --status done --file - <<EOF\n  ┃  YOUR REPORT\n  ┃  EOF\n  ┃\n"
+
+const opencodeSubmittedScreen = " ⠹ New session                   +\n" + opencodeBrief + "\n\n\n\n\n\n\n\n\n  ┃\n  ┃\n  ┃\n  ┃  Build auto · Model One Local Local Fake\n  " + opencodeBar + "\n   ■⬝⬝⬝⬝⬝⬝⬝ esc interrupt                                shift+tab agents  ctrl+p commands\n"
+
+const opencodeUnsentScreen = " New session                   +\n\n\n\n\n\n\n\n\n" + opencodeBrief + "  ┃  Build auto · x (unavailable) nope\n  " + opencodeBar + "\n  /tmp/proj:master                              shift+tab agents  ctrl+p commands\n"
+
+func TestOpencodeThatSubmitsItsOwnPromptIsSubmitted(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeSubmittedScreen, "working" })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, errOut, code := fx.h.runCtx(ctx, "attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if code != 0 || !strings.Contains(out, "prompt: submitted") || strings.Contains(out, "Press Enter") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+	if orient := fx.h.ok("orient"); strings.Contains(orient, "blocked") {
+		t.Fatalf("orient = %q", orient)
+	}
+}
+
+func TestOpencodeStillLoadingOrHoldingTheBriefingIsNotSubmitted(t *testing.T) {
+	for name, screen := range map[string]string{
+		"loading":          "\n",
+		"in the input box": opencodeUnsentScreen,
+		"no bar":           opencodeScreen,
+	} {
+		fx := newAttemptFixture(t)
+		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = screen, "working" })
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		out, errOut, code := fx.h.runCtx(ctx, "attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+		cancel()
+		if code != 0 || !strings.Contains(out, "prompt: not submitted") || len(fx.rt.keysSent()) != 0 {
+			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
+		}
+	}
+}
+
+func TestOpencodeUnsentBriefingGetsEnterWhenIdle(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.revision, rt.status, rt.afterKeys = opencodeUnsentScreen, 7, "idle", "working"
+	})
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "prompt: submitted") || !slices.Equal(fx.rt.keysSent(), []string{"enter"}) {
+		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
+	}
+}
+
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) {
