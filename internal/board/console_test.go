@@ -141,11 +141,20 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	lacks(t, "lan", get(t, lan.handler(), "/"), `data-region="console"`)
 }
 
+func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	console := region(get(t, fx.handler(), "/"), "console")
+	menu := console[strings.Index(console, `id="model-menu"`):]
+	contains(t, "now", menu, `<p class="field-label">Running now</p><dl><div><dt>Harness</dt><dd>claude</dd></div><div><dt>Model</dt><dd>sonnet</dd></div><div><dt>Effort</dt><dd>low</dd></div></dl>`, `<p class="harness-name">codex</p>`, `<label>Model <input name="other"`, `<label>Effort <input name="effort"`)
+	lacks(t, "menu", menu, "between turns", `placeholder="Other model"`)
+}
+
 func TestConsoleMenusKeepIdsAndFields(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	own := console[:strings.Index(console, "Other harness, between turns")]
+	own := console[:strings.Index(console, "Switch the supervisor to another harness")]
 	for _, want := range []string{`<details class="menu" id="model-menu">`, `<details class="menu" id="more-menu">`} {
 		if strings.Count(console, want) != 1 {
 			t.Fatalf("console holds %q %d times:\n%s", want, strings.Count(console, want), console)
@@ -436,7 +445,7 @@ func TestOtherHarnessSwitchTakesATypedModelWithoutAModelList(t *testing.T) {
 	fx.options.Harness.CodexHome = t.TempDir()
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "codex switch row", startRow(t, console, "codex"), `<input name="other" placeholder="Other model" size="10" autocomplete="off" aria-label="codex other model">`, `<input name="effort" placeholder="effort" size="6" aria-label="codex effort">`)
+	contains(t, "codex switch row", startRow(t, console, "codex"), `<label>Model <input name="other" size="10" autocomplete="off" aria-label="codex other model"></label>`, `<label>Effort <input name="effort" size="6" aria-label="codex effort"></label>`)
 	agy := startRow(t, console, "agy")
 	contains(t, "agy switch row", agy, `aria-label="agy other model"`)
 	lacks(t, "agy switch row", agy, `name="effort"`)
@@ -447,7 +456,7 @@ func TestSwitchMenuHasAnOtherModelAndPostsIt(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "switch menu", console, `<label>Other model <input name="other" size="10" autocomplete="off"></label>`)
+	contains(t, "switch menu", console, `<label class="other">Other model <input name="other" size="10" autocomplete="off"></label>`)
 	post(fx.handler(), "/supervisor/switch", url.Values{"model": {""}, "other": {"acme-opus"}, "effort": {""}})
 	if got := strings.Join(fx.called()[0], " "); got != "supervisor switch --model acme-opus" {
 		t.Fatalf("ran %q", got)
