@@ -346,6 +346,27 @@ func TestWatcherExportsASessionWithoutAnApiModelOnce(t *testing.T) {
 	}
 }
 
+func TestWatcherReadsAnApiNullSessionAgainUntilTheExportHasAModel(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	g.api = `{"data":[{"id":"ses_2","model":null}]}`
+	assistant := strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1)
+	userOnly := `{"info":{"id":"ses_2","model":null},"messages":[{"id":"msg_1","type":"user","time":{"created":1793260115879},"text":"` + g.prompt + `"}]}`
+	list := g.listed(g.real, g.now)
+	g.install(userOnly, list)
+	g.sync()
+	if got := g.attempt(); got.Model != "" {
+		t.Fatalf("attempt model = %q before a reply", got.Model)
+	}
+	g.install(assistant, list)
+	if err := os.Chtimes(g.db, g.now, g.now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	g.sync()
+	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("attempt model = %q after a reply", got.Model)
+	}
+}
+
 func TestWatcherExportsASessionTheApiDoesNotList(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_9","model":{"id":"gpt-5","providerID":"openai"}}]}`

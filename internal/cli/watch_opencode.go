@@ -104,7 +104,7 @@ func (w *watcher) opencodeModel(ctx context.Context, listed map[string]transcrip
 		if _, err := w.transcripts.Read(ctx, "opencode", session, w.r.home); err != nil {
 			return "", ""
 		}
-		w.opencodeRead[session] = listed != nil
+		w.opencodeRead[session] = listed != nil && w.transcripts.Status("opencode", session).Model != ""
 	}
 	s := w.transcripts.Status("opencode", session)
 	return s.Model, s.Effort
