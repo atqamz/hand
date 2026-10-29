@@ -63,7 +63,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		if err != nil {
 			return nil, err
 		}
-		supervisor = strings.Join(strings.Fields(state.SupervisorRef(sup.ID)+" "+sup.Harness+" "+sup.Model+" "+sup.Effort+" "+sup.Status), " ")
+		supervisor = strings.Join(strings.Fields(state.SupervisorRef(sup.ID)+" "+sup.Harness+" "+clip(sup.Model, 200)+" "+clip(sup.Effort, 32)+" "+sup.Status), " ")
 		if origin != sup.ID {
 			supervisor += " (resumes " + state.SupervisorRef(origin) + ")"
 		}

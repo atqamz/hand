@@ -338,6 +338,7 @@ func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
 		{state.SupervisorSpec{Harness: "opencode", Model: "anthropic/claude-sonnet-5-5"}, "supervisor: s1 opencode anthropic/claude-sonnet-5-5 running\n"},
 		{state.SupervisorSpec{Harness: "codex", Effort: "low"}, "supervisor: s1 codex low running\n"},
 		{state.SupervisorSpec{Harness: "agy"}, "supervisor: s1 agy running\n"},
+		{state.SupervisorSpec{Harness: "opencode", Model: strings.Repeat("m", 5000)}, "supervisor: s1 opencode " + strings.Repeat("m", 197) + "… running\n"},
 	} {
 		st, home := setup(t)
 		ctx := context.Background()
@@ -353,7 +354,7 @@ func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out := doc.String(); !strings.Contains(out, "\n"+c.want) {
+		if out := doc.String(); !strings.Contains(out, "\n"+c.want) || len(out) > 6000 {
 			t.Fatalf("%+v: %q", c.spec, out)
 		}
 	}
