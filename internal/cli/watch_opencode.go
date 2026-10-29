@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,8 +15,9 @@ import (
 const (
 	promptPrefix = 200
 	lookupSweeps = 10
-	lookupWindow = 10 * time.Minute
 )
+
+var errNoLookup = errors.New("cannot look up the opencode session")
 
 func (w *watcher) opencodeModels(ctx context.Context) {
 	if !w.opencodeBusy.CompareAndSwap(false, true) {
@@ -54,7 +56,8 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			}
 			id := w.opencodeSessions[a.ID]
 			if id == "" && w.opencodeMisses[a.ID] < lookupSweeps {
-				if id = w.workerSession(ctx, a); id == "" {
+				var err error
+				if id, err = w.workerSession(ctx, a); id == "" && err == nil {
 					w.opencodeMisses[a.ID]++
 				}
 				w.opencodeSessions[a.ID] = id
@@ -84,17 +87,16 @@ func (w *watcher) opencodeModel(ctx context.Context, session string) (string, st
 	return s.Model, s.Effort
 }
 
-func (w *watcher) workerSession(ctx context.Context, a state.Attempt) string {
+func (w *watcher) workerSession(ctx context.Context, a state.Attempt) (string, error) {
 	bin := w.r.transcriptPaths().Opencode
 	created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
-	if bin == "" || a.Worktree == "" || len(a.Argv) == 0 || err != nil || w.r.env.Now().Sub(created) > lookupWindow {
-		return ""
+	if bin == "" || a.Worktree == "" || len(a.Argv) == 0 || err != nil {
+		return "", errNoLookup
 	}
 	dir := a.Worktree
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = real
 	}
 	prompt := strings.TrimLeft(a.Argv[len(a.Argv)-1], "\" \t\r\n")
-	id, _ := harness.OpencodeSession(ctx, bin, dir, created.Truncate(time.Second), prompt[:min(len(prompt), promptPrefix)])
-	return id
+	return harness.OpencodeSession(ctx, bin, dir, created.Truncate(time.Second), prompt[:min(len(prompt), promptPrefix)])
 }

@@ -239,14 +239,70 @@ func TestWatcherStopsLookingForAWorkerSession(t *testing.T) {
 	}
 }
 
-func TestWatcherDoesNotLookForASessionOfAnOldAttempt(t *testing.T) {
+func TestWatcherFindsTheSessionOfAnOldAttemptOnAFreshWatcher(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
 	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
-	later := g.now.Add(lookupWindow + time.Second)
+	later := g.now.Add(time.Hour)
 	g.w.r.env.Now = func() time.Time { return later }
 	g.sync()
-	if got := g.attempt(); got.Model != "" {
+	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
 		t.Fatalf("attempt model = %q", got.Model)
+	}
+}
+
+func TestWatcherFindsASessionThatAppearsAfterEmptySweeps(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	g.install(opencodeFixture(t, "opencode-assistant.json"), "[]")
+	for range lookupSweeps - 1 {
+		g.sync()
+	}
+	if g.w.opencodeMisses[g.a.ID] != lookupSweeps-1 {
+		t.Fatalf("misses = %d", g.w.opencodeMisses[g.a.ID])
+	}
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.sync()
+	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("attempt model = %q", got.Model)
+	}
+}
+
+func TestWatcherCountsNoMissWhenTheLookupFails(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	for name, c := range map[string]struct{ export, list string }{
+		"list":   {opencodeFixture(t, "opencode-assistant.json"), "not json"},
+		"export": {"not json", g.listed(g.real, g.now)},
+	} {
+		g.install(c.export, c.list)
+		for range lookupSweeps + 1 {
+			g.sync()
+		}
+		if g.w.opencodeMisses[g.a.ID] != 0 {
+			t.Fatalf("%s: misses = %d", name, g.w.opencodeMisses[g.a.ID])
+		}
+	}
+}
+
+func TestWatcherForgetsTheTranscriptOfAChangedSupervisorSession(t *testing.T) {
+	ctx := context.Background()
+	g := newOpencodeRig(t, true, true)
+	g.install(opencodeFixture(t, "opencode-assistant.json"), g.listed(g.real, g.now))
+	g.sync()
+	if g.w.transcripts.Status("opencode", "ses_1").Model == "" {
+		t.Fatal("status not read")
+	}
+	sup, _, err := g.st.LiveSupervisor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.st.SetSupervisorSession(ctx, sup.ID, "ses_3"); err != nil {
+		t.Fatal(err)
+	}
+	g.sync()
+	if g.w.transcripts.Status("opencode", "ses_1").Model != "" {
+		t.Fatal("old supervisor session kept")
+	}
+	if g.w.transcripts.Status("opencode", "ses_3").Model == "" {
+		t.Fatal("new supervisor session not read")
 	}
 }
 
