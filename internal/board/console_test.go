@@ -146,8 +146,24 @@ func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
 	menu := console[strings.Index(console, `id="model-menu"`):]
-	contains(t, "now", menu, `<p class="field-label">Running now</p><dl><div><dt>Harness</dt><dd>claude</dd></div><div><dt>Model</dt><dd>sonnet</dd></div><div><dt>Effort</dt><dd>low</dd></div></dl>`, `<p class="harness-name">codex</p>`, `<label>Model <input name="other"`, `<label>Effort <input name="effort"`)
+	contains(t, "now", menu, `<p class="field-label">Running now</p><dl><div><dt>Harness</dt><dd>claude</dd></div><div><dt>Model</dt><dd>sonnet</dd></div><div><dt>Effort</dt><dd>low</dd></div></dl>`, `<p class="field-label">Change model or effort</p>`, `<p class="harness-name">codex</p>`, `<label>Model <input name="other"`, `<label>Effort <input name="effort"`)
 	lacks(t, "menu", menu, "between turns", `placeholder="Other model"`)
+}
+
+func TestModelMenuOfAnOpencodeSupervisorHasNoChangeForm(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	console := region(get(t, fx.handler(), "/"), "console")
+	menu := console[strings.Index(console, `id="model-menu"`):]
+	contains(t, "now", menu, `<dt>Harness</dt><dd>opencode</dd>`, `<p class="harness-name">claude</p>`)
+	lacks(t, "now", menu, "<dt>Model</dt>", "<dt>Effort</dt>", "Change model or effort")
 }
 
 func TestConsoleMenusKeepIdsAndFields(t *testing.T) {

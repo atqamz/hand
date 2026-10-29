@@ -229,7 +229,7 @@ func TestTheSwitchMenuHasTheGroupedSelectAndTheEffortFollowsIt(t *testing.T) {
 		t.Fatalf("switch menu order:\n%s", menu)
 	}
 	others := console[strings.Index(console, "Switch the supervisor to another harness"):]
-	contains(t, "other harnesses", others, `<optgroup label="built-in">`, `<option value="gpt-6-sol" data-efforts="low ultra">`, `<option value="gemini-3.8-flash-low" data-efforts="">`)
+	contains(t, "other harnesses", others, `<optgroup label="built-in">`, `<p class="harness-name">codex</p>`, `<label>Model <select name="model" aria-label="codex model">`, `<label>Effort <select name="effort" aria-label="codex effort">`, `<option value="gpt-6-sol" data-efforts="low ultra">`, `<option value="gemini-3.8-flash-low" data-efforts="">`)
 	lacks(t, "opencode switch row", startRow(t, console, "opencode"), "<select", "name=\"other\"")
 }
 

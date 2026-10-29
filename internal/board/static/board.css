@@ -383,7 +383,6 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 #model-menu dd{margin:0;font-size:14px;overflow-wrap:anywhere}
 #model-menu .harness-name{margin:0;font-size:14px;font-weight:600}
 #model-menu .menu-body label.other{font-weight:400}
-#model-menu .menu-body label.other input{border-color:var(--line)}
 @supports (appearance:base-select){#model-menu select,#model-menu select::picker(select){appearance:base-select}#model-menu select{display:flex;align-items:center;height:auto;min-height:var(--control);padding-block:5px;line-height:20px}#model-menu select::picker-icon{color:var(--muted);font-size:12px}#model-menu select selectedcontent,#model-menu option{white-space:normal;overflow-wrap:anywhere}}
 .filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
 .filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
