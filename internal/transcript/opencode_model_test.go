@@ -98,7 +98,7 @@ func TestOpencodeModelOfAnotherTypeDoesNotBlankTheTranscript(t *testing.T) {
 
 func TestOpencodeModelsReadsTheSessionList(t *testing.T) {
 	list := `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"claude-sonnet-5-5","providerID":"anthropic","variant":"default"}},{"id":"ses_3","model":null},{"id":"ses_4","model":"x"},{"model":{"id":"y"}}],"cursor":{}}`
-	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "api --standalone --param limit=1000 GET /api/session", "export": list})
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "api --standalone GET /api/session?limit=1000", "export": list})
 	got, err := OpencodeModels(context.Background(), bin, t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -100,7 +100,7 @@ func (m *exportModel) UnmarshalJSON(b []byte) error {
 type ModelLabel struct{ Model, Effort string }
 
 func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel, error) {
-	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "--param", "limit=1000", "GET", "/api/session")
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
 	if err != nil {
 		return nil, err
 	}
