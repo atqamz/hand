@@ -32,6 +32,8 @@ type opencodeRig struct {
 	now    time.Time
 	bin    string
 	db     string
+	api    string
+	count  string
 }
 
 func newOpencodeRig(t *testing.T, supervisor, installed bool, launch ...string) *opencodeRig {
@@ -96,12 +98,17 @@ func newOpencodeRig(t *testing.T, supervisor, installed bool, launch ...string) 
 	}
 	vars := map[string]string{"PATH": path, "HOME": t.TempDir(), "XDG_DATA_HOME": data}
 	r := &runner{env: Env{Getenv: func(k string) string { return vars[k] }, Now: func() time.Time { return now }}, home: home, root: t.TempDir(), fleet: state.Fleet{ID: "f"}}
-	return &opencodeRig{t: t, st: st, w: &watcher{r: r, st: st}, a: a, real: real, prompt: prompt, now: now, bin: bin, db: db}
+	return &opencodeRig{t: t, st: st, w: &watcher{r: r, st: st}, a: a, real: real, prompt: prompt, now: now, bin: bin, db: db, count: filepath.Join(t.TempDir(), "count")}
 }
 
 func (g *opencodeRig) install(export, list string) {
 	g.t.Helper()
-	fakebin.Install(g.t, g.bin, "opencode", "ocexport", map[string]string{"export": export, "list": list})
+	fakebin.Install(g.t, g.bin, "opencode", "ocexport", map[string]string{"export": export, "list": list, "api": g.api, "count": g.count})
+}
+
+func (g *opencodeRig) calls(kind string) int {
+	b, _ := os.ReadFile(g.count)
+	return strings.Count(string(b), kind+"\n")
 }
 
 func (g *opencodeRig) listed(dir string, created time.Time) string {
@@ -303,6 +310,65 @@ func TestWatcherForgetsTheTranscriptOfAChangedSupervisorSession(t *testing.T) {
 	}
 	if g.w.transcripts.Status("opencode", "ses_3").Model == "" {
 		t.Fatal("new supervisor session not read")
+	}
+}
+
+func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
+	ctx := context.Background()
+	g := newOpencodeRig(t, true, true)
+	g.api = `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"gpt-5","providerID":"openai","variant":"default"}},{"id":"ses_9","model":null}],"cursor":{}}`
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	for range 3 {
+		g.sync()
+	}
+	sup, _, _ := g.st.LiveSupervisor(ctx)
+	got := g.attempt()
+	if sup.Model != "openai/gpt-5" || sup.Effort != "high" || got.Model != "openai/gpt-5" || got.Effort != "" {
+		t.Fatalf("supervisor = %q %q, attempt = %q %q", sup.Model, sup.Effort, got.Model, got.Effort)
+	}
+	if g.calls("api") != 3 || g.calls("export") != 1 {
+		t.Fatalf("api = %d, export = %d", g.calls("api"), g.calls("export"))
+	}
+}
+
+func TestWatcherExportsASessionWithoutAnApiModelOnce(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	g.api = `{"data":[{"id":"ses_2","model":null}]}`
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	for range 3 {
+		g.sync()
+	}
+	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("attempt model = %q", got.Model)
+	}
+	if g.calls("export") != 2 {
+		t.Fatalf("export = %d", g.calls("export"))
+	}
+}
+
+func TestWatcherExportsASessionTheApiDoesNotList(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	g.api = `{"data":[{"id":"ses_9","model":{"id":"gpt-5","providerID":"openai"}}]}`
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.sync()
+	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("attempt model = %q", got.Model)
+	}
+}
+
+func TestWatcherFallsBackToTheExportWhenTheApiFails(t *testing.T) {
+	for name, api := range map[string]string{"exits": "", "not json": "not json", "no data": `{"cursor":{}}`, "data is not a list": `{"data":"x"}`} {
+		t.Run(name, func(t *testing.T) {
+			g := newOpencodeRig(t, true, true)
+			g.api = api
+			g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+			g.sync()
+			g.sync()
+			sup, _, _ := g.st.LiveSupervisor(context.Background())
+			if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" || sup.Model != "anthropic/claude-sonnet-5-5" {
+				t.Fatalf("attempt model = %q, supervisor model = %q", got.Model, sup.Model)
+			}
+		})
 	}
 }
 

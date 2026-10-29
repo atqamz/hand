@@ -44,6 +44,16 @@ func ocexportMain(args []string) int {
 		fmt.Print(p["list"])
 		return 0
 	}
+	if args[0] == "api" {
+		fakebin.Append(p["count"], "api")
+		if p["api"] == "" {
+			fmt.Fprintln(os.Stderr, "no api")
+			return 1
+		}
+		fmt.Print(p["api"])
+		return 0
+	}
+	fakebin.Append(p["count"], "export")
 	fmt.Print(p["export"])
 	return 0
 }

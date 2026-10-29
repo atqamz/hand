@@ -62,6 +62,7 @@ type watcher struct {
 	transcripts      *transcript.Reader
 	opencodeSessions map[int64]string
 	opencodeMisses   map[int64]int
+	opencodeRead     map[string]bool
 	opencodeSup      string
 	modelsSaid       map[string]string
 	saying           sync.Mutex

@@ -31,17 +31,29 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			w.transcripts = &transcript.Reader{Paths: w.r.transcriptPaths()}
 			w.opencodeSessions = map[int64]string{}
 			w.opencodeMisses = map[int64]int{}
+			w.opencodeRead = map[string]bool{}
+		}
+		var listed map[string]transcript.ModelLabel
+		fetched := false
+		modelOf := func(session string) (string, string) {
+			if !fetched {
+				fetched = true
+				if bin := w.r.transcriptPaths().Opencode; bin != "" {
+					listed, _ = transcript.OpencodeModels(ctx, bin, w.r.home)
+				}
+			}
+			return w.opencodeModel(ctx, listed, session)
 		}
 		supSession := ""
 		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.Harness == "opencode" && sup.Session != "" {
 			supSession = sup.Session
-			model, effort := w.opencodeModel(ctx, sup.Session)
+			model, effort := modelOf(sup.Session)
 			if model != "" && ctx.Err() == nil {
 				_ = w.st.SetSupervisorModel(ctx, sup.ID, model, effort)
 			}
 		}
 		if w.opencodeSup != supSession {
-			w.transcripts.Forget("opencode", w.opencodeSup)
+			w.forgetOpencode(w.opencodeSup)
 			w.opencodeSup = supSession
 		}
 		live, err := w.st.LiveAttempts(ctx)
@@ -65,13 +77,13 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			if id == "" {
 				continue
 			}
-			if model, effort := w.opencodeModel(ctx, id); model != "" && ctx.Err() == nil {
+			if model, effort := modelOf(id); model != "" && ctx.Err() == nil {
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
 		}
 		for id, session := range w.opencodeSessions {
 			if !running[id] {
-				w.transcripts.Forget("opencode", session)
+				w.forgetOpencode(session)
 				delete(w.opencodeSessions, id)
 				delete(w.opencodeMisses, id)
 			}
@@ -79,9 +91,20 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 	}()
 }
 
-func (w *watcher) opencodeModel(ctx context.Context, session string) (string, string) {
-	if _, err := w.transcripts.Read(ctx, "opencode", session, w.r.home); err != nil {
-		return "", ""
+func (w *watcher) forgetOpencode(session string) {
+	w.transcripts.Forget("opencode", session)
+	delete(w.opencodeRead, session)
+}
+
+func (w *watcher) opencodeModel(ctx context.Context, listed map[string]transcript.ModelLabel, session string) (string, string) {
+	if l := listed[session]; l.Model != "" {
+		return l.Model, l.Effort
+	}
+	if listed == nil || !w.opencodeRead[session] {
+		if _, err := w.transcripts.Read(ctx, "opencode", session, w.r.home); err != nil {
+			return "", ""
+		}
+		w.opencodeRead[session] = listed != nil
 	}
 	s := w.transcripts.Status("opencode", session)
 	return s.Model, s.Effort

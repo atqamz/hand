@@ -56,7 +56,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 				fresh.status.Compactions++
 			}
 		}
-		if role == "assistant" && m.Model != nil && m.Model.ID != "" {
+		if (role == "assistant" || role == "model-switched") && m.Model != nil && m.Model.ID != "" {
 			fresh.status.Model, fresh.status.Effort = m.Model.label()
 		}
 		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {
@@ -86,6 +86,45 @@ type exportModel struct {
 	ID         string `json:"id"`
 	ProviderID string `json:"providerID"`
 	Variant    string `json:"variant"`
+}
+
+func (m *exportModel) UnmarshalJSON(b []byte) error {
+	type plain exportModel
+	var p plain
+	if json.Unmarshal(b, &p) == nil {
+		*m = exportModel(p)
+	}
+	return nil
+}
+
+type ModelLabel struct{ Model, Effort string }
+
+func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel, error) {
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "--param", "limit=1000", "GET", "/api/session")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Data []struct {
+			ID    string       `json:"id"`
+			Model *exportModel `json:"model"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(out, &list) != nil || list.Data == nil {
+		return nil, ErrUnreadable
+	}
+	models := make(map[string]ModelLabel, len(list.Data))
+	for _, s := range list.Data {
+		if s.ID == "" {
+			continue
+		}
+		var l ModelLabel
+		if s.Model != nil {
+			l.Model, l.Effort = s.Model.label()
+		}
+		models[s.ID] = l
+	}
+	return models, nil
 }
 
 func (m exportModel) label() (model, effort string) {
