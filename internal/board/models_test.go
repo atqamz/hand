@@ -149,16 +149,30 @@ func TestTheStartFormListsCodexAndAgyFromTheirLists(t *testing.T) {
 	lacks(t, "agy row", agy, `name="effort"`)
 }
 
-func TestOpencodeShowsNoModelControlEvenWithAList(t *testing.T) {
+func TestOpencodeStartRowListsItsModelsAndTakesAVariant(t *testing.T) {
 	r := newModelRig(t)
 	r.all(t)
 	if models, err := harness.Detected("opencode", r.env); err != nil || len(models) != 2 {
 		t.Fatalf("opencode list: %v, %v", models, err)
 	}
-	for _, console := range []string{r.console(t), func() string { r.fx.supervisor(t, state.AttemptRunning, "gen-1"); return r.console(t) }()} {
-		row := startRow(t, console, "opencode")
-		contains(t, "opencode row", row, `<button>`)
-		lacks(t, "opencode row", row, "<select", "<input name=", "acme/acme-coder-1", "model-note")
+	row := startRow(t, r.console(t), "opencode")
+	contains(t, "opencode row", row, `<select name="model" aria-label="opencode model"><option value="">default</option>`, `<option value="acme/acme-coder-1" data-efforts="">acme/acme-coder-1</option>`, `<input name="other" placeholder="Other model"`, `<input name="effort" placeholder="effort" size="6" autocomplete="off" aria-label="opencode effort">`, `<button>Start opencode</button>`)
+	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "opencode switch row", startRow(t, r.console(t), "opencode"), "<select", "<input name=", "acme/acme-coder-1")
+}
+
+func TestProfilesNameAnOpencodeModelAndVariant(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	policy := `{"profiles":{"default":{"harness":"opencode","model":"acme/acme-coder-1","effort":"deep"},"gone":{"harness":"opencode","model":"acme/acme-coder-9"}}}`
+	if err := os.WriteFile(filepath.Join(r.fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	console := r.console(t)
+	contains(t, "start strip", console, `<option value="default" selected>default · opencode acme/acme-coder-1 deep</option>`, `<option value="gone">gone · opencode acme/acme-coder-9 · opencode model acme/acme-coder-9 is not in `)
+	post(r.fx.handler(), "/supervisor/start", url.Values{"harness": {"opencode"}, "other": {"acme/acme-coder-1"}, "effort": {"deep"}})
+	if got := strings.Join(r.fx.called()[0], " "); got != "supervisor start --harness opencode --model acme/acme-coder-1 --effort deep" {
+		t.Fatalf("ran %q", got)
 	}
 }
 

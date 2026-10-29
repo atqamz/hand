@@ -349,10 +349,9 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .others-body{display:grid;gap:8px;margin-top:8px}
 .others-body form.start{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr) minmax(0,1.6fr) 10em}
 .others-body form.start button{grid-column:4;width:100%;white-space:nowrap}
-.others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}
 .unverified{grid-column:1/-1;color:var(--wait);font-size:12px;font-weight:600}
 .model-note{grid-column:1/-1;margin:0;color:var(--wait);font-size:12px}
-@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}}
+@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
 @container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}}
 .sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg);border-color:var(--line-strong);color:var(--fg)}
 .timeline>.quiet:only-child{margin:auto;text-align:center}
@@ -538,7 +537,7 @@ dialog.viewer[open] .text-bar{top:-12px}
 .masthead .strip-note{width:0;min-width:100%}
 .needs-count{display:inline-block}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
-.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}
+.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}
 .others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}
 .console{padding:8px 12px}.console>.pending{flex:1 1 100%}.sup-ref{display:none}
 .sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}

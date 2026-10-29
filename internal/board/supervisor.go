@@ -336,7 +336,7 @@ var modelSources = []harness.Source{harness.SourceBuiltin, harness.SourceDiscove
 
 func (b *Board) picker(name string) harnessChoice {
 	c := harnessChoice{Name: name}
-	models, err := harness.Models(name, b.o.Harness)
+	models, err := harness.Detected(name, b.o.Harness)
 	if err == nil && len(models) == 0 {
 		return c
 	}

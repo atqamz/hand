@@ -434,11 +434,11 @@ func TestStartFormOffersAnOtherModelBesideTheSelect(t *testing.T) {
 	}
 }
 
-func TestStartFormGivesOpencodeNoModelOrEffort(t *testing.T) {
+func TestStartFormOffersOpencodeAModelAndAnEffort(t *testing.T) {
 	fx := newFixture(t)
 	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode")
-	contains(t, "opencode row", row, `<span class="own">opencode uses its own configuration</span>`, `<button>Start opencode</button>`)
-	lacks(t, "opencode row", row, "<input name=", "<select", "placeholder")
+	contains(t, "opencode row", row, `<input name="model" placeholder="model" size="10" aria-label="opencode model">`, `<input name="effort" placeholder="effort" size="6" aria-label="opencode effort">`, `<button>Start opencode</button>`)
+	lacks(t, "opencode row", row, "its own configuration")
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	lacks(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `name="model"`, `name="other"`)
 }
@@ -489,7 +489,7 @@ func TestAWarningReachesTheBrowserNextToTheReceipt(t *testing.T) {
 	}
 	js := asset(t, "app.js")
 	contains(t, "app.js", js, `const warn = header(res, "X-Hand-Warn");`, "show(receipt ? `${receipt} ${warn}` : warn, 12000, \"warn\")")
-	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", ".others-body form.start .own{grid-column:1/4;color:var(--muted);font-size:14px}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button,.others-body form.start .own{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0")
+	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0")
 }
 
 func TestStartRowPostsHarnessModelAndEffort(t *testing.T) {
