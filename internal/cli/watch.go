@@ -564,6 +564,10 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	w.seen[a.ID] = status
 	ref := state.AttemptRef(a.ID)
 	switch status {
+	case "working":
+		if prev == "blocked" {
+			return w.st.NoteAttempt(ctx, a.ID, "working", "")
+		}
 	case "blocked":
 		detail := ""
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {

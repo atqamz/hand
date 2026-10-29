@@ -315,6 +315,22 @@ func TestWatchIgnoresAnIdlePaneBeforeTheWorkerWorks(t *testing.T) {
 	}
 }
 
+func TestOrientStopsShowingBlockedOnceTheWorkerWorksAgain(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return strings.Contains(fx.h.ok("orient"), "a1 running blocked: Do you want to proceed?") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running,") {
+		t.Fatalf("orient = %q", out)
+	}
+}
+
 func TestWatchCatchesUpOnATurnThatEndedWhileItWasDown(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
