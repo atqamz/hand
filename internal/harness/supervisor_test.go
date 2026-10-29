@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/agydb/agytest"
+	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -191,5 +193,17 @@ func TestAgySessionPicksTheLaunchedConversation(t *testing.T) {
 	}
 	if id, err := AgySession(filepath.Join(dir, "absent"), fleet, since, marker); err != nil || id != "" {
 		t.Fatalf("no folder = %q, %v", id, err)
+	}
+}
+
+func TestOpencodeReturnsItsOutputWhileAChildHoldsStdout(t *testing.T) {
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", map[string]string{"stdout": `{"messages":[]}`, "hold": "1", "holders": holders(t)})
+	began := time.Now()
+	out, err := Opencode(context.Background(), bin, t.TempDir(), "session", "export")
+	if err != nil || string(out) != `{"messages":[]}` {
+		t.Fatalf("output = %q, %v", out, err)
+	}
+	if took := time.Since(began); took > 4*time.Second {
+		t.Fatalf("a child holding stdout kept the call waiting %s", took)
 	}
 }
