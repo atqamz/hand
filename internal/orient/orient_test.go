@@ -107,6 +107,13 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 			_, _ = st.Ask(ctx, task.ID, strings.Repeat("why ", 400))
 		}
 	}
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Model: strings.Repeat("m", 200), Effort: strings.Repeat("e", 32), Argv: []string{"/bin/x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
 	big := strings.Repeat("remember this preference\n", 10000)
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
@@ -122,7 +129,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if !utf8.ValidString(out) {
 		t.Fatal("orient is not valid UTF-8")
 	}
-	for _, want := range []string{" of 500 shown; run `hand task list --status active", "operator_memory_truncated:"} {
+	for _, want := range []string{" of 500 shown; run `hand task list --status active", "operator_memory_truncated:", "\nsupervisor: s1 opencode " + strings.Repeat("m", 200) + " " + strings.Repeat("e", 32) + " running\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q", want)
 		}
@@ -339,6 +346,9 @@ func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
 		{state.SupervisorSpec{Harness: "codex", Effort: "low"}, "supervisor: s1 codex low running\n"},
 		{state.SupervisorSpec{Harness: "agy"}, "supervisor: s1 agy running\n"},
 		{state.SupervisorSpec{Harness: "opencode", Model: strings.Repeat("m", 5000)}, "supervisor: s1 opencode " + strings.Repeat("m", 197) + "… running\n"},
+		{state.SupervisorSpec{Harness: "opencode", Model: "x", Effort: strings.Repeat("e", 100)}, "supervisor: s1 opencode x " + strings.Repeat("e", 29) + "… running\n"},
+		{state.SupervisorSpec{Harness: "opencode", Model: "ollama/llama3:8b"}, "supervisor: \"s1 opencode ollama/llama3:8b running\"\n"},
+		{state.SupervisorSpec{Harness: "opencode", Model: "openrouter/some/model:free", Effort: "high"}, "supervisor: \"s1 opencode openrouter/some/model:free high running\"\n"},
 	} {
 		st, home := setup(t)
 		ctx := context.Background()
@@ -354,7 +364,7 @@ func TestOrientJoinsOnlyTheSupervisorPartsThatExist(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out := doc.String(); !strings.Contains(out, "\n"+c.want) || len(out) > 6000 {
+		if out := doc.String(); !strings.Contains(out, "\n"+c.want) {
 			t.Fatalf("%+v: %q", c.spec, out)
 		}
 	}
