@@ -254,3 +254,25 @@ func TestEverySupervisorHarnessIsAccepted(t *testing.T) {
 		t.Fatalf("a grok supervisor = %v", err)
 	}
 }
+
+func TestSetSupervisorModelRecordsOnlyChanges(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effort := range []string{"", "", "high"} {
+		if err := s.SetSupervisorModel(ctx, sup.ID, "anthropic/claude-sonnet-5-5", effort); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, _ := s.LiveSupervisor(ctx)
+	events, _ := s.RecentEventsOf(ctx, []string{"model.changed"}, 10)
+	if got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "high" || len(events) != 2 {
+		t.Fatalf("supervisor = %+v, events = %v", got, events)
+	}
+	if err := s.SetSupervisorModel(ctx, 99, "m", ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown supervisor = %v", err)
+	}
+}

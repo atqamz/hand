@@ -234,3 +234,29 @@ func TestAttemptEventsNameOnlyTheAttemptAndKeepTheNewest(t *testing.T) {
 		t.Fatalf("limit 0 err = %v", err)
 	}
 }
+
+func TestSetAttemptModelRecordsOnlyChanges(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	a, err := s.AddAttempt(ctx, AttemptSpec{TaskID: task.ID, Harness: "opencode", Argv: []string{"/bin/opencode", "x"}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effort := range []string{"", "", "high"} {
+		if err := s.SetAttemptModel(ctx, a.ID, "anthropic/claude-sonnet-5-5", effort); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := s.Attempt(ctx, a.ID)
+	events, _ := s.TaskEvents(ctx, task.ID, 50)
+	changed := 0
+	for _, e := range events {
+		if e.Kind == "model.changed" {
+			changed++
+		}
+	}
+	if got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "high" || changed != 2 {
+		t.Fatalf("attempt = %+v, changes = %d", got, changed)
+	}
+}

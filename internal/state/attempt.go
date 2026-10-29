@@ -359,3 +359,16 @@ func (s *Store) queryAttempts(ctx context.Context, q string, args ...any) ([]Att
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) SetAttemptModel(ctx context.Context, id int64, model, effort string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, id)
+		if err != nil || (a.Model == model && a.Effort == effort) {
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE attempt SET model = ?, effort = ? WHERE id = ?`, model, effort, id); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "model.changed", a.TaskID, strings.Join(strings.Fields(AttemptRef(id)+": "+model+" "+effort), " "))
+	})
+}
