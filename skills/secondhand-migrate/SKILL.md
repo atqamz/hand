@@ -69,7 +69,7 @@ Write one list for the operator. Each line is one action, marked `create`, `keep
 {"profiles": {"default": {"harness": "claude", "model": "sonnet", "effort": "medium"}}}
 ```
 
-opencode profiles have no model or effort.
+An opencode profile may name a model as `provider/id` and its variant as the effort; without a model opencode uses its own configuration.
 
 ## 3. Stop
 
