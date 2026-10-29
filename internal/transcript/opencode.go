@@ -56,7 +56,7 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 				fresh.status.Compactions++
 			}
 		}
-		if role == "assistant" && m.Model != nil {
+		if role == "assistant" && m.Model != nil && m.Model.ID != "" {
 			fresh.status.Model, fresh.status.Effort = m.Model.label()
 		}
 		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {

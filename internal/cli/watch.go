@@ -130,6 +130,7 @@ func cmdWatch(r *runner, args []string) error {
 		w.snapshot(ctx)
 		w.pruneInbox(ctx)
 		w.refreshModels(ctx)
+		w.opencodeModels(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):

@@ -61,3 +61,11 @@ func TestOpencodeModelStaysEmptyWithoutAny(t *testing.T) {
 		t.Fatalf("model = %q, effort = %q", model, effort)
 	}
 }
+
+func TestOpencodeModelIgnoresAnAssistantWithoutAModelID(t *testing.T) {
+	const last = `"id":"msg_186a33413001km9KIo33YqM5VC","type":"assistant","time":{"created":1793260205093,"streamed":1793260206868,"completed":1793260208382},"model":{"id":"claude-sonnet-5-5","providerID":"anthropic","variant":"default"}`
+	model, _ := opencodeModel(t, "opencode-assistant.json", last, strings.Replace(last, `"model":{"id":"claude-sonnet-5-5","providerID":"anthropic","variant":"default"}`, `"model":{}`, 1))
+	if model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("model = %q", model)
+	}
+}
