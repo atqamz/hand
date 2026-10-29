@@ -24,6 +24,7 @@ import (
 	"github.com/atqamz/hand/internal/proc"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/transcript"
 	"github.com/atqamz/hand/internal/update"
 )
 
@@ -53,12 +54,15 @@ type watcher struct {
 	snapped string
 	pruned  string
 
-	rest         rest
-	policyWarned bool
-	inboxWarned  bool
-	modelsBusy   atomic.Bool
-	modelsSaid   map[string]string
-	saying       sync.Mutex
+	rest             rest
+	policyWarned     bool
+	inboxWarned      bool
+	modelsBusy       atomic.Bool
+	opencodeBusy     atomic.Bool
+	transcripts      *transcript.Reader
+	opencodeSessions map[int64]string
+	modelsSaid       map[string]string
+	saying           sync.Mutex
 }
 
 type turn struct {
@@ -189,6 +193,7 @@ func (w *watcher) session(ctx context.Context) error {
 		return err
 	}
 	w.refreshModels(ctx)
+	w.opencodeModels(ctx)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -214,6 +219,7 @@ func (w *watcher) session(ctx context.Context) error {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
 				w.refreshModels(ctx)
+				w.opencodeModels(ctx)
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
