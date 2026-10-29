@@ -227,7 +227,9 @@ func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.GC()
-	var peak uint64
+	var base runtime.MemStats
+	runtime.ReadMemStats(&base)
+	peak := base.HeapInuse
 	var longest, lines int
 	s := &session{offsets: map[string]int64{}}
 	err = s.follow(path, func(l []byte) {
@@ -249,8 +251,8 @@ func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
 	if s.offsets[path] != complete {
 		t.Fatalf("offset = %d, want %d", s.offsets[path], complete)
 	}
-	if peak > uint64(complete)/4 {
-		t.Fatalf("heap peaked at %d bytes reading %d", peak, complete)
+	if grown := int64(peak) - int64(base.HeapInuse); grown > complete/4 {
+		t.Fatalf("heap grew %d bytes over %d reading %d", grown, base.HeapInuse, complete)
 	}
 	f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
