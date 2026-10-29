@@ -41,6 +41,7 @@ func fakeBehaviors() map[string]func([]string) int {
 func ocexportMain(args []string) int {
 	p := fakebin.Params()
 	if len(args) > 1 && args[1] == "list" {
+		fakebin.Append(p["count"], "list")
 		fmt.Print(p["list"])
 		return 0
 	}
@@ -54,6 +55,10 @@ func ocexportMain(args []string) int {
 		return 0
 	}
 	fakebin.Append(p["count"], "export")
+	if p["ids"] != "" && !slices.Contains(strings.Split(p["ids"], ","), args[len(args)-1]) {
+		fmt.Fprintln(os.Stderr, "no such session")
+		return 1
+	}
 	fmt.Print(p["export"])
 	return 0
 }

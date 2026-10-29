@@ -1,7 +1,6 @@
 package harness
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/agydb/agytest"
-	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -40,7 +38,7 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		{"claude bare", "/bin/claude", Spec{Harness: "claude"}, uuid, "go", false, []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", uuid, "go"}},
 		{"codex new", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "", "go", false, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "go"}},
 		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
-		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, "", "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--prompt", "go"}},
+		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, opencodeSession, "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--session", opencodeSession, "--prompt", "go"}},
 		{"opencode resume", "/bin/opencode", Spec{Harness: "opencode"}, "ses_1", "", true, []string{"/bin/opencode", "--standalone", "--auto", "--session", "ses_1"}},
 	}
 	for _, dir := range spacedDirs(t) {
@@ -70,6 +68,15 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		"claude session not uuid": func() ([]string, error) {
 			return SupervisorArgv("/bin/claude", Spec{Harness: "claude"}, "nope", "go", "", false)
 		},
+		"opencode without a session": func() ([]string, error) {
+			return SupervisorArgv("/bin/opencode", Spec{Harness: "opencode"}, "", "go", "", false)
+		},
+		"opencode session not ours": func() ([]string, error) {
+			return SupervisorArgv("/bin/opencode", Spec{Harness: "opencode"}, "ses_other", "go", "", false)
+		},
+		"codex with a session": func() ([]string, error) {
+			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "abc", "go", "/fleet", false)
+		},
 		"codex relative dir": func() ([]string, error) {
 			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "go", "fleet", false)
 		},
@@ -80,6 +87,15 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		if _, err := bad(); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("%s: err = %v, want ErrInvalid", name, err)
 		}
+	}
+}
+
+const opencodeSession = "ses_hand0123456789abcdef0123456789"
+
+func TestNewOpencodeSessionIDIsAHandSessionID(t *testing.T) {
+	a, b := NewOpencodeSessionID(), NewOpencodeSessionID()
+	if !opencodeID.MatchString(a) || !opencodeID.MatchString(b) || a == b || !sessionPattern.MatchString(a) {
+		t.Fatalf("ids %q %q", a, b)
 	}
 }
 
@@ -138,42 +154,6 @@ func TestCodexSessionFindsASessionStartedWithCd(t *testing.T) {
 		if id, err := CodexSession(home, filepath.Join(dir, "elsewhere"), since, marker); err != nil || id != "" {
 			t.Fatalf("session for another folder = %q, %v", id, err)
 		}
-	}
-}
-
-func TestOpencodeSessionParsesTheList(t *testing.T) {
-	dir := t.TempDir()
-	fixture, err := filepath.Abs(filepath.Join("testdata", "opencode-session-list.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	exports := map[string]string{
-		"list":                           fixture,
-		"holders":                        holders(t),
-		"ses_newer000000000000000000001": `{"messages":[{"type":"user","text":"\"` + marker + `demo.\""}]}`,
-		"ses_older000000000000000000003": `{"messages":[{"type":"user","text":"quote: ` + marker + `demo."},{"type":"assistant","text":"` + marker + `demo."}]}`,
-		"other":                          `{"messages":[{"type":"user","text":"hello"}]}`,
-	}
-	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
-	began := time.Now()
-	if id, err := OpencodeSession(context.Background(), bin, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
-		t.Fatalf("session = %q, %v", id, err)
-	}
-	if took := time.Since(began); took > 4*time.Second {
-		t.Fatalf("a child holding stdout kept the lookup waiting %s", took)
-	}
-	exports["ses_newer000000000000000000001"] = `{"messages":[{"info":{"role":"user"},"parts":[{"type":"text","text":"` + marker + `demo."}]}]}`
-	parts := fakebin.Install(t, t.TempDir(), "opencode", "opencode", exports)
-	if id, err := OpencodeSession(context.Background(), parts, dir, time.UnixMilli(1790570400000), marker); err != nil || id != "ses_newer000000000000000000001" {
-		t.Fatalf("parts-shaped export: session = %q, %v", id, err)
-	}
-	if id, err := OpencodeSession(context.Background(), bin, dir, time.UnixMilli(1790570700000), marker); err != nil || id != "" {
-		t.Fatalf("nothing newer = %q, %v", id, err)
-	}
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	if id, err := OpencodeSession(cancelled, bin, dir, time.UnixMilli(1790570400000), marker); !errors.Is(err, context.Canceled) || id != "" {
-		t.Fatalf("cancelled lookup = %q, %v", id, err)
 	}
 }
 

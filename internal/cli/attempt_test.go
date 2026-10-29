@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -177,6 +178,10 @@ func TestOpencodeRefusesAModelBeforeTouchingGit(t *testing.T) {
 
 const opencodeScreen = "┃  Fix the login bug, commit, then stop.\n┃  When you finish, report to Hand from inside this worktree:"
 
+func hasOpencodeID(id string) bool {
+	return regexp.MustCompile(`^ses_hand[0-9a-f]{26}$`).MatchString(id)
+}
+
 func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -187,7 +192,7 @@ func TestOpencodeBriefingIsSubmittedOnceItIsOnScreen(t *testing.T) {
 		t.Fatalf("start = %q, keys = %q", out, fx.rt.keysSent())
 	}
 	call := fx.rt.lastCreate()
-	if filepath.Base(call.Command[0]) != exe("", "opencode") || !slices.Equal(call.Command[1:4], []string{"--standalone", "--auto", "--prompt"}) {
+	if filepath.Base(call.Command[0]) != exe("", "opencode") || !slices.Equal(call.Command[1:4], []string{"--standalone", "--auto", "--session"}) || !hasOpencodeID(call.Command[4]) || call.Command[5] != "--prompt" {
 		t.Fatalf("argv = %q", call.Command)
 	}
 	if recent := fx.h.ok("orient"); !strings.Contains(recent, ",attempt.keys,t1") {

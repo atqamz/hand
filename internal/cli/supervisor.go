@@ -101,8 +101,11 @@ func (r *runner) startSupervisor(ctx context.Context, st *state.Store, c luvus.C
 		prompt += " " + note
 	}
 	session := ""
-	if spec.Harness == "claude" {
+	switch spec.Harness {
+	case "claude":
 		session = harness.NewSessionID()
+	case "opencode":
+		session = harness.NewOpencodeSessionID()
 	}
 	argv, err := harness.SupervisorArgv(bin, spec, session, prompt, r.home, false)
 	if err != nil {
@@ -726,7 +729,7 @@ func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Cli
 }
 
 func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Supervisor) error {
-	if sup.Session != "" || sup.Harness == "claude" || sup.Status == state.AttemptLaunching {
+	if sup.Session != "" || sup.Harness == "claude" || sup.Harness == "opencode" || sup.Status == state.AttemptLaunching {
 		return nil
 	}
 	created, err := time.Parse(time.RFC3339Nano, sup.CreatedAt)
@@ -743,11 +746,6 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	switch sup.Harness {
 	case "codex":
 		id, err = harness.CodexSession(harness.CodexHome(r.env.Getenv), dir, since, marker)
-	case "opencode":
-		var bin string
-		if bin, err = harness.LookPath("opencode", r.env.Getenv("PATH")); err == nil {
-			id, err = harness.OpencodeSession(ctx, bin, dir, since, marker)
-		}
 	case "agy":
 		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")
 	}
@@ -843,7 +841,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	if health, err := c.Validate(ctx, terminal(sup.Terminal)); err != nil || health == "gone" {
 		return "supervisor " + ref + " terminal is gone", nil
 	}
-	if sup.Session == "" && sup.Harness != "claude" {
+	if sup.Session == "" && sup.Harness != "claude" && sup.Harness != "opencode" {
 		if err := r.findSession(ctx, st, &sup); err != nil {
 			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
 		}

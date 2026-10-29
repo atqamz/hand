@@ -289,9 +289,10 @@ func TestOpencodeSupervisorPromptIsSubmitted(t *testing.T) {
 	})
 	has(t, "start", h.ok("supervisor", "start", "--harness", "opencode"), "supervisor: s1", "prompt: submitted")
 	argv := rt.lastCreate().Command
-	if len(argv) != 5 || !slices.Equal(argv[1:4], []string{"--standalone", "--auto", "--prompt"}) || !launchPrompt.MatchString(argv[4]) {
+	if len(argv) != 7 || !slices.Equal(argv[1:4], []string{"--standalone", "--auto", "--session"}) || !hasOpencodeID(argv[4]) || argv[5] != "--prompt" || !launchPrompt.MatchString(argv[6]) {
 		t.Fatalf("argv = %q", argv)
 	}
+	has(t, "show", h.ok("supervisor", "show"), "session: "+argv[4])
 	if got := rt.keysSent(); !slices.Equal(got, []string{"enter"}) {
 		t.Fatalf("keys = %q", got)
 	}
@@ -1441,6 +1442,28 @@ func TestOpencodeSupervisorThatNeverSubmitsRecordsABlockedNote(t *testing.T) {
 	if err != nil || len(events) != 1 || events[0].Detail != "s1: launch prompt not submitted; press Enter" {
 		t.Fatalf("events = %+v, %v", events, err)
 	}
+}
+
+func TestOpencodeSupervisorResumesItsChosenSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	session := rt.lastCreate().Command[4]
+	h.ok("supervisor", "stop")
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+session)
+	if argv := rt.lastCreate().Command; !slices.Equal(argv[1:], []string{"--standalone", "--auto", "--session", session}) {
+		t.Fatalf("argv = %q", argv)
+	}
+}
+
+func TestOpencodeSupervisorLaunchedWithoutAStoredSessionStillGetsMessages(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	opencodeSupervisor(t, h, rt, func(int32) {})
+	h.ok("supervisor", "start", "--harness", "opencode")
+	if err := openStore(t, h).SetSupervisorSession(context.Background(), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
 }
 
 func TestSendReportsAPromptErrorWithNoCode(t *testing.T) {

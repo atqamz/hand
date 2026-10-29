@@ -226,7 +226,7 @@ func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
 	}
 	switch s.Harness {
 	case "opencode":
-		return []string{bin, "--standalone", "--auto", "--prompt", prompt}, nil
+		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
 		return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
 	case "agy":

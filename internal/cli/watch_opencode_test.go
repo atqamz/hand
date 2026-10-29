@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,7 +26,6 @@ type opencodeRig struct {
 	st     *state.Store
 	w      *watcher
 	a      state.Attempt
-	real   string
 	prompt string
 	now    time.Time
 	bin    string
@@ -36,7 +34,7 @@ type opencodeRig struct {
 	count  string
 }
 
-func newOpencodeRig(t *testing.T, supervisor, installed bool, launch ...string) *opencodeRig {
+func newOpencodeRig(t *testing.T, supervisor, installed bool, argv ...string) *opencodeRig {
 	t.Helper()
 	ctx := context.Background()
 	home, bin := t.TempDir(), t.TempDir()
@@ -60,16 +58,14 @@ func newOpencodeRig(t *testing.T, supervisor, installed bool, launch ...string) 
 		t.Fatal(err)
 	}
 	prompt := "Fix the login bug."
-	argvPrompt := append(launch, prompt)[0]
-	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "opencode", Argv: []string{"opencode", "--standalone", "--auto", "--prompt", argvPrompt}}, t.TempDir())
+	if len(argv) == 0 {
+		argv = []string{"opencode", "--standalone", "--auto", "--session", "ses_2", "--prompt", prompt}
+	}
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "opencode", Argv: argv}, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(a.Worktree, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	real, err := filepath.EvalSymlinks(a.Worktree)
-	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "1", PID: 1, StartMarker: "m"}); err != nil {
@@ -98,21 +94,17 @@ func newOpencodeRig(t *testing.T, supervisor, installed bool, launch ...string) 
 	}
 	vars := map[string]string{"PATH": path, "HOME": t.TempDir(), "XDG_DATA_HOME": data}
 	r := &runner{env: Env{Getenv: func(k string) string { return vars[k] }, Now: func() time.Time { return now }}, home: home, root: t.TempDir(), fleet: state.Fleet{ID: "f"}}
-	return &opencodeRig{t: t, st: st, w: &watcher{r: r, st: st}, a: a, real: real, prompt: prompt, now: now, bin: bin, db: db, count: filepath.Join(t.TempDir(), "count")}
+	return &opencodeRig{t: t, st: st, w: &watcher{r: r, st: st}, a: a, prompt: prompt, now: now, bin: bin, db: db, count: filepath.Join(t.TempDir(), "count")}
 }
 
-func (g *opencodeRig) install(export, list string) {
+func (g *opencodeRig) install(export string) {
 	g.t.Helper()
-	fakebin.Install(g.t, g.bin, "opencode", "ocexport", map[string]string{"export": export, "list": list, "api": g.api, "count": g.count})
+	fakebin.Install(g.t, g.bin, "opencode", "ocexport", map[string]string{"export": export, "ids": "ses_1,ses_2,ses_3", "api": g.api, "count": g.count})
 }
 
 func (g *opencodeRig) calls(kind string) int {
 	b, _ := os.ReadFile(g.count)
 	return strings.Count(string(b), kind+"\n")
-}
-
-func (g *opencodeRig) listed(dir string, created time.Time) string {
-	return fmt.Sprintf(`[{"id":"ses_2","created":%d,"directory":%q}]`, created.UnixMilli(), dir)
 }
 
 func (g *opencodeRig) sync() {
@@ -142,8 +134,7 @@ func TestWatcherCopiesTheOpencodeModelToTheSupervisorAndTheWorker(t *testing.T) 
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
 	user := strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1)
-	list := g.listed(g.real, g.now)
-	g.install(user, list)
+	g.install(user)
 	g.sync()
 	gotSup, _, _ := g.st.LiveSupervisor(ctx)
 	gotAtt := g.attempt()
@@ -153,9 +144,12 @@ func TestWatcherCopiesTheOpencodeModelToTheSupervisorAndTheWorker(t *testing.T) 
 	if n := g.changes(); n != 2 {
 		t.Fatalf("events = %d", n)
 	}
+	if g.calls("list") != 0 {
+		t.Fatalf("session list calls = %d", g.calls("list"))
+	}
 
 	switched := strings.ReplaceAll(user, `"variant":"default"`, `"variant":"high"`)
-	g.install(switched, list)
+	g.install(switched)
 	if err := os.Chtimes(g.db, g.now, g.now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -171,41 +165,42 @@ func TestWatcherCopiesTheOpencodeModelToTheSupervisorAndTheWorker(t *testing.T) 
 	}
 }
 
-func TestWatcherPicksNoWorkerSessionThatIsNotTheAttempts(t *testing.T) {
-	assistant := opencodeFixture(t, "opencode-assistant.json")
-	for name, c := range map[string]struct {
-		dir     func(g *opencodeRig) string
-		created time.Duration
-		prompt  string
-	}{
-		"another directory":  {dir: func(*opencodeRig) string { return t.TempDir() }, prompt: "Fix the login bug."},
-		"created before":     {dir: func(g *opencodeRig) string { return g.real }, created: -time.Hour, prompt: "Fix the login bug."},
-		"a different prompt": {dir: func(g *opencodeRig) string { return g.real }, prompt: "Write the docs."},
-	} {
-		t.Run(name, func(t *testing.T) {
-			g := newOpencodeRig(t, false, true)
-			user := strings.Replace(assistant, "Implement the change.", c.prompt, 1)
-			g.install(user, g.listed(c.dir(g), g.now.Add(c.created)))
-			g.sync()
-			if got := g.attempt(); got.Model != "" || g.changes() != 0 {
-				t.Fatalf("attempt model = %q, events = %d", got.Model, g.changes())
-			}
-		})
-	}
-}
-
-func TestWatcherFindsTheWorkerSessionBehindAQuotedPrompt(t *testing.T) {
-	g := newOpencodeRig(t, false, true, "\" \tFix the login bug.")
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+func TestWatcherReadsTheWorkerByItsStoredSessionId(t *testing.T) {
+	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--session", "ses_2", "--prompt", "--session")
+	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
 	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
 		t.Fatalf("attempt model = %q", got.Model)
+	}
+	if g.calls("list") != 0 {
+		t.Fatalf("session list calls = %d", g.calls("list"))
+	}
+}
+
+func TestWatcherReadsNothingByAWrongSessionId(t *testing.T) {
+	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--session", "ses_wrong", "--prompt", "x")
+	g.install(opencodeFixture(t, "opencode-assistant.json"))
+	g.sync()
+	if got := g.attempt(); got.Model != "" || g.changes() != 0 {
+		t.Fatalf("attempt model = %q, events = %d", got.Model, g.changes())
+	}
+}
+
+func TestWatcherSkipsAnAttemptLaunchedWithoutAStoredSessionId(t *testing.T) {
+	g := newOpencodeRig(t, false, true, "opencode", "--standalone", "--auto", "--prompt", "Fix the login bug.")
+	g.install(opencodeFixture(t, "opencode-assistant.json"))
+	g.sync()
+	if got := g.attempt(); got.Model != "" || g.changes() != 0 {
+		t.Fatalf("attempt model = %q, events = %d", got.Model, g.changes())
+	}
+	if g.calls("list") != 0 || g.calls("export") != 0 {
+		t.Fatalf("list = %d, export = %d", g.calls("list"), g.calls("export"))
 	}
 }
 
 func TestWatcherWritesNothingWhenOpencodeCannotExport(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
-	g.install("not json", g.listed(g.real, g.now))
+	g.install("not json")
 	g.sync()
 	if got := g.attempt(); got.Model != "" || g.changes() != 0 {
 		t.Fatalf("attempt model = %q, events = %d", got.Model, g.changes())
@@ -214,7 +209,7 @@ func TestWatcherWritesNothingWhenOpencodeCannotExport(t *testing.T) {
 
 func TestWatcherWritesNothingWithoutOpencode(t *testing.T) {
 	g := newOpencodeRig(t, true, false)
-	g.install(opencodeFixture(t, "opencode-assistant.json"), g.listed(g.real, g.now))
+	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
 	if got := g.attempt(); got.Model != "" || g.changes() != 0 {
 		t.Fatalf("attempt model = %q, events = %d", got.Model, g.changes())
@@ -223,76 +218,17 @@ func TestWatcherWritesNothingWithoutOpencode(t *testing.T) {
 
 func TestWatcherFallsBackToTheSessionModel(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
-	g.install(strings.Replace(opencodeFixture(t, "opencode-info-model.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.install(strings.Replace(opencodeFixture(t, "opencode-info-model.json"), "Implement the change.", g.prompt, 1))
 	g.sync()
 	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "" || g.changes() != 1 {
 		t.Fatalf("attempt = %q %q, events = %d", got.Model, got.Effort, g.changes())
 	}
 }
 
-func TestWatcherStopsLookingForAWorkerSession(t *testing.T) {
-	g := newOpencodeRig(t, false, true)
-	g.install(opencodeFixture(t, "opencode-assistant.json"), g.listed(g.real, g.now))
-	for range lookupSweeps {
-		g.sync()
-	}
-	if g.w.opencodeMisses[g.a.ID] != lookupSweeps {
-		t.Fatalf("misses = %d", g.w.opencodeMisses[g.a.ID])
-	}
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
-	g.sync()
-	if got := g.attempt(); got.Model != "" {
-		t.Fatalf("attempt model = %q after giving up", got.Model)
-	}
-}
-
-func TestWatcherFindsTheSessionOfAnOldAttemptOnAFreshWatcher(t *testing.T) {
-	g := newOpencodeRig(t, false, true)
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
-	later := g.now.Add(time.Hour)
-	g.w.r.env.Now = func() time.Time { return later }
-	g.sync()
-	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
-		t.Fatalf("attempt model = %q", got.Model)
-	}
-}
-
-func TestWatcherFindsASessionThatAppearsAfterEmptySweeps(t *testing.T) {
-	g := newOpencodeRig(t, false, true)
-	g.install(opencodeFixture(t, "opencode-assistant.json"), "[]")
-	for range lookupSweeps - 1 {
-		g.sync()
-	}
-	if g.w.opencodeMisses[g.a.ID] != lookupSweeps-1 {
-		t.Fatalf("misses = %d", g.w.opencodeMisses[g.a.ID])
-	}
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
-	g.sync()
-	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
-		t.Fatalf("attempt model = %q", got.Model)
-	}
-}
-
-func TestWatcherCountsNoMissWhenTheLookupFails(t *testing.T) {
-	g := newOpencodeRig(t, false, true)
-	for name, c := range map[string]struct{ export, list string }{
-		"list":   {opencodeFixture(t, "opencode-assistant.json"), "not json"},
-		"export": {"not json", g.listed(g.real, g.now)},
-	} {
-		g.install(c.export, c.list)
-		for range lookupSweeps + 1 {
-			g.sync()
-		}
-		if g.w.opencodeMisses[g.a.ID] != 0 {
-			t.Fatalf("%s: misses = %d", name, g.w.opencodeMisses[g.a.ID])
-		}
-	}
-}
-
 func TestWatcherForgetsTheTranscriptOfAChangedSupervisorSession(t *testing.T) {
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
-	g.install(opencodeFixture(t, "opencode-assistant.json"), g.listed(g.real, g.now))
+	g.install(opencodeFixture(t, "opencode-assistant.json"))
 	g.sync()
 	if g.w.transcripts.Status("opencode", "ses_1").Model == "" {
 		t.Fatal("status not read")
@@ -317,7 +253,7 @@ func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
 	ctx := context.Background()
 	g := newOpencodeRig(t, true, true)
 	g.api = `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"gpt-5","providerID":"openai","variant":"default"}},{"id":"ses_9","model":null}],"cursor":{}}`
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
 	for range 3 {
 		g.sync()
 	}
@@ -326,7 +262,7 @@ func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
 	if sup.Model != "openai/gpt-5" || sup.Effort != "high" || got.Model != "openai/gpt-5" || got.Effort != "" {
 		t.Fatalf("supervisor = %q %q, attempt = %q %q", sup.Model, sup.Effort, got.Model, got.Effort)
 	}
-	if g.calls("api") != 3 || g.calls("export") != 1 {
+	if g.calls("api") != 3 || g.calls("export") != 0 {
 		t.Fatalf("api = %d, export = %d", g.calls("api"), g.calls("export"))
 	}
 }
@@ -334,14 +270,14 @@ func TestWatcherReadsTheModelsFromOneApiCallPerSweep(t *testing.T) {
 func TestWatcherExportsASessionWithoutAnApiModelOnce(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_2","model":null}]}`
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
 	for range 3 {
 		g.sync()
 	}
 	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
 		t.Fatalf("attempt model = %q", got.Model)
 	}
-	if g.calls("export") != 2 {
+	if g.calls("export") != 1 {
 		t.Fatalf("export = %d", g.calls("export"))
 	}
 }
@@ -351,13 +287,12 @@ func TestWatcherReadsAnApiNullSessionAgainUntilTheExportHasAModel(t *testing.T) 
 	g.api = `{"data":[{"id":"ses_2","model":null}]}`
 	assistant := strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1)
 	userOnly := `{"info":{"id":"ses_2","model":null},"messages":[{"id":"msg_1","type":"user","time":{"created":1793260115879},"text":"` + g.prompt + `"}]}`
-	list := g.listed(g.real, g.now)
-	g.install(userOnly, list)
+	g.install(userOnly)
 	g.sync()
 	if got := g.attempt(); got.Model != "" {
 		t.Fatalf("attempt model = %q before a reply", got.Model)
 	}
-	g.install(assistant, list)
+	g.install(assistant)
 	if err := os.Chtimes(g.db, g.now, g.now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +305,7 @@ func TestWatcherReadsAnApiNullSessionAgainUntilTheExportHasAModel(t *testing.T) 
 func TestWatcherExportsASessionTheApiDoesNotList(t *testing.T) {
 	g := newOpencodeRig(t, false, true)
 	g.api = `{"data":[{"id":"ses_9","model":{"id":"gpt-5","providerID":"openai"}}]}`
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
 	g.sync()
 	if got := g.attempt(); got.Model != "anthropic/claude-sonnet-5-5" {
 		t.Fatalf("attempt model = %q", got.Model)
@@ -382,7 +317,7 @@ func TestWatcherFallsBackToTheExportWhenTheApiFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			g := newOpencodeRig(t, true, true)
 			g.api = api
-			g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+			g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
 			g.sync()
 			g.sync()
 			sup, _, _ := g.st.LiveSupervisor(context.Background())
@@ -396,7 +331,7 @@ func TestWatcherFallsBackToTheExportWhenTheApiFails(t *testing.T) {
 func TestWatcherForgetsTheTranscriptsOfEndedSessions(t *testing.T) {
 	ctx := context.Background()
 	g := newOpencodeRig(t, false, true)
-	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1), g.listed(g.real, g.now))
+	g.install(strings.Replace(opencodeFixture(t, "opencode-assistant.json"), "Implement the change.", g.prompt, 1))
 	g.sync()
 	if g.w.transcripts.Status("opencode", "ses_2").Model == "" {
 		t.Fatal("status not read")

@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 var (
 	uuidPattern    = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	sessionPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
+	opencodeID     = regexp.MustCompile(`^ses_hand[0-9a-f]{26}$`)
 )
 
 func SupervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
@@ -56,7 +56,10 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 		if s.Harness == "claude" && !uuidPattern.MatchString(session) {
 			return nil, fmt.Errorf("%w: a new claude supervisor needs a UUID session id, not %q", state.ErrInvalid, session)
 		}
-		if s.Harness != "claude" && session != "" {
+		if s.Harness == "opencode" && !opencodeID.MatchString(session) {
+			return nil, fmt.Errorf("%w: a new opencode supervisor needs a ses_hand session id, not %q", state.ErrInvalid, session)
+		}
+		if s.Harness != "claude" && s.Harness != "opencode" && session != "" {
 			return nil, fmt.Errorf("%w: %s picks its own session id; pass none", state.ErrInvalid, s.Harness)
 		}
 	}
@@ -101,7 +104,7 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 		if resume {
 			return []string{bin, "--standalone", "--auto", "--session", session}, nil
 		}
-		return []string{bin, "--standalone", "--auto", "--prompt", prompt}, nil
+		return []string{bin, "--standalone", "--auto", "--session", session, "--prompt", prompt}, nil
 	case "agy":
 		argv := []string{bin, "--model", s.Model, "--dangerously-skip-permissions"}
 		if resume {
@@ -177,6 +180,12 @@ func NewSessionID() string {
 	b[6] = b[6]&0x0f | 0x40
 	b[8] = b[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func NewOpencodeSessionID() string {
+	var b [13]byte
+	_, _ = rand.Read(b[:])
+	return fmt.Sprintf("ses_hand%x", b)
 }
 
 const promptScan = 1 << 20
@@ -283,74 +292,6 @@ func codexMeta(file string) (string, time.Time, string, error) {
 		return "", time.Time{}, "", nil
 	}
 	return line.Payload.ID, at, line.Payload.Cwd, nil
-}
-
-type opencodeSession struct {
-	ID        string `json:"id"`
-	Created   int64  `json:"created"`
-	Directory string `json:"directory"`
-}
-
-type opencodeMessage struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-	Info struct {
-		Role string `json:"role"`
-	} `json:"info"`
-	Parts []struct {
-		Text string `json:"text"`
-	} `json:"parts"`
-}
-
-func (m opencodeMessage) launches(marker string) bool {
-	if m.Type != "user" && m.Info.Role != "user" {
-		return false
-	}
-	if launches(m.Text, marker) {
-		return true
-	}
-	for _, p := range m.Parts {
-		if launches(p.Text, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func OpencodeSession(ctx context.Context, bin, dir string, since time.Time, marker string) (string, error) {
-	out, err := Opencode(ctx, bin, dir, "session", "list", "--standalone", "--format", "json")
-	if err != nil {
-		return "", err
-	}
-	var sessions []opencodeSession
-	if err := json.Unmarshal(out, &sessions); err != nil {
-		return "", fmt.Errorf("opencode session list: %w", err)
-	}
-	sessions = slices.DeleteFunc(sessions, func(s opencodeSession) bool {
-		return filepath.Clean(s.Directory) != filepath.Clean(dir) || s.Created < since.UnixMilli()
-	})
-	slices.SortFunc(sessions, func(a, b opencodeSession) int {
-		return int(a.Created - b.Created)
-	})
-	for _, s := range sessions {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		out, err := Opencode(ctx, bin, dir, "session", "export", "--standalone", s.ID)
-		if err != nil {
-			return "", err
-		}
-		var export struct {
-			Messages []opencodeMessage `json:"messages"`
-		}
-		if err := json.Unmarshal(out, &export); err != nil {
-			return "", fmt.Errorf("opencode session export: %w", err)
-		}
-		if slices.ContainsFunc(export.Messages, func(m opencodeMessage) bool { return m.launches(marker) }) {
-			return s.ID, nil
-		}
-	}
-	return "", nil
 }
 
 func Opencode(ctx context.Context, bin, dir string, args ...string) ([]byte, error) {

@@ -2,22 +2,10 @@ package cli
 
 import (
 	"context"
-	"errors"
-	"path/filepath"
-	"strings"
-	"time"
+	"slices"
 
-	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
-
-const (
-	promptPrefix = 200
-	lookupSweeps = 10
-)
-
-var errNoLookup = errors.New("cannot look up the opencode session")
 
 func (w *watcher) opencodeModels(ctx context.Context) {
 	if !w.opencodeBusy.CompareAndSwap(false, true) {
@@ -30,7 +18,6 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 		if w.transcripts == nil {
 			w.transcripts = &transcript.Reader{Paths: w.r.transcriptPaths()}
 			w.opencodeSessions = map[int64]string{}
-			w.opencodeMisses = map[int64]int{}
 			w.opencodeRead = map[string]bool{}
 		}
 		var listed map[string]transcript.ModelLabel
@@ -66,17 +53,14 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			if a.Harness != "opencode" || ctx.Err() != nil {
 				continue
 			}
-			id := w.opencodeSessions[a.ID]
-			if id == "" && w.opencodeMisses[a.ID] < lookupSweeps {
-				var err error
-				if id, err = w.workerSession(ctx, a); id == "" && err == nil {
-					w.opencodeMisses[a.ID]++
-				}
-				w.opencodeSessions[a.ID] = id
+			id := ""
+			if i := slices.Index(a.Argv, "--session"); i >= 0 && i+1 < len(a.Argv) {
+				id = a.Argv[i+1]
 			}
 			if id == "" {
 				continue
 			}
+			w.opencodeSessions[a.ID] = id
 			if model, effort := modelOf(id); model != "" && ctx.Err() == nil {
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
@@ -85,7 +69,6 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			if !running[id] {
 				w.forgetOpencode(session)
 				delete(w.opencodeSessions, id)
-				delete(w.opencodeMisses, id)
 			}
 		}
 	}()
@@ -108,18 +91,4 @@ func (w *watcher) opencodeModel(ctx context.Context, listed map[string]transcrip
 	}
 	s := w.transcripts.Status("opencode", session)
 	return s.Model, s.Effort
-}
-
-func (w *watcher) workerSession(ctx context.Context, a state.Attempt) (string, error) {
-	bin := w.r.transcriptPaths().Opencode
-	created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
-	if bin == "" || a.Worktree == "" || len(a.Argv) == 0 || err != nil {
-		return "", errNoLookup
-	}
-	dir := a.Worktree
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		dir = real
-	}
-	prompt := strings.TrimLeft(a.Argv[len(a.Argv)-1], "\" \t\r\n")
-	return harness.OpencodeSession(ctx, bin, dir, created.Truncate(time.Second), prompt[:min(len(prompt), promptPrefix)])
 }

@@ -1,9 +1,7 @@
 package harness
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,34 +16,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	fakebin.Main(map[string]func([]string) int{"lister": fakeListerMain, "opencode": fakeOpencodeMain, "echoargs": echoArgsMain, "npm": fakeNpmMain})
+	fakebin.Main(map[string]func([]string) int{"lister": fakeListerMain, "echoargs": echoArgsMain, "npm": fakeNpmMain})
 	os.Exit(m.Run())
-}
-
-func fakeOpencodeMain(args []string) int {
-	p := fakebin.Params()
-	switch a := strings.Join(args, " "); {
-	case held(args):
-	case a == "session list --standalone --format json":
-		hold()
-		b, err := os.ReadFile(p["list"])
-		if err != nil {
-			return 1
-		}
-		wd, _ := os.Getwd()
-		q, _ := json.Marshal(wd)
-		fmt.Print(strings.ReplaceAll(string(b), "/fleets/demo", string(q[1:len(q)-1])))
-	case strings.HasPrefix(a, "session export --standalone "):
-		out, ok := p[strings.TrimPrefix(a, "session export --standalone ")]
-		if !ok {
-			out = p["other"]
-		}
-		fmt.Println(out)
-	default:
-		fmt.Fprintln(os.Stderr, "bad args:", a)
-		return 1
-	}
-	return 0
 }
 
 func hold() {
@@ -259,7 +231,7 @@ func TestOpencodeStartsBare(t *testing.T) {
 
 func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
 	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it", "")
-	if err != nil || !slices.Equal(o, []string{"/usr/bin/opencode", "--standalone", "--auto", "--prompt", "fix it"}) {
+	if err != nil || len(o) != 7 || !slices.Equal(o[:4], []string{"/usr/bin/opencode", "--standalone", "--auto", "--session"}) || !opencodeID.MatchString(o[4]) || !slices.Equal(o[5:], []string{"--prompt", "fix it"}) {
 		t.Fatalf("opencode argv = %q, %v", o, err)
 	}
 	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it", ""); !errors.Is(err, state.ErrInvalid) {
