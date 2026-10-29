@@ -21,6 +21,7 @@ type Status struct {
 	Context, Window int64
 	Compactions     int
 	Selected, Used  string
+	Model, Effort   string
 }
 
 type Entry struct {

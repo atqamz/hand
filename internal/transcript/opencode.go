@@ -32,6 +32,9 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 		return err
 	}
 	var export struct {
+		Info struct {
+			Model *exportModel `json:"model"`
+		} `json:"info"`
 		Messages []exportMessage `json:"messages"`
 	}
 	if json.Unmarshal(out, &export) != nil || export.Messages == nil {
@@ -53,6 +56,9 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 				fresh.status.Compactions++
 			}
 		}
+		if role == "assistant" && m.Model != nil {
+			fresh.status.Model, fresh.status.Effort = m.Model.label()
+		}
 		if t := cmp.Or(m.Tokens, m.Info.Tokens); role == "assistant" && t != nil && t.Input+t.Cache.Read+t.Cache.Write > 0 {
 			fresh.status.Context = t.Input + t.Cache.Read + t.Cache.Write
 		}
@@ -69,8 +75,30 @@ func (r *Reader) opencode(ctx context.Context, s *session, id, dir string) error
 			}
 		}
 	}
+	if fresh.status.Model == "" && export.Info.Model != nil {
+		fresh.status.Model, fresh.status.Effort = export.Info.Model.label()
+	}
 	*s = fresh
 	return nil
+}
+
+type exportModel struct {
+	ID         string `json:"id"`
+	ProviderID string `json:"providerID"`
+	Variant    string `json:"variant"`
+}
+
+func (m exportModel) label() (model, effort string) {
+	if m.ID == "" {
+		return "", ""
+	}
+	if m.Variant != "default" {
+		effort = m.Variant
+	}
+	if m.ProviderID == "" {
+		return m.ID, effort
+	}
+	return m.ProviderID + "/" + m.ID, effort
 }
 
 type exportPart struct {
@@ -88,6 +116,7 @@ type exportMessage struct {
 	Finish  string        `json:"finish"`
 	Time    exportStamp   `json:"time"`
 	Tokens  *exportTokens `json:"tokens"`
+	Model   *exportModel  `json:"model"`
 	Content []exportPart  `json:"content"`
 	Info    struct {
 		Role   string        `json:"role"`
