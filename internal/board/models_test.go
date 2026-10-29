@@ -217,19 +217,19 @@ func TestTheSwitchMenuHasTheGroupedSelectAndTheEffortFollowsIt(t *testing.T) {
 	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := r.console(t)
 	menu := console[strings.Index(console, `id="model-menu"`):]
-	menu = menu[:strings.Index(menu, `<p class="field-label">`)]
+	menu = menu[:strings.Index(menu, "Switch the supervisor to another harness")]
 	contains(t, "switch menu", menu,
 		`<label>Model <select name="model"><option value="">keep sonnet</option><optgroup label="built-in">`,
 		`<optgroup label="custom, efforts unverified">`,
 		`data-unverified>Acme Opus · acme-opus</option>`,
-		`<label>Other model <input name="other" size="10" autocomplete="off"></label>`,
+		`<label class="other">Other model <input name="other" size="10" autocomplete="off"></label>`,
 		`<label>Effort <select name="effort"><option value="">keep low</option>`,
 		`<span class="unverified" hidden>efforts unverified</span>`)
 	if strings.Index(menu, `name="model"`) > strings.Index(menu, `name="other"`) || strings.Index(menu, `name="other"`) > strings.Index(menu, `name="effort"`) {
 		t.Fatalf("switch menu order:\n%s", menu)
 	}
-	others := console[strings.Index(console, `<p class="field-label">`):]
-	contains(t, "other harnesses", others, `<optgroup label="built-in">`, `<option value="gpt-6-sol" data-efforts="low ultra">`, `<option value="gemini-3.8-flash-low" data-efforts="">`)
+	others := console[strings.Index(console, "Switch the supervisor to another harness"):]
+	contains(t, "other harnesses", others, `<optgroup label="built-in">`, `<p class="harness-name">codex</p>`, `<label>Model <select name="model" aria-label="codex model">`, `<label>Effort <select name="effort" aria-label="codex effort">`, `<option value="gpt-6-sol" data-efforts="low ultra">`, `<option value="gemini-3.8-flash-low" data-efforts="">`)
 	lacks(t, "opencode switch row", startRow(t, console, "opencode"), "<select", "name=\"other\"")
 }
 

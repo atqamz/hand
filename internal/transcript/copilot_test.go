@@ -171,7 +171,10 @@ func TestCopilotReadsALargeFileWithoutLoadingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := int64(len(fixture)) + int64(len(filler))*chunks
-	var peak uint64
+	runtime.GC()
+	var base runtime.MemStats
+	runtime.ReadMemStats(&base)
+	peak := base.HeapInuse
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
@@ -197,7 +200,7 @@ func TestCopilotReadsALargeFileWithoutLoadingIt(t *testing.T) {
 	if off := r.logs["copilot:"+sessionUUID].offsets[path]; off != size {
 		t.Fatalf("offset = %d, want %d", off, size)
 	}
-	if peak > uint64(size)/8 {
-		t.Fatalf("heap peaked at %d bytes reading %d", peak, size)
+	if grown := int64(peak) - int64(base.HeapInuse); grown > size/8 {
+		t.Fatalf("heap grew %d bytes over %d reading %d", grown, base.HeapInuse, size)
 	}
 }

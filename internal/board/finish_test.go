@@ -243,8 +243,6 @@ func TestThePhoneConsoleWrapsInThePaneHeadAndTheModelMenuIsAGrid(t *testing.T) {
 	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".console{padding:8px 12px}.console>.pending{flex:1 1 100%}", ".console-box,.sup>.hint.read-only{margin:0 12px 12px}")
 	contains(t, "model menu", css,
 		".menu-body form{display:grid;gap:8px}",
-		".menu-body form:has(>input[name=harness]){grid-template-columns:repeat(2,minmax(max-content,1fr))}",
-		".menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}",
 		".field-label{margin:4px 0 0;")
 	contains(t, "panels", css, ".work:focus-visible{outline:0}", ".sup>.hint.read-only{margin:0 max(16px,calc((100% - 760px)/2)) 16px;")
 }

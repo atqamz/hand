@@ -368,13 +368,22 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 #more-menu .menu-body button,#more-menu .menu-body a{display:flex;align-items:center;justify-content:flex-start;width:100%;height:var(--control);padding:0 12px;border:0;border-radius:var(--r-sm);background:none;font-weight:400;text-align:left;white-space:nowrap}
 #more-menu .menu-body button:hover,#more-menu .menu-body a:hover{background:var(--hover);text-decoration:none}
 .menu-body form{display:grid;gap:8px}
-.menu-body form:has(>input[name=harness]){grid-template-columns:repeat(2,minmax(max-content,1fr))}
-.menu-body form:has(>input[name=harness])>button,.menu-body form>select:only-of-type{grid-column:1/-1}
 .menu-body label{display:grid;gap:2px;font-size:12px;font-weight:600;color:var(--muted)}
 .filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}
 .menu-body label input{font-weight:400;width:100%;min-width:0}
 #model-menu .menu-body{width:min(300px,calc(100vw - 24px))}
 #model-menu .menu-body form select{width:0;min-width:100%}
+#model-menu .menu-body form{padding-top:12px;border-top:1px solid var(--line)}
+#model-menu .menu-body>.field-label{margin-top:8px}
+#model-menu .menu-body>.field-label+form{padding-top:0;border-top:0}
+#model-menu .now{display:grid;gap:4px}
+#model-menu .now dl{display:grid;gap:2px;margin:0}
+#model-menu .now dl>div{display:grid;grid-template-columns:4.5em minmax(0,1fr);gap:8px}
+#model-menu dt{color:var(--muted);font-size:12px;font-weight:600}
+#model-menu dd{margin:0;font-size:14px;overflow-wrap:anywhere}
+#model-menu .harness-name{margin:0;font-size:14px;font-weight:600}
+#model-menu .menu-body label.other{font-weight:400}
+@supports (appearance:base-select){#model-menu select,#model-menu select::picker(select){appearance:base-select}#model-menu select{display:flex;align-items:center;height:auto;min-height:var(--control);padding-block:5px;line-height:20px}#model-menu select::picker-icon{color:var(--muted);font-size:12px}#model-menu select selectedcontent,#model-menu option{white-space:normal;overflow-wrap:anywhere}}
 .filters{display:grid;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
 .filters .find{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .filters .refine{display:flex;flex-wrap:wrap;gap:8px}
