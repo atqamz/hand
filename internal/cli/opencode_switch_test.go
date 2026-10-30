@@ -13,6 +13,7 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -420,5 +421,31 @@ func TestTheBoardSaysWhereToSwitchBackFrom(t *testing.T) {
 	has(t, "switch", out, "Switch back to local/m1 fast from the model menu")
 	if strings.Contains(out, "hand supervisor switch") {
 		t.Fatalf("switch = %q", out)
+	}
+}
+
+func TestAFailedPaneAfterASuccessfulSwitchPutsTheSessionBackOnTheOldModel(t *testing.T) {
+	h, rt, o, session := runningOpencode(t, nil, "--model", "local/m1")
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	if _, _, code := h.run("supervisor", "switch", "--model", "local/m2"); code == 0 {
+		t.Fatal("the switch did not fail")
+	}
+	want := []string{"stop", "switch " + session + ` {"model":{"providerID":"local","id":"m2"}}`, "switch " + session + ` {"model":{"providerID":"local","id":"m1"}}`}
+	if got := afterStart(o, 2); !slices.Equal(got, want) {
+		t.Fatalf("events after the start = %q, want %q", got, want)
+	}
+}
+
+func TestAResumeNoteThatCouldNotBeSentHoldsNothing(t *testing.T) {
+	h, rt, _, _ := runningOpencode(t, nil, "--model", "local/m1")
+	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "agent_not_ready", Message: "not at a prompt"}
+	})
+	out := h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "switch", out, "switch: applied", "could not send the resume note")
+	if _, ok, err := openStore(t, h).LatestEvent(context.Background(), "supervisor.blocked"); ok || err != nil {
+		t.Fatalf("blocked = %v, %v", ok, err)
 	}
 }

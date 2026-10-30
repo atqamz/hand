@@ -250,13 +250,23 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if err != nil {
 		return state.Supervisor{}, err
 	}
+	applied := false
+	revert := func() {
+		if applied && last.Model != "" {
+			_ = detached(ctx, func(ctx context.Context) error {
+				return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, lastSpec(last))
+			})
+		}
+	}
 	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
 		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
 			return state.Supervisor{}, err
 		}
+		applied = true
 	}
 	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", r.home, true)
 	if err != nil {
+		revert()
 		return state.Supervisor{}, err
 	}
 	row := spec
@@ -265,24 +275,38 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	}
 	r.noteLost = ""
 	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: row.Harness, Model: row.Model, Effort: row.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
+	if err != nil && !errors.Is(err, errLaunchUnknown) {
+		revert()
+	}
 	if err == nil {
 		waitSettled(ctx, c, sup.PaneID)
 		if origin, oerr := st.SupervisorOrigin(ctx, sup); oerr == nil {
 			note := "[hand v1 resume] you are now " + state.SupervisorRef(sup.ID) + " (resumes " + state.SupervisorRef(origin) + ")"
-			_ = detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
+			sent := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
 			if spec.Harness == "opencode" {
-				switch taken, read := noteTaken(ctx, opencodeLastUser(r.home, argv), note); {
-				case !read:
-					r.warn("could not check that opencode took the resume note")
-				case !taken:
-					r.noteLost = state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
-					r.warn(r.noteLost)
-					_ = st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost)
-				}
+				r.checkNote(ctx, st, sup, argv, note, sent, last, spec)
 			}
 		}
 	}
 	return sup, err
+}
+
+func (r *runner) checkNote(ctx context.Context, st *state.Store, sup state.Supervisor, argv []string, note string, sent error, last state.Supervisor, spec harness.Spec) {
+	if sent != nil {
+		r.warn("could not send the resume note: " + sent.Error())
+		return
+	}
+	taken, read := noteTaken(ctx, opencodeLastUser(r.home, argv), note)
+	switch {
+	case !read:
+		r.warn("could not check that opencode took the resume note")
+	case !taken:
+		r.noteLost = state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
+		r.warn(r.noteLost)
+		if err := detached(ctx, func(ctx context.Context) error { return st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost) }); err != nil {
+			r.warn("could not record the hold: " + err.Error())
+		}
+	}
 }
 
 func (r *runner) lostNoteAction(last state.Supervisor, spec harness.Spec) string {
