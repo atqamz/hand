@@ -1269,3 +1269,19 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 		t.Fatalf("the block left the timeline: %q", out)
 	}
 }
+
+func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.startCopilot()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	note := `copilot does not have model "x" and runs on auto instead; check the screen`
+	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "blocked", note); err != nil {
+		t.Fatal(err)
+	}
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	time.Sleep(1500 * time.Millisecond)
+	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running blocked: ") {
+		t.Fatalf("orient = %q", out)
+	}
+}

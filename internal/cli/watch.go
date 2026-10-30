@@ -503,9 +503,9 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		switch {
 		case (last == "attempt.quiet" || last == "attempt.idle" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
-		case last == "attempt.blocked":
+		case last == "attempt.blocked" && (ag.Status != "working" || harness.Prefills(a.Harness)):
 			prev = "blocked"
-		case last == "attempt.long", last == "attempt.working":
+		case last == "attempt.long", last == "attempt.working", last == "attempt.blocked":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
@@ -533,7 +533,7 @@ func (w *watcher) unblock(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		return err
 	}
 	for _, a := range live {
-		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" || !harness.Prefills(a.Harness) {
 			continue
 		}
 		last, err := w.st.LastAttemptEvent(ctx, a.ID)
