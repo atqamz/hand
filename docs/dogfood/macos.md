@@ -337,9 +337,9 @@ If it fails: file the output above, and `tail -30 $D/fleet/watch.log` if it exis
 - **Proves:** the Start codex or agy row, and the Start opencode row.
 - **Run:** agent, once per harness. Skip a harness that is not installed, or that you have no account for, with the reason.
 - **Real sessions:** 1 for each harness that runs.
-- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For agy, `agy models` must list models. opencode uses the model from its own configuration.
+- **Preconditions:** `M0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For agy, `agy models` must list models. For opencode, `opencode models` must list a model that has a variant (a name under that model's `variants` in opencode's configuration): take `<provider/id>` and `<variant>` from them, because `hand route list` shows no variants.
 
-Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the cheapest row of `hand route list` under `models`; opencode takes no model and no effort here):
+Steps (repeat for each harness, with its own `H`, `MODEL` and `EFFORT` from the cheapest row of `hand route list` under `models`; opencode takes its own `<provider/id>` as the model and its `<variant>` as the effort):
 
 **1.** List what is valid for you, and pick the cheapest model and effort:
 
@@ -367,7 +367,7 @@ A=$(hand attempt start --harness $H --model $MODEL --effort $EFFORT --prompt-fil
 echo "export T=$T A=$A" >> $D/vars.sh
 ```
 
-For agy, leave out `--effort`. For opencode: `hand attempt start --harness opencode --prompt-file $D/brief.md $T`.
+For agy, leave out `--effort`. For opencode: `A=$(hand attempt start --harness opencode --model <provider/id> --effort <variant> --prompt-file $D/brief.md $T | sed -n 's/^attempt: //p')`, then `hand attempt read $A` straight away: its footer must show the model's name and the variant (`<model name> · <variant>`). A footer without the variant, or `(unavailable)`, is a failure.
 
 **3.** Wait up to eight minutes for the report, then read it:
 

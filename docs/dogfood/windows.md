@@ -310,7 +310,7 @@ If it fails: file the output above. File the Git Bash half as its own issue (`W3
 - **Real sessions:** 1 for each harness that runs, and 1 more for codex (its supervisor, step 6).
 - **Preconditions:** `W0` passed. Run `hand supervisor stop` first. Run `hand models --refresh` first, so that each harness's model list exists. For codex, use the standalone install (see [Windows](../install.md#windows)): `Get-Command codex -All` must list a `codex.exe` before any `codex.cmd`, and `codex --version` prints the version. For codex, either run `codex` once in the `demo` repository (`$D\repo`) and choose Trust, which removes the prompt entirely and makes Hand print `trust: not asked`, or leave it untrusted, and Hand presses Codex's trust screen itself: `trust: accepted` and a `trusted:` line naming the worktree and `$D\repo`. Both pass; say which one you ran in the evidence. Either way Codex keeps the trust of `$D\repo` in your real `$env:CODEX_HOME\config.toml` (`~\.codex\config.toml` by default); that is harmless and is not edited here. For agy, `agy models` must list models. opencode uses the model from its own configuration. Say what `Get-Command codex -All` and `codex --version` print in the evidence.
 
-Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`):
+Steps (repeat for each harness, with its own `$h`, `$model` and `$effort` from the cheapest row of `hand route list` under `models`; for opencode, `$model` is a `<provider/id>` from `opencode models` and `$effort` is a variant name of that model from opencode's configuration, because `hand route list` shows no variants):
 
 **1.** List what is valid for you, and pick the cheapest model and effort:
 
@@ -339,7 +339,7 @@ $a = (hand attempt start --harness $h --model $model --effort $effort --prompt-f
 Add-Content "$D\vars.ps1" "`$t = '$t'`n`$a = '$a'"
 ```
 
-For agy, leave out `--effort`. For opencode: `hand attempt start --harness opencode --prompt-file "$D\brief.md" $t`.
+For agy, leave out `--effort`. For opencode, the same start with its `$model` and `$effort` (`hand attempt start --harness opencode --model $model --effort $effort --prompt-file "$D\brief.md" $t`), then `hand attempt read $a` straight away: its footer must show the model's name and the variant (`<model name> · <variant>`). A footer without the variant, or `(unavailable)`, is a failure.
 
 **3.** Wait up to eight minutes for the report, then read it:
 
