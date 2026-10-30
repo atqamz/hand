@@ -19,7 +19,7 @@ const (
 )
 
 func wakeEvents(ctx context.Context, st *state.Store, after int64) ([]state.Event, error) {
-	events, err := st.EventsAfter(ctx, after, wakeKinds, wakeBatch)
+	events, err := st.WakeEventsAfter(ctx, after, wakeKinds, wakeBatch)
 	if err != nil || len(events) == wakeBatch || slices.ContainsFunc(events, wakes) {
 		return events, err
 	}

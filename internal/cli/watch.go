@@ -569,7 +569,11 @@ func (w *watcher) longTurns(ctx context.Context) error {
 		if t.long || w.r.env.Now().Sub(t.since) < longTurn {
 			continue
 		}
-		if err := w.st.NoteAttempt(ctx, id, "long", longDetail); err != nil {
+		err := w.st.NoteAttempt(ctx, id, "long", longDetail)
+		if errors.Is(err, state.ErrConflict) {
+			continue
+		}
+		if err != nil {
 			return err
 		}
 		t.long = true
@@ -603,14 +607,20 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	switch status {
 	case "working":
 		if prev == "blocked" {
-			return w.st.NoteAttempt(ctx, a.ID, "working", "")
+			if err := w.st.NoteAttempt(ctx, a.ID, "working", ""); !errors.Is(err, state.ErrConflict) {
+				return err
+			}
 		}
 	case "blocked":
 		detail := ""
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
 			detail = ag.Hint
 		}
-		if err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail); err != nil {
+		err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail)
+		if errors.Is(err, state.ErrConflict) {
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 		w.alert(ctx, "attempt.blocked", ref, ref+" blocked: "+detail)
@@ -629,7 +639,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				return err
 			}
 			if shown(seen) != shown(line) {
-				if err := w.st.NoteAttempt(ctx, a.ID, "limited", line); err != nil {
+				err := w.st.NoteAttempt(ctx, a.ID, "limited", line)
+				if errors.Is(err, state.ErrConflict) {
+					return nil
+				}
+				if err != nil {
 					return err
 				}
 				w.alert(ctx, "attempt.limited", ref, ref+" limited: "+line)
@@ -638,6 +652,9 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		}
 		apiError, _ := harness.APIError(a.Harness, s.Text)
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
+		if errors.Is(err, state.ErrConflict) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

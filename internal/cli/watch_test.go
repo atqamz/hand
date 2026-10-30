@@ -1219,3 +1219,20 @@ func TestWatchRecordsAnAPIErrorTurnAsQuiet(t *testing.T) {
 		t.Fatalf("wait = %q", got)
 	}
 }
+
+func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	fx.h.ok("attempt", "stop", "a1")
+	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(out, "attempt.") {
+		t.Fatalf("a stopped attempt's block still wakes: %q", out)
+	}
+	if out := fx.h.ok("orient"); !strings.Contains(out, "attempt.blocked") {
+		t.Fatalf("the block left the timeline: %q", out)
+	}
+}

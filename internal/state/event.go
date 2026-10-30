@@ -216,10 +216,22 @@ func (s *Store) LastEventSeq(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) EventsAfter(ctx context.Context, after int64, kinds []string, limit int) ([]Event, error) {
+	return s.eventsAfter(ctx, ``, after, kinds, limit)
+}
+
+const staleWake = ` AND NOT EXISTS (SELECT 1 FROM attempt a WHERE kind LIKE 'attempt.%' AND detail LIKE 'a%' AND a.id = CAST(substr(detail, 2) AS INTEGER) AND (
+	kind IN ('attempt.blocked', 'attempt.quiet', 'attempt.limited', 'attempt.long') AND a.status NOT IN ('launching', 'running')
+	OR kind IN ('attempt.exited', 'attempt.interrupted', 'attempt.failed') AND a.cleaned_at != ''))`
+
+func (s *Store) WakeEventsAfter(ctx context.Context, after int64, kinds []string, limit int) ([]Event, error) {
+	return s.eventsAfter(ctx, staleWake, after, kinds, limit)
+}
+
+func (s *Store) eventsAfter(ctx context.Context, where string, after int64, kinds []string, limit int) ([]Event, error) {
 	if limit < 1 {
 		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
 	}
-	q, args := `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ?`, []any{after}
+	q, args := `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ?`+where, []any{after}
 	if len(kinds) > 0 {
 		q += ` AND kind IN (` + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)`
 		for _, k := range kinds {

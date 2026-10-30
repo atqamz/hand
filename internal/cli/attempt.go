@@ -154,7 +154,12 @@ func cmdAttemptStart(r *runner, args []string) error {
 			marker: reportMarker, thing: "briefing", who: "agent", model: running.Model, repos: repoRoots(project.Repo),
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
 			submitted: opencodeSubmitted(r.home, running.Argv),
-		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
+		}, func(kind, detail string) error {
+			if err := st.NoteAttempt(ctx, running.ID, kind, detail); !errors.Is(err, state.ErrConflict) {
+				return err
+			}
+			return nil
+		})
 		if err != nil {
 			return err
 		}

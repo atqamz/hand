@@ -238,6 +238,9 @@ func (s *Store) RecordQuiet(ctx context.Context, attemptID int64, apiError strin
 		if err != nil {
 			return err
 		}
+		if !a.Live() {
+			return fmt.Errorf("%w: attempt %s is %s", ErrConflict, AttemptRef(attemptID), a.Status)
+		}
 		prefix := AttemptRef(attemptID) + ": %"
 		var id int64
 		var status string

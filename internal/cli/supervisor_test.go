@@ -458,7 +458,7 @@ func TestPendingMessagesSurviveAnInterruptedSupervisor(t *testing.T) {
 	eventually(t, func() bool { return explains(fx.rt) > n })
 	stop()
 	got := fx.rt.prompts()
-	if len(got) != 4 || got[1] != "first" || got[2] != "second" || !strings.HasPrefix(got[3], "[hand v1 wake]\n") || !strings.Contains(got[3], "attempt.blocked a1: its screen waits for a key") {
+	if len(got) != 4 || got[1] != "first" || got[2] != "second" || !strings.HasPrefix(got[3], "[hand v1 wake]\n") || !strings.Contains(got[3], "attempt.interrupted a1: luvus server restarted") || strings.Contains(got[3], "attempt.blocked") {
 		t.Fatalf("prompts = %q", got)
 	}
 }
