@@ -2,17 +2,24 @@ package cli_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 )
 
 func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*harness, *fakeRuntime, *opencodeRig, string) {
 	t.Helper()
 	h, rt := newSupervisorFixture(t)
-	params := map[string]string{"models": "local/m1\nlocal/m2\n"}
+	wait := *cli.NoteWait
+	*cli.NoteWait = time.Second
+	t.Cleanup(func() { *cli.NoteWait = wait })
+	params := map[string]string{"models": "local/m1\nlocal/m2\n", "msgs": filepath.Join(t.TempDir(), "msgs")}
 	for k, v := range extra {
 		params[k] = v
 	}
@@ -109,7 +116,7 @@ func TestOpencodeSwitchFailureLeavesTheSupervisorStoppedWithTheResumeHint(t *tes
 	} {
 		h, _, o, session := runningOpencode(t, tc.extra, "--model", "local/m1")
 		_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
-		if code == 0 || !strings.Contains(errOut, tc.want) || !strings.Contains(errOut, "s1 stopped for the switch to local/m2 deep, continue it with `hand supervisor resume`") {
+		if code == 0 || !strings.Contains(errOut, tc.want) || !strings.Contains(errOut, "s1 stopped for the switch to local/m2 deep, continue it with `hand supervisor resume`, or drop the switch: `hand supervisor switch --cancel`") {
 			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
 		}
 		if strings.Contains(errOut, " : ") || !strings.Contains(errOut, "switching opencode session "+session) {
@@ -151,4 +158,102 @@ func TestSwitchingFromClaudeToOpencodeStartsAFreshSession(t *testing.T) {
 	if body.Model.ProviderID != "local" || body.Model.ID != "m2" || body.Model.Variant == nil || *body.Model.Variant != "deep" {
 		t.Fatalf("body = %+v", body)
 	}
+}
+
+func TestOpencodeSwitchToAnotherModelSendsNoVariantAndDefaultIsNotStored(t *testing.T) {
+	h, _, o, session := runningOpencode(t, nil, "--model", "local/m2", "--effort", "fast")
+	out := h.ok("supervisor", "switch", "--model", "local/m1")
+	has(t, "switch", out, "switch: applied", "model: local/m1")
+	if strings.Contains(out, "effort:") {
+		t.Fatalf("switch = %q", out)
+	}
+	if got := afterStart(o, 2); len(got) != 3 || got[1] != "switch "+session+` {"model":{"providerID":"local","id":"m1"}}` {
+		t.Fatalf("events after the start = %q", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m1\n")
+	has(t, "default", h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "default"), "switch: applied", "model: local/m2")
+	if got := afterStart(o, 5); len(got) != 3 || got[1] != "switch "+session+` {"model":{"providerID":"local","id":"m2","variant":"default"}}` {
+		t.Fatalf("events after the second switch = %q", got)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m2\n")
+	if _, errOut, code := h.run("supervisor", "switch", "--effort", "default"); code != 3 || !strings.Contains(errOut, "already runs") {
+		t.Fatalf("default on a model with no variant: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestOpencodeSwitchRefusesAModelOpencodeDoesNotList(t *testing.T) {
+	h, _, o, _ := runningOpencode(t, nil, "--model", "local/m1")
+	_, errOut, code := h.run("supervisor", "switch", "--model", "nope/x")
+	if code != 2 || !strings.Contains(errOut, "opencode model nope/x is not in `opencode models`") || strings.Contains(errOut, "starting anyway") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if len(o.events()) != 2 {
+		t.Fatalf("events = %q", o.events())
+	}
+	has(t, "show", h.ok("supervisor", "show"), "supervisor: s1", "status: running")
+}
+
+func TestOpencodeSwitchRefreshesTheModelListOnceBeforeRefusing(t *testing.T) {
+	more := filepath.Join(t.TempDir(), "more")
+	h, _, o, session := runningOpencode(t, map[string]string{"more": more}, "--model", "local/m1")
+	if err := os.WriteFile(more, []byte("late/m9\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := h.ok("supervisor", "switch", "--model", "late/m9")
+	has(t, "switch", out, "switch: applied", "model: late/m9")
+	if strings.Contains(out, "warn:") {
+		t.Fatalf("switch = %q", out)
+	}
+	if got := afterStart(o, 2); len(got) != 3 || got[1] != "switch "+session+` {"model":{"providerID":"late","id":"m9"}}` {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
+func TestOpencodeSwitchSaysWhenTheNewModelDoesNotTakeTheResumeNote(t *testing.T) {
+	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
+	out := h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
+	has(t, "switch", out, "supervisor: s2", `switch: "applied, but opencode did not take the resume note: is local/m2 available?"`)
+	if strings.Contains(out, "switch: applied\n") || strings.Contains(out, "warn:") {
+		t.Fatalf("switch = %q", out)
+	}
+}
+
+func TestOpencodeSwitchFailureCanBeDroppedAndTheSupervisorResumesOnItsOldModel(t *testing.T) {
+	h, rt, o, session := runningOpencode(t, map[string]string{"swdie": "database is locked"}, "--model", "local/m1", "--effort", "fast")
+	if _, _, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep"); code == 0 {
+		t.Fatal("the switch did not fail")
+	}
+	_, errOut, code := h.run("supervisor", "resume")
+	if code == 0 || !strings.Contains(errOut, "or drop the switch to local/m2 deep: `hand supervisor switch --cancel`") {
+		t.Fatalf("resume code=%d stderr=%q", code, errOut)
+	}
+	has(t, "cancel", h.ok("supervisor", "switch", "--cancel"), "supervisor: s1", "switch: canceled")
+	if _, _, code := h.run("supervisor", "switch", "--cancel"); code != 3 {
+		t.Fatalf("second cancel code = %d", code)
+	}
+	before := len(o.events())
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+session)
+	if got := o.events()[before:]; !slices.Equal(got, []string{"pane"}) {
+		t.Fatalf("events after the resume = %q", got)
+	}
+	argv := rt.lastCreate().Command
+	if !slices.Equal(argv[1:], []string{"--standalone", "--auto", "--session", session}) {
+		t.Fatalf("resume argv = %q", argv)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m1 fast")
+}
+
+func TestOpencodeResumeRetriesAFailedSwitchAndSucceeds(t *testing.T) {
+	once := filepath.Join(t.TempDir(), "once")
+	h, _, o, session := runningOpencode(t, map[string]string{"swonce": once}, "--model", "local/m1")
+	if _, errOut, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep"); code == 0 || !strings.Contains(errOut, "database is locked") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2")
+	body := `{"model":{"providerID":"local","id":"m2","variant":"deep"}}`
+	want := []string{"stop", "switch " + session + " " + body, "switch " + session + " " + body, "pane"}
+	if got := afterStart(o, 2); !slices.Equal(got, want) {
+		t.Fatalf("events after the start = %q, want %q", got, want)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m2 deep")
 }

@@ -43,6 +43,10 @@ func (s Supervisor) Live() bool { return s.Status == AttemptLaunching || s.Statu
 
 func (s Supervisor) Switching() bool { return s.SwitchModel != "" }
 
+func (s Supervisor) SwitchText() string {
+	return strings.Join(strings.Fields(s.SwitchModel+" "+s.SwitchEffort), " ")
+}
+
 func (s Supervisor) Managed(generation string) bool {
 	return s.Status == AttemptRunning && s.ServerGeneration == generation
 }
@@ -179,18 +183,18 @@ func (s *Store) setSwitch(ctx context.Context, id int64, model, effort string) (
 			return err
 		}
 		ref := SupervisorRef(id)
-		detail := ref + ": to " + model + " " + effort
+		detail := ref + ": to " + strings.Join(strings.Fields(model+" "+effort), " ")
 		switch {
 		case model != "" && strings.TrimSpace(effort) == "" && sup.Harness != "opencode":
 			return fmt.Errorf("%w: a switch needs a model and an effort", ErrInvalid)
-		case sup.Status != AttemptRunning:
+		case sup.Status != AttemptRunning && (model != "" || sup.Live()):
 			return fmt.Errorf("%w: supervisor %s is %s; only a running one can switch", ErrConflict, ref, sup.Status)
 		case model == "" && !sup.Switching():
 			return fmt.Errorf("%w: supervisor %s has no pending switch", ErrConflict, ref)
 		case model == "":
 			detail = ref + ": canceled"
 		case sup.Switching():
-			return fmt.Errorf("%w: a switch to %s %s is already pending; cancel it with `hand supervisor switch --cancel`", ErrConflict, sup.SwitchModel, sup.SwitchEffort)
+			return fmt.Errorf("%w: a switch to %s is already pending; cancel it with `hand supervisor switch --cancel`", ErrConflict, sup.SwitchText())
 		}
 		if _, err := tx.Exec(`UPDATE supervisor SET switch_model = ?, switch_effort = ? WHERE id = ?`, model, effort, id); err != nil {
 			return err

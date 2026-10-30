@@ -234,6 +234,28 @@ func TestAnOpencodeSwitchNeedsNoVariant(t *testing.T) {
 	}
 }
 
+func TestAPendingSwitchCanBeCanceledOnAnEndedSupervisor(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup := runningSupervisor(t, s)
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndSupervisor(ctx, sup.ID, AttemptStopped, "switched"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.CancelSupervisorSwitch(ctx, sup.ID)
+	if err != nil || got.Switching() {
+		t.Fatalf("cancel = %+v, %v", got, err)
+	}
+	if _, err := s.CancelSupervisorSwitch(ctx, sup.ID); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second cancel = %v", err)
+	}
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "opus", "high"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("switch on a stopped supervisor = %v", err)
+	}
+}
+
 func TestASupervisorStartsWithoutASwitch(t *testing.T) {
 	s, _ := openTest(t)
 	if sup := runningSupervisor(t, s); sup.Switching() {

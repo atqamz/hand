@@ -64,6 +64,11 @@ func ocexportMain(args []string) int {
 	return 0
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func ocapiMain(args []string) int {
 	p := fakebin.Params()
 	switch {
@@ -71,6 +76,9 @@ func ocapiMain(args []string) int {
 		fmt.Println("opencode 9.9")
 	case len(args) > 0 && args[0] == "models":
 		fmt.Print(p["models"])
+		if b, err := os.ReadFile(p["more"]); err == nil {
+			fmt.Print(string(b))
+		}
 	case len(args) > 4 && args[0] == "api" && args[2] == "session.create":
 		fakebin.Append(p["log"], "create "+args[4])
 		if p["die"] != "" {
@@ -96,10 +104,23 @@ func ocapiMain(args []string) int {
 		}
 		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
 	case len(args) > 2 && args[0] == "api" && args[2] == "session.message.list":
-		fmt.Print(`{"data":[]}`)
+		if p["msgs"] == "" {
+			fmt.Print(`{"data":[]}`)
+			return 0
+		}
+		fakebin.Append(p["msgs"], "list")
+		n := 1
+		if b, err := os.ReadFile(p["msgs"]); err == nil && p["lost"] == "" {
+			n = strings.Count(string(b), "\n")
+		}
+		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user"}]}`, n)
 	case len(args) > 6 && args[0] == "api" && args[2] == "session.switchModel":
 		fakebin.Append(p["log"], "switch "+strings.TrimPrefix(args[4], "sessionID=")+" "+args[6])
 		switch {
+		case p["swonce"] != "" && !fileExists(p["swonce"]):
+			fakebin.Append(p["swonce"], "failed")
+			fmt.Fprintln(os.Stderr, "database is locked")
+			return 1
 		case p["swdie"] != "":
 			fmt.Fprintln(os.Stderr, p["swdie"])
 			return 1

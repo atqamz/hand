@@ -156,17 +156,27 @@ func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale
 }
 
 func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {
+	_, any, err := OpencodeLastUser(ctx, bin, dir, session)
+	return any, err
+}
+
+func OpencodeLastUser(ctx context.Context, bin, dir, session string) (string, bool, error) {
 	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "session.message.list", "--param", "sessionID="+session, "--param", "type=user", "--param", "limit=1")
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	var list struct {
-		Data []json.RawMessage `json:"data"`
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
 	}
 	if json.Unmarshal(out, &list) != nil || list.Data == nil {
-		return false, ErrUnreadable
+		return "", false, ErrUnreadable
 	}
-	return len(list.Data) > 0, nil
+	if len(list.Data) == 0 {
+		return "", false, nil
+	}
+	return list.Data[0].ID, true, nil
 }
 
 func (m exportModel) label() (model, effort string) {
