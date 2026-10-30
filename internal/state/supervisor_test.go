@@ -215,6 +215,25 @@ func TestASwitchNeedsARunningSupervisor(t *testing.T) {
 	}
 }
 
+func TestAnOpencodeSwitchNeedsNoVariant(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup, err := s.AddSupervisor(ctx, SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SupervisorRunning(ctx, sup.ID, Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "p", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.SetSupervisorSwitch(ctx, sup.ID, "local/m2", "")
+	if err != nil || got.SwitchModel != "local/m2" || got.SwitchEffort != "" || !got.Switching() {
+		t.Fatalf("switch = %+v, %v", got, err)
+	}
+	if _, err := s.SetSupervisorSwitch(ctx, sup.ID, "", ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty model = %v", err)
+	}
+}
+
 func TestASupervisorStartsWithoutASwitch(t *testing.T) {
 	s, _ := openTest(t)
 	if sup := runningSupervisor(t, s); sup.Switching() {

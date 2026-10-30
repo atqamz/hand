@@ -231,6 +231,11 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if err != nil {
 		return state.Supervisor{}, err
 	}
+	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
+		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
+			return state.Supervisor{}, err
+		}
+	}
 	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", r.home, true)
 	if err != nil {
 		return state.Supervisor{}, err
@@ -314,9 +319,6 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		if routed.Harness != "" && routed.Harness != sup.Harness {
 			return r.switchHarness(ctx, st, c, routed)
-		}
-		if sup.Harness == "opencode" {
-			return fmt.Errorf("%w: opencode keeps its model in the session; switching is not supported", state.ErrInvalid)
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {

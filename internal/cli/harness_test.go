@@ -97,6 +97,18 @@ func ocapiMain(args []string) int {
 		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
 	case len(args) > 2 && args[0] == "api" && args[2] == "session.message.list":
 		fmt.Print(`{"data":[]}`)
+	case len(args) > 6 && args[0] == "api" && args[2] == "session.switchModel":
+		fakebin.Append(p["log"], "switch "+strings.TrimPrefix(args[4], "sessionID=")+" "+args[6])
+		switch {
+		case p["swdie"] != "":
+			fmt.Fprintln(os.Stderr, p["swdie"])
+			return 1
+		case p["swreject"] != "":
+			fmt.Printf(`{"_tag":"InvalidRequestError","message":%q,"kind":"Payload"}`+"\n", p["swreject"])
+			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
+			return 1
+		}
+		fmt.Print(p["swanswer"])
 	default:
 		time.Sleep(5 * time.Minute)
 	}

@@ -161,7 +161,7 @@ func (s *Store) EndSupervisor(ctx context.Context, id int64, to, reason string) 
 }
 
 func (s *Store) SetSupervisorSwitch(ctx context.Context, id int64, model, effort string) (Supervisor, error) {
-	if strings.TrimSpace(model) == "" || strings.TrimSpace(effort) == "" {
+	if strings.TrimSpace(model) == "" {
 		return Supervisor{}, fmt.Errorf("%w: a switch needs a model and an effort", ErrInvalid)
 	}
 	return s.setSwitch(ctx, id, model, effort)
@@ -181,6 +181,8 @@ func (s *Store) setSwitch(ctx context.Context, id int64, model, effort string) (
 		ref := SupervisorRef(id)
 		detail := ref + ": to " + model + " " + effort
 		switch {
+		case model != "" && strings.TrimSpace(effort) == "" && sup.Harness != "opencode":
+			return fmt.Errorf("%w: a switch needs a model and an effort", ErrInvalid)
 		case sup.Status != AttemptRunning:
 			return fmt.Errorf("%w: supervisor %s is %s; only a running one can switch", ErrConflict, ref, sup.Status)
 		case model == "" && !sup.Switching():
