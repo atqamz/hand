@@ -5,8 +5,10 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 )
@@ -114,6 +116,44 @@ func TestOpencodeModelsRefusesAnUnexpectedShape(t *testing.T) {
 		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"export": out})
 		if got, err := OpencodeModels(context.Background(), bin, t.TempDir()); err == nil {
 			t.Fatalf("%s: models = %+v", out, got)
+		}
+	}
+}
+
+func TestOpencodeBusyFollowsSubagentsUpToTheSession(t *testing.T) {
+	now := time.UnixMilli(1793337600000)
+	at := func(d time.Duration) string { return strconv.FormatInt(now.Add(d).UnixMilli(), 10) }
+	row := func(id, parent, updated, idle string) string {
+		return `{"id":"` + id + `","parentID":` + parent + `,"time":{"created":1,"updated":` + updated + `,"idle":` + idle + `}}`
+	}
+	for name, c := range map[string]struct {
+		rows []string
+		want bool
+	}{
+		"all idle":                     {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute))}, false},
+		"main turn running":            {[]string{row("ses_a", "null", at(-time.Second), at(-time.Minute))}, true},
+		"never idle yet":               {[]string{row("ses_a", "null", at(-time.Second), "null")}, true},
+		"background subagent running":  {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), "null")}, true},
+		"nested subagent running":      {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute)), row("ses_g", `"ses_c"`, at(-time.Second), "null")}, true},
+		"another session's subagent":   {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_b"`, at(-time.Second), "null")}, false},
+		"subagent finished":            {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute))}, false},
+		"parent loop":                  {[]string{row("ses_a", `"ses_c"`, at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute)), row("ses_x", `"ses_x"`, at(-time.Second), "null")}, false},
+		"subagent silent past the cap": {[]string{row("ses_a", "null", at(-2*time.Hour), at(-2*time.Hour)), row("ses_c", `"ses_a"`, at(-61*time.Minute), "null")}, false},
+	} {
+		list := `{"data":[` + strings.Join(c.rows, ",") + `],"cursor":{}}`
+		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "api --standalone GET /api/session?limit=1000", "export": list})
+		got, err := OpencodeBusy(context.Background(), bin, t.TempDir(), now, time.Hour)
+		if err != nil || got["ses_a"] != c.want {
+			t.Errorf("%s: busy = %v, %v; want ses_a %v", name, got, err, c.want)
+		}
+	}
+}
+
+func TestOpencodeBusyRefusesAnUnexpectedShape(t *testing.T) {
+	for _, out := range []string{"not json", `{"cursor":{}}`, `{"data":"x"}`} {
+		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"export": out})
+		if _, err := OpencodeBusy(context.Background(), bin, t.TempDir(), time.Now(), time.Hour); err == nil {
+			t.Fatalf("%s: no error", out)
 		}
 	}
 }

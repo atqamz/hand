@@ -111,6 +111,21 @@ func ocsessionMain(args []string) int {
 			return 0
 		}
 	}
+	if p["tui"] != "" && len(args) > 0 && args[0] == "--standalone" {
+		time.Sleep(time.Hour)
+		return 0
+	}
+	if strings.Join(args, " ") == "api --standalone GET /api/session?limit=1000" {
+		hang, _ := time.ParseDuration(p["sessionsleep"])
+		time.Sleep(hang)
+		b, err := os.ReadFile(p["sessions"])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Print(string(b))
+		return 0
+	}
 	d, _ := time.ParseDuration(p["apisleep"])
 	time.Sleep(d)
 	want := []string{"api", "--standalone", "session.message.list", "--param", "sessionID=", "--param", "type=user", "--param", "limit=1"}

@@ -2,9 +2,85 @@ package cli
 
 import (
 	"context"
+	"time"
 
+	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
+
+type busyList struct {
+	at  time.Time
+	ids map[string]bool
+}
+
+func (w *watcher) hold(ctx context.Context, a state.Attempt) {
+	w.seen[a.ID] = "held"
+	if _, ok := w.heldAt[a.ID]; !ok {
+		w.heldAt[a.ID] = w.r.env.Now()
+	}
+	if w.busy == nil {
+		w.fetchBusy(ctx, a.Argv[0])
+	}
+}
+
+func (w *watcher) fetchBusy(ctx context.Context, bin string) {
+	if !w.busyFetching.CompareAndSwap(false, true) {
+		return
+	}
+	at := w.r.env.Now()
+	w.pending.Add(1)
+	go func() {
+		defer w.pending.Done()
+		defer w.busyFetching.Store(false)
+		bctx, cancel := context.WithTimeout(ctx, apiCheckWait)
+		ids, _ := transcript.OpencodeBusy(bctx, bin, w.r.home, at, longTurn)
+		cancel()
+		if ids == nil {
+			ids = map[string]bool{}
+		}
+		select {
+		case w.busyNow <- busyList{at, ids}:
+		case <-ctx.Done():
+		}
+	}()
+}
+
+func (w *watcher) recheck(ctx context.Context, caps luvus.Capabilities) {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return
+	}
+	for _, a := range live {
+		if w.seen[a.ID] == "held" && a.Status == state.AttemptRunning && a.ServerGeneration == caps.ServerGeneration {
+			w.fetchBusy(ctx, a.Argv[0])
+			return
+		}
+	}
+}
+
+func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilities, b busyList) error {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	w.busy = b.ids
+	defer func() { w.busy = nil }()
+	for _, a := range live {
+		if w.seen[a.ID] != "held" || w.heldAt[a.ID].After(b.at) || a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration {
+			continue
+		}
+		ag, err := c.Explain(ctx, a.PaneID)
+		if err != nil {
+			continue
+		}
+		w.seen[a.ID] = "working"
+		if err := w.observe(ctx, c, a, ag.Status); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (w *watcher) opencodeModels(ctx context.Context) {
 	if !w.opencodeBusy.CompareAndSwap(false, true) {

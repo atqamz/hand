@@ -63,6 +63,10 @@ type watcher struct {
 	opencodeSessions map[int64]string
 	opencodeRead     map[string]bool
 	opencodeSup      string
+	busy             map[string]bool
+	heldAt           map[int64]time.Time
+	busyNow          chan busyList
+	busyFetching     atomic.Bool
 	modelsSaid       map[string]string
 	saying           sync.Mutex
 }
@@ -113,7 +117,7 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
-	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}}
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1)}
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
 	}
@@ -184,7 +188,7 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		}
 	}()
-	w.seen = map[int64]string{}
+	w.seen, w.heldAt = map[int64]string{}, map[int64]time.Time{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
@@ -213,6 +217,9 @@ func (w *watcher) session(ctx context.Context) error {
 				err = w.longTurns(sctx)
 			}
 			if err == nil {
+				w.recheck(sctx, caps)
+			}
+			if err == nil {
 				err = w.unblock(sctx, c, caps)
 			}
 			if err == nil {
@@ -229,6 +236,8 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
+		case b := <-w.busyNow:
+			err = w.held(sctx, c, caps, b)
 		}
 		if err != nil {
 			return err
@@ -599,10 +608,11 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			prev = "blocked"
 		}
 	}
-	if prev == status {
+	if prev == status || prev == "held" && (status == "done" || status == "idle") {
 		return nil
 	}
 	w.seen[a.ID] = status
+	delete(w.heldAt, a.ID)
 	ref := state.AttemptRef(a.ID)
 	switch status {
 	case "working":
@@ -626,6 +636,10 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.alert(ctx, "attempt.blocked", ref, ref+" blocked: "+detail)
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
+			return nil
+		}
+		if session := argvSession(a.Argv); a.Harness == "opencode" && session != "" && (w.busy == nil || w.busy[session]) {
+			w.hold(ctx, a)
 			return nil
 		}
 		s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)

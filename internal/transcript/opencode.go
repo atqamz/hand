@@ -127,6 +127,40 @@ func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel
 	return models, nil
 }
 
+func OpencodeBusy(ctx context.Context, bin, dir string, now time.Time, stale time.Duration) (map[string]bool, error) {
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Parent string `json:"parentID"`
+			Time   struct {
+				Updated int64 `json:"updated"`
+				Idle    int64 `json:"idle"`
+			} `json:"time"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(out, &list) != nil || list.Data == nil {
+		return nil, ErrUnreadable
+	}
+	parent := make(map[string]string, len(list.Data))
+	for _, s := range list.Data {
+		parent[s.ID] = s.Parent
+	}
+	busy := map[string]bool{}
+	for _, s := range list.Data {
+		if s.Time.Idle >= s.Time.Updated && s.Time.Idle != 0 || now.Sub(time.UnixMilli(s.Time.Updated)) > stale {
+			continue
+		}
+		for id := s.ID; id != "" && !busy[id]; id = parent[id] {
+			busy[id] = true
+		}
+	}
+	return busy, nil
+}
+
 func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {
 	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "session.message.list", "--param", "sessionID="+session, "--param", "type=user", "--param", "limit=1")
 	if err != nil {

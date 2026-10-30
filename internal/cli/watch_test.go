@@ -3,8 +3,10 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -1268,6 +1270,84 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 	if out := fx.h.ok("orient"); !strings.Contains(out, "attempt.blocked") {
 		t.Fatalf("the block left the timeline: %q", out)
 	}
+}
+
+func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(running bool) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "sessions.json")
+	fx.opencodeSession(map[string]string{"messages": "user", "sessions": path, "tui": "1", "sessionsleep": strings.Join(hang, "")})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
+	fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
+	session := regexp.MustCompile(`ses_hand[0-9a-f]{26}`).FindString(fx.h.ok("attempt", "show", "a1"))
+	return func(running bool) {
+		fx.h.mu.Lock()
+		now := fx.h.now.UnixMilli()
+		fx.h.mu.Unlock()
+		child := fmt.Sprintf(`{"id":"ses_child","parentID":%q,"time":{"updated":%d,"idle":%d}}`, session, now, now)
+		if running {
+			child = fmt.Sprintf(`{"id":"ses_child","parentID":%q,"time":{"updated":%d}}`, session, now)
+		}
+		list := fmt.Sprintf(`{"data":[{"id":%q,"time":{"updated":%d,"idle":%d}},%s]}`, session, now-1000, now, child)
+		if err := os.WriteFile(path, []byte(list), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestOpencodeTurnEndWhileASubagentRunsIsHeldUntilItFinishes(t *testing.T) {
+	fx := newAttemptFixture(t)
+	subagent := opencodeSubagent(t, fx)
+	subagent(true)
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "opencode"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
+	time.Sleep(1500 * time.Millisecond)
+	if woken(fx, "attempt.quiet") || woken(fx, "attempt.idle") {
+		t.Fatalf("a turn end while a subagent runs was recorded: %s", fx.h.ok("wait", "--after", "0", "--timeout", "1ms"))
+	}
+	subagent(false)
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
+func TestOpencodeTurnEndIsQuietWhenTheBusyCheckFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	opencodeSubagent(t, fx)
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "opencode"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
+func TestOpencodeTurnEndIsQuietWhenTheBusyCheckHangs(t *testing.T) {
+	wait := *cli.APICheckWait
+	*cli.APICheckWait = 300 * time.Millisecond
+	t.Cleanup(func() { *cli.APICheckWait = wait })
+	fx := newAttemptFixture(t)
+	opencodeSubagent(t, fx, "1h")(true)
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "opencode"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
+func TestOpencodeBlockedAndExitedStillWakeWhileASubagentRuns(t *testing.T) {
+	fx := newAttemptFixture(t)
+	subagent := opencodeSubagent(t, fx)
+	subagent(true)
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Allow once" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "opencode"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	fx.rt.exitAll()
+	fx.rt.srv.Publish("terminal.exited", map[string]any{"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"})
+	eventually(t, func() bool { return woken(fx, "attempt.exited") })
 }
 
 func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
