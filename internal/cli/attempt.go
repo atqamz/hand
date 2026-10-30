@@ -150,7 +150,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		help := []string{"Check it: `hand attempt show " + ref + "`", "Watch it live: `hand attach " + ref + "`"}
 		fields, more, err := afterLaunch(r.ctx(), c, launched{
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
-			marker: reportMarker, thing: "briefing", who: "agent", repos: repoRoots(project.Repo),
+			marker: reportMarker, thing: "briefing", who: "agent", model: running.Model, repos: repoRoots(project.Repo),
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
 		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
 		if err != nil {
@@ -191,7 +191,7 @@ var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait 
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
-	thing, who, look, keys, screen              string
+	thing, who, look, keys, screen, model       string
 	repos                                       []string
 }
 
@@ -203,9 +203,23 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 				return nil, nil, err
 			}
 		}
+		problem := ""
+		if !confirmed {
+			problem = scanLaunch(ctx, c, l.harness, l.pane, l.model)
+		}
 		switch {
 		case confirmed:
 			fields = append(fields, [2]string{"prompt", "submitted"})
+		case problem != "":
+			if err := note("blocked", problem); err != nil {
+				return nil, nil, err
+			}
+			prompt := "not submitted"
+			if sent {
+				prompt = "sent unconfirmed"
+			}
+			fields = append(fields, [2]string{"prompt", prompt})
+			help = append(help, "Read the screen: `"+l.screen+"`")
 		case sent:
 			if err := note("blocked", l.thing+" sent but not confirmed; check the screen"); err != nil {
 				return nil, nil, err
@@ -213,14 +227,6 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 			fields = append(fields, [2]string{"prompt", "sent unconfirmed"})
 			help = append(help, "Enter was sent but the "+l.who+" did not react: check `"+l.look+"`, and press Enter with `"+l.keys+"` only if the "+l.thing+" is still in the input box")
 		default:
-			if problem := scanLaunch(ctx, c, l.harness, l.pane); problem != "" {
-				if err := note("blocked", problem); err != nil {
-					return nil, nil, err
-				}
-				fields = append(fields, [2]string{"prompt", "not submitted"})
-				help = append(help, "Read the screen: `"+l.screen+"`")
-				break
-			}
 			if err := note("blocked", l.thing+" not submitted; press Enter"); err != nil {
 				return nil, nil, err
 			}
@@ -247,7 +253,7 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 				return nil, nil, err
 			}
 			help = append(help, "Read the screen: `"+l.screen+"`")
-		} else if problem := scanLaunch(ctx, c, l.harness, l.pane); problem != "" {
+		} else if problem := scanLaunch(ctx, c, l.harness, l.pane, l.model); problem != "" {
 			if err := note("blocked", problem); err != nil {
 				return nil, nil, err
 			}
@@ -259,44 +265,75 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 
 type launchProblem struct {
 	seen *regexp.Regexp
-	note func(match []string) string
+	note func(model string, match []string) string
 }
 
 type launchScreen struct {
 	banner   string
+	head     func(screen string) string
 	problems []launchProblem
 }
 
 var launchScreens = map[string]launchScreen{
-	"opencode": {banner: "┃", problems: []launchProblem{{
-		seen: regexp.MustCompile(`·([^·┃]+)\(unavailable\)([^·╹]+)`),
-		note: func(m []string) string {
-			return unavailableOpencode(m[2] + "/" + m[1])
-		},
+	"opencode": {head: opencodeHead, problems: []launchProblem{{
+		seen: regexp.MustCompile(`·([^·]+?)\(unavailable\)`),
+		note: unavailableOpencode,
 	}, {
-		seen: regexp.MustCompile(`┃([^┃]+?)isnotavailableinthissession'slocation`),
-		note: func(m []string) string {
-			return unavailableOpencode(m[1])
-		},
+		seen: regexp.MustCompile(`toast:(\S+)`),
+		note: unavailableOpencode,
 	}}},
 	"copilot": {banner: "uses AI.", problems: []launchProblem{{
 		seen: regexp.MustCompile(`Model"([^"]+)"from--modelflagisnotavailable\.Using"auto"instead`),
-		note: func(m []string) string {
+		note: func(_ string, m []string) string {
 			return `copilot does not have model "` + m[1] + `" and runs on auto instead; check the screen`
 		},
 	}, {
 		seen: regexp.MustCompile(`Pleaseuse/logintosigninto`),
-		note: func([]string) string {
+		note: func(string, []string) string {
 			return "copilot is not signed in and ignored the brief; run `copilot login`, then start the attempt again"
 		},
 	}}},
 }
 
-func unavailableOpencode(model string) string {
+func unavailableOpencode(model string, m []string) string {
+	if model == "" {
+		model = m[1]
+	}
 	return "opencode model " + model + " is unavailable: connect its provider or pick another model"
 }
 
-func scanLaunch(ctx context.Context, c luvus.Client, harness, pane string) string {
+var (
+	opencodeToastTitle    = regexp.MustCompile(`┃\s+Model unavailable\s+\S\s+┃\s*$`)
+	opencodeToastSentence = regexp.MustCompile(`┃\s+(\S.*?) is not available in this session's location\s+┃\s*$`)
+)
+
+func opencodeHead(screen string) string {
+	lines := strings.Split(screen, "\n")
+	var out []string
+	bar := len(lines) - 1
+	for bar >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[bar]), "╹") {
+		bar--
+	}
+	for i := bar - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "┃") {
+			out = append(out, l)
+			break
+		}
+	}
+	for i, l := range lines {
+		if !opencodeToastTitle.MatchString(l) {
+			continue
+		}
+		for _, next := range lines[i+1 : min(i+4, len(lines))] {
+			if m := opencodeToastSentence.FindStringSubmatch(next); m != nil {
+				out = append(out, "toast:"+m[1])
+			}
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func scanLaunch(ctx context.Context, c luvus.Client, harness, pane, model string) string {
 	launch, ok := launchScreens[harness]
 	if !ok {
 		return ""
@@ -311,12 +348,20 @@ func scanLaunch(ctx context.Context, c luvus.Client, harness, pane string) strin
 			return ""
 		}
 		if err == nil {
-			head, shown, echoed := launchHead(s.Text, launch.banner)
+			head, shown, echoed := "", true, false
+			if launch.head != nil {
+				head = launch.head(s.Text)
+			} else {
+				head, shown, echoed = launchHead(s.Text, launch.banner)
+			}
 			squeezed := strings.Join(strings.Fields(head), "")
 			for _, p := range launch.problems {
 				if m := p.seen.FindStringSubmatch(squeezed); m != nil {
-					return p.note(m)
+					return p.note(model, m)
 				}
+			}
+			if launch.head != nil {
+				return ""
 			}
 			if (banner && !shown) || echoed {
 				return ""

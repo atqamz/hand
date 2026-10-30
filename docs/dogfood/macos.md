@@ -367,7 +367,7 @@ A=$(hand attempt start --harness $H --model $MODEL --effort $EFFORT --prompt-fil
 echo "export T=$T A=$A" >> $D/vars.sh
 ```
 
-For agy, leave out `--effort`. For opencode: `A=$(hand attempt start --harness opencode --model <provider/id> --effort <variant> --prompt-file $D/brief.md $T | sed -n 's/^attempt: //p')`, then `hand attempt read $A` straight away: its footer must show the model's name and the variant (`<model name> · <variant>`). A footer without the variant, or `(unavailable)`, is a failure.
+For agy, leave out `--effort`. For opencode: `A=$(hand attempt start --harness opencode --model <provider/id> --effort <variant> --prompt-file $D/brief.md $T | sed -n 's/^attempt: //p')`, then `hand attempt read $A` straight away: its footer must show the model's name, the provider's name and, after a `·`, the variant (`<model name> <provider name> · <variant>`). A footer without the variant, or `(unavailable)`, is a failure.
 
 **3.** Wait up to eight minutes for the report, then read it:
 
