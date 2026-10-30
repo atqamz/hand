@@ -251,12 +251,19 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 		return state.Supervisor{}, err
 	}
 	applied := false
-	revert := func() {
-		if applied && last.Model != "" {
-			_ = detached(ctx, func(ctx context.Context) error {
-				return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, lastSpec(last))
-			})
+	revert := func(cause error) error {
+		if !applied || last.Model == "" {
+			return cause
 		}
+		rerr := detached(ctx, func(ctx context.Context) error {
+			return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, lastSpec(last))
+		})
+		if rerr == nil {
+			return cause
+		}
+		clause := fmt.Sprintf("could not put opencode session %s back on %s: %v; a resume after --cancel continues on %s", last.Session, last.Model, rerr, spec.Model)
+		r.warn(clause)
+		return fmt.Errorf("%w; %s", cause, clause)
 	}
 	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
 		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
@@ -266,8 +273,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	}
 	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", r.home, true)
 	if err != nil {
-		revert()
-		return state.Supervisor{}, err
+		return state.Supervisor{}, revert(err)
 	}
 	row := spec
 	if row.Harness == "opencode" && row.Effort == "default" {
@@ -276,7 +282,7 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	r.noteLost = ""
 	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: row.Harness, Model: row.Model, Effort: row.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
 	if err != nil && !errors.Is(err, errLaunchUnknown) {
-		revert()
+		err = revert(err)
 	}
 	if err == nil {
 		waitSettled(ctx, c, sup.PaneID)

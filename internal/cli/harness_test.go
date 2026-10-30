@@ -126,6 +126,9 @@ func ocapiMain(args []string) int {
 			fakebin.Append(p["swonce"], "failed")
 			fmt.Fprintln(os.Stderr, "database is locked")
 			return 1
+		case p["swdiebody"] != "" && strings.Contains(args[6], p["swdiebody"]):
+			fmt.Fprintln(os.Stderr, "database is locked")
+			return 1
 		case p["swdie"] != "":
 			fmt.Fprintln(os.Stderr, p["swdie"])
 			return 1

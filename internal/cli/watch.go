@@ -425,6 +425,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		w.limited = 0
 	}
 	why, err := w.r.deliver(ctx, w.st, c, caps, false)
+	w.flushWarns()
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
 	}
@@ -463,6 +464,7 @@ func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Cap
 		return
 	}
 	sup, err := w.r.resumeSupervisor(ctx, w.st, c, true)
+	w.flushWarns()
 	switch {
 	case err != nil:
 		w.say("autoresume: " + err.Error())
@@ -768,6 +770,15 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 		base = phone
 	}
 	return base + "/" + w.r.fleet.ID + path + fragment
+}
+
+func (w *watcher) flushWarns() {
+	for _, x := range w.r.warns {
+		if x != w.r.noteLost {
+			w.say(x)
+		}
+	}
+	w.r.warns = nil
 }
 
 func (w *watcher) say(text string) {

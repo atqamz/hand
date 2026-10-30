@@ -438,6 +438,38 @@ func TestAFailedPaneAfterASuccessfulSwitchPutsTheSessionBackOnTheOldModel(t *tes
 	}
 }
 
+func TestAWatcherThatCannotReadTheSessionSaysSo(t *testing.T) {
+	listdie := filepath.Join(t.TempDir(), "listdie")
+	h, rt, _, _ := runningOpencode(t, map[string]string{"listdie": listdie}, "--model", "local/m1")
+	if err := os.WriteFile(listdie, []byte("database is locked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "local/m2"), "switch: pending")
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "100ms")
+	eventually(t, func() bool { return len(rt.prompts()) == 1 })
+	time.Sleep(500 * time.Millisecond)
+	out, _ := stop()
+	if n := strings.Count(out, "observed: could not check that opencode took the resume note"); n != 1 {
+		t.Fatalf("observed %d times, want 1: %q", n, out)
+	}
+}
+
+func TestAFailedRevertSaysWhereTheSessionIsLeft(t *testing.T) {
+	h, rt, o, session := runningOpencode(t, map[string]string{"swdiebody": `"id":"m1"`}, "--model", "local/m1")
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, "could not put opencode session "+session+" back on local/m1: ") || !strings.Contains(errOut, "database is locked; a resume after --cancel continues on local/m2") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := afterStart(o, 2); len(got) != 3 || !strings.Contains(got[2], `"id":"m1"`) {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
 func TestAResumeNoteThatCouldNotBeSentHoldsNothing(t *testing.T) {
 	h, rt, _, _ := runningOpencode(t, nil, "--model", "local/m1")
 	rt.srv.Handle("agent.prompt", func(json.RawMessage) (any, error) {
