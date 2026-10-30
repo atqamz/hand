@@ -729,7 +729,7 @@
 			else if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
 			const warn = header(res, "X-Hand-Warn");
-			if (warn) show(receipt ? `${receipt} ${warn}` : warn, 12000, "warn");
+			if (warn) show(receipt ? `${receipt}; ${warn}` : warn, 12000, "warn");
 			else if (receipt) show(receipt, 4000, "receipt");
 			else show("", 0);
 			return;
