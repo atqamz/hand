@@ -213,6 +213,9 @@ func (w *watcher) session(ctx context.Context) error {
 				err = w.longTurns(sctx)
 			}
 			if err == nil {
+				err = w.unblock(sctx, c, caps)
+			}
+			if err == nil {
 				err = w.timers(sctx, c, caps)
 			}
 			if err == nil {
@@ -519,6 +522,31 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		if err := w.observe(ctx, c, a, ag.Status); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (w *watcher) unblock(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range live {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.seen[a.ID] == "blocked" {
+			continue
+		}
+		last, err := w.st.LastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		if last != "attempt.blocked" {
+			continue
+		}
+		if ag, err := c.Explain(ctx, a.PaneID); err == nil && ag.Status == "working" {
+			if err := w.observe(ctx, c, a, "working"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

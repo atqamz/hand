@@ -336,6 +336,7 @@ func TestOrientStopsShowingABlockNotedAtLaunchOnceTheWatcherSeesWork(t *testing.
 	fx.start()
 	stop := startWatch(t, fx, "--every", "100ms")
 	defer stop()
+	time.Sleep(500 * time.Millisecond)
 	if err := openStore(t, fx.h).NoteAttempt(context.Background(), 1, "blocked", "briefing not submitted; press Enter"); err != nil {
 		t.Fatal(err)
 	}
