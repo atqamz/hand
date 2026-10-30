@@ -940,6 +940,8 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		receipt = "Switching to " + h + "…"
 	case ok && sup.Switching():
 		receipt = "Switch set for after this turn"
+	case strings.Contains(warn, harness.NoteLost):
+		receipt = "Switch applied, not answered"
 	}
 	if warn != "" {
 		w.Header().Set("X-Hand-Warn", url.PathEscape(warn))

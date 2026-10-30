@@ -156,7 +156,7 @@ func TestOpencodeStartRowListsItsModelsAndTakesAVariant(t *testing.T) {
 		t.Fatalf("opencode list: %v, %v", models, err)
 	}
 	row := startRow(t, r.console(t), "opencode")
-	contains(t, "opencode row", row, `<select name="model" aria-label="opencode model"><option value="">default</option>`, `<option value="acme/acme-coder-1" data-efforts="">acme/acme-coder-1</option>`, `<input name="other" placeholder="Other model"`, `<input name="effort" placeholder="effort" size="6" autocomplete="off" aria-label="opencode effort">`, `<button>Start opencode</button>`)
+	contains(t, "opencode row", row, `<select name="model" aria-label="opencode model"><option value="">default</option>`, `<option value="acme/acme-coder-1" data-efforts="">acme/acme-coder-1</option>`, `<input name="other" placeholder="Other model"`, `<input name="effort" placeholder="variant" size="6" autocomplete="off" aria-label="opencode variant">`, `<button>Start opencode</button>`)
 	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
 }
 

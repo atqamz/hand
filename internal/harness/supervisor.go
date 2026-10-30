@@ -29,6 +29,8 @@ var (
 	opencodeID     = regexp.MustCompile(`^ses_hand[0-9a-f]{26}$`)
 )
 
+const NoteLost = "opencode did not take the resume note"
+
 func SupervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool) ([]string, error) {
 	argv, err := supervisorArgv(bin, s, session, prompt, dir, resume)
 	if err != nil {
