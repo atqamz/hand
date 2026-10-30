@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -306,7 +307,7 @@ func Opencode(ctx context.Context, bin, dir string, args ...string) ([]byte, err
 	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
-			return out, fmt.Errorf("opencode %s %s: %v: %s", args[0], args[1], err, exit.Stderr)
+			return out, fmt.Errorf("opencode %s %s: %v: %s", args[0], args[1], err, bytes.TrimSpace(exit.Stderr))
 		}
 		return out, fmt.Errorf("opencode %s %s: %w", args[0], args[1], err)
 	}

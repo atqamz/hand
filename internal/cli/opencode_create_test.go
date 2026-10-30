@@ -154,6 +154,9 @@ func TestOpencodeWorkerLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
 		if code == 0 || !strings.Contains(errOut, want) {
 			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
 		}
+		if strings.Contains(errOut, " : ") {
+			t.Fatalf("%s: stray separator in %q", name, errOut)
+		}
 		if name == "HTTP 400" && !strings.Contains(errOut, "HTTP 400") {
 			t.Fatalf("%s: stderr=%q", name, errOut)
 		}
