@@ -67,7 +67,7 @@ func TestOpenStartsATransientBoardUnit(t *testing.T) {
 	}
 	got, _ := os.ReadFile(log)
 	want := "systemd-run --user --unit=secondhand-board --collect -p Restart=on-failure -p RestartSec=5 -p RestartPreventExitStatus=3 --setenv=PATH=" + fx.h.vars["PATH"] +
-		" --setenv=SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"] + " " + exe + " board\n"
+		" --setenv=SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"] + " --setenv=HOME=" + fx.h.vars["HOME"] + " " + exe + " board\n"
 	if !strings.Contains(string(got), want) || strings.Contains(string(got), "--user start") {
 		t.Fatalf("calls = %q, want %q", got, want)
 	}
