@@ -317,3 +317,41 @@ func TestSetSupervisorModelRecordsOnlyChanges(t *testing.T) {
 		t.Fatalf("unknown supervisor = %v", err)
 	}
 }
+
+func TestASupervisorHoldBelongsToTheSupervisorThatDidNotAnswer(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	first, err := s.AddSupervisor(ctx, supervisorSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held, err := s.SupervisorHold(ctx, first); held || err != nil {
+		t.Fatalf("hold before any event = %v, %v", held, err)
+	}
+	if err := s.NoteSupervisor(ctx, first.ID, "blocked", NoteLost+": is m available?"); err != nil {
+		t.Fatal(err)
+	}
+	why, held, err := s.SupervisorHold(ctx, first)
+	if !held || err != nil || why != NoteLost+": is m available?" {
+		t.Fatalf("hold = %q, %v, %v", why, held, err)
+	}
+	if _, err := s.SupervisorRunning(ctx, first.ID, supervisorTerm); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndSupervisor(ctx, first.ID, AttemptStopped, "test"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.AddSupervisor(ctx, supervisorSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, held, err := s.SupervisorHold(ctx, second); held || err != nil {
+		t.Fatalf("the next supervisor is held = %v, %v", held, err)
+	}
+	if err := s.NoteSupervisor(ctx, second.ID, "blocked", "claude is unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	if _, held, err := s.SupervisorHold(ctx, second); held || err != nil {
+		t.Fatalf("a launch check holds = %v, %v", held, err)
+	}
+}

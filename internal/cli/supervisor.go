@@ -263,32 +263,45 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if row.Harness == "opencode" && row.Effort == "default" {
 		row.Effort = ""
 	}
-	r.noteLost, r.switchBack = "", ""
+	r.noteLost = ""
 	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: row.Harness, Model: row.Model, Effort: row.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
 	if err == nil {
 		waitSettled(ctx, c, sup.PaneID)
 		if origin, oerr := st.SupervisorOrigin(ctx, sup); oerr == nil {
 			note := "[hand v1 resume] you are now " + state.SupervisorRef(sup.ID) + " (resumes " + state.SupervisorRef(origin) + ")"
 			_ = detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
-			if last.Switching() && spec.Harness == "opencode" && !noteTaken(ctx, opencodeLastUser(r.home, argv), note) {
-				r.switchBack = "`" + r.env.command() + " supervisor switch " + switchBackArgs(last, spec) + "`"
-				r.noteLost = harness.NoteLost + ": is " + spec.Model + " available? Switch back with " + r.switchBack
-				r.warn(r.noteLost)
-				_ = st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost)
+			if spec.Harness == "opencode" {
+				switch taken, read := noteTaken(ctx, opencodeLastUser(r.home, argv), note); {
+				case !read:
+					r.warn("could not check that opencode took the resume note")
+				case !taken:
+					r.noteLost = state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
+					r.warn(r.noteLost)
+					_ = st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost)
+				}
 			}
 		}
 	}
 	return sup, err
 }
 
-func switchBackArgs(last state.Supervisor, spec harness.Spec) string {
-	switch {
-	case last.Model == spec.Model:
-		return "--effort " + cmp.Or(last.Effort, "default")
-	case last.Effort != "":
-		return "--model " + last.Model + " --effort " + last.Effort
+func (r *runner) lostNoteAction(last state.Supervisor, spec harness.Spec) string {
+	back := last.Switching() && (last.Model != "" || last.Model == spec.Model)
+	if r.env.Board {
+		if !back {
+			return "Switch to another model from the model menu"
+		}
+		return "Switch back to " + cmp.Or(strings.Join(strings.Fields(last.Model+" "+last.Effort), " "), "the default") + " from the model menu"
 	}
-	return "--model " + last.Model
+	switch {
+	case !back:
+		return "Switch to another model with `" + r.env.command() + " supervisor switch --model M`"
+	case last.Model == spec.Model:
+		return "Switch back with `" + r.env.command() + " supervisor switch --effort " + cmp.Or(last.Effort, "default") + "`"
+	case last.Effort != "":
+		return "Switch back with `" + r.env.command() + " supervisor switch --model " + last.Model + " --effort " + last.Effort + "`"
+	}
+	return "Switch back with `" + r.env.command() + " supervisor switch --model " + last.Model + "`"
 }
 
 func opencodeLastUser(home string, argv []string) func(context.Context) (string, bool) {
@@ -304,16 +317,19 @@ func opencodeLastUser(home string, argv []string) func(context.Context) (string,
 	}
 }
 
-func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool), note string) bool {
+func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool), note string) (taken, read bool) {
 	ctx, cancel := context.WithTimeout(ctx, noteWait)
 	defer cancel()
 	for {
-		if text, ok := lastUser(ctx); ok && strings.TrimSpace(text) == note {
-			return true
+		if text, ok := lastUser(ctx); ok {
+			read = true
+			if strings.TrimSpace(text) == note {
+				return true, true
+			}
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return false, read
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -446,9 +462,6 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 				d.Field("effort", now.Effort)
 			}
 			r.fieldWarn(&d)
-			if r.noteLost != "" {
-				d.Help("Switch back: " + r.switchBack)
-			}
 			return r.print(&d)
 		}
 		d.Field("switch", "pending")
@@ -624,9 +637,6 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	if _, err := r.ensureWatcher(ctx); err != nil {
 		help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+")")
 	}
-	if r.noteLost != "" {
-		help = append(help, "Switch back: "+r.switchBack)
-	}
 	d.Help(help...)
 	return r.print(&d)
 }
@@ -727,6 +737,11 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			}
 			if s.TerminalID == sup.TerminalID {
 				d.Field("revision", strconv.FormatInt(s.ContentRevision, 10))
+			}
+			if why, held, err := st.SupervisorHold(ctx, sup); err != nil {
+				return err
+			} else if held {
+				d.Field("held", why)
 			}
 		}
 		d.Field("pending", strconv.Itoa(len(pending)))
@@ -1000,9 +1015,10 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "supervisor " + state.SupervisorRef(sup.ID) + " is " + ag.Status + " after the switch", nil
 		}
 	}
-	held := state.SupervisorRef(sup.ID) + ": "
-	if e, ok, err := st.LatestEvent(ctx, "supervisor.blocked"); err == nil && ok && strings.HasPrefix(e.Detail, held+harness.NoteLost) {
-		return strings.TrimPrefix(e.Detail, held), nil
+	if why, held, err := st.SupervisorHold(ctx, sup); err != nil {
+		return "", err
+	} else if held {
+		return why, nil
 	}
 	pending, err := st.PendingSupervisorInputs(ctx)
 	if err != nil {

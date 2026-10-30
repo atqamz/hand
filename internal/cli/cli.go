@@ -45,18 +45,17 @@ type Env struct {
 type handler func(*runner, []string) error
 
 type runner struct {
-	env        Env
-	home       string
-	homeErr    error
-	root       string
-	fleet      state.Fleet
-	addrs      sync.Map
-	exits      *exitLog
-	screens    *screenLog
-	phone      phoneCache
-	warns      []string
-	noteLost   string
-	switchBack string
+	env      Env
+	home     string
+	homeErr  error
+	root     string
+	fleet    state.Fleet
+	addrs    sync.Map
+	exits    *exitLog
+	screens  *screenLog
+	phone    phoneCache
+	warns    []string
+	noteLost string
 }
 
 type usageError struct{ msg string }

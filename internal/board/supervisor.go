@@ -115,6 +115,11 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		data["Resumable"] = !sup.Live() && sup.Session != ""
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)
+			if _, held, err := b.st.SupervisorHold(ctx, sup); err != nil {
+				return err
+			} else if held {
+				data["Held"] = true
+			}
 		}
 		data["Pill"], data["PillLabel"] = pill(sup, data)
 		data["AgentState"], data["ComposerHint"] = hint(sup, data)
@@ -229,6 +234,8 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 		return "blocked", ref + " is waiting on a screen in Needs; your message waits too."
 	case sup.Switching():
 		return agent, ref + " switches to " + sup.SwitchText() + " after this turn; your message waits."
+	case data["Held"] == true:
+		return "blocked", ref + " did not answer the resume note; your message waits. Switch to another model from the model menu."
 	}
 	return agent, ""
 }
@@ -621,7 +628,7 @@ var launched = regexp.MustCompile(`^supervisor s[0-9]+ started$`)
 
 const deliveredLookback = 50
 
-var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch", "luvus.switched", "luvus.failed"}
+var lifecycleKinds = []string{"supervisor.keys", "supervisor.started", "supervisor.stopped", "supervisor.exited", "supervisor.interrupted", "supervisor.failed", "supervisor.switch", "supervisor.blocked", "luvus.switched", "luvus.failed"}
 
 func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 	events, err := b.st.RecentEventsOf(ctx, lifecycleKinds, historyLimit*4)
@@ -940,7 +947,7 @@ func (b *Board) switchModel(w http.ResponseWriter, r *http.Request) {
 		receipt = "Switching to " + h + "…"
 	case ok && sup.Switching():
 		receipt = "Switch set for after this turn"
-	case strings.Contains(warn, harness.NoteLost):
+	case strings.Contains(warn, state.NoteLost):
 		receipt = "Switch applied, not answered"
 	}
 	if warn != "" {

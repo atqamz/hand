@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -27,20 +28,7 @@ func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*h
 	}
 	o := installOpencode(t, h, rt, params)
 	if extra["lost"] == "" {
-		rt.srv.Handle("agent.prompt", func(p json.RawMessage) (any, error) {
-			var body struct {
-				Text string `json:"text"`
-			}
-			if err := json.Unmarshal(p, &body); err != nil {
-				return nil, err
-			}
-			out, err := rt.prompt(p)
-			if err == nil {
-				line, _ := json.Marshal(body.Text)
-				fakebin.Append(params["msgs"], string(line))
-			}
-			return out, err
-		})
+		recordPrompts(rt, params["msgs"])
 	}
 	rt.srv.Handle("terminal.backend.close", func(p json.RawMessage) (any, error) {
 		fakebin.Append(o.log, "stop")
@@ -51,6 +39,23 @@ func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*h
 	session := argv[slices.Index(argv, "--session")+1]
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	return h, rt, o, session
+}
+
+func recordPrompts(rt *fakeRuntime, msgs string) {
+	rt.srv.Handle("agent.prompt", func(p json.RawMessage) (any, error) {
+		var body struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(p, &body); err != nil {
+			return nil, err
+		}
+		out, err := rt.prompt(p)
+		if err == nil {
+			line, _ := json.Marshal(body.Text)
+			fakebin.Append(msgs, string(line))
+		}
+		return out, err
+	})
 }
 
 func afterStart(o *opencodeRig, n int) []string {
@@ -229,15 +234,28 @@ func TestOpencodeSwitchRefreshesTheModelListOnceBeforeRefusing(t *testing.T) {
 
 const lostNote = "opencode did not take the resume note: is local/m2 available? Switch back with `hand supervisor switch --model local/m1`"
 
-func lostNoteNoted(t *testing.T, h *harness) bool {
+func blockedNoted(t *testing.T, h *harness, detail string) bool {
 	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.blocked"}, 10)
-	return err == nil && slices.ContainsFunc(events, func(e state.Event) bool { return e.Detail == "s2: "+lostNote })
+	return err == nil && slices.ContainsFunc(events, func(e state.Event) bool { return e.Detail == detail })
+}
+
+func lostNoteNoted(t *testing.T, h *harness) bool {
+	return blockedNoted(t, h, "s2: "+lostNote)
+}
+
+func pendingInputs(t *testing.T, h *harness) []state.SupervisorInput {
+	t.Helper()
+	pending, err := openStore(t, h).PendingSupervisorInputs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pending
 }
 
 func TestOpencodeSwitchSaysWhenTheNewModelDoesNotTakeTheResumeNote(t *testing.T) {
 	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
 	out := h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
-	has(t, "switch", out, "supervisor: s2", "switch: \"applied, but "+lostNote+"\"", "Switch back: `hand supervisor switch --model local/m1`")
+	has(t, "switch", out, "supervisor: s2", "switch: \"applied, but "+lostNote+"\"")
 	if strings.Contains(out, "switch: applied\n") || strings.Contains(out, "warn:") {
 		t.Fatalf("switch = %q", out)
 	}
@@ -246,27 +264,113 @@ func TestOpencodeSwitchSaysWhenTheNewModelDoesNotTakeTheResumeNote(t *testing.T)
 	}
 }
 
+func notifications(t *testing.T, path string) int {
+	b, _ := os.ReadFile(path)
+	return strings.Count(string(b), "did not take the resume note")
+}
+
 func TestAWatcherThatAppliesASwitchTheNewModelDoesNotAnswerKeepsTheInputsPending(t *testing.T) {
-	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
+	msgs := filepath.Join(t.TempDir(), "msgs")
+	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1", "msgs": msgs}, "--model", "local/m1")
+	fx := &attemptFixture{h: h, rt: rt}
+	notes := fakeNotify(t, fx)
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	has(t, "switch", h.ok("supervisor", "switch", "--model", "local/m2"), "switch: pending")
 	has(t, "send", h.ok("supervisor", "send", "--text", "operator message"), "delivered: no")
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
-	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	stop := startWatch(t, fx, "--every", "100ms")
 	eventually(t, func() bool { return lostNoteNoted(t, h) })
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 	out, _ := stop()
-	if !strings.Contains(out, "observed: \""+lostNote+"\"") {
-		t.Fatalf("watch out = %q", out)
+	if n := strings.Count(out, "observed: \""+lostNote+"\""); n != 1 {
+		t.Fatalf("observed %d times, want 1: %q", n, out)
+	}
+	if runtime.GOOS != "windows" {
+		if n := notifications(t, notes); n != 1 {
+			t.Fatalf("notified %d times, want 1", n)
+		}
 	}
 	has(t, "later send", h.ok("supervisor", "send", "--text", "again"), "delivered: no", "opencode did not take the resume note")
 	if got := rt.prompts(); !slices.Equal(got, []string{"[hand v1 resume] you are now s2 (resumes s1)"}) {
 		t.Fatalf("prompts = %q", got)
 	}
-	pending, err := openStore(t, h).PendingSupervisorInputs(context.Background())
-	if err != nil || len(pending) != 2 || pending[0].Body != "operator message" {
-		t.Fatalf("pending = %+v, %v", pending, err)
+	if pending := pendingInputs(t, h); len(pending) != 2 || pending[0].Body != "operator message" {
+		t.Fatalf("pending = %+v", pending)
 	}
+	recordPrompts(rt, msgs)
+	h.ok("supervisor", "switch", "--model", "local/m1")
+	if pending := pendingInputs(t, h); len(pending) != 0 {
+		t.Fatalf("pending after the switch back = %+v", pending)
+	}
+	if got := rt.prompts(); !slices.Equal(got[len(got)-2:], []string{"operator message", "again"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+}
+
+const lostResume = "opencode did not take the resume note: is local/m2 available? Switch to another model with `hand supervisor switch --model M`"
+
+func TestResumingAHeldSupervisorOnTheSameModelHoldsTheMessagesAgain(t *testing.T) {
+	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
+	h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "send", h.ok("supervisor", "send", "--text", "operator message"), "delivered: no")
+	has(t, "show", h.ok("supervisor", "show"), "held: \""+lostNote+"\"")
+	h.ok("supervisor", "stop")
+	out := h.ok("supervisor", "resume")
+	has(t, "resume", out, "supervisor: s3", lostResume)
+	if strings.Contains(out, "Switch back") {
+		t.Fatalf("resume = %q", out)
+	}
+	if !blockedNoted(t, h, "s3: "+lostResume) {
+		t.Fatal("no blocked event for s3")
+	}
+	has(t, "send", h.ok("supervisor", "send", "--text", "again"), "delivered: no", "opencode did not take the resume note")
+	if pending := pendingInputs(t, h); len(pending) != 2 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if got := rt.prompts(); len(got) != 2 || strings.Contains(strings.Join(got, ""), "message") {
+		t.Fatalf("prompts = %q", got)
+	}
+	has(t, "orient", h.ok("orient"), "holds messages")
+	has(t, "show", h.ok("supervisor", "show"), "held:", "s3")
+}
+
+func TestAnAutoresumeOnTheModelThatDidNotAnswerHoldsTheMessagesAgain(t *testing.T) {
+	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.ok("supervisor", "switch", "--model", "local/m2")
+	h.ok("supervisor", "send", "--text", "operator message")
+	rt.srv.SetGeneration("gen-2")
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	eventually(t, func() bool { return blockedNoted(t, h, "s3: "+lostResume) })
+	stop()
+	if pending := pendingInputs(t, h); len(pending) != 1 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if got := rt.prompts(); len(got) != 2 || strings.Contains(strings.Join(got, ""), "message") {
+		t.Fatalf("prompts = %q", got)
+	}
+}
+
+func TestOpencodeSwitchFromTheDefaultModelDoesNotNameAModelToSwitchBackTo(t *testing.T) {
+	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"})
+	out := h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "switch", out, "Switch to another model with `hand supervisor switch --model M`")
+	if strings.Contains(out, "--model `") || strings.Contains(out, "--model \"") || strings.Contains(out, "Switch back") {
+		t.Fatalf("switch = %q", out)
+	}
+}
+
+func TestACheckThatCannotReadTheSessionHoldsNothing(t *testing.T) {
+	h, _, _, _ := runningOpencode(t, map[string]string{"listdie": "database is locked"}, "--model", "local/m1")
+	out := h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "switch", out, "switch: applied", "could not check that opencode took the resume note")
+	if blocked, ok, err := openStore(t, h).LatestEvent(context.Background(), "supervisor.blocked"); err != nil || ok && strings.Contains(blocked.Detail, state.NoteLost) {
+		t.Fatalf("blocked = %+v, %v", blocked, err)
+	}
+	has(t, "send", h.ok("supervisor", "send", "--text", "operator message"), "delivered: yes")
 }
 
 func TestOpencodeSwitchFailureCanBeDroppedAndTheSupervisorResumesOnItsOldModel(t *testing.T) {

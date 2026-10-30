@@ -114,6 +114,9 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.NoteSupervisor(ctx, sup.ID, "blocked", state.NoteLost+": is "+strings.Repeat("m", 200)+" available?"); err != nil {
+		t.Fatal(err)
+	}
 	big := strings.Repeat("remember this preference\n", 10000)
 	if err := os.WriteFile(filepath.Join(home, "memory", memory.OperatorFile), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
@@ -129,7 +132,7 @@ func TestOrientStaysWithinBudgetForBigFleetAndHugeMemory(t *testing.T) {
 	if !utf8.ValidString(out) {
 		t.Fatal("orient is not valid UTF-8")
 	}
-	for _, want := range []string{" of 500 shown; run `hand task list --status active", "operator_memory_truncated:", "\nsupervisor: s1 opencode " + strings.Repeat("m", 200) + " " + strings.Repeat("e", 32) + " running\n"} {
+	for _, want := range []string{" of 500 shown; run `hand task list --status active", "operator_memory_truncated:", "\nsupervisor: s1 opencode " + strings.Repeat("m", 200) + " " + strings.Repeat("e", 32) + " running (holds messages; " + state.NoteLost + ")\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("orient missing %q", want)
 		}
@@ -314,6 +317,12 @@ func TestOrientNamesTheSupervisor(t *testing.T) {
 	}
 	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude sonnet low running\n") || strings.Contains(out, "supervisor resume") {
 		t.Fatalf("running = %q", out)
+	}
+	if err := st.NoteSupervisor(ctx, sup.ID, "blocked", state.NoteLost+": is sonnet available?"); err != nil {
+		t.Fatal(err)
+	}
+	if out := orient(); !strings.Contains(out, "\nsupervisor: s1 claude sonnet low running (holds messages; "+state.NoteLost+")\n") {
+		t.Fatalf("held = %q", out)
 	}
 	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptInterrupted, "luvus server restarted"); err != nil {
 		t.Fatal(err)

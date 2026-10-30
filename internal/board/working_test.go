@@ -38,8 +38,8 @@ func TestTheWorkingRowNamesWhatItWorksOn(t *testing.T) {
 
 func TestTheComposerHintFollowsTheState(t *testing.T) {
 	cases := []struct {
-		name, agent, gen, want, data string
-		sup, switching, launching    bool
+		name, agent, gen, want, data, blocked string
+		sup, switching, launching             bool
 	}{
 		{name: "none", want: "No supervisor is running; your message waits.", data: "none"},
 		{name: "ready", agent: "idle", gen: "gen-1", sup: true, want: "", data: "ready"},
@@ -47,6 +47,7 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 		{name: "blocked", agent: "blocked", gen: "gen-1", sup: true, want: "s1 is waiting on a screen in Needs; your message waits too.", data: "blocked"},
 		{name: "unreachable", agent: "working", gen: "gen-0", sup: true, want: "Luvus restarted; your message waits.", data: "none"},
 		{name: "switching", agent: "working", gen: "gen-1", sup: true, switching: true, want: "s1 switches to opus high after this turn; your message waits.", data: "working"},
+		{name: "held", agent: "idle", gen: "gen-1", sup: true, blocked: state.NoteLost + ": is opus available? Switch back to sonnet low from the model menu", want: "s1 did not answer the resume note; your message waits. Switch to another model from the model menu.", data: "blocked"},
 		{name: "launching", launching: true, want: "s1 is starting; your message waits.", data: "none"},
 	}
 	for _, c := range cases {
@@ -62,6 +63,11 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if c.blocked != "" {
+				if err := fx.st.NoteSupervisor(ctx, 1, "blocked", c.blocked); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if c.switching {
 				if _, err := fx.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
 					t.Fatal(err)
@@ -72,6 +78,9 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 			contains(t, c.name, region(body, "status"), `data-agent="`+c.data+`"`, `data-hint="`+c.want+`"`)
 			if c.switching {
 				contains(t, c.name, region(body, "console"), "next turn: opus · high")
+			}
+			if c.name == "held" {
+				contains(t, c.name, region(body, "timeline"), "s1 blocked: "+state.NoteLost)
 			}
 		})
 	}

@@ -428,7 +428,7 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
 	}
-	if strings.HasPrefix(why, harness.NoteLost) {
+	if strings.HasPrefix(why, state.NoteLost) {
 		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.held {
 			w.held = sup.ID
 			w.alert(ctx, "supervisor.blocked", "supervisor", why)

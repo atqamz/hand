@@ -523,7 +523,7 @@ func TestSwitchReceiptFollowsWhatTheSwitchDid(t *testing.T) {
 	if got := receipt(url.Values{"model": {"opus"}}); got != "Switch applied" {
 		t.Fatalf("applied = %q", got)
 	}
-	fx.warn = harness.NoteLost + ": is opus available?"
+	fx.warn = state.NoteLost + ": is opus available?"
 	if got := receipt(url.Values{"model": {"sonnet"}}); got != "Switch applied, not answered" {
 		t.Fatalf("lost note = %q", got)
 	}
