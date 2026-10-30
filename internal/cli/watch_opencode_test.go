@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -352,5 +355,22 @@ func TestLastSpecKeepsTheModelOpencodeReported(t *testing.T) {
 	}
 	if got := lastSpec(state.Supervisor{Harness: "claude", Model: "sonnet", Effort: "high"}); got.Model != "sonnet" || got.Effort != "high" {
 		t.Fatalf("spec = %+v", got)
+	}
+}
+
+func TestAReleasedHoldLeavesNoHeldAtEntryBehind(t *testing.T) {
+	g := newOpencodeRig(t, false, true)
+	srv := fakeuhp.Start(t, fakeuhp.ShortSocket(t))
+	srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
+		return map[string]any{"pane": "1", "agent": "opencode", "status": "working"}, nil
+	})
+	w := g.w
+	w.seen, w.heldAt, w.turns = map[int64]string{g.a.ID: "held"}, map[int64]time.Time{g.a.ID: g.now}, map[int64]*turn{}
+	b := busyList{at: g.now.Add(time.Minute), ids: map[string]bool{"ses_2": true}}
+	if err := w.held(context.Background(), luvus.Client{Socket: srv.Socket}, luvus.Capabilities{ServerGeneration: "g"}, b); err != nil {
+		t.Fatal(err)
+	}
+	if w.seen[g.a.ID] != "working" || len(w.heldAt) != 0 {
+		t.Fatalf("seen = %q, heldAt = %v", w.seen[g.a.ID], w.heldAt)
 	}
 }

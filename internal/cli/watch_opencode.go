@@ -10,15 +10,14 @@ import (
 )
 
 type busyList struct {
-	at  time.Time
-	ids map[string]bool
+	at   time.Time
+	ids  map[string]bool
+	idle map[string]time.Time
 }
 
 func (w *watcher) hold(ctx context.Context, a state.Attempt) {
 	w.seen[a.ID] = "held"
-	if _, ok := w.heldAt[a.ID]; !ok {
-		w.heldAt[a.ID] = w.r.env.Now()
-	}
+	w.heldAt[a.ID] = w.r.env.Now()
 	if w.busy == nil {
 		w.opencodeModels(ctx)
 	}
@@ -28,9 +27,10 @@ func (w *watcher) listSessions(ctx context.Context) map[string]transcript.ModelL
 	at := w.r.env.Now()
 	var models map[string]transcript.ModelLabel
 	var busy map[string]bool
+	var idle map[string]time.Time
 	if bin := w.r.transcriptPaths().Opencode; bin != "" {
 		bctx, cancel := context.WithTimeout(ctx, apiCheckWait)
-		models, busy, _ = transcript.OpencodeSessions(bctx, bin, w.r.home, at, longTurn)
+		models, busy, idle, _ = transcript.OpencodeSessions(bctx, bin, w.r.home, at, longTurn)
 		cancel()
 	}
 	select {
@@ -38,7 +38,7 @@ func (w *watcher) listSessions(ctx context.Context) map[string]transcript.ModelL
 	default:
 	}
 	select {
-	case w.busyNow <- busyList{at, busy}:
+	case w.busyNow <- busyList{at, busy, idle}:
 	default:
 	}
 	return models
@@ -69,10 +69,17 @@ func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilit
 		switch w.seen[a.ID] {
 		case "held":
 		case "idle?":
-			if !b.ids[argvSession(a.Argv)] {
-				w.seen[a.ID] = "idle"
-				delete(w.heldAt, a.ID)
-				continue
+			session := argvSession(a.Argv)
+			if !b.ids[session] {
+				since, _, err := w.st.TurnStart(ctx, a.ID)
+				if err != nil {
+					return err
+				}
+				if since.IsZero() || !b.idle[session].After(since) {
+					w.seen[a.ID] = "idle"
+					delete(w.heldAt, a.ID)
+					continue
+				}
 			}
 		default:
 			continue
@@ -82,6 +89,7 @@ func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilit
 			continue
 		}
 		w.seen[a.ID] = "working"
+		delete(w.heldAt, a.ID)
 		if err := w.observe(ctx, c, a, ag.Status); err != nil {
 			return err
 		}

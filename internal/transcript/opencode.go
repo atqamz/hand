@@ -100,10 +100,10 @@ func (m *exportModel) UnmarshalJSON(b []byte) error {
 
 type ModelLabel struct{ Model, Effort string }
 
-func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale time.Duration) (map[string]ModelLabel, map[string]bool, error) {
+func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale time.Duration) (map[string]ModelLabel, map[string]bool, map[string]time.Time, error) {
 	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var list struct {
 		Data []struct {
@@ -118,7 +118,7 @@ func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale
 		} `json:"data"`
 	}
 	if json.Unmarshal(out, &list) != nil || list.Data == nil {
-		return nil, nil, ErrUnreadable
+		return nil, nil, nil, ErrUnreadable
 	}
 	models := make(map[string]ModelLabel, len(list.Data))
 	parent := make(map[string]string, len(list.Data))
@@ -134,8 +134,12 @@ func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale
 		models[s.ID] = l
 	}
 	busy := map[string]bool{}
+	idle := map[string]time.Time{}
 	for _, s := range list.Data {
 		t := s.Time
+		if t.Idle != 0 {
+			idle[s.ID] = time.UnixMilli(t.Idle)
+		}
 		running := t.Idle == 0 || s.Parent != "" && t.Idle < t.Updated
 		if t.Busy != nil {
 			started, _ := strconv.ParseInt(string(t.Busy), 10, 64)
@@ -148,7 +152,7 @@ func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale
 			busy[id] = true
 		}
 	}
-	return models, busy, nil
+	return models, busy, idle, nil
 }
 
 func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {

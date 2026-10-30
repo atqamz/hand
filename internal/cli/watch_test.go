@@ -1275,6 +1275,11 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 
 func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(running bool, prefix ...string) string {
 	t.Helper()
+	return opencodeSubagentIdle(t, fx, 2*time.Hour, hang...)
+}
+
+func opencodeSubagentIdle(t *testing.T, fx *attemptFixture, idle time.Duration, hang ...string) func(running bool, prefix ...string) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "sessions.json")
 	fx.opencodeSession(map[string]string{"messages": "user", "sessions": path, "tui": "1", "sessionsleep": strings.Join(hang, "")})
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
@@ -1282,7 +1287,7 @@ func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(run
 	session := regexp.MustCompile(`ses_hand[0-9a-f]{26}`).FindString(fx.h.ok("attempt", "show", "a1"))
 	return func(running bool, prefix ...string) string {
 		fx.h.mu.Lock()
-		now := fx.h.now.Add(2 * time.Hour).UnixMilli()
+		now := fx.h.now.Add(idle).UnixMilli()
 		fx.h.mu.Unlock()
 		child := fmt.Sprintf(`{"id":"ses_child","parentID":%q,"time":{"updated":%d,"idle":%d}}`, session, now, now)
 		if running {
@@ -1412,6 +1417,20 @@ func TestHeldIdleTurnThatEndsDuringAReconnectIsStillRecorded(t *testing.T) {
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
 }
 
+func TestHeldIdleTurnThatEndsWhileTheWatcherIsDownIsStillRecorded(t *testing.T) {
+	fx := newAttemptFixture(t)
+	subagent := opencodeSubagent(t, fx)
+	subagent(true)
+	stop := startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	holdAnIdleTurn(t, fx)
+	stop()
+	subagent(false)
+	stop = startWatch(t, fx, "--every", "100ms")
+	defer stop()
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
 func TestHeldIdleTurnSurvivesAWatcherRestart(t *testing.T) {
 	fx := newAttemptFixture(t)
 	subagent := opencodeSubagent(t, fx)
@@ -1449,7 +1468,7 @@ func TestHeldIdleTurnKeepsItsClockAcrossAWatcherRestart(t *testing.T) {
 
 func TestAnIdleOpencodeWorkerWithoutASubagentIsLeftAloneAfterARestart(t *testing.T) {
 	fx := newAttemptFixture(t)
-	opencodeSubagent(t, fx)(false)
+	opencodeSubagentIdle(t, fx, -time.Hour)(false)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	stop := startWatch(t, fx, "--every", "100ms")
 	defer stop()
