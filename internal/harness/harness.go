@@ -39,10 +39,17 @@ const MaxPromptBytes = 16384
 var (
 	claudeModel   = regexp.MustCompile(`^(default|opus|sonnet|haiku|fable|claude-[a-z0-9.-]+)(\[1m\])?$`)
 	modelToken    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@\[\]#+-]{0,199}$`)
-	opencodeName  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}/[^\s#\p{Cc}][^#\p{Cc}]{0,198}$`)
+	opencodeName  = regexp.MustCompile(`^[^\s/#\p{Cc}][^/#\p{Cc}]*/[^\s#\p{Cc}][^#\p{Cc}]*$`)
 	effortToken   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 )
+
+func validModel(harness, model string) bool {
+	if harness == "opencode" {
+		return opencodeName.MatchString(model) && utf8.RuneCountInString(model) <= 200
+	}
+	return modelToken.MatchString(model)
+}
 
 func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
@@ -102,7 +109,7 @@ func checkOpencode(s Spec, env Env) (string, error) {
 		}
 		return "", nil
 	}
-	if !opencodeName.MatchString(s.Model) || utf8.RuneCountInString(s.Model) > 200 {
+	if !validModel("opencode", s.Model) {
 		return "", fmt.Errorf("%w: opencode model %q must be provider/id: 1 to 200 characters, no # and no control characters", state.ErrInvalid, s.Model)
 	}
 	if s.Effort != "" && !effortToken.MatchString(s.Effort) {

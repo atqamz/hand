@@ -94,7 +94,10 @@ func TestOpencodeWorkerSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
 func TestOpencodeWorkerModelKeepsEverythingAfterTheFirstSlash(t *testing.T) {
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)
-	fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "openrouter/meta/llama:free@v2 beta", "--prompt-file", fx.brief, "t1")
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "openrouter/meta/llama:free@v2 beta", "--prompt-file", fx.brief, "t1")
+	if strings.Contains(out, "warn") {
+		t.Fatalf("start = %q", out)
+	}
 	body, _ := o.created(t)
 	if body.Model.ProviderID != "openrouter" || body.Model.ID != "meta/llama:free@v2 beta" {
 		t.Fatalf("body = %+v", body)

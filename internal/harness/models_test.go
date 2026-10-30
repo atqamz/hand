@@ -971,9 +971,24 @@ func TestChildEnvironmentKeepsOnlyPathHomesAndTheHarnessesOwn(t *testing.T) {
 	}
 }
 
+func TestOpencodeListingKeepsIdsThatNeedMoreThanATokenAndNothingElse(t *testing.T) {
+	var in []Model
+	for _, n := range []string{"local/has space", `local/q"uote`, "local/üni-ç", "my.prov@x/id", "no-slash", "/id", "local/", "local/a#b", "local/a\x01b", " local/x", strings.Repeat("p", 100) + "/" + strings.Repeat("m", 100)} {
+		in = append(in, Model{Name: n})
+	}
+	out := names(tidy("opencode", in))
+	want := []string{"local/has space", `local/q"uote`, "local/üni-ç", "my.prov@x/id"}
+	if !slices.Equal(out, want) {
+		t.Fatalf("tidy = %q, want %q", out, want)
+	}
+	if got := names(tidy("claude", []Model{{Name: "local/has space"}, {Name: "local/üni-ç"}, {Name: "a/b"}})); !slices.Equal(got, []string{"a/b"}) {
+		t.Fatalf("claude tidy = %q", got)
+	}
+}
+
 func TestListingTextIsCleanedBeforeItIsCached(t *testing.T) {
 	long := strings.Repeat("é", 300)
-	out := tidy([]Model{
+	out := tidy("claude", []Model{
 		{Name: "ok", Label: "a\x1b[31mb\nc\td" + long, Efforts: []string{"low", "bad effort", "low", "high"}, Source: SourceDiscovered},
 		{Name: "ok", Source: SourceDiscovered},
 		{Name: "-flag"},

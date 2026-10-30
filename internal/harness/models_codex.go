@@ -56,7 +56,7 @@ func decodeCodex(b []byte, src Source) ([]Model, error) {
 		}
 		out = append(out, model)
 	}
-	if out = tidy(out); len(out) == 0 {
+	if out = tidy("codex", out); len(out) == 0 {
 		return nil, errors.New("listed no models")
 	}
 	return out, nil

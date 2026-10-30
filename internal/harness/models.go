@@ -291,7 +291,7 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 	if ctx.Err() != nil {
 		return Listing{}, ctx.Err()
 	}
-	if models = tidy(models); err == nil && len(models) == 0 {
+	if models = tidy(name, models); err == nil && len(models) == 0 {
 		err = errors.New("it listed no models")
 	}
 	prev, had := load(name, env)
@@ -354,10 +354,10 @@ func names(models []Model) []string {
 	return out
 }
 
-func tidy(models []Model) []Model {
+func tidy(harness string, models []Model) []Model {
 	var out []Model
 	for _, m := range models {
-		if !modelToken.MatchString(m.Name) || len(out) >= maxModels {
+		if !validModel(harness, m.Name) || len(out) >= maxModels {
 			continue
 		}
 		if _, dup := find(out, m.Name); dup {

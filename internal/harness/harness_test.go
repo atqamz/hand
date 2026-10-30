@@ -188,6 +188,7 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"opencode empty id", Spec{"opencode", "local/", ""}, ocListed, refuse, "provider/id"},
 		{"opencode empty provider", Spec{"opencode", "/m2", ""}, ocListed, refuse, "provider/id"},
 		{"opencode newline in the id", Spec{"opencode", "local/m\n2", ""}, ocListed, refuse, "provider/id"},
+		{"opencode provider key with at and colon", Spec{"opencode", "my.prov@x:1/id", ""}, ocListed, warn, "is not in `opencode models`"},
 		{"opencode model of 200 characters", Spec{"opencode", "local/" + strings.Repeat("m", 194), ""}, ocListed, warn, "is not in `opencode models`"},
 		{"opencode model of 200 multibyte characters", Spec{"opencode", "local/" + strings.Repeat("é", 194), ""}, ocListed, warn, "is not in `opencode models`"},
 		{"opencode model of 201 characters", Spec{"opencode", "local/" + strings.Repeat("m", 195), ""}, ocListed, refuse, "1 to 200 characters"},
