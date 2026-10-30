@@ -19,6 +19,7 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 const liveAttemptsWarn = 5
@@ -152,6 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: running.Worktree,
 			marker: reportMarker, thing: "briefing", who: "agent", model: running.Model, repos: repoRoots(project.Repo),
 			look: "hand attempt read " + ref, keys: "hand attempt keys --revision N " + ref + " enter", screen: "hand attempt read " + ref,
+			submitted: opencodeSubmitted(r.home, running.Argv),
 		}, func(kind, detail string) error { return st.NoteAttempt(ctx, running.ID, kind, detail) })
 		if err != nil {
 			return err
@@ -192,12 +194,13 @@ var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
 	thing, who, look, keys, screen, model       string
+	submitted                                   func(context.Context) bool
 	repos                                       []string
 }
 
 func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind, detail string) error) (fields [][2]string, help []string, err error) {
 	if harness.Prefills(l.harness) {
-		sent, confirmed := submitPrefilled(ctx, c, l.pane, l.terminalID, l.marker)
+		sent, confirmed := submitPrefilled(ctx, c, l.pane, l.terminalID, l.marker, l.submitted)
 		if sent {
 			if err := note("keys", "enter"); err != nil {
 				return nil, nil, err
@@ -398,7 +401,7 @@ func repoRoots(repo string) []string {
 	return []string{repo}
 }
 
-func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string) (sent, confirmed bool) {
+func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string, submitted func(context.Context) bool) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -408,9 +411,9 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 		switch {
 		case luvus.Code(err) != "":
 			return sent, false
-		case err == nil && leftInputBox(s.Text, marker) && working(ctx, c, pane):
+		case err == nil && (submitted != nil && submitted(ctx) || emptyInputBox(s.Text) && ran(ctx, c, pane)):
 			return sent, true
-		case err == nil && strings.Contains(s.Text, marker) && idle(ctx, c, pane):
+		case err == nil && markerInInputBox(s.Text, marker) && idle(ctx, c, pane):
 			err := c.Keys(ctx, pane, []string{"enter"}, s.ContentRevision, terminalID)
 			if err == nil {
 				sent, tries = true, tries+1
@@ -432,17 +435,52 @@ func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, mark
 	return sent, false
 }
 
-func leftInputBox(screen, marker string) bool {
+var inputStatus = regexp.MustCompile(`^\S+ .+ · \S`)
+
+func inputBox(screen string) []string {
 	lines := strings.Split(screen, "\n")
-	bar := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "╹") })
+	bar := len(lines) - 1
+	for bar >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[bar]), "╹") {
+		bar--
+	}
 	if bar < 0 {
-		return false
+		return nil
 	}
 	box := bar
 	for box > 0 && strings.HasPrefix(strings.TrimSpace(lines[box-1]), "┃") {
 		box--
 	}
-	return strings.Contains(strings.Join(lines[:box], "\n"), marker) && !strings.Contains(strings.Join(lines[box:bar], "\n"), marker)
+	return lines[box:bar]
+}
+
+func emptyInputBox(screen string) bool {
+	box := inputBox(screen)
+	return len(box) > 0 && !slices.ContainsFunc(box, func(l string) bool {
+		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(l), "┃"))
+		return text != "" && !inputStatus.MatchString(text)
+	})
+}
+
+func markerInInputBox(screen, marker string) bool {
+	return strings.Contains(strings.Join(inputBox(screen), "\n"), marker)
+}
+
+func argvSession(argv []string) string {
+	if i := slices.Index(argv, "--session"); i >= 0 && i+1 < len(argv) {
+		return argv[i+1]
+	}
+	return ""
+}
+
+func opencodeSubmitted(home string, argv []string) func(context.Context) bool {
+	session := argvSession(argv)
+	return func(ctx context.Context) bool {
+		if session == "" || len(argv) == 0 {
+			return false
+		}
+		ok, _ := transcript.OpencodeSubmitted(ctx, argv[0], home, session)
+		return ok
+	}
 }
 
 type trustScreen struct {
@@ -719,9 +757,9 @@ func idle(ctx context.Context, c luvus.Client, pane string) bool {
 	return err == nil && ag.Status == "idle"
 }
 
-func working(ctx context.Context, c luvus.Client, pane string) bool {
+func ran(ctx context.Context, c luvus.Client, pane string) bool {
 	ag, err := c.Explain(ctx, pane)
-	return err == nil && ag.Status == "working"
+	return err == nil && (ag.Status == "working" || ag.Status == "done")
 }
 
 func leftIdle(ctx context.Context, c luvus.Client, pane string, tick <-chan time.Time) bool {

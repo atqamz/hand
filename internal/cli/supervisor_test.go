@@ -283,9 +283,9 @@ func TestSupervisorKeysAreLimited(t *testing.T) {
 
 func TestOpencodeSupervisorPromptIsSubmitted(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "sleep": "300s"})
+	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "on api": "", "sleep": "300s"})
 	rt.set(func(rt *fakeRuntime) {
-		rt.screen, rt.revision, rt.status, rt.afterKeys = "┃  You are supervisor s1 of the Hand fleet", 7, "idle", "working"
+		rt.screen, rt.revision, rt.status, rt.afterKeys = "  ┃  You are supervisor s1 of the Hand fleet\n  "+opencodeBar+"\n", 7, "idle", "working"
 	})
 	has(t, "start", h.ok("supervisor", "start", "--harness", "opencode"), "supervisor: s1", "prompt: submitted")
 	argv := rt.lastCreate().Command
@@ -621,9 +621,9 @@ func TestStartSearchesTheBoardsPath(t *testing.T) {
 
 func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n int32)) {
 	t.Helper()
-	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "sleep": "300s"})
+	fakebin.Install(t, h.vars["PATH"], "opencode", "fake", map[string]string{"on session": "[]\n", "on api": "", "sleep": "300s"})
 	rt.set(func(rt *fakeRuntime) {
-		rt.screen, rt.revision, rt.status = "┃  You are supervisor s1 of the Hand fleet", 7, "idle"
+		rt.screen, rt.revision, rt.status = "  ┃  You are supervisor s1 of the Hand fleet\n  "+opencodeBar+"\n", 7, "idle"
 	})
 	var calls atomic.Int32
 	rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {

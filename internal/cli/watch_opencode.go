@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"slices"
 
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -53,10 +52,7 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 			if a.Harness != "opencode" || ctx.Err() != nil {
 				continue
 			}
-			id := ""
-			if i := slices.Index(a.Argv, "--session"); i >= 0 && i+1 < len(a.Argv) {
-				id = a.Argv[i+1]
-			}
+			id := argvSession(a.Argv)
 			if id == "" {
 				continue
 			}

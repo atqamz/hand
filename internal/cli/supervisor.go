@@ -498,6 +498,7 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: r.home,
 			marker: supervisorMarker, thing: "launch prompt", who: "supervisor", model: running.Model,
 			look: "hand attach supervisor", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
+			submitted: opencodeSubmitted(r.home, running.Argv),
 		}, func(kind, detail string) error { return st.NoteSupervisor(ctx, running.ID, kind, detail) })
 		if err != nil {
 			return err
