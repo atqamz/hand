@@ -586,7 +586,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
 	prev := w.seen[a.ID]
-	if status == "working" && prev != "blocked" {
+	if status == "working" && prev != "blocked" && harness.Prefills(a.Harness) {
 		last, err := w.st.LastAttemptEvent(ctx, a.ID)
 		if err != nil {
 			return err
