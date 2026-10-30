@@ -279,10 +279,7 @@ type launchScreen struct {
 
 var launchScreens = map[string]launchScreen{
 	"opencode": {head: opencodeHead, problems: []launchProblem{{
-		seen: regexp.MustCompile(`·([^·]+?)\(unavailable\)`),
-		note: unavailableOpencode,
-	}, {
-		seen: regexp.MustCompile(`toast:(\S+)`),
+		seen: regexp.MustCompile(`·([^·]+?)\(unavai`),
 		note: unavailableOpencode,
 	}}},
 	"copilot": {banner: "uses AI.", problems: []launchProblem{{
@@ -305,35 +302,23 @@ func unavailableOpencode(model string, m []string) string {
 	return "opencode model " + model + " is unavailable: connect its provider or pick another model"
 }
 
-var (
-	opencodeToastTitle    = regexp.MustCompile(`┃\s+Model unavailable\s+\S\s+┃\s*$`)
-	opencodeToastSentence = regexp.MustCompile(`┃\s+(\S.*?) is not available in this session's location\s+┃\s*$`)
-)
-
 func opencodeHead(screen string) string {
-	lines := strings.Split(screen, "\n")
-	var out []string
-	bar := len(lines) - 1
-	for bar >= 0 && !strings.HasPrefix(strings.TrimSpace(lines[bar]), "╹") {
-		bar--
-	}
-	for i := bar - 1; i >= 0; i-- {
-		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "┃") {
-			out = append(out, l)
+	box := inputBox(screen)
+	start := len(box) - 1
+	for i := len(box) - 1; i >= 0; i-- {
+		if text := strings.TrimPrefix(strings.TrimSpace(box[i]), "┃"); strings.TrimSpace(text) == "" || strings.HasPrefix(text, "    ") {
+			start = i + 1
 			break
 		}
 	}
-	for i, l := range lines {
-		if !opencodeToastTitle.MatchString(l) {
-			continue
-		}
-		for _, next := range lines[i+1 : min(i+4, len(lines))] {
-			if m := opencodeToastSentence.FindStringSubmatch(next); m != nil {
-				out = append(out, "toast:"+m[1])
-			}
-		}
+	if start < 0 {
+		return ""
 	}
-	return strings.Join(out, "\n")
+	lines := make([]string, 0, len(box)-start)
+	for _, l := range box[start:] {
+		lines = append(lines, strings.TrimPrefix(strings.TrimSpace(l), "┃"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func scanLaunch(ctx context.Context, c luvus.Client, harness, pane, model string) string {

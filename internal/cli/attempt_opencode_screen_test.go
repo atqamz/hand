@@ -50,23 +50,6 @@ const (
   ┃  Build auto · x (unavailable) nope · zzz
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
   /tmp/opencode/t279c/proj                                     shift+tab agents  ctrl+p commands    /tmp/opencode/t279c/proj`
-	opencodeUnavailableToastScreen = `   PONG                            New session                   +
-                                                                                  ┃                                                      ┃
-                                                                                  ┃  Model unavailable                                x  ┃
-                                                                                  ┃                                                      ┃
-                                                                                  ┃  nope/x is not available in this session's location  ┃
-                                                                                  ┃                                                      ┃
-                                                                                                      ⬖ Getting started                ✕
-                                                                                                        OpenCode includes free models so
-                                                                                                        you can start immediately.
-                                                                                                        Connect from 75+ providers to
-                                                                                                        use other models, including
-  ┃                                                                                                     Claude, GPT, Gemini etc
-  ┃  You are supervisor s1 of the Hand fleet
-  ┃                                                                                                     Connect provider        /connect
-  ┃  Build auto · x (unavailable) nope · zzz
-  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-  /tmp/opencode/t279c/proj                                     shift+tab agents  ctrl+p commands    /tmp/opencode/t279c/proj`
 	opencodeUnavailableDisplayNameScreen = `   New session                     New session                   +
 
                                                                                                     New session - 2026-10-30T02:42:46.
@@ -210,9 +193,10 @@ func TestOpencodeUnavailableModelIsNamedNotMetWithAnEnterHint(t *testing.T) {
 		want   string
 	}{
 		"footer, model from the screen":          {opencodeUnavailableScreen, nil, "x"},
-		"toast alone, model from the screen":     {strings.Replace(opencodeUnavailableToastScreen, "x (unavailable) nope", "x nope", 1), nil, "nope/x"},
 		"footer, the launched model":             {opencodeUnavailableScreen, []string{"--model", "nope/x"}, "nope/x"},
 		"footer shows the provider display name": {opencodeUnavailableDisplayNameScreen, []string{"--model", "local/zz"}, "local/zz"},
+		"footer truncated by the pane":           {strings.Replace(opencodeUnavailableDisplayNameScreen, "Build auto · zz (unavailable) Local Fake", "Build · gpt-5.1-codex-max-preview-2026-extra-long-name (unavailabl…", 1), nil, "gpt-5.1-codex-max-preview-2026-extra-long-name"},
+		"footer wrapped by the pane":             {strings.Replace(opencodeUnavailableDisplayNameScreen, "Build auto · zz (unavailable) Local Fake", "Build · gpt-5.1-codex-max-preview-2026-extra-long-name (unava\n  ┃  ilable) Local Fake", 1), []string{"--model", "local/long"}, "local/long"},
 	} {
 		fx, out := startOpencodeOnScreen(t, c.screen, "working", c.args...)
 		if !strings.Contains(out, "prompt: not submitted") || strings.Contains(out, "press Enter") || strings.Contains(out, "keys --revision") || !strings.Contains(out, "hand attempt read a1") {
