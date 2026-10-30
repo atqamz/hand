@@ -502,7 +502,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 			prev = ag.Status
 		case last == "attempt.blocked":
 			prev = "blocked"
-		case last == "attempt.long":
+		case last == "attempt.long", last == "attempt.working":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
 		}
@@ -558,6 +558,15 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		w.turns[a.ID] = &turn{since: w.r.env.Now()}
 	}
 	prev := w.seen[a.ID]
+	if status == "working" && prev != "blocked" {
+		last, err := w.st.LastAttemptEvent(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		if last == "attempt.blocked" {
+			prev = "blocked"
+		}
+	}
 	if prev == status {
 		return nil
 	}
