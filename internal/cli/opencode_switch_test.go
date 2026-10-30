@@ -361,7 +361,11 @@ func TestOpencodeSwitchFromTheDefaultModelDoesNotNameAModelToSwitchBackTo(t *tes
 }
 
 func TestACheckThatCannotReadTheSessionHoldsNothing(t *testing.T) {
-	h, _, _, _ := runningOpencode(t, map[string]string{"listdie": "database is locked"}, "--model", "local/m1")
+	listdie := filepath.Join(t.TempDir(), "listdie")
+	h, _, _, _ := runningOpencode(t, map[string]string{"listdie": listdie}, "--model", "local/m1")
+	if err := os.WriteFile(listdie, []byte("database is locked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out := h.ok("supervisor", "switch", "--model", "local/m2")
 	has(t, "switch", out, "switch: applied", "could not check that opencode took the resume note")
 	if blocked, ok, err := openStore(t, h).LatestEvent(context.Background(), "supervisor.blocked"); err != nil || ok && strings.Contains(blocked.Detail, state.NoteLost) {

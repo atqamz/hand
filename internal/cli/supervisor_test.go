@@ -41,6 +41,10 @@ func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	wait := *cli.NoteWait
 	*cli.NoteWait = time.Second
 	t.Cleanup(func() { *cli.NoteWait = wait })
+	fastTrust(t)
+	prefill := *cli.PrefillWait
+	*cli.PrefillWait = 2 * time.Second
+	t.Cleanup(func() { *cli.PrefillWait = prefill })
 	return h, rt
 }
 
@@ -646,6 +650,7 @@ func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n i
 
 func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
+	*cli.PrefillWait = 30 * time.Second
 	opencodeSupervisor(t, h, rt, func(n int32) {
 		if n == 2 {
 			rt.set(func(rt *fakeRuntime) { rt.status = "working" })

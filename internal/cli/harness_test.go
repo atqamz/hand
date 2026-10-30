@@ -104,8 +104,8 @@ func ocapiMain(args []string) int {
 		}
 		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
 	case len(args) > 2 && args[0] == "api" && args[2] == "session.message.list":
-		if p["listdie"] != "" {
-			fmt.Fprintln(os.Stderr, p["listdie"])
+		if b, err := os.ReadFile(p["listdie"]); err == nil {
+			fmt.Fprint(os.Stderr, string(b))
 			return 1
 		}
 		if p["msgs"] == "" {
