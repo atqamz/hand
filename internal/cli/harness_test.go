@@ -111,7 +111,7 @@ func ocapiMain(args []string) int {
 		b, _ := os.ReadFile(p["msgs"])
 		sent := strings.Split(strings.TrimSpace(string(b)), "\n")
 		if sent[0] == "" {
-			fmt.Print(`{"data":[]}`)
+			fmt.Print(`{"data":[{"id":"msg_0","type":"user","text":"launch brief"}]}`)
 			return 0
 		}
 		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user","text":%s}]}`, len(sent), sent[len(sent)-1])
