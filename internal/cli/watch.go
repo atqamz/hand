@@ -66,7 +66,7 @@ type watcher struct {
 	busy             map[string]bool
 	heldAt           map[int64]time.Time
 	busyNow          chan busyList
-	busyFetching     atomic.Bool
+	busyMisses       int
 	modelsSaid       map[string]string
 	saying           sync.Mutex
 }
@@ -188,11 +188,15 @@ func (w *watcher) session(ctx context.Context) error {
 			}
 		}
 	}()
+	carried := map[int64]bool{}
+	for id, seen := range w.seen {
+		carried[id] = seen == "held"
+	}
 	w.seen, w.heldAt = map[int64]string{}, map[int64]time.Time{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
-	if err := w.catchUp(sctx, c, caps); err != nil {
+	if err := w.catchUp(sctx, c, caps, carried); err != nil {
 		return err
 	}
 	w.autoresume(sctx, c, caps)
@@ -215,9 +219,6 @@ func (w *watcher) session(ctx context.Context) error {
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
 				err = w.longTurns(sctx)
-			}
-			if err == nil {
-				w.recheck(sctx, caps)
 			}
 			if err == nil {
 				err = w.unblock(sctx, c, caps)
@@ -491,7 +492,7 @@ func (w *watcher) agentStatus(ctx context.Context, c luvus.Client, caps luvus.Ca
 	return nil
 }
 
-func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabilities, carried map[int64]bool) error {
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err
@@ -510,6 +511,7 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		}
 		prev := "working"
 		switch {
+		case carried[a.ID]:
 		case (last == "attempt.quiet" || last == "attempt.idle" || last == "attempt.limited") && ag.Status != "blocked":
 			prev = ag.Status
 		case last == "attempt.blocked" && (ag.Status != "working" || harness.Prefills(a.Harness)):
@@ -517,8 +519,15 @@ func (w *watcher) catchUp(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		case last == "attempt.long", last == "attempt.working", last == "attempt.blocked":
 		case ag.Status == "idle" && last != "attempt.keys" && last != "attempt.sent":
 			prev = "idle"
+			if a.Harness == "opencode" && argvSession(a.Argv) != "" {
+				prev = "idle?"
+			}
 		}
 		w.seen[a.ID] = prev
+		if prev == "idle?" {
+			w.heldAt[a.ID] = w.r.env.Now()
+			continue
+		}
 		if ag.Status == "working" && w.turns[a.ID] == nil {
 			since, long, err := w.st.TurnStart(ctx, a.ID)
 			if err != nil {

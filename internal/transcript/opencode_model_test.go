@@ -98,10 +98,10 @@ func TestOpencodeModelOfAnotherTypeDoesNotBlankTheTranscript(t *testing.T) {
 	}
 }
 
-func TestOpencodeModelsReadsTheSessionList(t *testing.T) {
+func TestOpencodeSessionsReadsTheSessionList(t *testing.T) {
 	list := `{"data":[{"id":"ses_1","model":{"id":"gpt-5","providerID":"openai","variant":"high"}},{"id":"ses_2","model":{"id":"claude-sonnet-5-5","providerID":"anthropic","variant":"default"}},{"id":"ses_3","model":null},{"id":"ses_4","model":"x"},{"model":{"id":"y"}}],"cursor":{}}`
 	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "api --standalone GET /api/session?limit=1000", "export": list})
-	got, err := OpencodeModels(context.Background(), bin, t.TempDir())
+	got, _, err := OpencodeSessions(context.Background(), bin, t.TempDir(), time.Now(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,10 +111,10 @@ func TestOpencodeModelsReadsTheSessionList(t *testing.T) {
 	}
 }
 
-func TestOpencodeModelsRefusesAnUnexpectedShape(t *testing.T) {
+func TestOpencodeSessionsRefusesAnUnexpectedShape(t *testing.T) {
 	for _, out := range []string{"not json", `{"cursor":{}}`, `{"data":"x"}`, `[]`} {
 		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"export": out})
-		if got, err := OpencodeModels(context.Background(), bin, t.TempDir()); err == nil {
+		if got, _, err := OpencodeSessions(context.Background(), bin, t.TempDir(), time.Now(), time.Hour); err == nil {
 			t.Fatalf("%s: models = %+v", out, got)
 		}
 	}
@@ -123,37 +123,40 @@ func TestOpencodeModelsRefusesAnUnexpectedShape(t *testing.T) {
 func TestOpencodeBusyFollowsSubagentsUpToTheSession(t *testing.T) {
 	now := time.UnixMilli(1793337600000)
 	at := func(d time.Duration) string { return strconv.FormatInt(now.Add(d).UnixMilli(), 10) }
-	row := func(id, parent, updated, idle string) string {
-		return `{"id":"` + id + `","parentID":` + parent + `,"time":{"created":1,"updated":` + updated + `,"idle":` + idle + `}}`
+	row := func(id, parent, updated, idle string, busy ...string) string {
+		extra := ""
+		if len(busy) > 0 {
+			extra = `,"busy":` + busy[0]
+		}
+		return `{"id":"` + id + `","parentID":` + parent + `,"time":{"created":1,"updated":` + updated + `,"idle":` + idle + extra + `}}`
 	}
+	root := func(updated, idle time.Duration) string { return row("ses_a", "null", at(updated), at(idle)) }
 	for name, c := range map[string]struct {
 		rows []string
 		want bool
 	}{
-		"all idle":                     {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute))}, false},
-		"main turn running":            {[]string{row("ses_a", "null", at(-time.Second), at(-time.Minute))}, true},
+		"all idle":                     {[]string{root(-time.Minute, -time.Minute)}, false},
+		"renamed after idle":           {[]string{root(-time.Second, -time.Minute)}, false},
 		"never idle yet":               {[]string{row("ses_a", "null", at(-time.Second), "null")}, true},
-		"background subagent running":  {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), "null")}, true},
-		"nested subagent running":      {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute)), row("ses_g", `"ses_c"`, at(-time.Second), "null")}, true},
-		"another session's subagent":   {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_b"`, at(-time.Second), "null")}, false},
-		"subagent finished":            {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute))}, false},
+		"background subagent running":  {[]string{root(-time.Minute, -time.Minute), row("ses_c", `"ses_a"`, at(-time.Minute), "null")}, true},
+		"subagent running again":       {[]string{root(-time.Minute, -time.Minute), row("ses_c", `"ses_a"`, at(-time.Second), at(-time.Minute))}, true},
+		"nested subagent running":      {[]string{root(-time.Minute, -time.Minute), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute)), row("ses_g", `"ses_c"`, at(-time.Second), "null")}, true},
+		"another session's subagent":   {[]string{root(-time.Minute, -time.Minute), row("ses_c", `"ses_b"`, at(-time.Second), "null")}, false},
+		"subagent finished":            {[]string{root(-time.Minute, -time.Minute), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute))}, false},
 		"parent loop":                  {[]string{row("ses_a", `"ses_c"`, at(-time.Minute), at(-time.Minute)), row("ses_c", `"ses_a"`, at(-time.Minute), at(-time.Minute)), row("ses_x", `"ses_x"`, at(-time.Second), "null")}, false},
 		"subagent silent past the cap": {[]string{row("ses_a", "null", at(-2*time.Hour), at(-2*time.Hour)), row("ses_c", `"ses_a"`, at(-61*time.Minute), "null")}, false},
+		"2.2.2 running":                {[]string{row("ses_a", "null", at(-time.Second), at(-time.Minute), at(-time.Second))}, true},
+		"2.2.2 idle":                   {[]string{row("ses_a", "null", at(-time.Second), at(-time.Second), at(-time.Minute))}, false},
+		"2.2.2 renamed after idle":     {[]string{row("ses_a", "null", at(-time.Second), at(-time.Minute), at(-2*time.Minute))}, false},
+		"2.2.2 never ran":              {[]string{row("ses_a", "null", at(-time.Second), "null", "null")}, false},
+		"2.2.2 subagent running":       {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute), at(-2*time.Minute)), row("ses_c", `"ses_a"`, at(-time.Second), at(-time.Minute), at(-time.Second))}, true},
+		"2.2.2 subagent idle":          {[]string{row("ses_a", "null", at(-time.Minute), at(-time.Minute), at(-2*time.Minute)), row("ses_c", `"ses_a"`, at(-time.Second), at(-time.Minute), at(-2*time.Minute))}, false},
 	} {
 		list := `{"data":[` + strings.Join(c.rows, ",") + `],"cursor":{}}`
 		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"args": "api --standalone GET /api/session?limit=1000", "export": list})
-		got, err := OpencodeBusy(context.Background(), bin, t.TempDir(), now, time.Hour)
+		_, got, err := OpencodeSessions(context.Background(), bin, t.TempDir(), now, time.Hour)
 		if err != nil || got["ses_a"] != c.want {
 			t.Errorf("%s: busy = %v, %v; want ses_a %v", name, got, err, c.want)
-		}
-	}
-}
-
-func TestOpencodeBusyRefusesAnUnexpectedShape(t *testing.T) {
-	for _, out := range []string{"not json", `{"cursor":{}}`, `{"data":"x"}`} {
-		bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{"export": out})
-		if _, err := OpencodeBusy(context.Background(), bin, t.TempDir(), time.Now(), time.Hour); err == nil {
-			t.Fatalf("%s: no error", out)
 		}
 	}
 }

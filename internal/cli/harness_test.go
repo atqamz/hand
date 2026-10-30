@@ -117,10 +117,16 @@ func ocsessionMain(args []string) int {
 	}
 	if strings.Join(args, " ") == "api --standalone GET /api/session?limit=1000" {
 		hang, _ := time.ParseDuration(p["sessionsleep"])
+		_ = os.WriteFile(p["sessions"]+".started", nil, 0o644)
 		time.Sleep(hang)
 		b, err := os.ReadFile(p["sessions"])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		if rest, once := bytes.CutPrefix(b, []byte("failonce\n")); once {
+			_ = os.WriteFile(p["sessions"], rest, 0o644)
+			fmt.Fprintln(os.Stderr, "failing once")
 			return 1
 		}
 		fmt.Print(string(b))

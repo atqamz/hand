@@ -20,46 +20,42 @@ func (w *watcher) hold(ctx context.Context, a state.Attempt) {
 		w.heldAt[a.ID] = w.r.env.Now()
 	}
 	if w.busy == nil {
-		w.fetchBusy(ctx, a.Argv[0])
+		w.opencodeModels(ctx)
 	}
 }
 
-func (w *watcher) fetchBusy(ctx context.Context, bin string) {
-	if !w.busyFetching.CompareAndSwap(false, true) {
-		return
-	}
+func (w *watcher) listSessions(ctx context.Context) map[string]transcript.ModelLabel {
 	at := w.r.env.Now()
-	w.pending.Add(1)
-	go func() {
-		defer w.pending.Done()
-		defer w.busyFetching.Store(false)
+	var models map[string]transcript.ModelLabel
+	var busy map[string]bool
+	if bin := w.r.transcriptPaths().Opencode; bin != "" {
 		bctx, cancel := context.WithTimeout(ctx, apiCheckWait)
-		ids, _ := transcript.OpencodeBusy(bctx, bin, w.r.home, at, longTurn)
+		models, busy, _ = transcript.OpencodeSessions(bctx, bin, w.r.home, at, longTurn)
 		cancel()
-		if ids == nil {
-			ids = map[string]bool{}
-		}
-		select {
-		case w.busyNow <- busyList{at, ids}:
-		case <-ctx.Done():
-		}
-	}()
-}
-
-func (w *watcher) recheck(ctx context.Context, caps luvus.Capabilities) {
-	live, err := w.st.LiveAttempts(ctx)
-	if err != nil {
-		return
 	}
-	for _, a := range live {
-		if w.seen[a.ID] == "held" && a.Status == state.AttemptRunning && a.ServerGeneration == caps.ServerGeneration {
-			w.fetchBusy(ctx, a.Argv[0])
-			return
-		}
+	select {
+	case <-w.busyNow:
+	default:
 	}
+	select {
+	case w.busyNow <- busyList{at, busy}:
+	default:
+	}
+	return models
 }
 
 func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilities, b busyList) error {
+	if len(w.heldAt) == 0 {
+		w.busyMisses = 0
+		return nil
+	}
+	if b.ids != nil {
+		w.busyMisses = 0
+	} else if w.busyMisses++; w.busyMisses < 2 {
+		return nil
+	} else {
+		w.busyMisses, b.ids = 0, map[string]bool{}
+	}
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {
 		return err
@@ -67,7 +63,18 @@ func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilit
 	w.busy = b.ids
 	defer func() { w.busy = nil }()
 	for _, a := range live {
-		if w.seen[a.ID] != "held" || w.heldAt[a.ID].After(b.at) || a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration || w.heldAt[a.ID].After(b.at) {
+			continue
+		}
+		switch w.seen[a.ID] {
+		case "held":
+		case "idle?":
+			if !b.ids[argvSession(a.Argv)] {
+				w.seen[a.ID] = "idle"
+				delete(w.heldAt, a.ID)
+				continue
+			}
+		default:
 			continue
 		}
 		ag, err := c.Explain(ctx, a.PaneID)
@@ -100,9 +107,7 @@ func (w *watcher) opencodeModels(ctx context.Context) {
 		modelOf := func(session string) (string, string) {
 			if !fetched {
 				fetched = true
-				if bin := w.r.transcriptPaths().Opencode; bin != "" {
-					listed, _ = transcript.OpencodeModels(ctx, bin, w.r.home)
-				}
+				listed = w.listSessions(ctx)
 			}
 			return w.opencodeModel(ctx, listed, session)
 		}

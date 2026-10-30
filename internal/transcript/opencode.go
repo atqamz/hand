@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,22 +100,30 @@ func (m *exportModel) UnmarshalJSON(b []byte) error {
 
 type ModelLabel struct{ Model, Effort string }
 
-func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel, error) {
+func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale time.Duration) (map[string]ModelLabel, map[string]bool, error) {
 	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var list struct {
 		Data []struct {
-			ID    string       `json:"id"`
-			Model *exportModel `json:"model"`
+			ID     string       `json:"id"`
+			Parent string       `json:"parentID"`
+			Model  *exportModel `json:"model"`
+			Time   struct {
+				Updated int64           `json:"updated"`
+				Idle    int64           `json:"idle"`
+				Busy    json.RawMessage `json:"busy"`
+			} `json:"time"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(out, &list) != nil || list.Data == nil {
-		return nil, ErrUnreadable
+		return nil, nil, ErrUnreadable
 	}
 	models := make(map[string]ModelLabel, len(list.Data))
+	parent := make(map[string]string, len(list.Data))
 	for _, s := range list.Data {
+		parent[s.ID] = s.Parent
 		if s.ID == "" {
 			continue
 		}
@@ -124,41 +133,22 @@ func OpencodeModels(ctx context.Context, bin, dir string) (map[string]ModelLabel
 		}
 		models[s.ID] = l
 	}
-	return models, nil
-}
-
-func OpencodeBusy(ctx context.Context, bin, dir string, now time.Time, stale time.Duration) (map[string]bool, error) {
-	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "GET", "/api/session?limit=1000")
-	if err != nil {
-		return nil, err
-	}
-	var list struct {
-		Data []struct {
-			ID     string `json:"id"`
-			Parent string `json:"parentID"`
-			Time   struct {
-				Updated int64 `json:"updated"`
-				Idle    int64 `json:"idle"`
-			} `json:"time"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(out, &list) != nil || list.Data == nil {
-		return nil, ErrUnreadable
-	}
-	parent := make(map[string]string, len(list.Data))
-	for _, s := range list.Data {
-		parent[s.ID] = s.Parent
-	}
 	busy := map[string]bool{}
 	for _, s := range list.Data {
-		if s.Time.Idle >= s.Time.Updated && s.Time.Idle != 0 || now.Sub(time.UnixMilli(s.Time.Updated)) > stale {
+		t := s.Time
+		running := t.Idle == 0 || s.Parent != "" && t.Idle < t.Updated
+		if t.Busy != nil {
+			started, _ := strconv.ParseInt(string(t.Busy), 10, 64)
+			running = started != 0 && started > t.Idle
+		}
+		if !running || now.Sub(time.UnixMilli(t.Updated)) > stale {
 			continue
 		}
 		for id := s.ID; id != "" && !busy[id]; id = parent[id] {
 			busy[id] = true
 		}
 	}
-	return busy, nil
+	return models, busy, nil
 }
 
 func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {
