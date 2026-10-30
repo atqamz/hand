@@ -141,6 +141,23 @@ func TestTheConsoleCarriesTheControls(t *testing.T) {
 	lacks(t, "lan", get(t, lan.handler(), "/"), `data-region="console"`)
 }
 
+func TestAnEndedSupervisorWithAPendingSwitchCanDropIt(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	if _, err := fx.st.SetSupervisorSwitch(context.Background(), 1, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndSupervisor(context.Background(), 1, state.AttemptStopped, "switched to opus high"); err != nil {
+		t.Fatal(err)
+	}
+	console := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "ended", console, `action="/supervisor/resume"`, `name="cancel" value="1"`, `aria-label="Drop switch to opus high"`, ">Drop switch</button>")
+	if _, err := fx.st.CancelSupervisorSwitch(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "dropped", region(get(t, fx.handler(), "/"), "console"), "Drop switch")
+}
+
 func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
@@ -150,7 +167,7 @@ func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
 	lacks(t, "menu", menu, "between turns", `placeholder="Other model"`)
 }
 
-func TestModelMenuOfAnOpencodeSupervisorHasNoChangeForm(t *testing.T) {
+func TestModelMenuOfAnOpencodeSupervisorOffersAModelAndAVariant(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()
 	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
@@ -163,6 +180,24 @@ func TestModelMenuOfAnOpencodeSupervisorHasNoChangeForm(t *testing.T) {
 	console := region(get(t, fx.handler(), "/"), "console")
 	menu := console[strings.Index(console, `id="model-menu"`):]
 	contains(t, "now", menu, `<dt>Harness</dt><dd>opencode</dd>`, `<p class="harness-name">claude</p>`)
+	if _, err := fx.st.SetSupervisorSwitch(ctx, sup.ID, "local/m2", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.CancelSupervisorSwitch(ctx, sup.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.st.SetSupervisorModel(ctx, sup.ID, "local/m2", "fast"); err != nil {
+		t.Fatal(err)
+	}
+	running := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "running now", running, `<dt>Variant</dt><dd>fast</dd>`)
+	lacks(t, "running now", running, "<dt>Effort</dt>")
+	if _, err := fx.st.SetSupervisorSwitch(ctx, sup.ID, "local/m1", ""); err != nil {
+		t.Fatal(err)
+	}
+	pending := region(get(t, fx.handler(), "/"), "console")
+	contains(t, "pending", pending, "next turn: local/m1</span>")
+	contains(t, "form", menu, `<p class="field-label">Change model or variant</p>`, `<label>Model <input name="model" placeholder="" size="10"></label>`, `<label>Variant <input name="effort" placeholder="" size="6"></label>`, "<button>Switch after this turn</button>")
 	lacks(t, "now", menu, "<dt>Model</dt>", "<dt>Effort</dt>", "Change model or effort")
 }
 
@@ -437,10 +472,10 @@ func TestStartFormOffersAnOtherModelBesideTheSelect(t *testing.T) {
 func TestStartFormOffersOpencodeAModelAndAnEffort(t *testing.T) {
 	fx := newFixture(t)
 	row := startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode")
-	contains(t, "opencode row", row, `<input name="model" placeholder="model" size="10" aria-label="opencode model">`, `<input name="effort" placeholder="effort" size="6" aria-label="opencode effort">`, `<button>Start opencode</button>`)
+	contains(t, "opencode row", row, `<input name="model" placeholder="model" size="10" aria-label="opencode model">`, `<input name="effort" placeholder="variant" size="6" aria-label="opencode variant">`, `<button>Start opencode</button>`)
 	lacks(t, "opencode row", row, "its own configuration")
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	lacks(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `name="model"`, `name="other"`)
+	contains(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `<label>Model <input name="other" size="10" autocomplete="off" aria-label="opencode other model"></label>`, `<label>Variant <input name="effort" size="6" aria-label="opencode variant"></label>`, `<button>Switch to opencode</button>`)
 }
 
 func TestStartRowPostsTheOtherModelOverTheSelect(t *testing.T) {
@@ -465,7 +500,6 @@ func TestOtherHarnessSwitchTakesATypedModelWithoutAModelList(t *testing.T) {
 	agy := startRow(t, console, "agy")
 	contains(t, "agy switch row", agy, `aria-label="agy other model"`)
 	lacks(t, "agy switch row", agy, `name="effort"`)
-	lacks(t, "opencode switch row", startRow(t, console, "opencode"), `name="other"`, `name="effort"`)
 }
 
 func TestSwitchMenuHasAnOtherModelAndPostsIt(t *testing.T) {
@@ -479,6 +513,35 @@ func TestSwitchMenuHasAnOtherModelAndPostsIt(t *testing.T) {
 	}
 }
 
+func TestSwitchReceiptFollowsWhatTheSwitchDid(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	receipt := func(form url.Values) string {
+		got, _ := url.PathUnescape(fetchPost(fx.handler(), "/supervisor/switch", form).Header().Get("X-Hand-Receipt"))
+		return got
+	}
+	if got := receipt(url.Values{"model": {"opus"}}); got != "Switch applied" {
+		t.Fatalf("applied = %q", got)
+	}
+	fx.warn = state.NoteLost + ": is opus available?"
+	if got := receipt(url.Values{"model": {"sonnet"}}); got != "Switch applied, not answered" {
+		t.Fatalf("lost note = %q", got)
+	}
+	fx.warn = ""
+	if _, err := fx.st.SetSupervisorSwitch(context.Background(), 1, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if got := receipt(url.Values{"model": {"opus"}}); got != "Switch set for after this turn" {
+		t.Fatalf("pending = %q", got)
+	}
+	if got := receipt(url.Values{"cancel": {"1"}}); got != "Switch canceled" {
+		t.Fatalf("cancel = %q", got)
+	}
+	if got := receipt(url.Values{"harness": {"codex"}, "other": {"gpt-6-luna"}}); got != "Switching to codex…" {
+		t.Fatalf("harness = %q", got)
+	}
+}
+
 func TestAWarningReachesTheBrowserNextToTheReceipt(t *testing.T) {
 	fx := newFixture(t)
 	fx.warn = "claude model acme-opus is not an alias (opus, sonnet, haiku, fable) or a claude-* name, and Claude Code lists no models; starting anyway"
@@ -488,7 +551,7 @@ func TestAWarningReachesTheBrowserNextToTheReceipt(t *testing.T) {
 		t.Fatalf("code %d, warn %q (%v), receipt %q", rec.Code, got, err, rec.Header().Get("X-Hand-Receipt"))
 	}
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, `const warn = header(res, "X-Hand-Warn");`, "show(receipt ? `${receipt} ${warn}` : warn, 12000, \"warn\")")
+	contains(t, "app.js", js, `const warn = header(res, "X-Hand-Warn");`, "show(receipt ? `${receipt}; ${warn}` : warn, 12000, \"warn\")")
 	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0")
 }
 

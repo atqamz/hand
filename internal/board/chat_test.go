@@ -164,7 +164,7 @@ func TestWakesUnderADividerShowTheClock(t *testing.T) {
 	wake := userRecord(`[hand v1 wake]\ndecision.answered d1`)
 	claudeLog(t, fx, []string{at(reply("old"), "2026-09-27T10:00:00Z"), at(wake, "2026-09-28T12:28:00Z"), at(wake, "2026-09-28T12:29:00Z")})
 	tl := region(get(t, fx.handler(), "/"), "timeline")
-	contains(t, "wake lines", tl, `<span class="hand-text">`, `>12:28</time></p>`, `>12:29</time></p>`)
+	contains(t, "wake lines", tl, `<span class="hand-text" title="`, `>12:28</time></p>`, `>12:29</time></p>`)
 }
 
 func TestWakesSplitAtMidnight(t *testing.T) {

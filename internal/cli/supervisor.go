@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	"github.com/atqamz/hand/internal/transcript"
 )
 
 const (
@@ -206,7 +207,25 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 	if last.Switching() {
 		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
 	}
-	return r.relaunch(ctx, st, c, last, spec)
+	sup, err := r.relaunch(ctx, st, c, last, spec)
+	if err != nil && last.Switching() && !errors.Is(err, errLaunchUnknown) {
+		err = fmt.Errorf("%w; retry with %s, or %s", err, r.resumeAction(), r.dropAction(last))
+	}
+	return sup, err
+}
+
+func (r *runner) resumeAction() string {
+	if r.env.Board {
+		return "Resume"
+	}
+	return "`hand supervisor resume`"
+}
+
+func (r *runner) dropAction(sup state.Supervisor) string {
+	if r.env.Board {
+		return "press Drop switch to " + sup.SwitchText()
+	}
+	return "drop the switch to " + sup.SwitchText() + ": `hand supervisor switch --cancel`"
 }
 
 func lastSpec(last state.Supervisor) harness.Spec {
@@ -231,19 +250,119 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	if err != nil {
 		return state.Supervisor{}, err
 	}
+	applied := false
+	revert := func(cause error) error {
+		if !applied || last.Model == "" {
+			return cause
+		}
+		rerr := detached(ctx, func(ctx context.Context) error {
+			return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, lastSpec(last))
+		})
+		if rerr == nil {
+			return cause
+		}
+		clause := fmt.Sprintf("could not put opencode session %s back on %s: %v; a resume after --cancel continues on %s", last.Session, last.Model, rerr, spec.Model)
+		r.warn(clause)
+		return fmt.Errorf("%w; %s", cause, clause)
+	}
+	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
+		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
+			return state.Supervisor{}, err
+		}
+		applied = true
+	}
 	argv, err := harness.SupervisorArgv(bin, spec, last.Session, "", r.home, true)
 	if err != nil {
-		return state.Supervisor{}, err
+		return state.Supervisor{}, revert(err)
 	}
-	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
+	row := spec
+	if row.Harness == "opencode" && row.Effort == "default" {
+		row.Effort = ""
+	}
+	r.noteLost = ""
+	sup, err := r.launchSupervisor(ctx, st, c, state.SupervisorSpec{Harness: row.Harness, Model: row.Model, Effort: row.Effort, Argv: argv, Session: last.Session, WakeCursor: last.WakeCursor}, "")
+	if err != nil && !errors.Is(err, errLaunchUnknown) {
+		err = revert(err)
+	}
 	if err == nil {
 		waitSettled(ctx, c, sup.PaneID)
 		if origin, oerr := st.SupervisorOrigin(ctx, sup); oerr == nil {
 			note := "[hand v1 resume] you are now " + state.SupervisorRef(sup.ID) + " (resumes " + state.SupervisorRef(origin) + ")"
-			_ = detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
+			sent := detached(ctx, func(ctx context.Context) error { return c.Prompt(ctx, sup.PaneID, sup.TerminalID, note) })
+			if spec.Harness == "opencode" {
+				r.checkNote(ctx, st, sup, argv, note, sent, last, spec)
+			}
 		}
 	}
 	return sup, err
+}
+
+func (r *runner) checkNote(ctx context.Context, st *state.Store, sup state.Supervisor, argv []string, note string, sent error, last state.Supervisor, spec harness.Spec) {
+	if sent != nil {
+		r.warn("could not send the resume note: " + sent.Error())
+		return
+	}
+	taken, read := noteTaken(ctx, opencodeLastUser(r.home, argv), note)
+	switch {
+	case !read:
+		r.warn("could not check that opencode took the resume note")
+	case !taken:
+		r.noteLost = state.NoteLost + ": is " + cmp.Or(spec.Model, "the default model") + " available? " + r.lostNoteAction(last, spec)
+		r.warn(r.noteLost)
+		if err := detached(ctx, func(ctx context.Context) error { return st.NoteSupervisor(ctx, sup.ID, "blocked", r.noteLost) }); err != nil {
+			r.warn("could not record the hold: " + err.Error())
+		}
+	}
+}
+
+func (r *runner) lostNoteAction(last state.Supervisor, spec harness.Spec) string {
+	back := last.Switching() && (last.Model != "" || last.Model == spec.Model)
+	if r.env.Board {
+		if !back {
+			return "Switch to another model from the model menu"
+		}
+		return "Switch back to " + cmp.Or(strings.Join(strings.Fields(last.Model+" "+last.Effort), " "), "the default") + " from the model menu"
+	}
+	switch {
+	case !back:
+		return "Switch to another model with `" + r.env.command() + " supervisor switch --model M`"
+	case last.Model == spec.Model:
+		return "Switch back with `" + r.env.command() + " supervisor switch --effort " + cmp.Or(last.Effort, "default") + "`"
+	case last.Effort != "":
+		return "Switch back with `" + r.env.command() + " supervisor switch --model " + last.Model + " --effort " + last.Effort + "`"
+	}
+	return "Switch back with `" + r.env.command() + " supervisor switch --model " + last.Model + "`"
+}
+
+func opencodeLastUser(home string, argv []string) func(context.Context) (string, bool) {
+	session := argvSession(argv)
+	return func(ctx context.Context) (string, bool) {
+		if session == "" || len(argv) == 0 {
+			return "", false
+		}
+		ctx, cancel := context.WithTimeout(ctx, apiCheckWait)
+		defer cancel()
+		text, _, err := transcript.OpencodeLastUser(ctx, argv[0], home, session)
+		return text, err == nil
+	}
+}
+
+func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool), note string) (taken, read bool) {
+	ctx, cancel := context.WithTimeout(ctx, noteWait)
+	defer cancel()
+	for {
+		if text, ok := lastUser(ctx); ok {
+			read = true
+			if strings.TrimSpace(text) == note {
+				return true, true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return false, read
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor) (state.Supervisor, error) {
@@ -258,13 +377,13 @@ func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Clien
 		}
 		to = state.AttemptStopped
 	}
-	ended, err := st.EndSupervisor(ctx, sup.ID, to, "switched to "+sup.SwitchModel+" "+sup.SwitchEffort)
+	ended, err := st.EndSupervisor(ctx, sup.ID, to, "switched to "+sup.SwitchText())
 	if err != nil {
 		return sup, err
 	}
 	sup, err = r.relaunch(ctx, st, c, ended, spec)
 	if err != nil && !errors.Is(err, errLaunchUnknown) {
-		err = fmt.Errorf("%w; supervisor %s stopped for the switch to %s %s, continue it with `hand supervisor resume`", err, state.SupervisorRef(ended.ID), spec.Model, spec.Effort)
+		err = fmt.Errorf("%w; supervisor %s stopped for the switch to %s, continue it with %s, or %s", err, state.SupervisorRef(ended.ID), ended.SwitchText(), r.resumeAction(), r.dropAction(ended))
 	}
 	return sup, err
 }
@@ -290,11 +409,6 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, caps luvus.Capabilities) error {
-		sup, err := runningSupervisor(ctx, st)
-		if err != nil {
-			return err
-		}
-		ref := state.SupervisorRef(sup.ID)
 		var d toon.Doc
 		if *cancel {
 			unlock, _, err := r.supervisorLock(true)
@@ -302,8 +416,13 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 				return err
 			}
 			defer unlock()
-			if sup, err = runningSupervisor(ctx, st); err != nil {
-				return err
+			sup, err := runningSupervisor(ctx, st)
+			if err != nil {
+				last, ok, lerr := lastStarted(ctx, st)
+				if lerr != nil || !ok || last.Live() {
+					return err
+				}
+				sup = last
 			}
 			if _, err := st.CancelSupervisorSwitch(ctx, sup.ID); err != nil {
 				return err
@@ -312,16 +431,20 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			d.Field("switch", "canceled")
 			return r.print(&d)
 		}
+		sup, err := runningSupervisor(ctx, st)
+		if err != nil {
+			return err
+		}
+		ref := state.SupervisorRef(sup.ID)
 		if routed.Harness != "" && routed.Harness != sup.Harness {
 			return r.switchHarness(ctx, st, c, routed)
-		}
-		if sup.Harness == "opencode" {
-			return fmt.Errorf("%w: opencode keeps its model in the session; switching is not supported", state.ErrInvalid)
 		}
 		spec := harness.Spec{Harness: sup.Harness, Model: sup.Model, Effort: sup.Effort}
 		switch {
 		case *profile != "":
 			spec = routed
+		case sup.Harness == "opencode" && *model != "" && *model != sup.Model:
+			spec.Model, spec.Effort = *model, *effort
 		default:
 			spec.Model, spec.Effort = cmp.Or(*model, spec.Model), cmp.Or(*effort, spec.Effort)
 		}
@@ -329,9 +452,15 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		if sup.Harness == "opencode" && spec.Model != sup.Model {
+			if err := r.opencodeListed(spec.Model); err != nil {
+				return err
+			}
+			warn, _ = harness.Check(spec, harness.EnvOf(r.env.Getenv))
+		}
 		r.warn(warn)
-		if spec.Model == sup.Model && spec.Effort == sup.Effort {
-			return fmt.Errorf("%w: supervisor %s already runs %s at effort %s", state.ErrConflict, ref, sup.Model, sup.Effort)
+		if spec.Model == sup.Model && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
+			return fmt.Errorf("%w: supervisor %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(sup.Model+" "+sup.Effort), " "))
 		}
 		if err := r.findSession(ctx, st, &sup); err != nil {
 			return err
@@ -352,15 +481,24 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		d.Field("supervisor", state.SupervisorRef(now.ID))
 		if now.ID != sup.ID {
-			d.Field("switch", "applied")
+			if r.noteLost != "" {
+				d.Field("switch", "applied, but "+r.noteLost)
+				r.warns = slices.DeleteFunc(r.warns, func(w string) bool { return w == r.noteLost })
+			} else {
+				d.Field("switch", "applied")
+			}
 			d.Field("model", now.Model)
-			d.Field("effort", now.Effort)
+			if now.Effort != "" {
+				d.Field("effort", now.Effort)
+			}
 			r.fieldWarn(&d)
 			return r.print(&d)
 		}
 		d.Field("switch", "pending")
 		d.Field("model", spec.Model)
-		d.Field("effort", spec.Effort)
+		if spec.Effort != "" {
+			d.Field("effort", spec.Effort)
+		}
 		r.fieldWarn(&d)
 		if why != "" {
 			d.Field("why", why)
@@ -374,6 +512,24 @@ const (
 	settleWait  = 30 * time.Second
 	settleQuiet = time.Second
 )
+
+func (r *runner) opencodeListed(model string) error {
+	env, opts := r.modelOptions()
+	listed := func() (bool, bool) {
+		models, err := harness.Detected("opencode", env)
+		return slices.ContainsFunc(models, func(m harness.Model) bool { return m.Name == model }), err == nil
+	}
+	if ok, _ := listed(); ok {
+		return nil
+	}
+	if err := r.refreshModels([]string{"opencode"}, env, opts); err != nil {
+		return nil
+	}
+	if ok, known := listed(); known && !ok {
+		return fmt.Errorf("%w: opencode model %s is not in `opencode models`: connect its provider, or pick another model", state.ErrInvalid, model)
+	}
+	return nil
+}
 
 func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 	ctx, cancel := context.WithTimeout(ctx, settleWait)
@@ -612,10 +768,15 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			if s.TerminalID == sup.TerminalID {
 				d.Field("revision", strconv.FormatInt(s.ContentRevision, 10))
 			}
+			if why, held, err := st.SupervisorHold(ctx, sup); err != nil {
+				return err
+			} else if held {
+				d.Field("held", why)
+			}
 		}
 		d.Field("pending", strconv.Itoa(len(pending)))
 		if sup.Switching() {
-			d.Field("switch", sup.SwitchModel+" "+sup.SwitchEffort)
+			d.Field("switch", sup.SwitchText())
 		}
 		d.Field("wake_cursor", strconv.FormatInt(sup.WakeCursor, 10))
 		if !sup.Live() {
@@ -872,7 +1033,7 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	if sup.Switching() {
 		if ag.Status == "working" {
-			return "switching to " + sup.SwitchModel + " " + sup.SwitchEffort + " after this turn", nil
+			return "switching to " + sup.SwitchText() + " after this turn", nil
 		}
 		if sup, err = r.applySwitch(ctx, st, c, sup); err != nil {
 			return "", err
@@ -883,6 +1044,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 		if ag.Status != "idle" && ag.Status != "done" && ag.Status != "working" {
 			return "supervisor " + state.SupervisorRef(sup.ID) + " is " + ag.Status + " after the switch", nil
 		}
+	}
+	if why, held, err := st.SupervisorHold(ctx, sup); err != nil {
+		return "", err
+	} else if held {
+		return why, nil
 	}
 	pending, err := st.PendingSupervisorInputs(ctx)
 	if err != nil {
@@ -945,6 +1111,8 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 	}
 	return "", detached(ctx, func(ctx context.Context) error { return st.AdvanceWakeCursor(ctx, sup.ID, last) })
 }
+
+var noteWait = 15 * time.Second
 
 var submitCheck, submitPoll = 1500 * time.Millisecond, 100 * time.Millisecond
 

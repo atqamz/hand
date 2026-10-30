@@ -329,3 +329,14 @@ func (s *Store) AttemptEvents(ctx context.Context, taskID, attemptID int64, limi
 	}
 	return events, more, rows.Err()
 }
+
+const NoteLost = "opencode did not take the resume note"
+
+func (s *Store) SupervisorHold(ctx context.Context, sup Supervisor) (string, bool, error) {
+	e, ok, err := s.LatestEvent(ctx, "supervisor.blocked")
+	prefix := SupervisorRef(sup.ID) + ": "
+	if err != nil || !ok || !strings.HasPrefix(e.Detail, prefix+NoteLost) {
+		return "", false, err
+	}
+	return strings.TrimPrefix(e.Detail, prefix), true, nil
+}

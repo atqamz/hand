@@ -64,6 +64,11 @@ func ocexportMain(args []string) int {
 	return 0
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func ocapiMain(args []string) int {
 	p := fakebin.Params()
 	switch {
@@ -71,6 +76,9 @@ func ocapiMain(args []string) int {
 		fmt.Println("opencode 9.9")
 	case len(args) > 0 && args[0] == "models":
 		fmt.Print(p["models"])
+		if b, err := os.ReadFile(p["more"]); err == nil {
+			fmt.Print(string(b))
+		}
 	case len(args) > 4 && args[0] == "api" && args[2] == "session.create":
 		fakebin.Append(p["log"], "create "+args[4])
 		if p["die"] != "" {
@@ -96,7 +104,40 @@ func ocapiMain(args []string) int {
 		}
 		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
 	case len(args) > 2 && args[0] == "api" && args[2] == "session.message.list":
-		fmt.Print(`{"data":[]}`)
+		if b, err := os.ReadFile(p["listdie"]); err == nil {
+			fmt.Fprint(os.Stderr, string(b))
+			return 1
+		}
+		if p["msgs"] == "" {
+			fmt.Print(`{"data":[]}`)
+			return 0
+		}
+		b, _ := os.ReadFile(p["msgs"])
+		sent := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if sent[0] == "" {
+			fmt.Print(`{"data":[{"id":"msg_0","type":"user","text":"launch brief"}]}`)
+			return 0
+		}
+		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user","text":%s}]}`, len(sent), sent[len(sent)-1])
+	case len(args) > 6 && args[0] == "api" && args[2] == "session.switchModel":
+		fakebin.Append(p["log"], "switch "+strings.TrimPrefix(args[4], "sessionID=")+" "+args[6])
+		switch {
+		case p["swonce"] != "" && !fileExists(p["swonce"]):
+			fakebin.Append(p["swonce"], "failed")
+			fmt.Fprintln(os.Stderr, "database is locked")
+			return 1
+		case p["swdiebody"] != "" && strings.Contains(args[6], p["swdiebody"]):
+			fmt.Fprintln(os.Stderr, "database is locked")
+			return 1
+		case p["swdie"] != "":
+			fmt.Fprintln(os.Stderr, p["swdie"])
+			return 1
+		case p["swreject"] != "":
+			fmt.Printf(`{"_tag":"InvalidRequestError","message":%q,"kind":"Payload"}`+"\n", p["swreject"])
+			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
+			return 1
+		}
+		fmt.Print(p["swanswer"])
 	default:
 		time.Sleep(5 * time.Minute)
 	}
@@ -226,16 +267,17 @@ func fakeMain(args []string) int {
 }
 
 type harness struct {
-	name string
-	t    *testing.T
-	home string
-	mu   *sync.Mutex
-	now  time.Time
-	vars map[string]string
-	cwd  string
-	in   io.Reader
-	tty  bool
-	exec [][]string
+	name  string
+	t     *testing.T
+	home  string
+	mu    *sync.Mutex
+	now   time.Time
+	vars  map[string]string
+	cwd   string
+	in    io.Reader
+	tty   bool
+	exec  [][]string
+	board bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -257,6 +299,7 @@ func (h *harness) advance(d time.Duration) {
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
+		Board:  h.board,
 		Stdin:  h.stdin(),
 		Stdout: out,
 		Stderr: errOut,
