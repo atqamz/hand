@@ -689,8 +689,8 @@ func TestQuietAfterDoneDoesNotWake(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
 	out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
-	if strings.Contains(out, ",attempt.quiet,") || !strings.Contains(out, `,attempt.idle,t1,"a1: turn ended; reported r1 done"`) {
-		t.Fatalf("a turn that ended an hour after a done report woke, or did not ride with the report: %q", out)
+	if strings.Contains(out, ",attempt.quiet,") || strings.Contains(out, ",attempt.idle,") || !strings.Contains(out, `,attempt.reported,t1,"a1: r1 done"`) {
+		t.Fatalf("a turn that ended an hour after a done report reached the supervisor: %q", out)
 	}
 }
 
