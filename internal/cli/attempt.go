@@ -184,11 +184,10 @@ func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.
 
 const (
 	fetchWait   = 20 * time.Second
-	prefillWait = 30 * time.Second
 	submitTries = 3
 )
 
-var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second
+var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
@@ -214,6 +213,14 @@ func afterLaunch(ctx context.Context, c luvus.Client, l launched, note func(kind
 			fields = append(fields, [2]string{"prompt", "sent unconfirmed"})
 			help = append(help, "Enter was sent but the "+l.who+" did not react: check `"+l.look+"`, and press Enter with `"+l.keys+"` only if the "+l.thing+" is still in the input box")
 		default:
+			if problem := scanLaunch(ctx, c, l.harness, l.pane); problem != "" {
+				if err := note("blocked", problem); err != nil {
+					return nil, nil, err
+				}
+				fields = append(fields, [2]string{"prompt", "not submitted"})
+				help = append(help, "Read the screen: `"+l.screen+"`")
+				break
+			}
 			if err := note("blocked", l.thing+" not submitted; press Enter"); err != nil {
 				return nil, nil, err
 			}
@@ -261,6 +268,17 @@ type launchScreen struct {
 }
 
 var launchScreens = map[string]launchScreen{
+	"opencode": {banner: "┃", problems: []launchProblem{{
+		seen: regexp.MustCompile(`·([^·┃]+)\(unavailable\)([^·╹]+)`),
+		note: func(m []string) string {
+			return unavailableOpencode(m[2] + "/" + m[1])
+		},
+	}, {
+		seen: regexp.MustCompile(`┃([^┃]+?)isnotavailableinthissession'slocation`),
+		note: func(m []string) string {
+			return unavailableOpencode(m[1])
+		},
+	}}},
 	"copilot": {banner: "uses AI.", problems: []launchProblem{{
 		seen: regexp.MustCompile(`Model"([^"]+)"from--modelflagisnotavailable\.Using"auto"instead`),
 		note: func(m []string) string {
@@ -272,6 +290,10 @@ var launchScreens = map[string]launchScreen{
 			return "copilot is not signed in and ignored the brief; run `copilot login`, then start the attempt again"
 		},
 	}}},
+}
+
+func unavailableOpencode(model string) string {
+	return "opencode model " + model + " is unavailable: connect its provider or pick another model"
 }
 
 func scanLaunch(ctx context.Context, c luvus.Client, harness, pane string) string {
