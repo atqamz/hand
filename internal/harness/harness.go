@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -101,7 +102,7 @@ func checkOpencode(s Spec, env Env) (string, error) {
 		}
 		return "", nil
 	}
-	if !opencodeName.MatchString(s.Model) {
+	if !opencodeName.MatchString(s.Model) || utf8.RuneCountInString(s.Model) > 200 {
 		return "", fmt.Errorf("%w: opencode model %q must be provider/id: 1 to 200 characters, no # and no control characters", state.ErrInvalid, s.Model)
 	}
 	if s.Effort != "" && !effortToken.MatchString(s.Effort) {
