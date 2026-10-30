@@ -151,7 +151,7 @@ func TestAnEndedSupervisorWithAPendingSwitchCanDropIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "ended", console, `action="/supervisor/resume"`, `name="cancel" value="1"`, "<button>Drop switch to opus high</button>")
+	contains(t, "ended", console, `action="/supervisor/resume"`, `name="cancel" value="1"`, `aria-label="Drop switch to opus high"`, ">Drop switch</button>")
 	if _, err := fx.st.CancelSupervisorSwitch(context.Background(), 1); err != nil {
 		t.Fatal(err)
 	}
