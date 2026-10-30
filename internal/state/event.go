@@ -219,9 +219,10 @@ func (s *Store) EventsAfter(ctx context.Context, after int64, kinds []string, li
 	return s.eventsAfter(ctx, ``, after, kinds, limit)
 }
 
-const staleWake = ` AND NOT EXISTS (SELECT 1 FROM attempt a WHERE kind LIKE 'attempt.%' AND detail LIKE 'a%' AND a.id = CAST(substr(detail, 2) AS INTEGER) AND (
-	kind IN ('attempt.blocked', 'attempt.quiet', 'attempt.limited', 'attempt.long') AND a.status NOT IN ('launching', 'running')
-	OR kind IN ('attempt.exited', 'attempt.interrupted', 'attempt.failed') AND a.cleaned_at != ''))`
+const staleWake = ` AND NOT EXISTS (SELECT 1 FROM attempt a WHERE event.kind LIKE 'attempt.%' AND event.detail LIKE 'a%' AND a.id = CAST(substr(event.detail, 2) AS INTEGER) AND (
+	(event.kind IN ('attempt.blocked', 'attempt.long') OR event.kind = 'attempt.quiet' AND event.detail NOT LIKE 'a%: api error: %') AND a.status NOT IN ('launching', 'running')
+	OR event.kind IN ('attempt.limited', 'attempt.quiet') AND (a.status = 'stopped' OR a.cleaned_at != '')
+	OR event.kind IN ('attempt.exited', 'attempt.interrupted', 'attempt.failed') AND a.cleaned_at != ''))`
 
 func (s *Store) WakeEventsAfter(ctx context.Context, after int64, kinds []string, limit int) ([]Event, error) {
 	return s.eventsAfter(ctx, staleWake, after, kinds, limit)

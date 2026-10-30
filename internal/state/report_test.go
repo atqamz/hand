@@ -314,7 +314,7 @@ func TestWakeEventsLeaveOutWhatTheSupervisorAlreadyHandled(t *testing.T) {
 	if _, err := s.EndAttempt(ctx, a.ID, AttemptExited, "terminal exited"); err != nil {
 		t.Fatal(err)
 	}
-	if got := wakes(); got != "attempt.reported a1: r1 done\nattempt.exited a1: terminal exited" {
+	if got := wakes(); got != "attempt.limited a1: x\nattempt.reported a1: r1 done\nattempt.exited a1: terminal exited" {
 		t.Fatalf("wakes after the exit = %q", got)
 	}
 	if _, err := s.CleanAttempt(ctx, a.ID); err != nil {
@@ -322,5 +322,85 @@ func TestWakeEventsLeaveOutWhatTheSupervisorAlreadyHandled(t *testing.T) {
 	}
 	if got := wakes(); got != "attempt.reported a1: r1 done" {
 		t.Fatalf("wakes after the clean = %q", got)
+	}
+}
+
+func wakeLines(t *testing.T, s *Store) string {
+	t.Helper()
+	kinds := []string{"attempt.blocked", "attempt.quiet", "attempt.limited", "attempt.long", "attempt.exited", "attempt.interrupted"}
+	events, err := s.WakeEventsAfter(context.Background(), 0, kinds, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range events {
+		out = append(out, e.Kind+" "+e.Detail)
+	}
+	return strings.Join(out, "\n")
+}
+
+func TestWakeFilterNamesItsOwnColumns(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	for _, col := range []string{"kind", "detail"} {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE attempt ADD COLUMN `+col+` TEXT NOT NULL DEFAULT ''`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := runningAttempt(t, s)
+	if err := s.NoteAttempt(ctx, a.ID, "blocked", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if got := wakeLines(t, s); got != "" {
+		t.Fatalf("wakes after the stop = %q", got)
+	}
+}
+
+func TestALimitAndAnAPIErrorSurviveAnUncleanedEnd(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	a := runningAttempt(t, s)
+	if err := s.NoteAttempt(ctx, a.ID, "limited", "You've hit your limit · resets 5pm (~ 10:00 UTC)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.NoteAttempt(ctx, a.ID, "blocked", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.RecordQuiet(ctx, a.ID, "API Error: boom"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptInterrupted, "luvus restarted"); err != nil {
+		t.Fatal(err)
+	}
+	want := "attempt.limited a1: You've hit your limit · resets 5pm (~ 10:00 UTC)\nattempt.quiet a1: api error: API Error: boom\nattempt.interrupted a1: luvus restarted"
+	if got := wakeLines(t, s); got != want {
+		t.Fatalf("wakes after an uncleaned interruption = %q, want %q", got, want)
+	}
+	if _, err := s.CleanAttempt(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := wakeLines(t, s); got != "" {
+		t.Fatalf("wakes after the clean = %q", got)
+	}
+}
+
+func TestALimitAndAnAPIErrorEndWithAStop(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	a := runningAttempt(t, s)
+	if err := s.NoteAttempt(ctx, a.ID, "limited", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.RecordQuiet(ctx, a.ID, "API Error: boom"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if got := wakeLines(t, s); got != "" {
+		t.Fatalf("wakes after the stop = %q", got)
 	}
 }

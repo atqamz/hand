@@ -338,7 +338,7 @@ The wake kinds are:
 
 A `progress` report never wakes the supervisor on its own; `attempt.limited` and `attempt.long` always do. A `progress` report rides in the next wake with an event that does, or goes out once 50 such reports wait. `attempt.idle` is not a wake kind: it never reaches the supervisor and sends no desktop or notify-command alert.
 
-A wake leaves out what the supervisor already handled: an `attempt.blocked`, `attempt.quiet`, `attempt.limited` or `attempt.long` of an attempt that is no longer running when the wake goes out, and an `attempt.exited`, `attempt.interrupted` or `attempt.failed` of an attempt already cleaned. The events stay in the timeline. `hand wait` leaves them out the same way.
+A wake leaves out what the supervisor already handled: an `attempt.blocked`, `attempt.quiet` or `attempt.long` of an attempt that is no longer running when the wake goes out, an `attempt.limited`, or an `attempt.quiet` with `api error`, of an attempt that is stopped or cleaned (an exit or an interruption not yet cleaned keeps the limit line and its reset time in the wake), and an `attempt.exited`, `attempt.interrupted` or `attempt.failed` of an attempt already cleaned. The events stay in the timeline. `hand wait` leaves them out the same way.
 
 Wakes reach the managed supervisor through the watcher, so `hand watch` must run for the fleet.
 
