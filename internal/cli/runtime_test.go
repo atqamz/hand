@@ -61,6 +61,7 @@ type fakeRuntime struct {
 	afterKeys    string
 	explainFail  string
 	onPrompt     func()
+	onRead       func()
 	closeFail    string
 	closeDelay   time.Duration
 	sessions     map[string]string
@@ -290,6 +291,10 @@ func (rt *fakeRuntime) read(json.RawMessage) (any, error) {
 	if rt.readFail != "" {
 		rt.readFailed++
 		return nil, fakeuhp.Fail{Code: rt.readFail, Message: "terminal is gone"}
+	}
+	if hook := rt.onRead; hook != nil {
+		rt.onRead = nil
+		hook()
 	}
 	text := "Do you want to proceed?\n❯ 1. Yes"
 	if rt.screen != "" {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -689,8 +690,36 @@ func TestQuietAfterDoneDoesNotWake(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
 	eventually(t, func() bool { return len(turnEvents(t, fx)) == 1 })
 	out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
-	if strings.Contains(out, ",attempt.quiet,") || strings.Contains(out, ",attempt.idle,") || !strings.Contains(out, `,attempt.reported,t1,"a1: r1 done"`) {
+	if strings.Contains(out, ",attempt.quiet,") || !strings.Contains(out, `,attempt.reported,t1,"a1: r1 done"`) {
 		t.Fatalf("a turn that ended an hour after a done report reached the supervisor: %q", out)
+	}
+}
+
+func TestAStopThatRacesATurnEndLeavesTheWatcherRunning(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	st := openStore(t, fx.h)
+	stop := startWatch(t, fx)
+	defer stop()
+	var ended atomic.Bool
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.onRead = func() {
+			if _, err := st.EndAttempt(context.Background(), 1, state.AttemptStopped, "stopped by operator"); err != nil {
+				t.Error(err)
+			}
+			ended.Store(true)
+		}
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, ended.Load)
+	fx.rt.set(func(*fakeRuntime) {})
+	time.Sleep(300 * time.Millisecond)
+	if fx.rt.srv.Subscribers() != 1 {
+		t.Fatal("the watcher dropped its event stream after a stop raced a turn end")
+	}
+	out, _ := stop()
+	if strings.Contains(out, "luvus:") || len(turnEvents(t, fx)) != 0 {
+		t.Fatalf("output = %q, turn events = %+v", out, turnEvents(t, fx))
 	}
 }
 
@@ -907,8 +936,12 @@ func TestALimitedTurnAfterADoneReportStillWakes(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = claudeLimit })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	got := fx.h.ok("wait", "--after", cursor, "--timeout", "5s")
-	if !strings.Contains(got, ",attempt.limited,") || strings.Contains(got, ",attempt.idle,") {
+	if !strings.Contains(got, ",attempt.limited,") {
 		t.Fatalf("wait after a done report = %q", got)
+	}
+	idle, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"attempt.idle"}, 1)
+	if err != nil || len(idle) != 0 {
+		t.Fatalf("a limited turn after a done report recorded attempt.idle: %+v, %v", idle, err)
 	}
 }
 
