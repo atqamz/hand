@@ -47,7 +47,7 @@ type watcher struct {
 	every   time.Duration
 	seen    map[int64]string
 	limited int64
-	held    int64
+	alerted int64
 	turns   map[int64]*turn
 	asked   int64
 	pending sync.WaitGroup
@@ -429,8 +429,8 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 		w.say("supervisor delivery: " + err.Error())
 	}
 	if strings.HasPrefix(why, state.NoteLost) {
-		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.held {
-			w.held = sup.ID
+		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.alerted {
+			w.alerted = sup.ID
 			w.alert(ctx, "supervisor.blocked", "supervisor", why)
 		}
 		return
