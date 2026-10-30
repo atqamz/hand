@@ -201,6 +201,8 @@ func pill(sup state.Supervisor, data map[string]any) (string, string) {
 		return "failing", "unreachable"
 	case blocked:
 		return "failing", "blocked"
+	case data["Held"] == true:
+		return "failing", "held"
 	case sup.Status == state.AttemptLaunching:
 		return "neutral", "launching"
 	case sup.Status == state.AttemptRunning && data["Agent"] == "working":

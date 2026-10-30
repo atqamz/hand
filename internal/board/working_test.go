@@ -81,6 +81,7 @@ func TestTheComposerHintFollowsTheState(t *testing.T) {
 			}
 			if c.name == "held" {
 				contains(t, c.name, region(body, "timeline"), "s1 blocked: "+state.NoteLost)
+				contains(t, c.name, region(body, "status"), `data-state="failing"`, `<span class="word">held</span>`)
 			}
 		})
 	}
