@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*harness, *fakeRuntime, *opencodeRig, string) {
@@ -24,6 +26,22 @@ func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*h
 		params[k] = v
 	}
 	o := installOpencode(t, h, rt, params)
+	if extra["lost"] == "" {
+		rt.srv.Handle("agent.prompt", func(p json.RawMessage) (any, error) {
+			var body struct {
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(p, &body); err != nil {
+				return nil, err
+			}
+			out, err := rt.prompt(p)
+			if err == nil {
+				line, _ := json.Marshal(body.Text)
+				fakebin.Append(params["msgs"], string(line))
+			}
+			return out, err
+		})
+	}
 	rt.srv.Handle("terminal.backend.close", func(p json.RawMessage) (any, error) {
 		fakebin.Append(o.log, "stop")
 		return rt.close(p)
@@ -116,7 +134,7 @@ func TestOpencodeSwitchFailureLeavesTheSupervisorStoppedWithTheResumeHint(t *tes
 	} {
 		h, _, o, session := runningOpencode(t, tc.extra, "--model", "local/m1")
 		_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
-		if code == 0 || !strings.Contains(errOut, tc.want) || !strings.Contains(errOut, "s1 stopped for the switch to local/m2 deep, continue it with `hand supervisor resume`, or drop the switch: `hand supervisor switch --cancel`") {
+		if code == 0 || !strings.Contains(errOut, tc.want) || !strings.Contains(errOut, "s1 stopped for the switch to local/m2 deep, continue it with `hand supervisor resume`, or drop the switch to local/m2 deep: `hand supervisor switch --cancel`") {
 			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
 		}
 		if strings.Contains(errOut, " : ") || !strings.Contains(errOut, "switching opencode session "+session) {
@@ -176,7 +194,7 @@ func TestOpencodeSwitchToAnotherModelSendsNoVariantAndDefaultIsNotStored(t *test
 		t.Fatalf("events after the second switch = %q", got)
 	}
 	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m2\n")
-	if _, errOut, code := h.run("supervisor", "switch", "--effort", "default"); code != 3 || !strings.Contains(errOut, "already runs") {
+	if _, errOut, code := h.run("supervisor", "switch", "--effort", "default"); code != 3 || !strings.HasSuffix(strings.TrimSpace(errOut), "already runs local/m2") {
 		t.Fatalf("default on a model with no variant: code=%d stderr=%q", code, errOut)
 	}
 }
@@ -209,12 +227,45 @@ func TestOpencodeSwitchRefreshesTheModelListOnceBeforeRefusing(t *testing.T) {
 	}
 }
 
+const lostNote = "opencode did not take the resume note: is local/m2 available? Switch back with `hand supervisor switch --model local/m1`"
+
+func lostNoteNoted(t *testing.T, h *harness) bool {
+	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.blocked"}, 10)
+	return err == nil && slices.ContainsFunc(events, func(e state.Event) bool { return e.Detail == "s2: "+lostNote })
+}
+
 func TestOpencodeSwitchSaysWhenTheNewModelDoesNotTakeTheResumeNote(t *testing.T) {
 	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
 	out := h.ok("supervisor", "switch", "--model", "local/m2", "--effort", "deep")
-	has(t, "switch", out, "supervisor: s2", `switch: "applied, but opencode did not take the resume note: is local/m2 available?"`)
+	has(t, "switch", out, "supervisor: s2", "switch: \"applied, but "+lostNote+"\"", "Switch back: `hand supervisor switch --model local/m1`")
 	if strings.Contains(out, "switch: applied\n") || strings.Contains(out, "warn:") {
 		t.Fatalf("switch = %q", out)
+	}
+	if !lostNoteNoted(t, h) {
+		t.Fatalf("no blocked event %q", lostNote)
+	}
+}
+
+func TestAWatcherThatAppliesASwitchTheNewModelDoesNotAnswerKeepsTheInputsPending(t *testing.T) {
+	h, rt, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1")
+	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+	has(t, "switch", h.ok("supervisor", "switch", "--model", "local/m2"), "switch: pending")
+	has(t, "send", h.ok("supervisor", "send", "--text", "operator message"), "delivered: no")
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	eventually(t, func() bool { return lostNoteNoted(t, h) })
+	time.Sleep(200 * time.Millisecond)
+	out, _ := stop()
+	if !strings.Contains(out, "observed: \""+lostNote+"\"") {
+		t.Fatalf("watch out = %q", out)
+	}
+	has(t, "later send", h.ok("supervisor", "send", "--text", "again"), "delivered: no", "opencode did not take the resume note")
+	if got := rt.prompts(); !slices.Equal(got, []string{"[hand v1 resume] you are now s2 (resumes s1)"}) {
+		t.Fatalf("prompts = %q", got)
+	}
+	pending, err := openStore(t, h).PendingSupervisorInputs(context.Background())
+	if err != nil || len(pending) != 2 || pending[0].Body != "operator message" {
+		t.Fatalf("pending = %+v, %v", pending, err)
 	}
 }
 
@@ -224,7 +275,7 @@ func TestOpencodeSwitchFailureCanBeDroppedAndTheSupervisorResumesOnItsOldModel(t
 		t.Fatal("the switch did not fail")
 	}
 	_, errOut, code := h.run("supervisor", "resume")
-	if code == 0 || !strings.Contains(errOut, "or drop the switch to local/m2 deep: `hand supervisor switch --cancel`") {
+	if code == 0 || !strings.Contains(errOut, "; retry with `hand supervisor resume`, or drop the switch to local/m2 deep: `hand supervisor switch --cancel`") {
 		t.Fatalf("resume code=%d stderr=%q", code, errOut)
 	}
 	has(t, "cancel", h.ok("supervisor", "switch", "--cancel"), "supervisor: s1", "switch: canceled")

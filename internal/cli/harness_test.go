@@ -108,12 +108,13 @@ func ocapiMain(args []string) int {
 			fmt.Print(`{"data":[]}`)
 			return 0
 		}
-		fakebin.Append(p["msgs"], "list")
-		n := 1
-		if b, err := os.ReadFile(p["msgs"]); err == nil && p["lost"] == "" {
-			n = strings.Count(string(b), "\n")
+		b, _ := os.ReadFile(p["msgs"])
+		sent := strings.Split(strings.TrimSpace(string(b)), "\n")
+		if sent[0] == "" {
+			fmt.Print(`{"data":[]}`)
+			return 0
 		}
-		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user"}]}`, n)
+		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user","text":%s}]}`, len(sent), sent[len(sent)-1])
 	case len(args) > 6 && args[0] == "api" && args[2] == "session.switchModel":
 		fakebin.Append(p["log"], "switch "+strings.TrimPrefix(args[4], "sessionID=")+" "+args[6])
 		switch {

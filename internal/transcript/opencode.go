@@ -167,7 +167,7 @@ func OpencodeLastUser(ctx context.Context, bin, dir, session string) (string, bo
 	}
 	var list struct {
 		Data []struct {
-			ID string `json:"id"`
+			Text string `json:"text"`
 		} `json:"data"`
 	}
 	if json.Unmarshal(out, &list) != nil || list.Data == nil {
@@ -176,7 +176,7 @@ func OpencodeLastUser(ctx context.Context, bin, dir, session string) (string, bo
 	if len(list.Data) == 0 {
 		return "", false, nil
 	}
-	return list.Data[0].ID, true, nil
+	return list.Data[0].Text, true, nil
 }
 
 func (m exportModel) label() (model, effort string) {
