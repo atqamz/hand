@@ -352,7 +352,7 @@ form.start select,form.start input{flex:1 1 8em;min-width:0}
 .unverified{grid-column:1/-1;color:var(--wait);font-size:12px;font-weight:600}
 .model-note{grid-column:1/-1;margin:0;color:var(--wait);font-size:12px}
 @container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}
-@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}}
+@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}}
 .sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg);border-color:var(--line-strong);color:var(--fg)}
 .timeline>.quiet:only-child{margin:auto;text-align:center}
 .console{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--line)}
@@ -538,7 +538,7 @@ dialog.viewer[open] .text-bar{top:-12px}
 .needs-count{display:inline-block}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}
-.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}
+.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}
 .console{padding:8px 12px}.console>.pending{flex:1 1 100%}.sup-ref{display:none}
 .sup>.timeline{padding:12px calc(12px - var(--sb)) 12px 12px}
 .console-box,.sup>.hint.read-only{margin:0 12px 12px}}

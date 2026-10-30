@@ -535,6 +535,6 @@ func TestTheModelPickerRules(t *testing.T) {
 	contains(t, "menu width", css, "#model-menu .menu-body{width:min(300px,calc(100vw - 24px))}")
 	contains(t, "menu selects", css, "#model-menu .menu-body form select{width:0;min-width:100%}")
 	contains(t, "note", css, ".model-note{grid-column:1/-1;margin:0;color:var(--wait);font-size:12px}")
-	contains(t, "container stack", css, "@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}}")
-	contains(t, "phone stack", block(t, css, "@media (max-width:599px){"), ".others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort]{grid-column:1/-1}")
+	contains(t, "container stack", css, "@container (max-width:519px){.others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}}")
+	contains(t, "phone stack", block(t, css, "@media (max-width:599px){"), ".others-body form.start>select[name=model],.others-body form.start>input[name=other],.others-body form.start>select[name=effort],.others-body form.start>input[name=other]~input[name=effort]{grid-column:1/-1}")
 }
