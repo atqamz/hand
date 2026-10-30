@@ -156,8 +156,8 @@ func OpencodeSessions(ctx context.Context, bin, dir string, now time.Time, stale
 }
 
 func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, error) {
-	_, any, err := OpencodeLastUser(ctx, bin, dir, session)
-	return any, err
+	_, found, err := OpencodeLastUser(ctx, bin, dir, session)
+	return found, err
 }
 
 func OpencodeLastUser(ctx context.Context, bin, dir, session string) (string, bool, error) {
