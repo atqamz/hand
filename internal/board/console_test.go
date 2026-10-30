@@ -150,7 +150,7 @@ func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
 	lacks(t, "menu", menu, "between turns", `placeholder="Other model"`)
 }
 
-func TestModelMenuOfAnOpencodeSupervisorHasNoChangeForm(t *testing.T) {
+func TestModelMenuOfAnOpencodeSupervisorOffersAModelAndAVariant(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()
 	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})
@@ -163,6 +163,7 @@ func TestModelMenuOfAnOpencodeSupervisorHasNoChangeForm(t *testing.T) {
 	console := region(get(t, fx.handler(), "/"), "console")
 	menu := console[strings.Index(console, `id="model-menu"`):]
 	contains(t, "now", menu, `<dt>Harness</dt><dd>opencode</dd>`, `<p class="harness-name">claude</p>`)
+	contains(t, "form", menu, `<p class="field-label">Change model or variant</p>`, `<label>Model <input name="model" placeholder="" size="10"></label>`, `<label>Variant <input name="effort" placeholder="" size="6"></label>`, "<button>Switch after this turn</button>")
 	lacks(t, "now", menu, "<dt>Model</dt>", "<dt>Effort</dt>", "Change model or effort")
 }
 
@@ -440,7 +441,7 @@ func TestStartFormOffersOpencodeAModelAndAnEffort(t *testing.T) {
 	contains(t, "opencode row", row, `<input name="model" placeholder="model" size="10" aria-label="opencode model">`, `<input name="effort" placeholder="effort" size="6" aria-label="opencode effort">`, `<button>Start opencode</button>`)
 	lacks(t, "opencode row", row, "its own configuration")
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	lacks(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `name="model"`, `name="other"`)
+	contains(t, "switch row", startRow(t, region(get(t, fx.handler(), "/"), "console"), "opencode"), `<label>Model <input name="other" size="10" autocomplete="off" aria-label="opencode other model"></label>`, `<label>Variant <input name="effort" size="6" aria-label="opencode effort"></label>`, `<button>Switch to opencode</button>`)
 }
 
 func TestStartRowPostsTheOtherModelOverTheSelect(t *testing.T) {
@@ -465,7 +466,6 @@ func TestOtherHarnessSwitchTakesATypedModelWithoutAModelList(t *testing.T) {
 	agy := startRow(t, console, "agy")
 	contains(t, "agy switch row", agy, `aria-label="agy other model"`)
 	lacks(t, "agy switch row", agy, `name="effort"`)
-	lacks(t, "opencode switch row", startRow(t, console, "opencode"), `name="other"`, `name="effort"`)
 }
 
 func TestSwitchMenuHasAnOtherModelAndPostsIt(t *testing.T) {

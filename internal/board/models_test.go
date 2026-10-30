@@ -158,7 +158,16 @@ func TestOpencodeStartRowListsItsModelsAndTakesAVariant(t *testing.T) {
 	row := startRow(t, r.console(t), "opencode")
 	contains(t, "opencode row", row, `<select name="model" aria-label="opencode model"><option value="">default</option>`, `<option value="acme/acme-coder-1" data-efforts="">acme/acme-coder-1</option>`, `<input name="other" placeholder="Other model"`, `<input name="effort" placeholder="effort" size="6" autocomplete="off" aria-label="opencode effort">`, `<button>Start opencode</button>`)
 	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
-	lacks(t, "opencode switch row", startRow(t, r.console(t), "opencode"), "<select", "<input name=", "acme/acme-coder-1")
+}
+
+func TestTheOpencodeSwitchRowsListItsModelsAndTakeAVariant(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	r.fx.status = "idle"
+	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
+	row := startRow(t, r.console(t), "opencode")
+	contains(t, "opencode switch row", row, `<select name="model" aria-label="opencode model"><option value="">default</option>`, `<option value="acme/acme-coder-1" data-efforts="">acme/acme-coder-1</option>`, `<label class="other">Other model <input name="other" size="10" autocomplete="off" aria-label="opencode other model"></label>`, `<label>Variant <input name="effort" size="6" autocomplete="off" aria-label="opencode variant"></label>`, `<button>Switch to opencode</button>`)
+	lacks(t, "opencode switch row", row, `name="effort" aria-label="opencode effort"`)
 }
 
 func TestProfilesNameAnOpencodeModelAndVariant(t *testing.T) {
@@ -244,7 +253,6 @@ func TestTheSwitchMenuHasTheGroupedSelectAndTheEffortFollowsIt(t *testing.T) {
 	}
 	others := console[strings.Index(console, "Switch the supervisor to another harness"):]
 	contains(t, "other harnesses", others, `<optgroup label="built-in">`, `<p class="harness-name">codex</p>`, `<label>Model <select name="model" aria-label="codex model">`, `<label>Effort <select name="effort" aria-label="codex effort">`, `<option value="gpt-6-sol" data-efforts="low ultra">`, `<option value="gemini-3.8-flash-low" data-efforts="">`)
-	lacks(t, "opencode switch row", startRow(t, console, "opencode"), "<select", "name=\"other\"")
 }
 
 func TestTheEffortRowsOfEveryModelCase(t *testing.T) {
