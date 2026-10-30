@@ -166,6 +166,44 @@ func TestOpencodeWorkerLaunchFailsWithOpencodesMessageAndNoPane(t *testing.T) {
 	}
 }
 
+func TestOpencodeWorkerLaunchFailsWhenTheAnswerIsNotTheRequestedSession(t *testing.T) {
+	for name, tc := range map[string]struct {
+		extra map[string]string
+		want  string
+	}{
+		"another id":  {map[string]string{"answer": "ses_other"}, `answered with session "ses_other"`},
+		"garbage":     {map[string]string{"garbage": "not json"}, "answer is not a session"},
+		"no data id":  {map[string]string{"garbage": `{"data":{}}`}, `answered with session ""`},
+		"empty reply": {map[string]string{"garbage": " "}, "answer is not a session"},
+	} {
+		fx := newAttemptFixture(t)
+		o := installOpencode(t, fx.h, fx.rt, tc.extra)
+		_, errOut, code := fx.h.run("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--prompt-file", fx.brief, "t1")
+		if code == 0 || !strings.Contains(errOut, tc.want) {
+			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
+		}
+		if ev := o.events(); len(ev) != 1 || !strings.HasPrefix(ev[0], "create ") {
+			t.Fatalf("%s: events = %q", name, ev)
+		}
+		if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: failed") || !strings.Contains(show, "creating opencode session") {
+			t.Fatalf("%s: show = %q", name, show)
+		}
+	}
+}
+
+func TestOpencodeSupervisorLaunchFailsWhenTheAnswerIsAnotherSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	o := installOpencode(t, h, rt, map[string]string{"answer": "ses_other"})
+	_, errOut, code := h.run("supervisor", "start", "--harness", "opencode", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, `answered with session "ses_other"`) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if ev := o.events(); len(ev) != 1 || !strings.HasPrefix(ev[0], "create ") {
+		t.Fatalf("events = %q", ev)
+	}
+	has(t, "show", h.ok("supervisor", "show"), "status: failed", "answered with session", "ses_other")
+}
+
 func TestOpencodeSupervisorSessionIsCreatedOnItsModelBeforeThePane(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	o := installOpencode(t, h, rt, nil)

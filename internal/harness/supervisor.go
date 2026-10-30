@@ -343,6 +343,17 @@ func OpencodeCreate(ctx context.Context, bin, dir, id string, s Spec) error {
 		}
 		return fmt.Errorf("creating opencode session %s on %s: %s", id, s.Model, strings.Join(strings.Fields(err.Error()), " "))
 	}
+	var reply struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &reply); err != nil {
+		return fmt.Errorf("creating opencode session %s on %s: opencode's answer is not a session: %v", id, s.Model, err)
+	}
+	if reply.Data.ID != id {
+		return fmt.Errorf("creating opencode session %s on %s: opencode answered with session %q", id, s.Model, reply.Data.ID)
+	}
 	return nil
 }
 

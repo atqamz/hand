@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -81,7 +82,19 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
 			return 1
 		}
-		fmt.Print(`{"data":{"id":"ses_hand"}}`)
+		var body struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal([]byte(args[4]), &body)
+		id := body.ID
+		if p["answer"] != "" {
+			id = p["answer"]
+		}
+		if p["garbage"] != "" {
+			fmt.Print(p["garbage"])
+			return 0
+		}
+		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
 	default:
 		time.Sleep(5 * time.Minute)
 	}
