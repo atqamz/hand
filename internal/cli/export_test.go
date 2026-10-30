@@ -11,6 +11,7 @@ var (
 	SubmitCheck      = &submitCheck
 	SendToSupervisor = sendToSupervisor
 	SubmitConfirm    = &submitConfirm
+	APICheckWait     = &apiCheckWait
 	ServerMatch      = serverMatch
 	NotifyArgv       = notifyArgv
 	WatchExe         = &watchExecutable

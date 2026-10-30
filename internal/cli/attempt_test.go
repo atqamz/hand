@@ -182,9 +182,10 @@ const opencodeDone80x24 = " • PONG                                            
 
 const opencodeUnsentScreen = " New session                   +\n\n\n\n\n\n\n\n\n" + opencodeBrief + "  ┃  Build auto · x (unavailable) nope\n  " + opencodeBar + "\n  /tmp/proj:master                              shift+tab agents  ctrl+p commands\n"
 
-func (fx *attemptFixture) opencodeSessionAPI(body string) {
+func (fx *attemptFixture) opencodeSession(params map[string]string) {
 	fx.h.t.Helper()
-	fakebin.Install(fx.h.t, fx.h.vars["PATH"], "opencode", "fake", map[string]string{"on --version": "fake 1.0\n", "on models": "", "on api": body, "sleep": "300s"})
+	params["on --version"], params["on models"] = "fake 1.0\n", ""
+	fakebin.Install(fx.h.t, fx.h.vars["PATH"], "opencode", "ocsession", params)
 }
 
 func startOpencode(fx *attemptFixture, wait time.Duration) (string, string, int) {
@@ -216,7 +217,7 @@ func TestOpencodeThatSubmitsItsOwnPromptIsSubmitted(t *testing.T) {
 
 func TestOpencodeSessionWithAUserMessageIsSubmittedWhateverTheScreenShows(t *testing.T) {
 	fx := newAttemptFixture(t)
-	fx.opencodeSessionAPI(`{"data":[{"id":"msg_1","type":"user","text":"brief"},{"id":"msg_2","type":"assistant"}]}`)
+	fx.opencodeSession(map[string]string{"messages": "model-switched,user,assistant"})
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
 	out, errOut, code := startOpencode(fx, 5*time.Second)
 	if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
@@ -225,18 +226,47 @@ func TestOpencodeSessionWithAUserMessageIsSubmittedWhateverTheScreenShows(t *tes
 }
 
 func TestOpencodeSessionWithoutAUserMessageFallsBackToTheScreen(t *testing.T) {
-	for name, body := range map[string]string{
-		"no user message": `{"data":[{"id":"msg_2","type":"idle"}]}`,
-		"unexpected":      `{"error":"nope"}`,
-		"not json":        "oops",
+	for name, params := range map[string]map[string]string{
+		"no user message": {"messages": "model-switched,assistant,idle"},
+		"unexpected":      {"body": `{"error":"nope"}`},
+		"not json":        {"body": "oops"},
 	} {
 		fx := newAttemptFixture(t)
-		fx.opencodeSessionAPI(body)
+		fx.opencodeSession(params)
 		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
 		out, errOut, code := startOpencode(fx, 5*time.Second)
 		if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
 			t.Fatalf("%s: code=%d out=%q stderr=%q keys=%q", name, code, out, errOut, fx.rt.keysSent())
 		}
+	}
+}
+
+func TestOpencodeSessionWithoutAUserMessageDoesNotHideAnUnsentBrief(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.opencodeSession(map[string]string{"messages": "model-switched,assistant"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeUnsentScreen, "working" })
+	out, errOut, code := startOpencode(fx, time.Second)
+	if code != 0 || !strings.Contains(out, "prompt: not submitted") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+}
+
+func TestOpencodeSlowAPIKeepsTheScreenFallback(t *testing.T) {
+	wait := *cli.APICheckWait
+	*cli.APICheckWait = 300 * time.Millisecond
+	t.Cleanup(func() { *cli.APICheckWait = wait })
+	fx := newAttemptFixture(t)
+	fx.opencodeSession(map[string]string{"messages": "user", "apisleep": "300s"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeWorking80x24, "working" })
+	out, errOut, code := startOpencode(fx, 10*time.Second)
+	if code != 0 || !strings.Contains(out, "prompt: submitted") || len(fx.rt.keysSent()) != 0 {
+		t.Fatalf("code=%d out=%q stderr=%q keys=%q", code, out, errOut, fx.rt.keysSent())
+	}
+	if woke := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(woke, "attempt.blocked") {
+		t.Fatalf("wait = %q", woke)
+	}
+	if orient := fx.h.ok("orient"); strings.Contains(orient, "blocked") {
+		t.Fatalf("orient = %q", orient)
 	}
 }
 

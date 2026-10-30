@@ -33,7 +33,7 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
@@ -95,9 +95,44 @@ func ocapiMain(args []string) int {
 			return 0
 		}
 		fmt.Printf(`{"data":{"id":%q,"model":{"id":"m2","providerID":"local"},"location":{"directory":"/x"}}}`, id)
+	case len(args) > 2 && args[0] == "api" && args[2] == "session.message.list":
+		fmt.Print(`{"data":[]}`)
 	default:
 		time.Sleep(5 * time.Minute)
 	}
+	return 0
+}
+
+func ocsessionMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) > 0 {
+		if out, ok := p["on "+args[0]]; ok {
+			fmt.Print(out)
+			return 0
+		}
+	}
+	d, _ := time.ParseDuration(p["apisleep"])
+	time.Sleep(d)
+	want := []string{"api", "--standalone", "session.message.list", "--param", "sessionID=", "--param", "type=user", "--param", "limit=1"}
+	if len(args) != len(want) || !strings.HasPrefix(args[4], "sessionID=ses_hand") || strings.Contains(strings.Join(args, ""), "&") {
+		fmt.Fprintf(os.Stderr, "unexpected argv %q\n", args)
+		return 1
+	}
+	for i, w := range want {
+		if i != 4 && args[i] != w {
+			fmt.Fprintf(os.Stderr, "unexpected argv %q\n", args)
+			return 1
+		}
+	}
+	if body, ok := p["body"]; ok {
+		fmt.Print(body)
+		return 0
+	}
+	data := []string{}
+	if slices.Contains(strings.Split(p["messages"], ","), "user") {
+		data = append(data, `{"id":"msg_1","type":"user","text":"brief"}`)
+	}
+	fmt.Printf(`{"data":[%s]}`, strings.Join(data, ","))
 	return 0
 }
 

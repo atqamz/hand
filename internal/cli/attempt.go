@@ -189,7 +189,7 @@ const (
 	submitTries = 3
 )
 
-var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second
+var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait, apiCheckWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second, 5 * time.Second
 
 type launched struct {
 	harness, pane, terminalID, worktree, marker string
@@ -478,6 +478,8 @@ func opencodeSubmitted(home string, argv []string) func(context.Context) bool {
 		if session == "" || len(argv) == 0 {
 			return false
 		}
+		ctx, cancel := context.WithTimeout(ctx, apiCheckWait)
+		defer cancel()
 		ok, _ := transcript.OpencodeSubmitted(ctx, argv[0], home, session)
 		return ok
 	}
