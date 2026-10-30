@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
@@ -20,9 +19,6 @@ import (
 func runningOpencode(t *testing.T, extra map[string]string, start ...string) (*harness, *fakeRuntime, *opencodeRig, string) {
 	t.Helper()
 	h, rt := newSupervisorFixture(t)
-	wait := *cli.NoteWait
-	*cli.NoteWait = time.Second
-	t.Cleanup(func() { *cli.NoteWait = wait })
 	params := map[string]string{"models": "local/m1\nlocal/m2\n", "msgs": filepath.Join(t.TempDir(), "msgs")}
 	for k, v := range extra {
 		params[k] = v

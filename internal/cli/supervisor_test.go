@@ -38,6 +38,9 @@ func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	h.vars["PATH"] = fakeBin(t)
 	h.vars["HOME"] = t.TempDir()
 	h.ok("init")
+	wait := *cli.NoteWait
+	*cli.NoteWait = time.Second
+	t.Cleanup(func() { *cli.NoteWait = wait })
 	return h, rt
 }
 
