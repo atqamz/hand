@@ -1281,7 +1281,7 @@ func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(run
 	session := regexp.MustCompile(`ses_hand[0-9a-f]{26}`).FindString(fx.h.ok("attempt", "show", "a1"))
 	return func(running bool) {
 		fx.h.mu.Lock()
-		now := fx.h.now.UnixMilli()
+		now := fx.h.now.Add(2 * time.Hour).UnixMilli()
 		fx.h.mu.Unlock()
 		child := fmt.Sprintf(`{"id":"ses_child","parentID":%q,"time":{"updated":%d,"idle":%d}}`, session, now, now)
 		if running {
@@ -1309,6 +1309,23 @@ func TestOpencodeTurnEndWhileASubagentRunsIsHeldUntilItFinishes(t *testing.T) {
 	}
 	subagent(false)
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
+func TestALongOpencodeTurnHeldForASubagentStillWakes(t *testing.T) {
+	fx := newAttemptFixture(t)
+	subagent := opencodeSubagent(t, fx)
+	subagent(true)
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "opencode"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
+	time.Sleep(300 * time.Millisecond)
+	fx.h.advance(61 * time.Minute)
+	eventually(t, func() bool { return woken(fx, "attempt.long") })
+	if woken(fx, "attempt.quiet") {
+		t.Fatalf("a held turn was recorded quiet: %s", fx.h.ok("wait", "--after", "0", "--timeout", "1ms"))
+	}
 }
 
 func TestOpencodeTurnEndIsQuietWhenTheBusyCheckFails(t *testing.T) {
@@ -1361,7 +1378,7 @@ func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
 	stop := startWatch(t, fx, "--every", "100ms")
 	defer stop()
 	time.Sleep(1500 * time.Millisecond)
-	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 running blocked: ") {
+	if out := fx.h.ok("orient"); !strings.Contains(out, `a1 running blocked: copilot does not have model`) {
 		t.Fatalf("orient = %q", out)
 	}
 }
