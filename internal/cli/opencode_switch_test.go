@@ -412,3 +412,13 @@ func TestOpencodeResumeRetriesAFailedSwitchAndSucceeds(t *testing.T) {
 	}
 	has(t, "show", h.ok("supervisor", "show"), "harness: opencode local/m2 deep")
 }
+
+func TestTheBoardSaysWhereToSwitchBackFrom(t *testing.T) {
+	h, _, _, _ := runningOpencode(t, map[string]string{"lost": "1"}, "--model", "local/m1", "--effort", "fast")
+	h.board = true
+	out := h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "switch", out, "Switch back to local/m1 fast from the model menu")
+	if strings.Contains(out, "hand supervisor switch") {
+		t.Fatalf("switch = %q", out)
+	}
+}

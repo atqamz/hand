@@ -264,16 +264,17 @@ func fakeMain(args []string) int {
 }
 
 type harness struct {
-	name string
-	t    *testing.T
-	home string
-	mu   *sync.Mutex
-	now  time.Time
-	vars map[string]string
-	cwd  string
-	in   io.Reader
-	tty  bool
-	exec [][]string
+	name  string
+	t     *testing.T
+	home  string
+	mu    *sync.Mutex
+	now   time.Time
+	vars  map[string]string
+	cwd   string
+	in    io.Reader
+	tty   bool
+	exec  [][]string
+	board bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -295,6 +296,7 @@ func (h *harness) advance(d time.Duration) {
 func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
+		Board:  h.board,
 		Stdin:  h.stdin(),
 		Stdout: out,
 		Stderr: errOut,
