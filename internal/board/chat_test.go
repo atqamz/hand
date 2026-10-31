@@ -158,6 +158,14 @@ func TestDayDividers(t *testing.T) {
 	contains(t, "date on the oldest day", tl, `>Sep 26 00:00 UTC</time>`)
 }
 
+func TestTheConversationPageLetsTheScriptDivideTheDays(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	claudeLog(t, fx, []string{at(userRecord("go"), "2026-09-27T10:00:00Z"), at(reply("today"), "2026-09-28T10:00:00Z")})
+	tl := region(get(t, fx.handler(), "/supervisor/log"), "timeline")
+	contains(t, "conversation timeline", tl, `<p class="day"><span class="badge">Mon 28 Sep UTC</span></p>`, `>10:00</time>`)
+}
+
 func TestWakesUnderADividerShowTheClock(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
