@@ -20,7 +20,7 @@ import (
 type Status struct {
 	Context, Window int64
 	Compactions     int
-	Selected, Used  string
+	Selected        string
 	Model, Effort   string
 	ModelAt         string
 }
@@ -78,11 +78,29 @@ var (
 )
 
 func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, err := r.load(ctx, harness, id, dir)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Clone(s.entries), nil
+}
+
+func (r *Reader) Refresh(ctx context.Context, harness, id, dir string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, err := r.load(ctx, harness, id, dir)
+	if err == nil {
+		s.entries = nil
+	}
+	return err
+}
+
+func (r *Reader) load(ctx context.Context, harness, id, dir string) (*session, error) {
 	if !sessionID.MatchString(id) {
 		return nil, ErrNoSession
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.logs == nil {
 		r.logs = map[string]*session{}
 	}
@@ -113,7 +131,7 @@ func (r *Reader) Read(ctx context.Context, harness, id, dir string) ([]Entry, er
 	if s.lines > 0 && s.known == 0 {
 		return nil, ErrUnreadable
 	}
-	return slices.Clone(s.entries), nil
+	return s, nil
 }
 
 func (r *Reader) Forget(harness, id string) {

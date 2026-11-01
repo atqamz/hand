@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"cmp"
 	"encoding/json"
 	"path/filepath"
 	"regexp"
@@ -22,13 +23,16 @@ func (r *Reader) claude(s *session, id string) error {
 
 func (s *session) claudeLine(line []byte) {
 	var rec struct {
-		Type         string `json:"type"`
-		Timestamp    string `json:"timestamp"`
-		IsMeta       bool   `json:"isMeta"`
-		IsSidechain  bool   `json:"isSidechain"`
-		IsCompact    bool   `json:"isCompactSummary"`
-		OnlyInRecord bool   `json:"isVisibleInTranscriptOnly"`
-		IsAPIError   bool   `json:"isApiErrorMessage"`
+		Type         string          `json:"type"`
+		Timestamp    string          `json:"timestamp"`
+		IsMeta       bool            `json:"isMeta"`
+		IsSidechain  bool            `json:"isSidechain"`
+		IsCompact    bool            `json:"isCompactSummary"`
+		OnlyInRecord bool            `json:"isVisibleInTranscriptOnly"`
+		IsAPIError   bool            `json:"isApiErrorMessage"`
+		Requested    string          `json:"requestedModel"`
+		Effort       json.RawMessage `json:"effort"`
+		PerTurn      json.RawMessage `json:"perTurnEffort"`
 		Message      struct {
 			Model      string          `json:"model"`
 			StopReason string          `json:"stop_reason"`
@@ -69,6 +73,14 @@ func (s *session) claudeLine(line []byte) {
 			s.user(rec.Attachment.Prompt, rec.Timestamp)
 		}
 	case "assistant":
+		if served := rec.Message.Model; served != "" && served != "<synthetic>" {
+			model := cmp.Or(rec.Requested, served)
+			effort := cmp.Or(jsonString(rec.PerTurn), jsonString(rec.Effort))
+			if model != s.status.Model || effort != "" {
+				s.status.Effort = effort
+			}
+			s.status.Model, s.status.ModelAt = model, rec.Timestamp
+		}
 		if u := rec.Message.Usage; u != nil && u.Input+u.CacheCreation+u.CacheRead > 0 {
 			s.status.Context = u.Input + u.CacheCreation + u.CacheRead
 			s.status.Window = claudeWindow(rec.Message.Model)
