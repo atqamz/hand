@@ -267,8 +267,8 @@ func TestClaudeStatusFollowsTheServedModelAndEffort(t *testing.T) {
 	add(assistant("2026-09-28T01:00:02Z", "<synthetic>", `"isApiErrorMessage":true,"perTurnEffort":"low",`) + assistant("2026-09-28T01:00:03Z", "<synthetic>", ""))
 	check(Status{Model: "claude-sonnet-5-5", Effort: "high", ModelAt: "2026-09-28T01:00:01Z"})
 
-	add(assistant("2026-09-28T01:00:04Z", "claude-haiku-5-5", `"requestedModel":"claude-opus-5-5","effort":"high","perTurnEffort":"medium",`))
-	check(Status{Model: "claude-haiku-5-5", Effort: "medium", ModelAt: "2026-09-28T01:00:04Z"})
+	add(assistant("2026-09-28T01:00:04Z", "claude-haiku-5-5", `"requestedModel":"claude-opus-5-5[1m]","effort":"high","perTurnEffort":"medium",`))
+	check(Status{Model: "claude-opus-5-5[1m]", Effort: "medium", ModelAt: "2026-09-28T01:00:04Z"})
 
 	add(assistant("2026-09-28T01:00:05Z", "claude-haiku-5-5", `"effort":"max",`))
 	check(Status{Model: "claude-haiku-5-5", Effort: "max", ModelAt: "2026-09-28T01:00:05Z"})
@@ -277,6 +277,9 @@ func TestClaudeStatusFollowsTheServedModelAndEffort(t *testing.T) {
 	check(Status{Model: "claude-haiku-5-5", Effort: "max", ModelAt: "2026-09-28T01:00:06Z"})
 
 	add(assistant("2026-09-28T01:00:07Z", "claude-opus-5-5", ""))
+	check(Status{Model: "claude-opus-5-5", ModelAt: "2026-09-28T01:00:07Z"})
+
+	add(assistant("2026-09-28T01:00:08Z", "claude-haiku-5-5", `"isSidechain":true,"requestedModel":"claude-haiku-5-5","effort":"low",`))
 	check(Status{Model: "claude-opus-5-5", ModelAt: "2026-09-28T01:00:07Z"})
 }
 

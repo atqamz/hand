@@ -51,6 +51,10 @@ func validModel(harness, model string) bool {
 	return modelToken.MatchString(model)
 }
 
+func ValidServed(model, effort string) bool {
+	return modelToken.MatchString(model) && (effort == "" || effortToken.MatchString(effort))
+}
+
 func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
 	case "claude", "codex", "agy", "copilot":
@@ -181,11 +185,36 @@ func CheckSupervisor(s Spec) error {
 	return nil
 }
 
-var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
+var (
+	claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
+	claudeLegacy  = regexp.MustCompile(`^claude-3(?:-[0-9]+)?-([a-z]+)-`)
+	claudeDated   = regexp.MustCompile(`^-[0-9]{8}$`)
+)
 
 func Resolves(requested, served string) bool {
 	base := strings.TrimSuffix(requested, "[1m]")
-	return requested == served || base == served || slices.Contains(claudeAliases, base) && strings.HasPrefix(served, "claude-"+base+"-")
+	if base == requested && strings.HasSuffix(served, "[1m]") {
+		return false
+	}
+	served = strings.TrimSuffix(served, "[1m]")
+	switch {
+	case base == served:
+		return true
+	case base == "opusplan":
+		return servedAs("opus", served) || servedAs("sonnet", served)
+	case slices.Contains(claudeAliases, base):
+		return servedAs(base, served)
+	}
+	rest, ok := strings.CutPrefix(served, base)
+	return ok && strings.HasPrefix(base, "claude-") && claudeDated.MatchString(rest)
+}
+
+func servedAs(alias, served string) bool {
+	if strings.HasPrefix(served, "claude-"+alias+"-") {
+		return true
+	}
+	m := claudeLegacy.FindStringSubmatch(served)
+	return m != nil && m[1] == alias
 }
 
 func checkCodex(s Spec, env Env) string {

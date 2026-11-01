@@ -109,10 +109,13 @@ type transcriptSource struct {
 
 func (t transcriptSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
 	return func(session string, since time.Time) (string, string) {
-		if _, err := t.w.transcripts.Read(ctx, t.harness, session, t.w.r.home); err != nil {
+		if err := t.w.transcripts.Refresh(ctx, t.harness, session, t.w.r.home); err != nil {
 			return "", ""
 		}
 		s := t.w.transcripts.Status(t.harness, session)
+		if !harness.ValidServed(s.Model, s.Effort) {
+			return "", ""
+		}
 		if !since.IsZero() {
 			if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err != nil || at.Before(since) {
 				return "", ""

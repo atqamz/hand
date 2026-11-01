@@ -81,6 +81,9 @@ func TestWatcherRecordsTheServedClaudeAndCopilotModel(t *testing.T) {
 	claudeTurn := func(at, model, effort string) string {
 		return `{"type":"assistant","timestamp":"` + at + `","effort":"` + effort + `","perTurnEffort":"` + effort + `","message":{"model":"` + model + `","content":[]}}` + "\n"
 	}
+	claudeAsked := func(at, requested, served, effort string) string {
+		return `{"type":"assistant","timestamp":"` + at + `","requestedModel":"` + requested + `","effort":"` + effort + `","message":{"model":"` + served + `","content":[]}}` + "\n"
+	}
 	synthetic := `{"type":"assistant","timestamp":"2026-11-01T09:00:09Z","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[]}}` + "\n"
 	copilotTurn := func(at, model string) string {
 		return `{"type":"assistant.message","timestamp":"` + at + `","data":{"model":"` + model + `","content":""}}` + "\n"
@@ -138,12 +141,24 @@ func TestWatcherRecordsTheServedClaudeAndCopilotModel(t *testing.T) {
 		t.Fatalf("track = %+v, %v", tracks, err)
 	}
 
-	add(supFile, claudeTurn("2026-11-01T09:00:10Z", "claude-opus-5-5", "high"))
+	add(supFile, claudeAsked("2026-11-01T09:00:10Z", "claude-opus-5-5[1m]", "claude-opus-5-5", "high"))
 	add(fallbackFile, `{"type":"assistant","timestamp":"2026-11-01T09:00:10Z","message":{"model":"claude-haiku-5-5","content":[]}}`+"\n")
 	sweep()
-	want = [8]string{"claude-opus-5-5", "high", "sonnet", "low", "claude-haiku-5-5", "high", "gpt-5.6-luna", ""}
+	want = [8]string{"claude-opus-5-5[1m]", "high", "sonnet", "low", "claude-haiku-5-5", "high", "gpt-5.6-luna", ""}
 	if got := models(); got != want || changes() != 4 {
 		t.Fatalf("after a switch models = %q, events = %d", got, changes())
+	}
+
+	add(supFile, claudeAsked("2026-11-01T09:00:11Z", "claude-opus-5-5[1m]", "claude-haiku-5-5", "high"))
+	add(fallbackFile, claudeAsked("2026-11-01T09:00:11Z", "Claude Sonnet 4.6", "Claude Sonnet 4.6", "high"))
+	sweep()
+	if got := models(); got != want || changes() != 4 {
+		t.Fatalf("after a fallback reply and an invalid model models = %q, events = %d", got, changes())
+	}
+	add(supFile, claudeAsked("2026-11-01T09:00:12Z", "claude-opus-5-5[1m]", "claude-opus-5-5", "high"))
+	sweep()
+	if got := models(); got != want || changes() != 4 {
+		t.Fatalf("after the return from the fallback models = %q, events = %d", got, changes())
 	}
 
 	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptStopped, "switch"); err != nil {

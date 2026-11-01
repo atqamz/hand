@@ -30,6 +30,7 @@ func (s *session) claudeLine(line []byte) {
 		IsCompact    bool            `json:"isCompactSummary"`
 		OnlyInRecord bool            `json:"isVisibleInTranscriptOnly"`
 		IsAPIError   bool            `json:"isApiErrorMessage"`
+		Requested    string          `json:"requestedModel"`
 		Effort       json.RawMessage `json:"effort"`
 		PerTurn      json.RawMessage `json:"perTurnEffort"`
 		Message      struct {
@@ -72,7 +73,8 @@ func (s *session) claudeLine(line []byte) {
 			s.user(rec.Attachment.Prompt, rec.Timestamp)
 		}
 	case "assistant":
-		if model := rec.Message.Model; model != "" && model != "<synthetic>" {
+		if served := rec.Message.Model; served != "" && served != "<synthetic>" {
+			model := cmp.Or(rec.Requested, served)
 			effort := cmp.Or(jsonString(rec.PerTurn), jsonString(rec.Effort))
 			if model != s.status.Model || effort != "" {
 				s.status.Effort = effort

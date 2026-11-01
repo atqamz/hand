@@ -315,9 +315,42 @@ func TestResolvesAnAliasToItsServedId(t *testing.T) {
 		{"default", "claude-sonnet-5-5", false},
 		{"opus", "claude-opusx-5-5", false},
 		{"", "claude-sonnet-5-5", false},
+		{"opusplan", "claude-opus-5-5", true},
+		{"opusplan", "claude-sonnet-5-5", true},
+		{"opusplan", "claude-haiku-4-5-20251001", false},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929", true},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5-1", false},
+		{"claude-sonnet-4", "claude-sonnet-4-5-20250929", false},
+		{"haiku", "claude-3-5-haiku-20241022", true},
+		{"sonnet", "claude-3-7-sonnet-20250219", true},
+		{"opus", "claude-3-opus-20240229", true},
+		{"opus", "claude-3-5-haiku-20241022", false},
+		{"opus", "claude-opus-5-5[1m]", false},
+		{"opus[1m]", "claude-opus-5-5[1m]", true},
+		{"claude-opus-5-5", "claude-opus-5-5[1m]", false},
 	} {
 		if got := Resolves(c.requested, c.served); got != c.want {
 			t.Errorf("Resolves(%q, %q) = %v, want %v", c.requested, c.served, got, c.want)
+		}
+	}
+}
+
+func TestValidServedRefusesWhatCheckRefuses(t *testing.T) {
+	for _, c := range []struct {
+		model, effort string
+		want          bool
+	}{
+		{"claude-sonnet-5-5", "high", true},
+		{"claude-opus-5-5[1m]", "", true},
+		{"GLM 4.6", "", false},
+		{"claude-sonnet-4-5 (via proxy)", "", false},
+		{"-claude", "", false},
+		{"", "", false},
+		{"claude-sonnet-5-5", "High", false},
+		{"claude-sonnet-5-5", "a b", false},
+	} {
+		if got := ValidServed(c.model, c.effort); got != c.want {
+			t.Errorf("ValidServed(%q, %q) = %v, want %v", c.model, c.effort, got, c.want)
 		}
 	}
 }
