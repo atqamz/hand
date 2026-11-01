@@ -416,7 +416,7 @@ func (b *Board) profilesFor(name string) []profile {
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n].Spec
-		if (name != "" && s.Harness != name) || harness.CheckSupervisor(s) != nil {
+		if (name != "" && s.Harness != name) || p.Profiles[n].Approve == state.ApproveAsk || harness.CheckSupervisor(s) != nil {
 			continue
 		}
 		reason, seen := missing[s.Harness]
@@ -866,7 +866,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 		return
 	}
 	k, rev := r.PostFormValue("key"), r.PostFormValue("revision")
-	if n, err := strconv.ParseInt(rev, 10, 64); err != nil || n < 0 || !slices.Contains(state.SupervisorKeys, k) {
+	if n, err := strconv.ParseInt(rev, 10, 64); err != nil || n < 0 || !(slices.Contains(state.SupervisorKeys, k) || group == "attempt" && len(k) == 1 && k[0] >= '4' && k[0] <= '9') {
 		b.fail(w, http.StatusBadRequest, "press one of the listed keys on a screen shown by this page")
 		return
 	}

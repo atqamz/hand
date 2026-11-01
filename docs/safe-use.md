@@ -152,7 +152,9 @@ Claude Code may reach the network on its own while it answers (an authenticated 
 
 ## Ask before each command
 
-A `claude` profile can set `"approve": "ask"` in `routing.json`. Its workers start without `--dangerously-skip-permissions`, so Claude Code asks before each command, and the Board's Needs item shows the exact command with **Approve**, **Approve always for this project** and **Deny**: see [Approval](vocabulary.md#approval). An unanswered prompt is denied after `approve_timeout` (default `10m`), and the supervisor never answers it. The default stays `never`.
+A `claude` profile can set `"approve": "ask"` in `routing.json`. Its workers start without `--dangerously-skip-permissions`, so Claude Code asks before each command, and the Board's Needs item shows the exact command with **Approve**, **Approve always: PREFIX** and **Deny**: see [Approval](vocabulary.md#approval). An unanswered prompt is denied after `approve_timeout` (default `10m`), and the supervisor never answers it. The default stays `never`.
+
+The worker starts with `--permission-mode default`, so a mode set in your own Claude settings (`auto`, say) cannot silence the prompt. Your allow rules still apply: a command your user or project settings allow, or a grant, runs without asking. Hand starts each worker with the project's grants and nothing else.
 
 ```json
 {"profiles": {"careful": {"harness": "claude", "model": "sonnet", "effort": "medium", "approve": "ask"}}, "approve_timeout": "10m"}

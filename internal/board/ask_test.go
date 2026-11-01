@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,7 +18,14 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-const askScreen = "────────────────────────\n Bash command\n\n   git push origin main\n   Push the branch\n\n Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for git push commands in /w/t1\n  3. No, and tell Claude what to do differently (esc)"
+func capture(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "harness", "testdata", "claude-2.1.316-"+name+".txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
 func askAttempt(t *testing.T, fx *fixture, title string) state.Attempt {
 	t.Helper()
@@ -46,20 +55,20 @@ func buttons(q string) [][2]string {
 	return out
 }
 
-func TestAnAskWorkersPermissionShowsTheCommandAndThreeButtons(t *testing.T) {
+func TestAnAskWorkersPermissionShowsTheCommandAndTheScreensOwnKeys(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	askAttempt(t, fx, "Fix login")
-	fx.screen = askScreen
+	fx.screen = capture(t, "npm")
 	h := fx.handler()
 	q := region(get(t, h, "/"), "queue")
-	contains(t, "ask item", q, `data-kind="worker"`, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>git push origin main\nPush the branch</code></pre>", `action="/attempt/a1/keys" data-fetch`)
-	lacks(t, "ask item", q, "Do you want to proceed?</code>", "tell Claude what to do differently")
-	want := [][2]string{{"1", "Approve"}, {"2", "Approve always for this project"}, {"3", "Deny"}}
+	contains(t, "ask item", q, `data-kind="worker"`, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>npm install left-pad</code></pre>", `action="/attempt/a1/keys" data-fetch`)
+	lacks(t, "ask item", q, "Do you want to proceed?</code>", "switch to auto mode")
+	want := [][2]string{{"1", "Approve"}, {"2", "Approve always: npm install"}, {"4", "Deny"}}
 	if got := buttons(q); !slices.Equal(got, want) {
 		t.Fatalf("buttons = %q, want %q", got, want)
 	}
-	digest := luvus.ScreenDigest(askScreen)
+	digest := luvus.ScreenDigest(capture(t, "npm"))
 	for i, b := range want {
 		res := post(h, "/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {digest}, "after": {"0"}, "key": {b[0]}})
 		if res.StatusCode != http.StatusSeeOther {
@@ -73,12 +82,15 @@ func TestAnAskWorkersPermissionShowsTheCommandAndThreeButtons(t *testing.T) {
 	if !strings.Contains(q, `name="revision" value="7"`) || !strings.Contains(q, `name="screen" value="`+digest+`"`) {
 		t.Fatalf("buttons lack the screen's revision and digest:\n%s", q)
 	}
+	if res := post(h, "/supervisor/keys", url.Values{"revision": {"7"}, "key": {"4"}}); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("supervisor key 4 = %d", res.StatusCode)
+	}
 }
 
 func TestAStaleAskScreenIsRefused(t *testing.T) {
 	fx := newFixture(t)
 	askAttempt(t, fx, "Fix login")
-	fx.screen = askScreen
+	fx.screen = capture(t, "npm")
 	fx.fail = fmt.Errorf("%w: the screen changed since revision 6; nothing was sent; read it again", state.ErrConflict)
 	rec := request(fx.handler(), "POST", "/attempt/a1/keys", url.Values{"csrf": {token}, "revision": {"6"}, "key": {"1"}}, true)
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "The screen changed, try again") {
@@ -117,14 +129,14 @@ func TestOnlyAnAskWorkerSkipsTheGraceWhileASupervisorRuns(t *testing.T) {
 	if err := fx.st.NoteAttempt(context.Background(), a.ID, "blocked", "Esc to cancel · Tab to amend"); err != nil {
 		t.Fatal(err)
 	}
-	fx.screen = askScreen
+	fx.screen = capture(t, "npm")
 	at := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
 	fx.options.Now = func() time.Time { return at.Add(time.Minute) }
 	lacks(t, "default worker", region(get(t, fx.handler(), "/"), "queue"), `data-kind="worker"`)
 	fx2 := newFixture(t)
 	fx2.supervisor(t, state.AttemptRunning, "gen-1")
 	askAttempt(t, fx2, "Fix login")
-	fx2.screen = askScreen
+	fx2.screen = capture(t, "npm")
 	fx2.options.Now = func() time.Time { return at.Add(time.Minute) }
 	contains(t, "ask worker", region(get(t, fx2.handler(), "/"), "queue"), `data-kind="worker"`)
 }
@@ -138,4 +150,34 @@ func TestTheAskBadgeShowsOnTheAskAttemptOnly(t *testing.T) {
 	lacks(t, "plain attempt page", get(t, h, "/attempt/"+state.AttemptRef(plain.ID)), `<span class="badge">ask</span>`)
 	contains(t, "ask task page", get(t, h, "/task/t1"), `<span class="badge">ask</span>`)
 	lacks(t, "plain task page", get(t, h, "/task/t2"), `<span class="badge">ask</span>`)
+}
+
+func TestAnAskScreenWithoutItsHeaderShowsNoApprove(t *testing.T) {
+	fx := newFixture(t)
+	askAttempt(t, fx, "Fix login")
+	fx.screen = capture(t, "long16_last20")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "cropped", q, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>")
+	lacks(t, "cropped", q, ">Approve</button>", ">Deny</button>", "Approve always")
+}
+
+func TestALongAskCommandShowsAllItsLinesBesideApprove(t *testing.T) {
+	fx := newFixture(t)
+	askAttempt(t, fx, "Fix login")
+	fx.screen = capture(t, "long16")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "long", q, "echo line1\necho line2", "echo line15\nrm -rf build</code>", ">Approve</button>")
+	lacks(t, "long", q, "Approve always")
+}
+
+func TestTheSupervisorPickersLeaveAskProfilesOut(t *testing.T) {
+	fx := newFixture(t)
+	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"safe":{"harness":"claude","model":"sonnet","effort":"low","approve":"ask"}}}`
+	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">`)
+	lacks(t, "start", region(get(t, fx.handler(), "/"), "console"), `value="safe"`)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "switch", region(get(t, fx.handler(), "/"), "console"), `value="safe"`)
 }

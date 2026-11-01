@@ -173,7 +173,7 @@ var severity = map[string]struct {
 func permissionActions(p harness.Permission) []key {
 	actions := []key{{p.Approve, "Approve"}}
 	if p.Always != "" {
-		actions = append(actions, key{p.Always, "Approve always for this project"})
+		actions = append(actions, key{p.Always, "Approve always: " + p.Pattern})
 	}
 	return append(actions, key{p.Deny, "Deny"})
 }
@@ -426,6 +426,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 					}
 					if perm, ok := harness.ClaudePermission(s.Text); ok && a.Approve == state.ApproveAsk {
 						w.Command, w.Actions = perm.Command, permissionActions(perm)
+						w.Title = perm.Tool + ": " + strings.SplitN(perm.Command, "\n", 2)[0]
 					}
 					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
 						return nil, err

@@ -46,14 +46,16 @@ func (w *watcher) approvals(ctx context.Context, c luvus.Client, caps luvus.Capa
 		if err != nil || s.TerminalID != a.TerminalID {
 			continue
 		}
-		perm, ok := harness.ClaudePermission(s.Text)
-		if !ok {
+		deny := "esc"
+		if perm, ok := harness.ClaudePermission(s.Text); ok {
+			deny = perm.Deny
+		} else if !harness.ClaudeDialog(s.Text) {
 			continue
 		}
-		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, []string{perm.Deny}, s.ContentRevision, luvus.ScreenDigest(s.Text)); err != nil {
+		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, []string{deny}, s.ContentRevision, luvus.ScreenDigest(s.Text)); err != nil {
 			continue
 		}
-		detail := "no answer in " + wait.String() + "; pressed " + perm.Deny
+		detail := "no answer in " + wait.String() + "; pressed " + deny
 		if err := w.st.NoteAttempt(ctx, a.ID, "denied", detail); err != nil {
 			if errors.Is(err, state.ErrConflict) {
 				continue

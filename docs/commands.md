@@ -7,7 +7,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand init [--name NAME] [DIR]` | Make a fleet, or refresh, rename or adopt a moved one. |
 | `hand fleet list` | List the registered fleets and whether each home is found. |
 | `hand project add NAME PATH`, `hand project list` | Register a repository by its absolute path, and list projects. |
-| `hand project grants [--remove ID] NAME` | List the command prefixes the operator approved for always on an `ask` attempt's permission screen, which the project's later `ask` attempts start with, or remove one. |
+| `hand project grants [--remove ID] NAME` | List the command prefixes the operator approved for always on an `ask` attempt's permission screen, which the project's later `ask` attempts start with, or remove one (a live attempt keeps the rules it started with). |
 | `hand project trust NAME` | Accept the project's current git settings that name a program, after Hand refused to run git because they changed; prints each value. |
 | `hand task add --goal TEXT PROJECT TITLE` | Capture a request as an `inbox` task. |
 | `hand task start tN`, `hand task done [--deliverable PATH_OR_URL] tN`, `hand task abandon tN` | Move a task to `active`, `done` or `abandoned`. `--deliverable`, repeatable, records a file or link the supervisor produced itself: an http(s) URL or an absolute path; any other value is refused, and then nothing is recorded and the task stays as it was. |
