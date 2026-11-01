@@ -137,3 +137,23 @@ func TestAPIErrorMatchesOnlyALineStart(t *testing.T) {
 		t.Error("codex matched")
 	}
 }
+
+func TestQuestionReadsWhatCodexAsksTheOperator(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "codex-question.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := Question("codex", string(b))
+	if want := "question: I can finish this two ways. Should the migration keep the old column or drop it?"; !ok || got != want {
+		t.Fatalf("Question = %q, %v; want %q", got, ok, want)
+	}
+	if got, ok := Question("codex", "• Queued follow-up inputs\n  ? 2 questions · 9s\n"); !ok || got != QuestionPrefix {
+		t.Fatalf("Question without a text above = %q, %v", got, ok)
+	}
+	if _, ok := Question("claude", string(b)); ok {
+		t.Fatal("claude has no question screen")
+	}
+	if _, ok := Question("codex", "• Working (3s • esc to interrupt)\n› "); ok {
+		t.Fatal("a working screen is no question")
+	}
+}

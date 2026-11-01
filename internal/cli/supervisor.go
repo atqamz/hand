@@ -1002,8 +1002,11 @@ func wakeDigest(events []state.Event, title func(taskID int64) string) (string, 
 	for _, e := range events {
 		detail := e.Detail
 		if e.Kind == "attempt.blocked" {
-			ref, _, _ := strings.Cut(detail, ": ")
+			ref, rest, _ := strings.Cut(detail, ": ")
 			detail = ref + ": its screen waits for a key"
+			if strings.HasPrefix(rest, harness.QuestionPrefix) {
+				detail = ref + ": its screen shows a question for the operator"
+			}
 		}
 		line := "\n" + e.Kind + " " + oneLine(detail)
 		if t := strings.ReplaceAll(oneLine(title(e.TaskID)), `"`, "'"); e.TaskID != 0 && t != "" {
