@@ -238,21 +238,30 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 		return state.Supervisor{}, err
 	}
 	applied := false
+	prev := lastSpec(last)
 	revert := func(cause error) error {
-		if !applied || last.Model == "" {
+		if !applied {
 			return cause
 		}
+		if prev.Model == "" {
+			clause := fmt.Sprintf("opencode session %s stays on %s; a resume after --cancel continues on it", last.Session, spec.Model)
+			r.warn(clause)
+			return fmt.Errorf("%w; %s", cause, clause)
+		}
 		rerr := detached(ctx, func(ctx context.Context) error {
-			return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, lastSpec(last))
+			return harness.OpencodeSwitch(ctx, bin, r.home, last.Session, prev)
 		})
 		if rerr == nil {
 			return cause
 		}
-		clause := fmt.Sprintf("could not put opencode session %s back on %s: %v; a resume after --cancel continues on %s", last.Session, last.Model, rerr, spec.Model)
+		clause := fmt.Sprintf("could not put opencode session %s back on %s: %v; a resume after --cancel continues on %s", last.Session, prev.Model, rerr, spec.Model)
 		r.warn(clause)
 		return fmt.Errorf("%w; %s", cause, clause)
 	}
 	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
+		if prev.Model == "" {
+			prev, _ = harness.OpencodeSessionModel(ctx, bin, r.home, last.Session)
+		}
 		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
 			return state.Supervisor{}, err
 		}
@@ -335,14 +344,16 @@ func opencodeLastUser(home string, argv []string) func(context.Context) (string,
 }
 
 func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool), note string) (taken, read bool) {
-	ctx, cancel := context.WithTimeout(ctx, noteWait)
-	defer cancel()
+	deadline := time.Now().Add(noteWait)
 	for {
 		if text, ok := lastUser(ctx); ok {
 			read = true
 			if strings.TrimSpace(text) == note {
 				return true, true
 			}
+		}
+		if !time.Now().Before(deadline) {
+			return false, read
 		}
 		select {
 		case <-ctx.Done():
@@ -471,9 +482,13 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 		}
 		d.Field("supervisor", state.SupervisorRef(now.ID))
 		if now.ID != sup.ID {
-			if r.noteLost != "" {
-				d.Field("switch", "applied, but "+r.noteLost)
-				r.warns = slices.DeleteFunc(r.warns, func(w string) bool { return w == r.noteLost })
+			lost := r.noteLost
+			if lost == "" && strings.HasPrefix(why, state.NoteLost) {
+				lost = why
+			}
+			if lost != "" {
+				d.Field("switch", "applied, but "+lost)
+				r.warns = slices.DeleteFunc(r.warns, func(w string) bool { return w == lost })
 			} else {
 				d.Field("switch", "applied")
 			}

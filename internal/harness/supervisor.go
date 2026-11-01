@@ -380,6 +380,26 @@ func OpencodeSwitch(ctx context.Context, bin, dir, session string, s Spec) error
 	return nil
 }
 
+func OpencodeSessionModel(ctx context.Context, bin, dir, session string) (Spec, error) {
+	out, err := Opencode(ctx, bin, dir, "api", "--standalone", "session.get", "--param", "sessionID="+session)
+	if err != nil {
+		return Spec{}, err
+	}
+	var reply struct {
+		Data struct {
+			Model *opencodeModel `json:"model"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &reply); err != nil {
+		return Spec{}, err
+	}
+	if reply.Data.Model == nil || reply.Data.Model.ID == "" {
+		return Spec{}, nil
+	}
+	m := reply.Data.Model
+	return Spec{Harness: "opencode", Model: m.Provider + "/" + m.ID, Effort: m.Variant}, nil
+}
+
 func OpencodeCreateFor(ctx context.Context, argv []string, dir string, s Spec) error {
 	if s.Harness != "opencode" || s.Model == "" {
 		return nil

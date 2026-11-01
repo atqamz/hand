@@ -119,6 +119,12 @@ func ocapiMain(args []string) int {
 			return 0
 		}
 		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user","text":%s}]}`, len(sent), sent[len(sent)-1])
+	case len(args) > 4 && args[0] == "api" && args[2] == "session.get":
+		if p["sessionmodel"] == "" {
+			fmt.Print(`{"data":{"id":"ses"}}`)
+			return 0
+		}
+		fmt.Printf(`{"data":{"id":"ses","model":%s}}`, p["sessionmodel"])
 	case len(args) > 6 && args[0] == "api" && args[2] == "session.switchModel":
 		fakebin.Append(p["log"], "switch "+strings.TrimPrefix(args[4], "sessionID=")+" "+args[6])
 		switch {
@@ -175,7 +181,7 @@ func ocsessionMain(args []string) int {
 	}
 	d, _ := time.ParseDuration(p["apisleep"])
 	time.Sleep(d)
-	want := []string{"api", "--standalone", "session.message.list", "--param", "sessionID=", "--param", "type=user", "--param", "limit=1"}
+	want := []string{"api", "--standalone", "session.message.list", "--param", "sessionID=", "--param", "type=user", "--param", "order=desc", "--param", "limit=1"}
 	if len(args) != len(want) || !strings.HasPrefix(args[4], "sessionID=ses_hand") || strings.Contains(strings.Join(args, ""), "&") {
 		fmt.Fprintf(os.Stderr, "unexpected argv %q\n", args)
 		return 1

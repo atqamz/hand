@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
@@ -435,6 +436,46 @@ func TestAFailedPaneAfterASuccessfulSwitchPutsTheSessionBackOnTheOldModel(t *tes
 	want := []string{"stop", "switch " + session + ` {"model":{"providerID":"local","id":"m2"}}`, "switch " + session + ` {"model":{"providerID":"local","id":"m1"}}`}
 	if got := afterStart(o, 2); !slices.Equal(got, want) {
 		t.Fatalf("events after the start = %q, want %q", got, want)
+	}
+}
+
+func TestAFailedPaneFromTheDefaultModelPutsTheSessionBackOnWhatItRanOn(t *testing.T) {
+	h, rt, o, session := runningOpencode(t, map[string]string{"sessionmodel": `{"id":"m0","providerID":"local","variant":"fast"}`})
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	if _, _, code := h.run("supervisor", "switch", "--model", "local/m2"); code == 0 {
+		t.Fatal("the switch did not fail")
+	}
+	want := []string{"stop", "switch " + session + ` {"model":{"providerID":"local","id":"m2"}}`, "switch " + session + ` {"model":{"providerID":"local","id":"m0","variant":"fast"}}`}
+	if got := afterStart(o, 1); !slices.Equal(got, want) {
+		t.Fatalf("events after the start = %q, want %q", got, want)
+	}
+}
+
+func TestAFailedPaneFromAnUnreadableModelSaysWhereTheSessionStays(t *testing.T) {
+	h, rt, o, session := runningOpencode(t, nil)
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, "opencode session "+session+" stays on local/m2; a resume after --cancel continues on it") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := afterStart(o, 1); len(got) != 2 {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
+func TestASlowFirstReadOfTheNoteDoesNotCancelTheCheck(t *testing.T) {
+	wait := *cli.NoteWait
+	*cli.NoteWait = time.Millisecond
+	t.Cleanup(func() { *cli.NoteWait = wait })
+	h, _, _, _ := runningOpencode(t, map[string]string{"apisleep": "300ms"}, "--model", "local/m1")
+	out := h.ok("supervisor", "switch", "--model", "local/m2")
+	has(t, "switch", out, "switch: applied")
+	if strings.Contains(out, "warn:") {
+		t.Fatalf("switch = %q", out)
 	}
 }
 
