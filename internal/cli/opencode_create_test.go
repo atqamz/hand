@@ -133,6 +133,16 @@ func TestOpencodeUnlistedModelWarnsAndStarts(t *testing.T) {
 	o.created(t)
 }
 
+func TestOpencodeUnlistedVariantWarnsAndStarts(t *testing.T) {
+	fx := newAttemptFixture(t)
+	o := installOpencode(t, fx.h, fx.rt, map[string]string{"modelapi": `{"data":[{"providerID":"local","modelID":"m2","variants":[{"id":"fast"},{"id":"deep"}]}]}`})
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "thinking", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "opencode model local/m2 lists variants fast, deep, not thinking") {
+		t.Fatalf("start = %q", out)
+	}
+	o.created(t)
+}
+
 func TestOpencodeWorkerRefusesAHashInTheModelBeforeTouchingGit(t *testing.T) {
 	fx := newAttemptFixture(t)
 	o := installOpencode(t, fx.h, fx.rt, nil)

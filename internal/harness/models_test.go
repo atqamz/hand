@@ -42,6 +42,10 @@ func fakeListerMain(args []string) int {
 	if p["args"] != "" {
 		fakebin.Append(p["args"], strings.Join(args, " "))
 	}
+	if p["api"] != "" && len(args) > 0 && args[0] == "api" {
+		fmt.Print(p["api"])
+		return 0
+	}
 	if p["stdin"] != "" {
 		b, _ := io.ReadAll(os.Stdin)
 		_ = os.WriteFile(p["stdin"], b, 0o600)
@@ -425,12 +429,32 @@ func TestOpencodeListsNamesWithStandaloneOnly(t *testing.T) {
 	if l.Failed != nil || len(l.Models) != 3 || l.Models[0].Name != "acme/acme-coder-1" || l.Models[2].Name != "acme/acme-small" || l.Models[0].Source != SourceDiscovered || len(l.Models[0].Efforts) != 0 {
 		t.Fatalf("listing = %+v", l)
 	}
-	if b, _ := os.ReadFile(args); strings.TrimSpace(string(b)) != "models --standalone" {
+	if b, _ := os.ReadFile(args); strings.TrimSpace(string(b)) != "models --standalone\napi --standalone GET /api/model" {
 		t.Fatalf("args = %q", b)
 	}
 	noSecret(t, "opencode cache", f.cacheFile("opencode"))
 	if got, err := Detected("opencode", f.env); err != nil || len(got) != 3 {
 		t.Fatalf("detected = %+v, %v", got, err)
+	}
+}
+
+const opencodeAPI = `{"data":[{"providerID":"acme","modelID":"acme-coder-1","variants":[{"id":"low"},{"id":"High"},{"id":"high"},{"id":"high"}]},{"providerID":"opencode","modelID":"big-pickle"}]}`
+
+func TestOpencodeListsVariantsFromTheAPI(t *testing.T) {
+	f := newFixture(t)
+	f.install("opencode", map[string]string{"stdout": "acme/acme-coder-1\nopencode/big-pickle\n", "api": opencodeAPI})
+	l := f.refresh("opencode")
+	if l.Failed != nil || len(l.Models) != 2 || strings.Join(l.Models[0].Efforts, " ") != "low high" || len(l.Models[1].Efforts) != 0 {
+		t.Fatalf("listing = %+v", l)
+	}
+}
+
+func TestOpencodeListsNamesWhenTheAPIFails(t *testing.T) {
+	f := newFixture(t)
+	f.install("opencode", map[string]string{"stdout": "acme/acme-coder-1\n", "api": "not json"})
+	l := f.refresh("opencode")
+	if l.Failed != nil || len(l.Models) != 1 || len(l.Models[0].Efforts) != 0 {
+		t.Fatalf("listing = %+v", l)
 	}
 }
 

@@ -69,7 +69,7 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 	agyFailed := seeded(t, Listing{Harness: "agy", Failed: &Failure{Reason: "agy is not signed in; run agy and sign in"}})
 	agyNone := seeded(t)
 	ocListed := seeded(t, Listing{Harness: "opencode", Models: []Model{
-		{Name: "local/m2", Source: SourceDiscovered},
+		{Name: "local/m2", Efforts: []string{"deep", "fast"}, Source: SourceDiscovered},
 		{Name: "openrouter/meta/llama-3.1:free@v2 beta", Source: SourceDiscovered},
 	}})
 	copilotListed := seeded(t, Listing{Harness: "copilot", Models: []Model{
@@ -181,6 +181,8 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"opencode model with a variant", Spec{"opencode", "local/m2", "deep"}, ocListed, ok, ""},
 		{"opencode model without a variant", Spec{"opencode", "local/m2", ""}, ocListed, ok, ""},
 		{"opencode id with slashes, colon, at and space", Spec{"opencode", "openrouter/meta/llama-3.1:free@v2 beta", "thinking"}, ocListed, ok, ""},
+		{"opencode variant not offered", Spec{"opencode", "local/m2", "thinking"}, ocListed, warn, "opencode model local/m2 lists variants deep, fast, not thinking"},
+		{"opencode default variant", Spec{"opencode", "local/m2", "default"}, ocListed, ok, ""},
 		{"opencode unlisted", Spec{"opencode", "local/m9", "deep"}, ocListed, warn, "opencode model local/m9 is not in `opencode models`"},
 		{"opencode no list yet", Spec{"opencode", "local/m2", ""}, agyNone, warn, "opencode model local/m2 could not be checked: no model list yet"},
 		{"opencode hash in the model", Spec{"opencode", "local/m2#deep", ""}, ocListed, refuse, "opencode model"},
