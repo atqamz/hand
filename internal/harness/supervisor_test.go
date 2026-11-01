@@ -207,3 +207,83 @@ func TestOpencodeReturnsItsOutputWhileAChildHoldsStdout(t *testing.T) {
 		t.Fatalf("a child holding stdout kept the call waiting %s", took)
 	}
 }
+
+func TestOpencodeSwitchSendsTheModelAndTheVariantOnlyWhenGiven(t *testing.T) {
+	cases := map[string]struct {
+		spec Spec
+		body string
+	}{
+		"variant":    {Spec{Model: "local/m2", Effort: "deep"}, `{"model":{"providerID":"local","id":"m2","variant":"deep"}}`},
+		"no variant": {Spec{Model: "local/m2"}, `{"model":{"providerID":"local","id":"m2"}}`},
+		"slashes":    {Spec{Model: "openrouter/anthropic/claude"}, `{"model":{"providerID":"openrouter","id":"anthropic/claude"}}`},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "args")
+			bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", map[string]string{"args": log})
+			if err := OpencodeSwitch(context.Background(), bin, t.TempDir(), "ses_1", c.spec); err != nil {
+				t.Fatal(err)
+			}
+			b, _ := os.ReadFile(log)
+			want := "api --standalone session.switchModel --param sessionID=ses_1 -d " + c.body
+			if got := strings.TrimSpace(string(b)); got != want {
+				t.Fatalf("argv = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestOpencodeSwitchFailsOnAnythingButAnEmptyReply(t *testing.T) {
+	cases := map[string]struct {
+		params map[string]string
+		wants  []string
+	}{
+		"exit code":    {map[string]string{"exit": "1", "stderr": "database is locked"}, []string{"switching opencode session ses_1 to local/m2: ", "database is locked"}},
+		"HTTP message": {map[string]string{"exit": "1", "stderr": "HTTP 400", "stdout": `{"_tag":"InvalidRequestError","message":"Unknown provider nope"}`}, []string{"HTTP 400", "Unknown provider nope"}},
+		"an answer":    {map[string]string{"stdout": `{"data":{}}`}, []string{"opencode answered", "not an empty reply"}},
+		"blank reply":  {map[string]string{"stdout": " \n"}, nil},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", c.params)
+			err := OpencodeSwitch(context.Background(), bin, t.TempDir(), "ses_1", Spec{Model: "local/m2"})
+			if len(c.wants) == 0 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("no error")
+			}
+			for _, want := range c.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, missing %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestOpencodeSessionModelReadsWhatTheSessionRunsOn(t *testing.T) {
+	cases := map[string]struct {
+		stdout string
+		want   Spec
+	}{
+		"variant":    {`{"data":{"id":"ses_1","model":{"id":"m2","providerID":"local","variant":"deep"}}}`, Spec{Harness: "opencode", Model: "local/m2", Effort: "deep"}},
+		"no variant": {`{"data":{"id":"ses_1","model":{"id":"anthropic/m2","providerID":"or"}}}`, Spec{Harness: "opencode", Model: "or/anthropic/m2"}},
+		"no model":   {`{"data":{"id":"ses_1"}}`, Spec{}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", map[string]string{"stdout": c.stdout})
+			if got, err := OpencodeSessionModel(context.Background(), bin, t.TempDir(), "ses_1"); err != nil || got != c.want {
+				t.Fatalf("model = %+v, %v, want %+v", got, err, c.want)
+			}
+		})
+	}
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", map[string]string{"stdout": "not json"})
+	if _, err := OpencodeSessionModel(context.Background(), bin, t.TempDir(), "ses_1"); err == nil {
+		t.Fatal("an unreadable reply was accepted")
+	}
+}

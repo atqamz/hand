@@ -101,7 +101,7 @@ func watcherWanted(ctx context.Context, st *state.Store, home string) (bool, err
 	if _, live, err := st.LiveSupervisor(ctx); live || err != nil {
 		return live, err
 	}
-	last, ok, err := lastStarted(ctx, st)
+	last, ok, err := st.LastStartedSupervisor(ctx)
 	if err != nil || !ok || last.Status != state.AttemptInterrupted && last.Status != state.AttemptExited {
 		return false, err
 	}
