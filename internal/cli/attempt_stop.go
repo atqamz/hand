@@ -104,6 +104,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 func cmdAttemptClean(r *runner, args []string) error {
 	set := flags("attempt clean")
 	discard := set.Bool("discard", false, "remove the worktree even with uncommitted changes")
+	keep := set.Bool("keep-scratch", false, "leave the harness's scratch directory for the worktree and print it")
 	pos, err := parse(set, args, 1)
 	if err != nil {
 		return err
@@ -145,6 +146,16 @@ func cmdAttemptClean(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("removed", a.Worktree)
+		if paths := r.leftovers(a.Harness, a.Worktree); len(paths) > 0 {
+			rows, _ := scratchRows(paths)
+			if *keep {
+				d.Rows("scratch_kept", scratchFields, rows)
+			} else if err := removeAll(paths); err != nil {
+				d.Field("warn", "scratch not removed: "+err.Error())
+			} else {
+				d.Rows("scratch_removed", scratchFields, rows)
+			}
+		}
 		d.Help("Branch " + a.Branch + " is kept; delete it with `git -C " + project.Repo + " branch -D " + a.Branch + "` once merged")
 		return r.print(&d)
 	})
