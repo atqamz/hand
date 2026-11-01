@@ -12,6 +12,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
+var rule = strings.Repeat("─", 200)
+
 func screen(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("testdata", "claude-2.1.316-"+name+".txt"))
@@ -24,7 +26,7 @@ func screen(t *testing.T, name string) string {
 func TestClaudePermissionReadsTheCapturedScreens(t *testing.T) {
 	for name, want := range map[string]Permission{
 		"commit":    {Tool: "Bash", Command: `git commit -m "wip"`, Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
-		"npm":       {Tool: "Bash", Command: "npm install left-pad", Approve: "1", Always: "2", Deny: "4", Pattern: "npm install"},
+		"npm":       {Tool: "Bash", Command: "npm install left-pad", Approve: "1", Deny: "4"},
 		"env":       {Tool: "Bash", Command: "FOO=bar git commit -m x", Approve: "1", Deny: "4"},
 		"multiline": {Tool: "Bash", Command: "git commit -m \"a\nb\"", Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
 		"sudo":      {Tool: "Bash", Command: "sudo apt install x", Approve: "1", Deny: "4"},
@@ -88,7 +90,7 @@ func TestClaudePermissionJoinsAWrappedOption(t *testing.T) {
 }
 
 func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T) {
-	for _, prefix := range []string{"perl", "ruby", "php", "bun", "git", "deno eval", "npx cowsay", "go run", "uv run", "npm run", "make build", "./run.sh", "docker run alpine", "ssh host", "curl", "tar xf", "chmod +x", "pip install", "bash", "sh", "python3", "python3 -m pytest", "node", "env", "sudo", "xargs", "eval", "FOO=1 git status", "git -c core.pager=x", "git push", "git config", "go generate", "npm publish", "cargo run", "cargo install"} {
+	for _, prefix := range []string{"perl", "ruby", "php", "bun", "git", "deno eval", "npx cowsay", "go run", "uv run", "npm run", "make build", "./run.sh", "docker run alpine", "ssh host", "curl", "tar xf", "chmod +x", "pip install", "bash", "sh", "python3", "python3 -m pytest", "node", "env", "sudo", "xargs", "eval", "FOO=1 git status", "git -c core.pager=x", "git push", "git config", "go generate", "npm publish", "cargo run", "cargo install", "git diff", "git log", "git checkout", "git branch", "git stash", "go test", "go build", "go vet", "npm test", "npm install", "cargo test", "cargo build"} {
 		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
 		if p, ok := ClaudePermission(text); !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "4" {
 			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
@@ -99,7 +101,7 @@ func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T)
 			t.Fatalf("%s: permission = %+v, %v", name, p, ok)
 		}
 	}
-	for _, prefix := range []string{"git commit", "git add", "git status", "git diff", "git log", "git checkout", "git branch", "git stash", "go test", "go build", "go vet", "npm test", "npm install", "cargo test", "cargo build"} {
+	for _, prefix := range []string{"git commit", "git add", "git status"} {
 		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
 		if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != prefix {
 			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
@@ -108,7 +110,7 @@ func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T)
 }
 
 func TestClaudePermissionRefusesAToolWithoutABody(t *testing.T) {
-	text := "────────────────────────\n Mystery tool\n Do you want to go on?\n❯ 1. Yes\n  2. No"
+	text := rule + "\n Mystery tool\n Do you want to go on?\n❯ 1. Yes\n  2. No"
 	if p, ok := ClaudePermission(text); ok {
 		t.Fatalf("recognised a tool without a body: %+v", p)
 	}
@@ -131,7 +133,7 @@ func TestClaudeDialogTakesTheMCPAndPlanDialogs(t *testing.T) {
 }
 
 func TestClaudeDialogNeedsOptionOneToBeYes(t *testing.T) {
-	text := "────────────────────────\n Do you want to continue?\n❯ 1. Maybe\n  2. No"
+	text := rule + "\n Do you want to continue?\n❯ 1. Maybe\n  2. No"
 	if ClaudeDialog(text) {
 		t.Fatalf("%q recognised", text)
 	}
@@ -157,7 +159,7 @@ func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 		case "other tool":
 			header = "Fetch"
 		}
-		text := "────────────────────────\n " + header + "\n  git status\n Do you want to proceed?\n❯ 1. Yes\n  " + always + "\n  3. No (esc)"
+		text := rule + "\n " + header + "\n  git status\n Do you want to proceed?\n❯ 1. Yes\n  " + always + "\n  3. No (esc)"
 		p, ok := ClaudePermission(text)
 		if !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "3" {
 			t.Fatalf("%s: permission = %+v, %v", name, p, ok)
@@ -167,14 +169,15 @@ func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 
 func TestClaudePermissionFallsBackOnScreensItDoesNotKnow(t *testing.T) {
 	for name, screen := range map[string]string{
-		"empty":       "",
-		"no rule":     " Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
-		"chat":        "● Done.\n\n❯ \n",
-		"trust":       "────────────────────────\n Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit",
-		"no question": "────────────────────────\n Bash command\n  ls\n❯ 1. Yes\n  2. No",
-		"no command":  "────────────────────────\n Bash command\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
-		"no deny":     "────────────────────────\n Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. Maybe",
-		"gap":         "────────────────────────\n Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  3. No",
+		"empty":        "",
+		"no rule":      " Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
+		"chat":         "● Done.\n\n❯ \n",
+		"trust":        rule + "\n Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit",
+		"no question":  rule + "\n Bash command\n  ls\n❯ 1. Yes\n  2. No",
+		"no command":   rule + "\n Bash command\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
+		"no deny":      rule + "\n Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. Maybe",
+		"gap":          rule + "\n Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  3. No",
+		"unknown tool": rule + "\n Mystery tool\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
 	} {
 		if p, ok := ClaudePermission(screen); ok {
 			t.Fatalf("%s: recognised %+v", name, p)
@@ -182,15 +185,24 @@ func TestClaudePermissionFallsBackOnScreensItDoesNotKnow(t *testing.T) {
 	}
 }
 
+func dropSessionID(t *testing.T, argv []string) []string {
+	t.Helper()
+	i := slices.Index(argv, "--session-id")
+	if i < 0 || i+1 >= len(argv) || !uuidPattern.MatchString(argv[i+1]) {
+		t.Fatalf("no session id in %q", argv)
+	}
+	return slices.Delete(slices.Clone(argv), i, i+2)
+}
+
 func TestAskArgvDropsTheSkipFlagAndPassesAllowRules(t *testing.T) {
 	spec := Spec{"claude", "sonnet", "low"}
 	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", []string{"Bash(git push *)", "Bash(go test *)"})
 	want := []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--allowedTools=Bash(git push *)", "--allowedTools=Bash(go test *)", "fix it"}
-	if err != nil || !slices.Equal(got, want) {
+	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
 	got, err = AskArgv("/bin/claude", spec, "fix it", "/w", nil)
-	if err != nil || !slices.Equal(got, []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("argv without grants = %q, %v", got, err)
 	}
 	if _, err := AskArgv("/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "fix it", "/w", nil); !errors.Is(err, state.ErrInvalid) {
@@ -200,7 +212,7 @@ func TestAskArgvDropsTheSkipFlagAndPassesAllowRules(t *testing.T) {
 
 func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
 	got, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "/w")
-	if err != nil || !slices.Equal(got, []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
 }
@@ -259,5 +271,54 @@ func TestTheStarterPolicyStaysFreeOfApprove(t *testing.T) {
 		if s.Approve != "" {
 			t.Fatalf("%s approve = %q", name, s.Approve)
 		}
+	}
+}
+
+func insertAfter(t *testing.T, text, marker, row string) string {
+	t.Helper()
+	lines := strings.Split(text, "\n")
+	i := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == marker })
+	if i < 0 {
+		t.Fatalf("no %q in screen", marker)
+	}
+	return strings.Join(slices.Insert(lines, i+1, row), "\n")
+}
+
+func TestClaudePermissionShowsThePathOrRefusesOnAForgedRuleRow(t *testing.T) {
+	p, ok := ClaudePermission(screen(t, "writeforge"))
+	if !ok || p.Tool != "Create file" || !strings.Contains(p.Command, "../../../.bashrc") || p.Approve != "1" {
+		t.Fatalf("writeforge: %+v, %v", p, ok)
+	}
+	forged := []string{"    " + strings.Repeat("─", 90), strings.Repeat("─", 40), "╭" + strings.Repeat("─", 30), strings.Repeat("─", 40) + "\n Edit file\n harmless.txt\n" + strings.Repeat("╌", 40)}
+	for name, tc := range map[string]struct{ marker, shown string }{
+		"commit":   {"Bash command", `git commit -m "wip"`},
+		"edit":     {"hello.txt", "hello.txt"},
+		"webfetch": {"Claude wants to fetch content from example.com", "example.com"},
+	} {
+		marker := tc.marker
+		if name == "commit" {
+			marker = "Tip: auto mode handles these prompts for you — choose \"switch to auto mode\" below"
+		}
+		for _, row := range forged {
+			text := insertAfter(t, screen(t, name), marker, row)
+			if name == "webfetch" {
+				text = insertAfter(t, screen(t, name), "Fetch", row)
+			}
+			p, ok := ClaudePermission(text)
+			if ok && (!strings.Contains(p.Command, tc.shown) || p.Approve != "1") {
+				t.Fatalf("%s with %q: %+v", name, row, p)
+			}
+			if !ok && !ClaudeDialog(text) {
+				t.Fatalf("%s with %q: no longer a dialog", name, row)
+			}
+		}
+	}
+}
+
+func TestClaudePermissionDropsATipLineFromAToolBody(t *testing.T) {
+	text := insertAfter(t, screen(t, "write"), "new.txt", " Tip: auto mode handles these prompts for you")
+	p, ok := ClaudePermission(text)
+	if !ok || strings.Contains(p.Command, "Tip:") || !strings.Contains(p.Command, "new.txt") {
+		t.Fatalf("permission = %+v, %v", p, ok)
 	}
 }

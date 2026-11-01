@@ -505,6 +505,7 @@ type trustScreen struct {
 	noCursor  string
 	toYes     string
 	folder    string
+	footer    string
 	repoNote  string
 	wraps     bool
 	boxed     bool
@@ -522,6 +523,7 @@ var trustScreens = map[string][]trustScreen{
 		noCursor:  "❯ No, exit",
 		toYes:     "down",
 		folder:    "Accessing workspace:",
+		footer:    "Enter to confirm · Esc to cancel",
 	}},
 	"codex": {{
 		question:  "Trust this folder?",
@@ -558,6 +560,16 @@ func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
 		}
 	}
 	return trustScreen{}, false
+}
+
+func (s trustScreen) whole(text string) bool {
+	var rows []string
+	for _, l := range strings.Split(text, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			rows = append(rows, l)
+		}
+	}
+	return s.footer != "" && len(rows) > 2 && rows[0] == s.folder && rows[len(rows)-1] == s.footer && s.hasYesRow(text)
 }
 
 func (s trustScreen) names(text string) (folder, repo string, noted bool) {

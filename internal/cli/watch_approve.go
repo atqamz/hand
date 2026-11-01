@@ -10,6 +10,8 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
+const keysSettle = 3 * time.Second
+
 func (w *watcher) approvals(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
 	live, err := w.st.LiveAttempts(ctx)
 	if err != nil {
@@ -35,11 +37,19 @@ func (w *watcher) approvals(ctx context.Context, c luvus.Client, caps luvus.Capa
 	denied := false
 	for _, a := range asking {
 		e := signals[a.ID]
-		if e.Kind != "attempt.blocked" {
+		at, err := time.Parse(time.RFC3339Nano, e.At)
+		if err != nil {
 			continue
 		}
-		at, err := time.Parse(time.RFC3339Nano, e.At)
-		if err != nil || w.r.env.Now().Sub(at) < wait {
+		if e.Kind == "attempt.keys" && w.r.env.Now().Sub(at) >= keysSettle {
+			if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID && harness.ClaudeDialog(s.Text) {
+				if err := w.noteBlocked(ctx, c, a); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if e.Kind != "attempt.blocked" || w.r.env.Now().Sub(at) < wait {
 			continue
 		}
 		s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)

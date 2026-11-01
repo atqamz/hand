@@ -48,7 +48,7 @@ func TestChatItemsNameTheSupervisorOfTheirTime(t *testing.T) {
 }
 
 func TestBlockedPromptsReadTheScreen(t *testing.T) {
-	screen := "────────────────────────\n Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:59\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
+	screen := "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Bash command\n  rm -f $r/$f\n Claude Code will automatically deny this request in 1:59\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
 	want := prompt{Headline: "Bash: rm -f $r/$f · Do you want to proceed?", Options: []key{{"2", "2 No"}, {"esc", "Esc"}, {"1", "1 Yes"}}, Deadline: "1:59"}
 	if got := blockedPrompt(screen); !reflect.DeepEqual(got, want) {
 		t.Fatalf("prompt = %+v, want %+v", got, want)
@@ -63,7 +63,7 @@ func TestBlockedPromptsReadOnlyTheLastOptionList(t *testing.T) {
 		name, screen string
 		want         prompt
 	}{
-		{"numbered lines in a heredoc", "────────────────────────\n Bash command\n   cat <<EOF\n   1. first\n   2. second\n   EOF\n Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for cat commands\n  3. No, and tell Claude what to do differently (esc)",
+		{"numbered lines in a heredoc", "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Bash command\n   cat <<EOF\n   1. first\n   2. second\n   EOF\n Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again for cat commands\n  3. No, and tell Claude what to do differently (esc)",
 			prompt{Headline: "Bash: cat <<EOF · Do you want to proceed?", Options: []key{{"3", "3 " + clip("No, and tell Claude what to do differently (esc)", 24)}, {"esc", "Esc"}, {"1", "1 Yes"}, {"2", "2 " + clip("Yes, and don't ask again for cat commands", 24)}}}},
 		{"codex with a numbered plan above", "• Plan\n  1. Read the parser\n  2. Now edit it\n Would you like to run the following command?\n   $ rm -rf build\n› 1. Yes, just this once\n  2. Yes, and don't ask again for this command\n  3. No, and tell Codex what to do differently esc\n Press enter to confirm or esc to cancel",
 			prompt{Headline: "$ rm -rf build · Would you like to run the following command?", Options: []key{{"3", "3 " + clip("No, and tell Codex what to do differently esc", 24)}, {"esc", "Esc"}, {"1", "1 Yes, just this once"}, {"2", "2 " + clip("Yes, and don't ask again for this command", 24)}}}},

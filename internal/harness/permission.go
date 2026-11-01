@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 type Permission struct {
@@ -17,7 +18,7 @@ type Permission struct {
 
 var (
 	optionLine  = regexp.MustCompile(`^(?:[❯›]\s*)?([1-9])\.\s+(.+?)$`)
-	ruleLine    = regexp.MustCompile(`^\s*(?:[─━]{10,}\s*|╭.*)$`)
+	ruleLine    = regexp.MustCompile(`^(?:[─━]{10,}\s*|╭.*)$`)
 	dashRule    = regexp.MustCompile(`^\s*╌{10,}\s*$`)
 	boxEdge     = regexp.MustCompile(`^\s*[│┃]|\s*[│┃]?\s*$`)
 	autoDenyRun = regexp.MustCompile(`deny this request in \d+:\d{2}`)
@@ -28,11 +29,14 @@ var (
 	otherDialog = regexp.MustCompile(`^(?:New MCP server found in this project\b|Exit plan mode\?)`)
 )
 
+var knownTools = []string{"Bash", "Create file", "Edit file", "Edit notebook", "Fetch", "Read file"}
+
 var safeSubcommands = map[string][]string{
-	"git":   {"commit", "add", "status", "diff", "log", "checkout", "branch", "stash"},
-	"go":    {"test", "build", "vet"},
-	"npm":   {"test", "install"},
-	"cargo": {"test", "build"},
+	"git": {"commit", "add", "status"},
+}
+
+func topRule(l string, width int) bool {
+	return ruleLine.MatchString(l) && (strings.HasPrefix(l, "╭") || utf8.RuneCountInString(strings.TrimRight(l, " ")) >= width)
 }
 
 func safeAlways(pattern string) bool {
@@ -60,9 +64,13 @@ func ClaudeDialog(screen string) bool {
 
 func ClaudePermission(screen string) (Permission, bool) {
 	lines := strings.Split(screen, "\n")
+	width := 0
+	for _, l := range lines {
+		width = max(width, utf8.RuneCountInString(strings.TrimRight(l, " ")))
+	}
 	cut := false
 	for i := len(lines) - 1; i >= 0 && !cut; i-- {
-		if ruleLine.MatchString(lines[i]) {
+		if topRule(lines[i], width) {
 			lines, cut = lines[i+1:], true
 		}
 	}
@@ -137,6 +145,9 @@ func ClaudePermission(screen string) (Permission, bool) {
 		return Permission{}, false
 	}
 	p.Tool = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body[headerAt]), "command"))
+	if !slices.Contains(knownTools, p.Tool) {
+		return Permission{}, false
+	}
 	bash := p.Tool == "Bash"
 	var rest []string
 	for i := headerAt + 1; i < question; i++ {

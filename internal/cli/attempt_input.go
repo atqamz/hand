@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -124,6 +125,11 @@ func cmdAttemptRead(r *runner, args []string) error {
 	})
 }
 
+func ownTrustScreen(harness, text string, keys []string) bool {
+	screen, ok := askedScreen(trustScreens[harness], text)
+	return ok && screen.whole(text) && !slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains([]string{"enter", "down", "up"}, k) })
+}
+
 func cmdAttemptKeys(r *runner, args []string) error {
 	fs := flags("attempt keys")
 	revision := fs.Int64("revision", -1, "content revision printed by `hand attempt read`")
@@ -158,7 +164,7 @@ func cmdAttemptKeys(r *runner, args []string) error {
 			if s.TerminalID == a.TerminalID {
 				perm, asked = harness.ClaudePermission(s.Text)
 				asked = asked || harness.ClaudeDialog(s.Text)
-				if _, trust := askedScreen(trustScreens[a.Harness], s.Text); !asked && !trust {
+				if !asked && !ownTrustScreen(a.Harness, s.Text, keys) {
 					ag, err := c.Explain(ctx, a.PaneID)
 					if err != nil {
 						return runtimeErr(err)
