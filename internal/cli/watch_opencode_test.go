@@ -111,7 +111,7 @@ func (g *opencodeRig) calls(kind string) int {
 }
 
 func (g *opencodeRig) sync() {
-	g.w.opencodeModels(context.Background())
+	g.w.sweepModels(context.Background())
 	g.w.pending.Wait()
 }
 
@@ -343,7 +343,7 @@ func TestWatcherForgetsTheTranscriptsOfEndedSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	g.sync()
-	if g.w.transcripts.Status("opencode", "ses_2").Model != "" || len(g.w.opencodeSessions) != 0 {
+	if g.w.transcripts.Status("opencode", "ses_2").Model != "" || len(g.w.modelSessions) != 0 {
 		t.Fatal("session kept")
 	}
 }
