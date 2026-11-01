@@ -170,6 +170,20 @@ func TestTheOpencodeSwitchRowsListItsModelsAndTakeAVariant(t *testing.T) {
 	lacks(t, "opencode switch row", row, `name="effort" aria-label="opencode effort"`)
 }
 
+func TestOpencodeRowsOfferTheVariantsOfEachModel(t *testing.T) {
+	r := newModelRig(t)
+	r.all(t)
+	r.install(t, "opencode", "agy", map[string]string{"models": "acme/acme-coder-1\nacme/acme-coder-2\n", "api": `{"data":[{"providerID":"acme","modelID":"acme-coder-1","variants":[{"id":"fast"},{"id":"deep"}]}]}`})
+	r.refresh(t, "opencode")
+	row := startRow(t, r.console(t), "opencode")
+	contains(t, "opencode start row", row, `<option value="acme/acme-coder-1" data-efforts="fast deep">`, `<option value="acme/acme-coder-2" data-efforts="">`, `<select name="effort" aria-label="opencode effort"><option value="">default</option><option value="fast">fast</option><option value="deep">deep</option></select>`)
+	lacks(t, "opencode start row", row, `aria-label="opencode variant"`)
+	r.fx.status = "idle"
+	r.fx.supervisor(t, state.AttemptRunning, "gen-1")
+	row = startRow(t, r.console(t), "opencode")
+	contains(t, "opencode switch row", row, `<select name="effort" aria-label="opencode effort"><option value="">default</option><option value="fast">fast</option>`)
+}
+
 func TestProfilesNameAnOpencodeModelAndVariant(t *testing.T) {
 	r := newModelRig(t)
 	r.all(t)

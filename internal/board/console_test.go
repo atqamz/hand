@@ -22,6 +22,9 @@ func TestMain(m *testing.M) {
 		if len(args) > 0 && args[0] == "models" {
 			fmt.Print(fakebin.Params()["models"])
 		}
+		if len(args) > 0 && args[0] == "api" {
+			fmt.Print(fakebin.Params()["api"])
+		}
 		return 0
 	}, "printer": func(args []string) int {
 		if len(args) == 0 || args[0] != "--version" {

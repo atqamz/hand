@@ -123,8 +123,12 @@ func checkOpencode(s Spec, env Env) (string, error) {
 	if err != nil {
 		return unverified([]string{fmt.Sprintf("opencode model %s could not be checked: %s", s.Model, plainReason(err))}), nil
 	}
-	if _, ok := find(l.Models, s.Model); !ok {
+	m, ok := find(l.Models, s.Model)
+	switch {
+	case !ok:
 		return unverified([]string{fmt.Sprintf("opencode model %s is not in `opencode models`", s.Model)}), nil
+	case s.Effort != "" && s.Effort != "default" && len(m.Efforts) > 0 && !slices.Contains(m.Efforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("opencode model %s lists variants %s, not %s; opencode resets an unknown variant to default", s.Model, strings.Join(m.Efforts, ", "), s.Effort)}), nil
 	}
 	return "", nil
 }
