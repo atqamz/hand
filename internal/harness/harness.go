@@ -271,7 +271,7 @@ func workerArgv(bin string, s Spec, prompt, dir string, allow []string) ([]strin
 		if allow == nil {
 			return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
 		}
-		argv := []string{bin, "--model", s.Model, "--effort", s.Effort}
+		argv := []string{bin, "--permission-mode", "default", "--model", s.Model, "--effort", s.Effort}
 		for _, rule := range allow {
 			argv = append(argv, "--allowedTools="+rule)
 		}

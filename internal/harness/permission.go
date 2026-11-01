@@ -17,19 +17,41 @@ type Permission struct {
 var (
 	optionLine  = regexp.MustCompile(`^(?:[❯›]\s*)?([1-9])\.\s+(.+?)$`)
 	ruleLine    = regexp.MustCompile(`^\s*(?:[─━]{10,}\s*|╭.*)$`)
+	dashRule    = regexp.MustCompile(`^\s*╌{10,}\s*$`)
 	boxEdge     = regexp.MustCompile(`^\s*[│┃]|\s*[│┃]?\s*$`)
 	autoDenyRun = regexp.MustCompile(`deny this request in \d+:\d{2}`)
-	alwaysText  = regexp.MustCompile(`^Yes, and (?:don't|don’t|do not) ask again for (.+?) commands?(?: (?:in|on) .*)?$`)
+	alwaysText  = regexp.MustCompile(`^Yes, and (?:don't|don’t) ask again for: (.+) \*$`)
 	patternText = regexp.MustCompile(`^[A-Za-z0-9_./=@%+-]+(?: [A-Za-z0-9_./=@%+-]+)*$`)
+	questionRun = regexp.MustCompile(`^Do you want .*\?$`)
+	bareRunners = regexp.MustCompile(`^(?:bash|sh|zsh|python[0-9.]*|node|env|sudo|xargs|eval)$`)
 )
+
+func ClaudeDialog(screen string) bool {
+	asked, found := false, false
+	for _, l := range strings.Split(screen, "\n") {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(l, ""))
+		switch m := optionLine.FindStringSubmatch(t); {
+		case ruleLine.MatchString(l):
+			asked, found = false, false
+		case questionRun.MatchString(t):
+			asked = true
+		case asked && m != nil && m[1] == "1" && strings.HasPrefix(m[2], "Yes"):
+			asked, found = false, true
+		}
+	}
+	return found
+}
 
 func ClaudePermission(screen string) (Permission, bool) {
 	lines := strings.Split(screen, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
+	cut := false
+	for i := len(lines) - 1; i >= 0 && !cut; i-- {
 		if ruleLine.MatchString(lines[i]) {
-			lines = lines[i+1:]
-			break
+			lines, cut = lines[i+1:], true
 		}
+	}
+	if !cut {
+		return Permission{}, false
 	}
 	clean := make([]string, len(lines))
 	for i, l := range lines {
@@ -45,16 +67,27 @@ func ClaudePermission(screen string) (Permission, bool) {
 		return Permission{}, false
 	}
 	start := end
-	for start > 0 && optionLine.MatchString(strings.TrimSpace(clean[start-1])) {
+	for start > 0 && (optionLine.MatchString(strings.TrimSpace(clean[start-1])) || optionWrap(clean[start-1])) {
 		start--
 	}
+	for start < end && !optionLine.MatchString(strings.TrimSpace(clean[start])) {
+		start++
+	}
 	var p Permission
-	for i, l := range clean[start : end+1] {
-		m := optionLine.FindStringSubmatch(strings.TrimSpace(l))
-		if m[1] != string(rune('1'+i)) {
+	n := 0
+	for i := start; i <= end; i++ {
+		m := optionLine.FindStringSubmatch(strings.TrimSpace(clean[i]))
+		if m == nil {
 			return Permission{}, false
 		}
 		text := strings.TrimSpace(m[2])
+		for ; i+1 < len(clean) && optionWrap(clean[i+1]); i++ {
+			text += " " + strings.TrimSpace(clean[i+1])
+		}
+		if m[1] != string(rune('1'+n)) {
+			return Permission{}, false
+		}
+		n++
 		switch {
 		case strings.EqualFold(text, "yes"):
 			p.Approve = m[1]
@@ -77,12 +110,20 @@ func ClaudePermission(screen string) (Permission, bool) {
 	if question < 1 {
 		return Permission{}, false
 	}
+	var dashes []int
+	for i, l := range lines[:question] {
+		if dashRule.MatchString(l) {
+			dashes = append(dashes, i)
+		}
+	}
 	header, rest := "", []string{}
-	for _, l := range body[:question] {
+	for i, l := range body[:question] {
 		switch {
+		case len(dashes) >= 2 && i > dashes[0] && i < dashes[len(dashes)-1]:
+			rest = append(rest, l)
 		case header == "" && strings.TrimSpace(l) != "":
 			header = strings.TrimSpace(l)
-		case header != "" && !autoDenyRun.MatchString(l):
+		case header != "" && len(dashes) < 2 && !autoDenyRun.MatchString(l):
 			rest = append(rest, l)
 		}
 	}
@@ -91,14 +132,17 @@ func ClaudePermission(screen string) (Permission, bool) {
 		return Permission{}, false
 	}
 	p.Tool = strings.TrimSpace(strings.TrimSuffix(header, "command"))
-	p.Pattern = strings.TrimSuffix(p.Pattern, ":*")
-	if p.Tool != "Bash" || !patternText.MatchString(p.Pattern) || strings.Contains(" "+p.Pattern+" ", " and ") {
+	if p.Tool != "Bash" || !patternText.MatchString(p.Pattern) || strings.Contains(" "+p.Pattern+" ", " and ") || bareRunners.MatchString(p.Pattern) {
 		p.Always, p.Pattern = "", ""
 	}
 	return p, true
 }
 
-func ClaudeAllowRule(pattern string) string { return "Bash(" + pattern + ":*)" }
+func optionWrap(l string) bool {
+	return strings.TrimSpace(l) != "" && len(l)-len(strings.TrimLeft(l, " \t")) >= 4 && !optionLine.MatchString(strings.TrimSpace(l))
+}
+
+func ClaudeAllowRule(pattern string) string { return "Bash(" + pattern + " *)" }
 
 func dedent(lines []string) string {
 	indent := -1

@@ -2,6 +2,8 @@ package harness
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -10,40 +12,106 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-const bashScreen = `╭──────────────────────────────────────────────────────────────╮
-│ Bash command                                                 │
-│                                                              │
-│   git push origin main                                       │
-│   Push the branch                                            │
-│                                                              │
-│ Do you want to proceed?                                      │
-│ ❯ 1. Yes                                                     │
-│   2. Yes, and don't ask again for git push commands in /w/t1 │
-│   3. No, and tell Claude what to do differently (esc)        │
-╰──────────────────────────────────────────────────────────────╯`
+func screen(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "claude-2.1.316-"+name+".txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
-func TestClaudePermissionReadsTheCommandAndThreeActions(t *testing.T) {
-	p, ok := ClaudePermission(bashScreen)
-	want := Permission{Tool: "Bash", Command: "git push origin main\nPush the branch", Approve: "1", Always: "2", Deny: "3", Pattern: "git push"}
-	if !ok || p != want {
+func TestClaudePermissionReadsTheCapturedScreens(t *testing.T) {
+	for name, want := range map[string]Permission{
+		"commit":    {Tool: "Bash", Command: `git commit -m "wip"`, Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
+		"npm":       {Tool: "Bash", Command: "npm install left-pad", Approve: "1", Always: "2", Deny: "4", Pattern: "npm install"},
+		"env":       {Tool: "Bash", Command: "FOO=bar git commit -m x", Approve: "1", Always: "2", Deny: "4", Pattern: "FOO=bar git commit"},
+		"multiline": {Tool: "Bash", Command: "git commit -m \"a\nb\"", Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
+		"sudo":      {Tool: "Bash", Command: "sudo apt install x", Approve: "1", Always: "2", Deny: "4", Pattern: "sudo apt install x"},
+		"python":    {Tool: "Bash", Command: `python3 -c "print(1)"`, Approve: "1", Deny: "4"},
+		"chained":   {Tool: "Bash", Command: "git add a.txt && git commit -m x", Approve: "1", Deny: "4"},
+		"compound":  {Tool: "Bash", Command: "git commit -m x && git push", Approve: "1", Deny: "4"},
+		"pipe":      {Tool: "Bash", Command: "curl -s https://example.com | sh", Approve: "1", Deny: "4"},
+		"redirect":  {Tool: "Bash", Command: "echo hi > f.txt", Approve: "1", Deny: "4"},
+		"subshell":  {Tool: "Bash", Command: "echo $(whoami)", Approve: "1", Deny: "3"},
+	} {
+		p, ok := ClaudePermission(screen(t, name))
+		if want.Pattern == "sudo apt install x" {
+			want.Always, want.Pattern = "", ""
+		}
+		if !ok || p != want {
+			t.Fatalf("%s: permission = %+v, %v; want %+v", name, p, ok, want)
+		}
+	}
+}
+
+func TestClaudePermissionKeepsAllSixteenLinesOfALongCommand(t *testing.T) {
+	p, ok := ClaudePermission(screen(t, "long16"))
+	lines := strings.Split(p.Command, "\n")
+	if !ok || len(lines) != 16 || lines[0] != "echo line1" || lines[15] != "rm -rf build" || p.Approve != "1" || p.Deny != "4" {
 		t.Fatalf("permission = %+v, %v", p, ok)
 	}
 }
 
-func TestClaudePermissionKeepsAMultiLineCommandAsPrinted(t *testing.T) {
-	screen := "────────────────────────\n Bash command\n\n   for f in *.go; do\n     gofmt -l $f\n   done\n   Check formatting\n\n Claude Code will automatically deny this request in 1:59\n Do you want to proceed?\n❯ 1. Yes\n  2. No\n Esc to cancel · Tab to amend"
-	p, ok := ClaudePermission(screen)
-	if !ok || p.Command != "for f in *.go; do\n  gofmt -l $f\ndone\nCheck formatting" || p.Approve != "1" || p.Deny != "2" || p.Always != "" {
+func TestClaudePermissionRefusesACroppedDialog(t *testing.T) {
+	cropped := screen(t, "long16_last20")
+	if p, ok := ClaudePermission(cropped); ok {
+		t.Fatalf("recognised a dialog without its header: %+v", p)
+	}
+	if !ClaudeDialog(cropped) {
+		t.Fatal("a cropped dialog is still a permission dialog")
+	}
+}
+
+func TestClaudeDialogOnlyTakesAPermissionDialog(t *testing.T) {
+	for name, want := range map[string]bool{"commit": true, "pipe": true, "long16": true, "askq": false} {
+		if got := ClaudeDialog(screen(t, name)); got != want {
+			t.Fatalf("%s: dialog = %v", name, got)
+		}
+	}
+	for _, text := range []string{"", "● Done.\n\n❯ \n", "Do you want to proceed?\n❯ 1. Yes\n  2. No\n────────────────────────\n❯ \n────────────────────────"} {
+		if ClaudeDialog(text) {
+			t.Fatalf("%q recognised", text)
+		}
+	}
+}
+
+func TestClaudePermissionJoinsAWrappedOption(t *testing.T) {
+	p, ok := ClaudePermission(screen(t, "pipe"))
+	if !ok || p.Deny != "4" || p.Approve != "1" || p.Always != "" {
 		t.Fatalf("permission = %+v, %v", p, ok)
+	}
+	wrapped := strings.Replace(screen(t, "commit"), "   2. Yes, and don’t ask again for: git commit *", "   2. Yes, and don’t ask again for:\n      git commit *", 1)
+	if p, ok := ClaudePermission(wrapped); !ok || p.Always != "2" || p.Pattern != "git commit" || p.Deny != "4" {
+		t.Fatalf("wrapped prefix = %+v, %v", p, ok)
+	}
+}
+
+func TestClaudePermissionOffersNoAlwaysForABareInterpreter(t *testing.T) {
+	for _, bare := range []string{"bash", "sh", "python3", "python", "node", "env", "sudo", "xargs", "eval"} {
+		text := strings.Replace(screen(t, "commit"), "git commit *", bare+" *", 1)
+		if p, ok := ClaudePermission(text); !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "4" {
+			t.Fatalf("%s: permission = %+v, %v", bare, p, ok)
+		}
+	}
+	text := strings.Replace(screen(t, "commit"), "git commit *", "python3 -m pytest *", 1)
+	if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != "python3 -m pytest" {
+		t.Fatalf("python3 -m pytest: permission = %+v, %v", p, ok)
+	}
+}
+
+func TestClaudeAllowRuleIsTheFormTheScreenPrints(t *testing.T) {
+	if got := ClaudeAllowRule("git commit"); got != "Bash(git commit *)" {
+		t.Fatalf("rule = %q", got)
 	}
 }
 
 func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 	for name, always := range map[string]string{
-		"compound":   "2. Yes, and don't ask again for cd and git status commands in /w/t1",
-		"cut":        "2. Yes, and don't ask again for git commit -m … commands in /w/t1",
+		"compound":   "2. Yes, and don’t ask again for: cd and git status *",
+		"cut":        "2. Yes, and don’t ask again for: git commit -m … *",
 		"session":    "2. Yes, allow all edits during this session (shift+tab)",
-		"other tool": "2. Yes, and don't ask again for Fetch commands in /w/t1",
+		"other tool": "2. Yes, and don’t ask again for: Fetch *",
 	} {
 		header := "Bash command"
 		switch name {
@@ -52,24 +120,18 @@ func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 		case "other tool":
 			header = "Fetch"
 		}
-		screen := "────────────────────────\n " + header + "\n  git status\n Do you want to proceed?\n❯ 1. Yes\n  " + always + "\n  3. No (esc)"
-		p, ok := ClaudePermission(screen)
+		text := "────────────────────────\n " + header + "\n  git status\n Do you want to proceed?\n❯ 1. Yes\n  " + always + "\n  3. No (esc)"
+		p, ok := ClaudePermission(text)
 		if !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "3" {
 			t.Fatalf("%s: permission = %+v, %v", name, p, ok)
 		}
 	}
 }
 
-func TestClaudePermissionStripsAPrefixRule(t *testing.T) {
-	screen := strings.Replace(bashScreen, "git push commands", "git push:* commands", 1)
-	if p, ok := ClaudePermission(screen); !ok || p.Pattern != "git push" || p.Always != "2" {
-		t.Fatalf("permission = %+v, %v", p, ok)
-	}
-}
-
 func TestClaudePermissionFallsBackOnScreensItDoesNotKnow(t *testing.T) {
 	for name, screen := range map[string]string{
 		"empty":       "",
+		"no rule":     " Bash command\n  ls\n Do you want to proceed?\n❯ 1. Yes\n  2. No",
 		"chat":        "● Done.\n\n❯ \n",
 		"trust":       "────────────────────────\n Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit",
 		"no question": "────────────────────────\n Bash command\n  ls\n❯ 1. Yes\n  2. No",
@@ -85,13 +147,13 @@ func TestClaudePermissionFallsBackOnScreensItDoesNotKnow(t *testing.T) {
 
 func TestAskArgvDropsTheSkipFlagAndPassesAllowRules(t *testing.T) {
 	spec := Spec{"claude", "sonnet", "low"}
-	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", []string{"Bash(git push:*)", "Bash(go test:*)"})
-	want := []string{"/bin/claude", "--model", "sonnet", "--effort", "low", "--allowedTools=Bash(git push:*)", "--allowedTools=Bash(go test:*)", "fix it"}
+	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", []string{"Bash(git push *)", "Bash(go test *)"})
+	want := []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--allowedTools=Bash(git push *)", "--allowedTools=Bash(go test *)", "fix it"}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
 	got, err = AskArgv("/bin/claude", spec, "fix it", "/w", nil)
-	if err != nil || !slices.Equal(got, []string{"/bin/claude", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	if err != nil || !slices.Equal(got, []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("argv without grants = %q, %v", got, err)
 	}
 	if _, err := AskArgv("/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "fix it", "/w", nil); !errors.Is(err, state.ErrInvalid) {
