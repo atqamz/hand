@@ -86,6 +86,29 @@ node .github/e2e/first-run.mjs
 
 The install phase changes your user `PATH` in the registry and puts it back when it ends. `smoke.mjs` needs Playwright: `npm install playwright@1.63.0` in `$E2E_TMP/pw` (`$Env:E2E_TMP\pw` in PowerShell), then `npx playwright install chromium` there. `upgrade.mjs` needs `gh`. The phases refuse to run when a harness is on `PATH`; set `E2E_PATH` to a `PATH` without one (`E2E_PATH=... node ...` in `sh`, `$Env:E2E_PATH = ...` in PowerShell). A Board already on port 7777 makes `hand open` fail, so set `E2E_BOARD_ADDR=127.0.0.1:17777`. A `tailscale` on `PATH` that serves the Board changes the link `hand open --print` prints, so leave it off `E2E_PATH` too.
 
+## What CI checks on the Board's layout
+
+[`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 18 pages (twelve fleet pages from an empty fleet to a busy one with decisions and documents, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task and an attempt), served from fleets in temporary folders with a frozen clock, a fixed fleet id and a fixed home path under the system temporary folder, so run one check at a time on a machine. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
+
+For each of the 104 states it fails when there is:
+- horizontal overflow of the page;
+- a menu or dialog that leaves the viewport;
+- a button, summary, select or input under 44 px high on a touch viewport;
+- text under a contrast ratio of 4.5;
+- a CSP violation, a console error, a page error or an HTTP status of 400 or more.
+
+A second step runs the check with `RENDER_BREAK=1`, which forces the page wider than the viewport, and fails unless the check ends with its assertion exit status 3. The images are the `render-<os>` artifact, kept 14 days.
+
+On a pull request the Linux job also builds the base commit with the head's scenes, renders it without asserting, and `.github/render/diff.mjs` compares the two sets of pictures in a browser canvas. The artifact `render-before-and-diff` holds the base pictures and a red-marked diff image for each state where more than 0.1 % of the pixels moved, and the job summary lists them. The diff is Linux only and never gates: fonts and the browser build differ per OS.
+
+To run it on your machine, install Playwright (`npm install playwright@1.63.0`, then `npx playwright install chromium`) and run from the repository root with Go on `PATH`:
+
+```sh
+RENDER_PLAYWRIGHT=/path/to/node_modules/playwright RENDER_OUT=/tmp/hand-render node .github/render/check.mjs
+```
+
+`RENDER_ONLY=busy,menu` limits the scenes, `RENDER_ASSERT=0` prints problems without failing, and `RENDER_REPO` renders another checkout. A new scene is a fleet in `scenes()` and a row in the list at the top of `check.mjs`.
+
 ## If a command in the guide is wrong
 
 Commands that nobody could run on that OS are marked `unverified`. If a command fails for a reason that is not Hand, file it as a failed check with the title `<ID>: guide command fails`.

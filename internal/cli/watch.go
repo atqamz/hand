@@ -55,21 +55,21 @@ type watcher struct {
 	snapped string
 	pruned  string
 
-	rest             rest
-	policyWarned     bool
-	inboxWarned      bool
-	modelsBusy       atomic.Bool
-	opencodeBusy     atomic.Bool
-	transcripts      *transcript.Reader
-	opencodeSessions map[int64]string
-	opencodeRead     map[string]bool
-	opencodeSup      string
-	busy             map[string]bool
-	heldAt           map[int64]time.Time
-	busyNow          chan busyList
-	busyMisses       int
-	modelsSaid       map[string]string
-	saying           sync.Mutex
+	rest          rest
+	policyWarned  bool
+	inboxWarned   bool
+	modelsBusy    atomic.Bool
+	sweepBusy     atomic.Bool
+	transcripts   *transcript.Reader
+	sources       map[string]modelSource
+	modelSessions map[int64]modelSession
+	supModel      modelSession
+	busy          map[string]bool
+	heldAt        map[int64]time.Time
+	busyNow       chan busyList
+	busyMisses    int
+	modelsSaid    map[string]string
+	saying        sync.Mutex
 }
 
 type turn struct {
@@ -137,7 +137,7 @@ func cmdWatch(r *runner, args []string) error {
 		w.snapshot(ctx)
 		w.pruneInbox(ctx)
 		w.refreshModels(ctx)
-		w.opencodeModels(ctx)
+		w.sweepModels(ctx)
 		select {
 		case <-ctx.Done():
 		case <-time.After(reconnectDelay):
@@ -205,7 +205,7 @@ func (w *watcher) session(ctx context.Context) error {
 		return err
 	}
 	w.refreshModels(ctx)
-	w.opencodeModels(ctx)
+	w.sweepModels(ctx)
 	tick := time.NewTicker(w.every)
 	defer tick.Stop()
 	for {
@@ -234,7 +234,7 @@ func (w *watcher) session(ctx context.Context) error {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
 				w.refreshModels(ctx)
-				w.opencodeModels(ctx)
+				w.sweepModels(ctx)
 			}
 		case ev := <-events:
 			err = w.handle(sctx, c, caps, ev)
@@ -648,6 +648,13 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		detail := ""
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
 			detail = ag.Hint
+		}
+		if a.Harness == "codex" {
+			if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
+				if q, ok := harness.Question(a.Harness, s.Text); ok {
+					detail = q
+				}
+			}
 		}
 		err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail)
 		if errors.Is(err, state.ErrConflict) {
