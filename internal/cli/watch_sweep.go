@@ -13,7 +13,7 @@ import (
 
 type modelSource interface {
 	attemptSession(ctx context.Context, a state.Attempt) string
-	labels(ctx context.Context) func(session string) (string, string)
+	labels(ctx context.Context) func(session string, since time.Time) (string, string)
 	forget(session string)
 }
 
@@ -35,19 +35,20 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				"codex":    &codexSource{w: w},
 			}
 		}
-		labels := map[string]func(string) (string, string){}
-		labelOf := func(harness, session string) (string, string) {
+		labels := map[string]func(string, time.Time) (string, string){}
+		labelOf := func(harness, session string, since time.Time) (string, string) {
 			f := labels[harness]
 			if f == nil {
 				f = w.sources[harness].labels(ctx)
 				labels[harness] = f
 			}
-			return f(session)
+			return f(session, since)
 		}
 		var sup modelSession
 		if s, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && w.sources[s.Harness] != nil && s.Session != "" {
 			sup = modelSession{s.Harness, s.Session}
-			model, effort := labelOf(s.Harness, s.Session)
+			since, _ := time.Parse(time.RFC3339Nano, s.CreatedAt)
+			model, effort := labelOf(s.Harness, s.Session, since)
 			if model != "" && ctx.Err() == nil {
 				_ = w.st.SetSupervisorModel(ctx, s.ID, model, effort)
 			}
@@ -74,7 +75,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				continue
 			}
 			w.modelSessions[a.ID] = modelSession{a.Harness, id}
-			if model, effort := labelOf(a.Harness, id); model != "" && ctx.Err() == nil {
+			if model, effort := labelOf(a.Harness, id, time.Time{}); model != "" && ctx.Err() == nil {
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
 		}
@@ -102,12 +103,15 @@ func (c *codexSource) attemptSession(_ context.Context, a state.Attempt) string 
 	return id
 }
 
-func (c *codexSource) labels(ctx context.Context) func(string) (string, string) {
-	return func(session string) (string, string) {
+func (c *codexSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
+	return func(session string, since time.Time) (string, string) {
 		if _, err := c.w.transcripts.Read(ctx, "codex", session, c.w.r.home); err != nil {
 			return "", ""
 		}
 		s := c.w.transcripts.Status("codex", session)
+		if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err == nil && at.Before(since) {
+			return "", ""
+		}
 		return s.Model, s.Effort
 	}
 }
