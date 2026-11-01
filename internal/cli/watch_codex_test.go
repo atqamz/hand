@@ -160,4 +160,9 @@ func TestWatcherCopiesTheCodexModelAndEffortAndFollowsASwitch(t *testing.T) {
 	if got := models(); got[0] != "gpt-5.3" || got[1] != "high" {
 		t.Fatalf("a turn newer than the row models = %q", got)
 	}
+	write(supervisor, meta("codex-sup", "/fleet")+turn("gpt-5.5", "high")+turn("gpt-5.4", "medium")+turnAt("2026-10-29T09:12:00Z", "gpt-5.3", quoted("high"))+turnAt("", "gpt-5.1", quoted("low")))
+	sweep()
+	if got := models(); got[0] != "gpt-5.3" || got[1] != "high" {
+		t.Fatalf("a turn without a timestamp models = %q", got)
+	}
 }

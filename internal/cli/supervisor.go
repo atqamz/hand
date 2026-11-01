@@ -463,7 +463,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			warn, _ = harness.Check(spec, harness.EnvOf(r.env.Getenv))
 		}
 		r.warn(warn)
-		if spec.Model == sup.Model && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
+		if harness.Resolves(spec.Model, sup.Model) && (spec.Effort == sup.Effort || spec.Effort == "default" && sup.Effort == "") {
 			return fmt.Errorf("%w: supervisor %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(sup.Model+" "+sup.Effort), " "))
 		}
 		if err := r.findSession(ctx, st, &sup); err != nil {

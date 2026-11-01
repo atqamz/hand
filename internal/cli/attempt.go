@@ -477,8 +477,10 @@ func markerInInputBox(screen, marker string) bool {
 	return strings.Contains(strings.Join(inputBox(screen), "\n"), marker)
 }
 
-func argvSession(argv []string) string {
-	if i := slices.Index(argv, "--session"); i >= 0 && i+1 < len(argv) {
+func argvSession(argv []string) string { return argvValue(argv, "--session") }
+
+func argvValue(argv []string, flag string) string {
+	if i := slices.Index(argv, flag); i >= 0 && i+1 < len(argv) {
 		return argv[i+1]
 	}
 	return ""
