@@ -301,3 +301,55 @@ func TestAnAPIErrorKeepsTheLastContext(t *testing.T) {
 		t.Fatalf("status after an API error = %+v", got)
 	}
 }
+
+func TestCodexStatusFollowsTheNewestTurnContext(t *testing.T) {
+	home := t.TempDir()
+	turn := func(model, effort string) string {
+		return `{"timestamp":"2026-09-28T01:00:02Z","type":"turn_context","payload":{"model":"` + model + `","effort":"` + effort + `"}}` + "\n"
+	}
+	path := rollout(t, home, "rollout-2026-09-28T01-00-00-codex-1.jsonl", meta("codex-1")+turn("gpt-5.5", "high"))
+	r := &Reader{Paths: Paths{Codex: home}}
+	ctx := context.Background()
+	if _, err := r.Read(ctx, "codex", "codex-1", "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.Status("codex", "codex-1"); s.Model != "gpt-5.5" || s.Effort != "high" {
+		t.Fatalf("first turn = %+v", s)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(turn("gpt-5.4-mini", "low")); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := r.Read(ctx, "codex", "codex-1", "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.Status("codex", "codex-1"); s.Model != "gpt-5.4-mini" || s.Effort != "low" {
+		t.Fatalf("after a switch = %+v", s)
+	}
+}
+
+func TestCodexStatusKeepsTheEffortOfAnUnchangedModel(t *testing.T) {
+	home := t.TempDir()
+	turn := func(model, effort string) string {
+		return `{"timestamp":"2026-09-28T01:00:02Z","type":"turn_context","payload":{"model":"` + model + `","effort":` + effort + `}}` + "\n"
+	}
+	rollout(t, home, "rollout-2026-09-28T01-00-00-codex-1.jsonl", meta("codex-1")+turn("gpt-5.5", `"high"`)+turn("gpt-5.5", `null`)+turn("gpt-5.5", `{"x":1}`))
+	r := &Reader{Paths: Paths{Codex: home}}
+	if _, err := r.Read(context.Background(), "codex", "codex-1", "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.Status("codex", "codex-1"); s.Model != "gpt-5.5" || s.Effort != "high" || s.ModelAt != "2026-09-28T01:00:02Z" {
+		t.Fatalf("status = %+v", s)
+	}
+	rollout(t, home, "rollout-2026-09-28T01-00-00-codex-2.jsonl", meta("codex-2")+turn("gpt-5.5", `"high"`)+turn("gpt-5.4", `null`))
+	if _, err := r.Read(context.Background(), "codex", "codex-2", "/f"); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.Status("codex", "codex-2"); s.Model != "gpt-5.4" || s.Effort != "" {
+		t.Fatalf("after a model change status = %+v", s)
+	}
+}

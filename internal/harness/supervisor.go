@@ -320,6 +320,16 @@ type opencodeModel struct {
 	Variant  string `json:"variant,omitempty"`
 }
 
+func opencodeFailure(out []byte, err error) string {
+	var reply struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(out, &reply) == nil && reply.Message != "" {
+		err = fmt.Errorf("%w: %s", err, reply.Message)
+	}
+	return strings.Join(strings.Fields(err.Error()), " ")
+}
+
 func OpencodeCreate(ctx context.Context, bin, dir, id string, s Spec) error {
 	provider, model, _ := strings.Cut(s.Model, "/")
 	var body struct {
@@ -336,13 +346,7 @@ func OpencodeCreate(ctx context.Context, bin, dir, id string, s Spec) error {
 	}
 	out, err := Opencode(ctx, bin, dir, "api", "--standalone", "session.create", "-d", string(b))
 	if err != nil {
-		var reply struct {
-			Message string `json:"message"`
-		}
-		if json.Unmarshal(out, &reply) == nil && reply.Message != "" {
-			err = fmt.Errorf("%w: %s", err, reply.Message)
-		}
-		return fmt.Errorf("creating opencode session %s on %s: %s", id, s.Model, strings.Join(strings.Fields(err.Error()), " "))
+		return fmt.Errorf("creating opencode session %s on %s: %s", id, s.Model, opencodeFailure(out, err))
 	}
 	var reply struct {
 		Data struct {
@@ -356,6 +360,44 @@ func OpencodeCreate(ctx context.Context, bin, dir, id string, s Spec) error {
 		return fmt.Errorf("creating opencode session %s on %s: opencode answered with session %q", id, s.Model, reply.Data.ID)
 	}
 	return nil
+}
+
+func OpencodeSwitch(ctx context.Context, bin, dir, session string, s Spec) error {
+	provider, model, _ := strings.Cut(s.Model, "/")
+	b, err := json.Marshal(struct {
+		Model opencodeModel `json:"model"`
+	}{opencodeModel{provider, model, s.Effort}})
+	if err != nil {
+		return err
+	}
+	out, err := Opencode(ctx, bin, dir, "api", "--standalone", "session.switchModel", "--param", "sessionID="+session, "-d", string(b))
+	if err != nil {
+		return fmt.Errorf("switching opencode session %s to %s: %s", session, s.Model, opencodeFailure(out, err))
+	}
+	if answer := strings.Join(strings.Fields(string(out)), " "); answer != "" {
+		return fmt.Errorf("switching opencode session %s to %s: opencode answered %q, not an empty reply", session, s.Model, answer)
+	}
+	return nil
+}
+
+func OpencodeSessionModel(ctx context.Context, bin, dir, session string) (Spec, error) {
+	out, err := Opencode(ctx, bin, dir, "api", "--standalone", "session.get", "--param", "sessionID="+session)
+	if err != nil {
+		return Spec{}, err
+	}
+	var reply struct {
+		Data struct {
+			Model *opencodeModel `json:"model"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &reply); err != nil {
+		return Spec{}, err
+	}
+	if reply.Data.Model == nil || reply.Data.Model.ID == "" {
+		return Spec{}, nil
+	}
+	m := reply.Data.Model
+	return Spec{Harness: "opencode", Model: m.Provider + "/" + m.ID, Effort: m.Variant}, nil
 }
 
 func OpencodeCreateFor(ctx context.Context, argv []string, dir string, s Spec) error {

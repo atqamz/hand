@@ -22,6 +22,7 @@ type Status struct {
 	Compactions     int
 	Selected, Used  string
 	Model, Effort   string
+	ModelAt         string
 }
 
 type Entry struct {

@@ -245,6 +245,8 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/interrupt", nil, []string{"supervisor", "interrupt"}, "/"},
 		{"/supervisor/switch", url.Values{"harness": {"codex"}, "model": {"gpt-6-luna"}, "effort": {"low"}}, []string{"supervisor", "switch", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low"}, "/"},
 		{"/supervisor/switch", url.Values{"harness": {"opencode"}}, []string{"supervisor", "switch", "--harness", "opencode"}, "/"},
+		{"/supervisor/switch", url.Values{"harness": {"opencode"}, "model": {"local/m1"}, "other": {"local/m2"}, "effort": {"deep"}}, []string{"supervisor", "switch", "--harness", "opencode", "--model", "local/m2", "--effort", "deep"}, "/"},
+		{"/supervisor/switch", url.Values{"model": {"local/m2"}, "effort": {"deep"}}, []string{"supervisor", "switch", "--model", "local/m2", "--effort", "deep"}, "/"},
 		{"/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"2"}}, []string{"attempt", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "a1", "2"}, "/"},
 		{"/supervisor/force", nil, []string{"supervisor", "force"}, "/"},
 		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
@@ -429,8 +431,7 @@ func TestTheSwitchControlOffersOnlyTheRunningHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	ocPage := get(t, oc.handler(), "/")
-	contains(t, "opencode", ocPage, `id="model-menu"`, "Switch to claude", "Switch to codex")
-	lacks(t, "opencode", ocPage, "Switch now", "Switch after this turn")
+	contains(t, "opencode", ocPage, `id="model-menu"`, "Switch to claude", "Switch to codex", "Switch now")
 	pending := fixture(t, "working")
 	pending.supervisor(t, state.AttemptRunning, "gen-1")
 	if _, err := pending.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
@@ -498,11 +499,15 @@ func TestKeysAndLifecycleShowInChat(t *testing.T) {
 	if err := fx.st.NoteSupervisor(ctx, 1, "keys", "2"); err != nil {
 		t.Fatal(err)
 	}
+	held := "opencode did not take the resume note: is local/m1 available? Switch back with `hand supervisor switch --model local/m3`"
+	if err := fx.st.NoteSupervisor(ctx, 1, "blocked", held); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptStopped, "stopped by operator"); err != nil {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/supervisor/log")
-	contains(t, "log", body, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped by operator")
+	contains(t, "log", body, `title="s1 blocked: `+held, "s1 started · claude sonnet low", "You pressed 2 on s1&#39;s screen", "s1 stopped by operator")
 	if !(strings.Index(body, "s1 stopped") < strings.Index(body, "You pressed 2") && strings.Index(body, "You pressed 2") < strings.Index(body, "s1 started")) {
 		t.Fatalf("lifecycle lines out of order (newest first):\n%s", body)
 	}

@@ -130,7 +130,7 @@
 	const dayName = (d) => d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
 
 	const days = () => {
-		const tl = regions.get("timeline");
+		const tl = document.querySelector("section.timeline");
 		if (!tl) return;
 		for (const p of tl.querySelectorAll(":scope > .day")) p.remove();
 		const items = [...tl.children].filter((c) => c.matches(".card, .hand-line"));
@@ -729,7 +729,7 @@
 			else if (regions.size === 0) location.reload();
 			const receipt = header(res, "X-Hand-Receipt");
 			const warn = header(res, "X-Hand-Warn");
-			if (warn) show(receipt ? `${receipt} ${warn}` : warn, 12000, "warn");
+			if (warn) show(receipt ? `${receipt}; ${warn}` : warn, 12000, "warn");
 			else if (receipt) show(receipt, 4000, "receipt");
 			else show("", 0);
 			return;

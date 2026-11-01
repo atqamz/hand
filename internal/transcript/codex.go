@@ -78,8 +78,10 @@ func (s *session) codexLine(line []byte) {
 		Type      string `json:"type"`
 		Timestamp string `json:"timestamp"`
 		Payload   struct {
-			Type    string `json:"type"`
-			Role    string `json:"role"`
+			Type    string          `json:"type"`
+			Role    string          `json:"role"`
+			Model   json.RawMessage `json:"model"`
+			Effort  json.RawMessage `json:"effort"`
 			Content []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -113,6 +115,12 @@ func (s *session) codexLine(line []byte) {
 				}
 			}
 		}
+	case rec.Type == "turn_context" && jsonString(p.Model) != "":
+		model, effort := jsonString(p.Model), jsonString(p.Effort)
+		if model != s.status.Model || effort != "" {
+			s.status.Effort = effort
+		}
+		s.status.Model, s.status.ModelAt = model, rec.Timestamp
 	case rec.Type == "compacted":
 		s.status.Compactions++
 	case rec.Type == "event_msg" && p.Type == "token_count" && p.Info != nil:
@@ -126,4 +134,10 @@ func (s *session) codexLine(line []byte) {
 		}
 		s.turn, s.shown = nil, false
 	}
+}
+
+func jsonString(raw json.RawMessage) string {
+	var v string
+	_ = json.Unmarshal(raw, &v)
+	return v
 }
