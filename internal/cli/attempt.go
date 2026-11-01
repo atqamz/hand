@@ -913,6 +913,11 @@ func cmdAttemptShow(r *runner, args []string) error {
 		d.Field("attempt", ref)
 		d.Field("task", state.TaskRef(a.TaskID))
 		d.Field("harness", strings.Join(slices.DeleteFunc([]string{a.Harness, a.Model, a.Effort}, func(v string) bool { return v == "" }), " "))
+		if note, err := st.ModelNote(ctx, ref, a.Model, a.Effort); err != nil {
+			return err
+		} else if note != "" {
+			d.Field("model_note", note)
+		}
 		d.Field("status", a.Status)
 		if a.Reason != "" {
 			d.Field("reason", a.Reason)

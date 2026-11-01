@@ -753,6 +753,11 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			d.Field("resumes", state.SupervisorRef(origin))
 		}
 		d.Field("harness", strings.Join(slices.DeleteFunc([]string{sup.Harness, sup.Model, sup.Effort}, func(v string) bool { return v == "" }), " "))
+		if note, err := st.ModelNote(ctx, state.SupervisorRef(sup.ID), sup.Model, sup.Effort); err != nil {
+			return err
+		} else if note != "" {
+			d.Field("model_note", note)
+		}
 		d.Field("status", sup.Status)
 		if sup.Reason != "" {
 			d.Field("reason", sup.Reason)

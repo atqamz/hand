@@ -144,6 +144,11 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 			data["Current"] = b.picker(sup.Harness)
 			data["OtherHarnesses"] = b.choices(sup.Harness)
+			note, err := b.st.ModelNote(ctx, state.SupervisorRef(sup.ID), sup.Model, sup.Effort)
+			if err != nil {
+				return err
+			}
+			data["ModelNote"] = note
 		}
 	}
 	if data["Pick"] == true {
