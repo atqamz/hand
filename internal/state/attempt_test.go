@@ -259,6 +259,15 @@ func TestSetAttemptModelRecordsOnlyChanges(t *testing.T) {
 	if got.Model != "anthropic/claude-sonnet-5-5" || got.Effort != "high" || changed != 2 {
 		t.Fatalf("attempt = %+v, changes = %d", got, changed)
 	}
+	if _, err := s.EndAttempt(ctx, a.ID, AttemptFailed, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAttemptModel(ctx, a.ID, "late", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Attempt(ctx, a.ID); got.Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("ended attempt model = %q", got.Model)
+	}
 }
 
 func TestAttemptSwitchedRepointsTheTerminalOfARunningAttemptOnly(t *testing.T) {

@@ -10,11 +10,17 @@ import (
 )
 
 func TestArgvRefusesACommandLineWindowsCannotStart(t *testing.T) {
-	spec, dir := Spec{"codex", "gpt-6-luna", "low"}, t.TempDir()
-	bin := `C:\Users\dev\codex.exe`
+	dir := t.TempDir()
 	for name, build := range map[string]func(prompt string) ([]string, error){
-		"worker":     func(p string) ([]string, error) { return Argv(bin, spec, p, dir) },
-		"supervisor": func(p string) ([]string, error) { return SupervisorArgv(bin, spec, "", p, dir, false) },
+		"codex worker": func(p string) ([]string, error) {
+			return Argv(`C:\Users\dev\codex.exe`, Spec{"codex", "gpt-6-luna", "low"}, p, dir)
+		},
+		"codex supervisor": func(p string) ([]string, error) {
+			return SupervisorArgv(`C:\Users\dev\codex.exe`, Spec{"codex", "gpt-6-luna", "low"}, "", p, dir, false)
+		},
+		"claude worker": func(p string) ([]string, error) {
+			return Argv(`C:\Users\dev\claude.exe`, Spec{"claude", "sonnet", "low"}, p, dir)
+		},
 	} {
 		if _, err := build(strings.Repeat(`"`, 1000)); err != nil {
 			t.Fatalf("%s: a prompt of 1000 quotes: %v", name, err)

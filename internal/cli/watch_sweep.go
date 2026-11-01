@@ -32,7 +32,9 @@ func (w *watcher) sweepModels(ctx context.Context) {
 			w.modelSessions = map[int64]modelSession{}
 			w.sources = map[string]modelSource{
 				"opencode": &opencodeSource{w: w, read: map[string]bool{}},
-				"codex":    &codexSource{w: w},
+				"codex":    &codexSource{transcriptSource{w, "codex"}},
+				"claude":   &claudeSource{transcriptSource{w, "claude"}},
+				"copilot":  &copilotSource{transcriptSource{w, "copilot"}},
 			}
 		}
 		labels := map[string]func(string, time.Time) (string, string){}
@@ -50,6 +52,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 			since, _ := time.Parse(time.RFC3339Nano, s.CreatedAt)
 			model, effort := labelOf(s.Harness, s.Session, since)
 			if model != "" && ctx.Err() == nil {
+				model, effort = settle(s.Harness, s.Model, s.Effort, model, effort)
 				_ = w.st.SetSupervisorModel(ctx, s.ID, model, effort)
 			}
 		}
@@ -76,6 +79,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 			}
 			w.modelSessions[a.ID] = modelSession{a.Harness, id}
 			if model, effort := labelOf(a.Harness, id, time.Time{}); model != "" && ctx.Err() == nil {
+				model, effort = settle(a.Harness, a.Model, a.Effort, model, effort)
 				_ = w.st.SetAttemptModel(ctx, a.ID, model, effort)
 			}
 		}
@@ -88,7 +92,54 @@ func (w *watcher) sweepModels(ctx context.Context) {
 	}()
 }
 
-type codexSource struct{ w *watcher }
+func settle(name, storedModel, storedEffort, model, effort string) (string, string) {
+	if name == "claude" && harness.Resolves(storedModel, model) {
+		model = storedModel
+	}
+	if effort == "" && (name == "claude" || name == "copilot") {
+		effort = storedEffort
+	}
+	return model, effort
+}
+
+type transcriptSource struct {
+	w       *watcher
+	harness string
+}
+
+func (t transcriptSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
+	return func(session string, since time.Time) (string, string) {
+		if err := t.w.transcripts.Refresh(ctx, t.harness, session, t.w.r.home); err != nil {
+			return "", ""
+		}
+		s := t.w.transcripts.Status(t.harness, session)
+		if !harness.ValidServed(s.Model, s.Effort) {
+			return "", ""
+		}
+		if !since.IsZero() {
+			if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err != nil || at.Before(since) {
+				return "", ""
+			}
+		}
+		return s.Model, s.Effort
+	}
+}
+
+func (t transcriptSource) forget(session string) { t.w.transcripts.Forget(t.harness, session) }
+
+type claudeSource struct{ transcriptSource }
+
+func (claudeSource) attemptSession(_ context.Context, a state.Attempt) string {
+	return argvValue(a.Argv, "--session-id")
+}
+
+type copilotSource struct{ transcriptSource }
+
+func (copilotSource) attemptSession(_ context.Context, a state.Attempt) string {
+	return argvValue(a.Argv, "--session-id")
+}
+
+type codexSource struct{ transcriptSource }
 
 func (c *codexSource) attemptSession(_ context.Context, a state.Attempt) string {
 	created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
@@ -102,18 +153,3 @@ func (c *codexSource) attemptSession(_ context.Context, a state.Attempt) string 
 	id, _ := harness.CodexSession(harness.CodexHome(c.w.r.env.Getenv), dir, created.Truncate(time.Second), a.Argv[len(a.Argv)-1])
 	return id
 }
-
-func (c *codexSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
-	return func(session string, since time.Time) (string, string) {
-		if _, err := c.w.transcripts.Read(ctx, "codex", session, c.w.r.home); err != nil {
-			return "", ""
-		}
-		s := c.w.transcripts.Status("codex", session)
-		if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err == nil && at.Before(since) {
-			return "", ""
-		}
-		return s.Model, s.Effort
-	}
-}
-
-func (c *codexSource) forget(session string) { c.w.transcripts.Forget("codex", session) }

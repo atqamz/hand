@@ -223,7 +223,7 @@ func TestCodexHome(t *testing.T) {
 
 func TestArgvIsExact(t *testing.T) {
 	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "")
-	if err != nil || !slices.Equal(c, []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	if err != nil || len(c) != 9 || !uuidPattern.MatchString(c[3]) || !slices.Equal(slices.Concat(c[:3], c[4:]), []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
 	for _, dir := range spacedDirs(t) {
@@ -297,5 +297,60 @@ func TestAgyArgvIsExact(t *testing.T) {
 	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
+	}
+}
+
+func TestResolvesAnAliasToItsServedId(t *testing.T) {
+	for _, c := range []struct {
+		requested, served string
+		want              bool
+	}{
+		{"sonnet", "claude-sonnet-5-5", true},
+		{"sonnet[1m]", "claude-sonnet-5-5", true},
+		{"haiku", "claude-haiku-4-5-20251001", true},
+		{"claude-sonnet-5-5", "claude-sonnet-5-5", true},
+		{"claude-sonnet-5-5[1m]", "claude-sonnet-5-5", true},
+		{"opus", "claude-sonnet-5-5", false},
+		{"claude-opus-5-5", "claude-sonnet-5-5", false},
+		{"default", "claude-sonnet-5-5", false},
+		{"opus", "claude-opusx-5-5", false},
+		{"", "claude-sonnet-5-5", false},
+		{"opusplan", "claude-opus-5-5", true},
+		{"opusplan", "claude-sonnet-5-5", true},
+		{"opusplan", "claude-haiku-4-5-20251001", false},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929", true},
+		{"claude-sonnet-4-5", "claude-sonnet-4-5-1", false},
+		{"claude-sonnet-4", "claude-sonnet-4-5-20250929", false},
+		{"haiku", "claude-3-5-haiku-20241022", true},
+		{"sonnet", "claude-3-7-sonnet-20250219", true},
+		{"opus", "claude-3-opus-20240229", true},
+		{"opus", "claude-3-5-haiku-20241022", false},
+		{"opus", "claude-opus-5-5[1m]", false},
+		{"opus[1m]", "claude-opus-5-5[1m]", true},
+		{"claude-opus-5-5", "claude-opus-5-5[1m]", false},
+	} {
+		if got := Resolves(c.requested, c.served); got != c.want {
+			t.Errorf("Resolves(%q, %q) = %v, want %v", c.requested, c.served, got, c.want)
+		}
+	}
+}
+
+func TestValidServedRefusesWhatCheckRefuses(t *testing.T) {
+	for _, c := range []struct {
+		model, effort string
+		want          bool
+	}{
+		{"claude-sonnet-5-5", "high", true},
+		{"claude-opus-5-5[1m]", "", true},
+		{"GLM 4.6", "", false},
+		{"claude-sonnet-4-5 (via proxy)", "", false},
+		{"-claude", "", false},
+		{"", "", false},
+		{"claude-sonnet-5-5", "High", false},
+		{"claude-sonnet-5-5", "a b", false},
+	} {
+		if got := ValidServed(c.model, c.effort); got != c.want {
+			t.Errorf("ValidServed(%q, %q) = %v, want %v", c.model, c.effort, got, c.want)
+		}
 	}
 }
