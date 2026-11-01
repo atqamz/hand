@@ -87,10 +87,8 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if prev.Model == *model && sameVariant(prev.Effort, *effort) {
 			return fmt.Errorf("%w: attempt %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(prev.Model+" "+prev.Effort), " "))
 		}
-		if prev.Model != *model {
-			if err := r.opencodeListed(*model); err != nil {
-				return err
-			}
+		if err := r.opencodeListed(*model); err != nil {
+			return err
 		}
 		argv, err := harness.SupervisorArgv(bin, to, session, "", a.Worktree, true)
 		if err != nil {
@@ -101,7 +99,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if _, err := stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
 			return err
 		}
-		r.warn("the worker's background shells and dev servers ended with its pane, and text it had typed but not sent is gone")
+		r.warn("the worker's background shells and dev servers in its pane's process group ended with it; a process that left that group keeps running, and text it had typed but not sent is gone")
 		pane := func(text string) (state.Attempt, error) {
 			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, argv)
 			if err != nil {

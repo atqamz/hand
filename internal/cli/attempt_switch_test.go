@@ -222,3 +222,14 @@ func TestAttemptSwitchSaysWhenTheOldModelCannotBePutBack(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
+
+func TestAttemptSwitchRefusesAnUnlistedModelEvenForAVariantOnly(t *testing.T) {
+	fx, o, _ := runningWorker(t, map[string]string{"models": "local/m2\n"})
+	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m1", "--effort", "deep")
+	if code != 2 || !strings.Contains(errOut, "opencode model local/m1 is not in `opencode models`") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := afterStart(o, 2); len(got) != 0 {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
