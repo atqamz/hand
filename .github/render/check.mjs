@@ -90,8 +90,19 @@ function measure() {
     .map((e) => ({ what: String(e.className || e.tagName).slice(0, 24), r: e.getBoundingClientRect() }))
     .filter(({ r }) => r.left < -0.5 || r.top < -0.5 || r.right > innerWidth + 0.5 || r.bottom > innerHeight + 0.5)
     .map(({ what, r }) => ({ what, box: [r.left, r.top, r.right, r.bottom].map(Math.round) }));
+  const items = [...document.querySelectorAll('.timeline > .card, .timeline > .hand-line')];
+  const when = (e) => new Date((e.matches('.wakes') ? e.querySelector('summary time:last-of-type') : e.querySelector('time[datetime]'))?.dateTime);
+  const zone = [];
+  items.forEach((e, i) => {
+    const gap = e.nextElementSibling?.matches('.day') ? e.nextElementSibling : null;
+    const split = i + 1 < items.length && when(e).toDateString() !== when(items[i + 1]).toDateString();
+    if (!!gap !== split) zone.push(`${split ? 'no divider' : `divider ${JSON.stringify(gap.textContent.trim())}`} between two cards of ${split ? 'different' : 'the same'} local days at ${when(e).toString().slice(0, 21)}`);
+    else if (gap && !new RegExp(`\\b${when(e).getDate()}\\b`).test(gap.textContent)) zone.push(`divider ${JSON.stringify(gap.textContent.trim())} is not the local day ${when(e).getDate()} of the card above`);
+  });
   return {
     overflow: document.documentElement.scrollWidth - innerWidth,
+    dividers: document.querySelectorAll('.timeline > .day').length,
+    zone,
     outside,
     small,
     low: low.slice(0, 5),
@@ -212,6 +223,8 @@ function problem(r) {
   if (r.overflow > 0) found.push(`horizontal overflow of ${r.overflow} px`);
   for (const o of r.outside) found.push(`${o.what} leaves the viewport: ${o.box}`);
   if (r.small.length) found.push(`${r.small.length} tap targets under 44 px, first ${JSON.stringify(r.small.slice(0, 3))}`);
+  if (r.file.startsWith('log-') && !r.dividers) found.push('no day dividers');
+  for (const z of r.zone) found.push(`day dividers and card times differ in zone: ${z}`);
   if (r.lowCount) found.push(`${r.lowCount} texts under contrast 4.5, first ${JSON.stringify(r.low.slice(0, 3))}`);
   for (const c of r.csp) found.push(`CSP violation: ${c}`);
   for (const e of r.errors) found.push(`console error: ${e}`);
