@@ -52,3 +52,9 @@ What the supervisor does, following the `secondhand` skill:
 7. Verify the acceptance check, then `hand attempt stop aN` if the worker still runs, `hand attempt clean aN` and `hand task done tN`.
 
 Routing profiles live in `<home>/routing.json`, and `hand route list` shows them. The starter has `quick`, `default`, `high`, `deep` and `max`: `claude` `sonnet` at rising effort.
+
+A profile for `opencode` names the model as `provider/id` and the effort as opencode's own variant of that model. Variant names such as `fast`, `thinking` or `none` are not effort levels, and `hand models opencode` lists each model's variants. Leave the model and effort out to start opencode on its own configuration:
+
+```json
+{"profiles": {"local": {"harness": "opencode", "model": "local/m2", "effort": "deep"}}}
+```
