@@ -7,7 +7,8 @@
 <hr class="rule">
 <div class="task-grid">
 <div class="task-main">
-<h3>Reports</h3>
+{{with .ModelNote}}<p class="warn">{{.}}</p>
+{{end}}<h3>Reports</h3>
 {{range .Reports}}{{template "report-card" (rep $ .)}}
 {{else}}<p class="quiet">No reports yet.</p>
 {{end}}{{if .MoreReports}}<p class="more">Older reports are not shown; run <code>hand report list --attempt {{attempt .Attempt.ID}} --limit 500</code>.</p>

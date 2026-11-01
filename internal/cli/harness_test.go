@@ -79,6 +79,8 @@ func ocapiMain(args []string) int {
 		if b, err := os.ReadFile(p["more"]); err == nil {
 			fmt.Print(string(b))
 		}
+	case len(args) > 3 && args[0] == "api" && args[3] == "/api/model":
+		fmt.Print(p["modelapi"])
 	case len(args) > 4 && args[0] == "api" && args[2] == "session.create":
 		fakebin.Append(p["log"], "create "+args[4])
 		if p["die"] != "" {

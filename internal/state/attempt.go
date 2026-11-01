@@ -212,7 +212,13 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 		if err := cancelWaits(tx, a.TaskID, a.CreatedAt); err != nil {
 			return err
 		}
-		return emit(tx, a.CreatedAt, "attempt."+AttemptLaunching, a.TaskID, AttemptRef(a.ID))
+		if err := emit(tx, a.CreatedAt, "attempt."+AttemptLaunching, a.TaskID, AttemptRef(a.ID)); err != nil {
+			return err
+		}
+		if a.Harness == "opencode" && a.Model != "" {
+			return emit(tx, a.CreatedAt, "model.requested", a.TaskID, AttemptRef(a.ID)+": "+askedModel(a.Model, a.Effort))
+		}
+		return nil
 	})
 	return a, err
 }

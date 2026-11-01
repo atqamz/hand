@@ -90,8 +90,13 @@ func (b *Board) attempt(w http.ResponseWriter, r *http.Request) {
 	} else {
 		launch = strings.Join(a.Argv, " ")
 	}
+	note, err := b.st.ModelNote(ctx, state.AttemptRef(id), a.Model, a.Effort)
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
 	b.render(w, http.StatusOK, "attempt.html", map[string]any{
-		"Title": state.AttemptRef(id), "Page": "attempt", "Fleets": b.fleets(ctx), "Attempt": a, "Task": t, "Token": b.csrf(ctx), "State": attemptState(a, done),
+		"Title": state.AttemptRef(id), "Page": "attempt", "Fleets": b.fleets(ctx), "Attempt": a, "ModelNote": note, "Task": t, "Token": b.csrf(ctx), "State": attemptState(a, done),
 		"Brief": brief, "Launch": launch, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
 		"Delivered": b.linked(Newest(reports, nil)), "Duration": elapsed(end.Sub(parse(a.CreatedAt))),
 		"Transcript": b.workerTurns(ctx, a), "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx),

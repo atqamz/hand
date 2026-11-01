@@ -22,6 +22,9 @@ func TestMain(m *testing.M) {
 		if len(args) > 0 && args[0] == "models" {
 			fmt.Print(fakebin.Params()["models"])
 		}
+		if len(args) > 0 && args[0] == "api" {
+			fmt.Print(fakebin.Params()["api"])
+		}
 		return 0
 	}, "printer": func(args []string) int {
 		if len(args) == 0 || args[0] != "--version" {
@@ -666,4 +669,21 @@ func TestTheBoardNeverRunsAHarness(t *testing.T) {
 	}
 	contains(t, "claude without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`)
 	lacks(t, "agy without a cache", region(get(t, none.handler(), "/"), "console"), `<option value="gemini-3.8-flash-low"`)
+}
+
+func TestModelMenuWarnsWhenOpencodeRunsADifferentModelThanAskedFor(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Model: "p/m", Argv: []string{"/bin/opencode", "x"}, Session: "ses_x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "before the read-back", region(get(t, fx.handler(), "/"), "console"), "Asked for")
+	if err := fx.st.SetSupervisorModel(ctx, sup.ID, "q/n", ""); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "menu", region(get(t, fx.handler(), "/"), "console"), `<p class="warn">Asked for p/m, running q/n.</p>`)
 }

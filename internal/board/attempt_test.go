@@ -317,3 +317,22 @@ func TestTheAttemptPageSaysWhenACopilotLaunchLineHasNoSessionID(t *testing.T) {
 	contains(t, "attempt page", body, "<h3>Transcript</h3>", "has no session id")
 	lacks(t, "attempt page", body, "Nothing in the transcript yet")
 }
+
+func TestTheAttemptPageSaysWhenOpencodeRunsADifferentModelThanAskedFor(t *testing.T) {
+	st := open(t)
+	ctx := context.Background()
+	a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: active(t, st, "Port it").ID, Harness: "opencode", Model: "p/m", Effort: "bogus", Argv: []string{"/bin/opencode", "--session", "ses_x", "go"}}, "/w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := board.New(st, token, board.Options{})
+	lacks(t, "before the read-back", get(t, h, "/attempt/a1"), "Asked for")
+	if err := st.SetAttemptModel(ctx, a.ID, "p/m", ""); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "attempt page", get(t, h, "/attempt/a1"), `<p class="warn">Asked for p/m bogus, running p/m default.</p>`)
+	if err := st.SetAttemptModel(ctx, a.ID, "p/m", "bogus"); err != nil {
+		t.Fatal(err)
+	}
+	lacks(t, "after it matches", get(t, h, "/attempt/a1"), "Asked for")
+}

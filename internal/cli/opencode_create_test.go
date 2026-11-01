@@ -1,14 +1,17 @@
 package cli_test
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/state"
 )
 
 type opencodeRig struct {
@@ -128,6 +131,16 @@ func TestOpencodeUnlistedModelWarnsAndStarts(t *testing.T) {
 	o := installOpencode(t, fx.h, fx.rt, nil)
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m9", "--prompt-file", fx.brief, "t1")
 	if !strings.Contains(out, "opencode model local/m9 is not in `opencode models`") {
+		t.Fatalf("start = %q", out)
+	}
+	o.created(t)
+}
+
+func TestOpencodeUnlistedVariantWarnsAndStarts(t *testing.T) {
+	fx := newAttemptFixture(t)
+	o := installOpencode(t, fx.h, fx.rt, map[string]string{"modelapi": `{"data":[{"providerID":"local","modelID":"m2","variants":[{"id":"fast"},{"id":"deep"}]}]}`})
+	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "thinking", "--prompt-file", fx.brief, "t1")
+	if !strings.Contains(out, "opencode model local/m2 lists variants fast, deep, not thinking") {
 		t.Fatalf("start = %q", out)
 	}
 	o.created(t)
@@ -258,4 +271,23 @@ func TestOpencodeSupervisorStartAndResumeKeepTheModelAndResumeCreatesNoSession(t
 	if len(ev) != 5 || !strings.HasPrefix(ev[3], "create ") || ev[4] != "pane" || !strings.Contains(ev[3], `"variant":"deep"`) || !strings.Contains(ev[3], `"id":"m2"`) || strings.Contains(ev[3], first.ID) {
 		t.Fatalf("events after a start with no flags = %q", ev)
 	}
+}
+
+func TestAttemptShowNamesTheOpencodeModelAskedForWhenAnotherRuns(t *testing.T) {
+	fx := newAttemptFixture(t)
+	installOpencode(t, fx.h, fx.rt, nil)
+	fx.h.ok("attempt", "start", "--harness", "opencode", "--model", "local/m2", "--effort", "deep", "--prompt-file", fx.brief, "t1")
+	if show := fx.h.ok("attempt", "show", "a1"); strings.Contains(show, "model_note") {
+		t.Fatalf("show before the read-back = %q", show)
+	}
+	st, err := state.Open(filepath.Join(fx.h.home, "hand.db"), func() time.Time { return fx.h.now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = st.SetAttemptModel(context.Background(), 1, "local/m2", "")
+	_ = st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), `model_note: "Asked for local/m2 deep, running local/m2 default."`)
 }
