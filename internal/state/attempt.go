@@ -225,7 +225,7 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 	return out, err
 }
 
-func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to string) (Attempt, error) {
+func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, model, effort string) (Attempt, error) {
 	var out Attempt
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
@@ -241,7 +241,11 @@ func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to st
 		}
 		a.Terminal = t
 		out = a
-		return emit(tx, s.stamp(), "attempt.switched", a.TaskID, AttemptRef(id)+": "+to+", pane "+t.PaneID)
+		now := s.stamp()
+		if err := emit(tx, now, "attempt.switched", a.TaskID, AttemptRef(id)+": "+to+", pane "+t.PaneID); err != nil {
+			return err
+		}
+		return setAttemptModel(tx, now, a, model, effort)
 	})
 	return out, err
 }
@@ -387,12 +391,19 @@ func (s *Store) queryAttempts(ctx context.Context, q string, args ...any) ([]Att
 func (s *Store) SetAttemptModel(ctx context.Context, id int64, model, effort string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
-		if err != nil || !a.Live() || (a.Model == model && a.Effort == effort) {
+		if err != nil || !a.Live() {
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE attempt SET model = ?, effort = ? WHERE id = ?`, model, effort, id); err != nil {
-			return err
-		}
-		return emit(tx, s.stamp(), "model.changed", a.TaskID, strings.Join(strings.Fields(AttemptRef(id)+": "+model+" "+effort), " "))
+		return setAttemptModel(tx, s.stamp(), a, model, effort)
 	})
+}
+
+func setAttemptModel(tx *sql.Tx, now string, a Attempt, model, effort string) error {
+	if a.Model == model && a.Effort == effort {
+		return nil
+	}
+	if _, err := tx.Exec(`UPDATE attempt SET model = ?, effort = ? WHERE id = ?`, model, effort, a.ID); err != nil {
+		return err
+	}
+	return emit(tx, now, "model.changed", a.TaskID, strings.Join(strings.Fields(AttemptRef(a.ID)+": "+model+" "+effort), " "))
 }

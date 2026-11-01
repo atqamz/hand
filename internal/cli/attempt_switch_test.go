@@ -167,6 +167,20 @@ func TestAttemptSwitchFailureRelaunchesOnTheOldModel(t *testing.T) {
 	}
 }
 
+func TestAttemptSwitchSaysWhenItCannotConfirmTheOldModelAfterAFailedSwitch(t *testing.T) {
+	fx, o, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope", "getlater": filepath.Join(t.TempDir(), "read")})
+	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its model is unverified: check it with `hand attempt show a1`") || strings.Contains(errOut, "still on its old model") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := attemptSwitchedEvents(t, fx); len(got) != 1 || !strings.HasPrefix(got[0], "a1: back on its pane, model unverified, pane ") {
+		t.Fatalf("attempt.switched events = %q", got)
+	}
+	if got := afterStart(o, 2); len(got) != 3 {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
 func failPanesAfter(fx *attemptFixture, o *opencodeRig, ok int32) {
 	var made atomic.Int32
 	fx.rt.srv.Handle("terminal.backend.create", func(p json.RawMessage) (any, error) {
@@ -231,5 +245,150 @@ func TestAttemptSwitchRefusesAnUnlistedModelEvenForAVariantOnly(t *testing.T) {
 	}
 	if got := afterStart(o, 2); len(got) != 0 {
 		t.Fatalf("events after the start = %q", got)
+	}
+}
+
+func TestAttemptSwitchTreatsADonePaneAsAtItsPrompt(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	has(t, "switch", fx.h.ok("attempt", "switch", "a1", "--model", "local/m2"), "status: running", "model: local/m2")
+}
+
+func TestAttemptSwitchOfAVariantOnlyKeepsTheModelAndRecordsTheVariant(t *testing.T) {
+	fx, o, session := runningWorker(t, nil)
+	fx.h.ok("attempt", "switch", "a1", "--model", "local/m1", "--effort", "deep")
+	want := []string{"stop", "switch " + session + ` {"model":{"providerID":"local","id":"m1","variant":"deep"}}`, "pane"}
+	if got := afterStart(o, 2); !slices.Equal(got, want) {
+		t.Fatalf("events after the start = %q, want %q", got, want)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m1 deep")
+}
+
+func TestAttemptSwitchRecordsTheNewModelBeforeAnySweep(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
+	events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"model.changed"}, 10)
+	if err != nil || len(events) != 1 || events[0].Detail != "a1: local/m2 deep" {
+		t.Fatalf("model.changed events = %+v, %v", events, err)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m2 deep")
+}
+
+func TestAttemptSwitchKeepsTheRecordedModelWhenItComesBackOnTheOldPane(t *testing.T) {
+	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
+	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	after := fx.h.ok("attempt", "show", "a1")
+	has(t, "show", after, "harness: opencode local/m1\n")
+	if strings.Contains(after, "local/m2") {
+		t.Fatalf("show = %q", after)
+	}
+}
+
+func TestAttemptSwitchRefusesAStoppedAttempt(t *testing.T) {
+	fx, o, _ := runningWorker(t, nil)
+	fx.h.ok("attempt", "stop", "a1")
+	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	if code != 3 || !strings.Contains(errOut, "a1") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := afterStart(o, 2); len(got) != 1 || got[0] != "stop" {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
+func TestAttemptSwitchClosesTheOldTerminalAndKeepsTheNewOne(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2")
+	fx.rt.set(func(rt *fakeRuntime) {
+		if len(rt.terms) != 2 {
+			t.Fatalf("terminals = %d, want 2", len(rt.terms))
+		}
+		if old := rt.terms[0]; !old.closed || !exited(old) {
+			t.Fatalf("the old terminal is not closed and gone: closed=%v exited=%v", old.closed, exited(old))
+		}
+		if cur := rt.terms[1]; cur.closed || exited(cur) {
+			t.Fatalf("the new terminal was stopped: closed=%v exited=%v", cur.closed, exited(cur))
+		}
+	})
+}
+
+func TestAttemptSwitchRefusesATurnStartedAfterTheFirstCheck(t *testing.T) {
+	fx, o, _ := runningWorker(t, nil)
+	var asked atomic.Int32
+	fx.rt.srv.Handle("agent.explain", func(p json.RawMessage) (any, error) {
+		if asked.Add(1) == 2 {
+			fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
+		}
+		return fx.rt.explain(p)
+	})
+	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	if code != 3 || !strings.Contains(errOut, "is working, not idle at its prompt; nothing changed") || asked.Load() != 2 {
+		t.Fatalf("code=%d asked=%d stderr=%q", code, asked.Load(), errOut)
+	}
+	if got := afterStart(o, 2); len(got) != 0 {
+		t.Fatalf("events after the start = %q", got)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "status: running", "harness: opencode local/m1\n")
+}
+
+func TestAttemptSwitchHoldsTheAttemptLockWhileThePaneIsGone(t *testing.T) {
+	fx, o, _ := runningWorker(t, nil)
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once atomic.Bool
+	fx.rt.srv.Handle("terminal.backend.create", func(p json.RawMessage) (any, error) {
+		if once.CompareAndSwap(false, true) {
+			close(entered)
+			<-release
+		}
+		fakebin.Append(o.log, "pane")
+		return fx.rt.create(p)
+	})
+	type result struct {
+		out, errOut string
+		code        int
+	}
+	first := make(chan result, 1)
+	go func() {
+		out, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+		first <- result{out, errOut, code}
+	}()
+	<-entered
+	listed := make(chan string, 1)
+	go func() { listed <- fx.h.ok("attempt", "list") }()
+	second := make(chan result, 1)
+	go func() {
+		out, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+		second <- result{out, errOut, code}
+	}()
+	select {
+	case <-listed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("attempt list did not return while the switch held the lock")
+	}
+	select {
+	case r := <-second:
+		t.Fatalf("a second switch ran while the first held the lock: %+v", r)
+	case <-time.After(500 * time.Millisecond):
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "status: running")
+	close(release)
+	if r := <-first; r.code != 0 {
+		t.Fatalf("first switch: %+v", r)
+	}
+	if r := <-second; r.code != 0 {
+		t.Fatalf("second switch: %+v", r)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "status: running")
+	if events, err := openStore(t, fx.h).EventsAfter(context.Background(), 0, []string{"attempt.exited", "attempt.interrupted"}, 10); err != nil || len(events) != 0 {
+		t.Fatalf("end events = %+v, %v", events, err)
+	}
+}
+
+func TestAttemptSwitchSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.rt.set(func(rt *fakeRuntime) { rt.closeFail = "backend_error" })
+	out, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	if code != 0 || !strings.Contains(out, "its terminal did not close") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 }

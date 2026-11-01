@@ -22,6 +22,10 @@ func sameVariant(a, b string) bool {
 	return cmp.Or(a, "default") == cmp.Or(b, "default")
 }
 
+func specText(s harness.Spec) string {
+	return strings.Join(strings.Fields(s.Model+" "+s.Effort), " ")
+}
+
 func cmdAttemptSwitch(r *runner, args []string) error {
 	fs := flags("attempt switch")
 	model := fs.String("model", "", "opencode model as provider/id")
@@ -66,12 +70,18 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		ag, err := c.Explain(ctx, a.PaneID)
-		if err != nil {
-			return runtimeErr(err)
+		atPrompt := func() error {
+			ag, err := c.Explain(ctx, a.PaneID)
+			if err != nil {
+				return runtimeErr(err)
+			}
+			if ag.Status != "idle" && ag.Status != "done" {
+				return fmt.Errorf("%w: attempt %s is %s, not idle at its prompt; nothing changed; switch it once its turn ends", state.ErrConflict, ref, ag.Status)
+			}
+			return nil
 		}
-		if ag.Status != "idle" {
-			return fmt.Errorf("%w: attempt %s is %s, not idle at its prompt; nothing changed; switch it once its turn ends", state.ErrConflict, ref, ag.Status)
+		if err := atPrompt(); err != nil {
+			return err
 		}
 		_, busy, _, err := transcript.OpencodeSessions(ctx, bin, r.home, r.env.Now(), longTurn)
 		if err != nil {
@@ -85,7 +95,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 			return fmt.Errorf("%w: cannot read the model of opencode session %s (%v); nothing changed", state.ErrConflict, session, err)
 		}
 		if prev.Model == *model && sameVariant(prev.Effort, *effort) {
-			return fmt.Errorf("%w: attempt %s already runs %s", state.ErrConflict, ref, strings.Join(strings.Fields(prev.Model+" "+prev.Effort), " "))
+			return fmt.Errorf("%w: attempt %s already runs %s", state.ErrConflict, ref, specText(prev))
 		}
 		if err := r.opencodeListed(*model); err != nil {
 			return err
@@ -94,13 +104,16 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		warn, _ := harness.Check(to, harness.EnvOf(r.env.Getenv))
-		r.warn(warn)
-		if _, err := stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
+		if err := atPrompt(); err != nil {
 			return err
 		}
-		r.warn("the worker's background shells and dev servers in its pane's process group ended with it; a process that left that group keeps running, and text it had typed but not sent is gone")
-		pane := func(text string) (state.Attempt, error) {
+		note, err := stopWorker(ctx, c, terminal(a.Terminal))
+		if err != nil {
+			return err
+		}
+		r.warn(note)
+		r.warn("the worker's background shells and dev servers in its pane's process tree ended with it; a process that left that tree keeps running, and text it had typed but not sent is gone")
+		pane := func(text, model, effort string) (state.Attempt, error) {
 			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, argv)
 			if err != nil {
 				if luvus.Code(err) == "" {
@@ -108,29 +121,36 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 				}
 				return a, runtimeErr(err)
 			}
-			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text)
+			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text, model, effort)
 			if err != nil {
 				return a, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
 			}
+			waitSettled(ctx, c, term.PaneID)
 			return running, nil
 		}
 		setSession := func(s harness.Spec) error {
 			return detached(ctx, func(ctx context.Context) error { return harness.OpencodeSwitch(ctx, bin, r.home, session, s) })
 		}
 		noPane := func(cause error) error {
-			reason := fmt.Sprintf("switch to %s failed: %v", strings.Join(strings.Fields(*model+" "+*effort), " "), cause)
+			reason := fmt.Sprintf("switch to %s failed: %v", specText(to), cause)
 			if _, endErr := st.EndAttempt(ctx, id, state.AttemptInterrupted, reason); endErr != nil {
 				return errors.Join(cause, endErr)
 			}
 			return fmt.Errorf("%w; attempt %s has no pane and is interrupted, its worktree and opencode session %s stay; start it again on its branch with `hand attempt clean %s`, then `hand attempt start %s --continue %s`", cause, ref, session, ref, state.TaskRef(a.TaskID), ref)
 		}
 		if err := setSession(to); err != nil {
-			if _, perr := pane("back on " + strings.Join(strings.Fields(prev.Model+" "+prev.Effort), " ")); perr != nil {
+			back := "back on " + cmp.Or(specText(prev), "its old model")
+			sentence := "still on its old model"
+			if now, verr := harness.OpencodeSessionModel(ctx, bin, r.home, session); verr != nil || now.Model != prev.Model || !sameVariant(now.Effort, prev.Effort) {
+				back = "back on its pane, model unverified"
+				sentence = "its model is unverified: check it with `hand attempt show " + ref + "`"
+			}
+			if _, perr := pane(back, a.Model, a.Effort); perr != nil {
 				return noPane(errors.Join(err, perr))
 			}
-			return fmt.Errorf("%w; attempt %s is back on its pane, still on its old model", err, ref)
+			return fmt.Errorf("%w; attempt %s is back on its pane, %s", err, ref, sentence)
 		}
-		running, err := pane("switched to " + strings.Join(strings.Fields(*model+" "+*effort), " "))
+		running, err := pane("switched to "+specText(to), *model, *effort)
 		if err != nil {
 			clause := fmt.Sprintf("opencode session %s stays on %s", session, *model)
 			if prev.Model != "" {

@@ -124,6 +124,13 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, p["getdie"])
 			return 1
 		}
+		if p["getlater"] != "" {
+			if fileExists(p["getlater"]) {
+				fmt.Fprintln(os.Stderr, "database is locked")
+				return 1
+			}
+			fakebin.Append(p["getlater"], "read")
+		}
 		if p["sessionmodel"] == "" {
 			fmt.Print(`{"data":{"id":"ses"}}`)
 			return 0
