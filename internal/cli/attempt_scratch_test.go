@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -122,16 +123,100 @@ func TestGCListsOrphansByDefaultAndRemovesThemWithApply(t *testing.T) {
 	}
 }
 
-func TestGCOlderThanFiltersByModificationTime(t *testing.T) {
+func ageTree(t *testing.T, dir string, age time.Duration) {
+	t.Helper()
+	past := time.Now().Add(-age)
+	var paths []string
+	_ = filepath.WalkDir(dir, func(p string, _ fs.DirEntry, _ error) error {
+		paths = append(paths, p)
+		return nil
+	})
+	for i := len(paths) - 1; i >= 0; i-- {
+		if err := os.Chtimes(paths[i], past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
 	fx := newScratchFixture(t)
 	oldDir := fx.scratch(fx.h.worktree("t5-a8"))
 	newDir := fx.scratch(fx.h.worktree("t5-a9"))
-	past := time.Now().Add(-100 * time.Hour)
-	if err := os.Chtimes(oldDir, past, past); err != nil {
+	deepDir := fx.scratch(fx.h.worktree("t5-a7"))
+	ageTree(t, oldDir, 100*time.Hour)
+	ageTree(t, newDir, 100*time.Hour)
+	ageTree(t, deepDir, 100*time.Hour)
+	fresh := time.Now()
+	if err := os.Chtimes(filepath.Join(newDir, "session", "scratchpad", "capture.log"), fresh, fresh); err != nil {
 		t.Fatal(err)
 	}
 	out := fx.h.ok("attempt", "gc", "--older-than", "72h")
-	if !strings.Contains(out, "orphans[1]") || !strings.Contains(out, oldDir) || strings.Contains(out, newDir) {
+	if !strings.Contains(out, "orphans[2]") || !strings.Contains(out, oldDir) || !strings.Contains(out, deepDir) || strings.Contains(out, newDir) {
 		t.Fatalf("gc = %q", out)
+	}
+}
+
+func TestGCSkipsAnAttemptThatIsLiveInTheDatabase(t *testing.T) {
+	fx := newScratchFixture(t)
+	fx.start()
+	wt := fx.h.worktree("t1-a1")
+	scratch := fx.scratch(wt)
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	if out := fx.h.ok("attempt", "gc", "--apply"); strings.Contains(out, scratch) {
+		t.Fatalf("gc = %q", out)
+	}
+	if !exists(scratch) {
+		t.Fatal("gc removed a live attempt's scratch directory")
+	}
+	fx.h.ok("attempt", "stop", "a1")
+	if out := fx.h.ok("attempt", "gc"); !strings.Contains(out, scratch) {
+		t.Fatalf("gc after stop = %q", out)
+	}
+}
+
+func undeletable(t *testing.T, scratch string) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a Unix user that cannot delete a read-only subtree")
+	}
+	sub := filepath.Join(scratch, "locked")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sub, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sub, 0o755) })
+}
+
+func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
+	fx := newScratchFixture(t)
+	stuck := fx.scratch(fx.h.worktree("t5-a1"))
+	undeletable(t, stuck)
+	freed := fx.scratch(fx.h.worktree("t5-a9"))
+	out := fx.h.ok("attempt", "gc", "--apply")
+	if exists(freed) || !exists(stuck) {
+		t.Fatalf("after --apply: freed=%v stuck=%v", exists(freed), exists(stuck))
+	}
+	if !strings.Contains(out, "orphans[1]") || !strings.Contains(out, freed+",10") || !strings.Contains(out, `warn: "scratch not removed: `) || !strings.Contains(out, "locked") {
+		t.Fatalf("gc --apply = %q", out)
+	}
+}
+
+func TestCleanWarnsWhenTheScratchDirectoryStaysAndStillCleans(t *testing.T) {
+	fx := newScratchFixture(t)
+	fx.start()
+	fx.h.ok("attempt", "stop", "a1")
+	wt := fx.h.worktree("t1-a1")
+	stuck := fx.scratch(wt)
+	undeletable(t, stuck)
+	out := fx.h.ok("attempt", "clean", "a1")
+	if !strings.Contains(out, "removed: "+wt) || !strings.Contains(out, `warn: "scratch not removed: `) || strings.Contains(out, "scratch_removed") || !exists(stuck) {
+		t.Fatalf("clean = %q", out)
 	}
 }

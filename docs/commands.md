@@ -18,8 +18,8 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand attempt read [--lines N] aN` | Print a running worker's screen, as an indented multi-line block, and its revision. |
 | `hand attempt keys --revision N aN KEY...` | Answer a worker's screen, only if it is still at that revision. |
 | `hand attempt send --text TEXT aN` | Send a worker a message (or `--file PATH`, or `--file -` for stdin), only while it is at its prompt. |
-| `hand attempt stop aN`, `hand attempt clean [--discard] [--keep-scratch] aN` | Stop a worker, and remove an ended attempt's worktree while keeping its branch. For a `claude` attempt, clean also removes Claude Code's scratch directory for the worktree (`scratch_removed`, with its size); `--keep-scratch` leaves it and prints it as `scratch_kept`. |
-| `hand attempt gc [--apply] [--older-than DURATION]` | List the Claude Code scratch directories of worktrees that no longer exist (a dry run); `--apply` removes them, and `--older-than 72h` keeps those modified more recently. |
+| `hand attempt stop aN`, `hand attempt clean [--discard] [--keep-scratch] aN` | Stop a worker, and remove an ended attempt's worktree while keeping its branch. For a `claude` attempt, clean also removes Claude Code's scratch directory for the worktree (`scratch_removed`, with its size); `--keep-scratch` leaves it and prints it as `scratch_kept`; `attempt gc` lists it once the worktree is gone. |
+| `hand attempt gc [--apply] [--older-than DURATION]` | List the Claude Code scratch directories of worktrees that no longer exist (a dry run); `--apply` removes them, and `--older-than 72h` keeps those with anything modified more recently. Both print a `warn` for each directory they cannot remove and still remove the rest. |
 | `hand report add --status STATUS --file -` | Report from inside a worker's worktree: `progress`, `done` or `stuck`, from stdin, a file, or `--text`. |
 | `hand report list [--task tN] [--attempt aN] [--unacked]`, `hand report show rN` | List and read reports. |
 | `hand report ack [--by NAME] rN` | Acknowledge a report. |

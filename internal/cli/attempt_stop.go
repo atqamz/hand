@@ -104,7 +104,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 func cmdAttemptClean(r *runner, args []string) error {
 	set := flags("attempt clean")
 	discard := set.Bool("discard", false, "remove the worktree even with uncommitted changes")
-	keep := set.Bool("keep-scratch", false, "leave the harness's scratch directory for the worktree and print it")
+	keep := set.Bool("keep-scratch", false, "leave the harness's scratch directory for the worktree and print it; `hand attempt gc` lists it once the worktree is gone")
 	pos, err := parse(set, args, 1)
 	if err != nil {
 		return err
@@ -146,14 +146,19 @@ func cmdAttemptClean(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("removed", a.Worktree)
-		if paths := r.leftovers(a.Harness, a.Worktree); len(paths) > 0 {
-			rows, _ := scratchRows(paths)
+		if dirs := scanScratch(r.leftovers(a.Harness, a.Worktree), 0); len(dirs) > 0 {
 			if *keep {
+				rows, _ := scratchRows(dirs)
 				d.Rows("scratch_kept", scratchFields, rows)
-			} else if err := removeAll(paths); err != nil {
-				d.Field("warn", "scratch not removed: "+err.Error())
 			} else {
-				d.Rows("scratch_removed", scratchFields, rows)
+				removed, warns := removeScratch(dirs)
+				for _, w := range warns {
+					d.Field("warn", w)
+				}
+				if len(removed) > 0 {
+					rows, _ := scratchRows(removed)
+					d.Rows("scratch_removed", scratchFields, rows)
+				}
 			}
 		}
 		d.Help("Branch " + a.Branch + " is kept; delete it with `git -C " + project.Repo + " branch -D " + a.Branch + "` once merged")
