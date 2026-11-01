@@ -95,6 +95,7 @@ For each of the 104 states it fails when there is:
 - a menu or dialog that leaves the viewport;
 - a button, summary, select or input under 44 px high on a touch viewport;
 - text under a contrast ratio of 4.5;
+- a conversation whose day dividers do not fall where the card times, in the browser's time zone, change day (the `log` scene has to show at least one divider);
 - a CSP violation, a console error, a page error or an HTTP status of 400 or more.
 
 A second step runs the check with `RENDER_BREAK=1`, which forces the page wider than the viewport, and fails unless the check ends with its assertion exit status 3. The images are the `render-<os>` artifact, kept 14 days.

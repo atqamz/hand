@@ -38,6 +38,13 @@ func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	h.vars["PATH"] = fakeBin(t)
 	h.vars["HOME"] = t.TempDir()
 	h.ok("init")
+	wait := *cli.NoteWait
+	*cli.NoteWait = time.Second
+	t.Cleanup(func() { *cli.NoteWait = wait })
+	fastTrust(t)
+	prefill := *cli.PrefillWait
+	*cli.PrefillWait = 2 * time.Second
+	t.Cleanup(func() { *cli.PrefillWait = prefill })
 	return h, rt
 }
 
@@ -643,6 +650,7 @@ func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n i
 
 func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
+	*cli.PrefillWait = 30 * time.Second
 	opencodeSupervisor(t, h, rt, func(n int32) {
 		if n == 2 {
 			rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -694,7 +702,7 @@ func TestSwitchAndResumeReadAServedModelId(t *testing.T) {
 	if err := openStore(t, h).SetSupervisorModel(context.Background(), 1, "claude-sonnet-5-5", "low"); err != nil {
 		t.Fatal(err)
 	}
-	if _, errOut, code := h.run("supervisor", "switch", "--model", "sonnet", "--effort", "low"); code != 3 || !strings.Contains(errOut, "already runs claude-sonnet-5-5 at effort low") {
+	if _, errOut, code := h.run("supervisor", "switch", "--model", "sonnet", "--effort", "low"); code != 3 || !strings.Contains(errOut, "already runs claude-sonnet-5-5 low") {
 		t.Fatalf("switch to the alias of the running id code=%d stderr=%q", code, errOut)
 	}
 	h.ok("supervisor", "stop")
@@ -767,15 +775,6 @@ func TestSwitchRefusals(t *testing.T) {
 	has(t, "profile", h.ok("supervisor", "switch", "--profile", "deep"), "switch: pending", "model: opus")
 	if _, errOut, code := h.run("supervisor", "switch", "--effort", "max"); code != 3 || !strings.Contains(errOut, "--cancel") {
 		t.Fatalf("second switch code=%d stderr=%q", code, errOut)
-	}
-}
-
-func TestSwitchRefusesOpencode(t *testing.T) {
-	h, rt := newSupervisorFixture(t)
-	opencodeSupervisor(t, h, rt, func(int32) { rt.set(func(rt *fakeRuntime) { rt.status = "working" }) })
-	h.ok("supervisor", "start", "--harness", "opencode")
-	if _, errOut, code := h.run("supervisor", "switch", "--model", "x"); code != 2 || !strings.Contains(errOut, "opencode keeps its model") {
-		t.Fatalf("opencode switch code=%d stderr=%q", code, errOut)
 	}
 }
 

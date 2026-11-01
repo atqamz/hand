@@ -67,6 +67,11 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		if origin != sup.ID {
 			supervisor += " (resumes " + state.SupervisorRef(origin) + ")"
 		}
+		if _, held, err := st.SupervisorHold(ctx, sup); err != nil {
+			return nil, err
+		} else if held && sup.Status == state.AttemptRunning {
+			supervisor += " (holds messages; " + state.NoteLost + ")"
+		}
 		if pane != "" && sup.Status == state.AttemptRunning {
 			you = "not the supervisor"
 			if pane == sup.PaneID {
