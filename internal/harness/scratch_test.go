@@ -153,8 +153,12 @@ func TestScratchRootsByPlatform(t *testing.T) {
 		{"darwin", map[string]string{"TMPDIR": "/tmp/"}, []string{"/tmp/claude-7"}},
 	}
 	for _, c := range cases {
-		if got := claudeScratchRoots(c.goos, env(c.vars), 7); !slices.Equal(got, c.want) {
-			t.Errorf("%s %v = %v, want %v", c.goos, c.vars, got, c.want)
+		want := make([]string, len(c.want))
+		for i, w := range c.want {
+			want[i] = filepath.FromSlash(w)
+		}
+		if got := claudeScratchRoots(c.goos, env(c.vars), 7); !slices.Equal(got, want) {
+			t.Errorf("%s %v = %v, want %v", c.goos, c.vars, got, want)
 		}
 	}
 	if got := claudeScratchRoots("linux", env(nil), -1); got != nil {
