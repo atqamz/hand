@@ -231,7 +231,7 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 	return out, err
 }
 
-func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, model, effort string) (Attempt, error) {
+func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, model, effort string, requested bool) (Attempt, error) {
 	var out Attempt
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
@@ -255,6 +255,9 @@ func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, m
 			return err
 		}
 		out.Model, out.Effort = model, effort
+		if requested && a.Harness == "opencode" && model != "" {
+			return emit(tx, now, "model.requested", a.TaskID, AttemptRef(id)+": "+askedModel(model, effort))
+		}
 		return nil
 	})
 	return out, err

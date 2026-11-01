@@ -120,7 +120,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		}
 		r.warn(note)
 		r.warn("the worker's background shells and dev servers in its pane's process tree ended with it; a process that left that tree keeps running, and text it had typed but not sent is gone")
-		pane := func(text, model, effort string) (state.Attempt, error) {
+		pane := func(text, model, effort string, requested bool) (state.Attempt, error) {
 			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, argv)
 			if err != nil {
 				if luvus.Code(err) == "" {
@@ -128,7 +128,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 				}
 				return a, runtimeErr(err)
 			}
-			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text, model, effort)
+			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text, model, effort, requested)
 			if err != nil {
 				return a, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
 			}
@@ -155,12 +155,12 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 			case now.Model != "":
 				keep, keepEffort = now.Model, storedEffort(now.Effort)
 			}
-			if _, perr := pane(back, keep, keepEffort); perr != nil {
+			if _, perr := pane(back, keep, keepEffort, false); perr != nil {
 				return noPane(errors.Join(err, perr))
 			}
 			return fmt.Errorf("%w; attempt %s is back on its pane, %s", err, ref, sentence)
 		}
-		running, err := pane("switched to "+specText(to), *model, storedEffort(*effort))
+		running, err := pane("switched to "+specText(to), *model, storedEffort(*effort), true)
 		if err != nil {
 			clause := fmt.Sprintf("opencode session %s stays on %s", session, *model)
 			if prev.Model != "" {

@@ -282,13 +282,13 @@ func TestAttemptSwitchedRepointsTheTerminalOfARunningAttemptOnly(t *testing.T) {
 	}
 	first := Terminal{ServerGeneration: "g1", TerminalID: "t1", PaneID: "p1", PID: 10, StartMarker: "m1"}
 	second := Terminal{ServerGeneration: "g1", TerminalID: "t2", PaneID: "p2", PID: 20, StartMarker: "m2"}
-	if _, err := s.AttemptSwitched(ctx, a.ID, second, "x", "m", ""); !errors.Is(err, ErrConflict) {
+	if _, err := s.AttemptSwitched(ctx, a.ID, second, "x", "m", "", false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("switch of a launching attempt = %v, want ErrConflict", err)
 	}
 	if _, err := s.AttemptRunning(ctx, a.ID, first); err != nil {
 		t.Fatal(err)
 	}
-	switched, err := s.AttemptSwitched(ctx, a.ID, second, "switched to local/m2", "local/m2", "deep")
+	switched, err := s.AttemptSwitched(ctx, a.ID, second, "switched to local/m2", "local/m2", "deep", false)
 	if err != nil || switched.Model != "local/m2" || switched.Effort != "deep" {
 		t.Fatalf("switched = %+v, %v", switched, err)
 	}
@@ -296,14 +296,14 @@ func TestAttemptSwitchedRepointsTheTerminalOfARunningAttemptOnly(t *testing.T) {
 	if err != nil || got.Terminal != second || got.Status != AttemptRunning || !slices.Equal(got.Argv, spec.Argv) || got.Model != "local/m2" || got.Effort != "deep" {
 		t.Fatalf("attempt = %+v, %v", got, err)
 	}
-	if _, err := s.AttemptSwitched(ctx, a.ID, second, "back on local/m2 deep", "local/m2", "deep"); err != nil {
+	if _, err := s.AttemptSwitched(ctx, a.ID, second, "back on local/m2 deep", "local/m2", "deep", false); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := s.EventsAfter(ctx, 0, []string{"model.changed"}, 10)
 	if err != nil || len(changed) != 1 || changed[0].Detail != AttemptRef(a.ID)+": local/m2 deep" {
 		t.Fatalf("model.changed events = %+v, %v", changed, err)
 	}
-	if _, err := s.AttemptSwitched(ctx, a.ID, second, "x", "local/m2", "deep"); err != nil {
+	if _, err := s.AttemptSwitched(ctx, a.ID, second, "x", "local/m2", "deep", false); err != nil {
 		t.Fatal(err)
 	}
 	events, err := s.EventsAfter(ctx, 0, []string{"attempt.switched"}, 10)
@@ -313,7 +313,7 @@ func TestAttemptSwitchedRepointsTheTerminalOfARunningAttemptOnly(t *testing.T) {
 	if _, err := s.EndAttempt(ctx, a.ID, AttemptStopped, "done"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AttemptSwitched(ctx, a.ID, first, "x", "m", ""); !errors.Is(err, ErrConflict) {
+	if _, err := s.AttemptSwitched(ctx, a.ID, first, "x", "m", "", false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("switch of an ended attempt = %v, want ErrConflict", err)
 	}
 }

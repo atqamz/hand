@@ -65,3 +65,34 @@ func TestModelNoteFollowsTheSupervisorRow(t *testing.T) {
 		t.Fatalf("other ref note = %q, %v", got, err)
 	}
 }
+
+func TestAttemptSwitchedMovesTheRequestOnlyWhenTheSwitchWasRequested(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	task := activeTask(t, s)
+	a, err := s.AddAttempt(ctx, AttemptSpec{TaskID: task.ID, Harness: "opencode", Model: "p/m", Argv: []string{"/bin/x", "p"}}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := AttemptRef(a.ID)
+	first := Terminal{ServerGeneration: "g", TerminalID: "t1", PaneID: "p1", PID: 1, StartMarker: "m"}
+	second := Terminal{ServerGeneration: "g", TerminalID: "t2", PaneID: "p2", PID: 2, StartMarker: "m"}
+	if _, err := s.AttemptRunning(ctx, a.ID, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AttemptSwitched(ctx, a.ID, second, "back on p/m", "p/m", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ModelNote(ctx, ref, "q/n", ""); err != nil || got != "Asked for p/m, running q/n." {
+		t.Fatalf("after a switch that kept the request: note = %q, %v", got, err)
+	}
+	if _, err := s.AttemptSwitched(ctx, a.ID, first, "switched to q/n fast", "q/n", "fast", true); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ModelNote(ctx, ref, "q/n", "fast"); err != nil || got != "" {
+		t.Fatalf("after a requested switch: note = %q, %v", got, err)
+	}
+	if got, err := s.ModelNote(ctx, ref, "p/m", ""); err != nil || got != "Asked for q/n fast, running p/m default." {
+		t.Fatalf("running the old model: note = %q, %v", got, err)
+	}
+}

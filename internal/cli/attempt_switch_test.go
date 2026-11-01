@@ -404,3 +404,20 @@ func TestAttemptSwitchRecordsTheModelTheSessionReadsBackAfterAFailedSwitch(t *te
 	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
 	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m3\n")
 }
+
+func TestAttemptSwitchRequestsTheNewModelSoTheWatcherShowsNoMismatch(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "deep")
+	if got, err := openStore(t, fx.h).ModelNote(context.Background(), "a1", "local/m2", "deep"); err != nil || got != "" {
+		t.Fatalf("note = %q, %v", got, err)
+	}
+}
+
+func TestAttemptSwitchThatFailsKeepsTheOldRequest(t *testing.T) {
+	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope"})
+	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	got, err := openStore(t, fx.h).ModelNote(context.Background(), "a1", "local/m2", "")
+	if err != nil || got != "Asked for local/m1, running local/m2." {
+		t.Fatalf("note = %q, %v", got, err)
+	}
+}
