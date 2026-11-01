@@ -642,6 +642,13 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
 			detail = ag.Hint
 		}
+		if a.Harness == "codex" {
+			if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
+				if q, ok := harness.Question(a.Harness, s.Text); ok {
+					detail = q
+				}
+			}
+		}
 		err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail)
 		if errors.Is(err, state.ErrConflict) {
 			return nil
