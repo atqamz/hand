@@ -80,6 +80,8 @@ func (s *session) codexLine(line []byte) {
 		Payload   struct {
 			Type    string `json:"type"`
 			Role    string `json:"role"`
+			Model   string `json:"model"`
+			Effort  string `json:"effort"`
 			Content []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -113,6 +115,8 @@ func (s *session) codexLine(line []byte) {
 				}
 			}
 		}
+	case rec.Type == "turn_context" && p.Model != "":
+		s.status.Model, s.status.Effort = p.Model, p.Effort
 	case rec.Type == "compacted":
 		s.status.Compactions++
 	case rec.Type == "event_msg" && p.Type == "token_count" && p.Info != nil:
