@@ -226,6 +226,19 @@ func (s *Store) LatestSupervisor(ctx context.Context) (Supervisor, bool, error) 
 	return s.oneSupervisor(ctx, supervisorSelect+` ORDER BY id DESC LIMIT 1`)
 }
 
+func (s *Store) LastStartedSupervisor(ctx context.Context) (Supervisor, bool, error) {
+	all, err := s.Supervisors(ctx)
+	if err != nil {
+		return Supervisor{}, false, err
+	}
+	for i := len(all) - 1; i >= 0; i-- {
+		if all[i].Status != AttemptFailed || all[i].TerminalID != "" {
+			return all[i], true, nil
+		}
+	}
+	return Supervisor{}, false, nil
+}
+
 func (s *Store) SupervisorOrigin(ctx context.Context, sup Supervisor) (int64, error) {
 	if sup.Session == "" {
 		return sup.ID, nil

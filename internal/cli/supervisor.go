@@ -183,7 +183,7 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 		return state.Supervisor{}, err
 	}
 	defer unlock()
-	last, ok, err := lastStarted(ctx, st)
+	last, ok, err := st.LastStartedSupervisor(ctx)
 	switch {
 	case err != nil:
 		return state.Supervisor{}, err
@@ -230,19 +230,6 @@ func (r *runner) dropAction(sup state.Supervisor) string {
 
 func lastSpec(last state.Supervisor) harness.Spec {
 	return harness.Spec{Harness: last.Harness, Model: last.Model, Effort: last.Effort}
-}
-
-func lastStarted(ctx context.Context, st *state.Store) (state.Supervisor, bool, error) {
-	all, err := st.Supervisors(ctx)
-	if err != nil {
-		return state.Supervisor{}, false, err
-	}
-	for i := len(all) - 1; i >= 0; i-- {
-		if all[i].Status != state.AttemptFailed || all[i].TerminalID != "" {
-			return all[i], true, nil
-		}
-	}
-	return state.Supervisor{}, false, nil
 }
 
 func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec) (state.Supervisor, error) {
@@ -418,7 +405,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			defer unlock()
 			sup, err := runningSupervisor(ctx, st)
 			if err != nil {
-				last, ok, lerr := lastStarted(ctx, st)
+				last, ok, lerr := st.LastStartedSupervisor(ctx)
 				if lerr != nil || !ok || last.Live() {
 					return err
 				}

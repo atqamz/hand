@@ -113,6 +113,13 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 	if ok {
 		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
 		data["Resumable"] = !sup.Live() && sup.Session != ""
+		if !sup.Live() {
+			if started, found, err := b.st.LastStartedSupervisor(ctx); err != nil {
+				return err
+			} else if found && started.Switching() {
+				data["Drop"] = started.SwitchText()
+			}
+		}
 		if sup.Status == state.AttemptRunning {
 			b.live(ctx, sup, data)
 			if _, held, err := b.st.SupervisorHold(ctx, sup); err != nil {

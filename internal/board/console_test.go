@@ -158,6 +158,26 @@ func TestAnEndedSupervisorWithAPendingSwitchCanDropIt(t *testing.T) {
 	lacks(t, "dropped", region(get(t, fx.handler(), "/"), "console"), "Drop switch")
 }
 
+func TestADroppableSwitchShowsBehindALaunchThatFailed(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	if _, err := fx.st.SetSupervisorSwitch(ctx, 1, "opus", "high"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptStopped, "switched to opus high"); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "opus", Effort: "high", Argv: []string{"/bin/claude", "x"}, Session: claudeSession})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.EndSupervisor(ctx, failed.ID, state.AttemptFailed, "no pty"); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "failed launch", region(get(t, fx.handler(), "/"), "console"), `action="/supervisor/resume"`, `aria-label="Drop switch to opus high"`)
+}
+
 func TestModelMenuShowsTheCurrentChoiceAndLabelsEveryField(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
