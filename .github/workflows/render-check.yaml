@@ -79,8 +79,10 @@ jobs:
       - name: A layout break fails the check
         timeout-minutes: 10
         run: |
-          if RENDER_BREAK=1 RENDER_ONLY=ready RENDER_OUT="$RUNNER_TEMP/render/broken" node .github/render/check.mjs; then
-            echo "the check passed on a page forced wider than its viewport"
+          status=0
+          RENDER_BREAK=1 RENDER_ONLY=ready RENDER_OUT="$RUNNER_TEMP/render/broken" node .github/render/check.mjs || status=$?
+          if [ "$status" -ne 3 ]; then
+            echo "a page forced wider than its viewport did not fail the assertions (exit status $status)"
             exit 1
           fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -111,6 +113,9 @@ jobs:
         run: |
           cp internal/board/scenes_test.go base/internal/board/scenes_test.go
           node .github/render/check.mjs
+      - name: Say why there is no diff
+        if: ${{ steps.before.outcome == 'failure' }}
+        run: echo "The base commit did not build or render with the scenes of this head, so there are no before pictures and no diff." >> "$GITHUB_STEP_SUMMARY"
       - name: Diff the pictures
         if: ${{ steps.before.outcome == 'success' }}
         continue-on-error: true

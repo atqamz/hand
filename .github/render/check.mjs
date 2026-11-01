@@ -240,4 +240,4 @@ for (const r of rows) {
   failed += found.length ? 1 : 0;
 }
 console.log(`${rows.length} states, ${failed} with problems, images in ${path.join(out, 'shots')}`);
-if (asserting && failed) process.exit(1);
+if (asserting && failed) process.exit(3);

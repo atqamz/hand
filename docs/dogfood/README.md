@@ -88,7 +88,7 @@ The install phase changes your user `PATH` in the registry and puts it back when
 
 ## What CI checks on the Board's layout
 
-[`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 18 pages (twelve fleet pages from an empty fleet to a busy one with decisions and documents, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task and an attempt), served from in-memory fleets with a frozen clock, a fixed fleet id and a fixed home path. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
+[`render-check.yaml`](../../.github/workflows/render-check.yaml) renders the Board's fixture scenes in Chromium on `ubuntu-latest`, `macos-latest` and `windows-latest`, for every pull request that touches `internal/board` and on demand. The scenes come from `TestRenderScenes` in `internal/board/scenes_test.go`: 18 pages (twelve fleet pages from an empty fleet to a busy one with decisions and documents, the nav menu open, the document viewer dialog, the document page, the supervisor log, a task and an attempt), served from fleets in temporary folders with a frozen clock, a fixed fleet id and a fixed home path under the system temporary folder, so run one check at a time on a machine. The test does nothing unless `SCENES_ADDR` is set, so `go test ./...` skips it. `.github/render/check.mjs` builds that test, starts it, and renders each scene at 1440, 1024 and 390 px (390 is a phone: touch and a mobile viewport), light and dark, with reduced motion, `Asia/Jakarta` as the time zone and the browser's clock set to the same frozen instant as the server's.
 
 For each of the 104 states it fails when there is:
 - horizontal overflow of the page;
@@ -97,7 +97,7 @@ For each of the 104 states it fails when there is:
 - text under a contrast ratio of 4.5;
 - a CSP violation, a console error, a page error or an HTTP status of 400 or more.
 
-A second step runs the check with `RENDER_BREAK=1`, which forces the page wider than the viewport, and fails when the check does not fail. The images are the `render-<os>` artifact, kept 14 days.
+A second step runs the check with `RENDER_BREAK=1`, which forces the page wider than the viewport, and fails unless the check ends with its assertion exit status 3. The images are the `render-<os>` artifact, kept 14 days.
 
 On a pull request the Linux job also builds the base commit with the head's scenes, renders it without asserting, and `.github/render/diff.mjs` compares the two sets of pictures in a browser canvas. The artifact `render-before-and-diff` holds the base pictures and a red-marked diff image for each state where more than 0.1 % of the pixels moved, and the job summary lists them. The diff is Linux only and never gates: fonts and the browser build differ per OS.
 
