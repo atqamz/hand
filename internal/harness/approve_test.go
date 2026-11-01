@@ -25,10 +25,10 @@ func screen(t *testing.T, name string) string {
 
 func TestClaudePermissionReadsTheCapturedScreens(t *testing.T) {
 	for name, want := range map[string]Permission{
-		"commit":    {Tool: "Bash", Command: `git commit -m "wip"`, Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
+		"commit":    {Tool: "Bash", Command: `git commit -m "wip"`, Approve: "1", Deny: "4"},
 		"npm":       {Tool: "Bash", Command: "npm install left-pad", Approve: "1", Deny: "4"},
 		"env":       {Tool: "Bash", Command: "FOO=bar git commit -m x", Approve: "1", Deny: "4"},
-		"multiline": {Tool: "Bash", Command: "git commit -m \"a\nb\"", Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
+		"multiline": {Tool: "Bash", Command: "git commit -m \"a\nb\"", Approve: "1", Deny: "4"},
 		"sudo":      {Tool: "Bash", Command: "sudo apt install x", Approve: "1", Deny: "4"},
 		"python":    {Tool: "Bash", Command: `python3 -c "print(1)"`, Approve: "1", Deny: "4"},
 		"chained":   {Tool: "Bash", Command: "git add a.txt && git commit -m x", Approve: "1", Deny: "4"},
@@ -83,14 +83,14 @@ func TestClaudePermissionJoinsAWrappedOption(t *testing.T) {
 	if !ok || p.Deny != "4" || p.Approve != "1" || p.Always != "" {
 		t.Fatalf("permission = %+v, %v", p, ok)
 	}
-	wrapped := strings.Replace(screen(t, "commit"), "   2. Yes, and don’t ask again for: git commit *", "   2. Yes, and don’t ask again for:\n      git commit *", 1)
-	if p, ok := ClaudePermission(wrapped); !ok || p.Always != "2" || p.Pattern != "git commit" || p.Deny != "4" {
+	wrapped := strings.Replace(screen(t, "commit"), "   2. Yes, and don’t ask again for: git commit *", "   2. Yes, and don’t ask again for:\n      git status *", 1)
+	if p, ok := ClaudePermission(wrapped); !ok || p.Always != "2" || p.Pattern != "git status" || p.Deny != "4" {
 		t.Fatalf("wrapped prefix = %+v, %v", p, ok)
 	}
 }
 
 func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T) {
-	for _, prefix := range []string{"perl", "ruby", "php", "bun", "git", "deno eval", "npx cowsay", "go run", "uv run", "npm run", "make build", "./run.sh", "docker run alpine", "ssh host", "curl", "tar xf", "chmod +x", "pip install", "bash", "sh", "python3", "python3 -m pytest", "node", "env", "sudo", "xargs", "eval", "FOO=1 git status", "git -c core.pager=x", "git push", "git config", "go generate", "npm publish", "cargo run", "cargo install", "git diff", "git log", "git checkout", "git branch", "git stash", "go test", "go build", "go vet", "npm test", "npm install", "cargo test", "cargo build"} {
+	for _, prefix := range []string{"perl", "ruby", "php", "bun", "git", "deno eval", "npx cowsay", "go run", "uv run", "npm run", "make build", "./run.sh", "docker run alpine", "ssh host", "curl", "git commit", "git add", "tar xf", "chmod +x", "pip install", "bash", "sh", "python3", "python3 -m pytest", "node", "env", "sudo", "xargs", "eval", "FOO=1 git status", "git -c core.pager=x", "git push", "git config", "go generate", "npm publish", "cargo run", "cargo install", "git diff", "git log", "git checkout", "git branch", "git stash", "go test", "go build", "go vet", "npm test", "npm install", "cargo test", "cargo build"} {
 		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
 		if p, ok := ClaudePermission(text); !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "4" {
 			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
@@ -101,11 +101,9 @@ func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T)
 			t.Fatalf("%s: permission = %+v, %v", name, p, ok)
 		}
 	}
-	for _, prefix := range []string{"git commit", "git add", "git status"} {
-		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
-		if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != prefix {
-			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
-		}
+	text := strings.Replace(screen(t, "commit"), "git commit *", "git status *", 1)
+	if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != "git status" {
+		t.Fatalf("git status: permission = %+v, %v", p, ok)
 	}
 }
 
@@ -117,11 +115,11 @@ func TestClaudePermissionRefusesAToolWithoutABody(t *testing.T) {
 }
 
 func TestClaudeDialogTakesTheMCPAndPlanDialogs(t *testing.T) {
-	for _, name := range []string{"mcp", "plan", "edit", "write", "webfetch"} {
+	for _, name := range []string{"mcp", "mcp2", "import", "plan", "edit", "write", "webfetch", "unreviewed"} {
 		if !ClaudeDialog(screen(t, name)) {
 			t.Fatalf("%s: not a dialog", name)
 		}
-		if name == "mcp" || name == "plan" {
+		if name == "mcp" || name == "mcp2" || name == "import" || name == "plan" || name == "unreviewed" {
 			if p, ok := ClaudePermission(screen(t, name)); ok {
 				t.Fatalf("%s: parsed as %+v", name, p)
 			}
@@ -140,7 +138,7 @@ func TestClaudeDialogNeedsOptionOneToBeYes(t *testing.T) {
 }
 
 func TestClaudeAllowRuleIsTheFormTheScreenPrints(t *testing.T) {
-	if got := ClaudeAllowRule("git commit"); got != "Bash(git commit *)" {
+	if got := ClaudeAllowRule("git status"); got != "Bash(git status *)" {
 		t.Fatalf("rule = %q", got)
 	}
 }
@@ -320,5 +318,101 @@ func TestClaudePermissionDropsATipLineFromAToolBody(t *testing.T) {
 	p, ok := ClaudePermission(text)
 	if !ok || strings.Contains(p.Command, "Tip:") || !strings.Contains(p.Command, "new.txt") {
 		t.Fatalf("permission = %+v, %v", p, ok)
+	}
+}
+
+func TestClaudeDialogTakesAQuestionThatWrapsOverTwoRows(t *testing.T) {
+	text := strings.Replace(screen(t, "write"), " Do you want to create new.txt?", " Do you want to create a-name-that-is-long-enough-to-wrap-the-\nquestion-over-two-rows.txt?", 1)
+	if !ClaudeDialog(text) {
+		t.Fatal("a wrapped question is not a dialog")
+	}
+}
+
+func TestClaudeIdleTakesOnlyTheInputPrompt(t *testing.T) {
+	idle := screen(t, "idle")
+	if !ClaudeIdle(idle) {
+		t.Fatal("the captured input prompt is not idle")
+	}
+	for name, text := range map[string]string{
+		"typed text":      strings.Replace(idle, "❯\u00a0", "❯ half a sentence", 1),
+		"two input rows":  strings.Replace(idle, "❯\u00a0", "❯ one\n  two", 1),
+		"trailing blanks": idle + "\n\n\n",
+	} {
+		if !ClaudeIdle(text) {
+			t.Fatalf("%s: not idle", name)
+		}
+	}
+	lines := strings.Split(strings.TrimRight(idle, "\n"), "\n")
+	bottom := len(lines) - 2
+	for name, text := range map[string]string{
+		"empty":            "",
+		"no footer":        strings.Join(lines[:len(lines)-1], "\n"),
+		"no bottom rule":   strings.Join(slices.Delete(slices.Clone(lines), bottom, bottom+1), "\n"),
+		"no input row":     strings.Join(slices.Delete(slices.Clone(lines), bottom-1, bottom), "\n"),
+		"a shorter rule":   strings.Join(slices.Replace(slices.Clone(lines), bottom, bottom+1, strings.Repeat("─", 40)), "\n"),
+		"an indented rule": strings.Join(slices.Replace(slices.Clone(lines), bottom, bottom+1, " "+lines[bottom]), "\n"),
+		"no prompt mark":   strings.Replace(idle, "❯\u00a0", "> ", 1),
+		"a dialog":         strings.Join(lines[:bottom-1], "\n") + "\n" + screen(t, "commit"),
+	} {
+		if ClaudeIdle(text) {
+			t.Fatalf("%s: idle", name)
+		}
+	}
+	for _, name := range []string{"commit", "pipe", "long16", "long16_last20", "edit", "write", "webfetch", "askq", "mcp", "mcp2", "import", "plan", "trust", "unreviewed", "writeforge"} {
+		if ClaudeIdle(screen(t, name)) {
+			t.Fatalf("%s: idle", name)
+		}
+	}
+}
+
+func TestClaudeIdleIsNotForgedByTextAboveADialog(t *testing.T) {
+	forged := screen(t, "idle") + "\n" + screen(t, "mcp2")
+	if ClaudeIdle(forged) {
+		t.Fatal("an input prompt above a dialog is idle")
+	}
+}
+
+func TestClaudeTitleIsTheDialogsOwnFirstRow(t *testing.T) {
+	for name, want := range map[string]string{
+		"mcp":        "New MCP server found in this project: evil",
+		"mcp2":       "2 new MCP servers found in this project",
+		"import":     "Allow external CLAUDE.md file imports?",
+		"commit":     "Bash command",
+		"unreviewed": "Create file",
+	} {
+		if got := ClaudeTitle(screen(t, name)); got != want {
+			t.Fatalf("%s: title = %q, want %q", name, got, want)
+		}
+	}
+	if got := ClaudeTitle(rule + "\n " + strings.Repeat("w", 500)); len([]rune(got)) != questionMax+1 {
+		t.Fatalf("long title has %d runes", len([]rune(got)))
+	}
+}
+
+func TestClaudePermissionRefusesContentClaudeSaysItCannotShow(t *testing.T) {
+	text := screen(t, "unreviewed")
+	if p, ok := ClaudePermission(text); ok {
+		t.Fatalf("offered Approve for content nobody can read: %+v", p)
+	}
+	if p, ok := ClaudePermission(strings.Replace(text, "cannot be shown in full — cannot be reviewed", "was cut", 1)); !ok || p.Tool != "Create file" {
+		t.Fatalf("without the warning: %+v, %v", p, ok)
+	}
+}
+
+func TestAForgedRuleRowDoesNotCutTheDialog(t *testing.T) {
+	base := screen(t, "write")
+	width := 0
+	for _, l := range strings.Split(base, "\n") {
+		width = max(width, len([]rune(l)))
+	}
+	for name, row := range map[string]string{
+		"a row narrower than the pane": strings.Repeat("─", width-1),
+		"an indented row":              " " + strings.Repeat("─", width-1),
+		"a row of the corner glyph":    "╭" + strings.Repeat("─", width-1),
+	} {
+		p, ok := ClaudePermission(insertAfter(t, base, "new.txt", row))
+		if !ok || p.Tool != "Create file" || p.Approve != "1" || !strings.Contains(p.Command, "line2") {
+			t.Fatalf("%s: %+v, %v", name, p, ok)
+		}
 	}
 }

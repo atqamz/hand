@@ -155,25 +155,17 @@ func cmdAttemptKeys(r *runner, args []string) error {
 			return err
 		}
 		var perm harness.Permission
-		var asked bool
 		if a.Approve == state.ApproveAsk {
 			s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
 			if err != nil {
 				return runtimeErr(err)
 			}
-			if s.TerminalID == a.TerminalID {
-				perm, asked = harness.ClaudePermission(s.Text)
-				asked = asked || harness.ClaudeDialog(s.Text)
-				if !asked && !ownTrustScreen(a.Harness, s.Text, keys) {
-					ag, err := c.Explain(ctx, a.PaneID)
-					if err != nil {
-						return runtimeErr(err)
-					}
-					asked = ag.Status == "blocked"
-				}
+			same := s.TerminalID == a.TerminalID
+			if same {
+				perm, _ = harness.ClaudePermission(s.Text)
 			}
-			if asked && !r.env.Board {
-				return fmt.Errorf("%w: attempt %s asks the operator before each command; answer its permission prompt from the Board", state.ErrInvalid, state.AttemptRef(id))
+			if !r.env.Board && !(same && (harness.ClaudeIdle(s.Text) || ownTrustScreen(a.Harness, s.Text, keys))) {
+				return fmt.Errorf("%w: attempt %s asks the operator before each command, and its screen is not Claude's input prompt; answer it from the Board", state.ErrInvalid, state.AttemptRef(id))
 			}
 		}
 		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, keys, *revision, *screen); err != nil {
@@ -189,7 +181,7 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", state.AttemptRef(id))
 		d.Field("keys", joined)
-		if asked && perm.Always != "" && joined == perm.Always {
+		if perm.Always != "" && joined == perm.Always {
 			task, err := st.Task(ctx, a.TaskID)
 			if err == nil {
 				_, _, err = st.AddGrant(ctx, task.Project, a.Harness, perm.Pattern)

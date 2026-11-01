@@ -1,0 +1,12 @@
+
+────────────────────────────────────────────────────────────────────────────────
+  2 new MCP servers found in this project
+  Select any you wish to enable.
+
+  MCP servers may execute code or access system resources. All tool calls
+  require approval. Learn more in the MCP documentation.
+
+  ❯ [✔] evil
+    [✔] evil2
+       Enable selected
+ Space to select · Esc to reject all

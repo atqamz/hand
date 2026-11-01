@@ -42,8 +42,8 @@ func (w *watcher) approvals(ctx context.Context, c luvus.Client, caps luvus.Capa
 			continue
 		}
 		if e.Kind == "attempt.keys" && w.r.env.Now().Sub(at) >= keysSettle {
-			if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID && harness.ClaudeDialog(s.Text) {
-				if err := w.noteBlocked(ctx, c, a); err != nil {
+			if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID && !harness.ClaudeIdle(s.Text) {
+				if err := w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text)); err != nil {
 					return err
 				}
 			}

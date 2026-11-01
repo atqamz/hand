@@ -648,7 +648,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			}
 		}
 	case "blocked":
-		return w.noteBlocked(ctx, c, a)
+		return w.noteBlocked(ctx, c, a, "")
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
@@ -690,6 +690,9 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 				return nil
 			}
 		}
+		if status == "idle" && a.Approve == state.ApproveAsk && !harness.ClaudeIdle(s.Text) {
+			return w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text))
+		}
 		apiError, _ := harness.APIError(a.Harness, s.Text)
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
 		if errors.Is(err, state.ErrConflict) {
@@ -703,10 +706,12 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	return nil
 }
 
-func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt) error {
-	detail := ""
-	if ag, err := c.Explain(ctx, a.PaneID); err == nil {
-		detail = ag.Hint
+func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt, title string) error {
+	detail := title
+	if detail == "" {
+		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
+			detail = ag.Hint
+		}
 	}
 	if a.Harness == "codex" {
 		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {

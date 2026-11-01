@@ -18,25 +18,26 @@ type Permission struct {
 
 var (
 	optionLine  = regexp.MustCompile(`^(?:[❯›]\s*)?([1-9])\.\s+(.+?)$`)
-	ruleLine    = regexp.MustCompile(`^(?:[─━]{10,}\s*|╭.*)$`)
+	ruleLine    = regexp.MustCompile(`^[─━]{10,}\s*$`)
 	dashRule    = regexp.MustCompile(`^\s*╌{10,}\s*$`)
 	boxEdge     = regexp.MustCompile(`^\s*[│┃]|\s*[│┃]?\s*$`)
 	autoDenyRun = regexp.MustCompile(`deny this request in \d+:\d{2}`)
 	alwaysText  = regexp.MustCompile(`^Yes, and (?:don't|don’t) ask again for: (.+) \*$`)
 	patternText = regexp.MustCompile(`^[A-Za-z0-9_./=@%+-]+(?: [A-Za-z0-9_./=@%+-]+)*$`)
-	questionRun = regexp.MustCompile(`^Do you want .*\?$`)
+	questionRun = regexp.MustCompile(`^Do you want `)
+	unreviewed  = regexp.MustCompile(`cannot be shown in full|cannot be reviewed`)
 	tipLine     = regexp.MustCompile(`^\s*Tip:`)
-	otherDialog = regexp.MustCompile(`^(?:New MCP server found in this project\b|Exit plan mode\?)`)
+	otherDialog = regexp.MustCompile(`^(?:(?:New MCP server found|\d+ new MCP servers found) in this project\b|Exit plan mode\?|Allow external CLAUDE\.md file imports\?)`)
 )
 
 var knownTools = []string{"Bash", "Create file", "Edit file", "Edit notebook", "Fetch", "Read file"}
 
 var safeSubcommands = map[string][]string{
-	"git": {"commit", "add", "status"},
+	"git": {"status"},
 }
 
 func topRule(l string, width int) bool {
-	return ruleLine.MatchString(l) && (strings.HasPrefix(l, "╭") || utf8.RuneCountInString(strings.TrimRight(l, " ")) >= width)
+	return ruleLine.MatchString(l) && utf8.RuneCountInString(strings.TrimRight(l, " ")) >= width
 }
 
 func safeAlways(pattern string) bool {
@@ -60,6 +61,43 @@ func ClaudeDialog(screen string) bool {
 		}
 	}
 	return found
+}
+
+func ClaudeIdle(screen string) bool {
+	var rows []string
+	for _, l := range strings.Split(screen, "\n") {
+		if strings.TrimSpace(l) != "" {
+			rows = append(rows, strings.TrimRight(l, " \t\r"))
+		}
+	}
+	n := len(rows)
+	if n < 4 || !ruleLine.MatchString(rows[n-2]) {
+		return false
+	}
+	top := n - 3
+	for top >= 0 && !ruleLine.MatchString(rows[top]) {
+		top--
+	}
+	return top >= 0 && top < n-3 && strings.HasPrefix(rows[top+1], "❯") && utf8.RuneCountInString(rows[top]) == utf8.RuneCountInString(rows[n-2])
+}
+
+func ClaudeTitle(screen string) string {
+	rows := strings.Split(screen, "\n")
+	for i := len(rows) - 1; i >= 0; i-- {
+		if ruleLine.MatchString(rows[i]) {
+			rows = rows[i+1:]
+			break
+		}
+	}
+	for _, l := range rows {
+		if t := strings.TrimSpace(boxEdge.ReplaceAllString(l, "")); t != "" {
+			if r := []rune(t); len(r) > questionMax {
+				t = string(r[:questionMax]) + "…"
+			}
+			return t
+		}
+	}
+	return ""
 }
 
 func ClaudePermission(screen string) (Permission, bool) {
@@ -146,6 +184,9 @@ func ClaudePermission(screen string) (Permission, bool) {
 	}
 	p.Tool = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(body[headerAt]), "command"))
 	if !slices.Contains(knownTools, p.Tool) {
+		return Permission{}, false
+	}
+	if slices.ContainsFunc(body[headerAt+1:question], unreviewed.MatchString) {
 		return Permission{}, false
 	}
 	bash := p.Tool == "Bash"

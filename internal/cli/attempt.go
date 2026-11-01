@@ -565,7 +565,7 @@ func askedScreen(screens []trustScreen, text string) (trustScreen, bool) {
 func (s trustScreen) whole(text string) bool {
 	var rows []string
 	for _, l := range strings.Split(text, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
+		if l = strings.TrimSpace(l); l != "" && (len(rows) > 0 || strings.Trim(l, "─") != "") {
 			rows = append(rows, l)
 		}
 	}

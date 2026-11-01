@@ -59,16 +59,17 @@ func TestAnAskWorkersPermissionShowsTheCommandAndTheScreensOwnKeys(t *testing.T)
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	askAttempt(t, fx, "Fix login")
-	fx.screen = capture(t, "commit")
+	screen := strings.Replace(capture(t, "commit"), "git commit *", "git status *", 1)
+	fx.screen = screen
 	h := fx.handler()
 	q := region(get(t, h, "/"), "queue")
 	contains(t, "ask item", q, `data-kind="worker"`, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>git commit -m &#34;wip&#34;</code></pre>", `action="/attempt/a1/keys" data-fetch`)
 	lacks(t, "ask item", q, "Do you want to proceed?</code>", "switch to auto mode")
-	want := [][2]string{{"1", "Approve"}, {"2", "Approve always: git commit"}, {"4", "Deny"}}
+	want := [][2]string{{"1", "Approve"}, {"2", "Approve always: git status"}, {"4", "Deny"}}
 	if got := buttons(q); !slices.Equal(got, want) {
 		t.Fatalf("buttons = %q, want %q", got, want)
 	}
-	digest := luvus.ScreenDigest(capture(t, "commit"))
+	digest := luvus.ScreenDigest(screen)
 	for i, b := range want {
 		res := post(h, "/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {digest}, "after": {"0"}, "key": {b[0]}})
 		if res.StatusCode != http.StatusSeeOther {
@@ -139,7 +140,7 @@ func TestAnAskPromptForAFileOrAUrlShowsThePathAndTheQuestion(t *testing.T) {
 }
 
 func TestAnAskDialogWithoutAToolBodyFallsBackToTheRawScreen(t *testing.T) {
-	for _, name := range []string{"mcp", "plan"} {
+	for _, name := range []string{"mcp", "mcp2", "import", "plan", "unreviewed"} {
 		fx := newFixture(t)
 		askAttempt(t, fx, "Fix login")
 		fx.screen = capture(t, name)
