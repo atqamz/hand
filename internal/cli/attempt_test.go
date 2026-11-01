@@ -43,7 +43,7 @@ func TestAttemptStartLaunchesAWorkerInItsOwnWorktree(t *testing.T) {
 		t.Fatalf("worktree not created: %v", err)
 	}
 	show := fx.h.ok("attempt", "show", "a1")
-	for _, want := range []string{"status: running", "agent: working", "launch: " + toon.Value(call.Command[0]+" --dangerously-skip-permissions --model sonnet --effort low")} {
+	for _, want := range []string{"status: running", "agent: working", "launch: " + toon.Value(call.Command[0]+" --dangerously-skip-permissions --session-id "+call.Command[3]+" --model sonnet --effort low")} {
 		if !strings.Contains(show, want) {
 			t.Fatalf("show = %q, missing %q", show, want)
 		}

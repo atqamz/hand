@@ -20,7 +20,7 @@ import (
 type Status struct {
 	Context, Window int64
 	Compactions     int
-	Selected, Used  string
+	Selected        string
 	Model, Effort   string
 	ModelAt         string
 }

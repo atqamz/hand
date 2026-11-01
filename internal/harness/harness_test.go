@@ -223,7 +223,7 @@ func TestCodexHome(t *testing.T) {
 
 func TestArgvIsExact(t *testing.T) {
 	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "")
-	if err != nil || !slices.Equal(c, []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	if err != nil || len(c) != 9 || !uuidPattern.MatchString(c[3]) || !slices.Equal(slices.Concat(c[:3], c[4:]), []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", "--model", "sonnet", "--effort", "low", "fix it"}) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
 	for _, dir := range spacedDirs(t) {
@@ -297,5 +297,27 @@ func TestAgyArgvIsExact(t *testing.T) {
 	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
+	}
+}
+
+func TestResolvesAnAliasToItsServedId(t *testing.T) {
+	for _, c := range []struct {
+		requested, served string
+		want              bool
+	}{
+		{"sonnet", "claude-sonnet-5-5", true},
+		{"sonnet[1m]", "claude-sonnet-5-5", true},
+		{"haiku", "claude-haiku-4-5-20251001", true},
+		{"claude-sonnet-5-5", "claude-sonnet-5-5", true},
+		{"claude-sonnet-5-5[1m]", "claude-sonnet-5-5", true},
+		{"opus", "claude-sonnet-5-5", false},
+		{"claude-opus-5-5", "claude-sonnet-5-5", false},
+		{"default", "claude-sonnet-5-5", false},
+		{"opus", "claude-opusx-5-5", false},
+		{"", "claude-sonnet-5-5", false},
+	} {
+		if got := Resolves(c.requested, c.served); got != c.want {
+			t.Errorf("Resolves(%q, %q) = %v, want %v", c.requested, c.served, got, c.want)
+		}
 	}
 }

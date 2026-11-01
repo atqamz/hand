@@ -687,6 +687,21 @@ func TestSwitchWhileIdleRelaunchesTheSession(t *testing.T) {
 	}
 }
 
+func TestSwitchAndResumeReadAServedModelId(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	if err := openStore(t, h).SetSupervisorModel(context.Background(), 1, "claude-sonnet-5-5", "low"); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("supervisor", "switch", "--model", "sonnet", "--effort", "low"); code != 3 || !strings.Contains(errOut, "already runs claude-sonnet-5-5 at effort low") {
+		t.Fatalf("switch to the alias of the running id code=%d stderr=%q", code, errOut)
+	}
+	h.ok("supervisor", "stop")
+	h.ok("supervisor", "resume")
+	resumedArgv(t, rt, session, "claude-sonnet-5-5", "low")
+}
+
 func TestSwitchWhileWorkingWaitsForTheTurn(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	fx := &attemptFixture{h: h, rt: rt}

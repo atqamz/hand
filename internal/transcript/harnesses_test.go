@@ -230,9 +230,54 @@ func TestClaudeStatusTracksUsageAndCompactions(t *testing.T) {
 	if _, err := r.Read(context.Background(), "claude", sessionUUID, "/f"); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.Status("claude", sessionUUID); got != (Status{Context: 508311, Window: 1_000_000, Compactions: 1}) {
+	if got := r.Status("claude", sessionUUID); got != (Status{Context: 508311, Window: 1_000_000, Compactions: 1, Model: "claude-opus-5-5", ModelAt: "2026-09-28T01:00:04Z"}) {
 		t.Fatalf("status = %+v", got)
 	}
+}
+
+func TestClaudeStatusFollowsTheServedModelAndEffort(t *testing.T) {
+	assistant := func(at, model, extra string) string {
+		return `{"type":"assistant","timestamp":"` + at + `",` + extra + `"message":{"model":"` + model + `","content":[]}}` + "\n"
+	}
+	home, path := claudeHome(t, assistant("2026-09-28T01:00:01Z", "claude-sonnet-5-5", `"requestedModel":"claude-sonnet-5-5","effort":"high","perTurnEffort":"high",`))
+	r := &Reader{Paths: Paths{Claude: home}}
+	ctx := context.Background()
+	check := func(want Status) {
+		t.Helper()
+		if _, err := r.Read(ctx, "claude", sessionUUID, "/f"); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.Status("claude", sessionUUID); got.Model != want.Model || got.Effort != want.Effort || got.ModelAt != want.ModelAt {
+			t.Fatalf("status = %+v, want %+v", got, want)
+		}
+	}
+	add := func(body string) {
+		t.Helper()
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(Status{Model: "claude-sonnet-5-5", Effort: "high", ModelAt: "2026-09-28T01:00:01Z"})
+
+	add(assistant("2026-09-28T01:00:02Z", "<synthetic>", `"isApiErrorMessage":true,"perTurnEffort":"low",`) + assistant("2026-09-28T01:00:03Z", "<synthetic>", ""))
+	check(Status{Model: "claude-sonnet-5-5", Effort: "high", ModelAt: "2026-09-28T01:00:01Z"})
+
+	add(assistant("2026-09-28T01:00:04Z", "claude-haiku-5-5", `"requestedModel":"claude-opus-5-5","effort":"high","perTurnEffort":"medium",`))
+	check(Status{Model: "claude-haiku-5-5", Effort: "medium", ModelAt: "2026-09-28T01:00:04Z"})
+
+	add(assistant("2026-09-28T01:00:05Z", "claude-haiku-5-5", `"effort":"max",`))
+	check(Status{Model: "claude-haiku-5-5", Effort: "max", ModelAt: "2026-09-28T01:00:05Z"})
+
+	add(assistant("2026-09-28T01:00:06Z", "claude-haiku-5-5", ""))
+	check(Status{Model: "claude-haiku-5-5", Effort: "max", ModelAt: "2026-09-28T01:00:06Z"})
+
+	add(assistant("2026-09-28T01:00:07Z", "claude-opus-5-5", ""))
+	check(Status{Model: "claude-opus-5-5", ModelAt: "2026-09-28T01:00:07Z"})
 }
 
 func TestCodexStatusReadsTokenCount(t *testing.T) {

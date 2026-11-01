@@ -330,7 +330,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			return err
 		}
 		r.warn(warn)
-		if spec.Model == sup.Model && spec.Effort == sup.Effort {
+		if harness.Resolves(spec.Model, sup.Model) && spec.Effort == sup.Effort {
 			return fmt.Errorf("%w: supervisor %s already runs %s at effort %s", state.ErrConflict, ref, sup.Model, sup.Effort)
 		}
 		if err := r.findSession(ctx, st, &sup); err != nil {

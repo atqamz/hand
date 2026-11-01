@@ -183,6 +183,11 @@ func CheckSupervisor(s Spec) error {
 
 var claudeAliases = []string{"opus", "sonnet", "haiku", "fable"}
 
+func Resolves(requested, served string) bool {
+	base := strings.TrimSuffix(requested, "[1m]")
+	return requested == served || base == served || slices.Contains(claudeAliases, base) && strings.HasPrefix(served, "claude-"+base+"-")
+}
+
 func checkCodex(s Spec, env Env) string {
 	l, err := catalog("codex", env)
 	if err != nil {
@@ -257,7 +262,7 @@ func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
 	case "opencode":
 		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
-		return []string{bin, "--dangerously-skip-permissions", "--model", s.Model, "--effort", s.Effort, prompt}, nil
+		return []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort, prompt}, nil
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
 	case "copilot":
