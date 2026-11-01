@@ -1,0 +1,126 @@
+name: Render check
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - internal/board/**
+      - .github/render/**
+      - .github/workflows/render-check.yaml
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PLAYWRIGHT_VERSION: "1.63.0"
+
+jobs:
+  render:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+          - name: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Set the paths
+        run: |
+          {
+            echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/render/browsers"
+            echo "RENDER_PLAYWRIGHT=$RUNNER_TEMP/render/pw/node_modules/playwright"
+            echo "RENDER_OUT=$RUNNER_TEMP/render/after"
+          } >> "$GITHUB_ENV"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/render/browsers
+          key: render-playwright-${{ env.PLAYWRIGHT_VERSION }}-${{ runner.os }}
+      - name: Install Playwright
+        timeout-minutes: 10
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/render/pw"
+          cd "$RUNNER_TEMP/render/pw"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          if [ "$RUNNER_OS" = Linux ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install chromium
+          fi
+      - name: Render the Board scenes and assert the layout
+        timeout-minutes: 15
+        run: node .github/render/check.mjs
+      - name: A layout break fails the check
+        timeout-minutes: 10
+        run: |
+          if RENDER_BREAK=1 RENDER_ONLY=ready RENDER_OUT="$RUNNER_TEMP/render/broken" node .github/render/check.mjs; then
+            echo "the check passed on a page forced wider than its viewport"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: render-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/render/after/shots
+            ${{ runner.temp }}/render/after/run.json
+            ${{ runner.temp }}/render/after/server.log
+          retention-days: 14
+          if-no-files-found: ignore
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.event_name == 'pull_request' && matrix.name == 'linux' }}
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - name: Render the base for before and after
+        id: before
+        if: ${{ github.event_name == 'pull_request' && matrix.name == 'linux' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          RENDER_ASSERT: "0"
+          RENDER_REPO: ${{ github.workspace }}/base
+          RENDER_OUT: ${{ runner.temp }}/render/before
+        run: |
+          cp internal/board/scenes_test.go base/internal/board/scenes_test.go
+          node .github/render/check.mjs
+      - name: Diff the pictures
+        if: ${{ steps.before.outcome == 'success' }}
+        continue-on-error: true
+        run: node .github/render/diff.mjs "$RUNNER_TEMP/render/before/shots" "$RUNNER_TEMP/render/after/shots" "$RUNNER_TEMP/render/diff"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ steps.before.outcome == 'success' }}
+        with:
+          name: render-before-and-diff
+          path: |
+            ${{ runner.temp }}/render/before/shots
+            ${{ runner.temp }}/render/diff
+          retention-days: 14
+          if-no-files-found: ignore
