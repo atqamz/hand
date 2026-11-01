@@ -421,3 +421,15 @@ func TestAttemptSwitchThatFailsKeepsTheOldRequest(t *testing.T) {
 		t.Fatalf("note = %q, %v", got, err)
 	}
 }
+
+func TestAttemptSwitchRecordsTheNewModelWhenTheSwitchErroredAfterApplying(t *testing.T) {
+	fx, _, _ := runningWorker(t, map[string]string{"swdie": "reply lost", "swdieapply": "1"})
+	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its session is on local/m2") || strings.Contains(errOut, "still on its old model") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m2\n")
+	if got := attemptSwitchedEvents(t, fx); len(got) != 1 || !strings.HasPrefix(got[0], "a1: back on its pane, on local/m2, pane ") {
+		t.Fatalf("attempt.switched events = %q", got)
+	}
+}

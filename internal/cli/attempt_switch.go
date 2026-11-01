@@ -90,13 +90,6 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err := atPrompt(); err != nil {
 			return err
 		}
-		_, busy, _, err := transcript.OpencodeSessions(ctx, bin, r.home, r.env.Now(), longTurn)
-		if err != nil {
-			return fmt.Errorf("%w: cannot read opencode's session list (%v); nothing changed", state.ErrConflict, err)
-		}
-		if busy[session] {
-			return fmt.Errorf("%w: opencode still runs a turn of attempt %s; nothing changed; switch it once its turn ends", state.ErrConflict, ref)
-		}
 		prev, err := harness.OpencodeSessionModel(ctx, bin, r.home, session)
 		if err != nil {
 			return fmt.Errorf("%w: cannot read the model of opencode session %s (%v); nothing changed", state.ErrConflict, session, err)
@@ -110,6 +103,13 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		argv, err := harness.SupervisorArgv(bin, to, session, "", a.Worktree, true)
 		if err != nil {
 			return err
+		}
+		_, busy, _, err := transcript.OpencodeSessions(ctx, bin, r.home, r.env.Now(), longTurn)
+		if err != nil {
+			return fmt.Errorf("%w: cannot read opencode's session list (%v); nothing changed", state.ErrConflict, err)
+		}
+		if busy[session] {
+			return fmt.Errorf("%w: opencode still runs a turn of attempt %s; nothing changed; switch it once its turn ends", state.ErrConflict, ref)
 		}
 		if err := atPrompt(); err != nil {
 			return err
@@ -150,10 +150,15 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 			keep, keepEffort := a.Model, a.Effort
 			now, verr := harness.OpencodeSessionModel(ctx, bin, r.home, session)
 			switch {
-			case verr != nil || now.Model != prev.Model || !sameVariant(now.Effort, prev.Effort):
+			case verr != nil:
 				back, sentence = "back on its pane, model unverified", "its model is unverified: the watcher records the session's model on its next sweep"
 			case now.Model != "":
 				keep, keepEffort = now.Model, storedEffort(now.Effort)
+				if now.Model != prev.Model || !sameVariant(now.Effort, prev.Effort) {
+					back, sentence = "back on its pane, on "+specText(now), "its session is on "+specText(now)
+				}
+			case prev.Model != "":
+				back, sentence = "back on its pane, model unverified", "its model is unverified: the watcher records the session's model on its next sweep"
 			}
 			if _, perr := pane(back, keep, keepEffort, false); perr != nil {
 				return noPane(errors.Join(err, perr))

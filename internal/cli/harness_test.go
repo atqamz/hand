@@ -153,6 +153,14 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, "database is locked")
 			return 1
 		case p["swdie"] != "":
+			if p["swdieapply"] != "" {
+				var body struct {
+					Model json.RawMessage `json:"model"`
+				}
+				if json.Unmarshal([]byte(args[6]), &body) == nil {
+					_ = os.WriteFile(p["swapply"], body.Model, 0o644)
+				}
+			}
 			fmt.Fprintln(os.Stderr, p["swdie"])
 			return 1
 		case p["swreject"] != "":
