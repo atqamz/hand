@@ -7,6 +7,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand init [--name NAME] [DIR]` | Make a fleet, or refresh, rename or adopt a moved one. |
 | `hand fleet list` | List the registered fleets and whether each home is found. |
 | `hand project add NAME PATH`, `hand project list` | Register a repository by its absolute path, and list projects. |
+| `hand project grants [--remove ID] NAME` | List the command prefixes the operator approved for always on an `ask` attempt's permission screen, which the project's later `ask` attempts start with, or remove one. |
 | `hand project trust NAME` | Accept the project's current git settings that name a program, after Hand refused to run git because they changed; prints each value. |
 | `hand task add --goal TEXT PROJECT TITLE` | Capture a request as an `inbox` task. |
 | `hand task start tN`, `hand task done [--deliverable PATH_OR_URL] tN`, `hand task abandon tN` | Move a task to `active`, `done` or `abandoned`. `--deliverable`, repeatable, records a file or link the supervisor produced itself: an http(s) URL or an absolute path; any other value is refused, and then nothing is recorded and the task stays as it was. |
@@ -16,7 +17,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand attempt start --profile NAME --prompt-file PATH tN` | Start a worker in a new worktree from the repository's fetched default branch (`origin/HEAD`, else `origin/main`, else `origin/master`, else its current branch; from a remote ref, unpushed local commits are left out, so pass `--base HEAD` to keep them); `--harness` (`claude`, `codex`, `opencode`, `agy` or `copilot`), `--model` and `--effort` replace `--profile` (a model Hand cannot verify starts anyway and the output carries a `warn` field; `copilot` takes `--model auto` and an optional `--effort`, and runs a model its plan lacks on Auto without failing, which Hand notes as `attempt.blocked` when it sees the line at launch, as it does a signed-out Copilot), `--base REF` picks another start point, and `--continue aN` checks out the branch of `aN`, an ended and cleaned attempt of the same task, so pushes reach its PR. Starting a worker ends the task's wait, if it has one (`hand wake --waits`). |
 | `hand attempt list [--task tN] [--limit N]`, `hand attempt show aN` | List attempts, or show one with its live agent state, or the last screen the watcher read from one that ended. |
 | `hand attempt read [--lines N] aN` | Print a running worker's screen, as an indented multi-line block, and its revision. |
-| `hand attempt keys --revision N aN KEY...` | Answer a worker's screen, only if it is still at that revision. |
+| `hand attempt keys --revision N aN KEY...` | Answer a worker's screen, only if it is still at that revision. On an `ask` attempt's permission screen it exits 2 and names the Board, which answers it. |
 | `hand attempt send --text TEXT aN` | Send a worker a message (or `--file PATH`, or `--file -` for stdin), only while it is at its prompt. |
 | `hand attempt stop aN`, `hand attempt clean [--discard] aN` | Stop a worker, and remove an ended attempt's worktree while keeping its branch. |
 | `hand report add --status STATUS --file -` | Report from inside a worker's worktree: `progress`, `done` or `stuck`, from stdin, a file, or `--text`. |

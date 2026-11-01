@@ -150,12 +150,20 @@ Claude Code may reach the network on its own while it answers (an authenticated 
 - **A compromised worker on your own account.** Without steps 1 and 2, it has all of your account's access.
 - **Isolation between workers of one OS user**, egress control, protection of `board.token` from its own fleet's workers, and an audit log. Hand has none of these.
 
+## Ask before each command
+
+A `claude` profile can set `"approve": "ask"` in `routing.json`. Its workers start without `--dangerously-skip-permissions`, so Claude Code asks before each command, and the Board's Needs item shows the exact command with **Approve**, **Approve always for this project** and **Deny**: see [Approval](vocabulary.md#approval). An unanswered prompt is denied after `approve_timeout` (default `10m`), and the supervisor never answers it. The default stays `never`.
+
+```json
+{"profiles": {"careful": {"harness": "claude", "model": "sonnet", "effort": "medium", "approve": "ask"}}, "approve_timeout": "10m"}
+```
+
+Asking is friction, not a boundary. While a worker can reach the fleet's Luvus socket, it can press the keys itself. Use it to see what a worker runs, not to contain a worker you do not trust. Only `claude` supports it; Codex, opencode, agy and Copilot reject the value, because Hand has not captured their prompt screens.
+
 ## Planned, not built
 
 None of this exists yet. The operator's safe-mode study describes them. It is not in this repository. Which of them get built is decided after this page has been read.
 
-- An opt-in permission mode per routing profile, so a worker can start in a Claude Code mode that is not bypass.
-- An approval flow in the Board: approve once, approve always or deny, with a timeout.
 - Read-only roles for review and research workers.
 - A sandbox. The study advises against a sandbox that Hand builds itself.
 

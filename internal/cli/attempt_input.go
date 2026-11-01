@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
@@ -147,6 +148,20 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		if err := pressedSince(ctx, st, state.AttemptRef(id), *after); err != nil {
 			return err
 		}
+		var perm harness.Permission
+		var asked bool
+		if a.Approve == state.ApproveAsk {
+			s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines)
+			if err != nil {
+				return runtimeErr(err)
+			}
+			if s.TerminalID == a.TerminalID {
+				perm, asked = harness.ClaudePermission(s.Text)
+			}
+			if asked && !r.env.Board {
+				return fmt.Errorf("%w: attempt %s asks the operator before each command; answer its permission prompt from the Board", state.ErrInvalid, state.AttemptRef(id))
+			}
+		}
 		if err := pressKeys(ctx, c, a.PaneID, a.TerminalID, keys, *revision, *screen); err != nil {
 			if luvus.Code(err) == "content_revision_conflict" {
 				return fmt.Errorf("%w: the screen changed since revision %d; nothing was sent; read it again", state.ErrConflict, *revision)
@@ -160,6 +175,16 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", state.AttemptRef(id))
 		d.Field("keys", joined)
+		if asked && perm.Always != "" && joined == perm.Always {
+			task, err := st.Task(ctx, a.TaskID)
+			if err != nil {
+				return err
+			}
+			if _, _, err := st.AddGrant(ctx, task.Project, a.Harness, perm.Pattern); err != nil {
+				return err
+			}
+			d.Field("grant", perm.Pattern)
+		}
 		return r.print(&d)
 	})
 }

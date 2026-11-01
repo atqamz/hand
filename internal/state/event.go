@@ -175,7 +175,7 @@ func lastAttemptEvent(ctx context.Context, q interface {
 }
 
 func (s *Store) TurnStart(ctx context.Context, attemptID int64) (time.Time, bool, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT at, kind FROM event WHERE kind IN ('attempt.running', 'attempt.quiet', 'attempt.idle', 'attempt.blocked', 'attempt.limited', 'attempt.sent', 'attempt.keys', 'attempt.long') AND detail LIKE ? ORDER BY seq DESC`, AttemptRef(attemptID)+": %")
+	rows, err := s.db.QueryContext(ctx, `SELECT at, kind FROM event WHERE kind IN ('attempt.running', 'attempt.quiet', 'attempt.idle', 'attempt.blocked', 'attempt.limited', 'attempt.sent', 'attempt.keys', 'attempt.denied', 'attempt.long') AND detail LIKE ? ORDER BY seq DESC`, AttemptRef(attemptID)+": %")
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -191,7 +191,7 @@ scan:
 		switch kind {
 		case "attempt.long":
 			long = true
-		case "attempt.sent", "attempt.keys":
+		case "attempt.sent", "attempt.keys", "attempt.denied":
 			start = at
 		case "attempt.running":
 			if start == "" {

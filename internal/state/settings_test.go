@@ -135,7 +135,7 @@ func TestAVersion12HomeKeepsItsProjectsUnrecordedAndAdoptsLater(t *testing.T) {
 			t.Fatal(err)
 		}
 		var v int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != 14 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 			t.Fatalf("user_version = %d, %v", v, err)
 		}
 		p, err := s.Project(ctx, "app")

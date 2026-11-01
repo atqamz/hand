@@ -30,7 +30,7 @@ func TestLoadPolicyAndPickAProfile(t *testing.T) {
 	if got := p.Names(); !slices.Equal(got, []string{"deep", "quick"}) {
 		t.Fatalf("names = %q", got)
 	}
-	if s, err := p.Profile("deep"); err != nil || s != (Spec{"claude", "opus", "xhigh"}) {
+	if s, err := p.Profile("deep"); err != nil || s.Spec != (Spec{"claude", "opus", "xhigh"}) {
 		t.Fatalf("deep = %+v, %v", s, err)
 	}
 	if _, err := p.Profile("fast"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "deep, quick") {

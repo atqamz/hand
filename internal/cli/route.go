@@ -39,7 +39,7 @@ func cmdRouteList(r *runner, args []string) error {
 	_ = r.refreshModels(unlisted, env, opts)
 	rows := make([][]string, 0, len(p.Profiles))
 	for _, name := range p.Names() {
-		s := p.Profiles[name]
+		s := p.Profiles[name].Spec
 		valid, warn := "yes", ""
 		if _, w, err := checkedBin(r, s); err != nil {
 			valid = err.Error()

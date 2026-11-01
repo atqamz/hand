@@ -69,10 +69,11 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	spec, err := r.routed("attempt start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
+	routed, err := r.routed("attempt start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
 	if err != nil {
 		return err
 	}
+	spec := routed.Spec
 	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
@@ -82,7 +83,6 @@ func cmdAttemptStart(r *runner, args []string) error {
 		return err
 	}
 	text := string(prompt) + reportFooter(exe)
-	argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree) }
 	if err := harness.CheckPrompt(text); err != nil {
 		return err
 	}
@@ -98,6 +98,20 @@ func cmdAttemptStart(r *runner, args []string) error {
 		g, err := repoGit(ctx, st, project)
 		if err != nil {
 			return err
+		}
+		approve := state.ApproveNever
+		argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree) }
+		if routed.Approve == state.ApproveAsk {
+			grants, err := st.Grants(ctx, project.Name, spec.Harness)
+			if err != nil {
+				return err
+			}
+			allow := make([]string, 0, len(grants))
+			for _, grant := range grants {
+				allow = append(allow, harness.ClaudeAllowRule(grant.Pattern))
+			}
+			approve = state.ApproveAsk
+			argvFor = func(worktree string) ([]string, error) { return harness.AskArgv(bin, spec, text, worktree, allow) }
 		}
 		if continues != 0 {
 			prev, err := st.Attempt(ctx, continues)
@@ -119,7 +133,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if len(live) >= liveAttemptsWarn {
 			r.warn(fmt.Sprintf("%d attempts are already live in this fleet; each worker, and any dev server or browser it starts, uses memory", len(live)))
 		}
-		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues}, fleet.Worktrees(r.root, r.fleet.ID))
+		a, err := st.AddAttempt(ctx, state.AttemptSpec{TaskID: taskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, ArgvFor: argvFor, Continues: continues, Approve: approve}, fleet.Worktrees(r.root, r.fleet.ID))
 		if err != nil {
 			return err
 		}
@@ -172,21 +186,29 @@ func cmdAttemptStart(r *runner, args []string) error {
 	})
 }
 
-func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.Spec, error) {
+func (r *runner) routed(cmd string, spec harness.Spec, profile string) (harness.Profile, error) {
 	if profile == "" {
-		return spec, nil
+		return harness.Profile{Spec: spec}, nil
 	}
 	if spec != (harness.Spec{}) {
-		return spec, usageError{cmd + ": give either --profile or --harness/--model/--effort"}
+		return harness.Profile{Spec: spec}, usageError{cmd + ": give either --profile or --harness/--model/--effort"}
 	}
 	if err := r.needHome(); err != nil {
-		return spec, err
+		return harness.Profile{Spec: spec}, err
 	}
 	p, err := harness.LoadPolicy(r.home)
 	if err != nil {
-		return spec, err
+		return harness.Profile{Spec: spec}, err
 	}
 	return p.Profile(profile)
+}
+
+func (r *runner) routedSupervisor(cmd string, spec harness.Spec, profile string) (harness.Spec, error) {
+	p, err := r.routed(cmd, spec, profile)
+	if err == nil && p.Approve == state.ApproveAsk {
+		err = fmt.Errorf("%w: profile %q asks before each command, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
+	}
+	return p.Spec, err
 }
 
 const (
@@ -919,6 +941,9 @@ func cmdAttemptShow(r *runner, args []string) error {
 		d.Field("branch", a.Branch)
 		if a.Continues != 0 {
 			d.Field("continues", state.AttemptRef(a.Continues))
+		}
+		if a.Approve != state.ApproveNever {
+			d.Field("approve", a.Approve)
 		}
 		d.Field("launch", strings.Join(a.Argv[:len(a.Argv)-1], " "))
 		d.Field("prompt_bytes", strconv.Itoa(len(a.Argv[len(a.Argv)-1])))

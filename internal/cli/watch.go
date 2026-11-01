@@ -230,6 +230,9 @@ func (w *watcher) session(ctx context.Context) error {
 				err = w.stall(sctx, c, caps)
 			}
 			if err == nil {
+				err = w.approvals(sctx, c, caps)
+			}
+			if err == nil {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
 				w.refreshModels(ctx)

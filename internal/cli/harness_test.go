@@ -226,16 +226,17 @@ func fakeMain(args []string) int {
 }
 
 type harness struct {
-	name string
-	t    *testing.T
-	home string
-	mu   *sync.Mutex
-	now  time.Time
-	vars map[string]string
-	cwd  string
-	in   io.Reader
-	tty  bool
-	exec [][]string
+	name  string
+	t     *testing.T
+	home  string
+	mu    *sync.Mutex
+	now   time.Time
+	vars  map[string]string
+	cwd   string
+	in    io.Reader
+	tty   bool
+	exec  [][]string
+	board bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -273,7 +274,8 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			}
 			return kv
 		},
-		Now: h.clock,
+		Now:   h.clock,
+		Board: h.board,
 		Exec: func(argv0 string, argv, _ []string) error {
 			h.exec = append(h.exec, append([]string{argv0}, argv...))
 			return nil

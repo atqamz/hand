@@ -20,22 +20,28 @@ import (
 
 const PolicyFile = "routing.json"
 
+type Profile struct {
+	Spec
+	Approve string `json:"approve,omitempty"`
+}
+
 type Policy struct {
-	Profiles   map[string]Spec `json:"profiles"`
-	Notify     []string        `json:"notify,omitzero"`
-	Stall      Stall           `json:"stall,omitzero"`
-	Inbox      Inbox           `json:"inbox,omitzero"`
-	Supervisor struct {
+	Profiles       map[string]Profile `json:"profiles"`
+	Notify         []string           `json:"notify,omitzero"`
+	Stall          Stall              `json:"stall,omitzero"`
+	Inbox          Inbox              `json:"inbox,omitzero"`
+	ApproveTimeout ApproveTimeout     `json:"approve_timeout,omitzero"`
+	Supervisor     struct {
 		Autoresume bool `json:"autoresume"`
 	} `json:"supervisor,omitzero"`
 }
 
-var StarterPolicy = Policy{Profiles: map[string]Spec{
-	"quick":   {Harness: "claude", Model: "sonnet", Effort: "low"},
-	"default": {Harness: "claude", Model: "sonnet", Effort: "medium"},
-	"high":    {Harness: "claude", Model: "sonnet", Effort: "high"},
-	"deep":    {Harness: "claude", Model: "sonnet", Effort: "xhigh"},
-	"max":     {Harness: "claude", Model: "sonnet", Effort: "max"},
+var StarterPolicy = Policy{Profiles: map[string]Profile{
+	"quick":   {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "low"}},
+	"default": {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "medium"}},
+	"high":    {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "high"}},
+	"deep":    {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "xhigh"}},
+	"max":     {Spec: Spec{Harness: "claude", Model: "sonnet", Effort: "max"}},
 }}
 
 var profileName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
@@ -92,6 +98,30 @@ func (s Stall) Delay(n int) time.Duration {
 		d = min(2*d, s.Every)
 	}
 	return d
+}
+
+type ApproveTimeout time.Duration
+
+const DefaultApproveTimeout = 10 * time.Minute
+
+func (t *ApproveTimeout) UnmarshalJSON(b []byte) error {
+	var text string
+	if json.Unmarshal(b, &text) != nil {
+		return errors.New(`approve_timeout must be a duration from 1m to 24h, like "10m"`)
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil || d < time.Minute || d > 24*time.Hour {
+		return fmt.Errorf("approve_timeout is %q; give a duration from 1m to 24h, like \"10m\"", text)
+	}
+	*t = ApproveTimeout(d)
+	return nil
+}
+
+func (p Policy) ApproveWait() time.Duration {
+	if p.ApproveTimeout == 0 {
+		return DefaultApproveTimeout
+	}
+	return time.Duration(p.ApproveTimeout)
 }
 
 type Inbox struct{ Keep time.Duration }
@@ -152,8 +182,24 @@ func LoadPolicy(home string) (Policy, error) {
 		if !profileName.MatchString(name) {
 			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
 		}
+		if err := checkApprove(name, p.Profiles[name]); err != nil {
+			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
+		}
 	}
 	return p, nil
+}
+
+func checkApprove(name string, pr Profile) error {
+	switch pr.Approve {
+	case "", state.ApproveNever:
+		return nil
+	case state.ApproveAsk:
+		if pr.Harness != "claude" {
+			return fmt.Errorf("profile %q: approve %q is only available for claude, not %s", name, state.ApproveAsk, pr.Harness)
+		}
+		return nil
+	}
+	return fmt.Errorf("profile %q: approve is %q; give %q or %q", name, pr.Approve, state.ApproveNever, state.ApproveAsk)
 }
 
 func (p Policy) Names() []string {
@@ -165,10 +211,10 @@ func (p Policy) Names() []string {
 	return names
 }
 
-func (p Policy) Profile(name string) (Spec, error) {
+func (p Policy) Profile(name string) (Profile, error) {
 	s, ok := p.Profiles[name]
 	if !ok {
-		return Spec{}, fmt.Errorf("%w: unknown profile %q; known: %s", state.ErrInvalid, name, strings.Join(p.Names(), ", "))
+		return Profile{}, fmt.Errorf("%w: unknown profile %q; known: %s", state.ErrInvalid, name, strings.Join(p.Names(), ", "))
 	}
 	return s, nil
 }

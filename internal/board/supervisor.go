@@ -415,7 +415,7 @@ func (b *Board) profilesFor(name string) []profile {
 	now := b.now()
 	var out []profile
 	for _, n := range p.Names() {
-		s := p.Profiles[n]
+		s := p.Profiles[n].Spec
 		if (name != "" && s.Harness != name) || harness.CheckSupervisor(s) != nil {
 			continue
 		}

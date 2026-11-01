@@ -11,9 +11,10 @@ import (
 )
 
 var projectCommands = map[string]handler{
-	"add":   cmdProjectAdd,
-	"list":  cmdProjectList,
-	"trust": cmdProjectTrust,
+	"add":    cmdProjectAdd,
+	"list":   cmdProjectList,
+	"trust":  cmdProjectTrust,
+	"grants": cmdProjectGrants,
 }
 
 func init() {
@@ -107,6 +108,47 @@ func cmdProjectTrust(r *runner, args []string) error {
 	d.Field("project", p.Name)
 	d.Field("status", status)
 	d.Rows("settings", []string{"setting", "value"}, rows)
+	return r.print(&d)
+}
+
+func cmdProjectGrants(r *runner, args []string) error {
+	fs := flags("project grants")
+	remove := fs.Int64("remove", 0, "id of the grant to remove")
+	pos, err := parse(fs, args, 1)
+	if err != nil {
+		return err
+	}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	ctx := r.ctx()
+	p, err := st.Project(ctx, pos[0])
+	if err != nil {
+		return err
+	}
+	var d toon.Doc
+	d.Field("project", p.Name)
+	if *remove != 0 {
+		g, err := st.RemoveGrant(ctx, p.Name, *remove)
+		if err != nil {
+			return err
+		}
+		d.Field("removed", strconv.FormatInt(g.ID, 10)+" "+g.Harness+" "+g.Pattern)
+	}
+	grants, err := st.Grants(ctx, p.Name, "")
+	if err != nil {
+		return err
+	}
+	rows := make([][]string, 0, len(grants))
+	for _, g := range grants {
+		rows = append(rows, []string{strconv.FormatInt(g.ID, 10), g.Harness, printable(g.Pattern), g.CreatedAt})
+	}
+	d.Rows("grants", []string{"id", "harness", "pattern", "created_at"}, rows)
+	if len(grants) > 0 {
+		d.Help("Remove one: `hand project grants --remove ID " + p.Name + "`")
+	}
 	return r.print(&d)
 }
 
