@@ -242,6 +242,10 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 			fx.removeHarnesses()
 			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`)
 		}},
+		{"no copilot and a profile naming it", "profile default", "fail", "copilot not found on PATH; install copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`), or add its folder to PATH", 1, func(fx *doctorFixture) {
+			fx.removeHarnesses()
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"copilot","model":"auto"}}}`)
+		}},
 		{"no harness and a routing.json cut down to one starter profile", "profile default", "fail", "claude not found on PATH", 1, func(fx *doctorFixture) {
 			fx.removeHarnesses()
 			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}}`)
