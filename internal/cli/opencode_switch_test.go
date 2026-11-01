@@ -467,6 +467,17 @@ func TestAFailedPaneFromAnUnreadableModelSaysWhereTheSessionStays(t *testing.T) 
 	}
 }
 
+func TestASwitchFromTheDefaultModelStopsWhenTheSessionModelCannotBeRead(t *testing.T) {
+	h, _, o, _ := runningOpencode(t, map[string]string{"getdie": "database is locked"})
+	_, errOut, code := h.run("supervisor", "switch", "--model", "local/m2")
+	if code == 0 || !strings.Contains(errOut, "database is locked") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := afterStart(o, 1); !slices.Equal(got, []string{"stop"}) {
+		t.Fatalf("events after the start = %q", got)
+	}
+}
+
 func TestASlowFirstReadOfTheNoteDoesNotCancelTheCheck(t *testing.T) {
 	wait := *cli.NoteWait
 	*cli.NoteWait = time.Millisecond

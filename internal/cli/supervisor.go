@@ -260,7 +260,11 @@ func (r *runner) relaunch(ctx context.Context, st *state.Store, c luvus.Client, 
 	}
 	if last.Switching() && spec.Harness == "opencode" && spec.Model != "" {
 		if prev.Model == "" {
-			prev, _ = harness.OpencodeSessionModel(ctx, bin, r.home, last.Session)
+			found, err := harness.OpencodeSessionModel(ctx, bin, r.home, last.Session)
+			if err != nil {
+				return state.Supervisor{}, err
+			}
+			prev = found
 		}
 		if err := harness.OpencodeSwitch(ctx, bin, r.home, last.Session, spec); err != nil {
 			return state.Supervisor{}, err
@@ -346,11 +350,10 @@ func opencodeLastUser(home string, argv []string) func(context.Context) (string,
 func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool), note string) (taken, read bool) {
 	deadline := time.Now().Add(noteWait)
 	for {
-		if text, ok := lastUser(ctx); ok {
-			read = true
-			if strings.TrimSpace(text) == note {
-				return true, true
-			}
+		text, ok := lastUser(ctx)
+		read = ok
+		if ok && strings.TrimSpace(text) == note {
+			return true, true
 		}
 		if !time.Now().Before(deadline) {
 			return false, read

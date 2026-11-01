@@ -120,6 +120,10 @@ func ocapiMain(args []string) int {
 		}
 		fmt.Printf(`{"data":[{"id":"msg_%d","type":"user","text":%s}]}`, len(sent), sent[len(sent)-1])
 	case len(args) > 4 && args[0] == "api" && args[2] == "session.get":
+		if p["getdie"] != "" {
+			fmt.Fprintln(os.Stderr, p["getdie"])
+			return 1
+		}
 		if p["sessionmodel"] == "" {
 			fmt.Print(`{"data":{"id":"ses"}}`)
 			return 0
