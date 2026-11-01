@@ -113,8 +113,10 @@ func (t transcriptSource) labels(ctx context.Context) func(string, time.Time) (s
 			return "", ""
 		}
 		s := t.w.transcripts.Status(t.harness, session)
-		if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err == nil && at.Before(since) {
-			return "", ""
+		if !since.IsZero() {
+			if at, err := time.Parse(time.RFC3339Nano, s.ModelAt); err != nil || at.Before(since) {
+				return "", ""
+			}
 		}
 		return s.Model, s.Effort
 	}

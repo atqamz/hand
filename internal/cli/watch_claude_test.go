@@ -161,6 +161,11 @@ func TestWatcherRecordsTheServedClaudeAndCopilotModel(t *testing.T) {
 	if got := models(); got[0] != "sonnet" || got[1] != "low" {
 		t.Fatalf("a row newer than the turn models = %q", got)
 	}
+	add(supFile, `{"type":"assistant","message":{"model":"claude-haiku-5-5","content":[]}}`+"\n")
+	sweep()
+	if got := models(); got[0] != "sonnet" || got[1] != "low" {
+		t.Fatalf("a reply without a timestamp models = %q", got)
+	}
 	got, _, _ := st.LiveSupervisor(ctx)
 	if spec := lastSpec(got); spec != (harness.Spec{Harness: "claude", Model: "sonnet", Effort: "low"}) {
 		t.Fatalf("resume spec = %+v", spec)
