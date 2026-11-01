@@ -148,6 +148,17 @@ async function serve() {
   return { base: `http://${addr}`, token, close };
 }
 
+async function open(page, url) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await page.goto(url, { waitUntil: 'domcontentloaded' });
+    } catch (e) {
+      if (attempt === 5 || !String(e).includes('ERR_NO_BUFFER_SPACE')) throw e;
+      await sleep(2000);
+    }
+  }
+}
+
 async function render(browser, server, width, theme, rows) {
   const [w, h] = sizes[width];
   const touch = width < 600;
@@ -174,7 +185,7 @@ async function render(browser, server, width, theme, rows) {
   for (const [name, route, clicks = [], below = Infinity] of scenes) {
     if (width >= below) continue;
     errors.length = 0;
-    const res = await page.goto(`${server.base}/${route}?token=${server.token}`, { waitUntil: 'domcontentloaded' });
+    const res = await open(page, `${server.base}/${route}?token=${server.token}`);
     await page.waitForTimeout(400);
     const missed = [];
     for (const raw of clicks) {
