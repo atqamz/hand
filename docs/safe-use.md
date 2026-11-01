@@ -134,7 +134,7 @@ Hand lists the models of each harness with one command each, with no prompt and 
 |---|---|---|
 | Claude Code | `claude -p --input-format stream-json --output-format stream-json --verbose --no-session-persistence`, with one `initialize` request on stdin | the `models` array of the answer: name, display name, supported efforts. The answer also holds `account` data and the command list; Hand's decoder declares neither and drops them |
 | Codex | `codex debug models --bundled`, else a read of `$CODEX_HOME/models_cache.json` | slug, display name, visibility, effort levels. Not `identity`, `etag` or any instruction text |
-| opencode | `opencode models --standalone` | model names, one per line. Never without `--standalone`, which leaves a server running; never `api`, `auth export` or `debug config`, which can print a key |
+| opencode | `opencode models --standalone`, then `opencode api --standalone GET /api/model` | model names, one per line, and from the answer only each model's provider, id and variant ids; Hand's decoder declares nothing else, so the provider settings the answer carries, which can hold a key, are dropped, and a failed or unreadable call only leaves the variants out. Never without `--standalone`, which leaves a server running; never another `api` call, `auth export` or `debug config`, which can print a key |
 | Antigravity (`agy`) | `agy models` | id and label |
 | GitHub Copilot (`copilot`) | `copilot help config` | the quoted names under `model`, and `auto`. The page also describes every setting; Hand reads nothing else from it |
 
