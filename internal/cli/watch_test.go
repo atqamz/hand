@@ -1555,3 +1555,22 @@ func TestACopilotLaunchNoteSurvivesAWatcherStart(t *testing.T) {
 		t.Fatalf("orient = %q", out)
 	}
 }
+
+func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
+	fx := newAttemptFixture(t)
+	codexCache(t, fx.h)
+	fx.h.ok("attempt", "start", "--harness", "codex", "--model", "gpt-6-luna", "--effort", "low", "--prompt-file", fx.brief, "t1")
+	stop := startWatch(t, fx)
+	defer stop()
+	screen, err := os.ReadFile(filepath.Join("..", "harness", "testdata", "codex-question.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.screen = "blocked", "", string(screen) })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "codex"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if !strings.Contains(got, "a1: question: I can finish this two ways. Should the migration keep the old column or drop it?") {
+		t.Fatalf("events = %q", got)
+	}
+}

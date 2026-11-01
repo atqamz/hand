@@ -1002,6 +1002,14 @@ func TestBlockedWakesLeaveOutTheScreenHint(t *testing.T) {
 	}
 }
 
+func TestBlockedWakeNamesAQuestionWithoutItsText(t *testing.T) {
+	title := func(int64) string { return "Fix login" }
+	digest, _ := cli.WakeDigest([]state.Event{{Seq: 1, Kind: "attempt.blocked", TaskID: 1, Detail: "a1: question: Keep the old column?"}}, title)
+	if want := "[hand v1 wake]\nattempt.blocked a1: its screen shows a question for the operator (t1 \"Fix login\")"; digest != want {
+		t.Fatalf("digest = %q, want %q", digest, want)
+	}
+}
+
 func TestSwitchingHarnessKeepsTheSupervisorWhenItCannotStartTheNext(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	codexCache(t, h)
