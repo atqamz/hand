@@ -326,8 +326,7 @@ func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
 			}
 			return kv
 		},
-		Now:   h.clock,
-		Board: h.board,
+		Now: h.clock,
 		Exec: func(argv0 string, argv, _ []string) error {
 			h.exec = append(h.exec, append([]string{argv0}, argv...))
 			return nil

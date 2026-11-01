@@ -1,0 +1,12 @@
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  New MCP server found in this project: evil
+
+  MCP servers may execute code or access system resources. All tool calls require approval. Learn more in the MCP
+  documentation.
+
+    Use this MCP server
+    Use this and all future MCP servers in this project
+  ❯ Continue without using this MCP server
+
+  Enter to confirm · Esc to cancel

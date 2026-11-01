@@ -426,7 +426,11 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 					}
 					if perm, ok := harness.ClaudePermission(s.Text); ok && a.Approve == state.ApproveAsk {
 						w.Command, w.Actions = perm.Command, permissionActions(perm)
-						w.Title = perm.Tool + ": " + strings.SplitN(perm.Command, "\n", 2)[0]
+						first, more, _ := strings.Cut(perm.Command, "\n")
+						w.Title = perm.Tool + ": " + first
+						if more != "" {
+							w.Title += " (+" + strconv.Itoa(strings.Count(more, "\n")+1) + " lines)"
+						}
 					}
 					if w.Pressed, err = b.st.LastKeys(ctx, w.Ref); err != nil {
 						return nil, err

@@ -112,6 +112,43 @@ func TestAnAskPromptWithoutAlwaysOffersTwoButtons(t *testing.T) {
 	}
 }
 
+func TestAnAskPromptForAFileOrAUrlShowsThePathAndTheQuestion(t *testing.T) {
+	for name, tc := range map[string]struct {
+		title string
+		shown []string
+		deny  string
+	}{
+		"edit":     {"Edit file: hello.txt (+5 lines)", []string{"hello.txt\n1  alpha\n2 -beta\n2 +BETA\n3  gamma\nDo you want to make this edit to hello.txt?"}, "3"},
+		"write":    {"Create file: new.txt (+3 lines)", []string{"new.txt\n 1 line1\n 2 line2\nDo you want to create new.txt?"}, "3"},
+		"webfetch": {"Fetch: Claude wants to fetch content from example.com (+3 lines)", []string{"url: https://example.com/a?b=1", "Do you want to allow Claude to fetch this content?"}, "3"},
+		"long16":   {"Bash: echo line1 (+15 lines)", []string{"echo line1\n"}, "4"},
+	} {
+		fx := newFixture(t)
+		askAttempt(t, fx, "Fix login")
+		fx.screen = capture(t, name)
+		q := region(get(t, fx.handler(), "/"), "queue")
+		escaped := strings.NewReplacer("+", "&#43;")
+		contains(t, name, q, escaped.Replace(tc.title))
+		for _, shown := range tc.shown {
+			contains(t, name, q, escaped.Replace(shown))
+		}
+		if got, want := buttons(q), [][2]string{{"1", "Approve"}, {tc.deny, "Deny"}}; !slices.Equal(got, want) {
+			t.Fatalf("%s: buttons = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestAnAskDialogWithoutAToolBodyFallsBackToTheRawScreen(t *testing.T) {
+	for _, name := range []string{"mcp", "plan"} {
+		fx := newFixture(t)
+		askAttempt(t, fx, "Fix login")
+		fx.screen = capture(t, name)
+		q := region(get(t, fx.handler(), "/"), "queue")
+		lacks(t, name, q, ">Approve</button>", ">Deny</button>")
+		contains(t, name, q, `<span class="badge">ask</span>`, `<pre class="screen"><code>`)
+	}
+}
+
 func TestAnAskScreenItDoesNotRecogniseFallsBackToTheRawScreen(t *testing.T) {
 	fx := newFixture(t)
 	askAttempt(t, fx, "Fix login")

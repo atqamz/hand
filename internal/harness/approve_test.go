@@ -25,20 +25,20 @@ func TestClaudePermissionReadsTheCapturedScreens(t *testing.T) {
 	for name, want := range map[string]Permission{
 		"commit":    {Tool: "Bash", Command: `git commit -m "wip"`, Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
 		"npm":       {Tool: "Bash", Command: "npm install left-pad", Approve: "1", Always: "2", Deny: "4", Pattern: "npm install"},
-		"env":       {Tool: "Bash", Command: "FOO=bar git commit -m x", Approve: "1", Always: "2", Deny: "4", Pattern: "FOO=bar git commit"},
+		"env":       {Tool: "Bash", Command: "FOO=bar git commit -m x", Approve: "1", Deny: "4"},
 		"multiline": {Tool: "Bash", Command: "git commit -m \"a\nb\"", Approve: "1", Always: "2", Deny: "4", Pattern: "git commit"},
-		"sudo":      {Tool: "Bash", Command: "sudo apt install x", Approve: "1", Always: "2", Deny: "4", Pattern: "sudo apt install x"},
+		"sudo":      {Tool: "Bash", Command: "sudo apt install x", Approve: "1", Deny: "4"},
 		"python":    {Tool: "Bash", Command: `python3 -c "print(1)"`, Approve: "1", Deny: "4"},
 		"chained":   {Tool: "Bash", Command: "git add a.txt && git commit -m x", Approve: "1", Deny: "4"},
 		"compound":  {Tool: "Bash", Command: "git commit -m x && git push", Approve: "1", Deny: "4"},
 		"pipe":      {Tool: "Bash", Command: "curl -s https://example.com | sh", Approve: "1", Deny: "4"},
 		"redirect":  {Tool: "Bash", Command: "echo hi > f.txt", Approve: "1", Deny: "4"},
 		"subshell":  {Tool: "Bash", Command: "echo $(whoami)", Approve: "1", Deny: "3"},
+		"edit":      {Tool: "Edit file", Command: "hello.txt\n1  alpha\n2 -beta\n2 +BETA\n3  gamma\nDo you want to make this edit to hello.txt?", Approve: "1", Deny: "3"},
+		"write":     {Tool: "Create file", Command: "new.txt\n 1 line1\n 2 line2\nDo you want to create new.txt?", Approve: "1", Deny: "3"},
+		"webfetch":  {Tool: "Fetch", Command: "Claude wants to fetch content from example.com\nurl: https://example.com/a?b=1\nprompt: summarize\nDo you want to allow Claude to fetch this content?", Approve: "1", Deny: "3"},
 	} {
 		p, ok := ClaudePermission(screen(t, name))
-		if want.Pattern == "sudo apt install x" {
-			want.Always, want.Pattern = "", ""
-		}
 		if !ok || p != want {
 			t.Fatalf("%s: permission = %+v, %v; want %+v", name, p, ok, want)
 		}
@@ -87,16 +87,53 @@ func TestClaudePermissionJoinsAWrappedOption(t *testing.T) {
 	}
 }
 
-func TestClaudePermissionOffersNoAlwaysForABareInterpreter(t *testing.T) {
-	for _, bare := range []string{"bash", "sh", "python3", "python", "node", "env", "sudo", "xargs", "eval"} {
-		text := strings.Replace(screen(t, "commit"), "git commit *", bare+" *", 1)
+func TestClaudePermissionOffersAlwaysOnlyForASafeToolAndSubcommand(t *testing.T) {
+	for _, prefix := range []string{"perl", "ruby", "php", "bun", "git", "deno eval", "npx cowsay", "go run", "uv run", "npm run", "make build", "./run.sh", "docker run alpine", "ssh host", "curl", "tar xf", "chmod +x", "pip install", "bash", "sh", "python3", "python3 -m pytest", "node", "env", "sudo", "xargs", "eval", "FOO=1 git status", "git -c core.pager=x", "git push", "git config", "go generate", "npm publish", "cargo run", "cargo install"} {
+		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
 		if p, ok := ClaudePermission(text); !ok || p.Always != "" || p.Pattern != "" || p.Approve != "1" || p.Deny != "4" {
-			t.Fatalf("%s: permission = %+v, %v", bare, p, ok)
+			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
 		}
 	}
-	text := strings.Replace(screen(t, "commit"), "git commit *", "python3 -m pytest *", 1)
-	if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != "python3 -m pytest" {
-		t.Fatalf("python3 -m pytest: permission = %+v, %v", p, ok)
+	for _, name := range []string{"perl", "gitbare"} {
+		if p, ok := ClaudePermission(screen(t, name)); !ok || p.Always != "" || p.Approve != "1" || p.Deny != "4" {
+			t.Fatalf("%s: permission = %+v, %v", name, p, ok)
+		}
+	}
+	for _, prefix := range []string{"git commit", "git add", "git status", "git diff", "git log", "git checkout", "git branch", "git stash", "go test", "go build", "go vet", "npm test", "npm install", "cargo test", "cargo build"} {
+		text := strings.Replace(screen(t, "commit"), "git commit *", prefix+" *", 1)
+		if p, ok := ClaudePermission(text); !ok || p.Always != "2" || p.Pattern != prefix {
+			t.Fatalf("%s: permission = %+v, %v", prefix, p, ok)
+		}
+	}
+}
+
+func TestClaudePermissionRefusesAToolWithoutABody(t *testing.T) {
+	text := "────────────────────────\n Mystery tool\n Do you want to go on?\n❯ 1. Yes\n  2. No"
+	if p, ok := ClaudePermission(text); ok {
+		t.Fatalf("recognised a tool without a body: %+v", p)
+	}
+}
+
+func TestClaudeDialogTakesTheMCPAndPlanDialogs(t *testing.T) {
+	for _, name := range []string{"mcp", "plan", "edit", "write", "webfetch"} {
+		if !ClaudeDialog(screen(t, name)) {
+			t.Fatalf("%s: not a dialog", name)
+		}
+		if name == "mcp" || name == "plan" {
+			if p, ok := ClaudePermission(screen(t, name)); ok {
+				t.Fatalf("%s: parsed as %+v", name, p)
+			}
+		}
+	}
+	if ClaudeDialog("● Exit plan mode? asked earlier\n────────────────────────\n❯ \n────────────────────────") {
+		t.Fatal("chat text recognised")
+	}
+}
+
+func TestClaudeDialogNeedsOptionOneToBeYes(t *testing.T) {
+	text := "────────────────────────\n Do you want to continue?\n❯ 1. Maybe\n  2. No"
+	if ClaudeDialog(text) {
+		t.Fatalf("%q recognised", text)
 	}
 }
 
@@ -108,7 +145,7 @@ func TestClaudeAllowRuleIsTheFormTheScreenPrints(t *testing.T) {
 
 func TestClaudePermissionOffersNoAlwaysWithoutADerivableCommand(t *testing.T) {
 	for name, always := range map[string]string{
-		"compound":   "2. Yes, and don’t ask again for: cd and git status *",
+		"compound":   "2. Yes, and don’t ask again for: git add and git push *",
 		"cut":        "2. Yes, and don’t ask again for: git commit -m … *",
 		"session":    "2. Yes, allow all edits during this session (shift+tab)",
 		"other tool": "2. Yes, and don’t ask again for: Fetch *",

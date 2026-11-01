@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"slices"
@@ -121,6 +122,14 @@ func TestApproveAlwaysStoresAGrantOnlyTheSameProjectsNextAttemptGets(t *testing.
 	fx.startProfile("ask")
 	fx.h.board = true
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, capture(t, "commit") })
+	for _, key := range []string{"1", "4"} {
+		if out := fx.h.ok("attempt", "keys", "--revision", "7", "a1", key); strings.Contains(out, "grant") {
+			t.Fatalf("key %s: %q", key, out)
+		}
+		if grants := fx.h.ok("project", "grants", "app"); strings.Contains(grants, "git commit") {
+			t.Fatalf("key %s stored a grant: %q", key, grants)
+		}
+	}
 	if out := fx.h.ok("attempt", "keys", "--revision", "7", "a1", "2"); !strings.Contains(out, "grant: git commit") {
 		t.Fatalf("keys = %q", out)
 	}
@@ -238,7 +247,7 @@ func TestAScreenItDoesNotRecogniseIsNeverDenied(t *testing.T) {
 }
 
 func TestAnUnparsedPermissionDialogIsDeniedWithEscAndAWrappedOneWithItsOwnKey(t *testing.T) {
-	for name, want := range map[string]string{"long16_last20": "esc", "pipe": "4"} {
+	for name, want := range map[string]string{"long16_last20": "esc", "pipe": "4", "mcp": "esc", "plan": "esc"} {
 		fx, _ := askWatch(t, `,"approve_timeout":"2m"`, capture(t, name))
 		fx.h.advance(2 * time.Minute)
 		eventually(t, func() bool { return denials(fx) == 1 })
@@ -259,6 +268,57 @@ func TestAttemptKeysRefusesAnAskAttemptsDialogEvenWhenItCannotBeParsed(t *testin
 		}
 	}
 	if got := fx.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys sent = %q", got)
+	}
+}
+
+func TestAttemptKeysRefusesAnAskAttemptsBlockedScreenUnlessItIsATrustScreen(t *testing.T) {
+	fx := newAttemptFixture(t)
+	askPolicy(t, fx, "")
+	fx.startProfile("ask")
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "blocked" })
+	for name, text := range map[string]string{
+		"mcp":     capture(t, "mcp"),
+		"plan":    capture(t, "plan"),
+		"unknown": "Something odd\n❯ 1. Go\n  2. Stop",
+	} {
+		fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, text })
+		if _, errOut, code := fx.h.run("attempt", "keys", "--revision", "7", "a1", "enter"); code != 2 || !strings.Contains(errOut, "Board") {
+			t.Fatalf("%s: code=%d stderr=%q", name, code, errOut)
+		}
+	}
+	if got := fx.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys sent = %q", got)
+	}
+	trust := "Quick safety check: Is this a project you created or one you trust?\n❯ Yes, I trust this folder\n  No, exit"
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, trust })
+	fx.h.ok("attempt", "keys", "--revision", "8", "a1", "enter")
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 9, "● Working\n\n❯ ", "idle" })
+	fx.h.ok("attempt", "keys", "--revision", "9", "a1", "down")
+	if got := fx.rt.keysSent(); !slices.Equal(got, []string{"enter", "down"}) {
+		t.Fatalf("keys sent = %q", got)
+	}
+}
+
+func TestAGrantThatCannotBeSavedAfterTheKeyIsAWarningNotAnError(t *testing.T) {
+	fx := newAttemptFixture(t)
+	askPolicy(t, fx, "")
+	fx.startProfile("ask")
+	fx.h.board = true
+	db, err := sql.Open("sqlite", filepath.Join(fx.h.home, "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`DROP TABLE project_grant`); err != nil {
+		t.Fatal(err)
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, capture(t, "commit") })
+	out, errOut, code := fx.h.run("attempt", "keys", "--revision", "7", "a1", "2")
+	if code != 0 || !strings.Contains(out, "keys: 2") || strings.Contains(out, "grant") || !strings.Contains(errOut, "warning: approved, but the grant for \"git commit\" was not saved") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	if got := fx.rt.keysSent(); !slices.Equal(got, []string{"2"}) {
 		t.Fatalf("keys sent = %q", got)
 	}
 }

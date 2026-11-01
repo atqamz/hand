@@ -158,6 +158,13 @@ func cmdAttemptKeys(r *runner, args []string) error {
 			if s.TerminalID == a.TerminalID {
 				perm, asked = harness.ClaudePermission(s.Text)
 				asked = asked || harness.ClaudeDialog(s.Text)
+				if _, trust := askedScreen(trustScreens[a.Harness], s.Text); !asked && !trust {
+					ag, err := c.Explain(ctx, a.PaneID)
+					if err != nil {
+						return runtimeErr(err)
+					}
+					asked = ag.Status == "blocked"
+				}
 			}
 			if asked && !r.env.Board {
 				return fmt.Errorf("%w: attempt %s asks the operator before each command; answer its permission prompt from the Board", state.ErrInvalid, state.AttemptRef(id))
@@ -178,13 +185,14 @@ func cmdAttemptKeys(r *runner, args []string) error {
 		d.Field("keys", joined)
 		if asked && perm.Always != "" && joined == perm.Always {
 			task, err := st.Task(ctx, a.TaskID)
+			if err == nil {
+				_, _, err = st.AddGrant(ctx, task.Project, a.Harness, perm.Pattern)
+			}
 			if err != nil {
-				return fmt.Errorf("approved; grant not saved: %w", err)
+				fmt.Fprintf(r.env.Stderr, "warning: approved, but the grant for %q was not saved: %v\n", perm.Pattern, err)
+			} else {
+				d.Field("grant", perm.Pattern)
 			}
-			if _, _, err := st.AddGrant(ctx, task.Project, a.Harness, perm.Pattern); err != nil {
-				return fmt.Errorf("approved; grant not saved: %w", err)
-			}
-			d.Field("grant", perm.Pattern)
 		}
 		return r.print(&d)
 	})
