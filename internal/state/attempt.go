@@ -225,6 +225,27 @@ func (s *Store) AttemptRunning(ctx context.Context, id int64, t Terminal) (Attem
 	return out, err
 }
 
+func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to string) (Attempt, error) {
+	var out Attempt
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, id)
+		if err != nil {
+			return err
+		}
+		if a.Status != AttemptRunning {
+			return fmt.Errorf("%w: attempt %s is %s and cannot be switched", ErrConflict, AttemptRef(id), a.Status)
+		}
+		if _, err := tx.Exec(`UPDATE attempt SET server_generation = ?, terminal_id = ?, pane_id = ?, pid = ?, start_marker = ? WHERE id = ?`,
+			t.ServerGeneration, t.TerminalID, t.PaneID, t.PID, t.StartMarker, id); err != nil {
+			return err
+		}
+		a.Terminal = t
+		out = a
+		return emit(tx, s.stamp(), "attempt.switched", a.TaskID, AttemptRef(id)+": "+to+", pane "+t.PaneID)
+	})
+	return out, err
+}
+
 func (s *Store) EndAttempt(ctx context.Context, id int64, to, reason string) (Attempt, error) {
 	return s.EndAttemptWithScreen(ctx, id, to, reason, "")
 }

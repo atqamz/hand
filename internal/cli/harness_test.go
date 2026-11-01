@@ -148,6 +148,12 @@ func ocapiMain(args []string) int {
 			return 1
 		}
 		fmt.Print(p["swanswer"])
+	case len(args) == 4 && args[0] == "api" && args[2] == "GET" && strings.HasPrefix(args[3], "/api/session"):
+		if b, err := os.ReadFile(p["sessionlist"]); err == nil {
+			fmt.Print(string(b))
+			return 0
+		}
+		fmt.Print(`{"data":[]}`)
 	default:
 		time.Sleep(5 * time.Minute)
 	}
