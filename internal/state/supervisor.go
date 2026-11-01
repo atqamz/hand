@@ -112,7 +112,13 @@ func (s *Store) AddSupervisor(ctx context.Context, spec SupervisorSpec) (Supervi
 		if out.ID, err = res.LastInsertId(); err != nil {
 			return err
 		}
-		return emit(tx, out.CreatedAt, "supervisor.launching", 0, SupervisorRef(out.ID)+": "+out.Harness)
+		if err := emit(tx, out.CreatedAt, "supervisor.launching", 0, SupervisorRef(out.ID)+": "+out.Harness); err != nil {
+			return err
+		}
+		if out.Harness == "opencode" && out.Model != "" {
+			return emit(tx, out.CreatedAt, "model.requested", 0, SupervisorRef(out.ID)+": "+askedModel(out.Model, out.Effort))
+		}
+		return nil
 	})
 	return out, err
 }
