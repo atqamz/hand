@@ -406,7 +406,10 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 			sup, err := runningSupervisor(ctx, st)
 			if err != nil {
 				last, ok, lerr := st.LastStartedSupervisor(ctx)
-				if lerr != nil || !ok || last.Live() {
+				if lerr != nil {
+					return errors.Join(err, lerr)
+				}
+				if !ok || last.Live() {
 					return err
 				}
 				sup = last

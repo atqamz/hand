@@ -168,7 +168,7 @@ func TestADroppableSwitchShowsBehindALaunchThatFailed(t *testing.T) {
 	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptStopped, "switched to opus high"); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "opus", Effort: "high", Argv: []string{"/bin/claude", "x"}, Session: claudeSession})
+	failed, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "opus", Effort: "high", Argv: []string{"/bin/claude", "x"}})
 	if err != nil {
 		t.Fatal(err)
 	}
