@@ -161,7 +161,7 @@ func OpencodeSubmitted(ctx context.Context, bin, dir, session string) (bool, err
 }
 
 func OpencodeLastUser(ctx context.Context, bin, dir, session string) (string, bool, error) {
-	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "session.message.list", "--param", "sessionID="+session, "--param", "type=user", "--param", "limit=1")
+	out, err := harness.Opencode(ctx, bin, dir, "api", "--standalone", "session.message.list", "--param", "sessionID="+session, "--param", "type=user", "--param", "order=desc", "--param", "limit=1")
 	if err != nil {
 		return "", false, err
 	}
