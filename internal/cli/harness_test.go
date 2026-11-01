@@ -126,6 +126,17 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, p["getdie"])
 			return 1
 		}
+		if p["getlater"] != "" {
+			if fileExists(p["getlater"]) {
+				fmt.Fprintln(os.Stderr, "database is locked")
+				return 1
+			}
+			fakebin.Append(p["getlater"], "read")
+		}
+		if b, err := os.ReadFile(p["swapply"]); err == nil && p["swapply"] != "" {
+			fmt.Printf(`{"data":{"id":"ses","model":%s}}`, b)
+			return 0
+		}
 		if p["sessionmodel"] == "" {
 			fmt.Print(`{"data":{"id":"ses"}}`)
 			return 0
@@ -142,6 +153,14 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, "database is locked")
 			return 1
 		case p["swdie"] != "":
+			if p["swdieapply"] != "" {
+				var body struct {
+					Model json.RawMessage `json:"model"`
+				}
+				if json.Unmarshal([]byte(args[6]), &body) == nil {
+					_ = os.WriteFile(p["swapply"], body.Model, 0o644)
+				}
+			}
 			fmt.Fprintln(os.Stderr, p["swdie"])
 			return 1
 		case p["swreject"] != "":
@@ -149,7 +168,19 @@ func ocapiMain(args []string) int {
 			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
 			return 1
 		}
+		var body struct {
+			Model json.RawMessage `json:"model"`
+		}
+		if p["swapply"] != "" && json.Unmarshal([]byte(args[6]), &body) == nil {
+			_ = os.WriteFile(p["swapply"], body.Model, 0o644)
+		}
 		fmt.Print(p["swanswer"])
+	case len(args) == 4 && args[0] == "api" && args[2] == "GET" && strings.HasPrefix(args[3], "/api/session"):
+		if b, err := os.ReadFile(p["sessionlist"]); err == nil {
+			fmt.Print(string(b))
+			return 0
+		}
+		fmt.Print(`{"data":[]}`)
 	default:
 		time.Sleep(5 * time.Minute)
 	}
