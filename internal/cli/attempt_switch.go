@@ -22,6 +22,13 @@ func sameVariant(a, b string) bool {
 	return cmp.Or(a, "default") == cmp.Or(b, "default")
 }
 
+func storedEffort(effort string) string {
+	if effort == "default" {
+		return ""
+	}
+	return effort
+}
+
 func specText(s harness.Spec) string {
 	return strings.Join(strings.Fields(s.Model+" "+s.Effort), " ")
 }
@@ -139,18 +146,21 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 			return fmt.Errorf("%w; attempt %s has no pane and is interrupted, its worktree and opencode session %s stay; start it again on its branch with `hand attempt clean %s`, then `hand attempt start %s --continue %s`", cause, ref, session, ref, state.TaskRef(a.TaskID), ref)
 		}
 		if err := setSession(to); err != nil {
-			back := "back on " + cmp.Or(specText(prev), "its old model")
-			sentence := "still on its old model"
-			if now, verr := harness.OpencodeSessionModel(ctx, bin, r.home, session); verr != nil || now.Model != prev.Model || !sameVariant(now.Effort, prev.Effort) {
-				back = "back on its pane, model unverified"
-				sentence = "its model is unverified: check it with `hand attempt show " + ref + "`"
+			back, sentence := "back on "+cmp.Or(specText(prev), "its old model"), "still on its old model"
+			keep, keepEffort := a.Model, a.Effort
+			now, verr := harness.OpencodeSessionModel(ctx, bin, r.home, session)
+			switch {
+			case verr != nil || now.Model != prev.Model || !sameVariant(now.Effort, prev.Effort):
+				back, sentence = "back on its pane, model unverified", "its model is unverified: the watcher records the session's model on its next sweep"
+			case now.Model != "":
+				keep, keepEffort = now.Model, storedEffort(now.Effort)
 			}
-			if _, perr := pane(back, a.Model, a.Effort); perr != nil {
+			if _, perr := pane(back, keep, keepEffort); perr != nil {
 				return noPane(errors.Join(err, perr))
 			}
 			return fmt.Errorf("%w; attempt %s is back on its pane, %s", err, ref, sentence)
 		}
-		running, err := pane("switched to "+specText(to), *model, *effort)
+		running, err := pane("switched to "+specText(to), *model, storedEffort(*effort))
 		if err != nil {
 			clause := fmt.Sprintf("opencode session %s stays on %s", session, *model)
 			if prev.Model != "" {

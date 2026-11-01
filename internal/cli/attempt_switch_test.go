@@ -19,7 +19,7 @@ import (
 func runningWorker(t *testing.T, extra map[string]string) (*attemptFixture, *opencodeRig, string) {
 	t.Helper()
 	fx := newAttemptFixture(t)
-	params := map[string]string{"models": "local/m1\nlocal/m2\n", "sessionmodel": `{"id":"m1","providerID":"local"}`, "sessionlist": filepath.Join(t.TempDir(), "sessions")}
+	params := map[string]string{"models": "local/m1\nlocal/m2\n", "sessionmodel": `{"id":"m1","providerID":"local"}`, "sessionlist": filepath.Join(t.TempDir(), "sessions"), "swapply": filepath.Join(t.TempDir(), "applied")}
 	for k, v := range extra {
 		params[k] = v
 	}
@@ -170,7 +170,7 @@ func TestAttemptSwitchFailureRelaunchesOnTheOldModel(t *testing.T) {
 func TestAttemptSwitchSaysWhenItCannotConfirmTheOldModelAfterAFailedSwitch(t *testing.T) {
 	fx, o, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope", "getlater": filepath.Join(t.TempDir(), "read")})
 	_, errOut, code := fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
-	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its model is unverified: check it with `hand attempt show a1`") || strings.Contains(errOut, "still on its old model") {
+	if code == 0 || !strings.Contains(errOut, "attempt a1 is back on its pane, its model is unverified: the watcher records the session's model on its next sweep") || strings.Contains(errOut, "still on its old model") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if got := attemptSwitchedEvents(t, fx); len(got) != 1 || !strings.HasPrefix(got[0], "a1: back on its pane, model unverified, pane ") {
@@ -375,7 +375,7 @@ func TestAttemptSwitchHoldsTheAttemptLockWhileThePaneIsGone(t *testing.T) {
 	if r := <-first; r.code != 0 {
 		t.Fatalf("first switch: %+v", r)
 	}
-	if r := <-second; r.code != 0 {
+	if r := <-second; r.code != 3 || !strings.Contains(r.errOut, "already runs local/m2") {
 		t.Fatalf("second switch: %+v", r)
 	}
 	has(t, "show", fx.h.ok("attempt", "show", "a1"), "status: running")
@@ -391,4 +391,16 @@ func TestAttemptSwitchSaysWhenTheOldTerminalWillNotClose(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "its terminal did not close") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
+}
+
+func TestAttemptSwitchStoresNoEffortForTheDefaultVariant(t *testing.T) {
+	fx, _, _ := runningWorker(t, nil)
+	fx.h.ok("attempt", "switch", "a1", "--model", "local/m2", "--effort", "default")
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m2\n")
+}
+
+func TestAttemptSwitchRecordsTheModelTheSessionReadsBackAfterAFailedSwitch(t *testing.T) {
+	fx, _, _ := runningWorker(t, map[string]string{"swreject": "Unknown provider nope", "sessionmodel": `{"id":"m3","providerID":"local"}`})
+	fx.h.run("attempt", "switch", "a1", "--model", "local/m2")
+	has(t, "show", fx.h.ok("attempt", "show", "a1"), "harness: opencode local/m3\n")
 }

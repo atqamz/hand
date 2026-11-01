@@ -245,7 +245,11 @@ func (s *Store) AttemptSwitched(ctx context.Context, id int64, t Terminal, to, m
 		if err := emit(tx, now, "attempt.switched", a.TaskID, AttemptRef(id)+": "+to+", pane "+t.PaneID); err != nil {
 			return err
 		}
-		return setAttemptModel(tx, now, a, model, effort)
+		if err := setAttemptModel(tx, now, a, model, effort); err != nil {
+			return err
+		}
+		out.Model, out.Effort = model, effort
+		return nil
 	})
 	return out, err
 }

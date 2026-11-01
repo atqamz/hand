@@ -288,8 +288,9 @@ func TestAttemptSwitchedRepointsTheTerminalOfARunningAttemptOnly(t *testing.T) {
 	if _, err := s.AttemptRunning(ctx, a.ID, first); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AttemptSwitched(ctx, a.ID, second, "switched to local/m2", "local/m2", "deep"); err != nil {
-		t.Fatal(err)
+	switched, err := s.AttemptSwitched(ctx, a.ID, second, "switched to local/m2", "local/m2", "deep")
+	if err != nil || switched.Model != "local/m2" || switched.Effort != "deep" {
+		t.Fatalf("switched = %+v, %v", switched, err)
 	}
 	got, err := s.Attempt(ctx, a.ID)
 	if err != nil || got.Terminal != second || got.Status != AttemptRunning || !slices.Equal(got.Argv, spec.Argv) || got.Model != "local/m2" || got.Effort != "deep" {

@@ -131,6 +131,10 @@ func ocapiMain(args []string) int {
 			}
 			fakebin.Append(p["getlater"], "read")
 		}
+		if b, err := os.ReadFile(p["swapply"]); err == nil && p["swapply"] != "" {
+			fmt.Printf(`{"data":{"id":"ses","model":%s}}`, b)
+			return 0
+		}
 		if p["sessionmodel"] == "" {
 			fmt.Print(`{"data":{"id":"ses"}}`)
 			return 0
@@ -153,6 +157,12 @@ func ocapiMain(args []string) int {
 			fmt.Printf(`{"_tag":"InvalidRequestError","message":%q,"kind":"Payload"}`+"\n", p["swreject"])
 			fmt.Fprintln(os.Stderr, "HTTP 400 Bad Request")
 			return 1
+		}
+		var body struct {
+			Model json.RawMessage `json:"model"`
+		}
+		if p["swapply"] != "" && json.Unmarshal([]byte(args[6]), &body) == nil {
+			_ = os.WriteFile(p["swapply"], body.Model, 0o644)
 		}
 		fmt.Print(p["swanswer"])
 	case len(args) == 4 && args[0] == "api" && args[2] == "GET" && strings.HasPrefix(args[3], "/api/session"):
