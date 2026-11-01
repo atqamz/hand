@@ -127,9 +127,9 @@ func (b *Board) workerTurns(ctx context.Context, a state.Attempt) workerView {
 	}
 	v.Turns = entries
 	st := b.o.Transcript.Status(a.Harness, id)
-	v.Answered = st.Used
-	if st.Used != "" && st.Selected != "" && !strings.EqualFold(st.Selected, "auto") && st.Selected != st.Used {
-		v.Model = "Asked for " + st.Selected + ", answered by " + st.Used + "."
+	v.Answered = st.Model
+	if st.Model != "" && st.Selected != "" && !strings.EqualFold(st.Selected, "auto") && st.Selected != st.Model {
+		v.Model = "Asked for " + st.Selected + ", answered by " + st.Model + "."
 	}
 	return v
 }

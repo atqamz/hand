@@ -366,7 +366,7 @@ func (s *Store) queryAttempts(ctx context.Context, q string, args ...any) ([]Att
 func (s *Store) SetAttemptModel(ctx context.Context, id int64, model, effort string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
-		if err != nil || (a.Model == model && a.Effort == effort) {
+		if err != nil || !a.Live() || (a.Model == model && a.Effort == effort) {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE attempt SET model = ?, effort = ? WHERE id = ?`, model, effort, id); err != nil {

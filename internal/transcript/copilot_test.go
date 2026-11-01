@@ -50,7 +50,7 @@ func TestCopilotTranscriptShowsToolCallsAndTheFinalMessage(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("entries =\n%+v\nwant\n%+v", got, want)
 	}
-	if st := r.Status("copilot", sessionUUID); st.Selected != "auto" || st.Used != "gpt-5.6-luna" {
+	if st := r.Status("copilot", sessionUUID); st.Selected != "auto" || st.Model != "gpt-5.6-luna" {
 		t.Fatalf("status = %+v", st)
 	}
 }
@@ -62,7 +62,7 @@ func TestCopilotStatusKeepsTheModelItWasAskedFor(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Text != "ok" {
 		t.Fatalf("entries = %+v, %v", got, err)
 	}
-	if st := r.Status("copilot", sessionUUID); st.Selected != "gpt-nosuch" || st.Used != "gpt-5.6-luna" {
+	if st := r.Status("copilot", sessionUUID); st.Selected != "gpt-nosuch" || st.Model != "gpt-5.6-luna" {
 		t.Fatalf("status = %+v", st)
 	}
 }

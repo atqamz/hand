@@ -430,7 +430,7 @@ func (s *Store) AdvanceWakeCursor(ctx context.Context, supervisorID, seq int64) 
 func (s *Store) SetSupervisorModel(ctx context.Context, id int64, model, effort string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		sup, err := getSupervisor(tx, id)
-		if err != nil || (sup.Model == model && sup.Effort == effort) {
+		if err != nil || !sup.Live() || (sup.Model == model && sup.Effort == effort) {
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE supervisor SET model = ?, effort = ? WHERE id = ?`, model, effort, id); err != nil {

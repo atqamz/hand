@@ -316,6 +316,15 @@ func TestSetSupervisorModelRecordsOnlyChanges(t *testing.T) {
 	if err := s.SetSupervisorModel(ctx, 99, "m", ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown supervisor = %v", err)
 	}
+	if _, err := s.EndSupervisor(ctx, sup.ID, AttemptFailed, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSupervisorModel(ctx, sup.ID, "late", ""); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := s.Supervisors(ctx); all[0].Model != "anthropic/claude-sonnet-5-5" {
+		t.Fatalf("ended supervisor model = %q", all[0].Model)
+	}
 }
 
 func TestASupervisorHoldBelongsToTheSupervisorThatDidNotAnswer(t *testing.T) {

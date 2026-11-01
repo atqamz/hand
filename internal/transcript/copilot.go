@@ -51,7 +51,7 @@ func (s *session) copilotLine(line []byte) {
 		}
 	case "assistant.message":
 		if d.Model != "" {
-			s.status.Used = d.Model
+			s.status.Model, s.status.ModelAt = d.Model, rec.Timestamp
 		}
 		if t := strings.TrimSpace(d.Content); t != "" {
 			if len(t) > copilotText {
