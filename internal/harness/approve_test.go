@@ -358,7 +358,7 @@ func TestClaudeIdleTakesOnlyTheInputPrompt(t *testing.T) {
 			t.Fatalf("%s: idle", name)
 		}
 	}
-	for _, name := range []string{"commit", "pipe", "long16", "long16_last20", "edit", "write", "webfetch", "askq", "mcp", "mcp2", "import", "plan", "trust", "unreviewed", "writeforge"} {
+	for _, name := range []string{"commit", "pipe", "long16", "long16_last20", "edit", "write", "webfetch", "askq", "mcp", "mcp2", "import", "plan", "trust", "unreviewed", "writeforge", "idle_statusline", "idle_statusline2"} {
 		if ClaudeIdle(screen(t, name)) {
 			t.Fatalf("%s: idle", name)
 		}
