@@ -65,9 +65,12 @@ var approveSchema string
 //go:embed access.sql
 var accessSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema, timerSchema, deviceSchema, phoneSchema, settingsSchema, waitsSchema, approveSchema, accessSchema}
+//go:embed kept.sql
+var keptSchema string
 
-const SchemaVersion = 16
+var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema, timerSchema, deviceSchema, phoneSchema, settingsSchema, waitsSchema, approveSchema, accessSchema, keptSchema}
+
+const SchemaVersion = 17
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 

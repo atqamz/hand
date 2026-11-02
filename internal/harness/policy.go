@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ type Policy struct {
 	Notify         []string           `json:"notify,omitzero"`
 	Stall          Stall              `json:"stall,omitzero"`
 	Inbox          Inbox              `json:"inbox,omitzero"`
+	Retention      Retention          `json:"retention,omitzero"`
 	ApproveTimeout ApproveTimeout     `json:"approve_timeout,omitzero"`
 	Supervisor     struct {
 		Autoresume bool `json:"autoresume"`
@@ -159,6 +161,70 @@ func (i *Inbox) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type Retention struct {
+	Worktrees time.Duration
+	WarnSize  int64
+	WarnDays  time.Duration
+}
+
+var DefaultRetention = Retention{Worktrees: 7 * 24 * time.Hour, WarnSize: 20 << 30, WarnDays: 30 * 24 * time.Hour}
+
+const retentionForm = `retention must be "off" or {"worktrees": "7d", "warn_size": "20GB", "warn_days": "30d"}, each value or "off"`
+
+var sizeText = regexp.MustCompile(`^([1-9][0-9]{0,5})(MB|GB|TB)$`)
+
+func (r *Retention) UnmarshalJSON(b []byte) error {
+	var word string
+	if json.Unmarshal(b, &word) == nil {
+		if word != "off" {
+			return errors.New(retentionForm)
+		}
+		*r = Retention{}
+		return nil
+	}
+	var raw struct {
+		Worktrees *string `json:"worktrees"`
+		WarnSize  *string `json:"warn_size"`
+		WarnDays  *string `json:"warn_days"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return fmt.Errorf("%s: %w", retentionForm, err)
+	}
+	*r = DefaultRetention
+	for _, f := range []struct {
+		name string
+		text *string
+		to   *time.Duration
+	}{{"worktrees", raw.Worktrees, &r.Worktrees}, {"warn_days", raw.WarnDays, &r.WarnDays}} {
+		if f.text == nil {
+			continue
+		}
+		*f.to = 0
+		if *f.text == "off" {
+			continue
+		}
+		d, ok := inbox.ParseAge(*f.text)
+		if !ok {
+			return fmt.Errorf("retention.%s is %q; give \"off\" or days from 1d to 9999d, like \"7d\"", f.name, *f.text)
+		}
+		*f.to = d
+	}
+	if raw.WarnSize != nil {
+		r.WarnSize = 0
+		if *raw.WarnSize != "off" {
+			m := sizeText.FindStringSubmatch(*raw.WarnSize)
+			if m == nil {
+				return fmt.Errorf("retention.warn_size is %q; give \"off\" or a size in MB, GB or TB, like \"20GB\"", *raw.WarnSize)
+			}
+			n, _ := strconv.ParseInt(m[1], 10, 64)
+			r.WarnSize = n << map[string]int{"MB": 20, "GB": 30, "TB": 40}[m[2]]
+		}
+	}
+	return nil
+}
+
 func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)
@@ -168,7 +234,7 @@ func LoadPolicy(home string) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
-	p := Policy{Stall: DefaultStall}
+	p := Policy{Stall: DefaultStall, Retention: DefaultRetention}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
