@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
@@ -40,6 +41,43 @@ func TestInitInstallsTheBootstrapAndTheSkill(t *testing.T) {
 	}
 }
 
+func TestInitInstallsTheCleanupSkill(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	for _, root := range []string{".claude", ".agents", ".grok", ".pi"} {
+		skill, err := os.ReadFile(filepath.Join(h.home, root, "skills", "secondhand-cleanup", "SKILL.md"))
+		if err != nil || !strings.HasPrefix(string(skill), "---\nname: secondhand-cleanup\n") {
+			t.Fatalf("%s: skill = %q, %v", root, skill, err)
+		}
+		for _, want := range []string{"`hand gc --older-than 30d`", "`hand gc --older-than 30d --yes reports/t12 shots/t12`", "`hand decision ask tN", "the total size and the options", "`hand orient`", "Never run `rm`", "Never delete a file that a live task, an open decision or a delivered file points to", "freed size"} {
+			if !strings.Contains(string(skill), want) {
+				t.Fatalf("%s: cleanup skill missing %q", root, want)
+			}
+		}
+	}
+	agents, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", "secondhand", "SKILL.md"))
+	if err != nil || !strings.Contains(string(agents), "`secondhand-cleanup` skill") || !strings.Contains(string(agents), "`.obb`, `.pack`, `.apk`, `.aab`") {
+		t.Fatalf("supervisor skill does not name the cleanup skill or the large-file rule: %v", err)
+	}
+	if out := h.ok("orient"); strings.Contains(out, "artifacts") {
+		t.Fatalf("a fresh fleet warns: %s", out)
+	}
+	old := filepath.Join(h.home, "reports", "t1", "a.md")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(-40 * day)
+	if err := os.Chtimes(old, when, when); err != nil {
+		t.Fatal(err)
+	}
+	if out := h.ok("orient"); !strings.Contains(out, "artifacts: 1 file is older than 30d") || !strings.Contains(out, "`secondhand-cleanup` skill") {
+		t.Fatalf("orient does not warn:\n%s", out)
+	}
+}
+
 func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
 	h := newHarness(t)
 	if err := os.WriteFile(filepath.Join(h.home, "AGENTS.md"), []byte("# my repo rules\n"), 0o644); err != nil {
@@ -64,13 +102,13 @@ func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.ok("init")
-	for _, name := range []string{"secondhand", "secondhand-migrate"} {
+	for _, name := range []string{"secondhand", "secondhand-migrate", "secondhand-cleanup"} {
 		skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", name, "SKILL.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
-		if min := map[string]int{"secondhand": 10, "secondhand-migrate": 5}[name]; len(uses) < min {
+		if min := map[string]int{"secondhand": 10, "secondhand-migrate": 5, "secondhand-cleanup": 5}[name]; len(uses) < min {
 			t.Fatalf("%s: found only %d commands", name, len(uses))
 		}
 		for _, u := range uses {

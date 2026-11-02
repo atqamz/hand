@@ -33,6 +33,7 @@ func Install(home, command string) error {
 	var stale []string
 	for _, root := range skillRoots {
 		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
+		files[filepath.Join(root, "skills", "secondhand-cleanup", "SKILL.md")] = named.Replace(skills.Cleanup)
 		migrate := filepath.Join(root, "skills", "secondhand-migrate", "SKILL.md")
 		if legacy {
 			files[migrate] = named.Replace(skills.Migrate)
