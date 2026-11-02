@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -226,4 +227,34 @@ func TestTheSupervisorPickersLeaveAskProfilesOut(t *testing.T) {
 	lacks(t, "start", region(get(t, fx.handler(), "/"), "console"), `value="safe"`)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	lacks(t, "switch", region(get(t, fx.handler(), "/"), "console"), `value="safe"`)
+}
+
+func TestTheSupervisorPickersLeaveReadonlyProfilesOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only access is refused on Windows")
+	}
+	fx := newFixture(t)
+	policy := `{"profiles":{"deep":{"harness":"claude","model":"opus","effort":"xhigh"},"look":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly"}}}`
+	if err := os.WriteFile(filepath.Join(fx.options.Home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "start", region(get(t, fx.handler(), "/"), "console"), `<option value="deep">`)
+	lacks(t, "start", region(get(t, fx.handler(), "/"), "console"), `value="look"`)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	lacks(t, "switch", region(get(t, fx.handler(), "/"), "console"), `value="look"`)
+}
+
+func TestTheReadonlyBadgeShowsOnTheReadonlyAttemptOnly(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Review login")
+	if _, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Access: state.AccessReadonly}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	plain := workerAttempt(t, fx.st, active(t, fx.st, "Fix logout").ID)
+	h := fx.handler()
+	contains(t, "readonly attempt page", get(t, h, "/attempt/a1"), `<span class="badge">readonly</span>`)
+	lacks(t, "plain attempt page", get(t, h, "/attempt/"+state.AttemptRef(plain.ID)), `<span class="badge">readonly</span>`)
+	contains(t, "readonly task page", get(t, h, "/task/t1"), `<span class="badge">readonly</span>`)
+	lacks(t, "plain task page", get(t, h, "/task/t2"), `<span class="badge">readonly</span>`)
 }

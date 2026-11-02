@@ -49,18 +49,28 @@ func reportFooterFor(goos, exe string) string {
 			"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
 			"Apart from a milestone, write a report only when the work is done or you are stuck."
 	}
+	return unixFooterHead(exe) +
+		"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch` or an `until ...; do sleep 30; done` loop in a single shell call. " +
+		"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
+		"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
+		"Apart from a milestone, write a report only when the work is done or you are stuck."
+}
+
+func unixFooterHead(exe string) string {
 	end := "HAND_REPORT_" + rand.Text()[:8]
 	return "\n\n---\n" + reportMarker + " from inside this worktree, passing the report on stdin so no file is left in it:\n" +
 		shellQuote(exe) + " report add --status done --file - <<'" + end + "'\n" +
 		"YOUR REPORT\n" +
 		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Hand reads your report, not your terminal.\n" +
-		"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch` or an `until ...; do sleep 30; done` loop in a single shell call. " +
-		"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
-		"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
-		"Apart from a milestone, write a report only when the work is done or you are stuck."
+		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Hand reads your report, not your terminal.\n"
 }
+
+func readonlyReportFooter(exe string) string {
+	return unixFooterHead(exe) + "Apart from a milestone, write a report only when the work is done or you are stuck."
+}
+
+func reportRule(exe string) string { return "Bash(" + shellQuote(exe) + " report add *)" }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 

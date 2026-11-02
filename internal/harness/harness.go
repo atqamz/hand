@@ -274,18 +274,37 @@ func checkDir(s Spec, dir string) error {
 }
 
 func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
-	return launchArgv(bin, s, prompt, dir, nil)
+	return launchArgv(bin, s, prompt, dir, nil, false)
 }
 
 func AskArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
 	if s.Harness != "claude" {
 		return nil, fmt.Errorf("%w: approve %q is only available for claude, not %s", state.ErrInvalid, state.ApproveAsk, s.Harness)
 	}
-	return launchArgv(bin, s, prompt, dir, append([]string{}, allow...))
+	return launchArgv(bin, s, prompt, dir, append([]string{}, allow...), false)
 }
 
-func launchArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
-	argv, err := workerArgv(bin, s, prompt, dir, allow)
+func ReadonlyArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+	if err := CheckAccess(s.Harness, state.AccessReadonly); err != nil {
+		return nil, err
+	}
+	return launchArgv(bin, s, prompt, dir, allow, true)
+}
+
+func CheckAccess(harness, access string) error {
+	switch {
+	case access == "" || access == state.AccessOpen:
+		return nil
+	case access != state.AccessReadonly:
+		return fmt.Errorf("%w: access %q must be %q or %q", state.ErrInvalid, access, state.AccessOpen, state.AccessReadonly)
+	case harness != "claude":
+		return fmt.Errorf("%w: access %q is only available for claude, not %s", state.ErrInvalid, state.AccessReadonly, harness)
+	}
+	return nil
+}
+
+func launchArgv(bin string, s Spec, prompt, dir string, allow []string, readonly bool) ([]string, error) {
+	argv, err := workerArgv(bin, s, prompt, dir, allow, readonly)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +314,7 @@ func launchArgv(bin string, s Spec, prompt, dir string, allow []string) ([]strin
 	return argv, nil
 }
 
-func workerArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+func workerArgv(bin string, s Spec, prompt, dir string, allow []string, readonly bool) ([]string, error) {
 	if err := CheckPrompt(prompt); err != nil {
 		return nil, err
 	}
@@ -306,6 +325,14 @@ func workerArgv(bin string, s Spec, prompt, dir string, allow []string) ([]strin
 	case "opencode":
 		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
+		if readonly {
+			argv := []string{bin, "--permission-mode", "dontAsk", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+			argv = append(argv, "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob")
+			for _, rule := range append([]string{"Bash(gh pr view *)"}, allow...) {
+				argv = append(argv, "--allowedTools="+rule)
+			}
+			return append(argv, prompt), nil
+		}
 		if allow == nil {
 			return []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort, prompt}, nil
 		}
