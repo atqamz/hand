@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 const mcpPolicy = `{"profiles":{"plain":{"harness":"claude","model":"sonnet","effort":"low"},"browser":{"harness":"claude","model":"sonnet","effort":"low","mcp":"mcp.json"}}}`
@@ -22,7 +24,7 @@ func TestAProfileMCPFileStartsTheWorkerWithOnlyThatFile(t *testing.T) {
 	if !slices.Equal(argv[1:8], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "--mcp-config=" + file}) {
 		t.Fatalf("argv = %q", argv)
 	}
-	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "mcp: "+file+"\n") {
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "mcp: "+toon.Value(file)+"\n") {
 		t.Fatalf("show = %q", show)
 	}
 	if list := fx.h.ok("route", "list"); !strings.Contains(list, "{name,harness,model,effort,valid,warn,access,mcp}") || !strings.Contains(list, "browser,claude,sonnet,low,yes,\"\",open,mcp.json\n") {
