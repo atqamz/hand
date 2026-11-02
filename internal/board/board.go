@@ -70,6 +70,15 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 		return map[string]any{"R": root, "Rep": r}
 	},
 	"pick": pick,
+	"start": func(base, token, label string, inline bool, starting string, primary bool) startForm {
+		return startForm{Base: base, Token: token, Label: label, Inline: inline, Starting: starting, Primary: primary}
+	},
+	"resume": func(base, token, starting string) resumeForm {
+		return resumeForm{Base: base, Token: token, Starting: starting}
+	},
+	"ack": func(base, token, ref string, fetch bool) ackForm {
+		return ackForm{Base: base, Token: token, Ref: ref, Fetch: fetch}
+	},
 }).ParseFS(files, "templates/*.html"))
 
 const (

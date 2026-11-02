@@ -15,7 +15,7 @@
 {{if .Controls}}<section class="console" data-region="console">{{template "region-console" .Console}}</section>{{end}}
 <section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
-<input type="hidden" name="csrf" value="{{.Token}}">
+{{template "csrf" .Token}}
 <textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
 <ul class="attachments" aria-label="Attachments"></ul><span class="sr" role="status" aria-live="polite" data-att-say></span>
 <template id="att-chip"><li class="att"><span class="badge" aria-hidden="true"></span><span class="att-name"></span><span class="att-meta"></span><button type="button" class="att-x">{{template "icon-close"}}</button></li></template>
