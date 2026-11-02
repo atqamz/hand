@@ -3,6 +3,7 @@ package cli_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,9 @@ import (
 
 func accessPolicy(t *testing.T, fx *attemptFixture, body string) {
 	t.Helper()
+	if runtime.GOOS == "windows" && strings.Contains(body, `"access":"readonly"`) {
+		t.Skip("read-only access is refused on Windows")
+	}
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +26,7 @@ func TestAReadonlyProfileStartsTheWorkerInDontAskModeWithOnlyTheReportCommand(t 
 	accessPolicy(t, fx, readonlyPolicy)
 	fx.startProfile("look")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
-	want := []string{"--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--disallowedTools=Edit", "--disallowedTools=Write", "--disallowedTools=NotebookEdit", "--allowedTools=Bash(gh pr view *)"}
+	want := []string{"--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob", "--allowedTools=Bash(gh pr view *)"}
 	n := len(argv)
 	if n < 13 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:11], want) || !strings.HasPrefix(argv[n-1], "Fix the login bug") {
 		t.Fatalf("argv = %q", argv)
@@ -31,6 +35,9 @@ func TestAReadonlyProfileStartsTheWorkerInDontAskModeWithOnlyTheReportCommand(t 
 		if !strings.HasPrefix(rule, "--allowedTools=Bash(") || !strings.HasSuffix(rule, " report add *)") {
 			t.Fatalf("rule %q in argv = %q", rule, argv)
 		}
+	}
+	if strings.Contains(argv[n-1], "gh pr checks") || !strings.Contains(argv[n-1], "report add --status done --file -") {
+		t.Fatalf("read-only prompt = %q", argv[n-1])
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "access: readonly\n") {
 		t.Fatalf("show = %q", show)

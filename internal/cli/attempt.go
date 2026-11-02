@@ -82,7 +82,11 @@ func cmdAttemptStart(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	text := string(prompt) + reportFooter(exe)
+	footer := reportFooter(exe)
+	if routed.Access == state.AccessReadonly {
+		footer = readonlyReportFooter(exe)
+	}
+	text := string(prompt) + footer
 	if err := harness.CheckPrompt(text); err != nil {
 		return err
 	}
@@ -116,7 +120,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		access := state.AccessOpen
 		if routed.Access == state.AccessReadonly {
 			access = state.AccessReadonly
-			rules := reportRules(runtime.GOOS, exe)
+			rules := []string{reportRule(exe)}
 			argvFor = func(worktree string) ([]string, error) { return harness.ReadonlyArgv(bin, spec, text, worktree, rules) }
 		}
 		if continues != 0 {

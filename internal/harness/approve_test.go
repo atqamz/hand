@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -225,7 +226,7 @@ func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
 func TestReadonlyArgvRunsClaudeInDontAskModeWithOnlyTheReportAndPrView(t *testing.T) {
 	spec := Spec{"claude", "sonnet", "low"}
 	got, err := ReadonlyArgv("/bin/claude", spec, "review it", "/w", []string{"Bash('/bin/hand' report add *)"})
-	want := []string{"/bin/claude", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--disallowedTools=Edit", "--disallowedTools=Write", "--disallowedTools=NotebookEdit", "--allowedTools=Bash(gh pr view *)", "--allowedTools=Bash('/bin/hand' report add *)", "review it"}
+	want := []string{"/bin/claude", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob", "--allowedTools=Bash(gh pr view *)", "--allowedTools=Bash('/bin/hand' report add *)", "review it"}
 	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
@@ -236,7 +237,24 @@ func TestReadonlyArgvRunsClaudeInDontAskModeWithOnlyTheReportAndPrView(t *testin
 	}
 }
 
+func TestReadonlyIsRefusedOnWindowsOnly(t *testing.T) {
+	pr := Profile{Spec: Spec{"claude", "sonnet", "low"}, Access: state.AccessReadonly}
+	if err := checkAccess("linux", "look", pr); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAccess("windows", "look", pr); err == nil || !strings.Contains(err.Error(), `access "readonly" is not available on Windows`) {
+		t.Fatalf("err = %v", err)
+	}
+	pr.Access = state.AccessOpen
+	if err := checkAccess("windows", "look", pr); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPolicyAccessField(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only access is refused on Windows")
+	}
 	p, err := LoadPolicy(writePolicy(t, `{"profiles":{"look":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly"},"open":{"harness":"claude","model":"sonnet","effort":"low","access":"open"},"plain":{"harness":"claude","model":"sonnet","effort":"low"}}}`))
 	if err != nil {
 		t.Fatal(err)

@@ -41,13 +41,22 @@ func TestReportFooterAsksForDeliveredLines(t *testing.T) {
 	}
 }
 
-func TestReportRulesNameTheReportCommandTheFooterPrints(t *testing.T) {
-	got := reportRules("linux", "/opt/it's/hand")
-	if len(got) != 1 || got[0] != "Bash('/opt/it'\\''s/hand' report add *)" {
-		t.Fatalf("linux rules = %q", got)
+func TestReadonlyFooterNamesOnlyTheReportCommand(t *testing.T) {
+	got := readonlyReportFooter("/bin/hand")
+	for _, want := range []string{reportMarker, "'/bin/hand' report add --status done --file - <<'HAND_REPORT_", "Delivered:"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("read-only footer lacks %q", want)
+		}
 	}
-	got = reportRules("windows", "C:/Program Files/hand/hand.exe")
-	if len(got) != 2 || got[1] != "Bash(hand report add *)" {
-		t.Fatalf("windows rules = %q", got)
+	for _, bad := range []string{"gh pr checks", "until ...", "sleep"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("read-only footer has %q", bad)
+		}
+	}
+}
+
+func TestReportRuleNamesTheReportCommandTheFooterPrints(t *testing.T) {
+	if got := reportRule("/opt/it's/hand"); got != "Bash('/opt/it'\\''s/hand' report add *)" {
+		t.Fatalf("rule = %q", got)
 	}
 }

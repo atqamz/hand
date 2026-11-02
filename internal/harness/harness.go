@@ -327,9 +327,7 @@ func workerArgv(bin string, s Spec, prompt, dir string, allow []string, readonly
 	case "claude":
 		if readonly {
 			argv := []string{bin, "--permission-mode", "dontAsk", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
-			for _, tool := range []string{"Edit", "Write", "NotebookEdit"} {
-				argv = append(argv, "--disallowedTools="+tool)
-			}
+			argv = append(argv, "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob")
 			for _, rule := range append([]string{"Bash(gh pr view *)"}, allow...) {
 				argv = append(argv, "--allowedTools="+rule)
 			}

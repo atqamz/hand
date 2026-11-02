@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -185,7 +186,7 @@ func LoadPolicy(home string) (Policy, error) {
 		}
 		err := checkApprove(name, p.Profiles[name])
 		if err == nil {
-			err = checkAccess(name, p.Profiles[name])
+			err = checkAccess(runtime.GOOS, name, p.Profiles[name])
 		}
 		if err != nil {
 			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
@@ -207,12 +208,15 @@ func checkApprove(name string, pr Profile) error {
 	return fmt.Errorf("profile %q: approve is %q; give %q or %q", name, pr.Approve, state.ApproveNever, state.ApproveAsk)
 }
 
-func checkAccess(name string, pr Profile) error {
+func checkAccess(goos, name string, pr Profile) error {
 	if err := CheckAccess(pr.Harness, pr.Access); err != nil {
 		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
 	}
 	if pr.Access == state.AccessReadonly && pr.Approve == state.ApproveAsk {
 		return fmt.Errorf("profile %q: access %q cannot ask for approval; leave approve at %q", name, state.AccessReadonly, state.ApproveNever)
+	}
+	if pr.Access == state.AccessReadonly && goos == "windows" {
+		return fmt.Errorf("profile %q: access %q is not available on Windows; use a profile with access %q", name, state.AccessReadonly, state.AccessOpen)
 	}
 	return nil
 }
