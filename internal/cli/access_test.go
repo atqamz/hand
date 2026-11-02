@@ -23,8 +23,14 @@ func TestAReadonlyProfileStartsTheWorkerInDontAskModeWithOnlyTheReportCommand(t 
 	fx.startProfile("look")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
 	want := []string{"--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--disallowedTools=Edit", "--disallowedTools=Write", "--disallowedTools=NotebookEdit", "--allowedTools=Bash(gh pr view *)"}
-	if len(argv) != 13 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:11], want) || !strings.HasPrefix(argv[11], "--allowedTools=Bash(") || !strings.HasSuffix(argv[11], " report add *)") || !strings.HasPrefix(argv[12], "Fix the login bug") {
+	n := len(argv)
+	if n < 13 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:11], want) || !strings.HasPrefix(argv[n-1], "Fix the login bug") {
 		t.Fatalf("argv = %q", argv)
+	}
+	for _, rule := range argv[11 : n-1] {
+		if !strings.HasPrefix(rule, "--allowedTools=Bash(") || !strings.HasSuffix(rule, " report add *)") {
+			t.Fatalf("rule %q in argv = %q", rule, argv)
+		}
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "access: readonly\n") {
 		t.Fatalf("show = %q", show)

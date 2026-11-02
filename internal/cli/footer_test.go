@@ -40,3 +40,14 @@ func TestReportFooterAsksForDeliveredLines(t *testing.T) {
 		}
 	}
 }
+
+func TestReportRulesNameTheReportCommandTheFooterPrints(t *testing.T) {
+	got := reportRules("linux", "/opt/it's/hand")
+	if len(got) != 1 || got[0] != "Bash('/opt/it'\\''s/hand' report add *)" {
+		t.Fatalf("linux rules = %q", got)
+	}
+	got = reportRules("windows", "C:/Program Files/hand/hand.exe")
+	if len(got) != 2 || got[1] != "Bash(hand report add *)" {
+		t.Fatalf("windows rules = %q", got)
+	}
+}
