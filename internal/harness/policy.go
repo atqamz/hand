@@ -23,6 +23,7 @@ const PolicyFile = "routing.json"
 type Profile struct {
 	Spec
 	Approve string `json:"approve,omitempty"`
+	Access  string `json:"access,omitempty"`
 }
 
 type Policy struct {
@@ -182,7 +183,11 @@ func LoadPolicy(home string) (Policy, error) {
 		if !profileName.MatchString(name) {
 			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
 		}
-		if err := checkApprove(name, p.Profiles[name]); err != nil {
+		err := checkApprove(name, p.Profiles[name])
+		if err == nil {
+			err = checkAccess(name, p.Profiles[name])
+		}
+		if err != nil {
 			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
 		}
 	}
@@ -200,6 +205,16 @@ func checkApprove(name string, pr Profile) error {
 		return nil
 	}
 	return fmt.Errorf("profile %q: approve is %q; give %q or %q", name, pr.Approve, state.ApproveNever, state.ApproveAsk)
+}
+
+func checkAccess(name string, pr Profile) error {
+	if err := CheckAccess(pr.Harness, pr.Access); err != nil {
+		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
+	}
+	if pr.Access == state.AccessReadonly && pr.Approve == state.ApproveAsk {
+		return fmt.Errorf("profile %q: access %q cannot ask for approval; leave approve at %q", name, state.AccessReadonly, state.ApproveNever)
+	}
+	return nil
 }
 
 func (p Policy) Names() []string {

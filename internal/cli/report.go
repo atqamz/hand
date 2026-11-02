@@ -62,6 +62,14 @@ func reportFooterFor(goos, exe string) string {
 		"Apart from a milestone, write a report only when the work is done or you are stuck."
 }
 
+func reportRules(goos, exe string) []string {
+	rules := []string{"Bash(" + shellQuote(exe) + " report add *)"}
+	if goos == "windows" {
+		rules = append(rules, "Bash("+strings.TrimSuffix(filepath.Base(exe), ".exe")+" report add *)")
+	}
+	return rules
+}
+
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {

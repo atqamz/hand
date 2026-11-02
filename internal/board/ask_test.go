@@ -227,3 +227,18 @@ func TestTheSupervisorPickersLeaveAskProfilesOut(t *testing.T) {
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	lacks(t, "switch", region(get(t, fx.handler(), "/"), "console"), `value="safe"`)
 }
+
+func TestTheReadonlyBadgeShowsOnTheReadonlyAttemptOnly(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	task := active(t, fx.st, "Review login")
+	if _, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: task.ID, Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}, Access: state.AccessReadonly}, "/w"); err != nil {
+		t.Fatal(err)
+	}
+	plain := workerAttempt(t, fx.st, active(t, fx.st, "Fix logout").ID)
+	h := fx.handler()
+	contains(t, "readonly attempt page", get(t, h, "/attempt/a1"), `<span class="badge">readonly</span>`)
+	lacks(t, "plain attempt page", get(t, h, "/attempt/"+state.AttemptRef(plain.ID)), `<span class="badge">readonly</span>`)
+	contains(t, "readonly task page", get(t, h, "/task/t1"), `<span class="badge">readonly</span>`)
+	lacks(t, "plain task page", get(t, h, "/task/t2"), `<span class="badge">readonly</span>`)
+}

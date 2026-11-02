@@ -222,6 +222,41 @@ func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
 	}
 }
 
+func TestReadonlyArgvRunsClaudeInDontAskModeWithOnlyTheReportAndPrView(t *testing.T) {
+	spec := Spec{"claude", "sonnet", "low"}
+	got, err := ReadonlyArgv("/bin/claude", spec, "review it", "/w", []string{"Bash('/bin/hand' report add *)"})
+	want := []string{"/bin/claude", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--disallowedTools=Edit", "--disallowedTools=Write", "--disallowedTools=NotebookEdit", "--allowedTools=Bash(gh pr view *)", "--allowedTools=Bash('/bin/hand' report add *)", "review it"}
+	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
+		t.Fatalf("argv = %q, %v", got, err)
+	}
+	for _, s := range []Spec{{"codex", "gpt-6-luna", "low"}, {Harness: "opencode"}, {"agy", "gemini-3.8-flash-low", ""}, {"copilot", "auto", ""}} {
+		if _, err := ReadonlyArgv("/bin/x", s, "review it", "/w", nil); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "only available for claude, not "+s.Harness) {
+			t.Fatalf("%s err = %v", s.Harness, err)
+		}
+	}
+}
+
+func TestPolicyAccessField(t *testing.T) {
+	p, err := LoadPolicy(writePolicy(t, `{"profiles":{"look":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly"},"open":{"harness":"claude","model":"sonnet","effort":"low","access":"open"},"plain":{"harness":"claude","model":"sonnet","effort":"low"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"look": "readonly", "open": "open", "plain": ""} {
+		if s, _ := p.Profile(name); s.Access != want {
+			t.Fatalf("%s = %+v", name, s)
+		}
+	}
+	for body, want := range map[string]string{
+		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","access":"write"}}}`:                    `access "write" must be "open" or "readonly"`,
+		`{"profiles":{"x":{"harness":"codex","model":"gpt-6-luna","effort":"low","access":"readonly"}}}`:              `access "readonly" is only available for claude, not codex`,
+		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","access":"readonly","approve":"ask"}}}`: `cannot ask for approval`,
+	} {
+		if _, err := LoadPolicy(writePolicy(t, body)); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: err = %v", body, err)
+		}
+	}
+}
+
 func TestPolicyApproveField(t *testing.T) {
 	p, err := LoadPolicy(writePolicy(t, `{"profiles":{"safe":{"harness":"claude","model":"sonnet","effort":"low","approve":"ask"},"plain":{"harness":"claude","model":"sonnet","effort":"low","approve":"never"},"codex":{"harness":"codex","model":"gpt-6-luna","effort":"low"}}}`))
 	if err != nil {
