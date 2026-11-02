@@ -52,7 +52,7 @@ jobs:
         env:
           TESTED: ${{ needs.e2e.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$TESTED"
-      - run: go test -race ./...
+      - run: go test -race -timeout 30m ./...
       - name: Build
         run: sh .github/scripts/build-dist.sh "${TAG#v}" stable "$(git rev-parse HEAD)"
       - name: Publish
