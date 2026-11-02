@@ -127,3 +127,49 @@ func TestRemoveDeletesOnlyTheListedFilesAndEmptiedFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestScanRefusesAFolderThatIsALink(t *testing.T) {
+	home := tree(t, map[string]int{"shots/a.png": 40})
+	outside := tree(t, map[string]int{"keep.md": 40})
+	if err := os.RemoveAll(filepath.Join(home, "shots")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(home, "shots")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	if files, err := Scan(home); err == nil || len(files) != 0 {
+		t.Fatalf("scan = %v, %v; want a refusal", paths(files), err)
+	}
+}
+
+func TestRemoveSkipsAChangedFileAndNeverLeavesItsFolder(t *testing.T) {
+	home := tree(t, map[string]int{
+		"reports/t1/a.md": 40,
+		"reports/t2/b.md": 40,
+		"reports/t3/c.md": 40,
+		"memory/c.md":     400,
+	})
+	files, err := Scan(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "reports", "t1", "a.md"), []byte("rewritten after the listing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "reports", "t3")); err != nil {
+		t.Fatal(err)
+	}
+	linked := os.Symlink(filepath.Join(home, "memory"), filepath.Join(home, "reports", "t3")) == nil
+	removed, failed := Remove(home, files)
+	if got := paths(removed); !slices.Equal(got, []string{"reports/t2/b.md"}) && linked {
+		t.Fatalf("removed = %v, failed = %v", got, failed)
+	}
+	for _, kept := range []string{"reports/t1/a.md", "memory/c.md"} {
+		if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(kept))); err != nil {
+			t.Fatalf("%s lost: %v", kept, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "reports", "t2")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("reports/t2 stayed: %v", err)
+	}
+}

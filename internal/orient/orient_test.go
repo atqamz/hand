@@ -840,6 +840,10 @@ func TestOrientWarnsAboutOldAndLargeReportsAndShots(t *testing.T) {
 	if out := build(); !strings.Contains(out, "\nartifacts: 1 file is older than 30d (1.0 MB)\n") {
 		t.Fatalf("old file:\n%s", out)
 	}
+	policy(`,"retention":{"warn_size":"off","warn_days":"12d"}`)
+	if out := build(); !strings.Contains(out, "`hand gc --older-than 12d`") {
+		t.Fatalf("the command ignores the configured days:\n%s", out)
+	}
 	policy(`,"retention":"off"`)
 	if out := build(); strings.Contains(out, "artifacts") {
 		t.Fatalf("retention off:\n%s", out)

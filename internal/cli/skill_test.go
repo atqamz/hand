@@ -49,7 +49,7 @@ func TestInitInstallsTheCleanupSkill(t *testing.T) {
 		if err != nil || !strings.HasPrefix(string(skill), "---\nname: secondhand-cleanup\n") {
 			t.Fatalf("%s: skill = %q, %v", root, skill, err)
 		}
-		for _, want := range []string{"`hand gc --older-than 30d`", "`hand gc --older-than 30d --yes reports/t12 shots/t12`", "`hand decision ask tN", "the total size and the options", "`hand orient`", "Never run `rm`", "Never delete a file that a live task, an open decision or a delivered file points to", "freed size"} {
+		for _, want := range []string{"`hand gc --older-than 30d`", "`hand gc --older-than 30d --yes reports/t12 shots/t12`", "`hand decision ask tN", "the total size and the options", "`hand orient`", "Never run `rm`", "`hand task add --goal", "Never delete a file that a live task, an open decision or a delivered file points to", "freed size"} {
 			if !strings.Contains(string(skill), want) {
 				t.Fatalf("%s: cleanup skill missing %q", root, want)
 			}

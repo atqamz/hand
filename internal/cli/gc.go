@@ -65,6 +65,7 @@ func cmdGC(r *runner, args []string) error {
 	now := r.env.Now()
 	found := retention.Within(retention.Older(all, now, age), scopes)
 	var failed []retention.Failure
+	var audit error
 	if *yes {
 		st, err := r.store()
 		if err != nil {
@@ -74,9 +75,7 @@ func cmdGC(r *runner, args []string) error {
 		var removed []retention.File
 		removed, failed = retention.Remove(r.home, found)
 		if len(removed) > 0 {
-			if err := st.GcRemoved(r.ctx(), inbox.Count(len(removed), retention.Bytes(removed))+" older than "+*older); err != nil {
-				return err
-			}
+			audit = st.GcRemoved(r.ctx(), inbox.Count(len(removed), retention.Bytes(removed))+" older than "+*older)
 		}
 		found = removed
 	}
@@ -100,8 +99,14 @@ func cmdGC(r *runner, args []string) error {
 	if !*yes && len(found) > 0 {
 		d.Help("Delete exactly these with `hand gc --older-than " + *older + " --yes`, or name a scope after the flags to delete part of them; memory/ and briefs/ are never touched")
 	}
-	if perr := r.print(&d); perr != nil || len(failed) == 0 {
-		return perr
+	if err := r.print(&d); err != nil {
+		return err
 	}
-	return fmt.Errorf("gc: %d file(s) could not be deleted; see failed", len(failed))
+	if audit != nil {
+		return audit
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("gc: %d file(s) could not be deleted; see failed", len(failed))
+	}
+	return nil
 }

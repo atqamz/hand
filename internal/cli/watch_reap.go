@@ -35,7 +35,7 @@ func (w *watcher) reap(ctx context.Context) bool {
 		if !w.reapWarned.Swap(true) {
 			w.say(harness.PolicyFile + " unreadable, worktree retention stays off: " + err.Error())
 		}
-		return true
+		return false
 	}
 	window := p.Retention.Worktrees
 	if window == 0 {
@@ -131,7 +131,10 @@ func (w *watcher) reapRemove(ctx context.Context, c luvus.Client, a state.Attemp
 	if err := removeWorktree(ctx, c, g, a.Worktree, false); err != nil {
 		return err
 	}
-	removeScratch(scanScratch(w.r.leftovers(a.Harness, a.Worktree), 0))
+	_, warns := removeScratch(scanScratch(w.r.leftovers(a.Harness, a.Worktree), 0))
+	for _, warn := range warns {
+		w.say(state.AttemptRef(a.ID) + ": " + warn)
+	}
 	if _, err := w.st.CleanAttemptAfter(ctx, a.ID, strconv.Itoa(int(window/(24*time.Hour)))+"d"); err != nil {
 		return err
 	}

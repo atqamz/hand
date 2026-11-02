@@ -35,13 +35,16 @@ type Failure struct {
 func Scan(home string) ([]File, error) {
 	var out []File
 	for _, name := range Folders {
-		root := filepath.Join(home, name)
-		real, err := filepath.EvalSymlinks(root)
+		real := filepath.Join(home, name)
+		info, err := os.Lstat(real)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
 		if err != nil {
 			return nil, err
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("%s is not a real folder; Hand does not follow a link or a file there", name)
 		}
 		err = filepath.WalkDir(real, func(p string, e fs.DirEntry, err error) error {
 			if err != nil {
@@ -137,16 +140,41 @@ func Groups(files []File) []Group {
 }
 
 func Remove(home string, files []File) (removed []File, failed []Failure) {
+	roots := map[string]*os.Root{}
+	defer func() {
+		for _, r := range roots {
+			_ = r.Close()
+		}
+	}()
 	dirs := map[string]bool{}
 	for _, f := range files {
-		p := filepath.Join(home, filepath.FromSlash(f.Path))
-		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		name, rel, _ := strings.Cut(f.Path, "/")
+		root, ok := roots[name]
+		if !ok {
+			root = openFolder(filepath.Join(home, name))
+			roots[name] = root
+		}
+		if root == nil {
+			failed = append(failed, Failure{f.Path, fmt.Errorf("%s is not a real folder", name)})
+			continue
+		}
+		info, err := root.Lstat(rel)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err == nil && (!info.Mode().IsRegular() || !info.ModTime().Equal(f.Mod) || info.Size() != f.Size) {
+			continue
+		}
+		if err == nil {
+			err = root.Remove(rel)
+		}
+		if err != nil {
 			failed = append(failed, Failure{f.Path, err})
 			continue
 		}
 		removed = append(removed, f)
-		for d := path.Dir(f.Path); strings.Contains(d, "/"); d = path.Dir(d) {
-			dirs[d] = true
+		for d := path.Dir(rel); d != "."; d = path.Dir(d) {
+			dirs[name+"/"+d] = true
 		}
 	}
 	empty := make([]string, 0, len(dirs))
@@ -155,9 +183,30 @@ func Remove(home string, files []File) (removed []File, failed []Failure) {
 	}
 	slices.SortFunc(empty, func(a, b string) int { return len(b) - len(a) })
 	for _, d := range empty {
-		_ = os.Remove(filepath.Join(home, filepath.FromSlash(d)))
+		name, rel, _ := strings.Cut(d, "/")
+		if root := roots[name]; root != nil {
+			_ = root.Remove(rel)
+		}
 	}
 	return removed, failed
+}
+
+func openFolder(dir string) *os.Root {
+	if info, err := os.Lstat(dir); err != nil || !info.IsDir() {
+		return nil
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil
+	}
+	return root
+}
+
+func GcCommand(age time.Duration) string {
+	if age <= 0 {
+		age = 30 * 24 * time.Hour
+	}
+	return fmt.Sprintf("hand gc --older-than %dd", age/(24*time.Hour))
 }
 
 func Size(n int64) string {

@@ -282,8 +282,8 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 		}
 		add(waiting{Kind: "kept", Ref: state.AttemptRef(a.ID), Title: "Worktree kept: " + a.Kept, Task: t, Attempt: &a})
 	}
-	if text := b.artifactWarning(); text != "" {
-		add(waiting{Kind: "artifacts", Title: text})
+	if text, cmd := b.artifactWarning(); text != "" {
+		add(waiting{Kind: "artifacts", Title: text, Command: cmd})
 	}
 	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true, Oldest: true}, maxWaits)
 	if err != nil {
