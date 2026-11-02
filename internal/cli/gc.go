@@ -8,6 +8,7 @@ import (
 
 	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/retention"
+	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
 
@@ -53,7 +54,7 @@ func cmdGC(r *runner, args []string) error {
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("gc: another hand gc is running for %s", r.home)
+			return fmt.Errorf("%w: another hand gc is running for %s", state.ErrConflict, r.home)
 		}
 		defer unlock()
 	}
