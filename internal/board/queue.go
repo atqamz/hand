@@ -44,6 +44,7 @@ type waiting struct {
 	Cut              bool
 	Prompt           prompt
 	Command          string
+	Note             string
 	Actions          []key
 }
 
@@ -425,7 +426,7 @@ func (b *Board) workers(ctx context.Context, live []state.Attempt, signals map[i
 						w.Title = w.Prompt.Headline
 					}
 					if perm, ok := harness.ClaudePermission(s.Text); ok && a.Approve == state.ApproveAsk {
-						w.Command, w.Actions = perm.Command, permissionActions(perm)
+						w.Command, w.Note, w.Actions = perm.Command, perm.Note, permissionActions(perm)
 						first, more, _ := strings.Cut(perm.Command, "\n")
 						w.Title = perm.Tool + ": " + first
 						if more != "" {

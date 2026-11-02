@@ -47,7 +47,7 @@ func checkCommandLine(goos string, argv []string) error {
 		return nil
 	}
 	if n := CommandLineLen(argv); n > MaxWindowsCommandLine {
-		return fmt.Errorf("%w: starting %s takes a %d character command line once quoted, and Windows allows %d; shorten the prompt, or write the long text to a file and make the prompt say to read it; each project grant adds an --allowedTools argument, so `hand project grants --remove` shortens it too", state.ErrInvalid, filepath.Base(argv[0]), n, MaxWindowsCommandLine)
+		return fmt.Errorf("%w: starting %s takes a %d character command line once quoted, and Windows allows %d; shorten the prompt, or write the long text to a file and make the prompt say to read it", state.ErrInvalid, filepath.Base(argv[0]), n, MaxWindowsCommandLine)
 	}
 	return nil
 }

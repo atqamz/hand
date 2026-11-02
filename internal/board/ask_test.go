@@ -88,6 +88,14 @@ func TestAnAskWorkersPermissionShowsTheCommandAndTheScreensOwnKeys(t *testing.T)
 	}
 }
 
+func TestAnAskCommandShowsClaudesCaveatBesideApprove(t *testing.T) {
+	fx := newFixture(t)
+	askAttempt(t, fx, "Fix login")
+	fx.screen = capture(t, "subshell")
+	q := region(get(t, fx.handler(), "/"), "queue")
+	contains(t, "caveat", q, "<pre class=\"screen\"><code>echo $(whoami)</code></pre>", "A nested command in this command can&#39;t be checked before it runs", ">Approve</button>")
+}
+
 func TestAStaleAskScreenIsRefused(t *testing.T) {
 	fx := newFixture(t)
 	askAttempt(t, fx, "Fix login")

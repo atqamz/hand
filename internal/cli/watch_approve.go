@@ -26,10 +26,11 @@ func (w *watcher) approvals(ctx context.Context, c luvus.Client, caps luvus.Capa
 	if len(asking) == 0 {
 		return nil
 	}
-	wait := harness.DefaultApproveTimeout
-	if p, err := harness.LoadPolicy(w.r.home); err == nil {
-		wait = p.ApproveWait()
+	p, err := harness.LoadPolicy(w.r.home)
+	if err != nil {
+		return nil
 	}
+	wait := p.ApproveWait()
 	signals, err := w.st.AttemptSignals(ctx)
 	if err != nil {
 		return err

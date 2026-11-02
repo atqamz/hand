@@ -1,12 +1,12 @@
 # Safe use
 
-Hand runs its agents with their permission prompts skipped, as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
+Hand runs its agents with their permission prompts skipped (unless a Claude profile sets `"approve": "ask"`), as your own OS user, with no sandbox. This page says what that allows, what to do about it, and what no setup of today prevents. Read it before you start a supervisor.
 
 ## What runs without asking
 
-The supervisor and every worker start with the flag that skips permission prompts. No Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option.
+Unless a Claude profile sets `"approve": "ask"` (see [Ask before each command](#ask-before-each-command)), every worker starts with the flag that skips permission prompts, and the supervisor always does. No other Hand setting turns it off. `hand attempt start` takes `--harness`, `--model`, `--effort` and `--profile`, and no permission option besides that profile setting.
 
-| Harness | Flags Hand passes (worker; the supervisor passes the same) |
+| Harness | Flags Hand passes (worker; the supervisor passes the same; a Claude `ask` profile's worker omits the Claude flag) |
 |---|---|
 | Claude Code | `--dangerously-skip-permissions` |
 | Codex | `--dangerously-bypass-approvals-and-sandbox --disable hooks --cd DIR` |

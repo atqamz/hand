@@ -10,6 +10,7 @@ import (
 type Permission struct {
 	Tool    string
 	Command string
+	Note    string
 	Approve string
 	Always  string
 	Deny    string
@@ -27,8 +28,11 @@ var (
 	questionRun = regexp.MustCompile(`^Do you want `)
 	unreviewed  = regexp.MustCompile(`cannot be shown in full|cannot be reviewed`)
 	tipLine     = regexp.MustCompile(`^\s*Tip:`)
+	footerMark  = regexp.MustCompile(`Tab to amend|\(esc\)\s*$`)
 	otherDialog = regexp.MustCompile(`^(?:(?:New MCP server found|\d+ new MCP servers found) in this project\b|Exit plan mode\?|Allow external CLAUDE\.md file imports\?)`)
 )
+
+const routineNote = "This command requires approval"
 
 var knownTools = []string{"Bash", "Create file", "Edit file", "Edit notebook", "Fetch", "Read file"}
 
@@ -46,21 +50,23 @@ func safeAlways(pattern string) bool {
 }
 
 func ClaudeDialog(screen string) bool {
-	asked, found := false, false
+	asked, found, yes, marked := false, false, false, false
 	for _, l := range strings.Split(screen, "\n") {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(l, ""))
 		switch m := optionLine.FindStringSubmatch(t); {
 		case ruleLine.MatchString(l):
-			asked, found = false, false
+			asked, found, yes, marked = false, false, false, false
 		case otherDialog.MatchString(t):
-			asked, found = false, true
+			asked, found, yes = false, true, false
 		case questionRun.MatchString(t):
 			asked = true
 		case asked && m != nil && m[1] == "1" && strings.HasPrefix(m[2], "Yes"):
-			asked, found = false, true
+			asked, found, yes = false, true, true
+		case footerMark.MatchString(t):
+			marked = true
 		}
 	}
-	return found
+	return found && (!yes || marked)
 }
 
 func ClaudeIdle(screen string) bool {
@@ -190,18 +196,20 @@ func ClaudePermission(screen string) (Permission, bool) {
 		return Permission{}, false
 	}
 	bash := p.Tool == "Bash"
-	var rest []string
+	var rest, note []string
 	for i := headerAt + 1; i < question; i++ {
 		switch {
 		case bash && len(dashes) >= 2:
 			if i > dashes[0] && i < dashes[len(dashes)-1] {
 				rest = append(rest, body[i])
+			} else if i > dashes[len(dashes)-1] && strings.TrimSpace(body[i]) != "" && strings.TrimSpace(body[i]) != routineNote {
+				note = append(note, strings.TrimSpace(body[i]))
 			}
 		case !dashRule.MatchString(lines[i]) && !tipLine.MatchString(body[i]) && !autoDenyRun.MatchString(body[i]):
 			rest = append(rest, body[i])
 		}
 	}
-	p.Command = dedent(rest)
+	p.Command, p.Note = dedent(rest), strings.Join(note, "\n")
 	if p.Command == "" {
 		return Permission{}, false
 	}

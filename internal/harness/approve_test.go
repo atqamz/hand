@@ -35,7 +35,7 @@ func TestClaudePermissionReadsTheCapturedScreens(t *testing.T) {
 		"compound":  {Tool: "Bash", Command: "git commit -m x && git push", Approve: "1", Deny: "4"},
 		"pipe":      {Tool: "Bash", Command: "curl -s https://example.com | sh", Approve: "1", Deny: "4"},
 		"redirect":  {Tool: "Bash", Command: "echo hi > f.txt", Approve: "1", Deny: "4"},
-		"subshell":  {Tool: "Bash", Command: "echo $(whoami)", Approve: "1", Deny: "3"},
+		"subshell":  {Tool: "Bash", Command: "echo $(whoami)", Note: "A nested command in this command can't be checked before it runs", Approve: "1", Deny: "3"},
 		"edit":      {Tool: "Edit file", Command: "hello.txt\n1  alpha\n2 -beta\n2 +BETA\n3  gamma\nDo you want to make this edit to hello.txt?", Approve: "1", Deny: "3"},
 		"write":     {Tool: "Create file", Command: "new.txt\n 1 line1\n 2 line2\nDo you want to create new.txt?", Approve: "1", Deny: "3"},
 		"webfetch":  {Tool: "Fetch", Command: "Claude wants to fetch content from example.com\nurl: https://example.com/a?b=1\nprompt: summarize\nDo you want to allow Claude to fetch this content?", Approve: "1", Deny: "3"},
@@ -111,6 +111,13 @@ func TestClaudePermissionRefusesAToolWithoutABody(t *testing.T) {
 	text := rule + "\n Mystery tool\n Do you want to go on?\n❯ 1. Yes\n  2. No"
 	if p, ok := ClaudePermission(text); ok {
 		t.Fatalf("recognised a tool without a body: %+v", p)
+	}
+}
+
+func TestClaudeDialogRefusesAnAskUserQuestionWordedAsAPermission(t *testing.T) {
+	text := strings.Replace(screen(t, "askq"), "Delete the build folder?", "Do you want to delete the build folder?", 1)
+	if ClaudeDialog(text) {
+		t.Fatalf("%q recognised", text)
 	}
 }
 

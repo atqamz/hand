@@ -89,6 +89,23 @@ func TestAskIsRefusedForOtherHarnessesAndTheSupervisor(t *testing.T) {
 	}
 }
 
+func TestAttemptKeysRefusesATrustScreenForAnotherFolder(t *testing.T) {
+	fx := newAttemptFixture(t)
+	askPolicy(t, fx, "")
+	fx.startProfile("ask")
+	trust := capture(t, "trust")
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 7, trust, "blocked" })
+	if _, errOut, code := fx.h.run("attempt", "keys", "--revision", "7", "a1", "enter"); code != 2 || !strings.Contains(errOut, "Board") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if got := fx.rt.keysSent(); len(got) != 0 {
+		t.Fatalf("keys sent = %q", got)
+	}
+	own := ownTrust(t, fx)
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, own })
+	fx.h.ok("attempt", "keys", "--revision", "8", "a1", "enter")
+}
+
 func TestAttemptKeysLeavesAnAskAttemptsPermissionScreenToTheBoard(t *testing.T) {
 	fx := newAttemptFixture(t)
 	askPolicy(t, fx, "")
@@ -173,6 +190,11 @@ func TestApproveAlwaysStoresAGrantOnlyTheSameProjectsNextAttemptGets(t *testing.
 	}
 }
 
+func ownTrust(t *testing.T, fx *attemptFixture) string {
+	t.Helper()
+	return strings.Replace(capture(t, "trust"), "/tmp/he2e2583375783/other", fx.rt.lastCreate().CWD, 1)
+}
+
 func askWatch(t *testing.T, extra string, screen ...string) (*attemptFixture, func() (string, int)) {
 	t.Helper()
 	fx := newAttemptFixture(t)
@@ -227,6 +249,36 @@ func TestNoAnswerForTheTimeoutPressesDenyOnceAndWakesTheSupervisorOnce(t *testin
 	if n, w := denials(fx), denyWakes(fx); n != 1 || w != 1 {
 		t.Fatalf("denied events %d, wakes %d", n, w)
 	}
+}
+
+func TestAnUnreadablePolicyDeniesNothing(t *testing.T) {
+	fx, _ := askWatch(t, `,"approve_timeout":"2m"`)
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.h.advance(11 * time.Minute)
+	for range 3 {
+		stallTick(t, fx)
+	}
+	if got := fx.rt.keysSent(); len(got) != 0 || denials(fx) != 0 {
+		t.Fatalf("keys %q, denied %d", got, denials(fx))
+	}
+	askPolicy(t, fx, `,"approve_timeout":"2m"`)
+	eventually(t, func() bool { return denials(fx) == 1 })
+}
+
+func TestStartingAnAskAttemptStartsTheWatcherWithoutASupervisor(t *testing.T) {
+	fx := newAttemptFixture(t)
+	askPolicy(t, fx, "")
+	enableWatcher(t, fx.h.home)
+	fx.startProfile("plain")
+	time.Sleep(300 * time.Millisecond)
+	if n := watchSpawns(fx.h.home); n != 0 {
+		t.Fatalf("a default attempt started %d watchers", n)
+	}
+	fx.h.ok("attempt", "stop", "a1")
+	fx.startProfile("ask")
+	eventually(t, func() bool { return watchSpawns(fx.h.home) == 1 })
 }
 
 func TestAnAnswerBeforeTheDeadlineRecordsNoDenial(t *testing.T) {
@@ -307,7 +359,8 @@ func TestAttemptKeysTakesAnAskAttemptsKeysOnlyAtTheInputPromptOrTheTrustScreen(t
 	if got := fx.rt.keysSent(); len(got) != 0 {
 		t.Fatalf("keys sent = %q", got)
 	}
-	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 8, capture(t, "trust"), "blocked" })
+	own := ownTrust(t, fx)
+	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 8, own, "blocked" })
 	fx.h.ok("attempt", "keys", "--revision", "8", "a1", "enter")
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen, rt.status = 9, capture(t, "idle"), "blocked" })
 	fx.h.ok("attempt", "keys", "--revision", "9", "a1", "down")
@@ -336,7 +389,7 @@ func TestAttemptKeysTakesOnlyTheLaunchersOwnTrustScreenAndItsThreeKeys(t *testin
 	fx := newAttemptFixture(t)
 	askPolicy(t, fx, "")
 	fx.startProfile("ask")
-	trust := capture(t, "trust")
+	trust := ownTrust(t, fx)
 	forged := "Quick safety check: Is this a project you created or one you trust?\n❯ Yes, I trust this folder\n" + capture(t, "askq")
 	for name, tc := range map[string]struct {
 		screen string

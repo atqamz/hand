@@ -125,9 +125,13 @@ func cmdAttemptRead(r *runner, args []string) error {
 	})
 }
 
-func ownTrustScreen(harness, text string, keys []string) bool {
+func ownTrustScreen(harness, text, worktree string, keys []string) bool {
 	screen, ok := askedScreen(trustScreens[harness], text)
-	return ok && screen.whole(text) && !slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains([]string{"enter", "down", "up"}, k) })
+	if !ok || !screen.whole(text) {
+		return false
+	}
+	folder, _, _ := screen.names(text)
+	return screen.same(folder, worktree) && !slices.ContainsFunc(keys, func(k string) bool { return !slices.Contains([]string{"enter", "down", "up"}, k) })
 }
 
 func cmdAttemptKeys(r *runner, args []string) error {
@@ -164,7 +168,7 @@ func cmdAttemptKeys(r *runner, args []string) error {
 			if same {
 				perm, _ = harness.ClaudePermission(s.Text)
 			}
-			if !r.env.Board && !(same && (harness.ClaudeIdle(s.Text) || ownTrustScreen(a.Harness, s.Text, keys))) {
+			if !r.env.Board && !(same && (harness.ClaudeIdle(s.Text) || ownTrustScreen(a.Harness, s.Text, a.Worktree, keys))) {
 				return fmt.Errorf("%w: attempt %s asks the operator before each command, and its screen is not Claude's input prompt; answer it from the Board", state.ErrInvalid, state.AttemptRef(id))
 			}
 		}

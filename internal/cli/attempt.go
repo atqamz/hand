@@ -181,6 +181,11 @@ func cmdAttemptStart(r *runner, args []string) error {
 			d.Field(f[0], f[1])
 		}
 		help = append(help, more...)
+		if approve == state.ApproveAsk {
+			if _, err := r.ensureWatcher(ctx); err != nil {
+				help = append(help, "Start the watcher: `hand watch` (starting it failed: "+err.Error()+"); without it an unanswered prompt is never denied")
+			}
+		}
 		d.Help(help...)
 		return r.print(&d)
 	})
