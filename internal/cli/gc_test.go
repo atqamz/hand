@@ -66,7 +66,8 @@ func TestGCYesDeletesExactlyTheListedFiles(t *testing.T) {
 	fleetFile(t, h, "memory/old.md", 7, 400*day)
 	fleetFile(t, h, "briefs/old.md", 7, 400*day)
 	out := h.ok("gc", "--older-than", "30d", "--yes")
-	if !strings.Contains(out, "applied: true\n") || !strings.Contains(out, "total_files: 3\ntotal_bytes: 1150\n") {
+	if !strings.Contains(out, "applied: true\n") || !strings.Contains(out, "total_files: 3\ntotal_bytes: 1150\n") ||
+		!strings.Contains(out, "deleted[2]{path,files,bytes,oldest}:\n  shots/big.png,1,1000,") || !strings.Contains(out, "\n  reports/t1,2,150,") {
 		t.Fatalf("gc --yes = %q", out)
 	}
 	for rel, want := range map[string]bool{"reports/t1/a.md": false, "reports/t1/sub": false, "shots/big.png": false, "reports/t1/new.md": true, "reports": true, "shots": true, "memory/old.md": true, "briefs/old.md": true} {

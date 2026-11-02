@@ -173,3 +173,25 @@ func TestRemoveSkipsAChangedFileAndNeverLeavesItsFolder(t *testing.T) {
 		t.Fatalf("reports/t2 stayed: %v", err)
 	}
 }
+
+func TestRemoveSkipsAFileRewrittenWithTheSameSize(t *testing.T) {
+	home := tree(t, map[string]int{"reports/t1/a.md": 40})
+	files, err := Scan(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(home, "reports", "t1", "a.md")
+	if err := os.WriteFile(p, []byte("54321"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(p, now, now); err != nil {
+		t.Fatal(err)
+	}
+	removed, failed := Remove(home, files)
+	if len(removed) != 0 || len(failed) != 0 {
+		t.Fatalf("removed = %v, failed = %v", paths(removed), failed)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("rewritten file lost: %v", err)
+	}
+}

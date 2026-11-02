@@ -19,7 +19,7 @@ metadata:
 ## Steps
 
 1. Run the dry run. Use the `--older-than` days from the `artifacts:` line, or 30d: `hand gc --older-than 30d`. It lists candidate groups with their file count, size in bytes and oldest date, and the total. It deletes nothing.
-2. Find what is still in use. Run `hand orient` and `hand task list --status active --limit 500`, `hand decision list --limit 500` and `hand report list --unacked --limit 500`. A group named `reports/tN` or `shots/tN` belongs to task `tN`. Mark a group as in use when:
+2. Find what is still in use. Run `hand orient` and `hand task list --status inbox,active --limit 500`, `hand decision list --limit 500` and `hand report list --unacked --limit 500`. A group named `reports/tN` or `shots/tN` belongs to task `tN`. Mark a group as in use when:
    - its task is active, inbox or has an open decision;
    - an open decision, an unread report or a `Delivered:` line names a path inside it;
    - a done task's deliverable (`hand task show tN`) is inside it.
@@ -36,5 +36,5 @@ metadata:
    ```
 
    Name every group in the body, not the first line. Then end your turn; the answer arrives as a wake (`decision.answered`). Do not poll.
-4. Delete only the approved scope. Put the scopes after the flags, one per group: `hand gc --older-than 30d --yes reports/t12 shots/t12`. A scope is `reports`, `shots` or a path inside one. Without scopes `--yes` deletes every candidate, so use it only when the operator approved all candidates and you removed none of them from the scope in step 2.
-5. Report the freed size to the operator in your reply: read `total_bytes` and `total_files` from the `--yes` output, and name any `failed` row.
+4. Before you delete, run the same dry run again, because the answer can come hours or days after the question. Compare `total_files`, `total_bytes` and the groups with what the operator approved. If any differ, or a group now matches a rule from step 2, do not delete: go back to step 3 and ask again. Then delete only the approved scope. Put the scopes after the flags, one per group: `hand gc --older-than 30d --yes reports/t12 shots/t12`. A scope is `reports`, `shots` or a path inside one. Without scopes `--yes` deletes every candidate, so use it only when the operator approved all candidates and you removed none of them from the scope in step 2.
+5. Report the freed size to the operator in your reply: read `total_bytes` and `total_files` from the `--yes` output, list each group in `deleted` with its size, and name any `failed` row.

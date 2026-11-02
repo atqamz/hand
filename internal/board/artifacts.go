@@ -20,10 +20,10 @@ type artifactCache struct {
 func (b *Board) artifactWarning() (string, string) {
 	b.artifacts.mu.Lock()
 	defer b.artifacts.mu.Unlock()
-	if !b.artifacts.at.IsZero() && time.Since(b.artifacts.at) < artifactsEvery {
+	if !b.artifacts.at.IsZero() && b.now().Sub(b.artifacts.at) < artifactsEvery {
 		return b.artifacts.text, b.artifacts.cmd
 	}
-	b.artifacts.at, b.artifacts.text, b.artifacts.cmd = time.Now(), "", ""
+	b.artifacts.at, b.artifacts.text, b.artifacts.cmd = b.now(), "", ""
 	p, err := harness.LoadPolicy(b.o.Home)
 	if err != nil || (p.Retention.WarnSize == 0 && p.Retention.WarnDays == 0) {
 		return "", ""

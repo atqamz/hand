@@ -32,6 +32,10 @@ func sweepWorktree(dir string) {
 	}
 }
 
+func worktreeBusy(dir string) bool {
+	return len(leftovers(realRoots(dir))) > 0
+}
+
 func endLeftovers(roots []string, victims []leftover) {
 	signalLeftovers(victims, syscall.SIGTERM)
 	deadline := time.Now().Add(killGrace)

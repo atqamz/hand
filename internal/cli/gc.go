@@ -23,7 +23,7 @@ func init() {
 func cmdGC(r *runner, args []string) error {
 	set := flags("gc")
 	older := set.String("older-than", "", "list the files in reports/ and shots/ not modified for this many days, like 30d")
-	yes := set.Bool("yes", false, "delete the listed files; without it nothing is deleted")
+	yes := set.Bool("yes", false, "scan again and delete the files found; without it nothing is deleted")
 	if err := set.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("gc: %v", err)}
 	}
@@ -86,7 +86,11 @@ func cmdGC(r *runner, args []string) error {
 	for _, g := range retention.Groups(found) {
 		rows = append(rows, []string{g.Path, strconv.Itoa(g.Files), strconv.FormatInt(g.Bytes, 10), g.Oldest.UTC().Format(time.DateOnly)})
 	}
-	d.Rows("candidates", gcFields, rows)
+	if *yes {
+		d.Rows("deleted", gcFields, rows)
+	} else {
+		d.Rows("candidates", gcFields, rows)
+	}
 	d.Field("total_files", strconv.Itoa(len(found)))
 	d.Field("total_bytes", strconv.FormatInt(retention.Bytes(found), 10))
 	if len(failed) > 0 {
@@ -97,7 +101,7 @@ func cmdGC(r *runner, args []string) error {
 		d.Rows("failed", []string{"path", "error"}, frows)
 	}
 	if !*yes && len(found) > 0 {
-		d.Help("Delete exactly these with `hand gc --older-than " + *older + " --yes`, or name a scope after the flags to delete part of them; memory/ and briefs/ are never touched")
+		d.Help("Delete with `hand gc --older-than " + *older + " --yes`, which scans again, or name a scope after the flags to delete part of them; memory/ and briefs/ are never touched")
 	}
 	if err := r.print(&d); err != nil {
 		return err
