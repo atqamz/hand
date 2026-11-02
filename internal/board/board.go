@@ -68,6 +68,22 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"view":  view,
 	"rep":   rep,
 	"pick":  pick,
+	"dict": func(kv ...any) map[string]any {
+		m := make(map[string]any, len(kv)/2)
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i].(string)] = kv[i+1]
+		}
+		return m
+	},
+	"start": func(d map[string]any) startForm {
+		return startForm{Base: d["base"].(string), Token: d["token"].(string), Label: d["label"].(string), Inline: d["inline"].(bool), Starting: d["starting"].(string), Primary: d["primary"].(bool)}
+	},
+	"resume": func(base, token, starting string) resumeForm {
+		return resumeForm{Base: base, Token: token, Starting: starting}
+	},
+	"ack": func(base, token, ref string, fetch bool) ackForm {
+		return ackForm{Base: base, Token: token, Ref: ref, Fetch: fetch}
+	},
 }).ParseFS(files, "templates/*.html"))
 
 const (
