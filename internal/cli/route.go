@@ -51,7 +51,7 @@ func cmdRouteList(r *runner, args []string) error {
 		if why, hard := harness.Vanished(s, env, now); hard && valid == "yes" {
 			valid, warn = "no", why
 		}
-		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid, warn, access})
+		rows = append(rows, []string{name, s.Harness, s.Model, s.Effort, valid, warn, access, p.Profiles[name].MCP})
 	}
 	var models [][]string
 	for _, name := range state.Harnesses {
@@ -85,7 +85,7 @@ func cmdRouteList(r *runner, args []string) error {
 			fmt.Sprintf("%.2f", float64(t.Sent)/n), fmt.Sprintf("%.2f", float64(t.Wakes)/n), median})
 	}
 	var d toon.Doc
-	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid", "warn", "access"}, rows)
+	d.Rows("profiles", []string{"name", "harness", "model", "effort", "valid", "warn", "access", "mcp"}, rows)
 	d.Rows("track", []string{"harness", "model", "effort", "n", "first_try", "reattempt", "stuck", "sent_per", "wakes_per", "median_min"}, track)
 	d.Field("harnesses", strings.Join(state.Harnesses, " "))
 	d.Rows("models", []string{"harness", "model", "efforts"}, models)

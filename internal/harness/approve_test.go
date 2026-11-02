@@ -202,36 +202,92 @@ func dropSessionID(t *testing.T, argv []string) []string {
 
 func TestAskArgvDropsTheSkipFlagAndPassesAllowRules(t *testing.T) {
 	spec := Spec{"claude", "sonnet", "low"}
-	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", []string{"Bash(git push *)", "Bash(go test *)"})
-	want := []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--allowedTools=Bash(git push *)", "--allowedTools=Bash(go test *)", "fix it"}
+	got, err := AskArgv("/bin/claude", spec, "fix it", "/w", "", []string{"Bash(git push *)", "Bash(go test *)"})
+	want := []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "--allowedTools=Bash(git push *)", "--allowedTools=Bash(go test *)", "fix it"}
 	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
-	got, err = AskArgv("/bin/claude", spec, "fix it", "/w", nil)
-	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	got, err = AskArgv("/bin/claude", spec, "fix it", "/w", "", nil)
+	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
 		t.Fatalf("argv without grants = %q, %v", got, err)
 	}
-	if _, err := AskArgv("/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "fix it", "/w", nil); !errors.Is(err, state.ErrInvalid) {
+	if _, err := AskArgv("/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "fix it", "/w", "", nil); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("codex err = %v", err)
 	}
 }
 
 func TestArgvOfADefaultProfileKeepsTheSkipFlag(t *testing.T) {
-	got, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "/w")
-	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	got, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "/w", "")
+	if err != nil || !slices.Equal(dropSessionID(t, got), []string{"/bin/claude", "--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
 		t.Fatalf("argv = %q, %v", got, err)
+	}
+}
+
+func TestMCPFileAddsExactlyOneConfigToEveryClaudeLaunch(t *testing.T) {
+	spec := Spec{"claude", "sonnet", "low"}
+	file := filepath.Join("/fleet", "mcp.json")
+	flag := "--mcp-config=" + file
+	launches := map[string]func(mcp string) ([]string, error){
+		"default": func(mcp string) ([]string, error) { return Argv("/bin/claude", spec, "fix it", "/w", mcp) },
+		"ask":     func(mcp string) ([]string, error) { return AskArgv("/bin/claude", spec, "fix it", "/w", mcp, nil) },
+		"readonly": func(mcp string) ([]string, error) {
+			return ReadonlyArgv("/bin/claude", spec, "review it", "/w", mcp, nil)
+		},
+	}
+	for name, launch := range launches {
+		plain, err := launch("")
+		if err != nil || !slices.Contains(plain, "--strict-mcp-config") || slices.ContainsFunc(plain, func(a string) bool { return strings.HasPrefix(a, "--mcp-config") }) {
+			t.Fatalf("%s without mcp = %q, %v", name, plain, err)
+		}
+		with, err := launch(file)
+		if err != nil || strings.Count(strings.Join(with, "\x00"), "--mcp-config") != 1 || !slices.Contains(with, flag) || !slices.Contains(with, "--strict-mcp-config") || with[len(with)-1] != plain[len(plain)-1] {
+			t.Fatalf("%s with mcp = %q, %v", name, with, err)
+		}
+	}
+}
+
+func TestMCPIsRefusedForOtherHarnessesAndOutsideTheFleetHome(t *testing.T) {
+	for _, s := range []Spec{{"codex", "gpt-6-luna", "low"}, {Harness: "opencode"}, {"agy", "gemini-3.8-flash-low", ""}, {"copilot", "auto", ""}} {
+		if _, err := Argv("/bin/x", s, "fix it", "/w", "mcp.json"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "mcp is only available for claude, not "+s.Harness) {
+			t.Fatalf("%s err = %v", s.Harness, err)
+		}
+	}
+	for _, bad := range []string{"../mcp.json", "/etc/mcp.json", "a/../../mcp.json"} {
+		if err := checkMCP("x", Profile{Spec: Spec{"claude", "sonnet", "low"}, MCP: bad}); err == nil || !strings.Contains(err.Error(), "inside the fleet home") {
+			t.Fatalf("mcp %q err = %v", bad, err)
+		}
+	}
+	if err := checkMCP("look", Profile{Spec: Spec{"claude", "sonnet", "low"}, Access: state.AccessReadonly, MCP: "mcp.json"}); err == nil || !strings.Contains(err.Error(), "leave mcp out") {
+		t.Fatalf("readonly with mcp err = %v", err)
+	}
+}
+
+func TestMCPFileNamesTheFileInsideTheFleetHome(t *testing.T) {
+	home := t.TempDir()
+	pr := Profile{Spec: Spec{"claude", "sonnet", "low"}, MCP: "mcp.json"}
+	if path, err := (Profile{}).MCPFile(home); path != "" || err != nil {
+		t.Fatalf("no mcp = %q, %v", path, err)
+	}
+	if _, err := pr.MCPFile(home); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), filepath.Join(home, "mcp.json")) {
+		t.Fatalf("missing file err = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "mcp.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := pr.MCPFile(home); path != filepath.Join(home, "mcp.json") || err != nil {
+		t.Fatalf("file = %q, %v", path, err)
 	}
 }
 
 func TestReadonlyArgvRunsClaudeInDontAskModeWithOnlyTheReportAndPrView(t *testing.T) {
 	spec := Spec{"claude", "sonnet", "low"}
-	got, err := ReadonlyArgv("/bin/claude", spec, "review it", "/w", []string{"Bash('/bin/hand' report add *)"})
+	got, err := ReadonlyArgv("/bin/claude", spec, "review it", "/w", "", []string{"Bash('/bin/hand' report add *)"})
 	want := []string{"/bin/claude", "--permission-mode", "dontAsk", "--model", "sonnet", "--effort", "low", "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob", "--allowedTools=Bash(gh pr view *)", "--allowedTools=Bash('/bin/hand' report add *)", "review it"}
 	if err != nil || !slices.Equal(dropSessionID(t, got), want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
 	for _, s := range []Spec{{"codex", "gpt-6-luna", "low"}, {Harness: "opencode"}, {"agy", "gemini-3.8-flash-low", ""}, {"copilot", "auto", ""}} {
-		if _, err := ReadonlyArgv("/bin/x", s, "review it", "/w", nil); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "only available for claude, not "+s.Harness) {
+		if _, err := ReadonlyArgv("/bin/x", s, "review it", "/w", "", nil); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "only available for claude, not "+s.Harness) {
 			t.Fatalf("%s err = %v", s.Harness, err)
 		}
 	}

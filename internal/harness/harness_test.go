@@ -224,21 +224,21 @@ func TestCodexHome(t *testing.T) {
 }
 
 func TestArgvIsExact(t *testing.T) {
-	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "")
-	if err != nil || len(c) != 9 || !uuidPattern.MatchString(c[3]) || !slices.Equal(slices.Concat(c[:3], c[4:]), []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", "--model", "sonnet", "--effort", "low", "fix it"}) {
+	c, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, "fix it", "", "")
+	if err != nil || len(c) != 10 || !uuidPattern.MatchString(c[3]) || !slices.Equal(slices.Concat(c[:3], c[4:]), []string{"/bin/claude", "--dangerously-skip-permissions", "--session-id", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "fix it"}) {
 		t.Fatalf("claude argv = %q, %v", c, err)
 	}
 	for _, dir := range spacedDirs(t) {
-		x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", dir)
+		x, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", dir, "")
 		if err != nil || !slices.Equal(x, []string{"/bin/codex", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", "gpt-6-luna", "-c", "model_reasoning_effort=medium", "fix it"}) {
 			t.Fatalf("codex argv = %q, %v", x, err)
 		}
 	}
-	if _, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", "relative/dir"); !errors.Is(err, state.ErrInvalid) {
+	if _, err := Argv("/bin/codex", Spec{"codex", "gpt-6-luna", "medium"}, "fix it", "relative/dir", ""); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("relative dir err = %v", err)
 	}
 	for _, bad := range []string{"", "  ", "-p trick", "a\x00b", strings.Repeat("x", MaxPromptBytes+1)} {
-		if _, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, bad, ""); !errors.Is(err, state.ErrInvalid) {
+		if _, err := Argv("/bin/claude", Spec{"claude", "sonnet", "low"}, bad, "", ""); !errors.Is(err, state.ErrInvalid) {
 			t.Fatalf("prompt %.10q err = %v", bad, err)
 		}
 	}
@@ -251,11 +251,11 @@ func TestOpencodeStartsBare(t *testing.T) {
 }
 
 func TestOpencodeArgvPrefillsThePrompt(t *testing.T) {
-	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it", "")
+	o, err := Argv("/usr/bin/opencode", Spec{Harness: "opencode"}, "fix it", "", "")
 	if err != nil || len(o) != 7 || !slices.Equal(o[:4], []string{"/usr/bin/opencode", "--standalone", "--auto", "--session"}) || !opencodeID.MatchString(o[4]) || !slices.Equal(o[5:], []string{"--prompt", "fix it"}) {
 		t.Fatalf("opencode argv = %q, %v", o, err)
 	}
-	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it", ""); !errors.Is(err, state.ErrInvalid) {
+	if _, err := Argv("/bin/gemini", Spec{Harness: "gemini"}, "fix it", "", ""); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("unknown harness argv err = %v", err)
 	}
 	if !Prefills("opencode") || Prefills("claude") || Prefills("codex") {
@@ -271,12 +271,12 @@ func TestCopilotArgvIsExact(t *testing.T) {
 		{"", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
 		{"high", []string{"/bin/copilot", "--no-auto-update", "--model", "auto", "--reasoning-effort", "high", "--allow-all-tools", "--allow-all-paths", "--session-id"}},
 	} {
-		got, err := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		got, err := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "", "")
 		n := len(tc.pre)
 		if err != nil || len(got) != n+3 || !slices.Equal(got[:n], tc.pre) || !uuidPattern.MatchString(got[n]) || !slices.Equal(got[n+1:], []string{"-i", "brief"}) {
 			t.Fatalf("effort %q: argv = %q, %v", tc.effort, got, err)
 		}
-		again, _ := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "")
+		again, _ := Argv("/bin/copilot", Spec{"copilot", "auto", tc.effort}, "brief", "", "")
 		if again[n] == got[n] {
 			t.Fatalf("two launches share the session id %s", got[n])
 		}
@@ -296,7 +296,7 @@ func TestCopilotStartsWorkersOnly(t *testing.T) {
 }
 
 func TestAgyArgvIsExact(t *testing.T) {
-	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "")
+	got, err := Argv("/bin/agy", Spec{"agy", "gemini-3.8-flash-low", ""}, "brief", "", "")
 	if want := []string{"/bin/agy", "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i", "brief"}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}

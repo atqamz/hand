@@ -441,7 +441,7 @@ func (b *Board) profilesFor(name string) []profile {
 	var out []profile
 	for _, n := range p.Names() {
 		s := p.Profiles[n].Spec
-		if (name != "" && s.Harness != name) || p.Profiles[n].Approve == state.ApproveAsk || p.Profiles[n].Access == state.AccessReadonly || harness.CheckSupervisor(s) != nil {
+		if (name != "" && s.Harness != name) || p.Profiles[n].Approve == state.ApproveAsk || p.Profiles[n].Access == state.AccessReadonly || p.Profiles[n].MCP != "" || harness.CheckSupervisor(s) != nil {
 			continue
 		}
 		reason, seen := missing[s.Harness]

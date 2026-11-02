@@ -74,6 +74,10 @@ func cmdAttemptStart(r *runner, args []string) error {
 		return err
 	}
 	spec := routed.Spec
+	mcp, err := routed.MCPFile(r.home)
+	if err != nil {
+		return err
+	}
 	bin, err := harnessBin(r, spec)
 	if err != nil {
 		return err
@@ -104,7 +108,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 			return err
 		}
 		approve := state.ApproveNever
-		argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree) }
+		argvFor := func(worktree string) ([]string, error) { return harness.Argv(bin, spec, text, worktree, mcp) }
 		if routed.Approve == state.ApproveAsk {
 			grants, err := st.Grants(ctx, project.Name, spec.Harness)
 			if err != nil {
@@ -115,13 +119,15 @@ func cmdAttemptStart(r *runner, args []string) error {
 				allow = append(allow, harness.ClaudeAllowRule(grant.Pattern))
 			}
 			approve = state.ApproveAsk
-			argvFor = func(worktree string) ([]string, error) { return harness.AskArgv(bin, spec, text, worktree, allow) }
+			argvFor = func(worktree string) ([]string, error) { return harness.AskArgv(bin, spec, text, worktree, mcp, allow) }
 		}
 		access := state.AccessOpen
 		if routed.Access == state.AccessReadonly {
 			access = state.AccessReadonly
 			rules := []string{reportRule(exe)}
-			argvFor = func(worktree string) ([]string, error) { return harness.ReadonlyArgv(bin, spec, text, worktree, rules) }
+			argvFor = func(worktree string) ([]string, error) {
+				return harness.ReadonlyArgv(bin, spec, text, worktree, mcp, rules)
+			}
 		}
 		if continues != 0 {
 			prev, err := st.Attempt(ctx, continues)
@@ -225,6 +231,9 @@ func (r *runner) routedSupervisor(cmd string, spec harness.Spec, profile string)
 	}
 	if err == nil && p.Access == state.AccessReadonly {
 		err = fmt.Errorf("%w: profile %q is read-only, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
+	}
+	if err == nil && p.MCP != "" {
+		err = fmt.Errorf("%w: profile %q names an MCP file, which applies to workers only; the supervisor starts without it", state.ErrInvalid, profile)
 	}
 	return p.Spec, err
 }
@@ -984,6 +993,9 @@ func cmdAttemptShow(r *runner, args []string) error {
 		}
 		if a.Access != state.AccessOpen {
 			d.Field("access", a.Access)
+		}
+		if i := slices.IndexFunc(a.Argv[:len(a.Argv)-1], func(arg string) bool { return strings.HasPrefix(arg, "--mcp-config=") }); i >= 0 {
+			d.Field("mcp", strings.TrimPrefix(a.Argv[i], "--mcp-config="))
 		}
 		d.Field("launch", strings.Join(a.Argv[:len(a.Argv)-1], " "))
 		d.Field("prompt_bytes", strconv.Itoa(len(a.Argv[len(a.Argv)-1])))

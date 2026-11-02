@@ -215,7 +215,10 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		idle := installed == 0 && lerr == nil && !live && maps.Equal(p.Profiles, harness.StarterPolicy.Profiles)
 		missing := false
 		for _, name := range p.Names() {
+			_, mcpErr := p.Profiles[name].MCPFile(r.home)
 			switch _, warn, err := checkedBin(r, p.Profiles[name].Spec); {
+			case mcpErr != nil:
+				c.add("profile "+name, "fail", strings.TrimPrefix(mcpErr.Error(), state.ErrInvalid.Error()+": "))
 			case err != nil && idle:
 				c.add("profile "+name, "warn", err.Error())
 				missing = true

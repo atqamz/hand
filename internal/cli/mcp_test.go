@@ -1,0 +1,69 @@
+package cli_test
+
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+)
+
+const mcpPolicy = `{"profiles":{"plain":{"harness":"claude","model":"sonnet","effort":"low"},"browser":{"harness":"claude","model":"sonnet","effort":"low","mcp":"mcp.json"}}}`
+
+func TestAProfileMCPFileStartsTheWorkerWithOnlyThatFile(t *testing.T) {
+	fx := newAttemptFixture(t)
+	accessPolicy(t, fx, mcpPolicy)
+	file := filepath.Join(fx.h.home, "mcp.json")
+	if err := os.WriteFile(file, []byte(`{"mcpServers":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fx.startProfile("browser")
+	argv := dropSession(t, fx.rt.lastCreate().Command)
+	if !slices.Equal(argv[1:8], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config", "--mcp-config=" + file}) {
+		t.Fatalf("argv = %q", argv)
+	}
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "mcp: "+file+"\n") {
+		t.Fatalf("show = %q", show)
+	}
+	if list := fx.h.ok("route", "list"); !strings.Contains(list, "{name,harness,model,effort,valid,warn,access,mcp}") || !strings.Contains(list, "browser,claude,sonnet,low,yes,\"\",open,mcp.json\n") {
+		t.Fatalf("route list = %q", list)
+	}
+}
+
+func TestADefaultProfileShowsNoMCP(t *testing.T) {
+	fx := newAttemptFixture(t)
+	accessPolicy(t, fx, mcpPolicy)
+	fx.startProfile("plain")
+	if show := fx.h.ok("attempt", "show", "a1"); strings.Contains(show, "mcp:") {
+		t.Fatalf("show = %q", show)
+	}
+}
+
+func TestAMissingMCPFileFailsTheStartBeforeAnyWorkerRuns(t *testing.T) {
+	fx := newAttemptFixture(t)
+	accessPolicy(t, fx, mcpPolicy)
+	_, errOut, code := fx.h.run("attempt", "start", "--profile", "browser", "--prompt-file", fx.brief, "t1")
+	if code != 2 || !strings.Contains(errOut, "mcp.json is not a file") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestMCPIsRefusedForOtherHarnessesOutsideTheFleetHomeAndTheSupervisor(t *testing.T) {
+	fx := newAttemptFixture(t)
+	for body, want := range map[string]string{
+		`{"profiles":{"x":{"harness":"codex","model":"gpt-6-luna","effort":"low","mcp":"mcp.json"}}}`: `mcp is only available for claude, not codex`,
+		`{"profiles":{"x":{"harness":"opencode","mcp":"mcp.json"}}}`:                                  `mcp is only available for claude, not opencode`,
+		`{"profiles":{"x":{"harness":"claude","model":"sonnet","effort":"low","mcp":"../mcp.json"}}}`: `must be a path inside the fleet home`,
+	} {
+		accessPolicy(t, fx, body)
+		for _, args := range [][]string{{"route", "list"}, {"attempt", "start", "--profile", "x", "--prompt-file", fx.brief, "t1"}} {
+			if _, errOut, code := fx.h.run(args...); code != 2 || !strings.Contains(errOut, want) {
+				t.Fatalf("%s %q code=%d stderr=%q", body, args, code, errOut)
+			}
+		}
+	}
+	accessPolicy(t, fx, mcpPolicy)
+	if _, errOut, code := fx.h.run("supervisor", "start", "--profile", "browser"); code != 2 || !strings.Contains(errOut, "names an MCP file") {
+		t.Fatalf("supervisor code=%d stderr=%q", code, errOut)
+	}
+}

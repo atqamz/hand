@@ -170,6 +170,10 @@ A `claude` profile can set `"access": "readonly"` in `routing.json` for a review
 {"profiles": {"look": {"harness": "claude", "model": "sonnet", "effort": "medium", "access": "readonly"}}}
 ```
 
+## MCP servers in workers
+
+A Claude worker starts with `--strict-mcp-config` and no MCP server. Before, it inherited every server in your own Claude config, and one such server can drive a logged-in browser: a worker that follows text from an untrusted issue then had a path to it. A profile in `routing.json` can add `"mcp": "mcp.json"`, a path inside the fleet home to an MCP config you maintain, for the tasks that need a credentialed or logged-in browser; see [MCP](vocabulary.md#mcp). Hand never reads your Claude config. Only `claude` supports the key; Codex, opencode, agy and Copilot keep loading the servers of their own configuration, and Hand claims no isolation for them. Put in `mcp.json` only servers you would let any instruction in that task's text reach.
+
 ## Planned, not built
 
 None of this exists yet. The operator's safe-mode study describes them. It is not in this repository. Which of them get built is decided after this page has been read.

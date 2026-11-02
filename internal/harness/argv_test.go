@@ -27,7 +27,7 @@ func TestCodexDirSurvivesLaunchingTheExe(t *testing.T) {
 	for name, build := range map[string]func() ([]string, error){
 		"supervisor": func() ([]string, error) { return SupervisorArgv(bin, spec, "", "go", dir, false) },
 		"resume":     func() ([]string, error) { return SupervisorArgv(bin, spec, "abc", "", dir, true) },
-		"worker":     func() ([]string, error) { return Argv(bin, spec, "go", dir) },
+		"worker":     func() ([]string, error) { return Argv(bin, spec, "go", dir, "") },
 	} {
 		_ = os.Remove(out)
 		argv, err := build()
@@ -57,7 +57,7 @@ func TestOpencodeSessionIdSurvivesLaunchingTheExe(t *testing.T) {
 	for name, build := range map[string]func() ([]string, error){
 		"supervisor": func() ([]string, error) { return SupervisorArgv(bin, spec, id, "go", base, false) },
 		"resume":     func() ([]string, error) { return SupervisorArgv(bin, spec, id, "", base, true) },
-		"worker":     func() ([]string, error) { return Argv(bin, spec, "go", base) },
+		"worker":     func() ([]string, error) { return Argv(bin, spec, "go", base, "") },
 	} {
 		_ = os.Remove(out)
 		argv, err := build()
