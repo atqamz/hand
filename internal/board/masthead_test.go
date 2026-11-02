@@ -5,7 +5,7 @@ import "testing"
 func TestTheMastheadSticksOnEveryPage(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
-		"--pane:clamp(360px,var(--chat,clamp(400px,38vw,720px)),calc(100% - 440px));--mast:48px}",
+		"--pane:clamp(360px,var(--chat,clamp(400px,38vw,720px)),calc(100% - 440px));--mast:48px;--space-2:2px",
 		"html{-webkit-text-size-adjust:100%;scroll-padding-top:var(--mast)}",
 		".masthead{position:sticky;top:0;z-index:4;background:var(--bg);",
 		"body[data-page=fleet]:not([data-shell]) .sup{position:sticky;top:var(--mast);height:calc(100dvh - var(--mast))}")

@@ -86,6 +86,6 @@ func TestTheComposerShowsADraftNote(t *testing.T) {
 	contains(t, "fleet page", get(t, newFixture(t).handler(), "/"), `<span class="draft-note"></span>`)
 	contains(t, "board.css", asset(t, "board.css"),
 		"border-radius:var(--r-lg);background:var(--bg);position:relative}",
-		".draft-note{position:absolute;top:-9px;right:14px;padding:0 6px;background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}",
+		".draft-note{position:absolute;top:-9px;right:14px;padding:0 var(--space-6);background:var(--bg);color:var(--muted);font-size:12px;line-height:18px;white-space:nowrap;pointer-events:none}",
 		".draft-note:empty{display:none}")
 }

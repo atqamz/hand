@@ -370,7 +370,7 @@ func TestThePaneHeadRowOrder(t *testing.T) {
 	contains(t, "interrupt", console, `<span class="key-label">Interrupt</span>`)
 	more := console[strings.Index(console, `id="more-menu"`):]
 	lacks(t, "more menu", more[:strings.Index(more, "</details>")], "supervisor/stop")
-	contains(t, "css", asset(t, "board.css"), ".composer-foot{display:flex;align-items:center;gap:12px;", "#more-menu:not(:has(.menu-body>:not([hidden])))")
+	contains(t, "css", asset(t, "board.css"), ".composer-foot{display:flex;align-items:center;gap:var(--space-12);", "#more-menu:not(:has(.menu-body>:not([hidden])))")
 }
 
 func TestStopArmsWithJS(t *testing.T) {
@@ -575,7 +575,7 @@ func TestAWarningReachesTheBrowserNextToTheReceipt(t *testing.T) {
 	}
 	js := asset(t, "app.js")
 	contains(t, "app.js", js, `const warn = header(res, "X-Hand-Warn");`, "show(receipt ? `${receipt}; ${warn}` : warn, 12000, \"warn\")")
-	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:4px;min-height:var(--control);padding:2px 0")
+	contains(t, "board.css", asset(t, "board.css"), "#toast[data-kind=warn]{border-color:var(--wait)}", ".menu-body label input{font-weight:400;width:100%;min-width:0}", "@container (max-width:519px){.others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}}", ".others>summary{display:inline-flex;align-items:center;gap:var(--space-4);min-height:var(--control);padding:var(--space-2) 0")
 }
 
 func TestStartRowPostsHarnessModelAndEffort(t *testing.T) {
@@ -619,7 +619,7 @@ func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	picked := region(get(t, ended.handler(), "/?pick=1"), "console")
 	contains(t, "after a supervisor", picked, `>same as s1 · sonnet low</option>`, `<button>Start new</button>`, `<button class="primary">Resume</button>`)
 	lacks(t, "after a supervisor", picked, " required>", " selected>")
-	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:12px;padding:16px}", ".starter{flex:1 1 100%", ".starter .gone{margin:0;color:var(--wait);font-size:14px}", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
+	contains(t, "board.css", asset(t, "board.css"), ".console:has(.starter){align-items:flex-start;gap:var(--space-12);padding:var(--space-16)}", ".starter{flex:1 1 100%", ".starter .gone{margin:0;color:var(--wait);font-size:14px}", `.sup:has(.console .starter,.console form[action$="/supervisor/resume"]) .send .primary{background:var(--bg)`)
 }
 
 func TestTheFirstStartPostsAProfileInsteadOfNothing(t *testing.T) {

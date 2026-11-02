@@ -114,7 +114,7 @@ func TestErrorPagesKeepNoPaths(t *testing.T) {
 	}
 	contains(t, "missing task", missing.Body.String(), "Task t99 was not found.", `<div class="strip">`, `<p class="back">`)
 	lacks(t, "missing task", missing.Body.String(), "not found: task")
-	contains(t, "css", asset(t, "board.css"), `.card.error .back{margin:0;padding:0 12px 12px}`)
+	contains(t, "css", asset(t, "board.css"), `.card.error .back{margin:0;padding:0 var(--space-12) var(--space-12)}`)
 }
 
 func TestRefRouteRedirects(t *testing.T) {
@@ -273,10 +273,10 @@ func TestTheLostLinkIsABandUnderTheMasthead(t *testing.T) {
 	}
 	css := asset(t, "board.css")
 	contains(t, "css", css,
-		".link-state{margin:0;padding:6px 16px;border-top:1px solid var(--line);background:var(--wait-bg);color:var(--fg);font-size:14px;line-height:20px}",
+		".link-state{margin:0;padding:var(--space-6) var(--space-16);border-top:1px solid var(--line);background:var(--wait-bg);color:var(--fg);font-size:14px;line-height:20px}",
 		".masthead:has(>.link-state:not([hidden])){flex-wrap:wrap}",
 		".masthead>.link-state{flex:1 0 100%}",
-		"body[data-page=fleet] .link-state{padding-inline:24px}")
+		"body[data-page=fleet] .link-state{padding-inline:var(--space-24)}")
 }
 
 func TestASilentStreamIsWatchedAndAnswered(t *testing.T) {
@@ -462,12 +462,12 @@ func TestTheTaskPageStylesItsColumnsAndPhoneOrder(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "columns", css,
 		".thread:has(.task-grid){max-width:1120px}",
-		".task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:24px 40px;align-items:start}",
+		".task-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:var(--space-24) 40px;align-items:start}",
 		".task-side{position:sticky;top:calc(var(--mast) + 16px);max-height:calc(100dvh - var(--mast) - 32px);",
 		".delivered .url{max-width:100%;",
 		"overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-grid{grid-template-columns:minmax(0,1fr)}.task-side{order:-1;position:static;max-height:none;overflow:visible}}")
-	contains(t, "masthead", css, "body:not([data-page=fleet]):has(main>.task-grid) .masthead-inner{padding-inline:max(16px,calc((100% - 1088px)/2))}")
+	contains(t, "masthead", css, "body:not([data-page=fleet]):has(main>.task-grid) .masthead-inner{padding-inline:max(var(--space-16),calc((100% - 1088px)/2))}")
 	contains(t, "report head", css, `.card.report>header.slug{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"who title act" ". meta act";`)
 	if flex, grid := strings.Index(css, ":is(.thread,.task-main)>.card>header.slug{display:flex"), strings.Index(css, ".card.report>header.slug{display:grid"); flex < 0 || grid < flex {
 		t.Fatal("the report header grid must come after the card header flex rule it ties with in specificity")

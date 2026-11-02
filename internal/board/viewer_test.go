@@ -371,14 +371,14 @@ func TestTheViewerDialogKeepsTheDocKeys(t *testing.T) {
 func TestTheViewerDialogIsStyled(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
-		"dialog.viewer{width:min(1200px,calc(100vw - 48px));height:calc(100dvh - 48px);max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);color:var(--fg);box-shadow:0 8px 24px var(--shadow);overflow:hidden}",
+		"dialog.viewer{width:min(1200px,calc(100vw - 48px));height:calc(100dvh - var(--row-lg));max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--bg);color:var(--fg);box-shadow:0 8px 24px var(--shadow);overflow:hidden}",
 		"dialog.viewer[open]{display:flex;flex-direction:column}",
-		"dialog.viewer::backdrop{background:rgb(0 0 0 / .32)}",
+		"dialog.viewer::backdrop{background:var(--backdrop)}",
 		"html:has(dialog.viewer:modal){overflow:hidden}",
-		".viewer-top{display:flex;flex:none;align-items:center;gap:8px;min-height:calc(var(--control) + 12px);padding:6px 8px;border-bottom:1px solid var(--line);background:var(--panel)}",
-		".viewer-tab{display:inline-flex;align-items:center;min-height:var(--control);padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);font-weight:600;white-space:nowrap}",
+		".viewer-top{display:flex;flex:none;align-items:center;gap:var(--space-8);min-height:calc(var(--control) + 12px);padding:var(--space-6) var(--space-8);border-bottom:1px solid var(--line);background:var(--panel)}",
+		".viewer-tab{display:inline-flex;align-items:center;min-height:var(--control);padding:0 var(--space-12);border:1px solid var(--line-strong);border-radius:var(--r-md);font-weight:600;white-space:nowrap}",
 		".viewer-back,.viewer-close{width:var(--control);padding:0}",
-		".viewer-body.thread.doc{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:16px 20px 32px;overflow:auto;overscroll-behavior:contain}",
+		".viewer-body.thread.doc{flex:1;min-height:0;max-width:none;width:100%;margin:0;padding:var(--space-16) var(--space-20) 32px;overflow:auto;overscroll-behavior:contain}",
 		".viewer-body:focus{outline:none}",
 		".viewer-state{min-width:0;overflow:hidden;color:var(--fg);font-family:var(--mono);text-overflow:ellipsis;white-space:nowrap}",
 		".viewer .doc-picture img{max-height:calc(100dvh - 300px)}",
@@ -392,7 +392,7 @@ func TestTheViewerDialogIsStyled(t *testing.T) {
 	if phone < 0 {
 		t.Fatal("board.css has no first max-width:599px block")
 	}
-	rule := strings.Index(css[phone:], "dialog.viewer[open]{width:100vw;height:100dvh;border:0;border-radius:0}\ndialog.viewer[open] .viewer-body.thread.doc{padding:12px 12px 24px}\ndialog.viewer[open] .text-bar{top:-12px}")
+	rule := strings.Index(css[phone:], "dialog.viewer[open]{width:100vw;height:100dvh;border:0;border-radius:0}\ndialog.viewer[open] .viewer-body.thread.doc{padding:var(--space-12) var(--space-12) var(--space-24)}\ndialog.viewer[open] .text-bar{top:-12px}")
 	if end := strings.Index(css[phone+1:], "\n@media"); rule < 0 || end >= 0 && rule > end {
 		t.Fatalf("the phone rules are not in the first max-width:599px block (%d, %d, %d)", phone, rule, end)
 	}

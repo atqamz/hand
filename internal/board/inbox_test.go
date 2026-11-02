@@ -370,7 +370,7 @@ func TestShotsAreStyledInTheStylesheet(t *testing.T) {
 
 func TestFileCardsAreStyledInTheStylesheet(t *testing.T) {
 	contains(t, "board.css", asset(t, "board.css"),
-		".shots .sent-file{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;align-self:start;column-gap:10px;min-width:0;max-width:min(100%,280px);padding:2px 12px 2px 8px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);color:var(--fg);line-height:20px}",
+		".shots .sent-file{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;align-self:start;column-gap:var(--space-10);min-width:0;max-width:min(100%,280px);padding:var(--space-2) var(--space-12) var(--space-2) var(--space-8);border:1px solid var(--line);border-radius:var(--r-md);background:var(--bg);color:var(--fg);line-height:20px}",
 		".sent-file>.badge{grid-row:1/3}",
 		".sent-file>:not(.badge){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
 		".shots a.sent-file:hover{border-color:var(--line-strong);text-decoration:none}",
@@ -413,9 +413,9 @@ func TestTheComposerHoldsFilesAsChips(t *testing.T) {
 	contains(t, "composer", form, `<template id="att-chip"><li class="att"><span class="badge" aria-hidden="true"></span><span class="att-name"></span><span class="att-meta"></span><button type="button" class="att-x"><svg class="icon"`)
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
-		".attachments{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin:0;padding:2px 6px 8px;list-style:none}",
+		".attachments{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-6);margin:0;padding:var(--space-2) var(--space-6) var(--space-8);list-style:none}",
 		".attachments:empty{display:none}",
-		".att{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:8px;min-width:0;max-width:min(100%,280px);",
+		".att{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:var(--space-8);min-width:0;max-width:min(100%,280px);",
 		".att>.badge,.att>img{grid-row:1/3}",
 		".att>img{width:32px;height:32px;",
 		".att-name,.att-meta{grid-column:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
@@ -529,11 +529,11 @@ func TestADropAnywhereOnTheChatPaneAttaches(t *testing.T) {
 	contains(t, "veil", chat, `<p class="drop-title"><svg class="icon"`, `</svg>Drop to attach</p>`, `<p class="drop-rule">Each file is copied to this fleet's <code>inbox/</code>, up to 10&nbsp;MiB. Folders: paste their path.</p>`)
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
-		".sup{position:relative}",
+		".sup{position:relative;display:flex;flex-direction:column;min-width:0;background:var(--bg)}",
 		".drop-veil{position:absolute;inset:8px;z-index:2;display:none;",
 		"border:2px dashed var(--accent);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 95%,transparent);pointer-events:none;text-align:center}",
 		"#chat.dropping>.drop-veil{display:flex}",
-		".drop-title{display:flex;align-items:center;gap:8px;margin:0;color:var(--accent);font-size:15px;font-weight:600}",
+		".drop-title{display:flex;align-items:center;gap:var(--space-8);margin:0;color:var(--accent);font-size:15px;font-weight:600}",
 		".drop-rule{max-width:44ch;margin:0;color:var(--muted);font-size:12px}")
 	contains(t, "app.js", asset(t, "app.js"), `const chat = draft?.closest("#chat");`, `e.dataTransfer.dropEffect = "copy";`, `chat.classList.add("dropping");`, `if (!chat.contains(e.relatedTarget)) chat.classList.remove("dropping");`)
 	fx.options.Controls = false
