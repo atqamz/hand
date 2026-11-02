@@ -159,3 +159,28 @@ func Remove(home string, files []File) (removed []File, failed []Failure) {
 	}
 	return removed, failed
 }
+
+func Size(n int64) string {
+	switch {
+	case n >= 1<<40:
+		return fmt.Sprintf("%.1f TB", float64(n)/(1<<40))
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	}
+	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+}
+
+func Warning(files []File, now time.Time, limit int64, age time.Duration) string {
+	var parts []string
+	if total := Bytes(files); limit > 0 && total > limit {
+		parts = append(parts, fmt.Sprintf("%s hold %s, over the %s limit", strings.Join(Folders, "/ and ")+"/", Size(total), Size(limit)))
+	}
+	if age > 0 {
+		if old := Older(files, now, age); len(old) == 1 {
+			parts = append(parts, fmt.Sprintf("1 file is older than %dd (%s)", age/(24*time.Hour), Size(Bytes(old))))
+		} else if len(old) > 1 {
+			parts = append(parts, fmt.Sprintf("%d files are older than %dd (%s)", len(old), age/(24*time.Hour), Size(Bytes(old))))
+		}
+	}
+	return strings.Join(parts, "; ")
+}
