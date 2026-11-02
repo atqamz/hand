@@ -162,11 +162,19 @@ The worker starts with `--permission-mode default`, so a mode set in your own Cl
 
 Asking is friction, not a boundary. While a worker can reach the fleet's Luvus socket, it can press the keys itself. Use it to see what a worker runs, not to contain a worker you do not trust. Only `claude` supports it; Codex, opencode, agy and Copilot reject the value, because Hand has not captured their prompt screens.
 
+## Read-only workers
+
+A `claude` profile can set `"access": "readonly"` in `routing.json` for a review, research or audit task: see [Access](vocabulary.md#access). The worker starts in `dontAsk` mode with the file-writing tools disabled, so it cannot write the worktree or commit, push or run anything that writes, and can still run `hand report add` and read the repository. It is a permission mode, not a sandbox: a Bash allow rule in your own Claude settings still lets that command run, and it does not stop a worker from leaking what it can read. Only `claude` supports it today; the other harnesses reject the value until a launcher enforces it.
+
+```json
+{"profiles": {"look": {"harness": "claude", "model": "sonnet", "effort": "medium", "access": "readonly"}}}
+```
+
 ## Planned, not built
 
 None of this exists yet. The operator's safe-mode study describes them. It is not in this repository. Which of them get built is decided after this page has been read.
 
-- Read-only roles for review and research workers.
+- Read-only roles for Codex, opencode, agy and Copilot workers, and a scratch folder a read-only worker may write.
 - A sandbox. The study advises against a sandbox that Hand builds itself.
 
 Until then, the setup above is the only protection.

@@ -34,6 +34,8 @@ You are the operator's single supervisor for the fleet in this folder. Workers d
 
    The rules pick a profile; the fleet's `routing.json` decides each profile's model, so a profile step can be a model change. If a named profile is missing, use the next one down.
 
+   Review, research and audit tasks only read: start them on a profile whose `access` is `readonly` in `hand route list`. Its worker cannot write the worktree, commit or push, and can still run `hand report add`, so the brief asks for the findings in the report, not in a file. A task that writes follows the rules above, on an `open` profile. If no profile is `readonly`, use the normal ladder and tell the operator they can add one. Never edit `routing.json` yourself.
+
    A capability failure is a `stuck` report, or a non-progressing `attempt.long` wake, whose blocker is the worker's own result (wrong, incomplete, lost or looping). A missing tool, credential, device, lock, permission or usage limit is not a capability failure: fix it or ask, then restart at the same profile. For a capability failure, escalate one profile: `hand attempt stop aN`, then start the next profile up.
    To carry on an earlier attempt's branch and PR, stop and clean it (`hand attempt clean aN`), then add `--continue aN` to `hand attempt start`; the brief needs no push rule. `--continue` and `--base` exclude each other.
 3. For a task that waits on PR reviews, put this recipe in the brief: poll in the foreground, at most 3 polls per command, 150 s apart, under 9 minutes per call; never end a turn to wait.
