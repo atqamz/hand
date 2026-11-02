@@ -25,6 +25,7 @@ type Profile struct {
 	Spec
 	Approve string `json:"approve,omitempty"`
 	Access  string `json:"access,omitempty"`
+	MCP     string `json:"mcp,omitempty"`
 }
 
 type Policy struct {
@@ -188,6 +189,9 @@ func LoadPolicy(home string) (Policy, error) {
 		if err == nil {
 			err = checkAccess(runtime.GOOS, name, p.Profiles[name])
 		}
+		if err == nil {
+			err = checkMCP(name, p.Profiles[name])
+		}
 		if err != nil {
 			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
 		}
@@ -219,6 +223,30 @@ func checkAccess(goos, name string, pr Profile) error {
 		return fmt.Errorf("profile %q: access %q is not available on Windows; use a profile with access %q", name, state.AccessReadonly, state.AccessOpen)
 	}
 	return nil
+}
+
+func checkMCP(name string, pr Profile) error {
+	if err := CheckMCP(pr.Harness, pr.MCP); err != nil {
+		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
+	}
+	if pr.MCP != "" && !filepath.IsLocal(pr.MCP) {
+		return fmt.Errorf("profile %q: mcp %q must be a path inside the fleet home, like \"mcp.json\"", name, pr.MCP)
+	}
+	if pr.MCP != "" && pr.Access == state.AccessReadonly {
+		return fmt.Errorf("profile %q: access %q starts without MCP servers; leave mcp out", name, state.AccessReadonly)
+	}
+	return nil
+}
+
+func (pr Profile) MCPFile(home string) (string, error) {
+	if pr.MCP == "" {
+		return "", nil
+	}
+	path := filepath.Join(home, pr.MCP)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: mcp file %s is not a file; create it or fix the profile's mcp", state.ErrInvalid, path)
+	}
+	return path, nil
 }
 
 func (p Policy) Names() []string {

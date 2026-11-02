@@ -49,7 +49,7 @@ func TestAnOpenProfileLaunchesAsBeforeAndShowsNoAccess(t *testing.T) {
 	accessPolicy(t, fx, readonlyPolicy)
 	fx.startProfile("plain")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
-	if len(argv) != 7 || !slices.Equal(argv[1:6], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low"}) {
+	if len(argv) != 8 || !slices.Equal(argv[1:7], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config"}) {
 		t.Fatalf("argv = %q", argv)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); strings.Contains(show, "access") {
@@ -61,7 +61,7 @@ func TestRouteListShowsEachProfilesAccess(t *testing.T) {
 	fx := newAttemptFixture(t)
 	accessPolicy(t, fx, readonlyPolicy)
 	out := fx.h.ok("route", "list")
-	for _, want := range []string{"{name,harness,model,effort,valid,warn,access}", "look,claude,sonnet,low,yes,\"\",readonly\n", "plain,claude,sonnet,low,yes,\"\",open\n"} {
+	for _, want := range []string{"{name,harness,model,effort,valid,warn,access,mcp}", "look,claude,sonnet,low,yes,\"\",readonly,\"\"\n", "plain,claude,sonnet,low,yes,\"\",open,\"\"\n"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("route list lacks %q:\n%s", want, out)
 		}

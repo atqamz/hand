@@ -191,6 +191,9 @@ func TestDoctorNamesTheFixForEachProblem(t *testing.T) {
 		{"profile with an unverified model", "profile quick", "warn", "claude model acme-opus is not an alias", 0, func(fx *doctorFixture) {
 			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"claude","model":"acme-opus","effort":"low"}}}`)
 		}},
+		{"profile naming a missing mcp file", "profile quick", "fail", "mcp.json is not a file", 1, func(fx *doctorFixture) {
+			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"claude","model":"sonnet","effort":"low","mcp":"mcp.json"}}}`)
+		}},
 		{"a profile whose model left the list", "profile quick", "warn", "model gpt-5.5 is no longer listed by codex", 0, func(fx *doctorFixture) {
 			fx.write(filepath.Join(fx.h.home, "routing.json"), `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"quick":{"harness":"codex","model":"gpt-5.5","effort":"low"}}}`)
 			bundled := func(slugs ...string) string {

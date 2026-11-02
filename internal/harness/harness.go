@@ -273,22 +273,39 @@ func checkDir(s Spec, dir string) error {
 	return nil
 }
 
-func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
-	return launchArgv(bin, s, prompt, dir, nil, false)
+func Argv(bin string, s Spec, prompt, dir, mcp string) ([]string, error) {
+	return launchArgv(bin, s, prompt, dir, mcp, nil, false)
 }
 
-func AskArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+func AskArgv(bin string, s Spec, prompt, dir, mcp string, allow []string) ([]string, error) {
 	if s.Harness != "claude" {
 		return nil, fmt.Errorf("%w: approve %q is only available for claude, not %s", state.ErrInvalid, state.ApproveAsk, s.Harness)
 	}
-	return launchArgv(bin, s, prompt, dir, append([]string{}, allow...), false)
+	return launchArgv(bin, s, prompt, dir, mcp, append([]string{}, allow...), false)
 }
 
-func ReadonlyArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+func ReadonlyArgv(bin string, s Spec, prompt, dir, mcp string, allow []string) ([]string, error) {
 	if err := CheckAccess(s.Harness, state.AccessReadonly); err != nil {
 		return nil, err
 	}
-	return launchArgv(bin, s, prompt, dir, allow, true)
+	return launchArgv(bin, s, prompt, dir, mcp, allow, true)
+}
+
+func CheckMCP(harness, mcp string) error {
+	switch {
+	case mcp == "":
+		return nil
+	case harness != "claude":
+		return fmt.Errorf("%w: mcp is only available for claude, not %s: Hand knows no strict MCP mode for it, so a profile cannot name an MCP file", state.ErrInvalid, harness)
+	}
+	return nil
+}
+
+func claudeMCP(mcp string) []string {
+	if mcp == "" {
+		return []string{"--strict-mcp-config"}
+	}
+	return []string{"--strict-mcp-config", "--mcp-config=" + mcp}
 }
 
 func CheckAccess(harness, access string) error {
@@ -303,8 +320,8 @@ func CheckAccess(harness, access string) error {
 	return nil
 }
 
-func launchArgv(bin string, s Spec, prompt, dir string, allow []string, readonly bool) ([]string, error) {
-	argv, err := workerArgv(bin, s, prompt, dir, allow, readonly)
+func launchArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, readonly bool) ([]string, error) {
+	argv, err := workerArgv(bin, s, prompt, dir, mcp, allow, readonly)
 	if err != nil {
 		return nil, err
 	}
@@ -314,8 +331,11 @@ func launchArgv(bin string, s Spec, prompt, dir string, allow []string, readonly
 	return argv, nil
 }
 
-func workerArgv(bin string, s Spec, prompt, dir string, allow []string, readonly bool) ([]string, error) {
+func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, readonly bool) ([]string, error) {
 	if err := CheckPrompt(prompt); err != nil {
+		return nil, err
+	}
+	if err := CheckMCP(s.Harness, mcp); err != nil {
 		return nil, err
 	}
 	if err := checkDir(s, dir); err != nil {
@@ -327,16 +347,20 @@ func workerArgv(bin string, s Spec, prompt, dir string, allow []string, readonly
 	case "claude":
 		if readonly {
 			argv := []string{bin, "--permission-mode", "dontAsk", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
-			argv = append(argv, "--setting-sources=user", "--strict-mcp-config", "--tools=Bash,Read,Grep,Glob")
+			argv = append(argv, "--setting-sources=user")
+			argv = append(argv, claudeMCP(mcp)...)
+			argv = append(argv, "--tools=Bash,Read,Grep,Glob")
 			for _, rule := range append([]string{"Bash(gh pr view *)"}, allow...) {
 				argv = append(argv, "--allowedTools="+rule)
 			}
 			return append(argv, prompt), nil
 		}
 		if allow == nil {
-			return []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort, prompt}, nil
+			argv := []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+			return append(append(argv, claudeMCP(mcp)...), prompt), nil
 		}
 		argv := []string{bin, "--permission-mode", "default", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+		argv = append(argv, claudeMCP(mcp)...)
 		for _, rule := range allow {
 			argv = append(argv, "--allowedTools="+rule)
 		}
