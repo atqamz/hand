@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,9 +21,11 @@ func TestClaudeReadonly(t *testing.T) {
 	sb := newSandbox(t)
 	repo := sb.repo("app")
 	reportFile := filepath.Join(sb.root, "report.md")
+	marker := filepath.Join(repo, "written-by-a-readonly-worker.txt")
 	sb.write(reportFile, reportBody)
 	sb.startMock(
 		mockllm.Step{Shell: k.shell("git", "tag", "written-by-a-readonly-worker")},
+		mockllm.Step{Shell: "touch '" + marker + "'"},
 		mockllm.Step{Shell: "'" + handBin + "' report add --status done --file '" + reportFile + "'"},
 		mockllm.Step{Text: "Reported."},
 	)
@@ -45,5 +48,8 @@ func TestClaudeReadonly(t *testing.T) {
 	}
 	if tags := strings.TrimSpace(sb.git(repo, "tag", "--list")); tags != "" {
 		t.Fatalf("the read-only worker wrote the repository: tags %q", tags)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("the read-only worker wrote a file: %s", marker)
 	}
 }
