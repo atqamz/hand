@@ -72,6 +72,15 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"pick": func(root map[string]any, d state.Decision, needs bool) map[string]any {
 		return map[string]any{"R": root, "D": d, "Needs": needs}
 	},
+	"start": func(base, token, label, class, starting string, primary bool) map[string]any {
+		return map[string]any{"Base": base, "Token": token, "Label": label, "Class": class, "Starting": starting, "Primary": primary}
+	},
+	"resume": func(base, token, starting string) map[string]any {
+		return map[string]any{"Base": base, "Token": token, "Starting": starting}
+	},
+	"ack": func(base, token, ref string, fetch bool) map[string]any {
+		return map[string]any{"Base": base, "Token": token, "Ref": ref, "Fetch": fetch}
+	},
 }).ParseFS(files, "templates/*.html"))
 
 const (
