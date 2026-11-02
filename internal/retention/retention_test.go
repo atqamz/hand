@@ -195,3 +195,18 @@ func TestRemoveSkipsAFileRewrittenWithTheSameSize(t *testing.T) {
 		t.Fatalf("rewritten file lost: %v", err)
 	}
 }
+
+func TestRemoveReportsAFolderThatVanishedAfterTheScan(t *testing.T) {
+	home := tree(t, map[string]int{"reports/t1/a.md": 40, "shots/b.png": 40})
+	files, err := Scan(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, "reports")); err != nil {
+		t.Fatal(err)
+	}
+	removed, failed := Remove(home, files)
+	if got := paths(removed); !slices.Equal(got, []string{"shots/b.png"}) || len(failed) != 1 || failed[0].Path != "reports/t1/a.md" {
+		t.Fatalf("removed = %v, failed = %v", got, failed)
+	}
+}

@@ -22,7 +22,7 @@ metadata:
 2. Find what is still in use. Run `hand orient` and `hand task list --status inbox,active --limit 500`, `hand decision list --limit 500` and `hand report list --unacked --limit 500`. A group named `reports/tN` or `shots/tN` belongs to task `tN`. Mark a group as in use when:
    - its task is active, inbox or has an open decision;
    - an open decision, an unread report or a `Delivered:` line names a path inside it;
-   - a done task's deliverable (`hand task show tN`) is inside it.
+   - the deliverable of any task, not only the group's own (`hand task list --status done`, then `hand task show tN` for each), is inside it.
    Take those groups out of the scope. When a group does not name a task, look at what it holds before you include it.
 3. Group the rest by task and add up the sizes. Ask the operator with `hand decision ask tN "QUESTION"` on the most relevant inbox or active task. A decision can only be asked on one of those; when none fits (every old group belongs to a finished task), capture one first: `hand task add --goal "Free disk space in reports/ and shots/" PROJECT "Clean up old reports and shots"`, and finish it when the cleanup is done. Put the total size and the options in the question, for example:
 

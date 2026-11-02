@@ -143,7 +143,9 @@ func Remove(home string, files []File) (removed []File, failed []Failure) {
 	roots := map[string]*os.Root{}
 	defer func() {
 		for _, r := range roots {
-			_ = r.Close()
+			if r != nil {
+				_ = r.Close()
+			}
 		}
 	}()
 	dirs := map[string]bool{}

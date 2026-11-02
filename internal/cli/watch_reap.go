@@ -156,7 +156,7 @@ type ignored struct {
 	bytes int64
 }
 
-var configLike = []string{".env*", "*.local", "*.pem", "*.key", "*credential*", "*secret*", ".npmrc"}
+var configLike = []string{".env*", "*.local", "*.pem", "*.key", "*credential*", "*secret*", ".npmrc", ".netrc", "id_rsa*", "id_ed25519*", "id_ecdsa*"}
 
 func looksLikeConfig(rel string) bool {
 	base := strings.ToLower(filepath.Base(rel))
