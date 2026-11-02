@@ -1,0 +1,12 @@
+● Write(new.sh)
+
+────────────────────────────────────────────────────────────────────────────────
+ Create file
+ new.sh
+Proposed content cannot be shown in full — cannot be reviewed, so approval is
+one-time only (deny unless expected).
+ Do you want to create new.sh?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

@@ -1,0 +1,24 @@
+  is done. Never end your turn to wait and never wait in a background shell,    
+  because ending a turn wakes the supervisor. Apart from a milestone, write a   
+  report only when the work is done or you are stuck.                           
+                                                                                
+● Write(../../../.bashrc)                                                       
+                                                                                
+────────────────────────────────────────────────────────────────────────────────
+ Create file                                                                    
+ ../../../.bashrc                                                               
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+  1 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA   
+    AAA──────────────────────────────────────────────────────────────────────   
+    ────────────────────                                                        
+  2 # tidy up                                                                   
+  3 export PATH=$PATH                                                           
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to create .bashrc?                                                 
+ ❯ 1. Yes                                                                       
+   2. Yes, and switch to accept edits (auto-approve file edits and common file  
+      commands) for this session; Yes, and always allow access to               
+      /tmp/he2e3309923703/shm for this session (shift+tab)                      
+   3. No                                                                        
+                                                                                
+ Esc to cancel · Tab to amend                                                   

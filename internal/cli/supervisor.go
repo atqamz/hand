@@ -55,7 +55,7 @@ func cmdSupervisorStart(r *runner, args []string) error {
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
-	spec, err := r.routed("supervisor start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
+	spec, err := r.routedSupervisor("supervisor start", harness.Spec{Harness: *name, Model: *model, Effort: *effort}, *profile)
 	if err != nil {
 		return err
 	}
@@ -402,7 +402,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	if *cancel == (*model != "" || *effort != "" || *profile != "" || *other != "") {
 		return usageError{"supervisor switch: give --profile, or --model and --effort (either may be left out), with --harness to change harness, or --cancel alone"}
 	}
-	routed, err := r.routed("supervisor switch", harness.Spec{Harness: *other, Model: *model, Effort: *effort}, *profile)
+	routed, err := r.routedSupervisor("supervisor switch", harness.Spec{Harness: *other, Model: *model, Effort: *effort}, *profile)
 	if err != nil {
 		return err
 	}

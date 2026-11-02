@@ -274,7 +274,18 @@ func checkDir(s Spec, dir string) error {
 }
 
 func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
-	argv, err := workerArgv(bin, s, prompt, dir)
+	return launchArgv(bin, s, prompt, dir, nil)
+}
+
+func AskArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+	if s.Harness != "claude" {
+		return nil, fmt.Errorf("%w: approve %q is only available for claude, not %s", state.ErrInvalid, state.ApproveAsk, s.Harness)
+	}
+	return launchArgv(bin, s, prompt, dir, append([]string{}, allow...))
+}
+
+func launchArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
+	argv, err := workerArgv(bin, s, prompt, dir, allow)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +295,7 @@ func Argv(bin string, s Spec, prompt, dir string) ([]string, error) {
 	return argv, nil
 }
 
-func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
+func workerArgv(bin string, s Spec, prompt, dir string, allow []string) ([]string, error) {
 	if err := CheckPrompt(prompt); err != nil {
 		return nil, err
 	}
@@ -295,7 +306,14 @@ func workerArgv(bin string, s Spec, prompt, dir string) ([]string, error) {
 	case "opencode":
 		return []string{bin, "--standalone", "--auto", "--session", NewOpencodeSessionID(), "--prompt", prompt}, nil
 	case "claude":
-		return []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort, prompt}, nil
+		if allow == nil {
+			return []string{bin, "--dangerously-skip-permissions", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort, prompt}, nil
+		}
+		argv := []string{bin, "--permission-mode", "default", "--session-id", NewSessionID(), "--model", s.Model, "--effort", s.Effort}
+		for _, rule := range allow {
+			argv = append(argv, "--allowedTools="+rule)
+		}
+		return append(argv, prompt), nil
 	case "agy":
 		return []string{bin, "--model", s.Model, "--dangerously-skip-permissions", "-i", prompt}, nil
 	case "copilot":

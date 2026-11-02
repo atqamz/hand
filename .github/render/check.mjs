@@ -31,6 +31,7 @@ const scenes = [
   ['busy', fleet('010')],
   ['decisions', fleet('011')],
   ['documents', fleet('012')],
+  ['ask', fleet('013')],
   ['menu', fleet('010'), ['details.nav-menu > summary'], 600],
   ['dialog', fleet('012'), ['?nav.tabs a[data-tab="tasks"]', '[data-region="tasks"] a[href*="/task/"]']],
   ['document', `${fleet('012')}doc/reports/t287/design.md`],

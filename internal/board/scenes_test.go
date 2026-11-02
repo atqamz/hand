@@ -479,6 +479,10 @@ func scenes() []scene {
 			_, _ = fx.st.Ask(ctx, refused.ID, "Which of these can the Board open?\n\nEach line names a path; only the ones the Board may serve become links.\n\n- a file outside the fleet: "+outside+"/notes.md\n- a link in reports/ that leads out: "+home+"/reports/t287/escape/id_ed25519\n- a link in reports/ to Hand's database: "+home+"/reports/t287/db-link\n- a project clone: "+home+"/projects/app/README.md\n- a dot folder: "+home+"/.secret/token\n- a 3 MiB log: "+home+"/reports/t287/huge.log\n- a binary file named .md: "+home+"/reports/t287/binary.md\n- a name with a space and an accent: `"+home+"/reports/t287/résumé notes.md`\n- a key in the home folder: `~/.ssh/id_ed25519`\n\n1. Only the ones inside the fleet folder (recommended)\n2. All of them")
 			claudeLog(t, fx, append(chatLines(t, fx, 420000)[:23], rec("user", ago(30), "is the t287 design ready?", 0), rec("assistant", ago(29), "Yes. a3 finished it: `"+home+"/reports/t287/design.md`. It covers the nightly job, the manifest and the risks; d1 asks you to approve it. The screenshots for t288 are in "+home+"/shots/t288/ and the old notes are at "+home+"/reports/t286/notes.md.", 420000)))
 		}},
+		{"f00000000e013", "ask", supervised("idle", "", 420000, func(t *testing.T, fx *fixture) {
+			askAttempt(t, fx, "Clean the build folder")
+			fx.screen = capture(t, "long16")
+		})},
 		{"f00000000e011", "decisions", func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
 			fx.status = "idle"
