@@ -167,7 +167,10 @@ func Size(n int64) string {
 	case n >= 1<<30:
 		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
 	}
-	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	if n >= 1<<20 {
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
 }
 
 func Warning(files []File, now time.Time, limit int64, age time.Duration) string {
