@@ -186,3 +186,38 @@ func TestPolicyReadsTheInboxSetting(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicyReadsTheRetentionSetting(t *testing.T) {
+	profiles := `"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}`
+	day := 24 * time.Hour
+	for body, want := range map[string]Retention{
+		`{` + profiles + `}`:                                   DefaultRetention,
+		`{` + profiles + `,"retention":{}}`:                    DefaultRetention,
+		`{` + profiles + `,"retention":"off"}`:                 {},
+		`{` + profiles + `,"retention":{"worktrees":"off"}}`:   {0, 20 << 30, 30 * day},
+		`{` + profiles + `,"retention":{"worktrees":"3d"}}`:    {3 * day, 20 << 30, 30 * day},
+		`{` + profiles + `,"retention":{"warn_size":"500MB"}}`: {7 * day, 500 << 20, 30 * day},
+		`{` + profiles + `,"retention":{"warn_size":"2TB"}}`:   {7 * day, 2 << 40, 30 * day},
+		`{` + profiles + `,"retention":{"warn_size":"off"}}`:   {7 * day, 0, 30 * day},
+		`{` + profiles + `,"retention":{"warn_days":"10d"}}`:   {7 * day, 20 << 30, 10 * day},
+	} {
+		if p, err := LoadPolicy(writePolicy(t, body)); err != nil || p.Retention != want {
+			t.Fatalf("policy %s: retention = %+v, %v; want %+v", body, p.Retention, err, want)
+		}
+	}
+	for body, want := range map[string]string{
+		`"on"`:                  `retention must be "off"`,
+		`null`:                  `retention must be "off"`,
+		`{"worktrees":"7"}`:     `retention.worktrees is "7"`,
+		`{"worktrees":7}`:       `retention must be "off"`,
+		`{"warn_days":"0d"}`:    `retention.warn_days is "0d"`,
+		`{"warn_size":"20"}`:    `retention.warn_size is "20"`,
+		`{"warn_size":"20 GB"}`: `retention.warn_size is "20 GB"`,
+		`{"keep":"7d"}`:         `retention must be "off"`,
+	} {
+		_, err := LoadPolicy(writePolicy(t, `{`+profiles+`,"retention":`+body+`}`))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("retention %s: err = %v, want %q", body, err, want)
+		}
+	}
+}

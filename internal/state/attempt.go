@@ -105,17 +105,18 @@ type Attempt struct {
 	CleanedAt string
 	Approve   string
 	Access    string
+	Kept      string
 }
 
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, approve, access FROM attempt`
+const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, approve, access, kept FROM attempt`
 
 func scanAttempt(row scanner) (Attempt, error) {
 	var a Attempt
 	var argv string
 	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &argv, &a.Worktree, &a.Branch, &a.Status,
-		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Approve, &a.Access)
+		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Approve, &a.Access, &a.Kept)
 	if err != nil {
 		return a, err
 	}
@@ -319,6 +320,34 @@ func (s *Store) EndAttemptWithScreen(ctx context.Context, id int64, to, reason, 
 }
 
 func (s *Store) CleanAttempt(ctx context.Context, id int64) (Attempt, error) {
+	return s.cleanAttempt(ctx, id, "")
+}
+
+func (s *Store) CleanAttemptAfter(ctx context.Context, id int64, window string) (Attempt, error) {
+	return s.cleanAttempt(ctx, id, "removed by retention after "+window)
+}
+
+func (s *Store) KeepAttempt(ctx context.Context, id int64, reason string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, id)
+		if err != nil {
+			return err
+		}
+		if a.Kept == reason || a.CleanedAt != "" {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE attempt SET kept = ? WHERE id = ?`, reason, id); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "attempt.kept", a.TaskID, AttemptRef(id)+": "+reason)
+	})
+}
+
+func (s *Store) KeptAttempts(ctx context.Context) ([]Attempt, error) {
+	return s.queryAttempts(ctx, attemptSelect+` WHERE kept != '' AND cleaned_at = '' ORDER BY id`)
+}
+
+func (s *Store) cleanAttempt(ctx context.Context, id int64, why string) (Attempt, error) {
 	var out Attempt
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
@@ -337,7 +366,11 @@ func (s *Store) CleanAttempt(ctx context.Context, id int64) (Attempt, error) {
 		}
 		a.CleanedAt = now
 		out = a
-		return emit(tx, now, "attempt.cleaned", a.TaskID, AttemptRef(id))
+		detail := AttemptRef(id)
+		if why != "" {
+			detail += ": " + why
+		}
+		return emit(tx, now, "attempt.cleaned", a.TaskID, detail)
 	})
 	return out, err
 }

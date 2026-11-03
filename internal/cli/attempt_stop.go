@@ -137,7 +137,7 @@ func cmdAttemptClean(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		if err := removeWorktree(ctx, c, g, a.Worktree, *discard); err != nil {
+		if err := removeWorktree(ctx, c, g, a.Worktree, *discard, true); err != nil {
 			return err
 		}
 		if _, err := st.CleanAttempt(ctx, id); err != nil {
@@ -166,7 +166,7 @@ func cmdAttemptClean(r *runner, args []string) error {
 	})
 }
 
-func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir string, discard bool) error {
+func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir string, discard, evict bool) error {
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		_, err := g.Git(ctx, "worktree", "prune")
 		return err
@@ -190,10 +190,12 @@ func removeWorktree(ctx context.Context, c luvus.Client, g gitcfg.Repo, dir stri
 			return fmt.Errorf("%w: worktree %s has %s commit(s) on no branch, tag or remote; they would be lost, pass --discard", state.ErrConflict, dir, n)
 		}
 	}
-	if err := closeTerminalsUnder(ctx, c, dir); err != nil {
-		return err
+	if evict {
+		if err := closeTerminalsUnder(ctx, c, dir); err != nil {
+			return err
+		}
+		sweepWorktree(dir)
 	}
-	sweepWorktree(dir)
 	rm := []string{"worktree", "remove"}
 	if discard {
 		rm = append(rm, "--force")

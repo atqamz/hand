@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/inbox"
 	"github.com/atqamz/hand/internal/memory"
+	"github.com/atqamz/hand/internal/retention"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -216,6 +218,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 
 	folder := inboxFolder(home)
+	artifacts, gcCommand := artifactWarning(home)
 
 	mem, truncated, err := memory.Read(home, memory.OperatorFile, b.MemoryBytes)
 	if err != nil {
@@ -231,7 +234,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, sections, memLines, truncated)
+		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -253,6 +256,19 @@ func inboxFolder(home string) string {
 	return inbox.Count(u.Files, u.Bytes)
 }
 
+func artifactWarning(home string) (string, string) {
+	p, err := harness.LoadPolicy(home)
+	if err != nil || (p.Retention.WarnSize == 0 && p.Retention.WarnDays == 0) {
+		return "", ""
+	}
+	files, err := retention.Scan(home)
+	if err != nil {
+		return "could not check reports/ and shots/: " + clip(err.Error(), 160), retention.GcCommand(p.Retention.WarnDays)
+	}
+	text := retention.Warning(files, time.Now(), p.Retention.WarnSize, p.Retention.WarnDays)
+	return text, retention.GcCommand(p.Retention.WarnDays)
+}
+
 func dropLast(sections []*section) bool {
 	for i := len(sections) - 1; i >= 0; i-- {
 		if s := sections[i]; len(s.rows) > 0 {
@@ -263,7 +279,7 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
@@ -296,6 +312,9 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	if folder != "" {
 		d.Field("inbox_folder", folder)
 	}
+	if artifacts != "" {
+		d.Field("artifacts", artifacts)
+	}
 	for _, s := range sections {
 		d.Rows(s.name, s.fields, s.rows)
 		if s.cmd != "" && len(s.rows) < s.total {
@@ -314,6 +333,9 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	}
 	if !watch {
 		help = append(help, "Start the watcher: `hand watch`")
+	}
+	if artifacts != "" {
+		help = append(help, "Old reports and shots: ask the operator through the `secondhand-cleanup` skill, or list them with `"+gcCommand+"`")
 	}
 	if folder != "" {
 		help = append(help, "See what fills the inbox folder: `hand inbox size`")

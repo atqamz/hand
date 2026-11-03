@@ -479,6 +479,31 @@ func scenes() []scene {
 			_, _ = fx.st.Ask(ctx, refused.ID, "Which of these can the Board open?\n\nEach line names a path; only the ones the Board may serve become links.\n\n- a file outside the fleet: "+outside+"/notes.md\n- a link in reports/ that leads out: "+home+"/reports/t287/escape/id_ed25519\n- a link in reports/ to Hand's database: "+home+"/reports/t287/db-link\n- a project clone: "+home+"/projects/app/README.md\n- a dot folder: "+home+"/.secret/token\n- a 3 MiB log: "+home+"/reports/t287/huge.log\n- a binary file named .md: "+home+"/reports/t287/binary.md\n- a name with a space and an accent: `"+home+"/reports/t287/résumé notes.md`\n- a key in the home folder: `~/.ssh/id_ed25519`\n\n1. Only the ones inside the fleet folder (recommended)\n2. All of them")
 			claudeLog(t, fx, append(chatLines(t, fx, 420000)[:23], rec("user", ago(30), "is the t287 design ready?", 0), rec("assistant", ago(29), "Yes. a3 finished it: `"+home+"/reports/t287/design.md`. It covers the nightly job, the manifest and the risks; d1 asks you to approve it. The screenshots for t288 are in "+home+"/shots/t288/ and the old notes are at "+home+"/reports/t286/notes.md.", 420000)))
 		}},
+		{"f00000000e014", "cleanup", supervised("idle", "", 100000, func(t *testing.T, fx *fixture) {
+			ctx := context.Background()
+			task := active(t, fx.st, "Port the importer to the new state API")
+			a := attempt(t, fx.st, task.ID, state.AttemptStopped, "stopped by operator")
+			if err := fx.st.KeepAttempt(ctx, a.ID, "it has uncommitted changes"); err != nil {
+				t.Fatal(err)
+			}
+			policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"warn_size":"1MB","warn_days":"30d"}}`
+			if err := os.WriteFile(filepath.Join(fx.options.Home, harness.PolicyFile), []byte(policy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			for rel, age := range map[string]int{"reports/t12/design.md": 3, "shots/t9/phone-390-dark.png": 40, "shots/t9/phone-1440-light.png": 41} {
+				path := filepath.Join(fx.options.Home, filepath.FromSlash(rel))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, make([]byte, 700<<10), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				when := frozen.AddDate(0, 0, -age)
+				if err := os.Chtimes(path, when, when); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})},
 		{"f00000000e013", "ask", supervised("idle", "", 420000, func(t *testing.T, fx *fixture) {
 			askAttempt(t, fx, "Clean the build folder")
 			fx.screen = capture(t, "long16")

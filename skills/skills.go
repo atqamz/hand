@@ -10,3 +10,6 @@ var Bootstrap string
 
 //go:embed secondhand-migrate/SKILL.md
 var Migrate string
+
+//go:embed secondhand-cleanup/SKILL.md
+var Cleanup string
