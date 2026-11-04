@@ -17,7 +17,7 @@ import (
 
 var skillRoots = []string{".claude", ".agents", ".grok", ".pi"}
 
-func Install(home, command string) error {
+func RefuseBeside07(home string) error {
 	dir, err := os.OpenRoot(home)
 	if err != nil {
 		return err
@@ -30,6 +30,15 @@ func Install(home, command string) error {
 	case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
 		return fmt.Errorf("check for Hand 0.7 data: %w", err)
 	}
+	return nil
+}
+
+func Install(home, command string) error {
+	dir, err := os.OpenRoot(home)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
 	named := strings.NewReplacer("`hand ", "`"+command+" ", "`hand`", "`"+command+"`")
 	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
 	for _, root := range skillRoots {

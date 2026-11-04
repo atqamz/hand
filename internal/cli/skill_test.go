@@ -139,3 +139,22 @@ func TestInitBesideA07FleetRefusesInOneLine(t *testing.T) {
 		}
 	}
 }
+
+func TestInitKeepsAnExistingFleetThatStillHasA07File(t *testing.T) {
+	h := newHarness(t)
+	h.ok("init")
+	marker := filepath.Join(h.home, "state", "hand.db")
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("0.7"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, errOut, code := h.run("init"); code != 0 || !strings.Contains(out, "created: false") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
+	}
+	if b, err := os.ReadFile(marker); err != nil || string(b) != "0.7" {
+		t.Fatalf("marker = %q, %v", b, err)
+	}
+	h.ok("task", "list")
+}

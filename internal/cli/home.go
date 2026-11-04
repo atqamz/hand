@@ -65,15 +65,13 @@ func canonical(p string) (string, error) {
 	}
 }
 
-func findHome(dir string) (string, error) { return findUp(dir, "hand.db") }
-
-func findUp(dir, marker string) (string, error) {
+func findHome(dir string) (string, error) {
 	dir, err := canonical(dir)
 	if err != nil {
 		return "", err
 	}
 	for {
-		info, err := os.Stat(filepath.Join(dir, marker))
+		info, err := os.Stat(filepath.Join(dir, "hand.db"))
 		switch {
 		case err == nil && info.Mode().IsRegular():
 			return dir, nil
@@ -192,6 +190,11 @@ func cmdInit(r *runner, args []string) error {
 	ctx := r.ctx()
 	_, statErr := os.Stat(r.dbPath())
 	created := errors.Is(statErr, fs.ErrNotExist)
+	if created {
+		if err := fleet.RefuseBeside07(r.home); err != nil {
+			return err
+		}
+	}
 	var st *state.Store
 	var f state.Fleet
 	have := false

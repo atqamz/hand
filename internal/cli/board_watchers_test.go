@@ -163,7 +163,11 @@ func TestBoardLogsAFailedFleetListOnce(t *testing.T) {
 	sweepFast(t)
 	h := newHarness(t)
 	h.ok("init")
-	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", "f000000000000"), nil, 0o600); err != nil {
+	fleets := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
+	if err := os.RemoveAll(fleets); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fleets, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, stop := startBoard(t, h, "127.0.0.1")

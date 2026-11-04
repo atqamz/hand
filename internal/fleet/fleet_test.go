@@ -237,3 +237,59 @@ func TestAnEmptyPointerFileIsInvalid(t *testing.T) {
 		t.Fatalf("register = %v, want ErrInvalid", err)
 	}
 }
+
+func TestRegisterRewritesAPointerThatNamesTheSameFolderByAnotherPath(t *testing.T) {
+	root, parent := t.TempDir(), t.TempDir()
+	real, alias := filepath.Join(parent, "real"), filepath.Join(parent, "alias")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	f := home(t, real, "alpha")
+	if err := fleet.Claim(root, f.ID, alias); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, real); err != nil || prev != "" {
+		t.Fatalf("register = %q, %v", prev, err)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != real {
+		t.Fatalf("link = %q, %v; want it rewritten to %s", got, err, real)
+	}
+}
+
+func TestALeftoverSymlinkNamesItsPathAndTheFixAndSparesTheOtherFleets(t *testing.T) {
+	root, dir, old := t.TempDir(), t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := fleet.Check(root, f.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	stale := "f000000000001"
+	path := filepath.Join(root, "fleets", stale)
+	if err := os.Symlink(old, path); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	_, err := fleet.Home(root, stale)
+	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "delete it and run `hand init` in the fleet's folder") {
+		t.Fatalf("home = %v", err)
+	}
+	got, err := fleet.List(root)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("list = %+v, %v", got, err)
+	}
+	for _, e := range got {
+		switch e.ID {
+		case f.ID:
+			if e.State != "ok" {
+				t.Fatalf("entry %+v", e)
+			}
+		case stale:
+			if !strings.HasPrefix(e.State, "unreadable: ") || !strings.Contains(e.State, path) {
+				t.Fatalf("entry %+v", e)
+			}
+		default:
+			t.Fatalf("entry %+v", e)
+		}
+	}
+}

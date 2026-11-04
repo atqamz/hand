@@ -33,7 +33,7 @@ The operator evaluated kunchenguid/firstmate (same concept: one liaison agent ru
 - Windows on arm64, a Windows service or Task Scheduler integration, and desktop notifications on Windows.
 - npm packages or other package managers.
 - Versioned contract manifests, DDL relock ceremony, mutation-score gates.
-- A deterministic converter from Hand 0.7 data, or a live cutover. `hand init` refuses a folder holding 0.7 data (`state/hand.db`); a fleet starts in a folder of its own.
+- A deterministic converter from Hand 0.7 data, or a live cutover. `hand init` refuses to make a fleet in a folder holding 0.7 data (`state/hand.db`) and writes nothing; a fleet starts in a folder of its own. A folder that already has `hand.db` is a fleet and is not refused.
 - Exec-guard, operator attestation, provider identity proofs beyond what the chosen backend gives natively.
 - Features for hypothetical other users.
 

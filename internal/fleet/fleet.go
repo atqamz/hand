@@ -128,7 +128,8 @@ func List(root string) ([]Entry, error) {
 		}
 		target, err := readLink(root, de.Name())
 		if err != nil {
-			return nil, err
+			out = append(out, Entry{ID: de.Name(), State: "unreadable: " + err.Error()})
+			continue
 		}
 		e := Entry{ID: de.Name(), Home: target, State: "missing"}
 		f, ok, err := at(target)
@@ -152,6 +153,11 @@ func readLink(root, id string) (string, error) {
 	target := strings.TrimSpace(string(b))
 	if err == nil && target == "" {
 		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if info, statErr := os.Stat(link(root, id)); statErr == nil && info.IsDir() {
+			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, link(root, id))
+		}
 	}
 	return target, err
 }

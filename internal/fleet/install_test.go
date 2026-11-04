@@ -2,7 +2,6 @@ package fleet_test
 
 import (
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -124,25 +123,21 @@ func TestADirectoryIsNotThe07Marker(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, "state", "hand.db"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := fleet.Install(home, "hand"); err != nil {
+	if err := fleet.RefuseBeside07(home); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestInstallRefusesBesideA07FleetAndWritesNothing(t *testing.T) {
+func TestARegular07MarkerIsRefused(t *testing.T) {
 	home := t.TempDir()
 	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
-	err := fleet.Install(home, "hand")
+	err := fleet.RefuseBeside07(home)
 	if !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), "holds Hand 0.7 data") || strings.Contains(err.Error(), "\n") {
-		t.Fatalf("install = %v", err)
-	}
-	entries, _ := os.ReadDir(home)
-	if len(entries) != 1 {
-		t.Fatalf("install wrote %d entries, want only state", len(entries))
+		t.Fatalf("refuse = %v", err)
 	}
 }
 
-func TestAnUnreadable07MarkerRefusesInstall(t *testing.T) {
+func TestAnUnreadable07MarkerIsAnError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any folder")
 	}
@@ -157,11 +152,8 @@ func TestAnUnreadable07MarkerRefusesInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(home, "state"), 0o755) })
-	if err := fleet.Install(home, "hand"); err == nil || !strings.Contains(err.Error(), "check for Hand 0.7 data") {
-		t.Fatalf("install = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("install wrote AGENTS.md: %v", err)
+	if err := fleet.RefuseBeside07(home); err == nil || !strings.Contains(err.Error(), "check for Hand 0.7 data") {
+		t.Fatalf("refuse = %v", err)
 	}
 }
 
