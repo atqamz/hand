@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 	*cli.SettleQuiet = 50 * time.Millisecond
 	*cli.SubmitPoll = 10 * time.Millisecond
 	*cli.EscGap = 10 * time.Millisecond
-	*cli.TrustWait, *cli.TrustConfirm = 500*time.Millisecond, 300*time.Millisecond
+	*cli.TrustWait, *cli.TrustConfirm = time.Second, 300*time.Millisecond
 	*cli.SubmitConfirm, *cli.SubmitCheck = 300*time.Millisecond, 300*time.Millisecond
 	*cli.ScreenWait, *cli.PrefillWait = 300*time.Millisecond, 600*time.Millisecond
 	*cli.APICheckWait, *cli.NoteWait = time.Second, 500*time.Millisecond

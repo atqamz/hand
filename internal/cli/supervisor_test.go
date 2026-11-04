@@ -527,6 +527,9 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 		return map[string]any{"text": text, "content_revision": rev, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 	})
 	h.ok("supervisor", "resume")
+	if restoredAt.Load() == 0 {
+		t.Fatal("the restored screen was never read")
+	}
 	if quiet := time.Since(time.Unix(0, restoredAt.Load())); quiet < *cli.SettleQuiet {
 		t.Fatalf("resume returned %v after the restored screen appeared, before it settled for %v", quiet, *cli.SettleQuiet)
 	}
