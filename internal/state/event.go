@@ -232,19 +232,23 @@ func (s *Store) WakeEventsAfter(ctx context.Context, after int64, kinds []string
 	return s.eventsAfter(ctx, staleWake, after, kinds, limit)
 }
 
-func (s *Store) eventsAfter(ctx context.Context, where string, after int64, kinds []string, limit int) ([]Event, error) {
-	if limit < 1 {
-		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
-	}
+func eventsAfterQuery(where string, after int64, kinds []string, limit int) (string, []any) {
 	q, args := `SELECT seq, at, kind, COALESCE(task_id, 0), detail FROM event WHERE seq > ?`+where, []any{after}
 	if len(kinds) > 0 {
-		q += ` AND kind IN (` + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)`
+		q += ` AND +kind IN (` + strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)`
 		for _, k := range kinds {
 			args = append(args, k)
 		}
 	}
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, q+` ORDER BY seq LIMIT ?`, args...)
+	return q + ` ORDER BY seq LIMIT ?`, append(args, limit)
+}
+
+func (s *Store) eventsAfter(ctx context.Context, where string, after int64, kinds []string, limit int) ([]Event, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%w: limit must be at least 1", ErrInvalid)
+	}
+	q, args := eventsAfterQuery(where, after, kinds, limit)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
