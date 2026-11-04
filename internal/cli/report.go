@@ -15,6 +15,7 @@ import (
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
+	"github.com/atqamz/hand/internal/orient"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -246,7 +247,7 @@ func cmdReportList(r *runner, args []string) error {
 		if rep.AckedAt != "" {
 			acked = "yes"
 		}
-		rows = append(rows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), state.TaskRef(rep.TaskID), rep.Status, acked, rep.Summary()})
+		rows = append(rows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), state.TaskRef(rep.TaskID), rep.Status, acked, orient.Clip(rep.Summary(), orient.DefaultBudget.TitleBytes)})
 	}
 	var d toon.Doc
 	d.Rows("reports", []string{"id", "attempt", "task", "status", "acked", "summary"}, rows)
