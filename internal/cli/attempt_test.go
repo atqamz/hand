@@ -761,12 +761,15 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 
 func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.T) {
 	fx := newAttemptFixture(t)
-	grace := *cli.TrustGrace
-	*cli.TrustGrace = time.Second
-	t.Cleanup(func() { *cli.TrustGrace = grace })
+	setWait(t, cli.TrustGrace, 5*time.Second)
+	setWait(t, cli.TrustWait, 20*time.Second)
 	wt := fx.h.worktree("t1-a1")
+	banners := make([]string, 10)
+	for i := range banners {
+		banners[i] = "Claude Code v2.1.309\n"
+	}
 	fx.rt.set(func(rt *fakeRuntime) {
-		rt.screens, rt.screen, rt.revision, rt.keyScreens = []string{"Claude Code v2.1.309\n", "Claude Code v2.1.309\n"}, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
+		rt.screens, rt.screen, rt.revision, rt.keyScreens = banners, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
 	})
 	out := fx.start()
 	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {

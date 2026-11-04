@@ -512,20 +512,23 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("supervisor", "stop")
+	setWait(t, cli.SettleQuiet, 300*time.Millisecond)
 	var reads atomic.Int32
+	var restoredAt atomic.Int64
 	rt.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		n := reads.Add(1)
 		text, rev := "", int64(n)
 		if n > 4 {
 			text, rev = "restored conversation", 9
+			restoredAt.CompareAndSwap(0, time.Now().UnixNano())
 		}
 		rt.mu.Lock()
 		defer rt.mu.Unlock()
 		return map[string]any{"text": text, "content_revision": rev, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 	})
 	h.ok("supervisor", "resume")
-	if n := reads.Load(); n < 8 {
-		t.Fatalf("resume returned after %d screen reads, before the restored screen settled", n)
+	if quiet := time.Since(time.Unix(0, restoredAt.Load())); quiet < *cli.SettleQuiet {
+		t.Fatalf("resume returned %v after the restored screen appeared, before it settled for %v", quiet, *cli.SettleQuiet)
 	}
 }
 

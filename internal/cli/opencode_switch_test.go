@@ -479,9 +479,8 @@ func TestASwitchFromTheDefaultModelStopsWhenTheSessionModelCannotBeRead(t *testi
 }
 
 func TestASlowFirstReadOfTheNoteDoesNotCancelTheCheck(t *testing.T) {
-	wait := *cli.NoteWait
-	*cli.NoteWait = time.Millisecond
-	t.Cleanup(func() { *cli.NoteWait = wait })
+	setWait(t, cli.NoteWait, time.Millisecond)
+	setWait(t, cli.APICheckWait, 10*time.Second)
 	h, _, _, _ := runningOpencode(t, map[string]string{"apisleep": "300ms"}, "--model", "local/m1")
 	out := h.ok("supervisor", "switch", "--model", "local/m2")
 	has(t, "switch", out, "switch: applied")
