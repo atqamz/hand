@@ -37,3 +37,13 @@ func TestNoCommandIsUsageError(t *testing.T) {
 		t.Fatalf("code = %d, want 2", code)
 	}
 }
+
+func TestHelpFlagPrintsFlagsAndExitsZero(t *testing.T) {
+	for _, flag := range []string{"-h", "--help"} {
+		h := newHarness(t)
+		out, errOut, code := h.run("init", flag)
+		if code != 0 || errOut != "" || !strings.HasPrefix(out, "usage: hand init [flags]\n") || !strings.Contains(out, "  -") {
+			t.Fatalf("%s: code=%d stdout=%q stderr=%q", flag, code, out, errOut)
+		}
+	}
+}

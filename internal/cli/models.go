@@ -21,7 +21,7 @@ func cmdModels(r *runner, args []string) error {
 	fs := flags("models")
 	refresh := fs.Bool("refresh", false, "run each harness's listing command now and rewrite its cache")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("models: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("models: %v", err)})
 	}
 	targets := state.Harnesses
 	switch fs.NArg() {

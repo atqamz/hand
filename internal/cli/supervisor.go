@@ -805,7 +805,7 @@ func cmdSupervisorKeys(r *runner, args []string) error {
 	screen := fs.String("screen", "", "digest of the screen the keys answer; lets a press survive a countdown tick")
 	after := fs.Int64("after", -1, "seq of the last key press the screen showed; refuses when someone pressed since")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("supervisor keys: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("supervisor keys: %v", err)})
 	}
 	if fs.NArg() == 0 || *revision < 0 {
 		return usageError{"usage: hand supervisor keys --revision N KEY..."}

@@ -220,12 +220,12 @@ func transitionCommand(name, to string) handler {
 			})
 		}
 		if err := fs.Parse(args); err != nil {
-			return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+			return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
 		}
 		pos := fs.Args()
 		if len(pos) > 0 {
 			if err := fs.Parse(pos[1:]); err != nil {
-				return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+				return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
 			}
 			pos = append(pos[:1:1], fs.Args()...)
 		}
@@ -261,7 +261,7 @@ func transitionCommand(name, to string) handler {
 func cmdTaskDeliver(r *runner, args []string) error {
 	fs := flags("task deliver")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
 	}
 	pos := fs.Args()
 	if len(pos) < 2 {

@@ -25,7 +25,7 @@ func cmdGC(r *runner, args []string) error {
 	older := set.String("older-than", "", "list the files in reports/ and shots/ not modified for this many days, like 30d")
 	yes := set.Bool("yes", false, "scan again and delete the files found; without it nothing is deleted")
 	if err := set.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("gc: %v", err)}
+		return helpOr(set, err, usageError{fmt.Sprintf("gc: %v", err)})
 	}
 	if *older == "" {
 		return usageError{gcUsage}
