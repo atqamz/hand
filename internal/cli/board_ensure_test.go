@@ -108,16 +108,20 @@ func TestOpenStartsABoardDetached(t *testing.T) {
 func TestOpenTimesOutWhenTheBoardNeverAnswers(t *testing.T) {
 	fx := newOpenFixture(t)
 	fx.stop()
-	slow := fakebin.Install(t, t.TempDir(), "slow", "linger", nil)
+	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
+	stop := filepath.Join(t.TempDir(), "stop")
+	slow := fakebin.Install(t, t.TempDir(), "slow", "linger", map[string]string{"stop": stop})
 	*cli.WatchExe = func() (string, error) { return slow, nil }
 	wait := *cli.BoardWait
 	*cli.BoardWait = 300 * time.Millisecond
 	t.Cleanup(func() {
 		*cli.BoardWait = wait
 		*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
+		_ = os.WriteFile(stop, nil, 0o600)
+		for deadline := time.Now().Add(10 * time.Second); os.Remove(log) != nil && time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		}
 	})
 	_, errOut, code := fx.h.run("open", "--print")
-	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
 	if code != 3 || !strings.Contains(errOut, "the board did not answer within 300ms") || !strings.Contains(errOut, "read "+log) || !strings.Contains(errOut, "hand board") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
