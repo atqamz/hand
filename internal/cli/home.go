@@ -163,7 +163,7 @@ func cmdInit(r *runner, args []string) error {
 	set := flags("init")
 	name := set.String("name", "", "fleet name people see; default: the folder name")
 	if err := set.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("init: %v", err)}
+		return helpOr(set, err, usageError{fmt.Sprintf("init: %v", err)})
 	}
 	if set.NArg() > 1 {
 		return usageError{fmt.Sprintf("init: want at most one folder, got %d", set.NArg())}

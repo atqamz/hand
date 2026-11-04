@@ -9,7 +9,7 @@ import (
 
 func TestVersionPrintsTOON(t *testing.T) {
 	h := newHarness(t)
-	if got, want := h.ok("version"), "version: 0.13.0\nchannel: source\ncommit: unknown\nschema: 17\nluvus: 0.14.3\n"; got != want {
+	if got, want := h.ok("version"), "version: 0.13.0\nchannel: source\ncommit: unknown\nschema: 18\nluvus: 0.14.3\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
 	}
 }
@@ -18,7 +18,7 @@ func TestVersionNamesItsBuild(t *testing.T) {
 	version, channel, commit := cli.Version, cli.Channel, cli.Commit
 	t.Cleanup(func() { cli.Version, cli.Channel, cli.Commit = version, channel, commit })
 	cli.Version, cli.Channel, cli.Commit = "0.9.0", "edge", "0123456789abcdef0123"
-	if got, want := newHarness(t).ok("version"), "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 17\nluvus: 0.14.3\n"; got != want {
+	if got, want := newHarness(t).ok("version"), "version: 0.9.0\nchannel: edge\ncommit: 0123456789ab\nschema: 18\nluvus: 0.14.3\n"; got != want {
 		t.Fatalf("version = %q, want %q", got, want)
 	}
 }
@@ -35,5 +35,15 @@ func TestNoCommandIsUsageError(t *testing.T) {
 	h := newHarness(t)
 	if _, _, code := h.run(); code != 2 {
 		t.Fatalf("code = %d, want 2", code)
+	}
+}
+
+func TestHelpFlagPrintsFlagsAndExitsZero(t *testing.T) {
+	for _, flag := range []string{"-h", "--help"} {
+		h := newHarness(t)
+		out, errOut, code := h.run("init", flag)
+		if code != 0 || errOut != "" || !strings.HasPrefix(out, "usage: hand init [flags]\n") || !strings.Contains(out, "  -") {
+			t.Fatalf("%s: code=%d stdout=%q stderr=%q", flag, code, out, errOut)
+		}
 	}
 }

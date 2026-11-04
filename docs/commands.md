@@ -1,6 +1,6 @@
 # Commands
 
-Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--delivered` after the ref, and `hand task done` its `--deliverable`; `hand task deliver` takes its values after the ref. `--home DIR`, given before the command, picks the fleet.
+Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--delivered` after the ref, and `hand task done` its `--deliverable`; `hand task deliver` takes its values after the ref. `--home DIR`, given before the command, picks the fleet. `-h` or `--help` after a command that takes flags prints them and exits 0.
 
 | Command | Purpose |
 |---|---|
@@ -57,7 +57,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 | `hand version` | Print the version, the channel (`source`, `edge` or `stable`), the commit, the state schema and the tested Luvus. |
 | `hand doctor` | Check this machine and the fleet without repairing anything, one `check,state,fix` row each, with an `info` row `models NAME` per harness (how many models it lists and from where, the cache's age, or why there is no list); exits 1 when a check fails. With no harness installed, an untouched starter `routing.json` and no running supervisor, the `profile NAME` rows are `warn`, not `fail`. |
 
-`hand route list` also prints a `track` table: one row per harness, model and effort, counting the attempts that have ended. Every column except `n` and `median_min` is a share of `n`.
+`hand route list` also prints a `track` table: one row per harness, model and effort, counting the attempts that have ended. Every column except `n` and `median_min` is a share of `n`. It reads the `event` table through the index `event_kind_task` (schema 18): a `hand` older than this refuses a database migrated to it, and going back needs a restored backup (see [Restore a backup](update.md#restore-a-backup)).
 
 - `n`: ended attempts.
 - `first_try`: attempts that were the first on their task, with that task `done` and no later attempt. A task finished by its second attempt counts for neither attempt.

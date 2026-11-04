@@ -77,7 +77,7 @@ func (r *runner) fetchLuvus(root string) (luvus.Pin, error) {
 func cmdLuvusPin(r *runner, args []string) error {
 	fs := flags("luvus pin")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("luvus pin: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("luvus pin: %v", err)})
 	}
 	if fs.NArg() > 1 {
 		return usageError{"usage: hand luvus pin [BIN]"}

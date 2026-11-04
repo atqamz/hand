@@ -38,12 +38,12 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 	model := fs.String("model", "", "opencode model as provider/id")
 	effort := fs.String("effort", "", "opencode variant of the model")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("attempt switch: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("attempt switch: %v", err)})
 	}
 	pos := fs.Args()
 	if len(pos) > 0 {
 		if err := fs.Parse(pos[1:]); err != nil {
-			return usageError{fmt.Sprintf("attempt switch: %v", err)}
+			return helpOr(fs, err, usageError{fmt.Sprintf("attempt switch: %v", err)})
 		}
 		pos = append(pos[:1:1], fs.Args()...)
 	}

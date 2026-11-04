@@ -18,8 +18,8 @@ const trackQuery = `SELECT a.harness, a.model, a.effort, a.created_at,
 	a.id = last.id AND t.status = 'done' AND NOT EXISTS (SELECT 1 FROM attempt p WHERE p.task_id = a.task_id AND p.id < a.id),
 	a.id < last.id,
 	EXISTS (SELECT 1 FROM report WHERE attempt_id = a.id AND status = 'stuck'),
-	(SELECT count(*) FROM event WHERE kind = 'attempt.sent' AND detail LIKE 'a' || a.id || ': %'),
-	(SELECT count(*) FROM event WHERE kind IN ('attempt.quiet', 'attempt.blocked') AND detail LIKE 'a' || a.id || ': %'),
+	(SELECT count(*) FROM event WHERE kind = 'attempt.sent' AND task_id = a.task_id AND detail LIKE 'a' || a.id || ': %'),
+	(SELECT count(*) FROM event WHERE kind IN ('attempt.quiet', 'attempt.blocked') AND task_id = a.task_id AND detail LIKE 'a' || a.id || ': %'),
 	COALESCE((SELECT min(created_at) FROM report WHERE attempt_id = a.id AND status = 'done'), '')
 FROM attempt a
 JOIN task t ON t.id = a.task_id

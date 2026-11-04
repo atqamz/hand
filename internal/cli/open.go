@@ -39,12 +39,12 @@ func cmdOpen(r *runner, args []string) error {
 	delivered := set.Bool("delivered", false, "open the task's newest deliverable instead of its board page")
 	printed := set.Bool("print", false, "print the link instead of opening it; a board link holds the fleet's token")
 	if err := set.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
+		return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 	}
 	rest := set.Args()
 	if len(rest) > 0 {
 		if err := set.Parse(rest[1:]); err != nil {
-			return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
+			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 		}
 		rest = append(rest[:1:1], set.Args()...)
 	}

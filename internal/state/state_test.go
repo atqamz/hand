@@ -143,6 +143,81 @@ func TestOpenMigratesAVersionOneHome(t *testing.T) {
 	}
 }
 
+func TestAVersion17HomeGainsTheEventKindIndexOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:17] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 17`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state := func() (version int, indexes []string) {
+		s, err := Open(path, clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := s.db.Query(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'event_kind_task'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			indexes = append(indexes, n)
+		}
+		return version, indexes
+	}
+	for range 2 {
+		if v, idx := state(); v != SchemaVersion || len(idx) != 1 {
+			t.Fatalf("user_version = %d, indexes = %q", v, idx)
+		}
+	}
+}
+
+func TestAVersion17HomeThatAlreadyHoldsTheEventKindIndexMigrates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range migrations[:17] {
+		if _, err := db.Exec(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 17; CREATE INDEX event_kind_task ON event(kind, task_id)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d, %v", v, err)
+	}
+}
+
 func TestSwitchFailedMatchesOnlyThePinItFailedOn(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
