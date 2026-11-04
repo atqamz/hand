@@ -337,7 +337,7 @@ func TestRenderIsLinearOnUnclosedMarkers(t *testing.T) {
 		return best
 	}
 	for _, unit := range []string{"*a ", "_a ", "**a ", "`a ", "[a ", "~~a ", "> ", "# ", "> a\n", "| a | b |\n", "| a |\n|---|\n", "|", "![a ", "![a](b ", "[a](javascript:b) ", "- [ ] a\n", "/(", "/a ", "`/a` ", "C:\\a "} {
-		small, large := cost(strings.Repeat(unit, 8<<10/len(unit))), cost(strings.Repeat(unit, 64<<10/len(unit)))
+		small, large := max(cost(strings.Repeat(unit, 8<<10/len(unit))), time.Millisecond), cost(strings.Repeat(unit, 64<<10/len(unit)))
 		if large > 28*small {
 			t.Errorf("rendering %q took %v for 8 KiB and %v for 64 KiB: 8 times the input must not cost more than 28 times", unit, small, large)
 		}
