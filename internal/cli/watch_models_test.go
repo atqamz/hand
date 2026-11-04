@@ -33,15 +33,19 @@ func (c *modelsClock) advance(d time.Duration) {
 
 func modelsWatcher(t *testing.T) (*watcher, *bytes.Buffer, string, *modelsClock) {
 	t.Helper()
-	bin, root := t.TempDir(), t.TempDir()
+	bin, root, home := t.TempDir(), t.TempDir(), t.TempDir()
 	vars := map[string]string{"PATH": bin, "HOME": t.TempDir(), "SECONDHAND_HOME": root, "CODEX_HOME": t.TempDir()}
 	var environ []string
 	for k, v := range vars {
 		environ = append(environ, k+"="+v)
 	}
+	policy := `{"profiles":{"a":{"harness":"agy","model":"gemini-3.8-flash-low"},"c":{"harness":"claude","model":"sonnet","effort":"low"}}}`
+	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	clock := &modelsClock{now: time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)}
 	var out bytes.Buffer
-	r := &runner{env: Env{Getenv: func(k string) string { return vars[k] }, Environ: func() []string { return environ }, Now: clock.Now, Stdout: &out}, home: t.TempDir(), root: root, fleet: state.Fleet{ID: "f"}}
+	r := &runner{env: Env{Getenv: func(k string) string { return vars[k] }, Environ: func() []string { return environ }, Now: clock.Now, Stdout: &out}, home: home, root: root, fleet: state.Fleet{ID: "f"}}
 	return &watcher{r: r}, &out, bin, clock
 }
 
@@ -103,6 +107,40 @@ func TestWatcherRefreshesDueListsAndLogsEachFailureOnce(t *testing.T) {
 	refresh()
 	if got := out.String(); strings.Count(got, "observed: ") != 2 || !strings.Contains(got, "models claude: claude -p exited with code 1") {
 		t.Fatalf("a new failure was not logged: %q", got)
+	}
+}
+
+func TestWatcherSkipsHarnessesNoProfileNames(t *testing.T) {
+	w, _, bin, _ := modelsWatcher(t)
+	log := filepath.Join(t.TempDir(), "log")
+	fakebin.Install(t, bin, "opencode", "lister", map[string]string{"stdout": "anthropic/sonnet\n", "log": log})
+	w.refreshModels(context.Background())
+	w.pending.Wait()
+	if n := runs(t, log); n != 0 {
+		t.Fatalf("opencode ran %d times though no profile names it", n)
+	}
+	policy := filepath.Join(w.r.home, "routing.json")
+	saved, err := os.ReadFile(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(policy); err != nil {
+		t.Fatal(err)
+	}
+	w.refreshModels(context.Background())
+	w.pending.Wait()
+	if n := runs(t, log); n != 0 {
+		t.Fatalf("opencode ran %d times with no routing.json", n)
+	}
+	agyLog := filepath.Join(t.TempDir(), "agy.log")
+	fakebin.Install(t, bin, "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tGemini\n", "log": agyLog})
+	if err := os.WriteFile(policy, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.refreshModels(context.Background())
+	w.pending.Wait()
+	if n := runs(t, agyLog); n != 1 {
+		t.Fatalf("agy ran %d times once the policy was back", n)
 	}
 }
 

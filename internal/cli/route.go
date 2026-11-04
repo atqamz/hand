@@ -32,7 +32,7 @@ func cmdRouteList(r *runner, args []string) error {
 	env, opts := r.modelOptions()
 	now := r.env.Now()
 	var unlisted []string
-	for _, name := range state.Harnesses {
+	for _, name := range p.Harnesses() {
 		if st := harness.StatusOf(name, env, now); st.Missing == "" && !st.Found {
 			unlisted = append(unlisted, name)
 		}

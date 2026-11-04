@@ -150,8 +150,12 @@ func TestRouteListRefreshesOnlyWhatIsMissing(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "log")
 	listers(t, h, log)
 	h.ok("init")
+	policy := `{"profiles":{"c":{"harness":"claude","model":"sonnet","effort":"low"},"x":{"harness":"codex","model":"gpt-6-luna","effort":"low"},"a":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	first := h.ok("route", "list")
-	has(t, "route list", first, "agy,gemini-3.8-flash-low,\"\"", "codex,gpt-6-luna,low medium", "claude,acme-opus,low medium high xhigh max")
+	has(t, "route list", first, "agy,gemini-3.8-flash-low,\"\"", "codex,gpt-6-luna,low medium", "claude,acme-opus,low medium high xhigh max", "opencode,\"\",\"unavailable: invalid: no model list yet")
 	ran := func() []string {
 		b, _ := os.ReadFile(log)
 		lines := strings.Fields(string(b))
@@ -242,6 +246,9 @@ func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
 				t.Fatalf("agy was listed %d times, want %d", loggedRuns(t, log), n)
 			}
 		}
+	}
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	stop := startWatch(t, fx, "--every", "50ms")
 	listed(1)
