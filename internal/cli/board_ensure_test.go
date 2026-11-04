@@ -108,8 +108,8 @@ func TestOpenStartsABoardDetached(t *testing.T) {
 func TestOpenTimesOutWhenTheBoardNeverAnswers(t *testing.T) {
 	fx := newOpenFixture(t)
 	fx.stop()
-	dead := fakebin.Install(t, t.TempDir(), "dead", "die", nil)
-	*cli.WatchExe = func() (string, error) { return dead, nil }
+	slow := fakebin.Install(t, t.TempDir(), "slow", "linger", nil)
+	*cli.WatchExe = func() (string, error) { return slow, nil }
 	wait := *cli.BoardWait
 	*cli.BoardWait = 300 * time.Millisecond
 	t.Cleanup(func() {
@@ -121,8 +121,27 @@ func TestOpenTimesOutWhenTheBoardNeverAnswers(t *testing.T) {
 	if code != 3 || !strings.Contains(errOut, "the board did not answer within 300ms") || !strings.Contains(errOut, "read "+log) || !strings.Contains(errOut, "hand board") {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
-	if b, _ := os.ReadFile(log); !strings.Contains(string(b), "board cannot start") {
-		t.Fatalf("board.log = %q", b)
+}
+
+func TestOpenReportsABoardThatExitsAtOnce(t *testing.T) {
+	fx := newOpenFixture(t)
+	fx.stop()
+	dead := fakebin.Install(t, t.TempDir(), "dead", "die", nil)
+	*cli.WatchExe = func() (string, error) { return dead, nil }
+	t.Cleanup(func() {
+		*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
+	})
+	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
+	if err := os.WriteFile(log, []byte("an older run\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	_, errOut, code := fx.h.run("open", "--print")
+	if took := time.Since(began); took > 5*time.Second {
+		t.Fatalf("open took %s", took)
+	}
+	if code != 3 || !strings.Contains(errOut, "exited before it answered (exit status 1): board cannot start; read "+log) || strings.Contains(errOut, "an older run") || !strings.Contains(errOut, "hand board") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 }
 
