@@ -28,11 +28,11 @@ var trackSchema string
 
 var migrations = []string{keptSchema, trackSchema}
 
-const (
-	MinSchemaVersion = 16
-	SchemaVersion    = 18
-	lastMigrating    = "0.13.0"
-)
+const MinSchemaVersion = 16
+
+const SchemaVersion = 18
+
+const lastMigrating = "0.13.0"
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
