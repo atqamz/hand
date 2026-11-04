@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -432,7 +433,7 @@ func (sc scan) marker(i int) (string, int) {
 func (sc scan) room() bool { return sc.links && sc.o.local != nil && *sc.o.left > 0 }
 
 func (sc scan) path(p string) string {
-	if !sc.room() || !pathLike(p) {
+	if !sc.room() || !pathLike(p) && !relLike(p) {
 		return ""
 	}
 	*sc.o.left--
@@ -449,6 +450,14 @@ func pathLike(p string) bool {
 		return false
 	}
 	return len(p) > 1 && !strings.ContainsRune(" \t/\\", rune(p[1]))
+}
+
+func relLike(p string) bool {
+	if len(p) > 1 && p[1] == ':' && 'a' <= p[0]|0x20 && p[0]|0x20 <= 'z' {
+		return false
+	}
+	return strings.Contains(p, "/") && !strings.ContainsAny(p, " \t") && !strings.Contains(p, "://") &&
+		!strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "~") && !slices.Contains(strings.Split(p, "/"), "..")
 }
 
 func pathLink(href, text string) string {
