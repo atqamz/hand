@@ -606,6 +606,38 @@ func TestRunNeverSwitchesThroughASocketOverride(t *testing.T) {
 	}
 }
 
+func TestCheckPlansASwitchForAnUnpinnedFleetWhenTheReleaseLuvusIsNewer(t *testing.T) {
+	for _, version := range []string{"0.14.3", "0.99.0"} {
+		f := newCycle(t)
+		if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
+			t.Fatal(err)
+		}
+		f.mu.Lock()
+		f.version = version
+		f.mu.Unlock()
+		f.o.Check = true
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || alphaLuvus(t, rep) != "would switch" || len(rep.Help) != 0 {
+			t.Fatalf("server %s: report = %+v, %v", version, rep, err)
+		}
+	}
+}
+
+func TestCheckKeepsAnUnpinnedFleetWhenNoPinIsWritten(t *testing.T) {
+	f := newCycle(t)
+	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "18", "dev") {
+		f.srv.set(name, body)
+	}
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "kept" || len(rep.Help) != 0 {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
 func TestCheckPlansNothingForAnUnknownOrAbsentServer(t *testing.T) {
 	for want, serve := range map[string]func(*fixture){
 		"unknown": func(f *fixture) {

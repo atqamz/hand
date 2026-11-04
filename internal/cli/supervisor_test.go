@@ -888,13 +888,15 @@ func TestSupervisorForceRecordsWhatItTypedBeforeTheContextWasCancelled(t *testin
 				return keys(params)
 			})
 			var out, errOut bytes.Buffer
-			if err := cli.Force(h.env(&out, &errOut), h.home, ctx); err != nil {
-				t.Fatal(err)
-			}
+			forced := cli.Force(ctx, h.env(&out, &errOut), h.home)
 			typed := rt.keysSent()
-			has(t, "force again", h.ok("supervisor", "force"), "typed: 0")
+			again := h.ok("supervisor", "force")
 			if got := rt.keysSent(); !slices.Equal(got, typed) {
 				t.Fatalf("typed again: %q then %q", typed, got)
+			}
+			has(t, "force again", again, "typed: 0")
+			if forced != nil {
+				t.Fatal(forced)
 			}
 		})
 	}

@@ -385,6 +385,9 @@ func (o Options) serverState(ctx context.Context, e fleet.Entry, pin luvus.Pin, 
 		return "unknown"
 	}
 	version, err := o.running(ctx, e)
+	if !pinned && err == nil && version != "" {
+		return "yes"
+	}
 	_, match := luvus.Match(pin, pinned, version, err)
 	return match
 }

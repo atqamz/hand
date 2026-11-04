@@ -29,7 +29,7 @@ var (
 	AcceptTrust      = acceptTrust
 )
 
-func Force(env Env, home string, ctx context.Context) error {
+func Force(ctx context.Context, env Env, home string) error {
 	r := &runner{env: env, home: home}
 	st, err := r.store()
 	if err != nil {
