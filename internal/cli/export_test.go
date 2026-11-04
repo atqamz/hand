@@ -1,5 +1,7 @@
 package cli
 
+import "context"
+
 var (
 	Control          = control
 	WakeDigest       = wakeDigest
@@ -13,7 +15,6 @@ var (
 	SubmitConfirm    = &submitConfirm
 	APICheckWait     = &apiCheckWait
 	NoteWait         = &noteWait
-	ServerMatch      = serverMatch
 	NotifyArgv       = notifyArgv
 	WatchExe         = &watchExecutable
 	WatcherSweep     = &watcherSweep
@@ -27,3 +28,18 @@ var (
 	RemoveIfSame     = removeIfSame
 	AcceptTrust      = acceptTrust
 )
+
+func Force(ctx context.Context, env Env, home string) error {
+	r := &runner{env: env, home: home}
+	st, err := r.store()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	c, caps, err := r.luvus(context.Background())
+	if err != nil {
+		return err
+	}
+	_, _, err = r.force(ctx, st, c, caps)
+	return err
+}

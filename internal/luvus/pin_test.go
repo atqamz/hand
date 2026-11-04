@@ -200,3 +200,24 @@ func TestLoadPinWithoutAPin(t *testing.T) {
 		t.Fatalf("LoadPin = %+v %v %v", pin, ok, err)
 	}
 }
+
+func TestMatch(t *testing.T) {
+	pin := luvus.Pin{Version: "0.14.3"}
+	for _, c := range []struct {
+		pinned        bool
+		version       string
+		err           error
+		server, match string
+	}{
+		{true, "0.14.3", nil, "0.14.3", "yes"},
+		{true, "0.14.2", nil, "0.14.2", "no"},
+		{false, "0.14.3", nil, "0.14.3", "unknown"},
+		{true, "", nil, "unknown", "unknown"},
+		{true, "", luvus.ErrUnreachable, "not running", "not running"},
+		{true, "", errors.New("timeout"), "unknown", "unknown"},
+	} {
+		if server, match := luvus.Match(pin, c.pinned, c.version, c.err); server != c.server || match != c.match {
+			t.Fatalf("%+v: got %q %q", c, server, match)
+		}
+	}
+}
