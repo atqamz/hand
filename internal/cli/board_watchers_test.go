@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +161,9 @@ func TestBoardStopsKeepingWatchersWhenCancelled(t *testing.T) {
 }
 
 func TestBoardLogsAFailedFleetListOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reads a file named fleets as a missing folder, not an error")
+	}
 	sweepFast(t)
 	h := newHarness(t)
 	h.ok("init")
