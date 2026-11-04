@@ -7,11 +7,11 @@ import (
 )
 
 func (w *watcher) refreshModels(ctx context.Context) {
-	if !w.modelsBusy.CompareAndSwap(false, true) {
-		return
-	}
 	p, err := harness.LoadPolicy(w.r.home)
 	if err != nil {
+		return
+	}
+	if !w.modelsBusy.CompareAndSwap(false, true) {
 		return
 	}
 	env, opts := w.r.modelOptions()

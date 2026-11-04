@@ -119,13 +119,28 @@ func TestWatcherSkipsHarnessesNoProfileNames(t *testing.T) {
 	if n := runs(t, log); n != 0 {
 		t.Fatalf("opencode ran %d times though no profile names it", n)
 	}
-	if err := os.Remove(filepath.Join(w.r.home, "routing.json")); err != nil {
+	policy := filepath.Join(w.r.home, "routing.json")
+	saved, err := os.ReadFile(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(policy); err != nil {
 		t.Fatal(err)
 	}
 	w.refreshModels(context.Background())
 	w.pending.Wait()
 	if n := runs(t, log); n != 0 {
 		t.Fatalf("opencode ran %d times with no routing.json", n)
+	}
+	agyLog := filepath.Join(t.TempDir(), "agy.log")
+	fakebin.Install(t, bin, "agy", "lister", map[string]string{"stdout": "gemini-3.8-flash-low\tGemini\n", "log": agyLog})
+	if err := os.WriteFile(policy, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.refreshModels(context.Background())
+	w.pending.Wait()
+	if n := runs(t, agyLog); n != 1 {
+		t.Fatalf("agy ran %d times once the policy was back", n)
 	}
 }
 
