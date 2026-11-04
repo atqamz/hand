@@ -149,6 +149,21 @@ func TestOpenReportsABoardThatExitsAtOnce(t *testing.T) {
 	}
 }
 
+func TestOpenReportsASilentBoardWithoutATrailingColon(t *testing.T) {
+	fx := newOpenFixture(t)
+	fx.stop()
+	quiet := fakebin.Install(t, t.TempDir(), "quiet", "quiet", nil)
+	*cli.WatchExe = func() (string, error) { return quiet, nil }
+	t.Cleanup(func() {
+		*cli.WatchExe = func() (string, error) { return "", errors.New("watcher start disabled in tests") }
+	})
+	_, errOut, code := fx.h.run("open", "--print")
+	log := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")
+	if code != 3 || !strings.Contains(errOut, "exited before it answered (exit status 1); read "+log) {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+}
+
 func TestConcurrentOpensStartOneBoard(t *testing.T) {
 	fx := openWithoutBoard(t)
 	var wg sync.WaitGroup

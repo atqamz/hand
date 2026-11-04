@@ -71,15 +71,15 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 	cmd.Env = append(env, s.env...)
 	cmd.Stdout, cmd.Stderr = log, log
 	proc.Detach(cmd)
+	from, _ := log.Seek(0, io.SeekEnd)
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}
-	from, _ := log.Seek(0, io.SeekEnd)
 	awaitCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
 	go func() {
 		_ = cmd.Wait()
-		stop(fmt.Errorf("exited before it answered (%s): %s", cmd.ProcessState, lastLine(s.log, from)))
+		stop(fmt.Errorf("exited before it answered (%s)%s", cmd.ProcessState, lastLine(s.log, from)))
 	}()
 	err = s.await(awaitCtx, "read "+s.log)
 	if cause := context.Cause(awaitCtx); err != nil && ctx.Err() == nil && cause != nil {
@@ -97,5 +97,8 @@ func lastLine(path string, from int64) string {
 		return ""
 	}
 	lines := strings.Split(strings.TrimSpace(string(b[from:])), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
+	if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
+		return ": " + last
+	}
+	return ""
 }
