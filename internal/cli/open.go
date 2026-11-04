@@ -23,7 +23,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const launchWait = 2 * time.Second
+var launchWait = 2 * time.Second
 
 const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered]"
 

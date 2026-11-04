@@ -243,6 +243,8 @@ const (
 	submitTries = 3
 )
 
+var pollEvery = 250 * time.Millisecond
+
 var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait, apiCheckWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second, 5 * time.Second
 
 type launched struct {
@@ -443,7 +445,7 @@ func repoRoots(repo string) []string {
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string, submitted func(context.Context) bool) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	for tries := 0; tries < submitTries; {
 		s, err := c.Read(ctx, pane, 60)
@@ -677,7 +679,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	}
 	wait, cancel := context.WithTimeout(ctx, trustWait)
 	defer cancel()
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	seen, last := false, int64(-1)
 	var quietAt time.Time

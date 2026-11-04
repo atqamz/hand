@@ -78,9 +78,6 @@ type codexRun struct {
 
 func runCodexTrust(t *testing.T, worktree string, repos []string, set func(*fakeRuntime)) codexRun {
 	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
 	rt := startRuntime(t, fakeuhp.ShortSocket(t))
 	c := luvus.Client{Socket: rt.srv.Socket}
 	term, err := c.Create(context.Background(), t.TempDir(), "hand-a1", []string{exe(fakeBin(t), "codex")})
@@ -326,7 +323,7 @@ func TestCodexTrustScreenThatStaysIsNotedAsAccepted(t *testing.T) {
 
 func TestCodexWorkerTrustIsAcceptedAndRecorded(t *testing.T) {
 	for _, old := range []bool{false, true} {
-		fx := claudeFixture(t)
+		fx := newAttemptFixture(t)
 		writeCodexModels(t, fx.h)
 		wt := fx.h.worktree("t1-a1")
 		screen := codexTrustScreen(old, 120, wt, fx.repo, false)
@@ -347,7 +344,7 @@ func TestCodexWorkerTrustIsAcceptedAndRecorded(t *testing.T) {
 }
 
 func TestCodexWorkerTrustScreenForAnotherRepositoryIsLeftAlone(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	writeCodexModels(t, fx.h)
 	screen := codexTrustScreen(false, 120, fx.h.worktree("t1-a1"), filepath.Join(filepath.Dir(fx.repo), "other"), false)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
@@ -402,7 +399,6 @@ func codexSession(t *testing.T, h *harness) {
 func TestCodexSupervisorAcceptsTrustOfTheFleetHomeAndRecordsIt(t *testing.T) {
 	for _, old := range []bool{false, true} {
 		h, rt := newSupervisorFixture(t)
-		fastTrust(t)
 		screen := codexTrustScreen(old, 120, h.home, "", false)
 		rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, "› \n" })
 		out := startCodexSupervisor(t, h)
@@ -419,7 +415,6 @@ func TestCodexSupervisorAcceptsTrustOfTheFleetHomeAndRecordsIt(t *testing.T) {
 
 func TestCodexSupervisorInsideAnotherRepositoryIsNotTrusted(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	screen := codexTrustScreen(false, 120, h.home, filepath.Dir(h.home), false)
 	rt.set(func(rt *fakeRuntime) { rt.screen = screen })
 	has(t, "start", startCodexSupervisor(t, h), "trust: not pressed")
@@ -431,7 +426,6 @@ func TestCodexSupervisorInsideAnotherRepositoryIsNotTrusted(t *testing.T) {
 func TestDeliveryWaitsWhileCodexAsksForTrust(t *testing.T) {
 	for _, old := range []bool{false, true} {
 		h, rt := newSupervisorFixture(t)
-		fastTrust(t)
 		rt.set(func(rt *fakeRuntime) { rt.screen = codexTrustScreen(old, 120, "/elsewhere", "", false) })
 		has(t, "start", startCodexSupervisor(t, h), "trust: not pressed")
 		codexSession(t, h)
@@ -445,7 +439,6 @@ func TestDeliveryWaitsWhileCodexAsksForTrust(t *testing.T) {
 
 func TestDeliveryIgnoresTheTrustQuestionWhenNoTrustRowsShow(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	has(t, "start", startCodexSupervisor(t, h), "trust: not asked")
 	codexSession(t, h)
 	rt.set(func(rt *fakeRuntime) {
@@ -459,8 +452,7 @@ func TestDeliveryIgnoresTheTrustQuestionWhenNoTrustRowsShow(t *testing.T) {
 
 func TestACodexResumeScreenIsReportedAsBlockedNotAsATrustFailure(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
-	*cli.TrustWait = 300 * time.Millisecond
+	setWait(t, cli.TrustWait, 300*time.Millisecond)
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.status, rt.hint = codexResume, "blocked", "Working directory · Resume"
 	})

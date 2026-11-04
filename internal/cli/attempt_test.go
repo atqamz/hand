@@ -282,6 +282,7 @@ func TestOpencodeStillLoadingOrHoldingTheBriefingIsNotSubmitted(t *testing.T) {
 		"brief above an idle box": {opencodeWorking80x24, "idle"},
 		"bar below the real bar":  {opencodeUnsentScreen + "  " + opencodeBar + "\n", "working"},
 	} {
+		setWait(t, cli.PrefillWait, 300*time.Millisecond)
 		fx := newAttemptFixture(t)
 		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = c.screen, c.status })
 		out, errOut, code := startOpencode(fx, time.Second)
@@ -340,9 +341,7 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 }
 
 func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
-	confirm := *cli.SubmitConfirm
-	*cli.SubmitConfirm = 300 * time.Millisecond
-	t.Cleanup(func() { *cli.SubmitConfirm = confirm })
+	setWait(t, cli.PrefillWait, 2*time.Second)
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
@@ -588,14 +587,6 @@ func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
 	}
 }
 
-func agyFixture(t *testing.T) *attemptFixture {
-	t.Helper()
-	wait, confirm, screen := *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait
-	*cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = 2*time.Second, time.Second, 300*time.Millisecond
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = wait, confirm, screen })
-	return newAttemptFixture(t)
-}
-
 func (fx *attemptFixture) startAgy() string {
 	fx.h.t.Helper()
 	return fx.h.ok("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1")
@@ -603,14 +594,6 @@ func (fx *attemptFixture) startAgy() string {
 
 func trustScreen(path string) string {
 	return "Accessing workspace:\n" + path + "\nDo you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n  No, exit\n  ↑/↓ Navigate · enter Confirm"
-}
-
-func claudeFixture(t *testing.T) *attemptFixture {
-	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
-	return newAttemptFixture(t)
 }
 
 func claudeTrustScreen(path string) string {
@@ -622,7 +605,7 @@ func claudeTrustScreenYes(path string) string {
 }
 
 func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	out := fx.startAgy()
 	call := fx.rt.lastCreate()
 	want := []string{exe(fx.h.vars["PATH"], "agy"), "--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "-i"}
@@ -635,7 +618,7 @@ func TestAgyWorkersStartWithTheirBrief(t *testing.T) {
 }
 
 func TestAgyTrustScreenIsAcceptedInItsOwnWorktree(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.afterScreen = trustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, "> \n"
@@ -658,7 +641,7 @@ func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 		"spaced":    func(wt string) string { return wt[:len(wt)/2] + " " + wt[len(wt)/2:] },
 	} {
 		t.Run(name, func(t *testing.T) {
-			fx := agyFixture(t)
+			fx := newAttemptFixture(t)
 			screen := trustScreen(path(fx.h.worktree("t1-a1")))
 			fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
 			out := fx.startAgy()
@@ -673,7 +656,7 @@ func TestAgyTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.startAgy()
@@ -686,7 +669,7 @@ func TestAgyTrustScreenThatStaysIsNoted(t *testing.T) {
 }
 
 func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screens, rt.screen, rt.afterScreen, rt.status = []string{"", ""}, screen, "> \n", "idle"
@@ -698,8 +681,9 @@ func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
 }
 
 func TestAgyTrustScreenThatClearsSlowlyIsAccepted(t *testing.T) {
-	fx := agyFixture(t)
-	*cli.TrustWait, *cli.TrustConfirm = time.Second, 3*time.Second
+	fx := newAttemptFixture(t)
+	setWait(t, cli.TrustWait, time.Second)
+	setWait(t, cli.TrustConfirm, 3*time.Second)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen = "> \n"
@@ -714,7 +698,7 @@ func TestAgyTrustScreenThatClearsSlowlyIsAccepted(t *testing.T) {
 }
 
 func TestAgyTrustClearCheckIsBoundedByItsDeadline(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen, rt.afterStall = screen, "> \n", 4*time.Second })
 	began := time.Now()
@@ -741,7 +725,7 @@ func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			fx := agyFixture(t)
+			fx := newAttemptFixture(t)
 			fx.rt.set(func(rt *fakeRuntime) { set(fx, rt) })
 			out := fx.startAgy()
 			if !strings.Contains(out, "trust: not pressed") || !strings.Contains(out, "hand attempt read a1") || len(fx.rt.keysSent()) != 0 {
@@ -755,7 +739,7 @@ func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.keyScreens = claudeTrustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, []string{claudeTrustScreenYes(wt), "> \n"}
@@ -771,13 +755,16 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
-	grace := *cli.TrustGrace
-	*cli.TrustGrace = time.Second
-	t.Cleanup(func() { *cli.TrustGrace = grace })
+	fx := newAttemptFixture(t)
+	setWait(t, cli.TrustGrace, 5*time.Second)
+	setWait(t, cli.TrustWait, 20*time.Second)
 	wt := fx.h.worktree("t1-a1")
+	banners := make([]string, 10)
+	for i := range banners {
+		banners[i] = "Claude Code v2.1.309\n"
+	}
 	fx.rt.set(func(rt *fakeRuntime) {
-		rt.screens, rt.screen, rt.revision, rt.keyScreens = []string{"Claude Code v2.1.309\n", "Claude Code v2.1.309\n"}, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
+		rt.screens, rt.screen, rt.revision, rt.keyScreens = banners, claudeTrustScreen(wt), 4, []string{claudeTrustScreenYes(wt), "> \n"}
 	})
 	out := fx.start()
 	if !strings.Contains(out, "trust: accepted") || !slices.Equal(fx.rt.keysSent(), []string{"down", "enter"}) {
@@ -786,10 +773,8 @@ func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.
 }
 
 func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
-	fx := claudeFixture(t)
-	grace := *cli.TrustGrace
-	*cli.TrustGrace = 400 * time.Millisecond
-	t.Cleanup(func() { *cli.TrustGrace = grace })
+	fx := newAttemptFixture(t)
+	setWait(t, cli.TrustGrace, 400*time.Millisecond)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = "Claude Code v2.1.309\n❯ \n" })
 	start := time.Now()
 	out := fx.start()
@@ -799,7 +784,7 @@ func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.afterScreen = claudeTrustScreenYes(wt), 4, "> \n"
@@ -822,7 +807,7 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 		"spaced":    func(wt string) string { return wt[:len(wt)/2] + " " + wt[len(wt)/2:] },
 	} {
 		t.Run(name, func(t *testing.T) {
-			fx := claudeFixture(t)
+			fx := newAttemptFixture(t)
 			screen := claudeTrustScreen(path(fx.h.worktree("t1-a1")))
 			fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
 			out := fx.start()
@@ -837,7 +822,7 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	screen := claudeTrustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.start()
@@ -854,7 +839,7 @@ func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	screen := claudeTrustScreenYes(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.start()
@@ -867,7 +852,7 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	blank := strings.Repeat("   \n", 24)
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -881,7 +866,7 @@ func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.
 }
 
 func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	blank := strings.Repeat("   \n", 24)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = blank })
 	began := time.Now()
@@ -892,7 +877,7 @@ func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
 }
 
 func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revisions = claudeTrustScreen(wt), []int64{4, 5}
@@ -927,7 +912,7 @@ func TestAttemptStartWarnsOnceFiveAttemptsAreLive(t *testing.T) {
 }
 
 func TestAgyWarnsWhenItsModelListFailed(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fakebin.Install(t, fx.h.vars["PATH"], "agy", "fake", map[string]string{"exit": "1", "stderr": "Error: Please sign in to view available models."})
 	fx.h.ok("models", "--refresh", "agy")
 	out, errOut, code := fx.h.run("attempt", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low", "--prompt-file", fx.brief, "t1")

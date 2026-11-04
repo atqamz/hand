@@ -307,7 +307,7 @@ func (l *screenLog) take(id int64) string {
 	return text
 }
 
-const exitWait = time.Second
+var exitWait = time.Second
 
 func (l *exitLog) budget() {
 	l.mu.Lock()

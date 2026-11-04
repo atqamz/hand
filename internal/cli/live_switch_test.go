@@ -29,8 +29,9 @@ func liveFleet(t *testing.T) (h *harness, session, luvusBin string) {
 	h.vars["HOME"] = t.TempDir()
 	h.vars["LUVUS_HOME"] = t.TempDir()
 	h.vars["HAND_TEST_AS_HAND"] = "1"
+	wait := *cli.TrustWait
 	*cli.TrustWait = time.Second
-	t.Cleanup(func() { *cli.TrustWait = 15 * time.Second })
+	t.Cleanup(func() { *cli.TrustWait = wait })
 	luvusBin, err := exec.LookPath("luvus")
 	if err != nil {
 		t.Fatal(err)

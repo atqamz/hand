@@ -361,7 +361,7 @@ func noteTaken(ctx context.Context, lastUser func(context.Context) (string, bool
 		select {
 		case <-ctx.Done():
 			return false, read
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(2 * pollEvery):
 		}
 	}
 }
@@ -516,10 +516,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	})
 }
 
-const (
-	settleWait  = 30 * time.Second
-	settleQuiet = time.Second
-)
+var settleWait, settleQuiet = 30 * time.Second, time.Second
 
 func (r *runner) opencodeListed(model string) error {
 	env, opts := r.modelOptions()
@@ -542,7 +539,7 @@ func (r *runner) opencodeListed(model string) error {
 func waitSettled(ctx context.Context, c luvus.Client, pane string) {
 	ctx, cancel := context.WithTimeout(ctx, settleWait)
 	defer cancel()
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	rev, since := int64(-1), time.Time{}
 	for {
@@ -1208,7 +1205,7 @@ func wakeDigest(events []state.Event, title func(taskID int64) string) (string, 
 	return b.String(), last
 }
 
-const escGap = 300 * time.Millisecond
+var escGap = 300 * time.Millisecond
 
 const wakeTitleRunes = 60
 

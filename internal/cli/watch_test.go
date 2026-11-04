@@ -852,7 +852,7 @@ func TestWatchRecordsAQuietTurnWhileAnEarlierLimitLineStaysOnScreen(t *testing.T
 }
 
 func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fx.startAgy()
 	stop := startWatch(t, fx)
 	defer stop()
@@ -871,7 +871,7 @@ func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
 }
 
 func TestWatchRecordsACopilotSessionLimitOnceAndAQuietTurnWhenItIsSentAgain(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	stop := startWatch(t, fx)
 	defer stop()

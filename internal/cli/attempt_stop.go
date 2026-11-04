@@ -16,10 +16,9 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const (
-	stopGrace = 5 * time.Second
-	killGrace = 2 * time.Second
-)
+const stopGrace = 5 * time.Second
+
+var killGrace = 2 * time.Second
 
 func init() {
 	attemptCommands["stop"] = cmdAttemptStop
