@@ -154,8 +154,8 @@ func readLink(root, id string) (string, error) {
 	if err == nil && target == "" {
 		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
 	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		if info, statErr := os.Stat(link(root, id)); statErr == nil && info.IsDir() {
+	if err != nil {
+		if info, lstatErr := os.Lstat(link(root, id)); lstatErr == nil && info.Mode()&fs.ModeSymlink != 0 {
 			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, link(root, id))
 		}
 	}

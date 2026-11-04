@@ -293,3 +293,35 @@ func TestALeftoverSymlinkNamesItsPathAndTheFixAndSparesTheOtherFleets(t *testing
 		}
 	}
 }
+
+func TestADanglingSymlinkIsInvalidNotMissing(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "fleets", f.ID)
+	if err := os.Symlink(filepath.Join(root, "gone"), path); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	for name, call := range map[string]func() error{
+		"home":     func() error { _, err := fleet.Home(root, f.ID); return err },
+		"register": func() error { _, err := fleet.Register(root, f.ID, dir); return err },
+		"check":    func() error { return fleet.Check(root, f.ID, dir) },
+	} {
+		if err := call(); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), path) {
+			t.Fatalf("%s = %v", name, err)
+		}
+	}
+}
+
+func TestAPlainFolderInPlaceOfTheLinkIsNotCalledASymlink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "fleets", "f000000000002")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.Home(root, "f000000000002"); err == nil || strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("home = %v", err)
+	}
+}
