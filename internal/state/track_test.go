@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -134,5 +135,102 @@ func TestTrackRecordEmpty(t *testing.T) {
 	got, err := s.TrackRecord(context.Background())
 	if err != nil || len(got) != 0 {
 		t.Fatalf("track = %+v, %v", got, err)
+	}
+}
+
+func TestTrackRecordCountsEventsOfOneAttemptAmongManyEvents(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	seedProject(t, s)
+	if _, err := s.CreateFleet(ctx, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddTask(ctx, "hand", "offsets task ids from attempt ids", ""); err != nil {
+		t.Fatal(err)
+	}
+	models := []string{"haiku", "opus", "sonnet"}
+	note := func(id int64, kind string, n int) {
+		for range n {
+			if err := s.NoteAttempt(ctx, id, kind, "x"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for i := range 36 {
+		k := i % 3
+		tk, err := s.AddTask(ctx, "hand", "task", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Transition(ctx, tk.ID, StatusActive); err != nil {
+			t.Fatal(err)
+		}
+		spec := claudeSpec
+		spec.TaskID, spec.Model = tk.ID, models[k]
+		a, err := s.AddAttempt(ctx, spec, "/w")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AttemptRunning(ctx, a.ID, Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
+			t.Fatal(err)
+		}
+		note(a.ID, "working", 20)
+		note(a.ID, "quiet", 3*k)
+		note(a.ID, "blocked", 1)
+		note(a.ID, "sent", k+2)
+		if _, err := s.EndAttempt(ctx, a.ID, AttemptExited, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var events int
+	if err := s.db.QueryRow(`SELECT count(*) FROM event`).Scan(&events); err != nil || events < 1000 {
+		t.Fatalf("events = %d, %v", events, err)
+	}
+	got, err := s.TrackRecord(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Track{
+		{Harness: "claude", Model: "haiku", Effort: "low", N: 12, Sent: 24, Wakes: 12},
+		{Harness: "claude", Model: "opus", Effort: "low", N: 12, Sent: 36, Wakes: 48},
+		{Harness: "claude", Model: "sonnet", Effort: "low", N: 12, Sent: 48, Wakes: 84},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("track = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("track[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTrackQuerySearchesEventsByKindAndTask(t *testing.T) {
+	s, _ := openTest(t)
+	rows, err := s.db.Query(`EXPLAIN QUERY PLAN ` + trackQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	searches := 0
+	for _, d := range plan {
+		if strings.Contains(d, " event") && !strings.Contains(d, "SEARCH event USING INDEX event_kind_task (kind=? AND task_id=?)") {
+			t.Fatalf("event is not searched by kind and task: %q in %q", d, plan)
+		}
+		if strings.Contains(d, "SEARCH event") {
+			searches++
+		}
+	}
+	if searches != 2 {
+		t.Fatalf("plan = %q, want two searches of event", plan)
 	}
 }

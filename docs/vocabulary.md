@@ -167,7 +167,7 @@ Hand removes what it can prove safe, and only warns about the rest. The knobs ar
 - **Never touched:** `memory/`, `briefs/`, `inbox/` (see Inbox folder and trash) and anything unpushed.
 - Workers are told not to store large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) under `reports/`, and to record the path and hash in the report instead. Such a file, and any path or file a worker wants to keep, must live outside its worktree: removing the worktree deletes ignored files too (see Worktrees below).
 
-Backward compatibility is not kept for this: the schema is 17 (the `attempt.kept` column), and a `hand` older than this refuses a database migrated to it and a `routing.json` that holds `retention`; going back needs a restored backup (see [Restore a backup](update.md#restore-a-backup)).
+Backward compatibility is not kept for this: the `attempt.kept` column is schema 17, and a `hand` older than this refuses a database migrated to it and a `routing.json` that holds `retention`; going back needs a restored backup (see [Restore a backup](update.md#restore-a-backup)).
 
 ### Shared folder
 
