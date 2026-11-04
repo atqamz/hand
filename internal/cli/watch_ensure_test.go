@@ -19,6 +19,15 @@ import (
 func TestMain(m *testing.M) {
 	fakebin.Main(fakeBehaviors())
 	*cli.TrustGrace = 0
+	*cli.PollEvery = 10 * time.Millisecond
+	*cli.SettleQuiet = 50 * time.Millisecond
+	*cli.SubmitPoll = 10 * time.Millisecond
+	*cli.EscGap = 10 * time.Millisecond
+	*cli.TrustWait, *cli.TrustConfirm = 500*time.Millisecond, 300*time.Millisecond
+	*cli.SubmitConfirm, *cli.SubmitCheck = 300*time.Millisecond, 300*time.Millisecond
+	*cli.ScreenWait, *cli.PrefillWait = 300*time.Millisecond, 600*time.Millisecond
+	*cli.APICheckWait, *cli.NoteWait = time.Second, 500*time.Millisecond
+	*cli.LaunchWait, *cli.ExitWait, *cli.KillGrace = 100*time.Millisecond, 300*time.Millisecond, 300*time.Millisecond
 	if len(os.Args) > 2 && os.Args[1] == "board" && os.Getenv("HAND_TEST_REAL_BOARD") != "" {
 		realBoard()
 	}

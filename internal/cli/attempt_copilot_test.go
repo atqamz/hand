@@ -282,8 +282,9 @@ func TestCopilotLaunchWithoutAnEchoEndsAtTheScreenWait(t *testing.T) {
 
 func TestCopilotLaunchLineThatAppearsOnALaterReadIsNoted(t *testing.T) {
 	fx := agyFixture(t)
+	screen := *cli.ScreenWait
 	*cli.ScreenWait = 5 * time.Second
-	t.Cleanup(func() { *cli.ScreenWait = 300 * time.Millisecond })
+	t.Cleanup(func() { *cli.ScreenWait = screen })
 	trust := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, 1)
 	problem := `✗ Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`
 	fx.rt.set(func(rt *fakeRuntime) {

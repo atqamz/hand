@@ -206,7 +206,7 @@ func askWatch(t *testing.T, extra string, screen ...string) (*attemptFixture, fu
 		text = screen[0]
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 7, text })
-	stop := startWatch(t, fx, "--every", "30ms")
+	stop := startWatch(t, fx, "--every", "10ms")
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "3", "status": "blocked", "agent": "claude"})
 	eventually(t, func() bool {

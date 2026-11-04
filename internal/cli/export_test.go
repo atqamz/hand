@@ -26,4 +26,12 @@ var (
 	PhoneProbe       = &phoneProbe
 	RemoveIfSame     = removeIfSame
 	AcceptTrust      = acceptTrust
+	PollEvery        = &pollEvery
+	SettleWait       = &settleWait
+	SettleQuiet      = &settleQuiet
+	EscGap           = &escGap
+	SubmitPoll       = &submitPoll
+	LaunchWait       = &launchWait
+	ExitWait         = &exitWait
+	KillGrace        = &killGrace
 )

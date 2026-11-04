@@ -282,6 +282,7 @@ func TestOpencodeStillLoadingOrHoldingTheBriefingIsNotSubmitted(t *testing.T) {
 		"brief above an idle box": {opencodeWorking80x24, "idle"},
 		"bar below the real bar":  {opencodeUnsentScreen + "  " + opencodeBar + "\n", "working"},
 	} {
+		setWait(t, cli.PrefillWait, 300*time.Millisecond)
 		fx := newAttemptFixture(t)
 		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = c.screen, c.status })
 		out, errOut, code := startOpencode(fx, time.Second)
@@ -340,9 +341,7 @@ func TestOpencodeBriefingThatNeverAppearsIsReported(t *testing.T) {
 }
 
 func TestOpencodeEnterWithoutAStatusChangeIsNotConfirmed(t *testing.T) {
-	confirm := *cli.SubmitConfirm
-	*cli.SubmitConfirm = 300 * time.Millisecond
-	t.Cleanup(func() { *cli.SubmitConfirm = confirm })
+	setWait(t, cli.PrefillWait, 2*time.Second)
 	fx := newAttemptFixture(t)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.status = opencodeScreen, "idle" })
 	out := fx.h.ok("attempt", "start", "--harness", "opencode", "--prompt-file", fx.brief, "t1")
@@ -590,9 +589,6 @@ func TestCodexWorkerStartsInItsWorktree(t *testing.T) {
 
 func agyFixture(t *testing.T) *attemptFixture {
 	t.Helper()
-	wait, confirm, screen := *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait
-	*cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = 2*time.Second, time.Second, 300*time.Millisecond
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm, *cli.ScreenWait = wait, confirm, screen })
 	return newAttemptFixture(t)
 }
 
@@ -603,14 +599,6 @@ func (fx *attemptFixture) startAgy() string {
 
 func trustScreen(path string) string {
 	return "Accessing workspace:\n" + path + "\nDo you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n  No, exit\n  ↑/↓ Navigate · enter Confirm"
-}
-
-func claudeFixture(t *testing.T) *attemptFixture {
-	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
-	return newAttemptFixture(t)
 }
 
 func claudeTrustScreen(path string) string {
@@ -699,7 +687,8 @@ func TestAgyTrustScreenThatComesLateIsPressed(t *testing.T) {
 
 func TestAgyTrustScreenThatClearsSlowlyIsAccepted(t *testing.T) {
 	fx := agyFixture(t)
-	*cli.TrustWait, *cli.TrustConfirm = time.Second, 3*time.Second
+	setWait(t, cli.TrustWait, time.Second)
+	setWait(t, cli.TrustConfirm, 3*time.Second)
 	screen := trustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen = "> \n"
@@ -755,7 +744,7 @@ func TestAgyTrustScreenSeenButNotPressedIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.keyScreens = claudeTrustScreen("   \n "+wt[:20]+"    \n "+wt[20:]+"   "), 4, []string{claudeTrustScreenYes(wt), "> \n"}
@@ -771,7 +760,7 @@ func TestClaudeTrustScreenWithCursorOnNoIsAccepted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	grace := *cli.TrustGrace
 	*cli.TrustGrace = time.Second
 	t.Cleanup(func() { *cli.TrustGrace = grace })
@@ -786,7 +775,7 @@ func TestClaudeTrustScreenThatFollowsABannerWithinTheGraceIsAccepted(t *testing.
 }
 
 func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	grace := *cli.TrustGrace
 	*cli.TrustGrace = 400 * time.Millisecond
 	t.Cleanup(func() { *cli.TrustGrace = grace })
@@ -799,7 +788,7 @@ func TestClaudeThatShowsNoTrustScreenWithinTheGraceIsNotAsked(t *testing.T) {
 }
 
 func TestClaudeTrustScreenWithCursorOnYesIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revision, rt.afterScreen = claudeTrustScreenYes(wt), 4, "> \n"
@@ -822,7 +811,7 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 		"spaced":    func(wt string) string { return wt[:len(wt)/2] + " " + wt[len(wt)/2:] },
 	} {
 		t.Run(name, func(t *testing.T) {
-			fx := claudeFixture(t)
+			fx := newAttemptFixture(t)
 			screen := claudeTrustScreen(path(fx.h.worktree("t1-a1")))
 			fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
 			out := fx.start()
@@ -837,7 +826,7 @@ func TestClaudeTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	screen := claudeTrustScreen(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.start()
@@ -854,7 +843,7 @@ func TestClaudeTrustScreenThatStaysOnNoIsNotConfirmed(t *testing.T) {
 }
 
 func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	screen := claudeTrustScreenYes(fx.h.worktree("t1-a1"))
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 	out := fx.start()
@@ -867,7 +856,7 @@ func TestClaudeTrustScreenThatStaysOnYesIsNoted(t *testing.T) {
 }
 
 func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	blank := strings.Repeat("   \n", 24)
 	fx.rt.set(func(rt *fakeRuntime) {
@@ -881,7 +870,7 @@ func TestClaudeTrustScreenDrawnAfterTheAgentReportsWorkingIsAccepted(t *testing.
 }
 
 func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	blank := strings.Repeat("   \n", 24)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen = blank })
 	began := time.Now()
@@ -892,7 +881,7 @@ func TestClaudeTrustScreenThatNeverComesEndsAtTheTrustWait(t *testing.T) {
 }
 
 func TestClaudeTrustScreenIsNotPressedUntilItsRevisionSettles(t *testing.T) {
-	fx := claudeFixture(t)
+	fx := newAttemptFixture(t)
 	wt := fx.h.worktree("t1-a1")
 	fx.rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.revisions = claudeTrustScreen(wt), []int64{4, 5}

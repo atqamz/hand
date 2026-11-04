@@ -38,14 +38,14 @@ func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	h.vars["PATH"] = fakeBin(t)
 	h.vars["HOME"] = t.TempDir()
 	h.ok("init")
-	wait := *cli.NoteWait
-	*cli.NoteWait = time.Second
-	t.Cleanup(func() { *cli.NoteWait = wait })
-	fastTrust(t)
-	prefill := *cli.PrefillWait
-	*cli.PrefillWait = 2 * time.Second
-	t.Cleanup(func() { *cli.PrefillWait = prefill })
 	return h, rt
+}
+
+func setWait(t *testing.T, p *time.Duration, d time.Duration) {
+	t.Helper()
+	old := *p
+	*p = d
+	t.Cleanup(func() { *p = old })
 }
 
 func has(t *testing.T, what, out string, wants ...string) {
@@ -650,7 +650,7 @@ func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n i
 
 func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	*cli.PrefillWait = 30 * time.Second
+	setWait(t, cli.PrefillWait, 30*time.Second)
 	opencodeSupervisor(t, h, rt, func(n int32) {
 		if n == 2 {
 			rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -1094,16 +1094,8 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "resumes: s1")
 }
 
-func fastTrust(t *testing.T) {
-	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
-}
-
 func startAgySupervisor(t *testing.T, h *harness, rt *fakeRuntime) string {
 	t.Helper()
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
 	return h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low")
 }
@@ -1127,7 +1119,6 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 
 func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
 	})
@@ -1148,7 +1139,6 @@ func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 
 func TestAClaudeSupervisorWithCursorOnYesPressesOnlyEnter(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = claudeTrustScreenYes(h.home), "> \n" })
 	has(t, "start", startClaudeSupervisor(h), "trust: accepted")
 	if !slices.Equal(rt.keysSent(), []string{"enter"}) {
@@ -1234,7 +1224,6 @@ func TestAgyDiscoveryIgnoresAnotherFleetsConversation(t *testing.T) {
 
 func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = trustScreen("/elsewhere") })
 	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not pressed")
 	argv := rt.lastCreate().Command
@@ -1248,7 +1237,6 @@ func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 
 func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = claudeTrustScreen("/elsewhere") })
 	has(t, "start", startClaudeSupervisor(h), "trust: not pressed")
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -1260,8 +1248,7 @@ func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
 
 func TestAnAgyStartWithoutATrustScreenDoesNotWait(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
-	*cli.TrustWait = 10 * time.Second
+	setWait(t, cli.TrustWait, 10*time.Second)
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	began := time.Now()
 	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not asked")
@@ -1460,7 +1447,6 @@ func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 
 func TestBoardStartSurvivesCancelledRequest(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
