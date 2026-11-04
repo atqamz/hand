@@ -87,7 +87,6 @@ If you have a Mac or a Windows machine, you can help by running the checks in [`
 - [Clean the inbox](docs/inbox.md): prune old attachments.
 - [Safe use](docs/safe-use.md): what the agents can do with prompts skipped, how to run Hand safer, and what nothing prevents yet.
 - [Commands](docs/commands.md): every `hand` command.
-- [Upgrading from 0.7](docs/upgrade-from-0.7.md).
 - [Design and non-goals](docs/spec.md) and [vocabulary](docs/vocabulary.md).
 
 ## Development

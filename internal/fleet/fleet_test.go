@@ -208,49 +208,6 @@ func TestListShowsEachFleetAndItsState(t *testing.T) {
 	}
 }
 
-func TestLegacySymlinkResolves(t *testing.T) {
-	root, dir := t.TempDir(), t.TempDir()
-	f := home(t, dir, "alpha")
-	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(dir, filepath.Join(root, "fleets", f.ID)); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := fleet.Home(root, f.ID); err != nil || got != dir {
-		t.Fatalf("home = %q, %v", got, err)
-	}
-	if err := fleet.Check(root, f.ID, dir); err != nil {
-		t.Fatal(err)
-	}
-	es, err := fleet.List(root)
-	if err != nil || len(es) != 1 || es[0].Home != dir || es[0].State != "ok" {
-		t.Fatalf("list = %+v, %v", es, err)
-	}
-}
-
-func TestInitRewritesSymlink(t *testing.T) {
-	root, dir := t.TempDir(), t.TempDir()
-	f := home(t, dir, "alpha")
-	path := filepath.Join(root, "fleets", f.ID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(dir, path); err != nil {
-		t.Fatal(err)
-	}
-	if prev, err := fleet.Register(root, f.ID, dir); err != nil || prev != "" {
-		t.Fatalf("register = %q, %v", prev, err)
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		t.Fatalf("link = %v, %v; want a pointer file", info, err)
-	}
-	if got, err := fleet.Home(root, f.ID); err != nil || got != dir {
-		t.Fatalf("home = %q, %v", got, err)
-	}
-}
-
 func TestPointerFileClaimExclusive(t *testing.T) {
 	root, dir, other := t.TempDir(), t.TempDir(), t.TempDir()
 	f := home(t, dir, "alpha")
@@ -278,5 +235,93 @@ func TestAnEmptyPointerFileIsInvalid(t *testing.T) {
 	}
 	if _, err := fleet.Register(root, "f000000000000", root); !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("register = %v, want ErrInvalid", err)
+	}
+}
+
+func TestRegisterRewritesAPointerThatNamesTheSameFolderByAnotherPath(t *testing.T) {
+	root, parent := t.TempDir(), t.TempDir()
+	real, alias := filepath.Join(parent, "real"), filepath.Join(parent, "alias")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	f := home(t, real, "alpha")
+	if err := fleet.Claim(root, f.ID, alias); err != nil {
+		t.Fatal(err)
+	}
+	if prev, err := fleet.Register(root, f.ID, real); err != nil || prev != "" {
+		t.Fatalf("register = %q, %v", prev, err)
+	}
+	if got, err := fleet.Home(root, f.ID); err != nil || got != real {
+		t.Fatalf("link = %q, %v; want it rewritten to %s", got, err, real)
+	}
+}
+
+func TestALeftoverSymlinkNamesItsPathAndTheFixAndSparesTheOtherFleets(t *testing.T) {
+	root, dir, old := t.TempDir(), t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := fleet.Check(root, f.ID, dir); err != nil {
+		t.Fatal(err)
+	}
+	stale := "f000000000001"
+	path := filepath.Join(root, "fleets", stale)
+	if err := os.Symlink(old, path); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	_, err := fleet.Home(root, stale)
+	if !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "delete it and run `hand init` in the fleet's folder") {
+		t.Fatalf("home = %v", err)
+	}
+	got, err := fleet.List(root)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("list = %+v, %v", got, err)
+	}
+	for _, e := range got {
+		switch e.ID {
+		case f.ID:
+			if e.State != "ok" {
+				t.Fatalf("entry %+v", e)
+			}
+		case stale:
+			if !strings.HasPrefix(e.State, "unreadable: ") || !strings.Contains(e.State, path) {
+				t.Fatalf("entry %+v", e)
+			}
+		default:
+			t.Fatalf("entry %+v", e)
+		}
+	}
+}
+
+func TestADanglingSymlinkIsInvalidNotMissing(t *testing.T) {
+	root, dir := t.TempDir(), t.TempDir()
+	f := home(t, dir, "alpha")
+	if err := os.MkdirAll(filepath.Join(root, "fleets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "fleets", f.ID)
+	if err := os.Symlink(filepath.Join(root, "gone"), path); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	for name, call := range map[string]func() error{
+		"home":     func() error { _, err := fleet.Home(root, f.ID); return err },
+		"register": func() error { _, err := fleet.Register(root, f.ID, dir); return err },
+		"check":    func() error { return fleet.Check(root, f.ID, dir) },
+	} {
+		if err := call(); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), path) {
+			t.Fatalf("%s = %v", name, err)
+		}
+	}
+}
+
+func TestAPlainFolderInPlaceOfTheLinkIsNotCalledASymlink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "fleets", "f000000000002")
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.Home(root, "f000000000002"); err == nil || strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("home = %v", err)
 	}
 }

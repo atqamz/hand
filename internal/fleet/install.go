@@ -17,29 +17,33 @@ import (
 
 var skillRoots = []string{".claude", ".agents", ".grok", ".pi"}
 
-func Install(home, command string) error {
+func RefuseBeside07(home string) error {
 	dir, err := os.OpenRoot(home)
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
 	info, err := dir.Stat(filepath.Join("state", "hand.db"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
-		return fmt.Errorf("check the Hand 0.7 marker: %w", err)
+	switch {
+	case err == nil && info.Mode().IsRegular():
+		return fmt.Errorf("%w: %s holds Hand 0.7 data, which this hand does not read; run `hand init` in a folder of its own", state.ErrConflict, home)
+	case err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+		return fmt.Errorf("check for Hand 0.7 data: %w", err)
 	}
-	legacy := err == nil && info.Mode().IsRegular()
+	return nil
+}
+
+func Install(home, command string) error {
+	dir, err := os.OpenRoot(home)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
 	named := strings.NewReplacer("`hand ", "`"+command+" ", "`hand`", "`"+command+"`")
 	files := map[string]string{"AGENTS.md": named.Replace(skills.Bootstrap), "CLAUDE.md": "@AGENTS.md\n"}
-	var stale []string
 	for _, root := range skillRoots {
 		files[filepath.Join(root, "skills", "secondhand", "SKILL.md")] = named.Replace(skills.Secondhand)
 		files[filepath.Join(root, "skills", "secondhand-cleanup", "SKILL.md")] = named.Replace(skills.Cleanup)
-		migrate := filepath.Join(root, "skills", "secondhand-migrate", "SKILL.md")
-		if legacy {
-			files[migrate] = named.Replace(skills.Migrate)
-		} else if have, err := dir.ReadFile(migrate); err == nil && owned(migrate, string(have)) {
-			stale = append(stale, migrate)
-		}
 	}
 	names := slices.Sorted(maps.Keys(files))
 	for _, rel := range names {
@@ -59,14 +63,6 @@ func Install(home, command string) error {
 			return err
 		}
 		if err := dir.WriteFile(rel, []byte(files[rel]), 0o644); err != nil {
-			return err
-		}
-	}
-	for _, rel := range stale {
-		if err := dir.Remove(rel); err != nil {
-			return err
-		}
-		if err := dir.Remove(filepath.Dir(rel)); err != nil && !errors.Is(err, syscall.ENOTEMPTY) {
 			return err
 		}
 	}

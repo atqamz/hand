@@ -4,7 +4,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 
 | Command | Purpose |
 |---|---|
-| `hand init [--name NAME] [DIR]` | Make a fleet, or refresh, rename or adopt a moved one. |
+| `hand init [--name NAME] [DIR]` | Make a fleet, or refresh, rename or adopt a moved one. Refuses to make a fleet in a folder holding Hand 0.7 data. |
 | `hand fleet list` | List the registered fleets and whether each home is found. |
 | `hand project add NAME PATH`, `hand project list` | Register a repository by its absolute path, and list projects. |
 | `hand project grants [--remove ID] NAME` | List the command prefixes the operator approved for always on an `ask` attempt's permission screen, which the project's later `ask` attempts start with, or remove one (a live attempt keeps the rules it started with). |

@@ -171,7 +171,7 @@ Backward compatibility is not kept for this: the `attempt.kept` column is schema
 
 ### Shared folder
 
-`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home (older installs have a symlink, which `hand init` rewrites as a file), `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. `update.lock` is the lock a `hand update` holds, `update.log` the last automatic update's output, and `board.update-every` the board's `--update-every` for the board `hand update` restarts. A fleet home also holds `watch.pid` for its running watcher. `hand update`, `hand board stop` and `hand watch stop` stop the processes these files name, only while the recorded start time and binary still match.
+`~/.secondhand`, or `$SECONDHAND_HOME`. It is not a fleet. `fleets/<fleet id>` is a file that holds the path of that fleet's home, `worktrees/<fleet id>/` holds every worker worktree outside every fleet, `luvus/` holds the **Luvus pin**, `board.addr` records where the running board listens, `board.log` holds the output of a board `hand open` started detached, `board.start.lock` makes two simultaneous `hand open` calls start one board, and `board.pid` holds the running board's `PID MARKER BINARY`. `update.lock` is the lock a `hand update` holds, `update.log` the last automatic update's output, and `board.update-every` the board's `--update-every` for the board `hand update` restarts. A fleet home also holds `watch.pid` for its running watcher. `hand update`, `hand board stop` and `hand watch stop` stop the processes these files name, only while the recorded start time and binary still match.
 
 ### Operator memory
 
@@ -179,7 +179,7 @@ Plain files under `memory/` that Hand never rewrites. `hand init` creates `memor
 
 ### Skill
 
-The instructions `hand init` installs for the supervisor. The `secondhand` skill describes the supervision loop. The `secondhand-cleanup` skill guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention). The `secondhand-migrate` skill is installed only beside Hand 0.7 data, and it guides one migration.
+The instructions `hand init` installs for the supervisor. The `secondhand` skill describes the supervision loop. The `secondhand-cleanup` skill guides freeing space in `reports/` and `shots/` with `hand gc` and the operator's approval (see Retention).
 
 ## Work
 

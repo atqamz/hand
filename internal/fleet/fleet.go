@@ -78,9 +78,9 @@ func Register(root, id, home string) (string, error) {
 		return "", nil
 	case err != nil:
 		return "", err
-	case target == home && !isSymlink(root, id):
+	case target == home:
 		return "", nil
-	case target == home || sameDir(target, home):
+	case sameDir(target, home):
 		return "", point(root, id, home)
 	}
 	if err := refuseCopy(target, id); err != nil {
@@ -128,7 +128,8 @@ func List(root string) ([]Entry, error) {
 		}
 		target, err := readLink(root, de.Name())
 		if err != nil {
-			return nil, err
+			out = append(out, Entry{ID: de.Name(), State: "unreadable: " + err.Error()})
+			continue
 		}
 		e := Entry{ID: de.Name(), Home: target, State: "missing"}
 		f, ok, err := at(target)
@@ -148,20 +149,17 @@ func List(root string) ([]Entry, error) {
 func link(root, id string) string { return filepath.Join(root, "fleets", id) }
 
 func readLink(root, id string) (string, error) {
-	if target, err := os.Readlink(link(root, id)); err == nil {
-		return target, nil
-	}
 	b, err := os.ReadFile(link(root, id))
 	target := strings.TrimSpace(string(b))
 	if err == nil && target == "" {
 		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
 	}
+	if err != nil {
+		if info, lstatErr := os.Lstat(link(root, id)); lstatErr == nil && info.Mode()&fs.ModeSymlink != 0 {
+			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, link(root, id))
+		}
+	}
 	return target, err
-}
-
-func isSymlink(root, id string) bool {
-	info, err := os.Lstat(link(root, id))
-	return err == nil && info.Mode()&fs.ModeSymlink != 0
 }
 
 func stage(root, id, home string) (string, error) {
@@ -192,9 +190,6 @@ func point(root, id, home string) error {
 		return err
 	}
 	err = os.Rename(tmp, link(root, id))
-	if errors.Is(err, fs.ErrPermission) && isSymlink(root, id) && os.Remove(link(root, id)) == nil {
-		err = os.Rename(tmp, link(root, id))
-	}
 	if err != nil {
 		_ = os.Remove(tmp)
 	}
