@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,13 +151,15 @@ func TestTrackRecordCountsEventsOfOneAttemptAmongManyEvents(t *testing.T) {
 	}
 	models := []string{"haiku", "opus", "sonnet"}
 	note := func(id int64, kind string, n int) {
-		for range n {
-			if err := s.NoteAttempt(ctx, id, kind, "x"); err != nil {
-				t.Fatal(err)
-			}
+		if n == 0 {
+			return
+		}
+		if _, err := s.db.Exec(`WITH RECURSIVE c(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM c WHERE i < ?)
+			INSERT INTO event(at, kind, task_id, detail) SELECT ?, 'attempt.' || ?, (SELECT task_id FROM attempt WHERE id = ?), 'a' || ? || ': x' FROM c`, n, fixed.Format(time.RFC3339), kind, id, id); err != nil {
+			t.Fatal(err)
 		}
 	}
-	for i := range 36 {
+	for i := range 12 {
 		k := i % 3
 		tk, err := s.AddTask(ctx, "hand", "task", "")
 		if err != nil {
@@ -174,10 +177,13 @@ func TestTrackRecordCountsEventsOfOneAttemptAmongManyEvents(t *testing.T) {
 		if _, err := s.AttemptRunning(ctx, a.ID, Terminal{ServerGeneration: "g", TerminalID: "t", PaneID: "2", PID: 1, StartMarker: "1"}); err != nil {
 			t.Fatal(err)
 		}
-		note(a.ID, "working", 20)
+		note(a.ID, "working", 100)
 		note(a.ID, "quiet", 3*k)
 		note(a.ID, "blocked", 1)
 		note(a.ID, "sent", k+2)
+		if _, err := s.db.Exec(`INSERT INTO event(at, kind, task_id, detail) VALUES (?, 'attempt.sent', ?, ?)`, fixed.Format(time.RFC3339), tk.ID+1000, AttemptRef(a.ID)+": x"); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := s.EndAttempt(ctx, a.ID, AttemptExited, ""); err != nil {
 			t.Fatal(err)
 		}
@@ -191,9 +197,9 @@ func TestTrackRecordCountsEventsOfOneAttemptAmongManyEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Track{
-		{Harness: "claude", Model: "haiku", Effort: "low", N: 12, Sent: 24, Wakes: 12},
-		{Harness: "claude", Model: "opus", Effort: "low", N: 12, Sent: 36, Wakes: 48},
-		{Harness: "claude", Model: "sonnet", Effort: "low", N: 12, Sent: 48, Wakes: 84},
+		{Harness: "claude", Model: "haiku", Effort: "low", N: 4, Sent: 8, Wakes: 4},
+		{Harness: "claude", Model: "opus", Effort: "low", N: 4, Sent: 12, Wakes: 16},
+		{Harness: "claude", Model: "sonnet", Effort: "low", N: 4, Sent: 16, Wakes: 28},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("track = %+v", got)
@@ -205,9 +211,9 @@ func TestTrackRecordCountsEventsOfOneAttemptAmongManyEvents(t *testing.T) {
 	}
 }
 
-func TestTrackQuerySearchesEventsByKindAndTask(t *testing.T) {
-	s, _ := openTest(t)
-	rows, err := s.db.Query(`EXPLAIN QUERY PLAN ` + trackQuery)
+func queryPlan(t *testing.T, s *Store, q string, args ...any) []string {
+	t.Helper()
+	rows, err := s.db.Query(`EXPLAIN QUERY PLAN `+q, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,6 +227,12 @@ func TestTrackQuerySearchesEventsByKindAndTask(t *testing.T) {
 		}
 		plan = append(plan, detail)
 	}
+	return plan
+}
+
+func TestTrackQuerySearchesEventsByKindAndTask(t *testing.T) {
+	s, _ := openTest(t)
+	plan := queryPlan(t, s, trackQuery)
 	searches := 0
 	for _, d := range plan {
 		if strings.Contains(d, " event") && !strings.Contains(d, "SEARCH event USING INDEX event_kind_task (kind=? AND task_id=?)") {
@@ -232,5 +244,17 @@ func TestTrackQuerySearchesEventsByKindAndTask(t *testing.T) {
 	}
 	if searches != 2 {
 		t.Fatalf("plan = %q, want two searches of event", plan)
+	}
+}
+
+func TestEventsAfterWalksTheCursorNotTheKindIndex(t *testing.T) {
+	s, _ := openTest(t)
+	kinds := []string{"attempt.quiet", "attempt.reported", "decision.asked"}
+	for _, where := range []string{"", staleWake} {
+		q, args := eventsAfterQuery(where, 5, kinds, 50)
+		plan := queryPlan(t, s, q, args...)
+		if !slices.Contains(plan, "SEARCH event USING INTEGER PRIMARY KEY (rowid>?)") || strings.Contains(strings.Join(plan, "\n"), "event_kind_task") {
+			t.Fatalf("plan = %q, want a search from the cursor and no use of event_kind_task", plan)
+		}
 	}
 }
