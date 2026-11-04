@@ -525,6 +525,30 @@ func TestRenderLinksThePathsTheHookAllows(t *testing.T) {
 	}
 }
 
+func TestRenderLinksRelativePathsOnlyInsideBackticks(t *testing.T) {
+	a, b, c := "reports/a.md", "reports/t1/assets/", "./reports/a.md"
+	local, _ := hook(a, b, c)
+	for _, tc := range []struct{ in, want string }{
+		{"`reports/a.md`", `<p>` + path(a, `<code>reports/a.md</code>`) + `</p>`},
+		{"`reports/t1/assets/`", `<p>` + path(b, `<code>reports/t1/assets/</code>`) + `</p>`},
+		{"`./reports/a.md`", `<p>` + path(c, `<code>./reports/a.md</code>`) + `</p>`},
+		{"see reports/a.md and reports/t1/assets/.", `<p>see reports/a.md and reports/t1/assets/.</p>`},
+		{"```\nreports/a.md\n```", `<pre><code>reports/a.md</code></pre>`},
+	} {
+		if got := string(markdown.Render(tc.in, local)); got != tc.want {
+			t.Errorf("Render(%q)\n got %s\nwant %s", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestRenderPassesOnlyPlausibleRelativePathsToTheHook(t *testing.T) {
+	local, calls := hook()
+	markdown.Render("`reports/a.md` `./a/b` `a/../b` `../a/b` `reports/..` `https://a.io/x` `file://x/y` `a b/c` `a\tb/c` `readme.md` `a.md` `/x/y` `~/x/y` `~u/x/y` `C:/x/y` `c:\\x\\y` `//host/x` `x:y/z`", local)
+	if want := []string{"reports/a.md", "./a/b", "/x/y", "~/x/y", "C:/x/y", `c:\x\y`}; !slices.Equal(*calls, want) {
+		t.Fatalf("the hook saw %q, want %q", *calls, want)
+	}
+}
+
 func TestRenderPassesOnlyAbsolutePathsToTheHook(t *testing.T) {
 	local, calls := hook()
 	markdown.Render("a/fleet/x ./x ../x //host/x / and/or 1/2 https://a.io/fleet/x C:x c:\\ \\\\host\\share ~user/x ~ /\tx t1/x_/y\n```\n/fleet/x\n```", local)
