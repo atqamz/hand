@@ -100,7 +100,7 @@ go vet ./...
 go test -race ./...
 ```
 
-The tests set `SECONDHAND_HOME` to a temporary folder and never touch the real one.
+The tests set `SECONDHAND_HOME` to a temporary folder and never touch the real one. CI runs `-race` on Linux only, because the race detector slows the SQLite driver 5 to 14 times; macOS and Windows run plain `go test`.
 
 On Windows, `.gitattributes` keeps text files LF whatever `core.autocrlf` says, and a short `TEMP` (for example `D:\ht`) keeps paths short. A few tests need `sleep` on `PATH` (Git for Windows' `usr\bin`) or the privilege to create symlinks (Developer Mode), and fail without them. Without a C compiler, `go test -race` cannot run.
 
