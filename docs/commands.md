@@ -1,6 +1,6 @@
 # Commands
 
-Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--delivered` after the ref, and `hand task done` its `--deliverable`; `hand task deliver` takes its values after the ref. `--home DIR`, given before the command, picks the fleet.
+Run `hand` with no command to list the commands, and a command with no subcommand, such as `hand attempt`, to list its subcommands. Put flags before the positional arguments; only `hand open` also takes `--delivered` after the ref, and `hand task done` its `--deliverable`; `hand task deliver` takes its values after the ref. `--home DIR`, given before the command, picks the fleet. `-h` or `--help` after a command that takes flags prints them and exits 0.
 
 | Command | Purpose |
 |---|---|

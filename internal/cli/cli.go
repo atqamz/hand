@@ -62,6 +62,21 @@ type usageError struct{ msg string }
 
 func (e usageError) Error() string { return e.msg }
 
+type helpError struct{ text string }
+
+func (e helpError) Error() string { return e.text }
+
+func helpOr(fs *flag.FlagSet, err, otherwise error) error {
+	if !errors.Is(err, flag.ErrHelp) {
+		return otherwise
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "usage: hand %s [flags]\n", fs.Name())
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	return helpError{b.String()}
+}
+
 var commands = map[string]handler{
 	"version": func(r *runner, _ []string) error {
 		var d toon.Doc
@@ -80,6 +95,11 @@ func Run(args []string, env Env) int {
 		return 0
 	}
 	named := strings.NewReplacer("`hand ", "`"+env.command()+" ", "usage: hand ", "usage: "+env.command()+" ")
+	var h helpError
+	if errors.As(err, &h) {
+		fmt.Fprint(env.Stdout, named.Replace(h.text))
+		return 0
+	}
 	fmt.Fprintf(env.Stderr, "error: %s\n", named.Replace(err.Error()))
 	return exitCode(err)
 }
@@ -164,7 +184,7 @@ func flags(name string) *flag.FlagSet {
 
 func parse(fs *flag.FlagSet, args []string, want int) ([]string, error) {
 	if err := fs.Parse(args); err != nil {
-		return nil, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)}
+		return nil, helpOr(fs, err, usageError{fmt.Sprintf("%s: %v", fs.Name(), err)})
 	}
 	if fs.NArg() != want {
 		return nil, usageError{fmt.Sprintf("%s: want %d argument(s) after flags, got %d", fs.Name(), want, fs.NArg())}
