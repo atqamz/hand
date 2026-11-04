@@ -4,8 +4,8 @@ import path from 'node:path';
 import { initialize } from './fixture.mjs';
 import { Box, Client, cleaned, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
-const previous = 'v0.11.0';
-const previousSchema = 9;
+const previous = 'v0.13.0';
+const previousSchema = 16;
 const previousLuvus = '0.14.3';
 const profiles = ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
