@@ -5,112 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 )
-
-func TestAVersion4HomeLearnsNewHarnesses(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:4] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 4`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
-		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x'), (2, 'hand', 'Two', '', 'active', 'x', 'x')`,
-		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'hand/t1-a1', 'exited', 'x')`,
-		`INSERT INTO report(attempt_id, task_id, status, body, created_at) VALUES (1, 1, 'done', 'kept', 'x')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	if a, err := s.AddAttempt(ctx, AttemptSpec{TaskID: 2, Harness: "opencode", Argv: []string{"/usr/bin/opencode", "x"}}, t.TempDir()); err != nil || a.ID != 2 {
-		t.Fatalf("opencode attempt on a migrated home = %+v, %v", a, err)
-	}
-	if old, err := s.Attempt(ctx, 1); err != nil || old.Harness != "claude" || old.Branch != "hand/t1-a1" {
-		t.Fatalf("old attempt = %+v, %v", old, err)
-	}
-	if r, err := s.Report(ctx, 1); err != nil || r.Body != "kept" || r.AttemptID != 1 {
-		t.Fatalf("old report = %+v, %v", r, err)
-	}
-	var sqlText string
-	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE name = 'report'`).Scan(&sqlText); err != nil || !strings.Contains(sqlText, "REFERENCES attempt(id)") {
-		t.Fatalf("report schema = %q, %v", sqlText, err)
-	}
-	var indexes int
-	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('attempt_task', 'attempt_live')`).Scan(&indexes); err != nil || indexes != 2 {
-		t.Fatalf("attempt indexes = %d, %v", indexes, err)
-	}
-	if _, err := s.AddAttempt(ctx, AttemptSpec{TaskID: 2, Harness: "claude", Argv: []string{"/bin/claude", "x"}}, t.TempDir()); err == nil {
-		t.Fatal("a second live attempt was accepted after the rebuild")
-	}
-	rows, err := s.db.Query(`PRAGMA foreign_key_check`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if rows.Next() {
-		t.Fatal("the rebuild left foreign key violations")
-	}
-}
-
-func TestAVersion6HomeLearnsTheSupervisorSwitch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:6] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 6`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO supervisor(harness, model, effort, argv, status, created_at) VALUES ('claude', 'sonnet', 'low', '["/bin/claude"]', 'stopped', 'x')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion || SchemaVersion != 18 {
-		t.Fatalf("user_version = %d (SchemaVersion %d), %v", v, SchemaVersion, err)
-	}
-	if sup, ok, err := s.LatestSupervisor(context.Background()); err != nil || !ok || sup.Switching() || sup.Model != "sonnet" {
-		t.Fatalf("migrated supervisor = %+v, %v, %v", sup, ok, err)
-	}
-}
 
 func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	dir := t.TempDir()
@@ -142,91 +43,6 @@ func TestAForeignNewerDatabaseIsRefusedUntouched(t *testing.T) {
 	}
 }
 
-func TestAVersion7HomeLearnsWhichAttemptContinues(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:7] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 7`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
-		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
-		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, cleaned_at, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'hand/f0123456789ab/t1-a1', 'stopped', 'x', 'x')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	if old, err := s.Attempt(ctx, 1); err != nil || old.Continues != 0 || old.Branch != "hand/f0123456789ab/t1-a1" {
-		t.Fatalf("old attempt = %+v, %v", old, err)
-	}
-	next, err := s.AddAttempt(ctx, AttemptSpec{TaskID: 1, Harness: "claude", Argv: []string{"/bin/claude", "x"}, Continues: 1}, t.TempDir())
-	if err != nil || next.Continues != 1 || next.Branch != "hand/f0123456789ab/t1-a1" {
-		t.Fatalf("continuing attempt = %+v, %v", next, err)
-	}
-	if got, err := s.Attempt(ctx, next.ID); err != nil || got.Continues != 1 {
-		t.Fatalf("stored attempt = %+v, %v", got, err)
-	}
-}
-
-func TestAVersion8HomeLearnsTheLastScreenOfAnAttempt(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:8] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 8`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
-		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
-		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'b', 'running', 'x')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "" {
-		t.Fatalf("old attempt screen = %q, %v", screen, err)
-	}
-	if _, err := s.EndAttemptWithScreen(ctx, 1, AttemptExited, "terminal exited", "fixture tail"); err != nil {
-		t.Fatal(err)
-	}
-	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "fixture tail" {
-		t.Fatalf("stored screen = %q, %v", screen, err)
-	}
-}
-
 func TestAScreenIsTrimmedToItsEndAndMadeSafe(t *testing.T) {
 	long := strings.Repeat("é", 3000) + "\x1b[31mend\x1b]0;title\x07 of\tscreen\u202e\u200b\x00\n"
 	got := screenTail(long)
@@ -241,24 +57,75 @@ func TestAScreenIsTrimmedToItsEndAndMadeSafe(t *testing.T) {
 	}
 }
 
-func TestAVersion9HomeLearnsTimers(t *testing.T) {
+func TestADatabaseOlderThanTheMinimumIsRefusedUntouched(t *testing.T) {
+	for _, version := range []int{1, MinSchemaVersion - 1} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "hand.db")
+		db, err := sql.Open("sqlite", "file:"+path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(schema + fmt.Sprintf(`PRAGMA user_version = %d`, version)); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = Open(path, clock)
+		want := fmt.Sprintf("schema %d, older than this hand reads (%d to %d); hand %s is the last release that migrates it", version, MinSchemaVersion, SchemaVersion, lastMigrating)
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("version %d: open = %v", version, err)
+		}
+		after, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("version %d: the refused database changed: %v", version, err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+			t.Fatalf("version %d: open left %d entries beside the database", version, len(entries))
+		}
+	}
+}
+
+func TestMigrateRefusesAnOlderSchemaAndRollsBack(t *testing.T) {
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "hand.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, MinSchemaVersion-1)); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := migrateTx(tx); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "last release that migrates it") {
+		t.Fatalf("migrateTx = %v", err)
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("the refusal created %d objects, %v", n, err)
+	}
+}
+
+func TestAVersion16HomeKeepsItsRowsAndMigratesToTheCurrentSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hand.db")
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:9] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
 	for _, q := range []string{
-		`PRAGMA user_version = 9`,
+		schema,
+		fmt.Sprintf(`PRAGMA user_version = %d`, MinSchemaVersion),
 		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
 		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
-		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x'), (2, 'hand', 'Two', '', 'done', 'x', 'x')`,
-		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at, screen) VALUES (1, 1, 'claude', 'sonnet', 'low', '["/bin/claude","x"]', '/w/t1-a1', 'b', 'exited', 'x', 'kept screen')`,
-		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'task.active', 1, 'inbox->active')`,
+		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x')`,
+		`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '[]', '/w', 'b', 'exited', 'x')`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
@@ -272,247 +139,42 @@ func TestAVersion9HomeLearnsTimers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	ctx := context.Background()
-	var v int
+	var v, indexes int
+	var kept string
 	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d, %v", v, err)
 	}
-	if screen, err := s.AttemptScreen(ctx, 1); err != nil || screen != "kept screen" {
-		t.Fatalf("old attempt screen = %q, %v", screen, err)
+	if err := s.db.QueryRow(`SELECT kept FROM attempt WHERE id = 1`).Scan(&kept); err != nil || kept != "" {
+		t.Fatalf("kept after the migration = %q, %v", kept, err)
 	}
-	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 1 || u.Idle != time.Hour {
-		t.Fatalf("unwatched before a timer = %+v, %v", u, err)
+	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'event_kind_task'`).Scan(&indexes); err != nil || indexes != 1 {
+		t.Fatalf("event_kind_task indexes = %d, %v", indexes, err)
 	}
-	w, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 1, Note: "check CI"})
-	if err != nil || TimerRef(w.ID) != "w1" {
-		t.Fatalf("timer on a migrated home = %+v, %v", w, err)
-	}
-	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
-		t.Fatalf("unwatched with a timer = %+v, %v", u, err)
-	}
-	if _, err := s.AddTimer(ctx, TimerSpec{After: time.Hour, TaskID: 2}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("timer on a done task = %v", err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO timer(due_at, task_id, status, created_at) VALUES ('x', 99, 'armed', 'x')`); err == nil || !strings.Contains(err.Error(), "FOREIGN KEY") {
-		t.Fatalf("timer on a missing task = %v", err)
+	if ps, err := s.Projects(context.Background()); err != nil || len(ps) != 1 || ps[0].Name != "hand" {
+		t.Fatalf("projects after the migration = %+v, %v", ps, err)
 	}
 }
 
-func TestAVersion10HomeLearnsDevices(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
+func TestAPendingWriteAheadLogHidesTheHeaderVersion(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:10] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 10`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'fleet.created', NULL, 'f0123456789ab old')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
-		t.Fatalf("user_version = %d, %v", v, err)
-	}
-	if devices, err := s.Devices(ctx); err != nil || len(devices) != 0 {
-		t.Fatalf("devices on a migrated home = %v, %v", devices, err)
-	}
-	d, err := s.AddDevice(ctx, "Pixel", "operator@example.com", strings.Repeat("a", 64), "")
-	if err != nil || d.ID != 1 {
-		t.Fatalf("device on a migrated home = %+v, %v", d, err)
-	}
-	if f, err := s.Fleet(ctx); err != nil || f.Name != "old" {
-		t.Fatalf("fleet after migration = %+v, %v", f, err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO device(name, secret_hash, paired_at) VALUES ('', ?, 'x')`, strings.Repeat("a", 64)); err == nil || !strings.Contains(err.Error(), "CHECK") {
-		t.Fatalf("device with no name = %v", err)
-	}
-}
-
-func TestAVersion11HomeKeepsItsPhonesAndLearnsTheLabel(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:11] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 11`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO device(name, login, secret_hash, paired_at) VALUES ('Pixel', 'operator@example.com', '` + hashA + `', '2026-10-22T05:00:00Z')`,
-		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-10-22T05:00:00Z', 'board.paired', NULL, '1 Pixel')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
-		t.Fatalf("user_version = %d, %v", v, err)
-	}
-	old, ok, err := s.DeviceWithSecret(ctx, 1, hashA)
-	if err != nil || !ok || old.Name != "Pixel" || old.Login != "operator@example.com" || old.Phone != "" {
-		t.Fatalf("a phone paired before the label = %+v, %v, %v", old, ok, err)
-	}
-	if list, err := s.Devices(ctx); err != nil || len(list) != 1 || list[0] != old {
-		t.Fatalf("Devices after migration = %+v, %v", list, err)
-	}
-	fresh, err := s.AddDevice(ctx, "iPhone", "", hashB, "0123456789abcdef")
-	if err != nil || fresh.ID != 2 || fresh.Phone != "0123456789abcdef" {
-		t.Fatalf("a labelled phone on a migrated home = %+v, %v", fresh, err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO device(name, secret_hash, phone, paired_at) VALUES ('x', ?, 'short', 'x')`, hashA); err == nil || !strings.Contains(err.Error(), "CHECK") {
-		t.Fatalf("a label of the wrong length = %v", err)
-	}
-	if got := deviceEvents(t, s); strings.Join(got, "|") != "board.paired 1 Pixel|board.paired 2 iPhone" {
-		t.Fatalf("events = %q", got)
-	}
-	dst := filepath.Join(t.TempDir(), "hand.db.bak")
-	if err := s.Backup(ctx, dst); err != nil {
-		t.Fatal(err)
-	}
-	b, err := Open(dst, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer b.Close()
-	if got, ok, err := b.DeviceWithSecret(ctx, 2, hashB); err != nil || !ok || got != fresh {
-		t.Fatalf("backed-up labelled phone = %+v, %v, %v", got, ok, err)
-	}
-	if got, ok, err := b.DeviceWithSecret(ctx, 1, hashA); err != nil || !ok || got != old {
-		t.Fatalf("backed-up legacy phone = %+v, %v, %v", got, ok, err)
-	}
-}
-
-func TestABackupTakenBeforeTheLabelOpensAndMigrates(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:11] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 11`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO device(name, secret_hash, paired_at) VALUES ('Pixel', '` + hashA + `', '2026-10-22T05:00:00Z')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	backup := filepath.Join(t.TempDir(), "hand.db.bak")
-	if _, err := db.Exec(`VACUUM INTO ?`, backup); err != nil {
+	if _, err := db.Exec(`PRAGMA user_version = 13`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(backup, clock)
-	if err != nil {
+	if v, ok := headerVersion(path); !ok || v != 13 {
+		t.Fatalf("headerVersion = %d, %v", v, ok)
+	}
+	if err := os.WriteFile(path+"-wal", []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
-	if got, ok, err := s.DeviceWithSecret(context.Background(), 1, hashA); err != nil || !ok || got.Phone != "" {
-		t.Fatalf("restored legacy phone = %+v, %v, %v", got, ok, err)
-	}
-}
-
-func TestAVersion13HomeKeepsItsTimersAndLearnsWaits(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:13] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 13`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`,
-		`INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'hand', 'One', '', 'active', 'x', 'x'), (2, 'hand', 'Two', '', 'active', 'x', 'x')`,
-		`INSERT INTO timer(due_at, every, task_id, note, status, created_at) VALUES ('2026-09-26T01:00:00Z', 0, 1, 'check CI', 'armed', 'x'), ('2026-09-26T02:00:00Z', 3600, NULL, '', 'armed', 'x'), ('2026-09-25T22:00:00Z', 0, 2, 'old', 'fired', 'x')`,
-		`INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-09-25T23:00:00Z', 'task.active', 1, 'inbox->active')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	ctx := context.Background()
-	var v int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
-		t.Fatalf("user_version = %d, %v", v, err)
-	}
-	timers, err := s.Timers(ctx)
-	if err != nil || len(timers) != 2 || timers[0].Waits || timers[1].Waits || timers[0].Note != "check CI" || timers[1].Every != time.Hour {
-		t.Fatalf("timers after the migration = %+v, %v", timers, err)
-	}
-	if waits, err := s.Waits(ctx); err != nil || len(waits) != 0 {
-		t.Fatalf("waits after the migration = %v, %v", waits, err)
-	}
-	w, err := s.AddTimer(ctx, TimerSpec{After: 3 * 24 * time.Hour, TaskID: 2, Waits: true, Note: "outside PR"})
-	if err != nil || !w.Waits || TimerRef(w.ID) != "w4" {
-		t.Fatalf("a waits timer on a migrated home = %+v, %v", w, err)
-	}
-	if waits, err := s.Waits(ctx); err != nil || len(waits) != 1 || waits[2].ID != w.ID {
-		t.Fatalf("waits = %v, %v", waits, err)
-	}
-	if u, err := s.Unwatched(ctx, true); err != nil || len(u.Tasks) != 0 {
-		t.Fatalf("unwatched with the ordinary timer and the wait = %+v, %v", u, err)
-	}
-	if _, err := s.db.Exec(`INSERT INTO timer(due_at, task_id, status, created_at, waits) VALUES ('x', 1, 'armed', 'x', 2)`); err == nil || !strings.Contains(err.Error(), "CHECK") {
-		t.Fatalf("a waits value of 2 = %v", err)
-	}
-	rows, err := s.db.Query(`PRAGMA foreign_key_check`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rows.Close()
-	if rows.Next() {
-		t.Fatal("the migration left foreign key violations")
+	if _, ok := headerVersion(path); ok {
+		t.Fatal("a pending write-ahead log left the stale header trusted")
 	}
 }

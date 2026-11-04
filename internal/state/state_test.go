@@ -112,44 +112,13 @@ func TestRecentEventsAreAscendingAndLimited(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesAVersionOneHome(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	db, err := sql.Open("sqlite", "file:"+path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(schema); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`PRAGMA user_version = 1; INSERT INTO project(name, repo, created_at) VALUES ('hand', '/r', 'x')`); err != nil {
-		t.Fatal(err)
-	}
-	_ = db.Close()
-	s, err := Open(path, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	var v, n int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
-		t.Fatalf("user_version = %d, %v", v, err)
-	}
-	if err := s.db.QueryRow(`SELECT count(*) FROM attempt`).Scan(&n); err != nil {
-		t.Fatalf("attempt table missing: %v", err)
-	}
-	ps, err := s.Projects(context.Background())
-	if err != nil || len(ps) != 1 || ps[0].Name != "hand" {
-		t.Fatalf("projects after migration = %+v, %v", ps, err)
-	}
-}
-
 func TestAVersion17HomeGainsTheEventKindIndexOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hand.db")
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:17] {
+	for _, m := range []string{schema, migrations[0]} {
 		if _, err := db.Exec(m); err != nil {
 			t.Fatal(err)
 		}
@@ -196,7 +165,7 @@ func TestAVersion17HomeThatAlreadyHoldsTheEventKindIndexMigrates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations[:17] {
+	for _, m := range []string{schema, migrations[0]} {
 		if _, err := db.Exec(m); err != nil {
 			t.Fatal(err)
 		}

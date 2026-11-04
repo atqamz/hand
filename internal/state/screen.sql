@@ -1,1 +1,0 @@
-ALTER TABLE attempt ADD COLUMN screen TEXT;
