@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,8 @@ const PolicyFile = "routing.json"
 type Profile struct {
 	Spec
 	Approve string `json:"approve,omitempty"`
+	Access  string `json:"access,omitempty"`
+	MCP     string `json:"mcp,omitempty"`
 }
 
 type Policy struct {
@@ -30,6 +34,7 @@ type Policy struct {
 	Notify         []string           `json:"notify,omitzero"`
 	Stall          Stall              `json:"stall,omitzero"`
 	Inbox          Inbox              `json:"inbox,omitzero"`
+	Retention      Retention          `json:"retention,omitzero"`
 	ApproveTimeout ApproveTimeout     `json:"approve_timeout,omitzero"`
 	Supervisor     struct {
 		Autoresume bool `json:"autoresume"`
@@ -157,6 +162,70 @@ func (i *Inbox) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type Retention struct {
+	Worktrees time.Duration
+	WarnSize  int64
+	WarnDays  time.Duration
+}
+
+var DefaultRetention = Retention{Worktrees: 7 * 24 * time.Hour, WarnSize: 20 << 30, WarnDays: 30 * 24 * time.Hour}
+
+const retentionForm = `retention must be "off" or {"worktrees": "7d", "warn_size": "20GB", "warn_days": "30d"}, each value or "off"`
+
+var sizeText = regexp.MustCompile(`^([1-9][0-9]{0,5})(MB|GB|TB)$`)
+
+func (r *Retention) UnmarshalJSON(b []byte) error {
+	var word string
+	if json.Unmarshal(b, &word) == nil {
+		if word != "off" {
+			return errors.New(retentionForm)
+		}
+		*r = Retention{}
+		return nil
+	}
+	var raw struct {
+		Worktrees *string `json:"worktrees"`
+		WarnSize  *string `json:"warn_size"`
+		WarnDays  *string `json:"warn_days"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return fmt.Errorf("%s: %w", retentionForm, err)
+	}
+	*r = DefaultRetention
+	for _, f := range []struct {
+		name string
+		text *string
+		to   *time.Duration
+	}{{"worktrees", raw.Worktrees, &r.Worktrees}, {"warn_days", raw.WarnDays, &r.WarnDays}} {
+		if f.text == nil {
+			continue
+		}
+		*f.to = 0
+		if *f.text == "off" {
+			continue
+		}
+		d, ok := inbox.ParseAge(*f.text)
+		if !ok {
+			return fmt.Errorf("retention.%s is %q; give \"off\" or days from 1d to 9999d, like \"7d\"", f.name, *f.text)
+		}
+		*f.to = d
+	}
+	if raw.WarnSize != nil {
+		r.WarnSize = 0
+		if *raw.WarnSize != "off" {
+			m := sizeText.FindStringSubmatch(*raw.WarnSize)
+			if m == nil {
+				return fmt.Errorf("retention.warn_size is %q; give \"off\" or a size in MB, GB or TB, like \"20GB\"", *raw.WarnSize)
+			}
+			n, _ := strconv.ParseInt(m[1], 10, 64)
+			r.WarnSize = n << map[string]int{"MB": 20, "GB": 30, "TB": 40}[m[2]]
+		}
+	}
+	return nil
+}
+
 func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)
@@ -166,7 +235,7 @@ func LoadPolicy(home string) (Policy, error) {
 	if err != nil {
 		return Policy{}, err
 	}
-	p := Policy{Stall: DefaultStall}
+	p := Policy{Stall: DefaultStall, Retention: DefaultRetention}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
@@ -182,7 +251,14 @@ func LoadPolicy(home string) (Policy, error) {
 		if !profileName.MatchString(name) {
 			return Policy{}, fmt.Errorf("%w: %s: profile name %q must match %s", state.ErrInvalid, path, name, profileName)
 		}
-		if err := checkApprove(name, p.Profiles[name]); err != nil {
+		err := checkApprove(name, p.Profiles[name])
+		if err == nil {
+			err = checkAccess(runtime.GOOS, name, p.Profiles[name])
+		}
+		if err == nil {
+			err = checkMCP(name, p.Profiles[name])
+		}
+		if err != nil {
 			return Policy{}, fmt.Errorf("%w: %s: %v", state.ErrInvalid, path, err)
 		}
 	}
@@ -200,6 +276,43 @@ func checkApprove(name string, pr Profile) error {
 		return nil
 	}
 	return fmt.Errorf("profile %q: approve is %q; give %q or %q", name, pr.Approve, state.ApproveNever, state.ApproveAsk)
+}
+
+func checkAccess(goos, name string, pr Profile) error {
+	if err := CheckAccess(pr.Harness, pr.Access); err != nil {
+		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
+	}
+	if pr.Access == state.AccessReadonly && pr.Approve == state.ApproveAsk {
+		return fmt.Errorf("profile %q: access %q cannot ask for approval; leave approve at %q", name, state.AccessReadonly, state.ApproveNever)
+	}
+	if pr.Access == state.AccessReadonly && goos == "windows" {
+		return fmt.Errorf("profile %q: access %q is not available on Windows; use a profile with access %q", name, state.AccessReadonly, state.AccessOpen)
+	}
+	return nil
+}
+
+func checkMCP(name string, pr Profile) error {
+	if err := CheckMCP(pr.Harness, pr.MCP); err != nil {
+		return fmt.Errorf("profile %q: %s", name, strings.TrimPrefix(err.Error(), state.ErrInvalid.Error()+": "))
+	}
+	if pr.MCP != "" && !filepath.IsLocal(pr.MCP) {
+		return fmt.Errorf("profile %q: mcp %q must be a path inside the fleet home, like \"mcp.json\"", name, pr.MCP)
+	}
+	if pr.MCP != "" && pr.Access == state.AccessReadonly {
+		return fmt.Errorf("profile %q: access %q starts without MCP servers; leave mcp out", name, state.AccessReadonly)
+	}
+	return nil
+}
+
+func (pr Profile) MCPFile(home string) (string, error) {
+	if pr.MCP == "" {
+		return "", nil
+	}
+	path := filepath.Join(home, pr.MCP)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: mcp file %s is not a file; create it or fix the profile's mcp", state.ErrInvalid, path)
+	}
+	return path, nil
 }
 
 func (p Policy) Names() []string {

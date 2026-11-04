@@ -55,6 +55,11 @@ const (
 	ApproveAsk   = "ask"
 )
 
+const (
+	AccessOpen     = "open"
+	AccessReadonly = "readonly"
+)
+
 var Harnesses = []string{"claude", "codex", "opencode", "agy", "copilot"}
 
 var attemptEnds = map[string][]string{
@@ -79,6 +84,7 @@ type AttemptSpec struct {
 	ArgvFor   func(worktree string) ([]string, error)
 	Continues int64
 	Approve   string
+	Access    string
 }
 
 type Attempt struct {
@@ -98,17 +104,19 @@ type Attempt struct {
 	EndedAt   string
 	CleanedAt string
 	Approve   string
+	Access    string
+	Kept      string
 }
 
 func (a Attempt) Live() bool { return a.Status == AttemptLaunching || a.Status == AttemptRunning }
 
-const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, approve FROM attempt`
+const attemptSelect = `SELECT id, task_id, harness, model, effort, argv, worktree, branch, status, server_generation, terminal_id, pane_id, pid, start_marker, reason, continues, created_at, ended_at, cleaned_at, approve, access, kept FROM attempt`
 
 func scanAttempt(row scanner) (Attempt, error) {
 	var a Attempt
 	var argv string
 	err := row.Scan(&a.ID, &a.TaskID, &a.Harness, &a.Model, &a.Effort, &argv, &a.Worktree, &a.Branch, &a.Status,
-		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Approve)
+		&a.ServerGeneration, &a.TerminalID, &a.PaneID, &a.PID, &a.StartMarker, &a.Reason, &a.Continues, &a.CreatedAt, &a.EndedAt, &a.CleanedAt, &a.Approve, &a.Access, &a.Kept)
 	if err != nil {
 		return a, err
 	}
@@ -142,7 +150,13 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 	if spec.Approve != ApproveNever && spec.Approve != ApproveAsk {
 		return Attempt{}, fmt.Errorf("%w: approve %q must be %q or %q", ErrInvalid, spec.Approve, ApproveNever, ApproveAsk)
 	}
-	a := Attempt{TaskID: spec.TaskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: spec.Argv, Status: AttemptLaunching, CreatedAt: s.stamp(), Approve: spec.Approve}
+	if spec.Access == "" {
+		spec.Access = AccessOpen
+	}
+	if spec.Access != AccessOpen && spec.Access != AccessReadonly {
+		return Attempt{}, fmt.Errorf("%w: access %q must be %q or %q", ErrInvalid, spec.Access, AccessOpen, AccessReadonly)
+	}
+	a := Attempt{TaskID: spec.TaskID, Harness: spec.Harness, Model: spec.Model, Effort: spec.Effort, Argv: spec.Argv, Status: AttemptLaunching, CreatedAt: s.stamp(), Approve: spec.Approve, Access: spec.Access}
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		var status string
 		err := tx.QueryRow(`SELECT status FROM task WHERE id = ?`, spec.TaskID).Scan(&status)
@@ -205,8 +219,8 @@ func (s *Store) AddAttempt(ctx context.Context, spec AttemptSpec, worktreeRoot s
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, continues, created_at, approve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt, a.Approve); err != nil {
+		if _, err := tx.Exec(`INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, continues, created_at, approve, access) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			a.ID, a.TaskID, a.Harness, a.Model, a.Effort, string(argv), a.Worktree, a.Branch, a.Status, a.Continues, a.CreatedAt, a.Approve, a.Access); err != nil {
 			return err
 		}
 		if err := cancelWaits(tx, a.TaskID, a.CreatedAt); err != nil {
@@ -306,6 +320,34 @@ func (s *Store) EndAttemptWithScreen(ctx context.Context, id int64, to, reason, 
 }
 
 func (s *Store) CleanAttempt(ctx context.Context, id int64) (Attempt, error) {
+	return s.cleanAttempt(ctx, id, "")
+}
+
+func (s *Store) CleanAttemptAfter(ctx context.Context, id int64, window string) (Attempt, error) {
+	return s.cleanAttempt(ctx, id, "removed by retention after "+window)
+}
+
+func (s *Store) KeepAttempt(ctx context.Context, id int64, reason string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		a, err := getAttempt(tx, id)
+		if err != nil {
+			return err
+		}
+		if a.Kept == reason || a.CleanedAt != "" {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE attempt SET kept = ? WHERE id = ?`, reason, id); err != nil {
+			return err
+		}
+		return emit(tx, s.stamp(), "attempt.kept", a.TaskID, AttemptRef(id)+": "+reason)
+	})
+}
+
+func (s *Store) KeptAttempts(ctx context.Context) ([]Attempt, error) {
+	return s.queryAttempts(ctx, attemptSelect+` WHERE kept != '' AND cleaned_at = '' ORDER BY id`)
+}
+
+func (s *Store) cleanAttempt(ctx context.Context, id int64, why string) (Attempt, error) {
 	var out Attempt
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		a, err := getAttempt(tx, id)
@@ -324,7 +366,11 @@ func (s *Store) CleanAttempt(ctx context.Context, id int64) (Attempt, error) {
 		}
 		a.CleanedAt = now
 		out = a
-		return emit(tx, now, "attempt.cleaned", a.TaskID, AttemptRef(id))
+		detail := AttemptRef(id)
+		if why != "" {
+			detail += ": " + why
+		}
+		return emit(tx, now, "attempt.cleaned", a.TaskID, detail)
 	})
 	return out, err
 }

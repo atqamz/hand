@@ -51,7 +51,7 @@ func TestAnAskProfileStartsTheWorkerWithoutTheSkipFlag(t *testing.T) {
 	askPolicy(t, fx, "")
 	fx.startProfile("ask")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
-	if len(argv) != 8 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:7], []string{"--permission-mode", "default", "--model", "sonnet", "--effort", "low"}) || !strings.HasPrefix(argv[7], "Fix the login bug") {
+	if len(argv) != 9 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:8], []string{"--permission-mode", "default", "--model", "sonnet", "--effort", "low", "--strict-mcp-config"}) || !strings.HasPrefix(argv[8], "Fix the login bug") {
 		t.Fatalf("argv = %q", argv)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "approve: ask\n") {
@@ -64,7 +64,7 @@ func TestADefaultProfileLaunchesAsBefore(t *testing.T) {
 	askPolicy(t, fx, "")
 	fx.startProfile("plain")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
-	if len(argv) != 7 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:6], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low"}) || !strings.HasPrefix(argv[6], "Fix the login bug") {
+	if len(argv) != 8 || filepath.Base(argv[0]) != exe("", "claude") || !slices.Equal(argv[1:7], []string{"--dangerously-skip-permissions", "--model", "sonnet", "--effort", "low", "--strict-mcp-config"}) || !strings.HasPrefix(argv[7], "Fix the login bug") {
 		t.Fatalf("argv = %q", argv)
 	}
 	if show := fx.h.ok("attempt", "show", "a1"); strings.Contains(show, "approve") {
@@ -175,11 +175,11 @@ func TestApproveAlwaysStoresAGrantOnlyTheSameProjectsNextAttemptGets(t *testing.
 	fx.h.ok("attempt", "stop", "a1")
 	fx.h.ok("attempt", "start", "--profile", "ask", "--prompt-file", fx.brief, "t3")
 	argv := dropSession(t, fx.rt.lastCreate().Command)
-	if len(argv) != 9 || argv[7] != "--allowedTools=Bash(git status *)" || slices.Contains(argv, "--dangerously-skip-permissions") {
+	if len(argv) != 10 || argv[8] != "--allowedTools=Bash(git status *)" || slices.Contains(argv, "--dangerously-skip-permissions") {
 		t.Fatalf("next attempt of the project: %q", argv)
 	}
 	fx.h.ok("attempt", "start", "--profile", "ask", "--prompt-file", fx.brief, "t2")
-	if argv := dropSession(t, fx.rt.lastCreate().Command); len(argv) != 8 || slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "--allowedTools") }) {
+	if argv := dropSession(t, fx.rt.lastCreate().Command); len(argv) != 9 || slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "--allowedTools") }) {
 		t.Fatalf("another project's attempt: %q", argv)
 	}
 	if out := fx.h.ok("project", "grants", "--remove", "1", "app"); !strings.Contains(out, "removed: 1 claude git status") || strings.Contains(out, "grants[1]") {

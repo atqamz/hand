@@ -32,6 +32,10 @@ func sweepWorktree(dir string) {
 	}
 }
 
+func worktreeBusy(dir string) bool {
+	return len(scanLeftovers(realRoots(dir), map[int]bool{os.Getpid(): true})) > 0
+}
+
 func endLeftovers(roots []string, victims []leftover) {
 	signalLeftovers(victims, syscall.SIGTERM)
 	deadline := time.Now().Add(killGrace)
@@ -50,11 +54,15 @@ func signalLeftovers(victims []leftover, sig syscall.Signal) {
 }
 
 func leftovers(roots []string) []leftover {
+	return scanLeftovers(roots, ancestry(os.Getpid()))
+}
+
+func scanLeftovers(roots []string, self map[int]bool) []leftover {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil
 	}
-	self, uid := ancestry(os.Getpid()), uint32(os.Getuid())
+	uid := uint32(os.Getuid())
 	var out []leftover
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())

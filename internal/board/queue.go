@@ -158,17 +158,19 @@ var severity = map[string]struct {
 	rank       int
 	tone, word string
 }{
-	"blocked":  {0, "fail", "BLOCKED"},
-	"worker":   {1, "fail", "BLOCKED"},
-	"failure":  {2, "fail", "FAILED"},
-	"limited":  {3, "wait", "LIMITED"},
-	"nosup":    {4, "wait", "NO SUPERVISOR"},
-	"stalled":  {4, "wait", "STALLED"},
-	"resume":   {5, "fail", "INTERRUPTED"},
-	"decision": {6, "wait", "DECISION"},
-	"report":   {7, "neutral", "REPORT"},
-	"quiet":    {8, "neutral", "QUIET"},
-	"long":     {9, "neutral", "LONG TURN"},
+	"blocked":   {0, "fail", "BLOCKED"},
+	"worker":    {1, "fail", "BLOCKED"},
+	"failure":   {2, "fail", "FAILED"},
+	"limited":   {3, "wait", "LIMITED"},
+	"nosup":     {4, "wait", "NO SUPERVISOR"},
+	"stalled":   {4, "wait", "STALLED"},
+	"resume":    {5, "fail", "INTERRUPTED"},
+	"decision":  {6, "wait", "DECISION"},
+	"report":    {7, "neutral", "REPORT"},
+	"quiet":     {8, "neutral", "QUIET"},
+	"long":      {9, "neutral", "LONG TURN"},
+	"kept":      {10, "neutral", "KEPT"},
+	"artifacts": {11, "neutral", "OLD FILES"},
 }
 
 func permissionActions(p harness.Permission) []key {
@@ -268,6 +270,20 @@ func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values
 	}
 	for _, w := range failures {
 		add(w)
+	}
+	kept, err := b.st.KeptAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	for _, a := range kept {
+		t, err := task(a.TaskID)
+		if err != nil {
+			return err
+		}
+		add(waiting{Kind: "kept", Ref: state.AttemptRef(a.ID), Title: "Worktree kept: " + a.Kept, Task: t, Attempt: &a})
+	}
+	if text, cmd := b.artifactWarning(); text != "" {
+		add(waiting{Kind: "artifacts", Title: text, Command: cmd})
 	}
 	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true, Oldest: true}, maxWaits)
 	if err != nil {
