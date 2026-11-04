@@ -81,11 +81,11 @@ func headerVersion(path string) (int, bool) {
 		return 0, false
 	}
 	defer f.Close()
-	if w, err := os.Stat(path + "-wal"); err == nil && w.Size() > 0 {
-		return 0, false
-	}
 	b := make([]byte, 64)
 	if _, err := io.ReadFull(f, b); err != nil || string(b[:16]) != "SQLite format 3\x00" {
+		return 0, false
+	}
+	if w, err := os.Stat(path + "-wal"); err == nil && w.Size() > 0 {
 		return 0, false
 	}
 	return int(binary.BigEndian.Uint32(b[60:64])), true

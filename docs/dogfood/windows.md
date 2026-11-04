@@ -536,7 +536,7 @@ Expected:
 - the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - the first `Test-Path` after the update prints `True` (the running `hand.exe` was renamed to `hand.exe.old`), and the second, after one more `hand` run, prints `False`;
 - `hand version` prints `channel: edge`;
-- both PID files changed, `orient` prints `watch: running`, and `board-answers` prints: the watcher and the board run again, started by the update;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
 - the answer is no.
 
 Evidence: `& { & "$D\old\hand.exe" version; Get-Content "$D\fleet2\watch.pid", "$env:SECONDHAND_HOME\board.pid"; Get-Content "$D\watch2.err", "$D\board2.err" -Tail 5 } 2>&1 | Ev W5`, the update's output, and the answer.

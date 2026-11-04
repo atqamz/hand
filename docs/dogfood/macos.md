@@ -509,7 +509,7 @@ SECONDHAND_HOME=$H2 $D/old/hand open --print > /dev/null && echo board-answers
 Expected:
 - the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - `hand version` now prints `channel: edge`;
-- both PID files changed, `orient` prints `watch: running`, and `board-answers` prints: the watcher and the board run again, started by the update;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
 - the answer is no.
 
 Evidence: `{ SECONDHAND_HOME=$H2 $D/old/hand version; cat $D/fleet2/watch.pid $H2/board.pid; tail -5 $D/watch2.log $D/board2.log; } 2>&1 | ev M10`, the update's output, and the answer.

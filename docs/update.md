@@ -59,7 +59,7 @@ To restore a backup:
 
 ## Updating from before 0.13.0
 
-This build migrates `hand.db` only from schema 16, the one Hand 0.13.0 writes. It refuses an older database before it touches the file, with `state schema N, older than this hand reads (16 to 18); hand 0.13.0 is the last release that migrates it`. This is a break, with no switch to go back. From an older release, install 0.13.0 first (`HAND_INSTALL_VERSION=v0.13.0`, see [Install](install.md)), run any `hand` command in each fleet so it migrates the database, then update. A `hand update` run by an older release swaps the binary before anything reads the database, so run the 0.13.0 step first.
+This build migrates `hand.db` only from schema 16, the one Hand 0.13.0 writes. It refuses an older database before it touches the file, with `PATH has schema N, older than this hand reads (16 to 18); hand 0.13.0 is the last release that migrates it`, where PATH is the database file (a migration that finds the old schema by itself says `state schema N, older ...` instead). This is a break, with no switch to go back. From an older release, install 0.13.0 first (`HAND_INSTALL_VERSION=v0.13.0`, see [Install](install.md)), run any `hand` command in each fleet so it migrates the database, then update. A `hand update` run by an older release swaps the binary before anything reads the database, so run the 0.13.0 step first.
 
 ## Updating from 0.13.0
 
