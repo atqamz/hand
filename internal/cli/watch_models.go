@@ -4,11 +4,14 @@ import (
 	"context"
 
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/state"
 )
 
 func (w *watcher) refreshModels(ctx context.Context) {
 	if !w.modelsBusy.CompareAndSwap(false, true) {
+		return
+	}
+	p, err := harness.LoadPolicy(w.r.home)
+	if err != nil {
 		return
 	}
 	env, opts := w.r.modelOptions()
@@ -19,7 +22,7 @@ func (w *watcher) refreshModels(ctx context.Context) {
 		if w.modelsSaid == nil {
 			w.modelsSaid = map[string]string{}
 		}
-		for _, name := range state.Harnesses {
+		for _, name := range p.Harnesses() {
 			if ctx.Err() != nil || !harness.StatusOf(name, env, opts.Now()).Due {
 				continue
 			}

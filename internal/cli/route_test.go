@@ -62,9 +62,23 @@ func TestRouteListShowsAgyEfforts(t *testing.T) {
 	h := newHarness(t)
 	h.vars["PATH"] = fakeBin(t)
 	h.ok("init")
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"},"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	list := h.ok("route", "list")
 	if !strings.Contains(list, `agy,gemini-3.8-flash-low,""`) || strings.Contains(list, "worker only") {
 		t.Fatalf("route list = %q", list)
+	}
+}
+
+func TestRouteListRunsOnlyHarnessesAProfileNames(t *testing.T) {
+	h := newHarness(t)
+	h.vars["PATH"] = fakeBin(t)
+	h.ok("init")
+	list := h.ok("route", "list")
+	if strings.Contains(list, "gemini-3.8-flash-low") {
+		t.Fatalf("route list ran agy, which no profile names: %q", list)
 	}
 }
 
