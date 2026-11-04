@@ -101,14 +101,12 @@ func TestInstallNeverWritesOutsideTheHome(t *testing.T) {
 
 func TestInstallSpeaksTheCommandName(t *testing.T) {
 	home := t.TempDir()
-	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
 	if err := fleet.Install(home, "hand-next"); err != nil {
 		t.Fatal(err)
 	}
 	agents := read(t, filepath.Join(home, "AGENTS.md"))
 	skill := read(t, filepath.Join(home, skillPaths[0]))
-	migrate := read(t, filepath.Join(home, ".claude/skills/secondhand-migrate/SKILL.md"))
-	for name, text := range map[string]string{"AGENTS.md": agents, "SKILL.md": skill, "migrate SKILL.md": migrate} {
+	for name, text := range map[string]string{"AGENTS.md": agents, "SKILL.md": skill} {
 		if !strings.Contains(text, "`hand-next orient`") || strings.Contains(text, "`hand ") || strings.Contains(text, "`hand`") {
 			t.Fatalf("%s does not name hand-next throughout:\n%s", name, text)
 		}
@@ -121,47 +119,6 @@ func TestInstallSpeaksTheCommandName(t *testing.T) {
 	}
 }
 
-var migratePaths = []string{".claude/skills/secondhand-migrate/SKILL.md", ".agents/skills/secondhand-migrate/SKILL.md", ".grok/skills/secondhand-migrate/SKILL.md", ".pi/skills/secondhand-migrate/SKILL.md"}
-
-func TestInstallAddsTheMigrateSkillOnlyBesideA07Fleet(t *testing.T) {
-	home := t.TempDir()
-	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
-	if err := fleet.Install(home, "hand-next"); err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range migratePaths {
-		if got := read(t, filepath.Join(home, p)); !strings.Contains(got, "name: secondhand-migrate") || strings.Contains(got, "`hand ") {
-			t.Fatalf("%s = %q", p, got)
-		}
-	}
-	if err := os.Remove(filepath.Join(home, "state", "hand.db")); err != nil {
-		t.Fatal(err)
-	}
-	if err := fleet.Install(home, "hand-next"); err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range migratePaths {
-		if _, err := os.Stat(filepath.Dir(filepath.Join(home, p))); !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("%s left behind: %v", p, err)
-		}
-	}
-}
-
-func TestInstallLeavesAForeignMigrateSkillAlone(t *testing.T) {
-	home := t.TempDir()
-	write(t, filepath.Join(home, migratePaths[0]), "mine\n")
-	if err := fleet.Install(home, "hand"); err != nil {
-		t.Fatal(err)
-	}
-	if read(t, filepath.Join(home, migratePaths[0])) != "mine\n" {
-		t.Fatal("a foreign migrate skill was removed")
-	}
-	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
-	if err := fleet.Install(home, "hand"); !errors.Is(err, state.ErrConflict) {
-		t.Fatalf("install over a foreign migrate skill = %v", err)
-	}
-}
-
 func TestADirectoryIsNotThe07Marker(t *testing.T) {
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, "state", "hand.db"), 0o755); err != nil {
@@ -170,12 +127,22 @@ func TestADirectoryIsNotThe07Marker(t *testing.T) {
 	if err := fleet.Install(home, "hand"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(home, migratePaths[0])); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("a directory counted as the 0.7 marker: %v", err)
+}
+
+func TestInstallRefusesBesideA07FleetAndWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
+	err := fleet.Install(home, "hand")
+	if !errors.Is(err, state.ErrConflict) || !strings.Contains(err.Error(), "holds Hand 0.7 data") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("install = %v", err)
+	}
+	entries, _ := os.ReadDir(home)
+	if len(entries) != 1 {
+		t.Fatalf("install wrote %d entries, want only state", len(entries))
 	}
 }
 
-func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
+func TestAnUnreadable07MarkerRefusesInstall(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any folder")
 	}
@@ -183,19 +150,18 @@ func TestAnUnreadable07MarkerKeepsTheMigrateSkill(t *testing.T) {
 		t.Skip("Unix file modes: Windows has no unreadable folder")
 	}
 	home := t.TempDir()
-	write(t, filepath.Join(home, "state", "hand.db"), "0.7")
-	if err := fleet.Install(home, "hand"); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, "state"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(filepath.Join(home, "state"), 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(filepath.Join(home, "state"), 0o755) })
-	if err := fleet.Install(home, "hand"); err == nil {
-		t.Fatal("install ignored an unreadable 0.7 marker")
+	if err := fleet.Install(home, "hand"); err == nil || !strings.Contains(err.Error(), "check for Hand 0.7 data") {
+		t.Fatalf("install = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, migratePaths[0])); err != nil {
-		t.Fatalf("the migrate skill was removed: %v", err)
+	if _, err := os.Stat(filepath.Join(home, "AGENTS.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("install wrote AGENTS.md: %v", err)
 	}
 }
 

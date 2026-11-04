@@ -95,20 +95,14 @@ func TestInitNextToAForeignAgentsFileWritesNothing(t *testing.T) {
 
 func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 	h := newHarness(t)
-	if err := os.MkdirAll(filepath.Join(h.home, "state"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(h.home, "state", "hand.db"), []byte("0.7"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	h.ok("init")
-	for _, name := range []string{"secondhand", "secondhand-migrate", "secondhand-cleanup"} {
+	for _, name := range []string{"secondhand", "secondhand-cleanup"} {
 		skill, err := os.ReadFile(filepath.Join(h.home, ".claude", "skills", name, "SKILL.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		uses := regexp.MustCompile("`hand ([a-z]+)(?: ([a-z]+))?").FindAllStringSubmatch(string(skill), -1)
-		if min := map[string]int{"secondhand": 10, "secondhand-migrate": 5, "secondhand-cleanup": 5}[name]; len(uses) < min {
+		if min := map[string]int{"secondhand": 10, "secondhand-cleanup": 5}[name]; len(uses) < min {
 			t.Fatalf("%s: found only %d commands", name, len(uses))
 		}
 		for _, u := range uses {
@@ -124,19 +118,9 @@ func TestSkillMentionsOnlyRealCommands(t *testing.T) {
 	}
 }
 
-func TestInitInAnOldFleetLeavesItsDataAlone(t *testing.T) {
+func TestInitBesideA07FleetRefusesInOneLine(t *testing.T) {
 	h := newHarness(t)
-	old := map[string]string{
-		"AGENTS.md":                         "## Secondhand supervisor bootstrap\n\nold rules\n",
-		"CLAUDE.md":                         "@AGENTS.md",
-		"data/operator.md":                  "# Operator\nNo force pushes.\n",
-		"data/145-ship/brief.md":            "Ship it.\n",
-		"state/hand.db":                     "a 0.7 database, not this one",
-		"state/145-ship.status":             "working: started\n",
-		"config/profiles/opus-high/harness": "claude\n",
-		"projects/app/README":               "app\n",
-	}
-	for rel, body := range old {
+	for rel, body := range map[string]string{"state/hand.db": "0.7", "data/operator.md": "# Operator\n"} {
 		path := filepath.Join(h.home, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -145,48 +129,13 @@ func TestInitInAnOldFleetLeavesItsDataAlone(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	h.ok("init")
-	for rel, body := range old {
-		if rel == "AGENTS.md" || rel == "CLAUDE.md" {
-			continue
-		}
-		got, err := os.ReadFile(filepath.Join(h.home, rel))
-		if err != nil || string(got) != body {
-			t.Fatalf("init changed %s: %q, %v", rel, got, err)
-		}
+	out, errOut, code := h.run("init")
+	if code != 3 || out != "" || strings.Count(strings.TrimSpace(errOut), "\n") != 0 || !strings.Contains(errOut, h.home+" holds Hand 0.7 data") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
-	if agents, _ := os.ReadFile(filepath.Join(h.home, "AGENTS.md")); !strings.Contains(string(agents), "Run `hand orient`") {
-		t.Fatalf("the 0.7 bootstrap was not replaced: %q", agents)
-	}
-}
-
-func TestInitWarnsAboutLive07Wiring(t *testing.T) {
-	h := newHarness(t)
-	for rel, body := range map[string]string{
-		"state/hand.db":                          "0.7",
-		".claude/settings.json":                  `{"hooks":{"Stop":[{"hooks":[{"args":["supervision","claude-stop"],"command":"/usr/local/bin/hand","type":"command"}]}]}}`,
-		".pi/extensions/hand-supervisor-wake.ts": "x",
-		".opencode/plugins/hand-custom.js":       "x",
-		".pi/extensions/mine.ts":                 "x",
-	} {
-		path := filepath.Join(h.home, rel)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
+	for _, name := range []string{"hand.db", "AGENTS.md", "CLAUDE.md", "memory", "routing.json", ".claude"} {
+		if _, err := os.Stat(filepath.Join(h.home, name)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("refused init still wrote %s: %v", name, err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	out := h.ok("init")
-	for _, want := range []string{"Hand 0.7 wiring", ".claude/settings.json", filepath.FromSlash(".pi/extensions/hand-supervisor-wake.ts"), filepath.FromSlash(".opencode/plugins/hand-custom.js")} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("init does not warn about %q:\n%s", want, out)
-		}
-	}
-	if strings.Contains(out, "mine.ts") {
-		t.Fatalf("init warned about a file that is not Hand's:\n%s", out)
-	}
-	if clean := newHarness(t).ok("init"); strings.Contains(clean, "0.7 wiring") {
-		t.Fatalf("a fresh fleet got the 0.7 warning:\n%s", clean)
 	}
 }

@@ -91,7 +91,7 @@ type Store struct {
 
 func Open(path string, now func() time.Time) (*Store, error) {
 	if v, ok := headerVersion(path); ok && v > SchemaVersion {
-		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d); it may be a Hand 0.7 database, which this hand never opens", ErrInvalid, path, v, SchemaVersion)
+		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d)", ErrInvalid, path, v, SchemaVersion)
 	}
 	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

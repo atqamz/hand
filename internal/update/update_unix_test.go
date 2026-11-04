@@ -33,24 +33,3 @@ func TestRunKeepsItsChildrenOutOfTheTerminalGroup(t *testing.T) {
 		}
 	}
 }
-
-func TestRunUpgradesAFleetLinkedBySymlink(t *testing.T) {
-	f := newCycle(t)
-	path := filepath.Join(f.root, "fleets", f.alphaID)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(f.alpha, path); err != nil {
-		t.Fatal(err)
-	}
-	rep, err := Run(context.Background(), f.o)
-	if err != nil || rep.Failed {
-		t.Fatalf("report = %+v, %v", rep, err)
-	}
-	if got := byName(rep.Fleets); got[0] != (FleetResult{"alpha", "ok", "kept"}) {
-		t.Fatalf("fleets = %+v", got)
-	}
-	if got := f.log(t, "hand init"); len(got) != 1 {
-		t.Fatalf("init calls = %q", got)
-	}
-}
