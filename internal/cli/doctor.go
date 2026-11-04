@@ -236,7 +236,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		}
 	}
 	version, err := r.client(fleet.Session(f.ID)).Version(ctx)
-	server, match := serverMatch(pin, pinned, version, err)
+	server, match := luvus.Match(pin, pinned, version, err)
 	d.Field("server", server)
 	switch match {
 	case "yes":

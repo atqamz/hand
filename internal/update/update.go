@@ -140,7 +140,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if current && !repin {
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
-			stale = slices.DeleteFunc(slices.Clone(fleets), func(e fleet.Entry) bool { return e.State != "ok" || server(e) != "stale" })
+			stale = slices.DeleteFunc(slices.Clone(fleets), func(e fleet.Entry) bool { return e.State != "ok" || server(e) != "no" })
 		}
 		if len(stale) > 0 && !o.Check {
 			hold()
@@ -241,7 +241,7 @@ func (r *Report) cycle(ctx context.Context, o Options, fleets []fleet.Entry, ful
 		}
 		homes = append(homes, e.Home)
 		sv := server(e)
-		switchable := sv == "stale" || o.Check && r.PinFrom != r.PinTo && sv != "not running" && sv != "unknown"
+		switchable := sv == "no" || o.Check && r.PinFrom != r.PinTo && sv != "not running" && sv != "unknown"
 		why := ""
 		if switchable && !o.KeepLuvus {
 			why = o.ready(ctx, e, r.PinTo)
@@ -385,15 +385,8 @@ func (o Options) serverState(ctx context.Context, e fleet.Entry, pin luvus.Pin, 
 		return "unknown"
 	}
 	version, err := o.running(ctx, e)
-	switch {
-	case errors.Is(err, luvus.ErrUnreachable):
-		return "not running"
-	case err != nil || version == "":
-		return "unknown"
-	case pinned && version != pin.Version:
-		return "stale"
-	}
-	return "match"
+	_, match := luvus.Match(pin, pinned, version, err)
+	return match
 }
 
 func (o Options) inside(e fleet.Entry) bool {

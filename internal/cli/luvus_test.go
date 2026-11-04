@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,9 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
-	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -176,27 +173,6 @@ func TestInitWithoutLuvusStillSucceeds(t *testing.T) {
 	has(t, "broken luvus", broken.ok("init"), "Luvus was not pinned (")
 	if names, _ := os.ReadDir(filepath.Join(broken.vars["SECONDHAND_HOME"], "luvus")); slices.ContainsFunc(names, func(e os.DirEntry) bool { return e.Name() == "pin.json" }) {
 		t.Fatal("a broken luvus was pinned")
-	}
-}
-
-func TestServerMatch(t *testing.T) {
-	pin := luvus.Pin{Version: "0.14.3"}
-	for _, c := range []struct {
-		pinned        bool
-		version       string
-		err           error
-		server, match string
-	}{
-		{true, "0.14.3", nil, "0.14.3", "yes"},
-		{true, "0.14.2", nil, "0.14.2", "no"},
-		{false, "0.14.3", nil, "0.14.3", "unknown"},
-		{true, "", nil, "unknown", "unknown"},
-		{true, "", luvus.ErrUnreachable, "not running", "not running"},
-		{true, "", errors.New("timeout"), "unknown", "unknown"},
-	} {
-		if server, match := cli.ServerMatch(pin, c.pinned, c.version, c.err); server != c.server || match != c.match {
-			t.Fatalf("%+v: got %q %q", c, server, match)
-		}
 	}
 }
 

@@ -176,3 +176,17 @@ func writePin(store string, p Pin) error {
 	}
 	return syncDir(store)
 }
+
+func Match(pin Pin, pinned bool, version string, err error) (server, match string) {
+	switch {
+	case errors.Is(err, ErrUnreachable):
+		return "not running", "not running"
+	case err != nil || version == "":
+		return "unknown", "unknown"
+	case !pinned:
+		return version, "unknown"
+	case version == pin.Version:
+		return version, "yes"
+	}
+	return version, "no"
+}

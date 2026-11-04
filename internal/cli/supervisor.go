@@ -1302,7 +1302,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 			}
 			return i, "", err
 		}
-		if err := st.DeliverSupervisorInput(ctx, in.ID, true); err != nil {
+		if err := detached(ctx, func(ctx context.Context) error { return st.DeliverSupervisorInput(ctx, in.ID, true) }); err != nil {
 			return i, "", err
 		}
 	}
@@ -1320,7 +1320,7 @@ func (r *runner) force(ctx context.Context, st *state.Store, c luvus.Client, cap
 	if err := typeIn(ctx, c, sup, digest); err != nil {
 		return 0, "", err
 	}
-	return 1, "", st.AdvanceWakeCursor(ctx, sup.ID, last)
+	return 1, "", detached(ctx, func(ctx context.Context) error { return st.AdvanceWakeCursor(ctx, sup.ID, last) })
 }
 
 func pressedSince(ctx context.Context, st *state.Store, ref string, after int64) error {

@@ -863,6 +863,43 @@ func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
 	}
 }
 
+func TestSupervisorForceRecordsWhatItTypedBeforeTheContextWasCancelled(t *testing.T) {
+	for name, queue := range map[string]func(*harness){
+		"queued message": func(h *harness) { h.ok("supervisor", "send", "--text", "1. MIT") },
+		"wake digest": func(h *harness) {
+			h.ok("project", "add", "hand", handRepo)
+			h.ok("task", "add", "hand", "Fix login")
+			h.ok("decision", "ask", "t1", "Keep it?")
+			h.ok("decision", "answer", "d1", "yes")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, rt := newSupervisorFixture(t)
+			startClaudeSupervisor(h)
+			rt.set(func(rt *fakeRuntime) {
+				rt.status, rt.revision, rt.ready, rt.screen = "blocked", 9, false, "────\n❯\u00a0\n────"
+			})
+			queue(h)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			keys := rt.keys
+			rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+				defer cancel()
+				return keys(params)
+			})
+			var out, errOut bytes.Buffer
+			if err := cli.Force(h.env(&out, &errOut), h.home, ctx); err != nil {
+				t.Fatal(err)
+			}
+			typed := rt.keysSent()
+			has(t, "force again", h.ok("supervisor", "force"), "typed: 0")
+			if got := rt.keysSent(); !slices.Equal(got, typed) {
+				t.Fatalf("typed again: %q then %q", typed, got)
+			}
+		})
+	}
+}
+
 func TestSupervisorForceTypesTheWakesWhenNoMessageWaits(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
