@@ -2,6 +2,7 @@ package board_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -328,4 +329,43 @@ func TestNeedsShowAStalledSupervisorUntilWorkResumes(t *testing.T) {
 	stalled("Supervisor idle for 25m with 2 active tasks and no running attempt")
 	workerAttempt(t, st, two.ID)
 	stalled("")
+}
+
+func TestNeedsNamesAKeptWorktreeAndOldFiles(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	home := t.TempDir()
+	fx.options.Home = home
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"retention":{"warn_size":"off","warn_days":"30d"}}`
+	if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "shots", "t1", "a.png")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, make([]byte, 100), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().AddDate(0, 0, -31)
+	if err := os.Chtimes(old, when, when); err != nil {
+		t.Fatal(err)
+	}
+	task := active(t, fx.st, "Docs")
+	a := attempt(t, fx.st, task.ID, state.AttemptStopped, "stopped by operator")
+	if err := fx.st.KeepAttempt(context.Background(), a.ID, "it has uncommitted changes"); err != nil {
+		t.Fatal(err)
+	}
+	queue := region(get(t, fx.handler(), "/"), "queue")
+	if k, o := strings.Index(queue, `data-kind="kept"`), strings.Index(queue, `data-kind="artifacts"`); k < 0 || o < k {
+		t.Fatalf("kept and artifacts items out of order or missing:\n%s", queue)
+	}
+	contains(t, "kept", queue, "Worktree kept: it has uncommitted changes", "hand attempt clean a1")
+	contains(t, "artifacts", queue, "1 file is older than 30d (0.1 KB)", "secondhand-cleanup")
+	if _, err := fx.st.CleanAttempt(context.Background(), a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if queue := region(get(t, fx.handler(), "/"), "queue"); strings.Contains(queue, "Worktree kept") {
+		t.Fatalf("a cleaned attempt is still kept:\n%s", queue)
+	}
 }

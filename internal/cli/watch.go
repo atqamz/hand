@@ -54,12 +54,15 @@ type watcher struct {
 	warned  atomic.Bool
 	snapped string
 	pruned  string
+	reaped  atomic.Value
 
 	rest          rest
 	policyWarned  bool
 	inboxWarned   bool
 	modelsBusy    atomic.Bool
 	sweepBusy     atomic.Bool
+	reapBusy      atomic.Bool
+	reapWarned    atomic.Bool
 	transcripts   *transcript.Reader
 	sources       map[string]modelSource
 	modelSessions map[int64]modelSession
@@ -236,6 +239,7 @@ func (w *watcher) session(ctx context.Context) error {
 			if err == nil {
 				w.snapshot(sctx)
 				w.pruneInbox(sctx)
+				w.reapWorktrees(sctx)
 				w.refreshModels(ctx)
 				w.sweepModels(ctx)
 			}

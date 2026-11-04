@@ -791,3 +791,61 @@ func TestOrientMarksAWaitingTaskAndItsTimer(t *testing.T) {
 		}
 	}
 }
+
+func TestOrientWarnsAboutOldAndLargeReportsAndShots(t *testing.T) {
+	st, home := setup(t)
+	policy := func(retention string) {
+		t.Helper()
+		body := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}}` + retention + `}`
+		if err := os.WriteFile(filepath.Join(home, "routing.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put := func(rel string, size int, age time.Duration) {
+		t.Helper()
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		when := time.Now().Add(-age)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build := func() string {
+		t.Helper()
+		doc, err := Build(context.Background(), st, home, "", true, true, DefaultBudget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc.String()
+	}
+	day := 24 * time.Hour
+	policy(`,"retention":{"warn_size":"1MB","warn_days":"30d"}`)
+	put("reports/t1/a.md", 1<<20-10, 29*day)
+	put("shots/b.png", 10, day)
+	put("memory/old.md", 5<<20, 400*day)
+	if out := build(); strings.Contains(out, "artifacts") || strings.Contains(out, "secondhand-cleanup") {
+		t.Fatalf("at the limit and inside the age:\n%s", out)
+	}
+	put("shots/b.png", 11, day)
+	if out := build(); !strings.Contains(out, "\nartifacts: \"reports/ and shots/ hold 1.0 MB, over the 1.0 MB limit\"\n") || !strings.Contains(out, "`secondhand-cleanup`") || !strings.Contains(out, "`hand gc --older-than 30d`") {
+		t.Fatalf("over the size limit:\n%s", out)
+	}
+	policy(`,"retention":{"warn_size":"off","warn_days":"30d"}`)
+	put("reports/t1/a.md", 1<<20, 31*day)
+	if out := build(); !strings.Contains(out, "\nartifacts: 1 file is older than 30d (1.0 MB)\n") {
+		t.Fatalf("old file:\n%s", out)
+	}
+	policy(`,"retention":{"warn_size":"off","warn_days":"12d"}`)
+	if out := build(); !strings.Contains(out, "`hand gc --older-than 12d`") {
+		t.Fatalf("the command ignores the configured days:\n%s", out)
+	}
+	policy(`,"retention":"off"`)
+	if out := build(); strings.Contains(out, "artifacts") {
+		t.Fatalf("retention off:\n%s", out)
+	}
+}

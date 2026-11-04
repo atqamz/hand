@@ -109,7 +109,7 @@ func TestLiveAPromptReachesAnExeIntact(t *testing.T) {
 		name  string
 		build func(prompt string) ([]string, error)
 	}{
-		{"worker", func(p string) ([]string, error) { return harness.Argv(bin, spec, p, work) }},
+		{"worker", func(p string) ([]string, error) { return harness.Argv(bin, spec, p, work, "") }},
 		{"supervisor", func(p string) ([]string, error) { return harness.SupervisorArgv(bin, spec, "", p, work, false) }},
 	}
 	for _, shape := range shapes {

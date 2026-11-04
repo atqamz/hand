@@ -140,12 +140,13 @@ type Options struct {
 }
 
 type Board struct {
-	st      *state.Store
-	token   string
-	o       Options
-	mux     *http.ServeMux
-	phones  phones
-	refresh refresher
+	st        *state.Store
+	token     string
+	o         Options
+	mux       *http.ServeMux
+	phones    phones
+	refresh   refresher
+	artifacts artifactCache
 }
 
 type card struct {
