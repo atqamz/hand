@@ -33,6 +33,8 @@ func init() {
 	commands["board"] = cmdBoard
 }
 
+var servePeer = func(p *board.Peer, ln net.Listener) error { return p.Serve(ln) }
+
 func cmdBoard(r *runner, args []string) error {
 	if len(args) > 0 && args[0] == "stop" {
 		return cmdBoardStop(r, args[1:])
@@ -150,6 +152,7 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	keep, ran := make(chan struct{}), make(chan struct{})
 	kctx, stopKeep := context.WithCancel(ctx)
+	sctx, stopSide := context.WithCancel(ctx)
 	go func() {
 		defer close(keep)
 		r.keepWatchers(kctx, root, *every)
@@ -157,20 +160,29 @@ func cmdBoard(r *runner, args []string) error {
 	go func() {
 		defer close(ran)
 		if side != nil {
-			side.Run(kctx)
+			side.Run(sctx)
 		}
 	}()
+	var peerDone chan struct{}
 	if pln != nil {
+		peerDone = make(chan struct{})
 		go func() {
-			if err := peer.Serve(pln); !errors.Is(err, http.ErrServerClosed) {
+			defer close(peerDone)
+			if err := servePeer(peer, pln); !errors.Is(err, http.ErrServerClosed) {
 				fmt.Fprintln(r.env.Stderr, "board: the peer listener stopped:", err)
+				stopSide()
 			}
 		}()
 	}
 	err = srv.Serve(ln)
 	stopKeep()
+	stopSide()
 	<-keep
 	<-ran
+	if peerDone != nil {
+		_ = pln.Close()
+		<-peerDone
+	}
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

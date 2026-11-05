@@ -1,8 +1,10 @@
 package cli_test
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/sidecar"
 )
@@ -256,6 +260,28 @@ func TestBoardIrohReportsAStateWriteFailure(t *testing.T) {
 	fleetPage(t, base, fx.h)
 	out := stop()
 	if !strings.Contains(out, "board: iroh: cannot record state:") {
+		t.Fatalf("board output:\n%s", out)
+	}
+}
+
+func TestBoardIrohStopsShowingReadyWhenThePeerListenerFails(t *testing.T) {
+	fx := newIrohFixture(t, map[string]string{})
+	old := *cli.ServePeer
+	*cli.ServePeer = func(*board.Peer, net.Listener) error { return errors.New("peer listener failed") }
+	t.Cleanup(func() { *cli.ServePeer = old })
+	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
+	fleetURL, token := fleetPage(t, base, fx.h)
+	within(t, "stopped", func() bool { return fx.state() == "stopped" })
+	doc, _, _ := fx.h.run("doctor")
+	row := checkRows(t, doc)["iroh"]
+	if row[0] != "info" || !strings.Contains(row[1], "stopped") {
+		t.Fatalf("iroh row = %q", row)
+	}
+	if page := phonePage(t, fleetURL, token); strings.Contains(page, irohID) || strings.Contains(page, "Phone access over iroh is online") {
+		t.Fatalf("the Phone page still shows the sidecar ready")
+	}
+	out := stop()
+	if !strings.Contains(out, "board: the peer listener stopped: peer listener failed") {
 		t.Fatalf("board output:\n%s", out)
 	}
 }
