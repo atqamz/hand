@@ -68,21 +68,23 @@ async fn forward(
     peer: EndpointId,
     config: Arc<Config>,
 ) {
-    let Some(board) = open_board(config.board, &preface::line(&peer, &config.secret)).await else {
+    let preface = preface::line(&peer, &config.secret);
+    let opening = open_board(config.board, &preface);
+    let Some(board) = timeout(config.idle, opening).await.ok().flatten() else {
         let _ = send.reset(BOARD_UNREACHABLE_CODE);
         let _ = recv.stop(BOARD_UNREACHABLE_CODE);
         return;
     };
     let activity = Arc::new(Activity::new());
     let mut board = Touch::wrap(board, activity.clone());
-    let mut quic = tokio::io::join(recv, send);
+    let mut quic = Touch::wrap(tokio::io::join(recv, send), activity.clone());
     let finished = tokio::select! {
         copied = copy_bidirectional(&mut quic, &mut board) => copied.is_ok(),
         () = activity.quiet_for(config.idle) => false,
     };
     if !finished {
-        let _ = quic.writer_mut().reset(STREAM_IDLE_CODE);
-        let _ = quic.reader_mut().stop(STREAM_IDLE_CODE);
+        let _ = quic.inner.writer_mut().reset(STREAM_IDLE_CODE);
+        let _ = quic.inner.reader_mut().stop(STREAM_IDLE_CODE);
     }
 }
 

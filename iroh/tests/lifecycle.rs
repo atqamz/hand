@@ -19,6 +19,7 @@ struct Sidecar {
     id: String,
     relay: String,
     stderr: thread::JoinHandle<String>,
+    stdout_after: thread::JoinHandle<String>,
 }
 
 fn start(dir: &TempDir, keys: &Path) -> Sidecar {
@@ -41,14 +42,19 @@ fn start(dir: &TempDir, keys: &Path) -> Sidecar {
     });
     let stdout = child.stdout.take().unwrap();
     let (line_sent, line) = mpsc::channel();
-    thread::spawn(move || {
-        let mut text = String::new();
-        BufReader::new(stdout).read_line(&mut text).unwrap();
-        let _ = line_sent.send(text);
+    let stdout_after = thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        let _ = line_sent.send(first);
+        let mut after = String::new();
+        reader.read_to_string(&mut after).unwrap();
+        after
     });
     let line = line.recv_timeout(WAIT).expect("no line on stdout");
     let fields: Vec<&str> = line.trim_end().split(' ').collect();
     assert_eq!(fields.len(), 3, "{line:?}");
+    assert!(!line.contains(SECRET));
     assert_eq!(fields[0], "ready");
     let id = fields[1].strip_prefix("id=").expect("id field").to_owned();
     let relay = fields[2]
@@ -65,6 +71,7 @@ fn start(dir: &TempDir, keys: &Path) -> Sidecar {
         id,
         relay,
         stderr,
+        stdout_after,
     }
 }
 
@@ -81,6 +88,8 @@ impl Sidecar {
             }
             thread::sleep(Duration::from_millis(50));
         };
+        let after = self.stdout_after.join().unwrap();
+        assert_eq!(after, "", "stdout carries more than the ready line");
         (status, self.stderr.join().unwrap())
     }
 }

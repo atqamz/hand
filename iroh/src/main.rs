@@ -63,13 +63,16 @@ async fn start(config: Config) -> Result<(), String> {
         .bind()
         .await
         .map_err(|e| format!("cannot open the endpoint: {e}"))?;
-    if config.relay != Relay::None {
-        let _ = tokio::time::timeout(ONLINE_WAIT, endpoint.online()).await;
-    }
-    announce(&endpoint);
+    let stop = stop_signals().map_err(|e| format!("cannot listen for signals: {e}"))?;
+    let online = config.relay != Relay::None
+        && tokio::time::timeout(ONLINE_WAIT, endpoint.online())
+            .await
+            .is_ok();
+    announce(&endpoint, online);
     tokio::select! {
         () = forward::serve(endpoint.clone(), Arc::new(config)) => {}
-        () = stopped() => {}
+        () = stdin_closed() => {}
+        () = stop => {}
     }
     let _ = tokio::time::timeout(CLOSE_WAIT, endpoint.close()).await;
     Ok(())
@@ -94,21 +97,18 @@ pub fn builder(config: &Config) -> iroh::endpoint::Builder {
         .transport_config(transport)
 }
 
-fn announce(endpoint: &Endpoint) {
-    let relay = endpoint
-        .addr()
-        .relay_urls()
-        .next()
-        .map_or_else(|| "none".to_owned(), |url| url.to_string());
+fn announce(endpoint: &Endpoint, online: bool) {
+    let relay = online
+        .then(|| {
+            endpoint
+                .addr()
+                .relay_urls()
+                .next()
+                .map(|url| url.to_string())
+        })
+        .flatten()
+        .unwrap_or_else(|| "none".to_owned());
     println!("ready id={} relay={relay}", endpoint.id());
-}
-
-async fn stopped() {
-    tokio::select! {
-        () = stdin_closed() => {}
-        _ = tokio::signal::ctrl_c() => {}
-        () = terminated() => {}
-    }
 }
 
 async fn stdin_closed() {
@@ -118,17 +118,21 @@ async fn stdin_closed() {
 }
 
 #[cfg(unix)]
-async fn terminated() {
+fn stop_signals() -> std::io::Result<impl Future<Output = ()>> {
     use tokio::signal::unix::{SignalKind, signal};
-    match signal(SignalKind::terminate()) {
-        Ok(mut term) => {
-            term.recv().await;
+    let mut term = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    Ok(async move {
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = interrupt.recv() => {}
         }
-        Err(_) => std::future::pending().await,
-    }
+    })
 }
 
 #[cfg(not(unix))]
-async fn terminated() {
-    std::future::pending::<()>().await
+fn stop_signals() -> std::io::Result<impl Future<Output = ()>> {
+    Ok(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
 }

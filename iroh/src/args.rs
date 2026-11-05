@@ -14,6 +14,8 @@ const SECRET_MAX: usize = 128;
 const ALPN_DEFAULT: &str = "hand-board";
 const MAX_CONNECTIONS_DEFAULT: usize = 16;
 const IDLE_DEFAULT: Duration = Duration::from_secs(60);
+const MAX_CONNECTIONS_LIMIT: u64 = 1024;
+const IDLE_LIMIT: u64 = 86_400;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Secret(String);
@@ -102,8 +104,10 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--key-dir" => key_dir = Some(PathBuf::from(value)),
             "--alpn" => alpn = name(&value)?,
             "--relay" => relay = relay_mode(&value)?,
-            "--max-connections" => max_connections = positive(&flag, &value)?,
-            _ => idle = Duration::from_secs(positive(&flag, &value)? as u64),
+            "--max-connections" => {
+                max_connections = bounded(&flag, &value, MAX_CONNECTIONS_LIMIT)? as usize
+            }
+            _ => idle = Duration::from_secs(bounded(&flag, &value, IDLE_LIMIT)?),
         }
     }
     let secret_file = secret_file.ok_or("--secret-file is required")?;
@@ -145,10 +149,10 @@ fn relay_mode(value: &str) -> Result<Relay, String> {
     }
 }
 
-fn positive(flag: &str, value: &str) -> Result<usize, String> {
-    match value.parse::<usize>() {
-        Ok(n) if n > 0 => Ok(n),
-        _ => Err(format!("{flag} must be a whole number above 0")),
+fn bounded(flag: &str, value: &str, max: u64) -> Result<u64, String> {
+    match value.parse::<u64>() {
+        Ok(n) if (1..=max).contains(&n) => Ok(n),
+        _ => Err(format!("{flag} must be a whole number from 1 to {max}")),
     }
 }
 
@@ -239,6 +243,9 @@ mod tests {
         );
         assert_eq!(config.max_connections, 3);
         assert_eq!(config.idle, Duration::from_secs(9));
+        let widest = run_with(&dir, &["--max-connections", "1024", "--idle", "86400"]).unwrap();
+        assert_eq!(widest.max_connections, 1024);
+        assert_eq!(widest.idle, Duration::from_secs(86_400));
         assert_eq!(
             run_with(&dir, &["--relay", "none"]).unwrap().relay,
             Relay::None
@@ -373,8 +380,12 @@ mod tests {
             ("--relay", "nonsense"),
             ("--max-connections", "0"),
             ("--max-connections", "many"),
+            ("--max-connections", "1025"),
+            ("--max-connections", "18446744073709551615"),
             ("--idle", "0"),
             ("--idle", "-1"),
+            ("--idle", "86401"),
+            ("--idle", "18446744073709551615"),
             ("--alpn", ""),
         ] {
             let error = run_with(&dir, &[flag, value]).unwrap_err();

@@ -1,23 +1,21 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use iroh::SecretKey;
 
 const FILE: &str = "hand-iroh.key";
-static ATTEMPTS: AtomicU32 = AtomicU32::new(0);
 
 pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     create_dir(dir)?;
+    private(dir, 0o022, "700")?;
     let path = dir.join(FILE);
     match read(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         found => return found,
     }
     let key = SecretKey::generate();
-    let attempt = ATTEMPTS.fetch_add(1, Ordering::Relaxed);
-    let temp = dir.join(format!("{FILE}.{}.{attempt}.tmp", std::process::id()));
+    let temp = dir.join(format!("{FILE}.{}.tmp", key.public().fmt_short()));
     let written = create_private(&temp).and_then(|mut f| {
         f.write_all(&key.to_bytes())?;
         f.sync_all()
@@ -42,7 +40,7 @@ fn read(path: &Path) -> io::Result<SecretKey> {
             ),
         )
     })?;
-    shared_with_others(path)?;
+    private(path, 0o077, "600")?;
     Ok(SecretKey::from_bytes(&bytes))
 }
 
@@ -76,13 +74,13 @@ fn create_private(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(unix)]
-fn shared_with_others(path: &Path) -> io::Result<()> {
+fn private(path: &Path, others: u32, chmod: &str) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    if fs::metadata(path)?.permissions().mode() & 0o077 != 0 {
+    if fs::metadata(path)?.permissions().mode() & others != 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "{} is readable by other users; run chmod 600 on it",
+                "{} is open to other users; run chmod {chmod} on it",
                 path.display()
             ),
         ));
@@ -91,7 +89,7 @@ fn shared_with_others(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn shared_with_others(_: &Path) -> io::Result<()> {
+fn private(_: &Path, _: u32, _: &str) -> io::Result<()> {
     Ok(())
 }
 
@@ -149,6 +147,22 @@ mod tests {
         let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&nested.join(FILE)), 0o600);
         assert_eq!(mode(&nested), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_folder_other_users_can_write() {
+        use std::os::unix::fs::PermissionsExt;
+        for mode in [0o770, 0o707, 0o777] {
+            let dir = TempDir::new();
+            fs::set_permissions(dir.path(), fs::Permissions::from_mode(mode)).unwrap();
+            let error = load_or_create(dir.path()).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{mode:o}");
+            assert!(!dir.path().join(FILE).exists());
+        }
+        let dir = TempDir::new();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(load_or_create(dir.path()).is_ok());
     }
 
     #[cfg(unix)]
