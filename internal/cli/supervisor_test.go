@@ -1221,7 +1221,7 @@ func ompSessions(t *testing.T, h *harness) string {
 
 func ompConversation(t *testing.T, dir, id, cwd, prompt string, at time.Time) string {
 	t.Helper()
-	header := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","cwd":"` + cwd + `"}` + "\n"
+	header := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","cwd":` + strconv.Quote(cwd) + `}` + "\n"
 	user := `{"type":"message","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","message":{"role":"user","content":[{"type":"text","text":` + strconv.Quote(prompt) + `}]}}` + "\n"
 	path := filepath.Join(dir, at.UTC().Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
 	if err := os.WriteFile(path, []byte(header+user), 0o644); err != nil {

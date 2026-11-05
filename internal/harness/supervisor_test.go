@@ -245,6 +245,11 @@ func TestOmpSessionFindsTheFirstSessionForTheFolderSinceLaunch(t *testing.T) {
 	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
 		t.Fatalf("partial file = %q, %v", id, err)
 	}
+	windows := `C:\Users\me\my fleet`
+	ompRollout(t, home, "-windows", "h.jsonl", "windows", windows, marker+"x.", since.Add(4*time.Second))
+	if id, err := OmpSession(home, windows, since, marker); err != nil || id != "windows" {
+		t.Fatalf("windows path = %q, %v", id, err)
+	}
 }
 
 func TestOpencodeReturnsItsOutputWhileAChildHoldsStdout(t *testing.T) {
