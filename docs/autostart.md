@@ -14,6 +14,28 @@ The stop is a clean exit, so an installed systemd unit (`Restart=on-failure`) or
 
 Stopping a watcher while the board runs does not keep it down: the board starts it again within 30 seconds when the fleet has a live supervisor, or has `autoresume` set and an ended one, and `hand supervisor start`, `resume` and `switch` start it too. `hand watch stop` says so when a board runs. To keep a fleet's watcher down, run `hand board stop` first, then `hand watch stop`. Stopping the board leaves every watcher running. Neither command starts anything: use `hand board` or `hand open` for the board, and `hand watch` or `hand supervisor start` for a watcher. A supervisor never stops the board or a watcher by itself.
 
+## Open the Board without a terminal
+
+After one `hand open` per fleet and browser, a bookmark opens the Board signed in, with no command run, even after the browser restarts. The login `hand open` makes lasts 400 days on a loopback Board, or until `board.token` changes, which signs every browser out: run `hand open` again in each. A login from a `hand open --print` link, through a header-less forwarder or `ssh -L` lasts until the browser quits.
+
+1. Run the Board at login: [Linux](#linux), [macOS](#macos) or [Windows](#windows) below.
+2. Run `hand open` once in each fleet, for each browser you use. It logs that browser in.
+3. Bookmark `http://127.0.0.1:7777/`, or install it as an app, then click the fleet.
+
+Use `127.0.0.1`, not `localhost`: the browser treats `localhost` as a different site, and it does not hold the login.
+
+Install as an app per browser:
+
+- Chrome: **Install page as app** from the menu.
+- Edge: **Install this site as an app** from the menu.
+- Safari: **Add to Dock**. Run `hand open` in Safari first, then add it. Not tried on a Mac.
+- Firefox: a bookmark.
+
+Two pages mean something is missing:
+
+- Connection refused: the Board is not running. Run `hand open`, which starts it, or start the autostart in step 1.
+- "Open this fleet with `hand open`": this browser has no login for the fleet. Run `hand open` once inside it.
+
 ## Run the board at login
 
 One autostart is enough: run `hand board` once at login. The board starts every fleet's watcher that needs one, so there is no per-fleet unit. Add `--update-every` to its command ([Update on a timer](update.md#update-on-a-timer)) and it also keeps Hand up to date and switches the Luvus server of each fleet that is quiet; without the flag nothing switches by itself. An autostart that already exists needs the flag added to its command (the unit, the plist or the shortcut), and the board restarted, before it does.

@@ -76,6 +76,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 
 const (
 	cookieName = "hand_board"
+	laptopLife = 400 * 24 * time.Hour
 	csp        = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-src 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'; worker-src 'self'"
 )
 
@@ -221,9 +222,14 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b.failNeutral(w, http.StatusForbidden, "this board link is not valid")
 			return
 		}
-		http.SetCookie(w, &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		c := &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode}
+		if r.URL.Query().Get("keep") == "1" && b.o.Controls && !forwarded(r) {
+			c.MaxAge = int(laptopLife / time.Second)
+		}
+		http.SetCookie(w, c)
 		q := r.URL.Query()
 		q.Del("token")
+		q.Del("keep")
 		next := b.o.Base + r.URL.EscapedPath()
 		if len(q) > 0 {
 			next += "?" + q.Encode()
