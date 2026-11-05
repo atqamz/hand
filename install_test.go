@@ -297,7 +297,7 @@ func TestInstallScriptInstallsForMacOS(t *testing.T) {
 func bsdTools(t *testing.T, shasum bool) string {
 	t.Helper()
 	dir := t.TempDir()
-	for _, tool := range []string{"curl", "tar", "gzip", "mktemp", "grep", "cp", "chmod", "mv", "mkdir", "rm", "head"} {
+	for _, tool := range []string{"curl", "tar", "gzip", "mktemp", "grep", "cp", "chmod", "mv", "mkdir", "rm", "head", "sed"} {
 		p, err := exec.LookPath(tool)
 		if err != nil {
 			t.Fatal(err)
@@ -430,6 +430,56 @@ func TestInstallScriptAsksForNoSidecarWhenHandKnowsNone(t *testing.T) {
 	}
 	if slices.ContainsFunc(srv.asked(), func(p string) bool { return strings.Contains(p, "hand-iroh") }) {
 		t.Fatalf("asked %q", srv.asked())
+	}
+}
+
+func TestInstallScriptReadsTheSidecarVersionFromTheFirstLineOnly(t *testing.T) {
+	for name, c := range map[string]struct {
+		line string
+		ok   bool
+	}{
+		"trailing text":              {"hand-iroh 0.1.0 incompatible", false},
+		"no iroh token":              {"hand-iroh 0.1.0", false},
+		"no relay":                   {"hand-iroh 0.1.0 iroh", false},
+		"extra token":                {"hand-iroh 0.1.0 iroh 1.4.1 extra", false},
+		"first line wins":            {"hand-iroh 0.1.0 iroh 1.4.1\nnot a version", true},
+		"leading and trailing space": {"  hand-iroh 0.1.0 iroh 1.4.1  ", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := irohRelease(t, "0.1.0", "0.1.0", func(f map[string][]byte) {
+				archive := tarball(t, "hand-iroh", []byte("#!/bin/sh\nprintf '%s\\n' '"+c.line+"'\n"))
+				sum := sha256.Sum256(archive)
+				f["hand-iroh-linux-amd64.tar.gz"] = archive
+				f["hand-iroh-linux-amd64.sha256"] = []byte(hex.EncodeToString(sum[:]) + "  hand-iroh-linux-amd64.tar.gz\n")
+			})
+			dir, _, errOut, code := runInstall(t, srv, nil, "Linux", "x86_64")
+			if c.ok {
+				if code != 0 || !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) {
+					t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
+				}
+				return
+			}
+			if code != 1 || !strings.Contains(errOut, "is hand-iroh unknown, but this hand needs 0.1.0") || len(installed(t, dir)) != 0 {
+				t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
+			}
+		})
+	}
+}
+
+func TestInstallScriptRefusesASidecarPathThatIsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "hand-iroh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, _, errOut, code := runInstall(t, irohRelease(t, "0.1.0", "0.1.0", nil), map[string]string{"HAND_INSTALL_DIR": dir}, "Linux", "x86_64")
+	if want := "install.sh: cannot install " + filepath.Join(dir, "hand-iroh") + ": it is a directory\n"; code != 1 || errOut != want {
+		t.Fatalf("code %d %q, want %q", code, errOut, want)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "hand-iroh")); err != nil || !fi.IsDir() {
+		t.Fatalf("the sidecar path changed: %v, %v", fi, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "hand")); !os.IsNotExist(err) {
+		t.Fatalf("hand was installed: %v", err)
 	}
 }
 

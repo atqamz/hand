@@ -149,7 +149,10 @@
                 $irohBuilt = Join-Path $irohUnpacked 'hand-iroh.exe'
                 if (-not (Test-Path -LiteralPath $irohBuilt)) { throw "install.ps1: $irohStem.zip holds no hand-iroh.exe" }
                 $irohVersion = $null
-                foreach ($line in @(& $irohBuilt --version)) { if ($line -match '^hand-iroh (\d+\.\d+\.\d+) iroh ') { $irohVersion = $Matches[1] } }
+                $irohLines = @(& $irohBuilt --version)
+                if ($LASTEXITCODE -eq 0 -and $irohLines.Count -gt 0) {
+                    if ($irohLines[0].Trim() -cmatch '^hand-iroh ([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*) iroh \S+$') { $irohVersion = $Matches[1] }
+                }
                 if ($irohVersion -ne $want) {
                     $shown = if ($irohVersion) { $irohVersion } else { 'unknown' }
                     throw "install.ps1: $irohStem.zip is hand-iroh $shown, but this hand needs $want"

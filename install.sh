@@ -22,7 +22,7 @@ x86_64 | amd64) arch=amd64 ;;
 aarch64 | arm64) arch=arm64 ;;
 *) die "unsupported architecture $machine" ;;
 esac
-for tool in curl tar; do
+for tool in curl tar sed; do
 	command -v "$tool" >/dev/null 2>&1 || die "$tool is required"
 done
 if command -v sha256sum >/dev/null 2>&1; then
@@ -64,9 +64,7 @@ if [ -n "$want" ]; then
 		tar -xzf "$tmp/$iroh.tar.gz" -C "$tmp" hand-iroh >/dev/null 2>&1 || die "cannot unpack $iroh.tar.gz"
 		chmod 0755 "$tmp/hand-iroh"
 		out=$("$tmp/hand-iroh" --version 2>/dev/null) || out=""
-		case "$out" in
-		"hand-iroh "*) got=${out#hand-iroh }; got=${got%% *} ;;
-		esac
+		got=$(printf '%s\n' "$out" | sed -n '1s/^[[:space:]]*hand-iroh \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) iroh [^[:space:]][^[:space:]]*[[:space:]]*$/\1/p')
 		[ "$got" = "$want" ] || die "$iroh.tar.gz is hand-iroh ${got:-unknown}, but this hand needs $want"
 		;;
 	404) printf 'this release has no %s.tar.gz; phone access over iroh is not installed\n' "$iroh" ;;
@@ -78,6 +76,7 @@ mkdir -p "$dir" 2>/dev/null || die "cannot create $dir"
 part=$(mktemp "$dir/.hand.XXXXXX" 2>/dev/null) || die "cannot write to $dir"
 { cp "$tmp/hand" "$part" && chmod 0755 "$part"; } 2>/dev/null || die "cannot install $dir/hand"
 if [ -n "$got" ]; then
+	[ ! -d "$dir/hand-iroh" ] || die "cannot install $dir/hand-iroh: it is a directory"
 	ipart=$(mktemp "$dir/.hand-iroh.XXXXXX" 2>/dev/null) || die "cannot write to $dir"
 	{ cp "$tmp/hand-iroh" "$ipart" && chmod 0755 "$ipart" && mv -f "$ipart" "$dir/hand-iroh"; } 2>/dev/null || die "cannot install $dir/hand-iroh"
 	ipart=""
