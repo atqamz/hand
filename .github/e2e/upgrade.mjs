@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { initialize } from './fixture.mjs';
-import { Box, Client, cleaned, soft, stub, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, startBoard, stopAll, sums, tmpRoot, toon, version, win } from './lib.mjs';
+import { asset, Box, candidate, check, cleaned, Client, commit, distDir, equal, exe, fails, install, irohAsset, irohVersion, luvusTested, matches, nextCommit, ok, phase, run, saveLuvus, schema, seedLuvus, serve, sha256, shells, soft, startBoard, stopAll, stub, sums, tmpRoot, toon, version, win } from './lib.mjs';
 
 const previous = 'v0.13.0';
 const previousSchema = 16;
@@ -150,6 +150,12 @@ async function update(box, s) {
   equal(doc.fields.to, `${version} stable ${to.commit}`, `${name}: it moved to the served build`);
   equal(doc.fields.luvus, `${luvusTested} kept`, `${name}: the Luvus pin stays`);
   check(to.srv.requests.some((r) => r.startsWith('/latest/download/')), `${name}: it fetched the stable channel`);
+  if (s.sidecar) {
+    equal(doc.fields.iroh, `${irohVersion} installed`, `${name}: the update installs the sidecar of the new build`);
+    check(to.srv.requests.includes(`/latest/download/${irohAsset}`), `${name}: it fetched the sidecar from the same release`);
+    const ran = await run(path.join(box.bin, `hand-iroh${exe}`), ['--version'], { env: box.env({}, []) });
+    matches(ran.out, new RegExp(`^hand-iroh ${irohVersion.replace(/\./g, '\\.')} iroh `), `${name}: the installed sidecar reports the version hand needs`);
+  }
   const made = doc.lists.backups ?? [];
   equal(made.length, 2, `${name}: it lists two backups`);
   const dbBackup = made.find((p) => path.basename(p).startsWith('hand.db.'));
@@ -178,7 +184,7 @@ async function update(box, s) {
   equal([v.version, v.channel, v.commit, v.schema], [version, 'stable', to.commit, String(schema)], `${name}: the installed binary is the served build`);
   if (win) {
     await cleaned(box.bin, () => box.hand(['version']));
-    equal(fs.readdirSync(box.bin), ['hand.exe'], `${name}: the next hand run removed hand.exe.old`);
+    equal(fs.readdirSync(box.bin).sort(), s.sidecar ? ['hand-iroh.exe', 'hand.exe'] : ['hand.exe'], `${name}: the next hand run removed hand.exe.old and hand-iroh.exe.old`);
   }
   const after = await snapshot(box);
   equal(after.tasks, before.tasks, `${name}: every task, plan body, decision and answer is unchanged`);
@@ -198,6 +204,7 @@ async function afterwards(box, s) {
   equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
   equal(checks.filter((c) => c.state === 'warn' && profiles.includes(c.check)).map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor warns for the five profiles`);
   for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
+  equal(checks.find((r) => r.check === 'iroh')?.state, 'info', `${name}: hand doctor: iroh is information only while the Board runs without --iroh`);
   const orient = await ok(await box.hand(['orient']), `${name}: hand orient`);
   check(Buffer.byteLength(orient.out) < 6000, `${name}: hand orient stays under its byte budget`);
 
@@ -312,7 +319,7 @@ await phase('upgrade', async () => {
     box = new Box('upgrade-candidate').prepare();
     const from = await installCandidate(box, current);
     const id = await seed(box, 'the candidate', true, luvusTested);
-    await scenario({ box, id, report: true, name: 'the candidate to the next build', from, to: { srv: next, commit: nextCommit() }, running: { board: true, watcher: true } });
+    await scenario({ box, id, report: true, name: 'the candidate to the next build', from, to: { srv: next, commit: nextCommit() }, running: { board: true, watcher: true }, sidecar: true });
     await stopAll(box);
   } finally {
     await current.close();

@@ -35,11 +35,15 @@ func (r *release) asked() []string {
 
 func fakeRelease(t *testing.T, version string, mutate func(files map[string][]byte)) *release {
 	t.Helper()
+	return releaseOf(t, []string{"version: " + version}, mutate)
+}
+
+func tarball(t *testing.T, name string, script []byte) []byte {
+	t.Helper()
 	var archive bytes.Buffer
 	gz := gzip.NewWriter(&archive)
 	tw := tar.NewWriter(gz)
-	script := []byte("#!/bin/sh\nif [ \"$1\" = version ]; then echo 'version: " + version + "'; fi\n")
-	if err := tw.WriteHeader(&tar.Header{Name: "hand", Mode: 0o755, Size: int64(len(script))}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(script))}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write(script); err != nil {
@@ -47,6 +51,27 @@ func fakeRelease(t *testing.T, version string, mutate func(files map[string][]by
 	}
 	_ = tw.Close()
 	_ = gz.Close()
+	return archive.Bytes()
+}
+
+func irohAssets(t *testing.T, version string) func(map[string][]byte) {
+	return func(files map[string][]byte) {
+		archive := tarball(t, "hand-iroh", []byte("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'hand-iroh "+version+" iroh 1.4.1'; fi\n"))
+		sum := sha256.Sum256(archive)
+		for _, stem := range []string{"hand-iroh-linux-amd64", "hand-iroh-linux-arm64", "hand-iroh-darwin-amd64", "hand-iroh-darwin-arm64"} {
+			files[stem+".tar.gz"] = archive
+			files[stem+".sha256"] = []byte(hex.EncodeToString(sum[:]) + "  " + stem + ".tar.gz\n")
+		}
+	}
+}
+
+func releaseOf(t *testing.T, lines []string, mutate func(files map[string][]byte)) *release {
+	t.Helper()
+	printed := "printf '%s\\n'"
+	for _, l := range lines {
+		printed += " '" + l + "'"
+	}
+	archive := bytes.NewBuffer(tarball(t, "hand", []byte("#!/bin/sh\nif [ \"$1\" = version ]; then "+printed+"; fi\n")))
 	sum := sha256.Sum256(archive.Bytes())
 	files := map[string][]byte{}
 	var sums strings.Builder
@@ -309,5 +334,158 @@ func TestInstallScriptNeedsAChecksumTool(t *testing.T) {
 	dir, _, errOut, code := runInstall(t, srv, map[string]string{"PATH": bsdTools(t, false)}, "Darwin", "arm64")
 	if code == 0 || !strings.Contains(errOut, "install.sh: sha256sum or shasum is required") || len(srv.asked()) != 0 || len(installed(t, dir)) != 0 {
 		t.Fatalf("code %d %q, asked %q", code, errOut, srv.asked())
+	}
+}
+
+func irohRelease(t *testing.T, needs, ships string, mutate func(map[string][]byte)) *release {
+	t.Helper()
+	return releaseOf(t, []string{"version: 9.9.9", "iroh: " + needs}, func(files map[string][]byte) {
+		if ships != "" {
+			irohAssets(t, ships)(files)
+		}
+		if mutate != nil {
+			mutate(files)
+		}
+	})
+}
+
+func seed(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func content(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestInstallScriptInstallsTheSidecarNextToHand(t *testing.T) {
+	srv := irohRelease(t, "0.1.0", "0.1.0", nil)
+	dir, out, errOut, code := runInstall(t, srv, nil, "Linux", "x86_64")
+	if code != 0 {
+		t.Fatalf("code %d: %s", code, errOut)
+	}
+	sidecar := filepath.Join(dir, "hand-iroh")
+	if fi, err := os.Stat(sidecar); err != nil || fi.Mode().Perm() != 0o755 || !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) {
+		t.Fatalf("installed %q, %v", installed(t, dir), err)
+	}
+	if got, err := exec.Command(sidecar, "--version").Output(); err != nil || strings.TrimSpace(string(got)) != "hand-iroh 0.1.0 iroh 1.4.1" {
+		t.Fatalf("hand-iroh --version = %q, %v", got, err)
+	}
+	for _, want := range []string{"installed hand-iroh 0.1.0 to " + sidecar + "\n"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out %q lacks %q", out, want)
+		}
+	}
+	for _, want := range []string{"/latest/download/hand-iroh-linux-amd64.tar.gz", "/latest/download/hand-iroh-linux-amd64.sha256"} {
+		if !slices.Contains(srv.asked(), want) {
+			t.Fatalf("asked %q, lacks %q", srv.asked(), want)
+		}
+	}
+}
+
+func TestInstallScriptReplacesAnOlderSidecar(t *testing.T) {
+	dir := t.TempDir()
+	seed(t, dir, "hand-iroh", "the old sidecar")
+	seed(t, dir, "hand", "the old hand")
+	_, _, errOut, code := runInstall(t, irohRelease(t, "0.1.0", "0.1.0", nil), map[string]string{"HAND_INSTALL_DIR": dir}, "Linux", "x86_64")
+	if code != 0 || !strings.Contains(content(t, filepath.Join(dir, "hand-iroh")), "hand-iroh 0.1.0") || strings.Contains(content(t, filepath.Join(dir, "hand")), "old") {
+		t.Fatalf("code %d %q, sidecar %q", code, errOut, content(t, filepath.Join(dir, "hand-iroh")))
+	}
+	if !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) {
+		t.Fatalf("installed %q", installed(t, dir))
+	}
+}
+
+func TestInstallScriptKeepsWorkingWhenTheReleaseHasNoSidecar(t *testing.T) {
+	srv := irohRelease(t, "0.1.0", "", nil)
+	dir, out, errOut, code := runInstall(t, srv, map[string]string{"HAND_INSTALL_VERSION": "edge"}, "Linux", "x86_64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) || errOut != "" {
+		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
+	}
+	if !strings.Contains(out, "this release has no hand-iroh-linux-amd64.tar.gz; phone access over iroh is not installed\n") || !strings.Contains(out, "installed hand ") || strings.Contains(out, "installed hand-iroh") {
+		t.Fatalf("out %q", out)
+	}
+	if !slices.Contains(srv.asked(), "/download/edge/hand-iroh-linux-amd64.tar.gz") {
+		t.Fatalf("asked %q", srv.asked())
+	}
+	old := t.TempDir()
+	seed(t, old, "hand-iroh", "the old sidecar")
+	if _, _, errOut, code := runInstall(t, srv, map[string]string{"HAND_INSTALL_DIR": old}, "Linux", "x86_64"); code != 0 || content(t, filepath.Join(old, "hand-iroh")) != "the old sidecar" {
+		t.Fatalf("code %d %q: an installed sidecar was touched", code, errOut)
+	}
+}
+
+func TestInstallScriptAsksForNoSidecarWhenHandKnowsNone(t *testing.T) {
+	srv := fakeRelease(t, "9.9.9", irohAssets(t, "0.1.0"))
+	dir, out, errOut, code := runInstall(t, srv, nil, "Linux", "x86_64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand"}) || strings.Contains(out, "iroh") {
+		t.Fatalf("code %d %q, installed %q, out %q", code, errOut, installed(t, dir), out)
+	}
+	if slices.ContainsFunc(srv.asked(), func(p string) bool { return strings.Contains(p, "hand-iroh") }) {
+		t.Fatalf("asked %q", srv.asked())
+	}
+}
+
+func TestInstallScriptKeepsTheOldBinariesWhenTheSidecarFailsItsChecks(t *testing.T) {
+	const stem = "hand-iroh-linux-amd64"
+	for name, c := range map[string]struct {
+		mutate func(map[string][]byte)
+		ships  string
+		want   string
+	}{
+		"corrupt checksum": {func(f map[string][]byte) {
+			f[stem+".sha256"] = []byte(strings.Repeat("0", 64) + "  " + stem + ".tar.gz\n")
+		}, "0.1.0", "install.sh: checksum mismatch for " + stem + ".tar.gz\n"},
+		"unlisted":         {func(f map[string][]byte) { f[stem+".sha256"] = []byte(strings.Repeat("0", 64) + "  other.tar.gz\n") }, "0.1.0", "install.sh: checksum mismatch for " + stem + ".tar.gz\n"},
+		"no checksum file": {func(f map[string][]byte) { delete(f, stem+".sha256") }, "0.1.0", "install.sh: download failed: URL/latest/download/" + stem + ".sha256\n"},
+		"a server error":   {func(f map[string][]byte) { f[stem+".tar.gz"] = nil }, "0.1.0", "install.sh: download failed: URL/latest/download/" + stem + ".tar.gz (HTTP 500)\n"},
+		"another version":  {nil, "0.2.0", "install.sh: " + stem + ".tar.gz is hand-iroh 0.2.0, but this hand needs 0.1.0\n"},
+	} {
+		srv := irohRelease(t, "0.1.0", c.ships, c.mutate)
+		dir := t.TempDir()
+		seed(t, dir, "hand-iroh", "the old sidecar")
+		seed(t, dir, "hand", "the old hand")
+		_, _, errOut, code := runInstall(t, srv, map[string]string{"HAND_INSTALL_DIR": dir}, "Linux", "x86_64")
+		if want := strings.ReplaceAll(c.want, "URL", srv.URL); code != 1 || errOut != want {
+			t.Fatalf("%s: code %d %q, want %q", name, code, errOut, want)
+		}
+		if content(t, filepath.Join(dir, "hand")) != "the old hand" || content(t, filepath.Join(dir, "hand-iroh")) != "the old sidecar" || !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) {
+			t.Fatalf("%s: an old binary changed or a file is left: %q", name, installed(t, dir))
+		}
+	}
+}
+
+func TestInstallScriptRefusesASidecarThatDoesNotRunAndInstallsNothing(t *testing.T) {
+	srv := irohRelease(t, "0.1.0", "0.1.0", func(f map[string][]byte) {
+		archive := tarball(t, "hand-iroh", []byte("#!/bin/sh\nexit 1\n"))
+		sum := sha256.Sum256(archive)
+		f["hand-iroh-linux-amd64.tar.gz"] = archive
+		f["hand-iroh-linux-amd64.sha256"] = []byte(hex.EncodeToString(sum[:]) + "  hand-iroh-linux-amd64.tar.gz\n")
+	})
+	dir, _, errOut, code := runInstall(t, srv, nil, "Linux", "x86_64")
+	if code != 1 || !strings.Contains(errOut, "hand-iroh unknown, but this hand needs 0.1.0") || len(installed(t, dir)) != 0 {
+		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
+	}
+}
+
+func TestInstallScriptInstallsTheSidecarForMacOS(t *testing.T) {
+	srv := irohRelease(t, "0.1.0", "0.1.0", nil)
+	dir, _, errOut, code := runInstall(t, srv, nil, "Darwin", "arm64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) || !slices.Contains(srv.asked(), "/latest/download/hand-iroh-darwin-arm64.tar.gz") {
+		t.Fatalf("code %d %q, asked %q", code, errOut, srv.asked())
+	}
+}
+
+func TestInstallScriptNeedsNoToolBeyondTheOnesItAlreadyNamedForTheSidecar(t *testing.T) {
+	dir, _, errOut, code := runInstall(t, irohRelease(t, "0.1.0", "0.1.0", nil), map[string]string{"PATH": bsdTools(t, true)}, "Darwin", "arm64")
+	if code != 0 || !slices.Equal(installed(t, dir), []string{"hand", "hand-iroh"}) {
+		t.Fatalf("code %d %q, installed %q", code, errOut, installed(t, dir))
 	}
 }
