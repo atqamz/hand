@@ -93,7 +93,7 @@ It prints one line, `ready id=ENDPOINTID relay=URL`, once it is online (it waits
 
 What this does not defend is availability. A stranger who moves one byte on every connection each `--idle` seconds, from enough addresses (direct) or made-up endpoint IDs (through a relay, where a new ID costs nothing), holds every slot, and a paired phone is refused until one frees. Behind one NAT address a stranger shares a source, and so its 4 connections, with your phone. The real fix is for the board to tell the sidecar which IDs are paired, so that slots are kept for them; that is a later step.
 
-**Known limits.** On Windows the sidecar neither sets nor checks permissions on the key file or its folder, so choose a folder only you can open. It handles Ctrl-C, not a console close or a shutdown. The build pulls in `paste` 1.0.15 through iroh's `netwatch`: RUSTSEC-2024-0436, "unmaintained", informational. An OSV query of `iroh/Cargo.lock` on 2026-11-05 found no vulnerability advisory on the other crates.
+**Known limits.** On Windows the sidecar neither sets nor checks permissions on the key file or its folder, so choose a folder only you can open. It handles Ctrl-C, not a console close or a shutdown, and has no `SIGTERM`: closing its input stops it on every system. The build pulls in `paste` 1.0.15 through iroh's `netwatch`: RUSTSEC-2024-0436, "unmaintained", informational. An OSV query of `iroh/Cargo.lock` on 2026-11-05 found no vulnerability advisory on the other crates.
 
 ## SSH tunnel
 
