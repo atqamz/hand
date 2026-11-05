@@ -349,7 +349,7 @@ func (h *harness) advance(d time.Duration) {
 	h.now = h.now.Add(d)
 }
 
-func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
+func (h *harness) env(out, errOut io.Writer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
 		Board:  h.board,

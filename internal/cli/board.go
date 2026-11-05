@@ -38,6 +38,7 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	fs := flags("board")
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
+	peerAddr := fs.String("peer-addr", "", "a second loopback address for a local tunnel or sidecar; every request on it counts as remote; off by default")
 	every := fs.Duration("update-every", 0, "run `hand update` this often, which also switches a quiet fleet's Luvus server; 0 is off, the least is "+updateMin.String())
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -64,6 +65,14 @@ func cmdBoard(r *runner, args []string) error {
 			local = net.JoinHostPort("127.0.0.1", port)
 		}
 	}
+	pln, secret, err := listenPeer(root, *peerAddr, loopback)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	if pln != nil {
+		defer pln.Close()
+	}
 	transcripts := &transcript.Reader{Paths: r.transcriptPaths()}
 	host := board.NewHost(board.HostOptions{
 		Loopback: loopback,
@@ -76,11 +85,15 @@ func cmdBoard(r *runner, args []string) error {
 	})
 	defer host.Close()
 	srv := &http.Server{Handler: host, ReadHeaderTimeout: 10 * time.Second}
+	peer := board.NewPeer(host, secret)
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		var drained sync.WaitGroup
+		drained.Go(func() { _ = peer.Shutdown(sctx) })
 		_ = srv.Shutdown(sctx)
+		drained.Wait()
 	}()
 	forget, err := recordAddr(root, local)
 	if err != nil {
@@ -98,6 +111,9 @@ func cmdBoard(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	d.Field("board", "http://"+local+"/")
+	if pln != nil {
+		d.Field("peer", pln.Addr().String())
+	}
 	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"
 	if !loopback {
 		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L or tailscale serve")
@@ -113,6 +129,13 @@ func cmdBoard(r *runner, args []string) error {
 		defer close(keep)
 		r.keepWatchers(kctx, root, *every)
 	}()
+	if pln != nil {
+		go func() {
+			if err := peer.Serve(pln); !errors.Is(err, http.ErrServerClosed) {
+				fmt.Fprintln(r.env.Stderr, "board: the peer listener stopped:", err)
+			}
+		}()
+	}
 	err = srv.Serve(ln)
 	stopKeep()
 	<-keep
@@ -120,6 +143,32 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func listenPeer(root, addr string, loopback bool) (net.Listener, string, error) {
+	if addr == "" {
+		return nil, "", nil
+	}
+	if !loopback {
+		return nil, "", usageError{"board: --peer-addr needs --addr on a loopback address"}
+	}
+	a, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
+	}
+	if !a.IP.IsLoopback() {
+		return nil, "", usageError{"board: --peer-addr must be a loopback address"}
+	}
+	ln, err := net.ListenTCP("tcp", a)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
+	}
+	secret, err := fileSecret(filepath.Join(root, "board.peer"), "peer secret")
+	if err != nil {
+		_ = ln.Close()
+		return nil, "", err
+	}
+	return ln, secret, nil
 }
 
 func boardHome(root, id string) (string, error) {
@@ -338,13 +387,16 @@ func (r *runner) transcriptPaths() transcript.Paths {
 }
 
 func boardToken(home string) (string, error) {
-	path := filepath.Join(home, "board.token")
+	return fileSecret(filepath.Join(home, "board.token"), "board token")
+}
+
+func fileSecret(path, what string) (string, error) {
 	unlock, err := lockPath(path + ".lock")
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	if token, err := readBoardToken(path); !errors.Is(err, fs.ErrNotExist) {
+	if token, err := readSecret(path, what); !errors.Is(err, fs.ErrNotExist) {
 		return token, err
 	}
 	buf := make([]byte, 24)
@@ -352,13 +404,22 @@ func boardToken(home string) (string, error) {
 		return "", err
 	}
 	token := hex.EncodeToString(buf)
-	if err := writeFile(home, path, token+"\n"); err != nil {
+	if err := writeFile(filepath.Dir(path), path, token+"\n"); err != nil {
 		return "", err
 	}
 	return token, nil
 }
 
-func readBoardToken(path string) (string, error) {
+func readBoardToken(path string) (string, error) { return readSecret(path, "board token") }
+
+func readSecret(path, what string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s is not a regular file; delete it to make a new %s", state.ErrInvalid, path, what)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -368,7 +429,7 @@ func readBoardToken(path string) (string, error) {
 	}
 	token := string(bytes.TrimSpace(b))
 	if _, err := hex.DecodeString(token); err != nil || len(token) != 48 {
-		return "", fmt.Errorf("%w: %s is not a board token; delete it to make a new one", state.ErrInvalid, path)
+		return "", fmt.Errorf("%w: %s is not a %s; delete it to make a new one", state.ErrInvalid, path, what)
 	}
 	return token, nil
 }

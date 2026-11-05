@@ -35,6 +35,22 @@ Tapping an alert opens the item in the phone's browser with the phone's session,
 
 The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given here, and the link stays the local one. `${HAND_NOTIFY_URL#http://127.0.0.1:7777}` removes the local prefix and keeps `/<fleet id>/decision/d3`. A board on another port needs that port in the prefix.
 
+## The peer listener
+
+**What it is.** `hand board --peer-addr 127.0.0.1:7778` opens a second loopback listener that serves the same board. A raw forward to the board's own address (`ssh -L`, Wispers, `dumbpipe`) arrives from `127.0.0.1` with whatever headers the phone sent, so the board takes it for the laptop: it lists every fleet at `/`, prints errors in full and shares one pairing rate limit. Point such a forward at the peer listener instead, and the board counts every request as remote, like one behind `tailscale serve`, whatever headers it carries.
+
+**What a peer reaches.**
+
+- Before pairing, only `/<fleet id>/pair` and the files it loads. A connection that asks for more than 32 requests or 64 KiB before it shows a paired phone's cookie is closed, and so is one whose request body stalls for 10 seconds. A connection with no request for 30 seconds is closed, paired or not.
+- After pairing, the whole board, with supervisor controls, as a paired phone behind `tailscale serve` does, except `/<fleet id>/proof`, which `hand open` uses on the board's own address. A connection that sends a revoked phone's cookie is capped again. Neither a fleet's token nor its laptop cookie opens anything on this listener, whichever fleet a phone's cookie names, so a tunnel that holds only a token cannot use the board.
+- A request that Tailscale marks as Funnel traffic is refused, as on the board's own address.
+
+**What a peer cannot do.** It cannot make the board believe a proxy header: `X-Forwarded-*`, `Forwarded` and `Tailscale-*` are dropped, so a phone cannot claim another login, mark itself HTTPS or pick its own rate-limit key. A connection with no [preface](vocabulary.md#peer-preface) shares one rate limit with every other such connection (five wrong codes make a minute's wait for all of them), and the pairing code's ten-wrong-tries cancel stays global.
+
+**Identity.** A connection that opens with the [peer preface](vocabulary.md#peer-preface) and the secret in `board.peer` has an identity, `iroh:<peer ID>`. A phone paired over it is bound to that ID: its cookie works only from the same ID, and a stolen cookie or a stolen ID alone opens nothing. A device paired over a connection with no preface carries no login, and its cookie works from any connection. The board never reads an `iroh:` login from the `Tailscale-User-Login` header, so no header can claim an identity. Only a program that can read `board.peer` (mode 0600, in the operator's `~/.secondhand`) can claim an identity; the board closes any other connection that claims one.
+
+**What it does not protect against.** Any process of your own user can read `board.peer`, the fleet's `board.token` and `hand.db`, so it can do anything a peer can. On a machine with other users, any of them can connect to the loopback port; without the secret they are anonymous remote, and still need a pairing code that shows only on your laptop. The listener takes loopback addresses only, and only beside a loopback `--addr`, because the preface carries the secret in the clear. A board that `hand open` or `hand update` restarts starts on the default address without it, as it does without any other flag but `--update-every`: put `--peer-addr` in the unit's `ExecStart=`, the plist or the shortcut, as [Update on a timer](update.md#update-on-a-timer) shows for `--update-every`.
+
 ## SSH tunnel
 
 **What it is.** The phone is an SSH client. It forwards a port on the phone to the board's port on the laptop, and the phone's browser opens `http://127.0.0.1:7777` on the phone itself. The board stays on loopback, so chat, files and supervisor control work.
