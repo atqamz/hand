@@ -16,7 +16,7 @@ Stopping a watcher while the board runs does not keep it down: the board starts 
 
 ## Open the Board without a terminal
 
-After one `hand open` per fleet and browser, a bookmark opens the Board signed in, with no command run, even after the browser restarts. The login lasts 400 days on a loopback Board, or until `board.token` changes.
+After one `hand open` per fleet and browser, a bookmark opens the Board signed in, with no command run, even after the browser restarts. The login `hand open` makes lasts 400 days on a loopback Board, or until `board.token` changes, which signs every browser out: run `hand open` again in each. A login from a `hand open --print` link, through a header-less forwarder or `ssh -L` lasts until the browser quits.
 
 1. Run the Board at login: [Linux](#linux), [macOS](#macos) or [Windows](#windows) below.
 2. Run `hand open` once in each fleet, for each browser you use. It logs that browser in.
@@ -26,8 +26,9 @@ Use `127.0.0.1`, not `localhost`: the browser treats `localhost` as a different 
 
 Install as an app per browser:
 
-- Chrome and Edge: **Install page as app** from the menu.
-- Safari: **Add to Dock**, which copies the login when you add it, so run `hand open` first.
+- Chrome: **Install page as app** from the menu.
+- Edge: **Install this site as an app** from the menu.
+- Safari: **Add to Dock**. Run `hand open` in Safari first, then add it. Not tried on a Mac.
 - Firefox: a bookmark.
 
 Two pages mean something is missing:

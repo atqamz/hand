@@ -106,7 +106,7 @@ func cmdOpen(r *runner, args []string) error {
 		}
 		return r.printLink(page+"?token="+token+frag, "The link holds the fleet's token; paste it only into your own browser")
 	}
-	return r.launch(page+"?token="+token+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
+	return r.launch(page+"?token="+token+"&keep=1"+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
 }
 
 func boardPage(ctx context.Context, st *state.Store, ref string) (string, string, error) {

@@ -165,7 +165,7 @@ func TestOpenDeepLinks(t *testing.T) {
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t)
-		want := fx.base + "/" + fx.id + c.path + "?token=" + fx.token(t) + c.frag
+		want := fx.base + "/" + fx.id + c.path + "?token=" + fx.token(t) + "&keep=1" + c.frag
 		if got := opened[len(opened)-1]; got != want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
 		}
@@ -295,7 +295,7 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 		page := fx.base + "/" + fx.id + c.path
 		out := fx.h.ok("open", task, "--delivered")
 		opened := fx.opened(t)
-		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t) || field(out, "opened") != page {
+		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
 			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
 		}
 		if got := fx.h.ok("open", "--print", task, "--delivered"); got != strings.Replace(loginOut, "/task/t1?", c.path+"?", 1) {
@@ -423,7 +423,7 @@ func TestConcurrentOpensShareOneToken(t *testing.T) {
 		t.Fatalf("token %q, opened %q", tok, opened)
 	}
 	for _, u := range opened {
-		if !strings.HasSuffix(u, "?token="+tok) {
+		if !strings.HasSuffix(u, "?token="+tok+"&keep=1") {
 			t.Fatalf("concurrent opens used different tokens: %q", opened)
 		}
 	}
@@ -467,7 +467,7 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 func TestOpenPrintPrintsTheLoginLinkOnly(t *testing.T) {
 	fx := newOpenFixture(t)
 	out, errOut, code := fx.h.run("open", "--print", "t1")
-	if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+"/task/t1?token="+fx.token(t)+`"`) || !strings.Contains(out, "holds the fleet's token") {
+	if code != 0 || errOut != "" || !strings.Contains(out, `url: "`+fx.base+"/"+fx.id+"/task/t1?token="+fx.token(t)+`"`) || strings.Contains(out, "keep=1") || !strings.Contains(out, "holds the fleet's token") {
 		t.Fatalf("open --print: code=%d out=%q stderr=%q", code, out, errOut)
 	}
 	if _, err := os.Stat(fx.log); !os.IsNotExist(err) {

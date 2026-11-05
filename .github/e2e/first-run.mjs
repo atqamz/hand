@@ -76,7 +76,12 @@ async function board(box, srv, made) {
   equal(wrong.status, 403, 'a wrong token is refused');
   const login = await laptop.get(`${link.pathname}${link.search}`);
   equal([login.status, login.location], [303, `/${id}/`], 'the login link redirects to the fleet page');
-  check(login.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c) && /Max-Age=34560000/i.test(c)), 'the login sets an HttpOnly, SameSite=Strict cookie that lasts 400 days');
+  check(login.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c)), 'the login sets an HttpOnly, SameSite=Strict cookie');
+  check(!link.searchParams.has('keep'), 'the printed login link does not ask to be kept');
+  check(login.cookies.every((c) => !/Max-Age/i.test(c)), 'a login without keep=1 is a session cookie');
+  const kept = await laptop.get(`${link.pathname}${link.search}&keep=1`);
+  equal([kept.status, kept.location], [303, `/${id}/`], 'the keep=1 login link redirects to the fleet page');
+  check(kept.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /Max-Age=34560000/i.test(c)), 'a keep=1 login on loopback lasts 400 days');
 
   const page = await laptop.get(`/${id}/`);
   equal(page.status, 200, 'the fleet page answers 200 with the cookie');

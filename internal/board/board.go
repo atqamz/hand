@@ -223,12 +223,13 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		c := &http.Cookie{Name: cookieFor(b.o.Base), Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode}
-		if b.o.Controls && !forwarded(r) {
+		if r.URL.Query().Get("keep") == "1" && b.o.Controls && !forwarded(r) {
 			c.MaxAge = int(laptopLife / time.Second)
 		}
 		http.SetCookie(w, c)
 		q := r.URL.Query()
 		q.Del("token")
+		q.Del("keep")
 		next := b.o.Base + r.URL.EscapedPath()
 		if len(q) > 0 {
 			next += "?" + q.Encode()
