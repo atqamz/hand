@@ -41,8 +41,8 @@ The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given 
 
 **What a peer reaches.**
 
-- Before pairing, only `/<fleet id>/pair` and the files it loads. A connection that asks for more than 32 requests or 64 KiB before it shows a paired phone's cookie is closed.
-- After pairing, the whole board, with supervisor controls, as a paired phone behind `tailscale serve` does. Neither a fleet's token nor its laptop cookie opens anything on this listener, whichever fleet a phone's cookie names, so a tunnel that holds only a token cannot use the board.
+- Before pairing, only `/<fleet id>/pair` and the files it loads. A connection that asks for more than 32 requests or 64 KiB before it shows a paired phone's cookie is closed, and so is one whose request body stalls for 10 seconds. A connection with no request for 30 seconds is closed, paired or not.
+- After pairing, the whole board, with supervisor controls, as a paired phone behind `tailscale serve` does, except `/<fleet id>/proof`, which `hand open` uses on the board's own address. A connection that sends a revoked phone's cookie is capped again. Neither a fleet's token nor its laptop cookie opens anything on this listener, whichever fleet a phone's cookie names, so a tunnel that holds only a token cannot use the board.
 - A request that Tailscale marks as Funnel traffic is refused, as on the board's own address.
 
 **What a peer cannot do.** It cannot make the board believe a proxy header: `X-Forwarded-*`, `Forwarded` and `Tailscale-*` are dropped, so a phone cannot claim another login, mark itself HTTPS or pick its own rate-limit key. A connection with no [preface](vocabulary.md#peer-preface) shares one rate limit with every other such connection (five wrong codes make a minute's wait for all of them), and the pairing code's ten-wrong-tries cancel stays global.

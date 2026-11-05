@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ var (
 	peerID       = regexp.MustCompile(`^[0-9a-z]{16,64}$`)
 	silentClose  = io.EOF
 	peerBodyWait = 10 * time.Second
+	peerIdleWait = 30 * time.Second
 )
 
 type peerKey struct{}
@@ -122,6 +124,7 @@ func NewPeer(h *Host, secret string) *Peer {
 		Handler:           p,
 		ReadHeaderTimeout: 10 * time.Second,
 		MaxHeaderBytes:    peerHeaders,
+		IdleTimeout:       peerIdleWait,
 		ConnContext:       func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, peerKey{}, c) },
 	}
 	return p
@@ -131,12 +134,20 @@ func (p *Peer) Serve(ln net.Listener) error { return p.srv.Serve(peerListener{ln
 
 func (p *Peer) Shutdown(ctx context.Context) error { return p.srv.Shutdown(ctx) }
 
-func unpairedPath(path string) bool {
-	if strings.HasPrefix(path, "/static/") {
-		return true
-	}
+func fleetRest(path string) string {
 	id, rest, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
-	return rest == "pair" && state.FleetID.MatchString(id)
+	if !state.FleetID.MatchString(id) {
+		return ""
+	}
+	return rest
+}
+
+func unpairedPath(path string) bool {
+	return strings.HasPrefix(path, "/static/") || fleetRest(path) == "pair"
+}
+
+func carriesPhoneCookie(r *http.Request) bool {
+	return slices.ContainsFunc(r.Cookies(), func(c *http.Cookie) bool { return strings.HasPrefix(c.Name, phoneName+"_") })
 }
 
 func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -148,25 +159,29 @@ func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			delete(r.Header, k)
 		}
 	}
-	counted := !c.paired.Load()
-	over := counted && c.requests.Add(1) > peerRequests
-	public := unpairedPath(r.URL.Path)
-	proved := !funnel && (!public || counted) && len(p.h.phoneFleets(r, "")) > 0
+	proved := !funnel && len(p.h.phoneFleets(r, "")) > 0
 	if proved {
 		c.paired.Store(true)
+	} else if carriesPhoneCookie(r) {
+		c.paired.Store(false)
 	}
+	counted := !c.paired.Load()
+	if counted {
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(peerBodyWait))
+	}
+	over := counted && c.requests.Add(1) > peerRequests
+	public := unpairedPath(r.URL.Path)
 	switch {
-	case over && !proved:
+	case over:
 		w.Header().Set("Connection", "close")
 		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this phone first, or open a new connection.")
 	case funnel:
 		hostFail(w, http.StatusForbidden, funnelRefusal)
 	case !public && !proved:
 		hostFail(w, http.StatusForbidden, sessionFaults(noSession, true))
+	case fleetRest(r.URL.Path) == "proof":
+		hostFail(w, http.StatusForbidden, "The proof check is not served on the peer listener.")
 	default:
-		if !c.paired.Load() {
-			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(peerBodyWait))
-		}
 		p.h.ServeHTTP(w, r)
 	}
 }

@@ -705,3 +705,149 @@ func TestAnOversizedPrefaceIsCutWithoutWaitingForItsNewline(t *testing.T) {
 		t.Fatal("the board kept waiting for the end of a preface longer than 256 bytes")
 	}
 }
+
+var proofRe = regexp.MustCompile(`[0-9a-f]{64}`)
+
+func TestAPairedPeerIsNotServedTheProofCheckOfAnyFleet(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	a, b := r.fleets[0], r.fleets[1]
+	if rec := r.send("GET", "/"+a.id+"/proof?nonce=x", nil, nil, nil); rec.Code != http.StatusOK || !proofRe.MatchString(rec.Body.String()) {
+		t.Fatalf("the main listener's proof = %d", rec.Code)
+	}
+	c := r.as(peerA)
+	phone := r.mustPair(c, a)
+	for _, f := range []railFleet{a, b} {
+		if rep := c.do("GET", "/"+f.id+"/proof?nonce=x", nil, nil, phone); rep.Code != http.StatusForbidden || proofRe.MatchString(rep.Body) {
+			t.Fatalf("a paired peer asked %s for its proof: %d %q", f.name, rep.Code, rep.Body)
+		}
+	}
+}
+
+func TestAPeerPairedWithOneFleetSeesNothingOfAnotherThroughItsLaptopCookie(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	a, b := r.fleets[0], r.fleets[1]
+	c := r.as(peerA)
+	phone := r.mustPair(c, a)
+	for _, path := range []string{"/" + a.id + "/", "/" + a.id + "/connect", "/" + a.id + "/tasks", "/"} {
+		rep := c.do("GET", path, nil, nil, phone, r.laptop(b))
+		if rep.Code != http.StatusOK || strings.Contains(rep.Body, "bravo") || strings.Contains(rep.Body, b.id) {
+			t.Fatalf("%s with a laptop cookie of another fleet = %d and names it: %v", path, rep.Code, strings.Contains(rep.Body, "bravo"))
+		}
+	}
+}
+
+func TestALaptopCookieOverAPeerCannotRevokeAnotherFleetsPhones(t *testing.T) {
+	r := newPeerRig(t, "alpha", "bravo")
+	a, b := r.fleets[0], r.fleets[1]
+	c := r.as(peerA)
+	phone := r.mustPair(c, a)
+	r.phoneWith("Pixel B", b)
+	label := r.labelOf(b, "Pixel B")
+	rep := c.do("POST", "/"+a.id+"/connect/revoke/in", url.Values{"csrf": {a.token}, "phone": {label}, "fleet": {b.id}}, nil, phone, r.laptop(a), r.laptop(b))
+	if got := holds(r.phoneHost, b); len(got) != 1 {
+		t.Fatalf("a peer revoked a phone of another fleet: %d, %v", rep.Code, got)
+	}
+}
+
+func TestAMainListenerClientCannotSpendAPeersPairingTries(t *testing.T) {
+	for who, peer := range map[string]string{peerA: peerA, "iroh:" + peerA: peerA, "peer:" + peerA: peerA, "anonymous": "", "peer:anonymous": ""} {
+		r := newPeerRig(t, "alpha")
+		f := r.fleets[0]
+		code := r.code(f)
+		for i := 0; i < 5; i++ {
+			r.send("POST", "/"+f.id+"/pair", url.Values{"code": {"ZZZZZ-ZZZZZ"}, "name": {"x"}}, nil, map[string]string{"X-Forwarded-For": who})
+		}
+		c := r.anonymous()
+		if peer != "" {
+			c = r.as(peer)
+		}
+		if rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {code}, "name": {"x"}}, nil); rep.Code != http.StatusSeeOther {
+			t.Fatalf("five wrong tries on the main listener from X-Forwarded-For %q blocked the peer: %d", who, rep.Code)
+		}
+	}
+}
+
+func TestARevokedPeerIsCappedAgainOnTheConnectionItHolds(t *testing.T) {
+	for name, path := range map[string]string{"a private page": "/%s/", "the pair page": "/%s/pair"} {
+		r := newPeerRig(t, "alpha")
+		f := r.fleets[0]
+		c := r.as(peerA)
+		phone := r.mustPair(c, f)
+		for i := 0; i < 40; i++ {
+			if rep := c.do("GET", "/"+f.id+"/pair", nil, nil, phone); rep.Code != http.StatusOK {
+				t.Fatalf("%s: paired request %d = %d", name, i+1, rep.Code)
+			}
+		}
+		r.revoke(f, phone)
+		c.do("GET", strings.Replace(path, "%s", f.id, 1), nil, nil, phone)
+		capped := false
+		for i := 0; i < 40 && !capped; i++ {
+			rep, err := c.send("GET", "/"+f.id+"/pair", nil, nil)
+			capped = err != nil || rep.Code == http.StatusTooManyRequests
+		}
+		if !capped {
+			t.Fatalf("%s: a revoked peer kept an uncapped connection", name)
+		}
+	}
+}
+
+func TestARequestWithNoCookieDoesNotUnpairAConnection(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	pad := map[string]string{"X-Pad": strings.Repeat("p", 8000)}
+	for i := 0; i < 20; i++ {
+		if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, pad, phone); err != nil || rep.Code != http.StatusOK {
+			t.Fatalf("request %d = %v, %v", i+1, rep.Code, err)
+		}
+	}
+	if rep := c.do("GET", "/manifest.webmanifest", nil, nil); rep.Code != http.StatusForbidden {
+		t.Fatalf("a cookie-less manifest request = %d", rep.Code)
+	}
+	if rep, err := c.send("GET", "/"+f.id+"/tasks", nil, nil, phone); err != nil || rep.Code != http.StatusOK {
+		t.Fatalf("the request after a cookie-less one = %v, %v", rep.Code, err)
+	}
+}
+
+func TestTheRequestThatProvesAPhoneIsServedPastTheCap(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	phone := r.mustPair(r.as(peerA), f)
+	c := r.as(peerA)
+	for i := 1; i <= 32; i++ {
+		if rep := c.do("GET", "/"+f.id+"/pair", nil, nil); rep.Code != http.StatusOK {
+			t.Fatalf("request %d = %d", i, rep.Code)
+		}
+	}
+	for i := 33; i <= 35; i++ {
+		if rep := c.do("GET", "/"+f.id+"/tasks", nil, nil, phone); rep.Code != http.StatusOK {
+			t.Fatalf("request %d with the phone's cookie = %d", i, rep.Code)
+		}
+	}
+}
+
+func TestAFunnelRequestWithAValidCookieLiftsNoCap(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	phone := r.mustPair(r.as(peerA), f)
+	funnel := map[string]string{"Tailscale-Funnel-Request": "?1"}
+	c := r.as(peerA)
+	for i := 1; i <= 32; i++ {
+		if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, phone); rep.Code != http.StatusForbidden {
+			t.Fatalf("funnel request %d = %d", i, rep.Code)
+		}
+	}
+	if rep := c.do("GET", "/"+f.id+"/pair", nil, funnel, phone); rep.Code != http.StatusTooManyRequests {
+		t.Fatalf("a Funnel request with a valid cookie lifted the cap: %d", rep.Code)
+	}
+}
+
+func TestOnlyARealFleetsPairPageIsOpenToAnUnpairedPeer(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	for _, path := range []string{"/nope/pair", "/F0123456789AB/pair", "/f0123456789a/pair"} {
+		if rep := r.as(peerA).do("GET", path, nil, nil); rep.Code != http.StatusForbidden {
+			t.Fatalf("%s = %d, want the same refusal as any private path", path, rep.Code)
+		}
+	}
+}

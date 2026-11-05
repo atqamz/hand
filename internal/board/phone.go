@@ -179,12 +179,12 @@ func remote(r *http.Request) string {
 	}
 	chain := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if last := strings.TrimSpace(chain[strings.LastIndex(chain, ",")+1:]); last != "" {
-		return last
+		return "addr:" + last
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
+		return "addr:" + host
 	}
-	return r.RemoteAddr
+	return "addr:" + r.RemoteAddr
 }
 
 func (b *Board) session(r *http.Request) (session, sessionFault) {

@@ -152,13 +152,16 @@ func listenPeer(root, addr string, loopback bool) (net.Listener, string, error) 
 	if !loopback {
 		return nil, "", usageError{"board: --peer-addr needs --addr on a loopback address"}
 	}
-	ln, err := net.Listen("tcp", addr)
+	a, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
-	if a, ok := ln.Addr().(*net.TCPAddr); !ok || !a.IP.IsLoopback() {
-		_ = ln.Close()
+	if !a.IP.IsLoopback() {
 		return nil, "", usageError{"board: --peer-addr must be a loopback address"}
+	}
+	ln, err := net.ListenTCP("tcp", a)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", state.ErrInvalid, err)
 	}
 	secret, err := fileSecret(filepath.Join(root, "board.peer"), "peer secret")
 	if err != nil {
@@ -410,6 +413,13 @@ func fileSecret(path, what string) (string, error) {
 func readBoardToken(path string) (string, error) { return readSecret(path, "board token") }
 
 func readSecret(path, what string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s is not a regular file; delete it to make a new %s", state.ErrInvalid, path, what)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

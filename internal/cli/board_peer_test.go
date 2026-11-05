@@ -2,7 +2,9 @@ package cli_test
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -11,20 +13,60 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/cli"
 )
 
 var peerID = strings.Repeat("c", 64)
 
-func freeLoopback(t *testing.T) string {
+type liveBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *liveBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *liveBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func startPeerBoard(t *testing.T, h *harness) (string, string, func() string) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String()
+	_ = os.Remove(addrFile(h))
+	ctx, cancel := context.WithCancel(context.Background())
+	var out liveBuffer
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		env := h.env(&out, &out)
+		env.Context = ctx
+		cli.Run([]string{"board", "--addr", "127.0.0.1:0", "--peer-addr", "127.0.0.1:0"}, env)
+	}()
+	var addr, peer string
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(addrFile(h))
+		addr, peer = strings.TrimSpace(string(b)), field(out.String(), "peer")
+		return addr != "" && peer != ""
+	})
+	stop := sync.OnceValue(func() string { cancel(); <-done; return out.String() })
+	t.Cleanup(func() { stop() })
+	return "http://" + addr, peer, stop
+}
+
+func boardRefusal(h *harness, args ...string) (string, int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, errOut, code := h.runCtx(ctx, append([]string{"board"}, args...)...)
+	return errOut, code
 }
 
 func peerFile(h *harness) string { return filepath.Join(h.vars["SECONDHAND_HOME"], "board.peer") }
@@ -69,8 +111,7 @@ func TestBoardOpensNoPeerListenerAndNoSecretByDefault(t *testing.T) {
 
 func TestBoardPeerAddrServesTheSameBoardAsRemoteWithAPrivateSecret(t *testing.T) {
 	h := initWithProject(t)
-	peer := freeLoopback(t)
-	base, stop := startBoard(t, h, "127.0.0.1", "--peer-addr", peer)
+	base, peer, stop := startPeerBoard(t, h)
 	fleetURL, token := fleetPage(t, base, h)
 	id := fleetURL[strings.LastIndex(fleetURL, "/")+1:]
 	b, err := os.ReadFile(peerFile(h))
@@ -111,44 +152,126 @@ func TestBoardPeerAddrServesTheSameBoardAsRemoteWithAPrivateSecret(t *testing.T)
 	}
 }
 
-func TestBoardKeepsItsPeerSecretAcrossRestartsAndRefusesAMalformedOne(t *testing.T) {
+func TestBoardKeepsItsPeerSecretAcrossRestarts(t *testing.T) {
 	h := initWithProject(t)
-	_, stop := startBoard(t, h, "127.0.0.1", "--peer-addr", freeLoopback(t))
+	_, _, stop := startPeerBoard(t, h)
 	first, err := os.ReadFile(peerFile(h))
 	if err != nil {
 		t.Fatal(err)
 	}
 	stop()
-	_, stop = startBoard(t, h, "127.0.0.1", "--peer-addr", freeLoopback(t))
+	_, _, stop = startPeerBoard(t, h)
 	again, _ := os.ReadFile(peerFile(h))
 	stop()
 	if string(first) != string(again) {
 		t.Fatal("the peer secret changed across a restart")
 	}
-	if err := os.WriteFile(peerFile(h), []byte("short\n"), 0o600); err != nil {
+}
+
+func TestBoardRefusesAPeerSecretThatIsNotFortyEightHexDigits(t *testing.T) {
+	h := initWithProject(t)
+	for name, content := range map[string]string{
+		"not hex":        "short\n",
+		"hex but short":  "abcd\n",
+		"hex but long":   strings.Repeat("a", 50) + "\n",
+		"48 but not hex": strings.Repeat("g", 48) + "\n",
+		"empty":          "",
+	} {
+		if err := os.WriteFile(peerFile(h), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		errOut, code := boardRefusal(h, "--addr", "127.0.0.1:0", "--peer-addr", "127.0.0.1:0")
+		want := fmt.Sprintf("%s is not a peer secret; delete it to make a new one", peerFile(h))
+		if code == 0 || !strings.Contains(errOut, want) {
+			t.Fatalf("%s: exit %d, %q, want %q", name, code, errOut, want)
+		}
+		if shown := strings.ReplaceAll(errOut, peerFile(h), ""); strings.TrimSpace(content) != "" && strings.Contains(shown, strings.TrimSpace(content)) {
+			t.Fatalf("%s: the error prints the file's contents: %q", name, errOut)
+		}
+	}
+}
+
+func TestBoardTightensALoosePeerSecretFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no file modes")
+	}
+	h := initWithProject(t)
+	_, _, stop := startPeerBoard(t, h)
+	secret, err := os.ReadFile(peerFile(h))
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, errOut, code := h.run("board", "--addr", "127.0.0.1:0", "--peer-addr", "127.0.0.1:0")
-	if code == 0 || !strings.Contains(errOut, "not a peer secret") || strings.Contains(errOut, "short") {
-		t.Fatalf("a malformed board.peer: exit %d, %q", code, errOut)
+	stop()
+	if err := os.Chmod(peerFile(h), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, stop = startPeerBoard(t, h)
+	stop()
+	info, err := os.Stat(peerFile(h))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("board.peer mode = %v, %v", info, err)
+	}
+	if again, _ := os.ReadFile(peerFile(h)); string(again) != string(secret) {
+		t.Fatal("the secret changed while it was tightened")
+	}
+}
+
+func TestBoardRefusesAPeerSecretThatIsNotARegularFile(t *testing.T) {
+	h := initWithProject(t)
+	elsewhere := filepath.Join(t.TempDir(), "other")
+	if err := os.WriteFile(elsewhere, []byte(strings.Repeat("a", 48)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := func() error { return os.Symlink(elsewhere, peerFile(h)) }
+	dir := func() error { return os.Mkdir(peerFile(h), 0o700) }
+	for name, setup := range map[string]func() error{"a symlink to a secret": link, "a directory": dir} {
+		if name == "a symlink to a secret" && runtime.GOOS == "windows" {
+			continue
+		}
+		if err := setup(); err != nil {
+			t.Fatal(err)
+		}
+		errOut, code := boardRefusal(h, "--addr", "127.0.0.1:0", "--peer-addr", "127.0.0.1:0")
+		want := fmt.Sprintf("%s is not a regular file; delete it to make a new peer secret", peerFile(h))
+		if code == 0 || !strings.Contains(errOut, want) {
+			t.Fatalf("%s: exit %d, %q, want %q", name, code, errOut, want)
+		}
+		if err := os.Remove(peerFile(h)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(elsewhere); err != nil || info.Mode().Perm() != 0o644 {
+			t.Fatalf("the file behind the link was changed: %v, %v", info, err)
+		}
 	}
 }
 
 func TestBoardPeerAddrMustBeLoopbackOnALoopbackBoard(t *testing.T) {
 	h := initWithProject(t)
-	for _, args := range [][]string{
-		{"--addr", "127.0.0.1:0", "--peer-addr", "0.0.0.0:0"},
-		{"--addr", "127.0.0.1:0", "--peer-addr", "not-an-address"},
-		{"--addr", "0.0.0.0:0", "--peer-addr", "127.0.0.1:0"},
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	_, busyPort, _ := net.SplitHostPort(busy.Addr().String())
+	loopback := "board: --peer-addr must be a loopback address"
+	for name, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"any address":                {[]string{"--addr", "127.0.0.1:0", "--peer-addr", "0.0.0.0:0"}, loopback},
+		"no host":                    {[]string{"--addr", "127.0.0.1:0", "--peer-addr", ":0"}, loopback},
+		"any address on a busy port": {[]string{"--addr", "127.0.0.1:0", "--peer-addr", "0.0.0.0:" + busyPort}, loopback},
+		"not an address":             {[]string{"--addr", "127.0.0.1:0", "--peer-addr", "not-an-address"}, "address not-an-address: missing port in address"},
+		"a network board":            {[]string{"--addr", "0.0.0.0:0", "--peer-addr", "127.0.0.1:0"}, "board: --peer-addr needs --addr on a loopback address"},
 	} {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, errOut, code := h.runCtx(ctx, append([]string{"board"}, args...)...)
-		cancel()
-		if code == 0 || !strings.Contains(errOut, "peer-addr") && !strings.Contains(errOut, "address") {
-			t.Fatalf("board %v: exit %d, %q", args, code, errOut)
+		errOut, code := boardRefusal(h, c.args...)
+		if code == 0 || !strings.Contains(errOut, c.want) {
+			t.Fatalf("%s: exit %d, %q, want %q", name, code, errOut, c.want)
 		}
 		if _, err := os.Stat(peerFile(h)); !os.IsNotExist(err) {
-			t.Fatalf("board %v wrote a secret before it refused: %v", args, err)
+			t.Fatalf("%s wrote a secret before it refused: %v", name, err)
 		}
 	}
 }
