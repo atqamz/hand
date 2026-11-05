@@ -2,6 +2,8 @@ package board_test
 
 import (
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -49,4 +51,48 @@ func TestTheBoardCSSSizesOnlyWithTokens(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestOneRulePerSelector(t *testing.T) {
+	css := asset(t, "board.css")
+	var walk func(scope string, from int) int
+	seen := map[string]bool{}
+	walk = func(scope string, from int) int {
+		i := from
+		for i < len(css) {
+			j := i + strings.IndexAny(css[i:], "{}")
+			if j < i {
+				return len(css)
+			}
+			if css[j] == '}' {
+				return j + 1
+			}
+			prelude := strings.Join(strings.Fields(css[i:j]), " ")
+			if strings.HasPrefix(prelude, "@") {
+				i = walk(prelude+"#"+strconv.Itoa(j), j+1)
+				continue
+			}
+			parts := strings.Split(prelude, ",")
+			for k := range parts {
+				parts[k] = strings.TrimSpace(parts[k])
+			}
+			sort.Strings(parts)
+			key := scope + " " + strings.Join(parts, ",")
+			if seen[key] {
+				t.Errorf("board.css has two rules for %q in scope %q; merge them", strings.Join(parts, ","), strings.SplitN(scope, "#", 2)[0])
+			}
+			seen[key] = true
+			for depth := 1; depth > 0; j++ {
+				switch css[j+1] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+				}
+			}
+			i = j + 1
+		}
+		return i
+	}
+	walk("", 0)
 }

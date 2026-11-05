@@ -318,7 +318,7 @@ func TestTheFinishFixesHold(t *testing.T) {
 	for _, rule := range []string{
 		"body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2",
 		"@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2",
-		"body[data-shell] .timeline{max-height:none;overflow:visible}",
+		"body[data-shell] .timeline{max-height:none;overflow:visible;--sb:0px}",
 		"::placeholder{color:var(--muted)}",
 		".md .table{width:fit-content;max-width:100%;",
 		"scrollbar-gutter:stable both-edges",
