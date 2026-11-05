@@ -73,6 +73,11 @@ type watcher struct {
 	busyMisses    int
 	modelsSaid    map[string]string
 	saying        sync.Mutex
+
+	clickCtx  context.Context
+	clicks    atomic.Int32
+	clickOnce sync.Once
+	clickOK   bool
 }
 
 type turn struct {
@@ -121,11 +126,15 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
-	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1)}
+	clickCtx, clickStop := context.WithCancel(ctx)
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1), clickCtx: clickCtx}
+	defer func() {
+		clickStop()
+		w.pending.Wait()
+	}()
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
 	}
-	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
 		if errors.Is(err, luvus.ErrIncompatible) {
@@ -759,6 +768,9 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.pending.Add(1)
 	go func() {
 		defer w.pending.Done()
+		if extra == nil && w.notifyClick(ctx, bin, w.r.fleet.Name, text, ref) {
+			return
+		}
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(nctx, bin, args...)
