@@ -8,6 +8,8 @@ To update an installed Hand, run `hand update` from anywhere. It does the follow
 - replaces the binary, then stops each fleet's watcher and the board by the process IDs they record (`watch.pid` in the fleet folder, `board.pid` in `~/.secondhand`) and starts them again as `hand supervisor start` and `hand open` do, on every OS;
 - runs `hand init` in every fleet.
 
+It also fetches the `hand-iroh` sidecar of that release, when the new `hand` names one (the `iroh:` line of `hand version`) and the release carries it, and puts it next to `hand`: see [The hand-iroh sidecar](phone.md#the-hand-iroh-sidecar). The asset and its `.sha256` are checked, and the sidecar must report the version the new `hand` needs; if any check fails, nothing is replaced and the update stops before it touches `hand`, a fleet or a process. A release without the asset (0.13.0 and earlier, and `edge`) is not an error: the report says `iroh: none in this release` and an installed sidecar stays. The sidecar is placed before `hand` is, so a failure to place it leaves the old `hand` in place, and the board's restart at the end starts the new sidecar with the new board. An update that finds `hand` already current does not fetch it. On Windows the running sidecar is renamed to `hand-iroh.exe.old` as `hand.exe` is, and the next `hand` run removes it.
+
 It also pins the Luvus version that build was tested with when that is newer than the pin. On every OS it compares the version a UHP `ping` reports with the pin's: a server that does not answer is not running and has nothing to switch, and one that answers without a version is `unknown` and is never switched.
 
 A server that runs another version than the pin is switched, fleet by fleet, only when the fleet is quiet and settled. Quiet: no worker attempt is live, the supervisor is idle, no message waits for it, and no pane is live in that server besides the supervisor's and the shell Luvus opens when it starts. Settled: the fleet recorded no event for 15 minutes. The checks run in this order, and a fleet that fails one stays `pending: <reason>` in the `fleets` rows, which names a pane Hand did not start, since stopping the server ends it (a check before step 2 changes nothing, and the watcher keeps running):
@@ -54,7 +56,7 @@ To restore a backup:
 2. run `hand supervisor stop` in the fleet if its supervisor runs, at a time when no worker runs, so nothing writes to `hand.db`;
 3. remove `hand.db-wal` and `hand.db-shm` next to the fleet's `hand.db`;
 4. copy the backup over `hand.db`: a `hand.db.<stamp>` from `hand update`, or a daily `hand-YYYYMMDD.db` from the watcher, both under `$SECONDHAND_HOME/backups/<fleet id>/` (`~/.secondhand/backups/<fleet id>/` unless you set it);
-5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem; an older `hand` refuses a database that a newer one migrated (`newer than this hand`), so step 4 is not optional with it;
+5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem (Hand backs up `hand`, not the sidecar: an older `hand` that pins another sidecar version shows `hand-iroh` as failed in `hand doctor` until you install the matching one); an older `hand` refuses a database that a newer one migrated (`newer than this hand`), so step 4 is not optional with it;
 6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
 
 ## Updating from before 0.13.0

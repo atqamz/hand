@@ -24,7 +24,7 @@ You can choose another version:
 - **Edge:** `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`. Edge is the rolling build of `main` that passed CI.
 - **A pinned release:** `HAND_INSTALL_VERSION=v0.13.0`.
 
-`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match. Do not pipe the download into `sh`: when `curl` fails, `sh` gets empty input and exits 0, as does `sh -c "$(curl ...)"`. The assignment in the command above makes a failed fetch of `install.sh` stop it with `curl`'s exit code, and a failure inside the script exits 1 with one `install.sh:` line. The command needs a POSIX shell (`sh`, `bash`, `zsh`), not fish.
+`HAND_INSTALL_DIR` picks the folder; the default is `~/.local/bin`. The script checks the download against the release's `checksums.txt`, and installs nothing if it does not match. It also fetches `hand-iroh`, the sidecar for [phone access over iroh](phone.md#the-hand-iroh-sidecar), when the release carries it and the new `hand` names it: the asset is checked against its own `.sha256` and must report the version that `hand` needs, then it goes next to `hand`. If that check fails, the script installs neither and leaves what you have. A release without it (`edge`, 0.13.0 and earlier) is not an error: the script says so and goes on. Do not pipe the download into `sh`: when `curl` fails, `sh` gets empty input and exits 0, as does `sh -c "$(curl ...)"`. The assignment in the command above makes a failed fetch of `install.sh` stop it with `curl`'s exit code, and a failure inside the script exits 1 with one `install.sh:` line. The command needs a POSIX shell (`sh`, `bash`, `zsh`), not fish.
 
 On Windows, run this in PowerShell; [Windows](#windows) has the options:
 
@@ -56,7 +56,7 @@ Install the latest release into `%LOCALAPPDATA%\hand\bin` from PowerShell 5.1 or
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. Open a new terminal afterwards.
+The script downloads `hand-windows-amd64.zip`, checks it against the release's `hand-windows-amd64.sha256`, installs nothing if it does not match, and adds the folder to your user `PATH` once. It fetches `hand-iroh-windows-amd64.zip` too, as `install.sh` fetches its sidecar, and puts `hand-iroh.exe` next to `hand.exe`; a running one is renamed to `hand-iroh.exe.old` as `hand.exe` is. Open a new terminal afterwards.
 
 Set the options as environment variables before the command, as in `$env:HAND_INSTALL_VERSION = 'edge'; irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex`:
 - `HAND_INSTALL_VERSION`: `edge` for the rolling build of `main` that passed CI, or a pinned release such as `v0.13.0`;
