@@ -12,27 +12,27 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 	css := asset(t, "board.css")
 	for _, rule := range []string{
 		".connect-part h3{margin:0}",
-		".part-body{display:grid;gap:10px;padding:12px}",
+		".part-body{display:grid;gap:var(--space-10);padding:var(--space-12)}",
 		".part-body>p{margin:0}",
-		".net{display:grid;gap:10px;margin:0;padding:0;list-style:none}",
-		".net>li{display:flex;align-items:baseline;gap:10px;min-width:0}",
+		".net{display:grid;gap:var(--space-10);margin:0;padding:0;list-style:none}",
+		".net>li{display:flex;align-items:baseline;gap:var(--space-10);min-width:0}",
 		".net>li>.badge{flex:none}",
 		".net>li>span:last-child{min-width:0;overflow-wrap:anywhere}",
-		".steps{display:grid;gap:6px;margin:0;padding-left:20px}",
-		".pair-code{display:flex;flex-wrap:wrap;align-items:flex-start;gap:16px}",
-		".pair-copy{display:grid;flex:1 1 260px;gap:8px;min-width:0}",
+		".steps{display:grid;gap:var(--space-6);margin:0;padding-left:var(--space-20)}",
+		".pair-code{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-16)}",
+		".pair-copy{display:grid;flex:1 1 260px;gap:var(--space-8);min-width:0}",
 		".pair-copy>p{margin:0}",
 		".qr{display:block;flex:none;width:min(100%,280px);border:1px solid var(--line)}",
-		".pair-link{display:flex;flex-wrap:wrap;align-items:center;gap:8px}",
+		".pair-link{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-8)}",
 		".connect-part code{white-space:normal;overflow-wrap:anywhere}",
 		".code-big{font-family:var(--mono);font-size:22px;line-height:30px;font-weight:600;letter-spacing:.06em}",
-		".pair-form{display:grid;gap:8px;max-width:440px}",
+		".pair-form{display:grid;gap:var(--space-8);max-width:440px}",
 		".pair-form input{width:100%}",
 		".pair-form button{justify-self:start}",
 		".field-error{margin:0;color:var(--fail);font-size:14px}",
 		".devices{margin:0;padding:0;list-style:none}",
-		".device{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}",
-		".dev-text{display:grid;flex:1;gap:2px;min-width:0;overflow-wrap:anywhere}",
+		".device{display:flex;align-items:center;gap:var(--space-12);padding:var(--space-8) 0;border-bottom:1px solid var(--line)}",
+		".dev-text{display:grid;flex:1;gap:var(--space-2);min-width:0;overflow-wrap:anywhere}",
 		".dev-note{color:var(--muted);font-size:12px}",
 	} {
 		contains(t, "board.css", css, "\n"+rule+"\n")
@@ -54,9 +54,9 @@ func TestThePhonePagesStyleEveryPartTheyAdd(t *testing.T) {
 func TestThePairPageStylesTheFleetChoices(t *testing.T) {
 	css := asset(t, "board.css")
 	rules := []string{
-		".pair-fleets{display:grid;gap:2px;min-width:0;margin:0;padding:0;border:0}",
-		".pair-fleets legend{padding:0;margin-bottom:4px}",
-		".pair-fleet{display:flex;align-items:center;gap:10px;padding-block:calc((var(--control) - 20px)/2);line-height:20px;cursor:pointer}",
+		".pair-fleets{display:grid;gap:var(--space-2);min-width:0;margin:0;padding:0;border:0}",
+		".pair-fleets legend{padding:0;margin-bottom:var(--space-4)}",
+		".pair-fleet{display:flex;align-items:center;gap:var(--space-10);padding-block:calc((var(--control) - var(--space-20))/2);line-height:20px;cursor:pointer}",
 		".pair-fleets .pair-fleet>input{flex:none;width:18px;height:18px;margin:0;padding:0;accent-color:var(--accent)}",
 	}
 	for _, rule := range rules {
@@ -73,10 +73,10 @@ func TestThePhonePageStylesAPhoneListedWithItsFleets(t *testing.T) {
 	css := asset(t, "board.css")
 	rules := []string{
 		".device-group{flex-wrap:wrap}",
-		".dev-fleets{display:grid;flex:1 0 100%;gap:2px;margin:0;padding:0 0 0 12px;border-left:2px solid var(--line);list-style:none}",
-		".dev-fleet{display:flex;align-items:center;justify-content:space-between;gap:12px}",
+		".dev-fleets{display:grid;flex:1 0 100%;gap:var(--space-2);margin:0;padding:0 0 0 var(--space-12);border-left:2px solid var(--line);list-style:none}",
+		".dev-fleet{display:flex;align-items:center;justify-content:space-between;gap:var(--space-12)}",
 		".dev-fleet>span{min-width:0;overflow-wrap:anywhere}",
-		".revoke-note{display:grid;gap:10px;justify-items:start}",
+		".revoke-note{display:grid;gap:var(--space-10);justify-items:start}",
 	}
 	for _, rule := range rules {
 		contains(t, "board.css", css, "\n"+rule+"\n")

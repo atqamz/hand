@@ -62,10 +62,10 @@ func TestCodeBlocksGetACopyButtonFromTheScript(t *testing.T) {
 func TestCopyButtonStyles(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "code block", css,
-		".md .code{--surface:var(--card);position:relative;margin:0 0 8px;letter-spacing:normal;text-transform:none}",
+		".md .code{--surface:var(--card);position:relative;margin:0 0 var(--space-8);letter-spacing:normal;text-transform:none}",
 		".from-sup .md .code{--surface:var(--bg)}",
 		".md>.code:last-child{margin-bottom:0}",
-		".md .code>pre{margin:0;padding-right:calc(var(--control) + 12px);min-height:calc(var(--control) + 8px)}",
+		".md .code>pre{margin:0;padding-right:calc(var(--control) + var(--space-12));min-height:calc(var(--control) + 8px)}",
 		".timeline .card .copy>:not(.table):not(pre):not(.code){max-width:72ch}",
 	)
 	contains(t, "button", css,

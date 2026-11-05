@@ -51,9 +51,9 @@ func TestAPressClosesTheItemInPlace(t *testing.T) {
 
 func TestTheMastheadAlignsWithItsColumn(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "masthead", css, "body:not([data-page=fleet]) .masthead-inner{padding-inline:max(16px,calc((100% - 848px)/2))}")
+	contains(t, "masthead", css, "body:not([data-page=fleet]) .masthead-inner{padding-inline:max(var(--space-16),calc((100% - 848px)/2))}")
 	lacks(t, "masthead", css, "body[data-page=fleet] .masthead-inner{padding-inline:max(")
-	contains(t, "board", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .masthead-inner{padding-inline:24px}")
+	contains(t, "board", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .masthead-inner{padding-inline:var(--space-24)}")
 }
 
 func TestNoSupervisorWaitsInAmber(t *testing.T) {
@@ -128,9 +128,9 @@ func TestASentItemStaysClosedOnlyForItsScreen(t *testing.T) {
 
 func TestThePhoneMastheadStaysOneRow(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:4px;overflow-x:clip}", ".masthead .strip-note{flex-basis:100%}")
-	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:10px;min-width:0;overflow-x:clip;white-space:nowrap;flex-wrap:nowrap}")
-	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;padding-block:4px;overflow-x:clip}", ".masthead .strip-note{flex-basis:100%;")
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:var(--space-4);overflow-x:clip}", ".masthead .strip-note{flex-basis:100%}")
+	contains(t, "status line", css, ".strip .status-line{display:flex;align-items:center;gap:var(--space-10);min-width:0;overflow-x:clip;white-space:nowrap;flex-wrap:nowrap}")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-8);min-width:0;padding-block:var(--space-4);overflow-x:clip}", ".masthead .strip-note{flex-basis:100%;")
 }
 
 func TestStuckReportsWearTheFailTone(t *testing.T) {
@@ -171,7 +171,7 @@ func TestNeedsAffordances(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
 		".wait>summary:focus-visible{outline-offset:-2px}",
-		".wait>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 16px;cursor:pointer;list-style:none}",
+		".wait>summary{display:flex;align-items:center;gap:var(--space-10);min-height:var(--tap);padding:0 var(--space-16);cursor:pointer;list-style:none}",
 		".wait>summary>.icon:last-child{order:2;",
 		".wait[open]>summary>.icon:last-child{transform:rotate(180deg)}",
 		".work{scrollbar-gutter:stable both-edges}")
@@ -189,13 +189,13 @@ func TestNeedsRowsAreCalmAndTheOpenItemIsACard(t *testing.T) {
 		".wait>summary .slug>.code,.wait:not([open])>summary .slug>.meta{display:none}")
 	lacks(t, "rows", css, ".wait[data-tone=fail]>summary{", ".wait[data-tone=wait]>summary{", ".wait:not([open]) .wait-title{")
 	contains(t, "card", css,
-		".wait[open]{margin:6px 0 10px;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}",
+		".wait[open]{margin:var(--space-6) 0 var(--space-10);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}",
 		".wait[open][data-tone=fail]>summary{background:var(--fail-bg)}",
-		".wait[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:2px 10px;padding:12px 15px 10px}",
-		".wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:10px 15px 15px 41px}")
-	contains(t, "two lines", block(t, css, "@container (width < 480px){"), ".wait:not([open])>summary{flex-wrap:wrap;gap:0 10px;min-height:52px;padding-block:7px}", ".wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}")
+		".wait[open]>summary{flex-wrap:wrap;align-items:flex-start;gap:var(--space-2) var(--space-10);padding:var(--space-12) 15px var(--space-10)}",
+		".wait-body{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-10);padding:var(--space-10) 15px 15px 41px}")
+	contains(t, "two lines", block(t, css, "@container (width < 480px){"), ".wait:not([open])>summary{flex-wrap:wrap;gap:0 var(--space-10);min-height:var(--sheet);padding-block:7px}", ".wait:not([open])>summary>.slug{order:5;flex:1 0 100%;padding-left:26px}")
 	contains(t, "container", css, "#needs{container-type:inline-size}")
-	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"), ".wait>summary{min-height:52px}")
+	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"), ".wait>summary{min-height:var(--sheet)}")
 }
 
 func TestNeedsSeverityHoldsInForcedColours(t *testing.T) {
@@ -225,12 +225,12 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 	contains(t, "composer", css,
 		"#chat{container-type:inline-size}",
 		"@container (max-width:519px){[data-send-key]{display:none}}")
-	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead-inner{min-height:36px;padding:0 12px;overflow-x:clip}")
+	contains(t, "short screens", block(t, css, "@media (max-height:599px){"), ".masthead-inner{min-height:var(--row-sm);padding:0 var(--space-12);overflow-x:clip}")
 	contains(t, "controls", css, ".filters :is(input,select),.menu-body label select{font-size:14px;font-weight:400;width:100%;min-width:0}")
 	if strings.Index(css, ".menu-body label select{font-size:14px") > strings.Index(css, "@media (pointer:coarse){textarea") {
 		t.Fatal("the 14px control rule comes after the coarse 16px one and wins on touch")
 	}
-	contains(t, "thread pages", css, ".thread-head .question{max-height:none;overflow:visible}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none}")
+	contains(t, "thread pages", css, ".thread-head .question{max-height:none;overflow:visible}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none;--sb:0px}")
 	contains(t, "touch", block(t, css, "@media (pointer:coarse){textarea"),
 		".filters :is(input,select),.menu-body label select{font-size:16px}",
 		".crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){display:inline-flex;align-items:center}",
@@ -240,11 +240,11 @@ func TestChipsTheComposerAndTheMastheadStayInsideTheirBoxes(t *testing.T) {
 
 func TestThePhoneConsoleWrapsInThePaneHeadAndTheModelMenuIsAGrid(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".console{padding:8px 12px}.console>.pending{flex:1 1 100%}", ".console-box,.sup>.hint.read-only{margin:0 12px 12px}")
+	contains(t, "phone", block(t, css, "@media (max-width:599px){"), ".console{padding:var(--space-8) var(--space-12)}.console>.pending{flex:1 1 100%}", ".console-box,.sup>.hint.read-only{margin:0 var(--space-12) var(--space-12)}")
 	contains(t, "model menu", css,
-		".menu-body form{display:grid;gap:8px}",
-		".field-label{margin:4px 0 0;")
-	contains(t, "panels", css, ".work:focus-visible{outline:0}", ".sup>.hint.read-only{margin:0 max(16px,calc((100% - 760px)/2)) 16px;")
+		".menu-body form{display:grid;gap:var(--space-8)}",
+		".field-label{margin:var(--space-4) 0 0;")
+	contains(t, "panels", css, ".work:focus-visible{outline:0}", ".sup>.hint.read-only{position:relative;margin:0 max(var(--space-16),calc((100% - 760px)/2)) var(--space-16);")
 }
 
 func TestEveryNeedsMotionHasAReducedMotionOverride(t *testing.T) {

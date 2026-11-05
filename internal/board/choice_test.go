@@ -227,17 +227,17 @@ func TestTheChoiceListRows(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "rows", css,
 		".options{display:grid;min-width:0;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r-lg);",
-		".option{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:12px;align-items:start;min-height:48px;padding:12px 14px}",
+		".option{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr);column-gap:var(--space-12);align-items:start;min-height:var(--row-lg);padding:var(--space-12) var(--space-14)}",
 		".option+.option{padding-top:11px;border-top:1px solid var(--line)}",
 		".option-key{display:grid;place-items:center;width:24px;height:24px;border:1px solid var(--line-strong);border-radius:50%;",
-		".option-head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 12px}", ".option-head>.badge{flex:none;margin-top:1px}",
+		".option-head{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-4) var(--space-12)}", ".option-head>.badge{flex:none;margin-top:1px}",
 		".option-label{flex:1 1 auto;min-width:0;color:var(--fg);font-size:14px;font-weight:600;line-height:22px;overflow-wrap:anywhere}", ".option.long .option-label{font-weight:400}",
 		".option-note{color:var(--muted);font-size:14px;line-height:20px;overflow-wrap:anywhere}",
 		".option:has(input:checked) .option-key,.options.done .picked .option-key{border-color:var(--accent);background:var(--accent);color:var(--bg)}",
 		".option:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px}",
 		".badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}",
 		".answer[data-choose] textarea{min-height:var(--control);padding-block:5px;resize:none}",
-		"@supports (text-box:trim-both cap alphabetic){.option-key{display:block;line-height:18px;text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((24px - 2px - 1cap)/2)}}",
-		"@media (pointer:coarse){.option{min-height:52px;padding-block:14px}.option+.option{padding-top:13px}")
+		"@supports (text-box:trim-both cap alphabetic){.option-key{display:block;line-height:18px;text-align:center;text-box:trim-both cap alphabetic;padding-block:calc((var(--space-24) - var(--space-2) - 1cap)/2)}}",
+		"@media (pointer:coarse){.option{min-height:var(--sheet);padding-block:var(--space-14)}.option+.option{padding-top:13px}")
 	lacks(t, "chips", css, ".chips", ".chip{", "data-fill", ".keys-hint")
 }
