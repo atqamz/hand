@@ -157,18 +157,16 @@ rounded:
   pill: "999px"
   round: "50%"
 spacing:
-  3xs: "2px"
-  2xs: "4px"
-  xs: "6px"
-  sm: "8px"
-  md: "10px"
-  lg: "12px"
-  xl: "14px"
-  2xl: "16px"
-  3xl: "20px"
-  4xl: "24px"
-  5xl: "32px"
-  6xl: "48px"
+  space-2: "2px"
+  space-4: "4px"
+  space-6: "6px"
+  space-8: "8px"
+  space-10: "10px"
+  space-12: "12px"
+  space-14: "14px"
+  space-16: "16px"
+  space-20: "20px"
+  space-24: "24px"
 components:
   masthead:
     backgroundColor: "{colors.bg}"
@@ -841,6 +839,8 @@ A `card connect-part` titled Install at the foot of the Phone page, for the lapt
 **The One Choice List Rule.** A decision is answered from one component, the choice list, in a Needs item and on the decision page, and the answered state is the same list at rest. The question never repeats its option lines, and the server joins the pick and the note into one answer.
 
 **The One Badge And One Row Rule.** Every pill, count and tag is the one `.badge`, and every line of the task, attempt, event, decision and fleet lists is the one `.row`. A new component sets a slot or a tone on them; it never draws a third shape.
+
+**The One Rule Per Selector Rule.** `board.css` holds one rule for a selector in each scope, the top level or one `@media` or `@supports` block, so a property is set in one place and a later rule never patches an earlier one. `TestOneRulePerSelector` fails on a second rule for the same selector, with the whitespace and the order of a comma list ignored. Two blocks with the same condition are two scopes, so the repeated `@media (pointer:coarse)` and `@media (forced-colors:active)` blocks stay.
 
 **The Black On White Rule.** The QR code is the one picture the Board colours with literals, never with tokens: black modules on a white ground with a quiet zone of at least 4 modules, in the light and in the dark theme. A scanner needs the dark-on-light contrast whatever the page does, and a themed QR would fail it. The colours are `fill` attributes in the SVG; `board.css` holds no `#fff` or `#000` for it (`TestThePhonePagesStyleEveryPartTheyAdd`).
 

@@ -208,7 +208,7 @@ func TestWakeLinesNameTheKindAndDropDanglingColons(t *testing.T) {
 func TestOperatorBubblesEndOnTheComposerEdge(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "bubble", css, ".timeline>.from-you{align-self:flex-end;max-width:min(88%,560px);", ".timeline>.card{min-width:0;padding:0;border:0}")
-	contains(t, "gutter", css, ".timeline{--sb:8px;", "scrollbar-gutter:stable;mask-image", ".sup>.timeline{padding:var(--space-16) calc(max(var(--space-16),calc((100% - 760px)/2)) - var(--sb)) var(--space-16) max(var(--space-16),calc((100% - 760px)/2))}", ".sup>.timeline{padding:var(--space-12) calc(var(--space-12) - var(--sb)) var(--space-12) var(--space-12)}", "body[data-shell] .timeline{--sb:0px}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none;--sb:0px}")
+	contains(t, "gutter", css, ".timeline{--sb:8px;", "scrollbar-gutter:stable;mask-image", ".sup>.timeline{padding:var(--space-16) calc(max(var(--space-16),calc((100% - 760px)/2)) - var(--sb)) var(--space-16) max(var(--space-16),calc((100% - 760px)/2))}", ".sup>.timeline{padding:var(--space-12) calc(var(--space-12) - var(--sb)) var(--space-12) var(--space-12)}", "body[data-shell] .timeline{max-height:none;overflow:visible;--sb:0px}", ".thread>.timeline{max-height:none;overflow:visible;mask-image:none;--sb:0px}")
 	contains(t, "composer", css, ".console-box{flex:none;margin:0 max(var(--space-16),calc((100% - 760px)/2)) var(--space-16);")
 }
 

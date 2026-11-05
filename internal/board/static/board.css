@@ -112,7 +112,7 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(var(--space-16),c
 .band:first-child{margin-top:0}
 .band[data-tone=fail]{color:var(--fail)}
 .band[data-tone=wait]{color:var(--wait)}
-.wait{overflow-wrap:anywhere;border-bottom:1px solid var(--line);background:var(--bg)}
+.wait{overflow-wrap:anywhere;border-bottom:1px solid var(--line);background:var(--bg);interpolate-size:allow-keywords}
 .band+.wait{border-top:1px solid var(--line)}
 .wait>summary{display:flex;align-items:center;gap:var(--space-10);min-height:var(--tap);padding:0 var(--space-16);cursor:pointer;list-style:none}
 .wait>summary:hover{background:var(--hover)}
@@ -124,7 +124,6 @@ body:not([data-page=fleet]) .masthead-inner{padding-inline:max(var(--space-16),c
 .wait>summary .slug>.code,.wait:not([open])>summary .slug>.meta{display:none}
 .wait[open][data-tone=fail]>summary .slug{color:color-mix(in srgb,var(--fail) 55%,var(--fg))}
 .wait[open][data-tone=wait]>summary .slug{color:color-mix(in srgb,var(--wait) 55%,var(--fg))}
-.wait{interpolate-size:allow-keywords}
 .wait::details-content{block-size:0;overflow:clip;transition:block-size .24s cubic-bezier(.16,1,.3,1),content-visibility .24s allow-discrete}
 .wait[open]::details-content{block-size:auto}
 .wait>summary::-webkit-details-marker{display:none}
@@ -499,17 +498,15 @@ body:has(>.rail){padding-left:56px}
 body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2}
 body:not([data-shell]) #composer textarea{max-height:30dvh}
 @media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2}
-.masthead-inner{min-height:var(--row-sm);padding:0 var(--space-12);overflow-x:clip}
+.masthead-inner{min-height:var(--row-sm);padding:0 var(--space-12);overflow-x:clip;flex:1;min-width:0}
 .masthead .fleet-id{display:none}
 .masthead .strip{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-8);min-width:0;padding-block:var(--space-4);overflow-x:clip}
 .masthead .strip .status-line{flex-wrap:nowrap;white-space:nowrap}
 .masthead .strip-note{flex-basis:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .masthead{display:flex;align-items:center}
-.masthead-inner{flex:1;min-width:0}
 .masthead .tabs{flex:none;padding:0 var(--space-8);border:0}
 .masthead .tabs a{padding:var(--space-6) var(--space-10)}
-body[data-shell] .timeline{max-height:none;overflow:visible}
-body[data-shell] .timeline{--sb:0px}
+body[data-shell] .timeline{max-height:none;overflow:visible;--sb:0px}
 #composer textarea{max-height:30dvh}}
 @media (max-width:599px){.work>.panel{padding:var(--space-16) var(--space-12) 0}.key-label{display:none}.event{grid-template-columns:auto minmax(0,1fr)}.event .detail{grid-column:1/-1}.thread>.card.from-you{max-width:100%}.fleet-id{display:none}
 dialog.viewer[open]{width:100vw;height:100dvh;border:0;border-radius:0}
@@ -523,10 +520,8 @@ dialog.viewer[open] .text-bar{top:-12px}
 .filters .range .field+.field{border-left:1px solid var(--line-strong)}
 .task-main>.card.report>header.slug{grid-template-columns:auto minmax(0,1fr);grid-template-areas:"who title" "meta meta" "act act"}.task-main>.card.report>header>.act{justify-self:start;margin-top:var(--space-4)}
 .masthead .spacer{display:none}
-.masthead .strip{flex:0 1 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:var(--space-4);overflow-x:clip}
-.masthead .strip-note{flex-basis:100%}
-.masthead .strip{flex-shrink:0}
-.masthead .strip-note{width:0;min-width:100%}
+.masthead .strip{flex:0 0 auto;min-width:0;display:flex;flex-wrap:wrap;justify-content:flex-end;padding-block:var(--space-4);overflow-x:clip}
+.masthead .strip-note{flex-basis:100%;width:0;min-width:100%}
 .needs-count{display:inline-block}
 .strip .who,.strip .queued,.strip .compactions,.ctx{display:none}
 .others-body form.start{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.others-body form.start button{grid-column:1/-1}
