@@ -256,6 +256,7 @@ func TestAnUnreadablePolicyDeniesNothing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stallTick(t, fx)
 	fx.h.advance(11 * time.Minute)
 	for range 3 {
 		stallTick(t, fx)
