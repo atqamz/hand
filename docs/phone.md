@@ -73,19 +73,19 @@ The `Iroh` workflow (`.github/workflows/iroh.yaml`) builds them, and the `Releas
 tail -f /dev/null | hand-iroh --board 127.0.0.1:7778 --secret-file ~/.secondhand/board.peer --key-dir ~/.secondhand/iroh
 ```
 
-It prints one line, `ready id=ENDPOINTID relay=URL`, once it is online (up to 10 seconds; `relay=none` when it is not, or when it runs without a relay). The ID is the address a phone dials. It stops cleanly on `SIGTERM`, Ctrl-C or when its input closes, and `hand-iroh --version` prints `hand-iroh VERSION iroh VERSION`.
+It prints one line, `ready id=ENDPOINTID relay=URL`, once it is online (it waits up to 10 seconds; `relay=none` when it is not online by then, or when it runs without a relay). The ID is the address a phone dials. It stops cleanly on `SIGTERM`, Ctrl-C or when its input closes, and `hand-iroh --version` prints `hand-iroh VERSION iroh VERSION`.
 
 | Flag | Meaning |
 |---|---|
 | `--board ADDR` | The peer listener, a loopback IP address and port. Anything else is refused, because the secret crosses it in the clear. |
 | `--secret-file PATH` | The file that holds the secret, `board.peer` in `~/.secondhand`: 16 to 128 printable characters without spaces. There is no flag or environment variable for the secret itself. |
-| `--key-dir DIR` | Where the endpoint's key lives: `hand-iroh.key`, 32 bytes, created on the first run, with mode 0600 in a folder made with mode 0700 on Linux and macOS. The sidecar refuses a key that other users can read, and its ID stays the same across runs. Delete the file to get a new ID. |
+| `--key-dir DIR` | Where the endpoint's key lives: `hand-iroh.key`, 32 bytes, created on the first run, with mode 0600 in a folder made with mode 0700 on Linux and macOS. On Linux and macOS the sidecar refuses a key file that other users can read and a folder that they can write; on Windows it checks neither, so choose a folder only you can open. Its ID stays the same across runs. Delete the file to get a new ID. |
 | `--alpn NAME` | The protocol name dialers must ask for. Default `hand-board`. |
 | `--relay default\|none\|URL` | `default` uses the public relays the iroh project runs and publishes the endpoint's address to its DNS. A URL uses that relay in their place. `none` uses no relay, no DNS and no port mapping, so only a dialer that knows a reachable address connects. |
-| `--max-connections N` | Dialers served at once. Default 16. Further dialers are refused until one leaves. |
-| `--idle SECONDS` | Default 60. A stream that moves no byte for this long is reset, and a connection with no open stream for this long is closed. |
+| `--max-connections N` | Dialers served at once, 1 to 1024. Default 16. Further dialers are refused until one leaves. |
+| `--idle SECONDS` | 1 to 86400. Default 60. A stream that moves no byte for this long is reset, and a connection with no open stream for this long is closed. |
 
-**What it decides, and what it does not.** It does not know who is paired. iroh admits any dialer that completes the handshake, and endpoint IDs are not secret, so every dialer reaches the peer listener, which serves an unpaired peer only `/<fleet id>/pair` and the files it loads, under its own byte, request and idle limits. The sidecar's limits bound what it spends: each connection may open at most 32 streams, and each stream is one loopback connection to the board. They do not tell a stranger from a paired phone, so a stranger who knows the ID can hold connection slots until the idle time closes them. A stream whose board connection fails is reset, and its connection stays open. It writes nothing but the one line above, and never prints the secret or the key.
+**What it decides, and what it does not.** It does not know who is paired. iroh admits any dialer that completes the handshake, and endpoint IDs are not secret, so every dialer reaches the peer listener, which serves an unpaired peer only `/<fleet id>/pair` and the files it loads, under its own byte, request and idle limits. The sidecar's limits bound what it spends: each connection may have at most 32 streams open at once, and each stream is one loopback connection to the board. They do not tell a stranger from a paired phone, so a stranger who knows the ID can hold connection slots until the idle time closes them. A stream whose board connection fails is reset, and its connection stays open. It writes nothing but the one line above, and never prints the secret or the key.
 
 ## SSH tunnel
 
