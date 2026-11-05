@@ -501,7 +501,7 @@
     },
     {
       "name": "the code is judged before the relay",
-      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=z&r=https%3A%2F%2Frelay.example.test%2F",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=z&r=http%3A%2F%2Frelay.example.test%2F",
       "reject": "code"
     },
     {

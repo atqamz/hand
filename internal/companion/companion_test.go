@@ -377,7 +377,10 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	if want := match(t, phone, `codeChars\s+= "([^"]+)"`); v.Board.CodeAlphabet != want || want != codeAlphabet || len(want) != 32 {
 		t.Errorf("code alphabet: the file says %q, the code says %q", v.Board.CodeAlphabet, want)
 	}
-	if v.Board.CodeLength != 10 || !codeRe.MatchString(strings.Repeat("0", v.Board.CodeLength)) {
+	if want := number(t, phone, `func newCode\(\) string \{\s+buf := make\(\[\]byte, (\d+)\)`, 1); v.Board.CodeLength != want {
+		t.Errorf("code length: the file says %d, the code says %d", v.Board.CodeLength, want)
+	}
+	if !codeRe.MatchString(strings.Repeat("0", v.Board.CodeLength)) {
 		t.Errorf("code length %d is not the parser's", v.Board.CodeLength)
 	}
 	if v.Board.FleetID != state.FleetID.String() {
