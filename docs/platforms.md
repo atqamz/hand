@@ -20,7 +20,7 @@ In the table:
 | What | Linux | macOS | Windows |
 |---|---|---|---|
 | Install script | CI e2e | real Mac (#895), CI e2e | CI e2e, in PowerShell 5.1 and 7 |
-| Install script fetches `hand-iroh` next to `hand`, and keeps the old binaries when its checksum, version or archive fails | CI e2e, CI | CI e2e | CI e2e, in PowerShell 5.1 and 7 |
+| Install script fetches `hand-iroh` next to `hand`, and keeps the old binaries when its checksum, version or archive fails | CI e2e, CI | CI e2e | CI e2e, in PowerShell 5.1 and 7, for a corrupted sidecar archive |
 | `hand init` and the Luvus pin | daily, CI e2e | real Mac (#895), CI e2e | CI e2e |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
