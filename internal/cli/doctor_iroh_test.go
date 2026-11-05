@@ -99,6 +99,45 @@ func TestDoctorNeverShowsAnIdForASidecarThatIsNotReady(t *testing.T) {
 	}
 }
 
+func TestDoctorIrohTreatsAnUnreadableStateFileAsInformation(t *testing.T) {
+	for name, line := range map[string]string{
+		"not a state": "boom",
+		"a short ID":  "ready abc https://relay.example.test/",
+		"a bad relay": "ready " + irohID + " file:///etc/passwd",
+		"a huge file": strings.Repeat("x", 5000),
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := newDoctorFixture(t)
+			holdWatchLock(t, fx.h.home)
+			root := fx.h.vars["SECONDHAND_HOME"]
+			installSidecar(t, fx, nil)
+			recordIrohState(t, root, line)
+			liveBoard(t, root)
+			out := fx.h.ok("doctor")
+			row := checkRows(t, out)["iroh"]
+			if row[0] != "info" || !strings.Contains(row[1], "unreadable") {
+				t.Fatalf("iroh = %q, want info with unreadable in:\n%s", row, out)
+			}
+		})
+	}
+}
+
+func TestDoctorIrohScrubsTheReason(t *testing.T) {
+	fx := newDoctorFixture(t)
+	holdWatchLock(t, fx.h.home)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	installSidecar(t, fx, nil)
+	recordIrohState(t, root, "failed boom\x1b[31mred")
+	liveBoard(t, root)
+	out := fx.h.ok("doctor")
+	if strings.Contains(out, "\x1b") {
+		t.Fatalf("doctor printed a control character:\n%q", out)
+	}
+	if row := checkRows(t, out)["iroh"]; !strings.Contains(row[1], "boom [31mred") {
+		t.Fatalf("iroh = %q", row)
+	}
+}
+
 func installSidecar(t *testing.T, fx *doctorFixture, params map[string]string) {
 	t.Helper()
 	p := map[string]string{"log": filepath.Join(t.TempDir(), "log"), "version": sidecar.Version}

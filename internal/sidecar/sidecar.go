@@ -143,6 +143,8 @@ func clean(s string) string {
 	return s
 }
 
+func Clean(s string) string { return clean(s) }
+
 type lines struct {
 	buf   []byte
 	skip  bool
