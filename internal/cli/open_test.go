@@ -170,6 +170,9 @@ func TestOpenDeepLinks(t *testing.T) {
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
+		}
 		want := fx.base + "/" + fx.id + c.path + "?token=" + fx.token(t) + "&keep=1" + c.frag
 		if got := opened[len(opened)-1]; got != want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
@@ -221,6 +224,9 @@ func TestOpenDelivered(t *testing.T) {
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
 		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != c.want || !strings.Contains(out, strings.ReplaceAll(c.want, `\`, `\\`)) {
 			t.Fatalf("open %q = %q (%q), want %q", c.args, got, out, c.want)
 		}
@@ -300,6 +306,9 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 		page := fx.base + "/" + fx.id + c.path
 		out := fx.h.ok("open", task, "--delivered")
 		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %s logged %d launches, want %d", task, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
 			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
 		}
@@ -348,6 +357,9 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 		task := fx.deliver(t, c.byReport, c.ref)
 		out := fx.h.ok("open", task, "--delivered")
 		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %s logged %d launches, want %d", task, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != c.want || field(out, "opened") != c.want {
 			t.Fatalf("open %s --delivered (%s) = %q, printed %q, want %q", task, c.ref, got, out, c.want)
 		}
