@@ -61,6 +61,11 @@ func Target(exe string) (string, error) {
 	return filepath.EvalSymlinks(exe)
 }
 
+func sidecarPath(target, goos string) string {
+	_, exe := packaging(goos)
+	return filepath.Join(filepath.Dir(target), sidecar.Name+exe)
+}
+
 func lockFile(root string) (*os.File, bool, error) {
 	f, err := os.OpenFile(filepath.Join(root, "update.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -139,6 +144,26 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pin, pinned) }
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
+	irohNext := sidecarPath(o.Target, o.OS)
+	irohStale := false
+	if current && rep.To.Iroh != "" {
+		got, err := sidecar.BinaryVersion(ctx, irohNext)
+		irohStale = err != nil || got != rep.To.Iroh
+	}
+	var irohBin string
+	if current && irohStale {
+		rep.Iroh = "would install"
+		if !o.Check {
+			if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
+				return rep, err
+			}
+			if irohBin != "" {
+				if err := swap(irohBin, irohNext); err != nil {
+					return rep, err
+				}
+			}
+		}
+	}
 	if current && !repin {
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
@@ -166,7 +191,6 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.Status = "checked"
 		return rep, nil
 	}
-	irohBin := ""
 	if !current && rep.To.Iroh != "" {
 		if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
 			return rep, err
@@ -199,7 +223,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	if !current {
 		if irohBin != "" {
-			if err := swap(irohBin, filepath.Join(filepath.Dir(o.Target), filepath.Base(irohBin))); err != nil {
+			if err := swap(irohBin, irohNext); err != nil {
 				_ = os.Remove(journalPath(o.Root))
 				return rep, err
 			}

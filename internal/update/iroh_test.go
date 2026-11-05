@@ -59,6 +59,17 @@ func (f *fixture) asksForIroh() bool {
 	return slices.ContainsFunc(f.srv.asked(), func(p string) bool { return strings.Contains(p, "hand-iroh-") })
 }
 
+func installIroh(t *testing.T, f *fixture, version string) {
+	t.Helper()
+	if err := os.WriteFile(f.sidecar(), fakebin.Embed(t, "sidecar", map[string]string{"version": version}), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func currentBuild() Build {
+	return Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 18, Luvus: "0.14.4", Iroh: "0.1.0"}
+}
+
 func TestFetchIrohChecksItsSha256(t *testing.T) {
 	srv := release(t, fakeIroh(t, "0.1.0"))
 	goos, arch := hostTarget()
@@ -135,6 +146,61 @@ func TestRunInstallsTheSidecarNextToTheNewHand(t *testing.T) {
 				t.Fatalf("had %v: a staging file is left: %s", had, e.Name())
 			}
 		}
+	}
+}
+
+func TestRunInstallsTheSidecarWhenTheHandIsCurrent(t *testing.T) {
+	f := newIrohFetch(t, "0.1.0", "0.1.0")
+	f.o.From = currentBuild()
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" || rep.Iroh != "0.1.0 installed" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if !f.asksForIroh() {
+		t.Fatalf("a current hand did not fetch the missing sidecar: %q", f.srv.asked())
+	}
+	if b, err := os.ReadFile(f.sidecar()); err != nil || len(b) == 0 {
+		t.Fatalf("the sidecar next to hand = %d bytes, %v", len(b), err)
+	}
+	if b, err := os.ReadFile(f.target); err != nil || string(b) != f.old {
+		t.Fatalf("hand changed: %v", err)
+	}
+	if out := Render(rep).String(); !strings.Contains(out, "iroh: 0.1.0 installed\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunReplacesASidecarThatIsNotTheVersionTheCurrentHandNeeds(t *testing.T) {
+	f := newIrohFetch(t, "0.1.0", "0.1.0")
+	installIroh(t, f, "0.0.1")
+	f.o.From = currentBuild()
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" || rep.Iroh != "0.1.0 installed" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if b, err := os.ReadFile(f.sidecar()); err != nil || !strings.Contains(string(b), `"0.1.0"`) {
+		t.Fatalf("the sidecar next to hand was not replaced: %q, %v", b, err)
+	}
+	if b, err := os.ReadFile(f.target); err != nil || string(b) != f.old {
+		t.Fatalf("hand changed: %v", err)
+	}
+}
+
+func TestRunCheckSaysItWouldInstallAMissingSidecarForACurrentHand(t *testing.T) {
+	f := newIrohFetch(t, "0.1.0", "0.1.0")
+	f.o.From = currentBuild()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" || rep.Iroh != "would install" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if f.asksForIroh() {
+		t.Fatalf("--check fetched a sidecar: %q", f.srv.asked())
+	}
+	absent(t, f.sidecar())
+	f.unchanged(t)
+	if out := Render(rep).String(); !strings.Contains(out, "iroh: would install\n") {
+		t.Fatalf("render:\n%s", out)
 	}
 }
 
@@ -226,19 +292,24 @@ func TestRunAsksForNoSidecarFromAHandThatKnowsNoneOrWhenNothingChanges(t *testin
 		t.Fatalf("a hand that reports no sidecar still fetched one: %q", f.srv.asked())
 	}
 	g := newIrohFetch(t, "0.1.0", "0.1.0")
-	g.o.Check = true
-	if _, err := Run(context.Background(), g.o); err != nil {
-		t.Fatal(err)
-	}
-	g.o.Check = false
-	g.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 18, Luvus: "0.14.4"}
+	installIroh(t, g, "0.1.0")
+	g.o.From = currentBuild()
 	if rep, err := Run(context.Background(), g.o); err != nil || rep.Status != "up to date" || rep.Iroh != "" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 	if g.asksForIroh() {
-		t.Fatalf("--check or a current hand fetched a sidecar: %q", g.srv.asked())
+		t.Fatalf("a current hand with the right sidecar fetched one: %q", g.srv.asked())
 	}
 	g.unchanged(t)
+	h := newIrohFetch(t, "0.1.0", "0.1.0")
+	h.o.Check = true
+	if _, err := Run(context.Background(), h.o); err != nil {
+		t.Fatal(err)
+	}
+	if h.asksForIroh() {
+		t.Fatalf("--check fetched a sidecar for a new hand: %q", h.srv.asked())
+	}
+	h.unchanged(t)
 }
 
 func TestRunDoesNotReplaceHandWhenTheSidecarCannotBePlaced(t *testing.T) {
