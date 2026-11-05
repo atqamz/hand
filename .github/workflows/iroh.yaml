@@ -61,15 +61,6 @@ jobs:
           persist-credentials: false
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            iroh/target
-          key: iroh-check-${{ matrix.name }}-${{ hashFiles('iroh/Cargo.lock', 'iroh/rust-toolchain.toml') }}
-          restore-keys: iroh-check-${{ matrix.name }}-
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
