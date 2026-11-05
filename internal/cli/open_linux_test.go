@@ -23,7 +23,7 @@ func TestOpenReturnsWhileTheBrowserRuns(t *testing.T) {
 	if code != 0 || time.Since(start) > 5*time.Second {
 		t.Fatalf("open with a browser still running: code=%d after %v, stdout=%q stderr=%q", code, time.Since(start), out, errOut)
 	}
-	line := fx.opened(t)[0]
+	line := fx.opened(t, 1)[0]
 	var sid, pid int
 	if _, err := fmt.Sscan(line, &sid, &pid); err != nil {
 		t.Fatalf("xdg-open logged %q", line)
