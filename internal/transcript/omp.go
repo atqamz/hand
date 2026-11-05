@@ -2,6 +2,8 @@ package transcript
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,9 +13,25 @@ func (r *Reader) omp(s *session, id string) error {
 	if r.Paths.Omp == "" {
 		return ErrNoSession
 	}
-	files, err := filepath.Glob(filepath.Join(r.Paths.Omp, "sessions", "*", "*_"+id+".jsonl"))
+	base := filepath.Join(r.Paths.Omp, "sessions")
+	dirs, err := os.ReadDir(base)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrNoSession
+	}
 	if err != nil {
 		return err
+	}
+	var files []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(filepath.Join(base, dir.Name()))
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_"+id+".jsonl") {
+				files = append(files, filepath.Join(base, dir.Name(), entry.Name()))
+			}
+		}
 	}
 	if len(files) == 0 {
 		return ErrNoSession
@@ -46,8 +64,9 @@ func (s *session) ompLine(line []byte) {
 				Text string `json:"text"`
 			} `json:"content"`
 			Usage *struct {
-				Input     int64 `json:"input"`
-				CacheRead int64 `json:"cacheRead"`
+				Input      int64 `json:"input"`
+				CacheWrite int64 `json:"cacheWrite"`
+				CacheRead  int64 `json:"cacheRead"`
 			} `json:"usage"`
 		} `json:"message"`
 		ThinkingLevel string `json:"thinkingLevel"`
@@ -74,8 +93,8 @@ func (s *session) ompLine(line []byte) {
 			if m.Provider != "" && m.Model != "" {
 				s.status.Model, s.status.ModelAt = m.Provider+"/"+m.Model, rec.Timestamp
 			}
-			if m.Usage != nil && m.Usage.Input+m.Usage.CacheRead > 0 {
-				s.status.Context = m.Usage.Input + m.Usage.CacheRead
+			if u := m.Usage; u != nil && u.Input+u.CacheRead+u.CacheWrite > 0 {
+				s.status.Context = u.Input + u.CacheRead + u.CacheWrite
 			}
 		}
 	case "thinking_level_change":

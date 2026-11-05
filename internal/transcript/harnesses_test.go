@@ -248,8 +248,25 @@ func TestOmpTranscriptIsCalm(t *testing.T) {
 	if !slices.Equal(texts(got), want) {
 		t.Fatalf("entries = %q", texts(got))
 	}
-	if st := r.Status("omp", "omp-1"); st.Model != "commandcode/deepseek/deepseek-v4-pro" || st.Effort != "low" || st.Context != 1200 || st.ModelAt != "2026-09-28T01:00:05.000Z" {
+	if st := r.Status("omp", "omp-1"); st.Model != "commandcode/deepseek/deepseek-v4-pro" || st.Effort != "low" || st.Context != 1500 || st.ModelAt != "2026-09-28T01:00:05.000Z" {
 		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestOmpTranscriptReadsAnAgentFolderWithGlobCharacters(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home[1]")
+	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ompSession(t, home, "omp-1", string(fixture))
+	r := &Reader{Paths: Paths{Omp: home}}
+	got, err := r.Read(context.Background(), "omp", "omp-1", "/fleets/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("entries = %q", texts(got))
 	}
 }
 
