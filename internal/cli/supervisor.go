@@ -608,7 +608,7 @@ func installText(name string) string {
 		return "copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`)"
 	}
 	if name == "omp" {
-		return "omp (`curl -fsSL https://omp.sh/install | sh`)"
+		return "omp (`s=$(curl -fsSL https://omp.sh/install) && sh -c \"$s\"`)"
 	}
 	return name
 }
