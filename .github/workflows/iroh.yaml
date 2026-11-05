@@ -139,7 +139,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then bin=$bin.exe; fi
           echo "$bin is $(wc -c <"$bin") bytes"
           "$bin" --version | grep -q "^hand-iroh $(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1) iroh "
-          if [ "$RUNNER_OS" = Linux ] && ldd "$bin" >/dev/null 2>&1; then
+          if [ "$RUNNER_OS" = Linux ] && ldd "$bin" 2>&1 | grep -q '=>'; then
             echo "$bin is not statically linked" >&2
             exit 1
           fi
