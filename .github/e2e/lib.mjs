@@ -15,7 +15,7 @@ export const logDir = path.join(tmpRoot, 'logs');
 export const binDir = path.join(tmpRoot, 'bin');
 
 const source = (rel) => fs.readFileSync(path.join(repoRoot, rel), 'utf8');
-export const schema = Number(source('internal/state/state.go').match(/^const SchemaVersion = (\d+)$/m)[1]);
+export const schema = Number(source('internal/state/state.go').match(/\bSchemaVersion = (\d+)/)[1]);
 export const luvusTested = source('internal/luvus/pin.go').match(/^const Tested = "(.+)"$/m)[1];
 export const version = '0.0.0-e2e';
 export const goos = win ? 'windows' : process.platform;

@@ -30,7 +30,6 @@ var migrations = []string{keptSchema, trackSchema}
 
 const MinSchemaVersion = 16
 
-// .github/e2e/lib.mjs reads this line by regexp: keep it a standalone const.
 const SchemaVersion = 18
 
 const lastMigrating = "0.13.0"
