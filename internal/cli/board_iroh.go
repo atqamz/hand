@@ -148,7 +148,9 @@ func (r *runner) newSidecar(root, peer string) *sidecar.Sidecar {
 		KeyDir:     filepath.Join(root, "iroh"),
 		Dir:        root,
 		OnChange: func(st sidecar.Status) {
-			_ = writeIroh(root, st)
+			if err := writeIroh(root, st); err != nil {
+				fmt.Fprintln(r.env.Stderr, "board: iroh: cannot record state:", err)
+			}
 			switch {
 			case st.State == sidecar.Ready:
 				fmt.Fprintln(r.env.Stderr, "board: iroh: ready, endpoint ID", st.ID)

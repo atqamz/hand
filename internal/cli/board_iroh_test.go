@@ -39,6 +39,10 @@ func sidecarMain(args []string) int {
 		fmt.Fprintln(os.Stderr, "hand-iroh: cannot open the endpoint: boom")
 		return 1
 	}
+	if p["delay"] != "" {
+		d, _ := time.ParseDuration(p["delay"])
+		time.Sleep(d)
+	}
 	fmt.Println("ready id=" + irohID + " relay=" + relayURL)
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	fakebin.Append(p["log"], "stdin closed")
@@ -233,6 +237,25 @@ func TestBoardIrohRestartsAnExitedSidecarAndSaysWhy(t *testing.T) {
 		t.Fatalf("the Phone page does not say why the sidecar restarts:\n%s", page)
 	}
 	if out := stop(); !strings.Contains(out, "board: iroh: restarting after: exit status 1") {
+		t.Fatalf("board output:\n%s", out)
+	}
+}
+
+func TestBoardIrohReportsAStateWriteFailure(t *testing.T) {
+	fx := newIrohFixture(t, map[string]string{"delay": "2s"})
+	path := filepath.Join(fx.root, "board.iroh")
+	base, stop := startBoard(t, fx.h, "127.0.0.1", "--iroh")
+	within(t, "the starting state", func() bool { return fx.state() == "starting" })
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * time.Second)
+	fleetPage(t, base, fx.h)
+	out := stop()
+	if !strings.Contains(out, "board: iroh: cannot record state:") {
 		t.Fatalf("board output:\n%s", out)
 	}
 }
