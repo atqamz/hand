@@ -3,6 +3,7 @@ package update
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -188,18 +189,38 @@ func TestRunReplacesASidecarThatIsNotTheVersionTheCurrentHandNeeds(t *testing.T)
 
 func TestRunCheckSaysItWouldInstallAMissingSidecarForACurrentHand(t *testing.T) {
 	f := newIrohFetch(t, "0.1.0", "0.1.0")
+	asset, _, _ := hostIroh()
 	f.o.From = currentBuild()
 	f.o.Check = true
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || rep.Status != "up to date" || rep.Iroh != "would install" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	if f.asksForIroh() {
-		t.Fatalf("--check fetched a sidecar: %q", f.srv.asked())
+	if !slices.Contains(f.srv.asked(), releaseURL("/", f.o.Channel)+"/"+asset) || !slices.Contains(f.srv.askedMethods(), http.MethodHead) {
+		t.Fatalf("--check did not probe the sidecar asset: %q, %q", f.srv.asked(), f.srv.askedMethods())
 	}
 	absent(t, f.sidecar())
 	f.unchanged(t)
 	if out := Render(rep).String(); !strings.Contains(out, "iroh: would install\n") {
+		t.Fatalf("render:\n%s", out)
+	}
+}
+
+func TestRunCheckSaysTheReleaseHasNoSidecarForACurrentHand(t *testing.T) {
+	f := newIrohFetch(t, "0.1.0", "")
+	asset, _, _ := hostIroh()
+	f.o.From = currentBuild()
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Status != "up to date" || rep.Iroh != "none in this release" {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if !slices.Contains(f.srv.asked(), releaseURL("/", f.o.Channel)+"/"+asset) || !slices.Contains(f.srv.askedMethods(), http.MethodHead) {
+		t.Fatalf("--check did not probe the sidecar asset: %q, %q", f.srv.asked(), f.srv.askedMethods())
+	}
+	absent(t, f.sidecar())
+	f.unchanged(t)
+	if out := Render(rep).String(); !strings.Contains(out, "iroh: none in this release\n") {
 		t.Fatalf("render:\n%s", out)
 	}
 }

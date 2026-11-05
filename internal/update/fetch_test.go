@@ -111,15 +111,22 @@ func luvusAsset(version string) string {
 
 type server struct {
 	*httptest.Server
-	mu    sync.Mutex
-	files map[string][]byte
-	paths []string
+	mu      sync.Mutex
+	files   map[string][]byte
+	paths   []string
+	methods []string
 }
 
 func (s *server) asked() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.paths)
+}
+
+func (s *server) askedMethods() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.methods)
 }
 
 func (s *server) set(name string, body []byte) {
@@ -134,6 +141,7 @@ func release(t *testing.T, files map[string][]byte) *server {
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		s.mu.Lock()
 		s.paths = append(s.paths, req.URL.Path)
+		s.methods = append(s.methods, req.Method)
 		body, ok := s.files[filepath.Base(req.URL.Path)]
 		s.mu.Unlock()
 		switch {

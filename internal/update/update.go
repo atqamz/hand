@@ -152,8 +152,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var irohBin string
 	if current && irohStale {
-		rep.Iroh = "would install"
-		if !o.Check {
+		if o.Check {
+			exists, err := probeIroh(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
+			if err != nil {
+				return rep, err
+			}
+			if exists {
+				rep.Iroh = "would install"
+			} else {
+				rep.Iroh = "none in this release"
+			}
+		} else {
 			if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
 				return rep, err
 			}

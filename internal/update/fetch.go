@@ -100,6 +100,27 @@ func FetchIroh(ctx context.Context, base, channel, goos, arch, dir string) (stri
 	return bin, extract(filepath.Join(dir, stem+ext), "hand-iroh"+exe, bin)
 }
 
+func probeIroh(ctx context.Context, base, channel, goos, arch string) (bool, error) {
+	ext, _ := packaging(goos)
+	url := releaseURL(base, channel) + "/hand-iroh-" + goos + "-" + arch + ext
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false, err
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("update: %w", err)
+	}
+	defer res.Body.Close()
+	switch res.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	}
+	return false, fmt.Errorf("update: %s: %s", url, res.Status)
+}
+
 func packaging(goos string) (ext, exe string) {
 	if goos == "windows" {
 		return ".zip", ".exe"
