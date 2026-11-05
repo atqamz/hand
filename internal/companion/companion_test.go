@@ -83,6 +83,16 @@ func validRelay(v string) (string, bool) {
 	if m == nil || len(m[1]) > 253 {
 		return "", false
 	}
+	numeric := true
+	for _, label := range strings.Split(strings.TrimSuffix(m[1], "."), ".") {
+		if strings.Trim(label, "0123456789") != "" {
+			numeric = false
+			break
+		}
+	}
+	if numeric {
+		return "", false
+	}
 	if m[6] != "" {
 		if port, _ := strconv.Atoi(m[6]); port > 65535 {
 			return "", false

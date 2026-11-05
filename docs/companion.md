@@ -57,7 +57,7 @@ Codes 1 to 5 exist today. Every other code is unassigned.
 | 5 | `board_error` | Stream reset or stop | The Board's TCP connection broke | Closes the web view's socket. Keeps any answer already delivered | Nothing |
 | other | n/a | Either | Never today | Treats it as a lost connection: backoff, three tries, then the message of a lost connection | "Your laptop closed the connection. If you removed this phone there, pair it again." |
 
-**Refusals.** A dialer is also refused before the handshake finishes, with no application code, when 16 connections are open, when 8 handshakes are running, or when 4 connections from its source are open. A handshake that does not finish in 3 seconds is dropped. The app sees a refused or timed-out connect and treats it as code 1.
+**Refusals.** A dialer is also refused before the handshake finishes, with no application code, when 16 connections are open, when 8 handshakes are running, or when 4 connections from its source are open. A refusal arrives at once, before any handshake, and the app treats it as code 1. A handshake that does not finish in 3 seconds is dropped with no code at all: the app cannot tell that drop from a laptop that is off, so it keeps dialing until its own 20-second deadline and then says the laptop does not answer, as below.
 
 **Backoff.** Start at 1 second, double each time up to 30 seconds, add up to 25 percent of random jitter, and reset after a connection has carried a stream for 10 seconds. The app must not retry faster, because every attempt costs the laptop a handshake.
 
@@ -107,7 +107,7 @@ A canonical link is `v`, `e`, `f`, `c`, then `r`: `handboard://c#v=1&e=ID&f=FLEE
 
 **Why a fragment, and what must not be in the query.** Everything after `#` stays on the phone: an operating system hands a custom-scheme link to the app whole, and no browser or server that a link might pass through reads it. The code is a credential and must be in the fragment. A link that has a `?` before its `#` is rejected, so that nothing secret is ever put where a log or a preview could keep it, and a link with no `#` is rejected even if its query carries every field.
 
-**The relay URL.** It is `https://`, a lowercase DNS host (an optional final dot is allowed), an optional port from 1 to 65535 with no leading zero, and an optional single `/`. There is no user information, path, query or fragment. It is percent-encoded byte by byte: `A-Z a-z 0-9 - . _ ~` stay as they are and every other byte becomes `%` and two uppercase hexadecimal digits. A decoder rejects a lowercase escape, a truncated escape, and an escape of a byte that needed none, so that each URL has one spelling. Example: `https://relay.example.test:7842/` is `https%3A%2F%2Frelay.example.test%3A7842%2F`. The longest relay the 213 bytes allow is 97 encoded characters.
+**The relay URL.** It is `https://`, a lowercase DNS host (an optional final dot is allowed), an optional port from 1 to 65535 with no leading zero, and an optional single `/`. A host whose labels are all decimal digits is an IPv4 address, not a DNS host, and is rejected, so no IP address is ever in a link. There is no user information, path, query or fragment. It is percent-encoded byte by byte: `A-Z a-z 0-9 - . _ ~` stay as they are and every other byte becomes `%` and two uppercase hexadecimal digits. A decoder rejects a lowercase escape, a truncated escape, and an escape of a byte that needed none, so that each URL has one spelling. Example: `https://relay.example.test:7842/` is `https%3A%2F%2Frelay.example.test%3A7842%2F`. The longest relay the 213 bytes allow is 97 encoded characters.
 
 ### How the app checks it
 
@@ -160,7 +160,7 @@ The fragment keeps the code out of the request: the Board's pair page reads it w
 
 - **Where it arrives.** The sidecar's streams arrive at the [peer listener](phone.md#the-peer-listener) (`hand board --peer-addr 127.0.0.1:7778`), where every request counts as remote and proxy headers are dropped.
 - **Before pairing.** The connection may ask only for `/<fleet id>/pair` and `/static/…`. It is closed after 32 requests or 64 KiB without a paired phone's cookie, after a request body that takes over 10 seconds, and after 30 seconds with no request, paired or not. Each stream is one such connection, so a page that opens many streams starts each one capped.
-- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The laptop shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-sees).
+- **Pairing.** The pair page takes the code and a name of up to 40 characters. A code is 10 characters from the alphabet above, works once for 5 minutes, and a new code cancels the one before it. A wrong code counts against the phone's endpoint ID: 5 wrong codes in a minute block that ID for a minute (the page answers 429), and 10 wrong codes from anyone cancel every code. A key costs nothing to make, so the second limit is the one that stops a guesser. The laptop shows the code only to its own login. The pair page's own texts, which the web view shows as they are, are in [Errors](#errors-and-what-the-user-should-see).
 - **The device.** A good code creates a device whose login is `iroh:<endpoint id>`, the name the user typed, and a hash of a secret. The page sets the cookie `hand_phone_<fleet id>`: `HttpOnly`, `SameSite=Lax`, path `/`, 90 days. It has neither `Secure` nor the `__Host-` prefix, because the Board dropped `X-Forwarded-Proto` and the origin is plain HTTP. Then it redirects to `/<fleet id>/`.
 - **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the phone's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`. A request that carries a cookie that no longer proves puts the connection's caps back.
@@ -183,7 +183,7 @@ The app's own screens say the left column. A page the Board serves appears in th
 |---|---|---|
 | The link is rejected | A reason from the table above | For `version_unsupported`: "This code needs a newer Hand app. Update the app." For every other reason: "This is not a Hand pairing code. Show a new one on your laptop." The app never shows the reason code to the user, the link or the code |
 | The camera is refused | The OS | "Allow the camera to scan the code, or paste the link." |
-| The laptop does not answer | No handshake in 20 seconds | "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet." |
+| The laptop does not answer | No handshake within the app's 20-second deadline | "Can't reach your laptop. Check that it is on, that Hand's Board is running, and that this phone has internet." |
 | The laptop is full or refuses | Code 1, or a refusal | "Your laptop is busy. Trying again." |
 | The Board is not running | Code 3 twice in a row | "Your laptop answers, but the Board is not running. Start it on the laptop." |
 | The connection is lost | Any other close | "Reconnecting…", and after three tries "Can't reach your laptop." |
@@ -192,7 +192,8 @@ The app's own screens say the left column. A page the Board serves appears in th
 | A used code | The pair page's 403 | "That code was already used. A code works once. Show a new code on your laptop." |
 | Too many wrong codes (all cancelled) | The pair page's 403 | "Too many wrong codes. Every code was cancelled. Show a new code on your laptop." |
 | Too many wrong codes from this phone | The pair page's 429 | "Too many wrong codes from this phone. Wait a minute, then try again." |
-| The phone was removed on the laptop | The Board's 403 "no longer paired" | The page, and the app adds two actions: **Pair again** and **Forget this laptop** |
+| The phone is still paired in another fleet, and this fleet's pairing was removed on the laptop | The Board's 403 "no longer paired", with `X-Hand-Error` | The page, and the app adds two actions: **Pair again** and **Forget this laptop** |
+| The phone's only paired fleet was removed on the laptop | The Board's 403 "Pair this phone first", with no `X-Hand-Error` | The page, which says how to pair again. The app adds no actions |
 | Too much asked before pairing | The Board's 429 | The page; the web view reconnects, which opens a new stream |
 
 The pair page's texts on the right are the Board's; the app may show them in its own words but must keep their meaning, and must not add the code.
@@ -211,7 +212,7 @@ The pair page's texts on the right are the Board's; the app may show them in its
 
 ## Test vectors
 
-[`companion-vectors.json`](companion-vectors.json) holds 13 valid and 68 invalid links, each with the result a conforming parser gives: the fields and the path to open, or the reason. It also holds the numbers of the wire and of the Board's pairing rules, under the keys `wire` and `board`. `go test ./internal/companion` runs a reference parser against the file, and reads the numbers back out of `iroh/src/` and `internal/board/`, so a change of code and a stale file cannot both pass.
+[`companion-vectors.json`](companion-vectors.json) holds 13 valid and 71 invalid links, each with the result a conforming parser gives: the fields and the path to open, or the reason. It also holds the numbers of the wire and of the Board's pairing rules, under the keys `wire` and `board`. `go test ./internal/companion` runs a reference parser against the file, and reads the numbers back out of `iroh/src/` and `internal/board/`, so a change of code and a stale file cannot both pass.
 
 The app copies the file into its own tests and runs its parser over every vector as written: trimming whitespace is the caller's job and happens before the parser, so a vector with a leading space is rejected as `characters`. A valid vector whose `canonical` is true is also what a Board emits: an emitter must reproduce its `link` from its `parsed` fields. The reference parser checks shape only: an ID of 64 hexadecimal characters is valid in it even where the app's iroh library refuses it as a key.
 
