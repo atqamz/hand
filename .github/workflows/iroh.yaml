@@ -16,11 +16,13 @@ on:
     branches: [main]
     paths:
       - iroh/**
+      - internal/board/peer.go
       - .github/workflows/iroh.yaml
   pull_request:
     branches: [main]
     paths:
       - iroh/**
+      - internal/board/peer.go
       - .github/workflows/iroh.yaml
 
 permissions:
@@ -65,6 +67,43 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
 
+  check-targets:
+    name: check ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - name: linux-arm64-musl
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - name: darwin-amd64
+            os: macos-latest
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      TARGET: ${{ matrix.target }}
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CC_aarch64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add "$TARGET"
+      - name: Install the musl C compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+      - run: cargo test --locked --target "$TARGET"
+
   build:
     name: build ${{ matrix.name }}
     strategy:
@@ -108,8 +147,11 @@ jobs:
           rustup target add "$TARGET"
       - name: Install the musl C compiler
         if: runner.os == 'Linux'
-        run: sudo apt-get install --yes --no-install-recommends musl-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: inputs.tag == ''
         with:
           path: |
             ~/.cargo/registry/index
@@ -134,6 +176,19 @@ jobs:
             echo "$bin is not statically linked" >&2
             exit 1
           fi
+      - name: Run the binary
+        timeout-minutes: 3
+        run: |
+          set -eu
+          bin=$PWD/target/$TARGET/release/hand-iroh
+          if [ "$RUNNER_OS" = Windows ]; then bin=$bin.exe; fi
+          home=$(mktemp -d)
+          printf '%s\n' feedfacefeedfacefeedfacefeedfacefeedface >"$home/secret"
+          for run in 1 2; do
+            (sleep 5) | "$bin" --board 127.0.0.1:9 --relay none --secret-file "$home/secret" --key-dir "$home/keys" >"$home/out$run"
+            grep -Eq '^ready id=[0-9a-f]{64} relay=none$' "$home/out$run"
+          done
+          cmp "$home/out1" "$home/out2"
       - name: Pack
         if: runner.os != 'Windows'
         run: |
@@ -167,7 +222,7 @@ jobs:
 
   publish:
     if: inputs.tag != ''
-    needs: [check, build]
+    needs: [check, check-targets, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -195,7 +250,6 @@ jobs:
       - name: Publish
         run: gh release upload "$TAG" dist/hand-iroh-* --clobber --repo "$GITHUB_REPOSITORY"
       - name: Attest
-        continue-on-error: true
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/hand-iroh-*

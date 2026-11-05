@@ -28,6 +28,7 @@
 !/iroh/
 !/iroh/**
 /iroh/target/
+/iroh/dist/
 !/skills/
 !/skills/**
 *.db
