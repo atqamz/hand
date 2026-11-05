@@ -132,13 +132,18 @@ func (fx *openFixture) home(t *testing.T) string {
 	return home
 }
 
-func (fx *openFixture) opened(t *testing.T) []string {
+func (fx *openFixture) opened(t *testing.T, want int) []string {
 	t.Helper()
-	b, err := os.ReadFile(fx.log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return strings.Split(strings.TrimSpace(string(b)), "\n")
+	var lines []string
+	eventually(t, func() bool {
+		b, _ := os.ReadFile(fx.log)
+		lines = nil
+		if text := strings.TrimSpace(string(b)); text != "" {
+			lines = strings.Split(text, "\n")
+		}
+		return len(lines) >= want
+	})
+	return lines
 }
 
 func (fx *openFixture) token(t *testing.T) string {
@@ -152,7 +157,7 @@ func (fx *openFixture) token(t *testing.T) string {
 
 func TestOpenDeepLinks(t *testing.T) {
 	fx := newOpenFixture(t)
-	for _, c := range []struct {
+	for i, c := range []struct {
 		args       []string
 		path, frag string
 	}{
@@ -164,7 +169,10 @@ func TestOpenDeepLinks(t *testing.T) {
 		{[]string{"a1"}, "/attempt/a1", ""},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
-		opened := fx.opened(t)
+		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
+		}
 		want := fx.base + "/" + fx.id + c.path + "?token=" + fx.token(t) + "&keep=1" + c.frag
 		if got := opened[len(opened)-1]; got != want {
 			t.Fatalf("open %q = %q, want %q", c.args, got, want)
@@ -203,7 +211,7 @@ func TestOpenNeverPrintsTheToken(t *testing.T) {
 
 func TestOpenDelivered(t *testing.T) {
 	fx := newOpenFixture(t)
-	for _, c := range []struct {
+	for i, c := range []struct {
 		args []string
 		want string
 	}{
@@ -215,12 +223,15 @@ func TestOpenDelivered(t *testing.T) {
 		{[]string{"t7", "--delivered"}, fx.dir},
 	} {
 		out := fx.h.ok(append([]string{"open"}, c.args...)...)
-		opened := fx.opened(t)
+		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %q logged %d launches, want %d", c.args, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != c.want || !strings.Contains(out, strings.ReplaceAll(c.want, `\`, `\\`)) {
 			t.Fatalf("open %q = %q (%q), want %q", c.args, got, out, c.want)
 		}
 	}
-	before := len(fx.opened(t))
+	before := len(fx.opened(t, 6))
 	unc := `\\evil\share\dir\report.docx`
 	if out := fx.h.ok("open", "--print", "--delivered", "t6"); field(out, "path") != unc {
 		t.Fatalf("open --print --delivered t6 = %q", out)
@@ -235,7 +246,7 @@ func TestOpenDelivered(t *testing.T) {
 			t.Fatalf("open --print --delivered %s = %q, want %s %q", c.ref, out, c.key, c.want)
 		}
 	}
-	if got := len(fx.opened(t)); got != before {
+	if got := len(fx.opened(t, before)); got != before {
 		t.Fatalf("--print opened something: %d lines, was %d", got, before)
 	}
 	for _, args := range [][]string{{"t6", "--delivered"}, {"--delivered", "t6"}} {
@@ -243,7 +254,7 @@ func TestOpenDelivered(t *testing.T) {
 			t.Fatalf("open %q on a UNC deliverable: code=%d stderr=%q", args, code, errOut)
 		}
 	}
-	if got := len(fx.opened(t)); got != before {
+	if got := len(fx.opened(t, before)); got != before {
 		t.Fatalf("a UNC deliverable reached the opener: %d lines, was %d", got, before)
 	}
 	if _, errOut, code := fx.h.run("open", "t2", "--delivered"); code != 3 || !strings.Contains(errOut, "t2 has no deliverable") {
@@ -280,7 +291,7 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 	}
 	client := &http.Client{Jar: jar}
 	loginOut := fx.h.ok("open", "--print", "t1")
-	for _, c := range []struct {
+	for i, c := range []struct {
 		byReport   bool
 		name, path string
 	}{
@@ -294,7 +305,10 @@ func TestOpenDeliveredOpensTheViewerForAFleetFile(t *testing.T) {
 		task := fx.deliver(t, c.byReport, filepath.Join(dir, c.name))
 		page := fx.base + "/" + fx.id + c.path
 		out := fx.h.ok("open", task, "--delivered")
-		opened := fx.opened(t)
+		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %s logged %d launches, want %d", task, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != page+"?token="+fx.token(t)+"&keep=1" || field(out, "opened") != page {
 			t.Fatalf("open %s --delivered (%q) = %q, printed %q, want %q", task, c.name, got, out, page)
 		}
@@ -339,10 +353,13 @@ func TestOpenDeliveredKeepsTheFolderOutsideTheFleet(t *testing.T) {
 	if link := filepath.Join(reports, "out.md"); os.Symlink(filepath.Join(fx.dir, "notes.md"), link) == nil {
 		cases = append(cases, delivery{false, link, reports})
 	}
-	for _, c := range cases {
+	for i, c := range cases {
 		task := fx.deliver(t, c.byReport, c.ref)
 		out := fx.h.ok("open", task, "--delivered")
-		opened := fx.opened(t)
+		opened := fx.opened(t, i+1)
+		if len(opened) != i+1 {
+			t.Fatalf("open %s logged %d launches, want %d", task, len(opened), i+1)
+		}
 		if got := opened[len(opened)-1]; got != c.want || field(out, "opened") != c.want {
 			t.Fatalf("open %s --delivered (%s) = %q, printed %q, want %q", task, c.ref, got, out, c.want)
 		}
@@ -418,7 +435,7 @@ func TestConcurrentOpensShareOneToken(t *testing.T) {
 		}
 	}
 	tok := fx.token(t)
-	opened := fx.opened(t)
+	opened := fx.opened(t, 4)
 	if len(tok) != 48 || len(opened) != 4 {
 		t.Fatalf("token %q, opened %q", tok, opened)
 	}
@@ -432,7 +449,7 @@ func TestConcurrentOpensShareOneToken(t *testing.T) {
 func TestOpenRefusesAnImpostor(t *testing.T) {
 	fx := newOpenFixture(t)
 	fx.h.ok("open")
-	before := len(fx.opened(t))
+	before := len(fx.opened(t, 1))
 	var mu sync.Mutex
 	var seen []string
 	impostor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -452,7 +469,7 @@ func TestOpenRefusesAnImpostor(t *testing.T) {
 	if n := boardSpawns(fx.h); n != 0 {
 		t.Fatalf("boards started against an impostor = %d, want 0", n)
 	}
-	if got := len(fx.opened(t)); got != before {
+	if got := len(fx.opened(t, before)); got != before {
 		t.Fatalf("xdg-open ran against an impostor")
 	}
 	mu.Lock()

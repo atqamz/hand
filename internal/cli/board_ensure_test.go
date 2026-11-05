@@ -100,7 +100,7 @@ func TestOpenStartsABoardDetached(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.log")); err != nil {
 		t.Fatalf("no board.log: %v", err)
 	}
-	if got := fx.opened(t); len(got) != 1 || !strings.Contains(got[0], "/"+fx.id+"/task/t1?token=") {
+	if got := fx.opened(t, 1); len(got) != 1 || !strings.Contains(got[0], "/"+fx.id+"/task/t1?token=") {
 		t.Fatalf("opened %q", got)
 	}
 }

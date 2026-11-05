@@ -110,7 +110,7 @@ func TestOpenWithoutPrintKeepsTheLocalAddressWhateverServeSays(t *testing.T) {
 	if field(out, "opened") != fx.base+"/"+fx.id+"/task/t1" {
 		t.Fatalf("open = %q", out)
 	}
-	if got := fx.opened(t); len(got) != 1 || !strings.HasPrefix(got[0], fx.base+"/"+fx.id+"/task/t1?token=") {
+	if got := fx.opened(t, 1); len(got) != 1 || !strings.HasPrefix(got[0], fx.base+"/"+fx.id+"/task/t1?token=") {
 		t.Fatalf("browser opened %q", got)
 	}
 	if b, _ := os.ReadFile(log); len(b) != 0 {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -13,23 +14,26 @@ import (
 
 func TestStarterPolicyWriteFailureLeavesNoFile(t *testing.T) {
 	home := t.TempDir()
-	var old syscall.Rlimit
-	if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &old); err != nil {
-		t.Fatal(err)
-	}
-	small := old
-	small.Cur = 8
-	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &small); err != nil {
-		t.Fatal(err)
-	}
-	_, err := WriteStarterPolicy(home)
-	if rerr := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &old); rerr != nil {
-		t.Fatal(rerr)
-	}
-	if err == nil {
-		t.Fatal("starter write under an 8-byte file size limit succeeded")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestStarterPolicyUnderASmallFileLimit$")
+	cmd.Env = append(os.Environ(), "HAND_TEST_FSIZE_HOME="+home)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("starter write under an 8-byte file size limit: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(home, PolicyFile)); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("partial policy left behind: %v", err)
+	}
+}
+
+func TestStarterPolicyUnderASmallFileLimit(t *testing.T) {
+	home := os.Getenv("HAND_TEST_FSIZE_HOME")
+	if home == "" {
+		t.Skip("runs only as the child of TestStarterPolicyWriteFailureLeavesNoFile")
+	}
+	small := syscall.Rlimit{Cur: 8, Max: 8}
+	if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &small); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteStarterPolicy(home); err == nil {
+		t.Fatal("starter write under an 8-byte file size limit succeeded")
 	}
 }
