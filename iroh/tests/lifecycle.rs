@@ -17,7 +17,6 @@ const WAIT: Duration = Duration::from_secs(20);
 struct Sidecar {
     child: Child,
     id: String,
-    relay: String,
     stderr: thread::JoinHandle<String>,
     stdout_after: thread::JoinHandle<String>,
 }
@@ -57,10 +56,7 @@ fn start(dir: &TempDir, keys: &Path) -> Sidecar {
     assert!(!line.contains(SECRET));
     assert_eq!(fields[0], "ready");
     let id = fields[1].strip_prefix("id=").expect("id field").to_owned();
-    let relay = fields[2]
-        .strip_prefix("relay=")
-        .expect("relay field")
-        .to_owned();
+    assert_eq!(fields[2], "relay=none");
     assert_eq!(id.len(), 64);
     assert!(
         id.bytes()
@@ -69,7 +65,6 @@ fn start(dir: &TempDir, keys: &Path) -> Sidecar {
     Sidecar {
         child,
         id,
-        relay,
         stderr,
         stdout_after,
     }
@@ -94,15 +89,54 @@ impl Sidecar {
     }
 }
 
+fn locked_iroh() -> &'static str {
+    include_str!("../Cargo.lock")
+        .split("name = \"iroh\"\nversion = \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("Cargo.lock locks iroh")
+}
+
+#[cfg(target_os = "linux")]
+fn udp_sockets(pid: u32) -> Vec<String> {
+    let inodes: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+        .unwrap()
+        .filter_map(|entry| std::fs::read_link(entry.unwrap().path()).ok())
+        .filter_map(|link| {
+            let link = link.to_str()?;
+            let inode = link.strip_prefix("socket:[")?.strip_suffix(']')?;
+            Some(inode.to_owned())
+        })
+        .collect();
+    let mut found = Vec::new();
+    for table in ["/proc/net/udp", "/proc/net/udp6"] {
+        for line in std::fs::read_to_string(table).unwrap().lines().skip(1) {
+            let columns: Vec<&str> = line.split_whitespace().collect();
+            if inodes.iter().any(|inode| inode == columns[9]) {
+                found.push(columns[1].to_owned());
+            }
+        }
+    }
+    found
+}
+
+#[cfg(target_os = "linux")]
+fn loopback(local: &str) -> bool {
+    let (ip, _port) = local.split_once(':').unwrap();
+    ip.ends_with("7F") && ip.len() == 8 || ip == "00000000000000000000000001000000"
+}
+
 #[test]
-fn version_names_the_build_and_the_pinned_iroh() {
+fn version_names_the_build_and_the_locked_iroh() {
     let out = Command::new(BIN).arg("--version").output().unwrap();
     assert!(out.status.success());
-    let lock = include_str!("../Cargo.lock");
-    assert!(lock.contains("name = \"iroh\"\nversion = \"1.4.1\"\n"));
     assert_eq!(
         String::from_utf8(out.stdout).unwrap(),
-        format!("hand-iroh {} iroh 1.4.1\n", env!("CARGO_PKG_VERSION"))
+        format!(
+            "hand-iroh {} iroh {}\n",
+            env!("CARGO_PKG_VERSION"),
+            locked_iroh()
+        )
     );
 }
 
@@ -121,7 +155,12 @@ fn a_secret_on_the_command_line_is_refused_and_not_echoed() {
 fn it_announces_one_line_and_exits_when_stdin_closes() {
     let dir = TempDir::new();
     let mut sidecar = start(&dir, &dir.path().join("keys"));
-    assert_eq!(sidecar.relay, "none");
+    #[cfg(target_os = "linux")]
+    {
+        let sockets = udp_sockets(sidecar.child.id());
+        assert!(!sockets.is_empty());
+        assert!(sockets.iter().all(|addr| loopback(addr)), "{sockets:?}");
+    }
     drop(sidecar.child.stdin.take());
     let (status, stderr) = sidecar.finish();
     assert!(status.success());

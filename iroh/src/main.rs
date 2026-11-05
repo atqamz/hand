@@ -5,6 +5,7 @@ mod preface;
 #[cfg(test)]
 mod testutil;
 
+use std::net::{Ipv4Addr, SocketAddr};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,7 +71,7 @@ async fn start(config: Config) -> Result<(), String> {
             .is_ok();
     announce(&endpoint, online);
     tokio::select! {
-        () = forward::serve(endpoint.clone(), Arc::new(config)) => {}
+        () = forward::serve(endpoint.clone(), Arc::new(config), forward::Limits::default()) => {}
         () = stdin_closed() => {}
         () = stop => {}
     }
@@ -86,14 +87,17 @@ pub fn builder(config: &Config) -> iroh::endpoint::Builder {
     let builder = match &config.relay {
         Relay::Default => Endpoint::builder(presets::N0),
         Relay::Custom(url) => {
-            Endpoint::builder(presets::N0).relay_mode(RelayMode::custom([url.clone()]))
+            Endpoint::builder(presets::Minimal).relay_mode(RelayMode::custom([url.clone()]))
         }
         Relay::None => Endpoint::builder(presets::Minimal)
             .relay_mode(RelayMode::Disabled)
-            .portmapper_config(PortmapperConfig::Disabled),
+            .portmapper_config(PortmapperConfig::Disabled)
+            .clear_ip_transports()
+            .bind_addr(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
+            .expect("a loopback address is a valid bind address"),
     };
     builder
-        .alpns(vec![config.alpn.clone().into_bytes()])
+        .alpns(vec![forward::ALPN.to_vec()])
         .transport_config(transport)
 }
 
@@ -135,4 +139,55 @@ fn stop_signals() -> std::io::Result<impl Future<Output = ()>> {
     Ok(async {
         let _ = tokio::signal::ctrl_c().await;
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use iroh::{RelayUrl, Watcher};
+
+    use super::*;
+    use crate::args::Secret;
+
+    fn config(relay: Relay) -> Config {
+        Config {
+            board: "127.0.0.1:7778".parse().unwrap(),
+            secret: Secret::parse("0123456789abcdef0123456789abcdef").unwrap(),
+            key_dir: PathBuf::new(),
+            relay,
+            max_connections: 4,
+            idle: Duration::from_secs(60),
+        }
+    }
+
+    #[tokio::test]
+    async fn no_relay_means_no_relay_no_lookup_no_port_mapping_and_loopback_only() {
+        let builder = builder(&config(Relay::None));
+        assert!(format!("{builder:?}").contains("portmapper_config: Disabled"));
+        let endpoint = builder.bind().await.unwrap();
+        assert!(endpoint.address_lookup().unwrap().is_empty());
+        assert!(endpoint.home_relay_status().get().is_empty());
+        assert!(endpoint.addr().relay_urls().next().is_none());
+        let sockets = endpoint.bound_sockets();
+        assert!(!sockets.is_empty());
+        assert!(
+            sockets.iter().all(|addr| addr.ip().is_loopback()),
+            "{sockets:?}"
+        );
+        endpoint.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_custom_relay_replaces_the_public_ones_and_publishes_to_no_dns() {
+        let url: RelayUrl = "http://127.0.0.1:1".parse().unwrap();
+        let endpoint = builder(&config(Relay::Custom(url.clone())))
+            .bind()
+            .await
+            .unwrap();
+        assert!(endpoint.address_lookup().unwrap().is_empty());
+        let relays = endpoint.home_relay_status().get();
+        assert!(relays.iter().all(|relay| relay.url() == &url), "{relays:?}");
+        endpoint.close().await;
+    }
 }

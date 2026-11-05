@@ -7,11 +7,10 @@ use std::time::Duration;
 use iroh::RelayUrl;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const IROH_VERSION: &str = "1.4.1";
-pub const USAGE: &str = "usage: hand-iroh --board 127.0.0.1:PORT --secret-file PATH --key-dir DIR [--alpn NAME] [--relay default|none|URL] [--max-connections N] [--idle SECONDS] | --version";
+pub const IROH_VERSION: &str = env!("IROH_VERSION");
+pub const USAGE: &str = "usage: hand-iroh --board 127.0.0.1:PORT --secret-file PATH --key-dir DIR [--relay default|none|URL] [--max-connections N] [--idle SECONDS] | --version";
 const SECRET_MIN: usize = 16;
 const SECRET_MAX: usize = 128;
-const ALPN_DEFAULT: &str = "hand-board";
 const MAX_CONNECTIONS_DEFAULT: usize = 16;
 const IDLE_DEFAULT: Duration = Duration::from_secs(60);
 const MAX_CONNECTIONS_LIMIT: u64 = 1024;
@@ -55,7 +54,6 @@ pub struct Config {
     pub board: SocketAddr,
     pub secret: Secret,
     pub key_dir: PathBuf,
-    pub alpn: String,
     pub relay: Relay,
     pub max_connections: usize,
     pub idle: Duration,
@@ -74,7 +72,6 @@ pub fn version_line() -> String {
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> {
     let mut args = args.into_iter();
     let (mut board, mut secret_file, mut key_dir) = (None, None, None);
-    let mut alpn = ALPN_DEFAULT.to_owned();
     let mut relay = Relay::Default;
     let mut max_connections = MAX_CONNECTIONS_DEFAULT;
     let mut idle = IDLE_DEFAULT;
@@ -84,13 +81,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         }
         if !matches!(
             flag.as_str(),
-            "--board"
-                | "--secret-file"
-                | "--key-dir"
-                | "--alpn"
-                | "--relay"
-                | "--max-connections"
-                | "--idle"
+            "--board" | "--secret-file" | "--key-dir" | "--relay" | "--max-connections" | "--idle"
         ) {
             return Err(match flag.strip_prefix("--") {
                 Some(rest) => format!("unknown flag --{}", rest.split('=').next().unwrap_or("")),
@@ -102,7 +93,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
             "--board" => board = Some(loopback(&value)?),
             "--secret-file" => secret_file = Some(PathBuf::from(value)),
             "--key-dir" => key_dir = Some(PathBuf::from(value)),
-            "--alpn" => alpn = name(&value)?,
             "--relay" => relay = relay_mode(&value)?,
             "--max-connections" => {
                 max_connections = bounded(&flag, &value, MAX_CONNECTIONS_LIMIT)? as usize
@@ -115,7 +105,6 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Command, String> 
         board: board.ok_or("--board is required")?,
         secret: read_secret(&secret_file)?,
         key_dir: key_dir.ok_or("--key-dir is required")?,
-        alpn,
         relay,
         max_connections,
         idle,
@@ -129,13 +118,6 @@ fn loopback(value: &str) -> Result<SocketAddr, String> {
             "--board must be a loopback IP address and a port, such as 127.0.0.1:7778".to_owned(),
         ),
     }
-}
-
-fn name(value: &str) -> Result<String, String> {
-    if value.is_empty() || value.len() > 255 {
-        return Err("--alpn must be 1 to 255 bytes".to_owned());
-    }
-    Ok(value.to_owned())
 }
 
 fn relay_mode(value: &str) -> Result<Relay, String> {
@@ -204,7 +186,10 @@ mod tests {
         assert!(matches!(parse_all(&["--version"]), Ok(Command::Version)));
         assert_eq!(
             version_line(),
-            format!("hand-iroh {} iroh 1.4.1", env!("CARGO_PKG_VERSION"))
+            format!(
+                "hand-iroh {} iroh {IROH_VERSION}",
+                env!("CARGO_PKG_VERSION")
+            )
         );
     }
 
@@ -214,7 +199,6 @@ mod tests {
         let config = run_with(&dir, &[]).unwrap();
         assert_eq!(config.board, "127.0.0.1:7778".parse().unwrap());
         assert_eq!(config.secret.as_str(), SECRET);
-        assert_eq!(config.alpn, "hand-board");
         assert_eq!(config.relay, Relay::Default);
         assert_eq!(config.max_connections, 16);
         assert_eq!(config.idle, Duration::from_secs(60));
@@ -226,8 +210,6 @@ mod tests {
         let config = run_with(
             &dir,
             &[
-                "--alpn",
-                "other",
                 "--relay",
                 "https://relay.example.test",
                 "--max-connections",
@@ -237,7 +219,6 @@ mod tests {
             ],
         )
         .unwrap();
-        assert_eq!(config.alpn, "other");
         assert!(
             matches!(config.relay, Relay::Custom(url) if url.to_string() == "https://relay.example.test/")
         );
@@ -386,7 +367,6 @@ mod tests {
             ("--idle", "-1"),
             ("--idle", "86401"),
             ("--idle", "18446744073709551615"),
-            ("--alpn", ""),
         ] {
             let error = run_with(&dir, &[flag, value]).unwrap_err();
             assert!(error.starts_with(flag), "{flag} {value}: {error}");
