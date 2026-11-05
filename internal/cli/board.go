@@ -23,6 +23,7 @@ import (
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/harness"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 	"github.com/atqamz/hand/internal/transcript"
@@ -39,6 +40,7 @@ func cmdBoard(r *runner, args []string) error {
 	fs := flags("board")
 	addr := fs.String("addr", "127.0.0.1:7777", "listen address; 0.0.0.0:7777 makes it reachable from a phone on the LAN")
 	peerAddr := fs.String("peer-addr", "", "a second loopback address for a local tunnel or sidecar; every request on it counts as remote; off by default")
+	iroh := fs.Bool("iroh", false, "start hand-iroh so a phone can reach the board over iroh; opens the peer listener on a free loopback port unless --peer-addr names one; off by default")
 	every := fs.Duration("update-every", 0, "run `hand update` this often, which also switches a quiet fleet's Luvus server; 0 is off, the least is "+updateMin.String())
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
@@ -65,20 +67,33 @@ func cmdBoard(r *runner, args []string) error {
 			local = net.JoinHostPort("127.0.0.1", port)
 		}
 	}
+	if *iroh && !loopback {
+		_ = ln.Close()
+		return usageError{"board: --iroh needs --addr on a loopback address"}
+	}
+	if *iroh && *peerAddr == "" {
+		*peerAddr = "127.0.0.1:0"
+	}
 	pln, secret, err := listenPeer(root, *peerAddr, loopback)
 	if err != nil {
 		_ = ln.Close()
 		return err
 	}
+	var side *sidecar.Sidecar
+	var irohStatus func() sidecar.Status
 	if pln != nil {
 		defer pln.Close()
+		if *iroh {
+			side = r.newSidecar(root, pln.Addr().String())
+			irohStatus = side.Status
+		}
 	}
 	transcripts := &transcript.Reader{Paths: r.transcriptPaths()}
 	host := board.NewHost(board.HostOptions{
 		Loopback: loopback,
 		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
-			return r.openBoard(id, home, local, loopback, transcripts)
+			return r.openBoard(id, home, local, loopback, transcripts, irohStatus)
 		},
 		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
 		Valid: func(id, token string) bool { return boardTokenIs(root, id, token) },
@@ -109,25 +124,41 @@ func cmdBoard(r *runner, args []string) error {
 	if err := recordEvery(root, *every); err != nil {
 		return err
 	}
+	if err := recordIroh(root, *iroh); err != nil {
+		return err
+	}
 	var d toon.Doc
 	d.Field("board", "http://"+local+"/")
 	if pln != nil {
 		d.Field("peer", pln.Addr().String())
+	}
+	if side != nil {
+		d.Field("iroh", sidecar.Starting)
 	}
 	control := "Chat with the supervisor and control it from its fleet's page; reach it from a phone through ssh -L or tailscale serve"
 	if !loopback {
 		d.Field("warning", "plain HTTP on a network address: anyone who can see this traffic can take a fleet's token; prefer a loopback board behind ssh -L or tailscale serve")
 		control = "Supervisor controls are off on a network address; answering decisions and acknowledging reports still work"
 	}
-	d.Help("Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control)
+	help := []string{"Open a fleet's page with `hand open` from inside the fleet; keep its link private, since the token is the only thing guarding that fleet", control}
+	if side != nil {
+		help = append(help, "`hand doctor` shows the iroh row and, once it is ready, the endpoint ID a phone dials")
+	}
+	d.Help(help...)
 	if err := r.print(&d); err != nil {
 		return err
 	}
-	keep := make(chan struct{})
+	keep, ran := make(chan struct{}), make(chan struct{})
 	kctx, stopKeep := context.WithCancel(ctx)
 	go func() {
 		defer close(keep)
 		r.keepWatchers(kctx, root, *every)
+	}()
+	go func() {
+		defer close(ran)
+		if side != nil {
+			side.Run(kctx)
+		}
 	}()
 	if pln != nil {
 		go func() {
@@ -139,6 +170,7 @@ func cmdBoard(r *runner, args []string) error {
 	err = srv.Serve(ln)
 	stopKeep()
 	<-keep
+	<-ran
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -185,7 +217,7 @@ func boardHome(root, id string) (string, error) {
 	return home, nil
 }
 
-func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader) (http.Handler, io.Closer, error) {
+func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status) (http.Handler, io.Closer, error) {
 	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
 	if err != nil {
 		return nil, nil, err
@@ -204,6 +236,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Home:       home,
 		Base:       "/" + id,
 		Phone:      func(ctx context.Context) board.PhoneLink { return r.phoneLink(ctx, local) },
+		Iroh:       iroh,
 	}}
 	if err == nil {
 		_, err = fb.current()

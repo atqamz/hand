@@ -78,6 +78,7 @@ func cmdDoctor(r *runner, args []string) error {
 		c.add("fleet", "info", "the fleet checks were skipped: they need the secondhand folder")
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
+		r.doctorIroh(ctx, &d, &c, root, path)
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 	}
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
