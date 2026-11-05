@@ -368,9 +368,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::path::PathBuf;
 
-    use iroh::endpoint::{
-        ConnectionError, PortmapperConfig, ReadError, ReadToEndError, WriteError, presets,
-    };
+    use iroh::endpoint::{ConnectionError, PortmapperConfig, ReadError, ReadToEndError, presets};
     use iroh::{EndpointAddr, RelayMode, SecretKey};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     use tokio::net::{TcpListener, UdpSocket};
@@ -749,6 +747,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn a_board_that_answers_and_closes_at_once_still_gets_its_answer_to_the_phone() {
+        use iroh::endpoint::WriteError;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let board = listener.local_addr().unwrap();
         tokio::spawn(async move {
