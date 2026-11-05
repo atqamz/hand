@@ -1,0 +1,13 @@
+/target/
+/src-tauri/target/
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+local.properties
+.env
+.idea/
+.vscode/
+.DS_Store
+/src-tauri/gen/schemas/

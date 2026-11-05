@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - core/**
+      - src-tauri/**
+      - web/**
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/**
+      - .github/dependabot.yml
+  pull_request:
+    branches: [main]
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  TAURI_CLI_VERSION: "2.12.4"
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - run: actionlint
+
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: check-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: check-
+      - run: cargo fmt --all --check
+      - run: cargo test --locked -p hand-android-core
+      - run: cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
+
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: 27.3.13750724
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Install the Android SDK packages
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;$NDK_VERSION"
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - run: rustup target add aarch64-linux-android
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin/cargo-tauri
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            target
+            src-tauri/gen/android/.gradle
+            src-tauri/gen/android/app/build
+          key: apk-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties') }}-${{ env.TAURI_CLI_VERSION }}
+          restore-keys: apk-
+      - name: Install tauri-cli
+        run: |
+          if ! cargo tauri --version 2>/dev/null | grep -qx "tauri-cli $TAURI_CLI_VERSION"; then
+            cargo install tauri-cli --version "$TAURI_CLI_VERSION" --locked
+          fi
+      - name: Build the debug APK
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          cargo tauri android build --debug --apk --target aarch64
+      - name: Check the APK's signer
+        run: |
+          apk=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs"
+          grep -q 'CN=Android Debug' "$RUNNER_TEMP/certs"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hand-android-debug-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 14
