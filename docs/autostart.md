@@ -29,7 +29,27 @@ Install as an app per browser:
 - Chrome: **Install page as app** from the menu.
 - Edge: **Install this site as an app** from the menu.
 - Safari: **Add to Dock**. Run `hand open` in Safari first, then add it. Not tried on a Mac.
-- Firefox: a bookmark.
+- Firefox: a bookmark. It installs web apps only on Windows, in version 143 and later.
+
+### As an app window
+
+A Chromium browser shows the Board in its own window, with no tab strip and no address bar, from `--app=`. No manifest is needed. On Linux, save this as `~/.local/share/applications/hand.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Hand
+Exec=chromium --app=http://127.0.0.1:7777/
+Terminal=false
+```
+
+Use `google-chrome-stable` in place of `chromium` for Chrome, and `microsoft-edge-stable` for Edge. The same `--app=` flag works for Chrome and Edge on the other platforms; this was measured on Linux only. The window runs the browser you already have, in the profile you start it with, so run `hand open` in that browser first and the window opens signed in.
+
+Chrome and Edge also install the page as an app from their menu (**Install page as app** in Chrome, **Install this site as an app** in Edge). That needs no manifest either, and the installed app uses the browser profile and its login.
+
+Measured on Linux with Chrome 157: the `--app` window was usable 500–535 ms after the process started, and 659 ms on a new profile; a tab in a browser that is already running takes 100–120 ms. F5 and Ctrl+R reload the page, Ctrl+plus and Ctrl+minus zoom, and a link that opens a new tab, such as a PR link, opens another window. There is no address bar or tab strip.
+
+The login is per browser profile: run `hand open` once in each browser or profile you use. The 400-day cookie belongs to that profile, so the app window shares it, and another browser, profile or private window does not.
 
 Two pages mean something is missing:
 
