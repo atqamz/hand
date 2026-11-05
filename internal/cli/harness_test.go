@@ -52,6 +52,14 @@ func clickMain(args []string) int {
 	if p["log"] != "" {
 		fakebin.Append(p["log"], strings.Join(args, "|"))
 	}
+	if p["child"] != "" {
+		c := exec.Command("/bin/sleep", p["child"])
+		if err := c.Start(); err == nil {
+			fakebin.Append(p["pids"], strconv.Itoa(c.Process.Pid))
+			_ = c.Wait()
+			return 0
+		}
+	}
 	d, _ := time.ParseDuration(p["sleep"])
 	time.Sleep(d)
 	fmt.Print(p["print"])

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -798,16 +799,28 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 	if err != nil {
 		return ""
 	}
+	host := strings.TrimSpace(string(addr))
+	if host == "" {
+		return ""
+	}
 	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
 		return ""
 	}
-	host := strings.TrimSpace(string(addr))
 	base := "http://" + host
 	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
 		base = phone
 	}
-	return base + "/" + w.r.fleet.ID + path + fragment
+	raw := base + "/" + w.r.fleet.ID + path + fragment
+	if !openableURL(raw) {
+		return ""
+	}
+	return raw
+}
+
+func openableURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func (w *watcher) flushWarns() {

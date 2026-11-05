@@ -42,10 +42,85 @@ func installClick(t *testing.T, fx *attemptFixture, params map[string]string) (n
 	return notifyLog, helpLog, openLog, pidLog
 }
 
+func writeBoardAddr(t *testing.T, fx *attemptFixture, addr string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"), []byte(addr), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func setBoardAddr(t *testing.T, fx *attemptFixture) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"), []byte("127.0.0.1:7777\n"), 0o644); err != nil {
-		t.Fatal(err)
+	writeBoardAddr(t, fx, "127.0.0.1:7777\n")
+}
+
+func processRunning(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	i := strings.LastIndexByte(string(b), ')')
+	return i < 0 || !strings.HasPrefix(strings.TrimSpace(string(b[i+1:])), "Z")
+}
+
+func groupRunning(pgid int) bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return syscall.Kill(-pgid, 0) == nil
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+		if err != nil {
+			continue
+		}
+		s := string(b)
+		i := strings.LastIndexByte(s, ')')
+		if i < 0 {
+			continue
+		}
+		f := strings.Fields(s[i+1:])
+		if len(f) < 3 || f[0] == "Z" {
+			continue
+		}
+		if f[2] == strconv.Itoa(pgid) {
+			return true
+		}
+	}
+	return false
+}
+
+func waitGone(t *testing.T, what string, gone func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !gone() {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s still running after 10s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func killClickGroup(pidLog string) {
+	lines := readLines(pidLog)
+	if len(lines) == 0 {
+		return
+	}
+	pid, err := strconv.Atoi(lines[0])
+	if err != nil {
+		return
+	}
+	alive := processRunning(pid)
+	if len(lines) > 1 {
+		if child, err := strconv.Atoi(lines[1]); err == nil && processRunning(child) {
+			alive = true
+		}
+	}
+	if alive {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
 	}
 }
 
@@ -129,28 +204,93 @@ func TestWatchCapsWaitingClickNotificationsAtEight(t *testing.T) {
 	}
 }
 
-func TestWatchKillsAnUnclickedNotificationAtTheTimeout(t *testing.T) {
+func TestWatchKillsTheClickProcessGroupAtTheTimeout(t *testing.T) {
 	old := *cli.ClickWait
-	*cli.ClickWait = 300 * time.Millisecond
+	*cli.ClickWait = 5 * time.Second
 	t.Cleanup(func() { *cli.ClickWait = old })
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
-	notifyLog, _, openLog, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "5s", "print": "default\n"})
+	notifyLog, _, openLog, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "30s", "child": "30", "print": "default\n"})
+	fx.start()
+	startWatch(t, fx)
+	t.Cleanup(func() { killClickGroup(pidLog) })
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(pidLog)) == 2 })
+	pids := readLines(pidLog)
+	parent, err := strconv.Atoi(pids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := strconv.Atoi(pids[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !processRunning(parent) || !processRunning(child) {
+		t.Fatalf("click process group exited before the timeout: parent=%v child=%v", processRunning(parent), processRunning(child))
+	}
+	if len(readLines(notifyLog)) != 1 {
+		t.Fatalf("notification did not run: %q", notifyLog)
+	}
+	waitGone(t, "click process group", func() bool {
+		return !processRunning(parent) && !processRunning(child) && !groupRunning(parent)
+	})
+	time.Sleep(200 * time.Millisecond)
+	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+		t.Fatalf("opener ran after the timeout")
+	}
+}
+
+func TestWatchKeepsAClickAcrossAStreamReconnect(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, _, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "30s"})
 	fx.start()
 	stop := startWatch(t, fx)
-	defer stop()
+	t.Cleanup(func() { killClickGroup(pidLog) })
 	quietAlert(fx)
-	eventually(t, func() bool { return len(readLines(pidLog)) == 1 && readLines(pidLog)[0] != "" })
+	eventually(t, func() bool {
+		lines := readLines(notifyLog)
+		return len(lines) == 1 && strings.Contains(lines[0], "--action=default=Open")
+	})
+	eventually(t, func() bool { return len(readLines(pidLog)) == 1 })
 	pid, err := strconv.Atoi(readLines(pidLog)[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, func() bool { return syscall.Kill(pid, 0) != nil })
-	if len(readLines(notifyLog)) != 1 {
-		t.Fatalf("notification did not run: %q", notifyLog)
+	if !processRunning(pid) {
+		t.Fatal("click child exited before the reconnect")
 	}
-	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
-		t.Fatalf("opener ran after the timeout")
+	fx.rt.srv.SetGeneration("gen-2")
+	fx.rt.srv.DropSubscribers()
+	eventually(t, func() bool { return fx.rt.srv.Subscribers() == 1 })
+	if !processRunning(pid) {
+		t.Fatal("stream reconnect killed the waiting click child")
+	}
+	if _, code := stop(); code != 0 {
+		t.Fatalf("watch exit = %d", code)
+	}
+	waitGone(t, "click child", func() bool { return !processRunning(pid) })
+}
+
+func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
+	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n"} {
+		t.Run(name, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			writeBoardAddr(t, fx, addr)
+			notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+			fx.start()
+			stop := startWatch(t, fx)
+			defer stop()
+			quietAlert(fx)
+			eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
+			if got := readLines(notifyLog)[0]; strings.Contains(got, "--action") || !strings.HasPrefix(got, "--app-name=hand|--|") {
+				t.Fatalf("notify args = %q", got)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+				t.Fatalf("opener ran for board.addr %q", addr)
+			}
+		})
 	}
 }
 
