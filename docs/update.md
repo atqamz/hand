@@ -57,9 +57,13 @@ To restore a backup:
 5. put the old binary back from `~/.secondhand/backups/hand.<stamp>` if the new one is the problem; an older `hand` refuses a database that a newer one migrated (`newer than this hand`), so step 4 is not optional with it;
 6. run `hand open` to start the board again, then start or resume the supervisor from the fleet's page.
 
-## Updating from 0.11.0
+## Updating from before 0.13.0
 
-`hand update` runs the code of the build you have until it has swapped the binary, and restarts the watcher and the board with that code. From 0.11.0, with both a watcher and the board running, the new watcher migrates `hand.db` first, and 0.11.0 then refuses to open the migrated database to start the board. The update still replaces the binary, backs everything up and refreshes the fleet, restarts the watcher, and then exits 1 with the unit row `board,start,"failed: invalid: state schema N is newer than this hand (9)"` and the help line `could not start board`. Nothing is lost: run `hand open` to start the board on the new binary. With only the board running, or with neither, the update succeeds without that line.
+This build migrates `hand.db` only from schema 16, the one Hand 0.13.0 writes. It refuses an older database before it migrates anything, with `PATH has schema N, older than this hand reads (16 to 18); hand 0.13.0 is the last release that migrates it`, where PATH is the database file (a migration that finds the old schema by itself says `state schema N, older ...` instead). This is a break, with no switch to go back. From an older release, install 0.13.0 first (`HAND_INSTALL_VERSION=v0.13.0`, see [Install](install.md)), run `hand orient` in each fleet so it migrates the database (`hand version` does not open it), then update. A `hand update` run by an older release swaps the binary before anything reads the database, so run the 0.13.0 step first. If one already swapped it, every `hand` command that opens the database now refuses it: install 0.13.0 over it with `HAND_INSTALL_VERSION=v0.13.0`, run `hand orient` in each fleet, then run `hand update` again.
+
+## Updating from 0.13.0
+
+`hand update` runs the code of the build you have until it has swapped the binary, and restarts the watcher and the board with that code. From 0.13.0, with both a watcher and the board running, the new watcher migrates `hand.db` first, and 0.13.0 then refuses to open the migrated database to start the board. The update still replaces the binary, backs everything up and refreshes the fleet, restarts the watcher, and then exits 1 with the unit row `board,start,"failed: invalid: state schema N is newer than this hand (16)"` and the help line `could not start board`. Nothing is lost: run `hand open` to start the board on the new binary. With only the board running, or with neither, the update succeeds without that line.
 
 ## Workers start without MCP servers
 

@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -96,70 +95,5 @@ func TestTrustingReplacesTheSettingsAndRecordsAnEvent(t *testing.T) {
 	}
 	if got := strings.Join(projectEvents(t, s), "|"); got != "project.added app|project.trusted app" {
 		t.Fatalf("events = %q", got)
-	}
-}
-
-func TestAVersion12HomeKeepsItsProjectsUnrecordedAndAdoptsLater(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hand.db")
-	appRepo, _ := repoPaths(t)
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range migrations[:12] {
-		if _, err := db.Exec(m); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, q := range []string{
-		`PRAGMA user_version = 12`,
-		`INSERT INTO fleet(only, id, name) VALUES (1, 'f0123456789ab', 'old')`,
-		`INSERT INTO project(name, repo, created_at) VALUES ('app', '` + appRepo + `', '2026-10-22T05:00:00Z')`,
-		`INSERT INTO task(project, title, goal, status, created_at, updated_at) VALUES ('app', 'Fix', 'g', 'inbox', 'x', 'x')`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	backup := filepath.Join(t.TempDir(), "hand.db.bak")
-	if _, err := db.Exec(`VACUUM INTO ?`, backup); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	for _, from := range []string{path, backup} {
-		s, err := Open(from, clock)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var v int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
-			t.Fatalf("user_version = %d, %v", v, err)
-		}
-		p, err := s.Project(ctx, "app")
-		if err != nil || p.Repo != appRepo || p.Settings != "" {
-			t.Fatalf("migrated project = %+v, %v", p, err)
-		}
-		if got, err := s.AdoptProject(ctx, "app", "v1\nnow\n"); err != nil || got != "v1\nnow\n" {
-			t.Fatalf("adopt = %q, %v", got, err)
-		}
-		if got := strings.Join(projectEvents(t, s), "|"); got != "project.adopted app" {
-			t.Fatalf("events = %q", got)
-		}
-		dst := filepath.Join(t.TempDir(), "again.db")
-		if err := s.Backup(ctx, dst); err != nil {
-			t.Fatal(err)
-		}
-		b, err := Open(dst, clock)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if p, err := b.Project(ctx, "app"); err != nil || p.Settings != "v1\nnow\n" {
-			t.Fatalf("backed-up project = %+v, %v", p, err)
-		}
-		b.Close()
-		s.Close()
 	}
 }

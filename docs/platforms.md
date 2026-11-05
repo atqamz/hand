@@ -38,14 +38,14 @@ In the table:
 | Stop a worker | daily; CI, real harness | real Mac (#895), stand-in claude; CI, real harness | CI, real harness |
 | `hand attach` | CI, fake | real Mac (#895), stand-in claude | not run |
 | Start the watcher on demand, and the board keeps watchers alive | daily | real Mac (#895) | CI, fake |
-| `hand update` | daily, CI e2e from v0.11.0 | real Mac (#895) and CI e2e, from v0.11.0 | CI e2e from v0.11.0, the running executable renamed to `hand.exe.old` |
+| `hand update` | daily, CI e2e from v0.13.0 | real Mac from v0.11.0 (#895) and CI e2e from v0.13.0 | CI e2e from v0.13.0, the running executable renamed to `hand.exe.old` |
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
 | Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |
 | First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `route list`, `models` | CI e2e | CI e2e | CI e2e |
 | The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke, install manifest | CI e2e | CI e2e | CI e2e |
 | The Board in Chromium at 1440 and 390 px: five regions, document dialog, project badges, no console error | CI e2e | CI e2e | CI e2e |
-| Upgrade from v0.11.0 with backups, the old binary refusing a migrated database, and the documented restore | CI e2e | CI e2e | CI e2e |
+| Upgrade from v0.13.0 with backups, the old binary refusing a migrated database, and the documented restore | CI e2e | CI e2e | CI e2e |
 | Desktop notifications | daily | real Mac (#895) | no |
 | `hand open` starts the board and opens the browser | CI e2e starts the board, fake browser | real Mac (#895) | CI e2e starts the board, fake browser |
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |

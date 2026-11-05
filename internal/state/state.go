@@ -20,60 +20,19 @@ import (
 //go:embed schema.sql
 var schema string
 
-//go:embed attempt.sql
-var attemptSchema string
-
-//go:embed report.sql
-var reportSchema string
-
-//go:embed fleet.sql
-var fleetSchema string
-
-//go:embed harness.sql
-var harnessSchema string
-
-//go:embed supervisor.sql
-var supervisorSchema string
-
-//go:embed switch.sql
-var switchSchema string
-
-//go:embed continues.sql
-var continuesSchema string
-
-//go:embed screen.sql
-var screenSchema string
-
-//go:embed timer.sql
-var timerSchema string
-
-//go:embed device.sql
-var deviceSchema string
-
-//go:embed phone.sql
-var phoneSchema string
-
-//go:embed settings.sql
-var settingsSchema string
-
-//go:embed waits.sql
-var waitsSchema string
-
-//go:embed approve.sql
-var approveSchema string
-
-//go:embed access.sql
-var accessSchema string
-
 //go:embed kept.sql
 var keptSchema string
 
 //go:embed track.sql
 var trackSchema string
 
-var migrations = []string{schema, attemptSchema, reportSchema, fleetSchema, harnessSchema, supervisorSchema, switchSchema, continuesSchema, screenSchema, timerSchema, deviceSchema, phoneSchema, settingsSchema, waitsSchema, approveSchema, accessSchema, keptSchema, trackSchema}
+var migrations = []string{keptSchema, trackSchema}
+
+const MinSchemaVersion = 16
 
 const SchemaVersion = 18
+
+const lastMigrating = "0.13.0"
 
 var uriPath = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
@@ -92,6 +51,8 @@ type Store struct {
 func Open(path string, now func() time.Time) (*Store, error) {
 	if v, ok := headerVersion(path); ok && v > SchemaVersion {
 		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d)", ErrInvalid, path, v, SchemaVersion)
+	} else if ok && v != 0 && v < MinSchemaVersion {
+		return nil, tooOld(path+" has", v)
 	}
 	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
@@ -124,7 +85,14 @@ func headerVersion(path string) (int, bool) {
 	if _, err := io.ReadFull(f, b); err != nil || string(b[:16]) != "SQLite format 3\x00" {
 		return 0, false
 	}
+	if w, err := os.Stat(path + "-wal"); err == nil && w.Size() > 0 {
+		return 0, false
+	}
 	return int(binary.BigEndian.Uint32(b[60:64])), true
+}
+
+func tooOld(what string, v int) error {
+	return fmt.Errorf("%w: %s schema %d, older than this hand reads (%d to %d); hand %s is the last release that migrates it", ErrInvalid, what, v, MinSchemaVersion, SchemaVersion, lastMigrating)
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -163,8 +131,16 @@ func migrateTx(tx *sql.Tx) error {
 		return nil
 	case v > SchemaVersion:
 		return fmt.Errorf("%w: state schema %d is newer than this hand (%d)", ErrInvalid, v, SchemaVersion)
+	case v != 0 && v < MinSchemaVersion:
+		return tooOld("state", v)
 	}
-	for _, m := range migrations[v:SchemaVersion] {
+	if v == 0 {
+		if _, err := tx.Exec(schema); err != nil {
+			return err
+		}
+		v = MinSchemaVersion
+	}
+	for _, m := range migrations[v-MinSchemaVersion : SchemaVersion-MinSchemaVersion] {
 		if _, err := tx.Exec(m); err != nil {
 			return err
 		}

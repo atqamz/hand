@@ -476,12 +476,12 @@ If it fails: file what the owner saw, and whether macOS asked for permission.
 
 Steps:
 
-**1.** Install v0.11.0 or a later release as a second copy (the update stops processes by pid file from v0.11.0 on, so an older copy cannot restart the watcher and the board on macOS), make a fleet in a second home, and start its watcher and board with that old copy:
+**1.** Install v0.13.0 as a second copy (the update stops processes by pid file from v0.11.0 on, so an older copy cannot restart the watcher and the board on macOS), make a fleet in a second home, and start its watcher and board with that old copy:
 
 ```zsh
 . $D/env.sh
 mkdir -p $D/old $D/fleet2
-s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.11.0 sh -c "$s"
+s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_DIR=$D/old HAND_INSTALL_VERSION=v0.13.0 sh -c "$s"
 H2=$D/home2
 cd $D/fleet2 && SECONDHAND_HOME=$H2 $D/old/hand init
 cp $D/fleet2/hand.db $D/hand2.db.backup
@@ -507,9 +507,9 @@ SECONDHAND_HOME=$H2 $D/old/hand open --print > /dev/null && echo board-answers
 **3.** Ask the owner: *During the update, did macOS show any dialog or notification about `hand`, such as "cannot be opened" or "malware"?* (yes or no, and its text).
 
 Expected:
-- the check prints `status: checked`; the update prints `status: updated`, `from: 0.11.0 stable ...` and `to: 0.11.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
+- the check prints `status: checked`; the update prints `status: updated`, `from: 0.13.0 stable ...` and `to: 0.13.0 edge ...` (`to` can be newer, and `from` is the release you installed), a `backups` list, and `init ok` for the fleet;
 - `hand version` now prints `channel: edge`;
-- both PID files changed, `orient` prints `watch: running`, and `board-answers` prints: the watcher and the board run again, started by the update;
+- the watcher's PID file changed and `orient` prints `watch: running`; with the board also running, the update exits 1 with `could not start board`, as [Updating from 0.13.0](../update.md#updating-from-0130) describes, and `board-answers` prints because `hand open` starts the board on the new binary;
 - the answer is no.
 
 Evidence: `{ SECONDHAND_HOME=$H2 $D/old/hand version; cat $D/fleet2/watch.pid $H2/board.pid; tail -5 $D/watch2.log $D/board2.log; } 2>&1 | ev M10`, the update's output, and the answer.
