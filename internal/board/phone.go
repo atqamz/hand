@@ -130,7 +130,7 @@ func (b *Board) secretHash(secret string) string { return b.mac("device:" + secr
 func (b *Board) deviceCSRF(secret string) string { return b.mac("csrf:" + secret)[:32] }
 
 func forwarded(r *http.Request) bool {
-	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("Tailscale-User-Login") != ""
+	return peerOf(r) != nil || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("Tailscale-User-Login") != ""
 }
 
 func viaFunnel(r *http.Request) bool { return r.Header.Get("Tailscale-Funnel-Request") != "" }
@@ -159,6 +159,9 @@ func setPhoneCookie(w http.ResponseWriter, r *http.Request, id string, device in
 }
 
 func tailnetLogin(r *http.Request) string {
+	if c := peerOf(r); c != nil {
+		return c.login()
+	}
 	v := r.Header.Get("Tailscale-User-Login")
 	if d, err := new(mime.WordDecoder).DecodeHeader(v); err == nil {
 		v = d
@@ -167,6 +170,9 @@ func tailnetLogin(r *http.Request) string {
 }
 
 func remote(r *http.Request) string {
+	if c := peerOf(r); c != nil {
+		return c.addr()
+	}
 	chain := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if last := strings.TrimSpace(chain[strings.LastIndex(chain, ",")+1:]); last != "" {
 		return last

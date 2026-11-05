@@ -100,10 +100,14 @@ func NewHost(o HostOptions) *Host {
 	return h
 }
 
-func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func harden(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+}
+
+func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	harden(w)
 	if viaFunnel(r) && !strings.HasPrefix(r.URL.Path, "/static/") {
 		hostFail(w, http.StatusForbidden, funnelRefusal)
 		return
