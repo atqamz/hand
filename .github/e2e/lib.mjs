@@ -414,7 +414,9 @@ export async function startBoard(box) {
   if (addr) {
     const out = fs.openSync(path.join(box.dir, 'board.out'), 'a');
     const bin = path.join(box.bin, `hand${exe}`);
-    spawn(bin, ['board', '--addr', addr], { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true }).unref();
+    const args = ['board', '--addr', addr];
+    if (fs.existsSync(box.file('board.iroh'))) args.push('--iroh');
+    spawn(bin, args, { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true }).unref();
     for (let i = 0; i < 50 && !box.read('board.addr'); i++) await new Promise((r) => setTimeout(r, 100));
   }
   const open = await ok(await box.hand(['open', '--print']), 'hand open --print starts the Board and prints the login link');

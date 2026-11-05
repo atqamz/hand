@@ -10,6 +10,18 @@ const previousLuvus = '0.14.3';
 const profiles = ['profile deep', 'profile default', 'profile high', 'profile max', 'profile quick'];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+async function waitFor(what, ok) {
+  for (let i = 0; i < 300 && !ok(); i++) await new Promise((r) => setTimeout(r, 100));
+  check(ok(), what);
+}
+
+async function startIrohBoard(box) {
+  const out = fs.openSync(path.join(box.dir, 'board.out'), 'a');
+  const bin = path.join(box.bin, `hand${exe}`);
+  spawn(bin, ['board', '--iroh', '--addr', '127.0.0.1:0'], { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true, windowsHide: true }).unref();
+  for (let i = 0; i < 50 && !box.read('board.addr'); i++) await new Promise((r) => setTimeout(r, 100));
+}
+
 const userVersion = (db) => {
   const fd = fs.openSync(db, 'r');
   const head = Buffer.alloc(4);
@@ -156,6 +168,7 @@ async function update(box, s) {
     const ran = await run(path.join(box.bin, `hand-iroh${exe}`), ['--version'], { env: box.env({}, []) });
     matches(ran.out, new RegExp(`^hand-iroh ${irohVersion.replace(/\./g, '\\.')} iroh `), `${name}: the installed sidecar reports the version hand needs`);
   }
+  if (s.repair) check(!fs.existsSync(path.join(box.bin, `hand-iroh${exe}`)), `${name}: 0.13.0's update installs no sidecar`);
   const made = doc.lists.backups ?? [];
   equal(made.length, 2, `${name}: it lists two backups`);
   const dbBackup = made.find((p) => path.basename(p).startsWith('hand.db.'));
@@ -198,13 +211,19 @@ async function update(box, s) {
 
 async function afterwards(box, s) {
   const { name, to, running, id } = s;
+  if (s.sidecar) await waitFor(`${name}: the sidecar is ready after the update`, () => /^ready [0-9a-f]{64} \S+$/m.test(box.read('board.iroh') ?? ''));
   const doctor = await box.hand(['doctor']);
   await ok(doctor, `${name}: hand doctor exits 0 with no harness installed`);
   const checks = toon(doctor.out).tables.checks;
   equal(checks.filter((c) => c.state === 'fail'), [], `${name}: hand doctor fails nothing`);
   equal(checks.filter((c) => c.state === 'warn' && profiles.includes(c.check)).map((c) => c.check).sort(), [...profiles].sort(), `${name}: hand doctor warns for the five profiles`);
   for (const c of ['schema', 'fleet', 'luvus pin']) equal(checks.find((r) => r.check === c)?.state, 'ok', `${name}: hand doctor: ${c} is ok`);
-  equal(checks.find((r) => r.check === 'iroh')?.state, 'info', `${name}: hand doctor: iroh is information only while the Board runs without --iroh`);
+  if (s.sidecar) {
+    equal(checks.find((r) => r.check === 'iroh')?.state, 'ok', `${name}: hand doctor: iroh is ok while the running sidecar is ready`);
+    equal(toon(doctor.out).fields.iroh_id, 'ab'.repeat(32), `${name}: hand doctor prints the running sidecar's endpoint ID`);
+  } else {
+    equal(checks.find((r) => r.check === 'iroh')?.state, 'info', `${name}: hand doctor: iroh is information only while the Board runs without --iroh`);
+  }
   const orient = await ok(await box.hand(['orient']), `${name}: hand orient`);
   check(Buffer.byteLength(orient.out) < 6000, `${name}: hand orient stays under its byte budget`);
 
@@ -230,6 +249,16 @@ async function afterwards(box, s) {
   equal(again.tables.units, [], `${name}: it touched neither the Board nor a watcher`);
   equal(box.read('board.pid'), marker, `${name}: the Board kept running through the second update`);
   equal(fs.readdirSync(path.join(box.root, 'backups')).filter((n) => /^hand\.\d/.test(n)).length, 1, `${name}: it made no new backup`);
+  if (s.repair) {
+    equal(again.fields.iroh, `${irohVersion} installed`, `${name}: the second update installs the sidecar 0.13.0's update left out`);
+    check(to.srv.requests.includes(`/latest/download/${irohAsset}`), `${name}: it fetched the sidecar from the same release`);
+    const ran = await run(path.join(box.bin, `hand-iroh${exe}`), ['--version'], { env: box.env({}, []) });
+    matches(ran.out, new RegExp(`^hand-iroh ${irohVersion.replace(/\./g, '\\.')} iroh `), `${name}: the repaired sidecar reports the version hand needs`);
+    equal(toon((await ok(await box.hand(['board', 'stop']), `${name}: hand board stop before starting with --iroh`)).out).fields.board, 'stopped', `${name}: the Board stops`);
+    fs.writeFileSync(box.file('board.iroh'), 'stopped\n');
+    await startIrohBoard(box);
+    await waitFor(`${name}: hand board --iroh starts the repaired sidecar`, () => /^ready [0-9a-f]{64} \S+$/m.test(box.read('board.iroh') ?? ''));
+  }
 }
 
 async function restore(box, s, backup) {
@@ -264,6 +293,7 @@ async function restore(box, s, backup) {
   equal(restored.counts, before.counts, `${name}: the restored task counts match`);
   equal(restored.cursor, before.cursor, `${name}: the restored event cursor matches`);
 
+  fs.rmSync(box.file('board.iroh'), { force: true });
   const link = await startBoard(box);
   const laptop = new Client(link.origin);
   await laptop.get(`${link.pathname}${link.search}`);
@@ -288,6 +318,7 @@ async function scenario(s) {
   check(Object.keys(before.tasks).length === 3 && before.decisions.length === 2, `${name}: the fleet holds three tasks and two decisions`);
   equal([before.attempts.length, before.reports.length], s.report ? [1, 1] : [0, 0], `${name}: the fleet holds ${s.report ? 'an attempt and a report' : 'no attempt and no report'}`);
   if (running.board) {
+    if (s.sidecar) fs.writeFileSync(box.file('board.iroh'), 'stopped\n');
     await startBoard(box);
     running.boardPid = Number(box.read('board.pid').split(' ')[0]);
     check(Boolean(running.boardPid), `${name}: a Board runs on the old binary`);
@@ -313,7 +344,7 @@ await phase('upgrade', async () => {
       box = new Box(`upgrade-${slug.replace(/ /g, '-')}`).prepare();
       const from = await installOld(box, previousRoot);
       const id = await seed(box, previous, report, previousLuvus);
-      await scenario({ box, id, report, name: `${previous} to the candidate, ${slug}`, from, to: { srv: current, commit: commit() }, running });
+      await scenario({ box, id, report, name: `${previous} to the candidate, ${slug}`, from, to: { srv: current, commit: commit() }, running, repair: true });
       await stopAll(box);
     }
     box = new Box('upgrade-candidate').prepare();
