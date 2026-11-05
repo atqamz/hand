@@ -73,3 +73,14 @@ jobs:
             checksums.txt
             hand-windows-amd64.zip
             hand-windows-amd64.sha256
+
+  iroh:
+    needs: binaries
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      tag: ${{ inputs.tag || github.ref_name }}
