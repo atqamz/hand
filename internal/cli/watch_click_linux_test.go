@@ -180,7 +180,7 @@ func TestWatchFallsBackWhenNotifySendHasNoAction(t *testing.T) {
 func TestWatchCapsWaitingClickNotificationsAtEight(t *testing.T) {
 	fx := newAttemptFixture(t)
 	setBoardAddr(t, fx)
-	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "sleep": "500ms"})
+	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "clickhold": "30s"})
 	fx.start()
 	stop := startWatch(t, fx, "--every", "50ms")
 	defer stop()
@@ -273,7 +273,7 @@ func TestWatchKeepsAClickAcrossAStreamReconnect(t *testing.T) {
 }
 
 func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
-	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n"} {
+	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n", "port only": ":7777\n"} {
 		t.Run(name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
 			writeBoardAddr(t, fx, addr)

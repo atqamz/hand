@@ -820,7 +820,7 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 
 func openableURL(raw string) bool {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
 }
 
 func (w *watcher) flushWarns() {

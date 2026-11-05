@@ -61,6 +61,9 @@ func clickMain(args []string) int {
 		}
 	}
 	d, _ := time.ParseDuration(p["sleep"])
+	if p["clickhold"] != "" && slices.Contains(args, "--wait") {
+		d, _ = time.ParseDuration(p["clickhold"])
+	}
 	time.Sleep(d)
 	fmt.Print(p["print"])
 	code, _ := strconv.Atoi(p["exit"])
