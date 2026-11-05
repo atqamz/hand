@@ -76,7 +76,7 @@ async function board(box, srv, made) {
   equal(wrong.status, 403, 'a wrong token is refused');
   const login = await laptop.get(`${link.pathname}${link.search}`);
   equal([login.status, login.location], [303, `/${id}/`], 'the login link redirects to the fleet page');
-  check(login.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c)), 'the login sets an HttpOnly, SameSite=Strict cookie');
+  check(login.cookies.some((c) => c.startsWith(`hand_board_${id}=`) && /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c) && /Max-Age=34560000/i.test(c)), 'the login sets an HttpOnly, SameSite=Strict cookie that lasts 400 days');
 
   const page = await laptop.get(`/${id}/`);
   equal(page.status, 200, 'the fleet page answers 200 with the cookie');

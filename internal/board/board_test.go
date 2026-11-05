@@ -113,6 +113,34 @@ func TestBoardNeedsTheToken(t *testing.T) {
 	}
 }
 
+func TestLoginCookieLifetime(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		o       board.Options
+		headers map[string]string
+		maxAge  int
+	}{
+		{"loopback", board.Options{Controls: true}, nil, 34560000},
+		{"x-forwarded-for", board.Options{Controls: true}, map[string]string{"X-Forwarded-For": "100.64.0.2"}, 0},
+		{"forwarded", board.Options{Controls: true}, map[string]string{"Forwarded": "for=100.64.0.2"}, 0},
+		{"tailscale login", board.Options{Controls: true}, map[string]string{"Tailscale-User-Login": "a@example.com"}, 0},
+		{"network address", board.Options{}, nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/?token="+token, nil)
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			rec := httptest.NewRecorder()
+			board.New(open(t), token, tc.o).ServeHTTP(rec, req)
+			c := rec.Result().Cookies()
+			if len(c) != 1 || c[0].Name != "hand_board" || c[0].MaxAge != tc.maxAge || c[0].Path != "/" || !c[0].HttpOnly || c[0].SameSite != http.SameSiteStrictMode {
+				t.Fatalf("cookie = %+v", c)
+			}
+		})
+	}
+}
+
 func TestIndexShowsOneCheckPerOpenTask(t *testing.T) {
 	st := open(t)
 	seed(t, st)

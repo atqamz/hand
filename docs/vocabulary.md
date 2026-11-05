@@ -470,7 +470,7 @@ The Board's navigation: a 56px column of icons at the left edge from 900px, and 
 
 ### Board token
 
-`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser. A [paired phone](#paired-phone) never holds it, and changing it signs every paired phone out.
+`board.token` in each fleet home. It guards that fleet's page, and the browser exchanges it for a cookie named for that one fleet, which only that fleet accepts. On a loopback board the cookie is kept for 400 days, or until `board.token` changes; a login that arrives through a proxy (`X-Forwarded-For`, `Forwarded` or `Tailscale-User-Login`) or on a network address lasts until the browser quits. The cookie goes to every page of the board, which is how the rail knows the other fleets the browser can open. `hand open` logs the browser in with it without printing it; `hand open --print` prints a login link that holds it, for another device or browser. A [paired phone](#paired-phone) never holds it, and changing it signs every paired phone out.
 
 ### Phone address
 
