@@ -1210,6 +1210,59 @@ func TestAnAgySupervisorFindsAndResumesItsConversation(t *testing.T) {
 	}
 }
 
+func ompSessions(t *testing.T, h *harness) string {
+	t.Helper()
+	dir := filepath.Join(h.vars["HOME"], ".omp", "agent", "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func ompConversation(t *testing.T, dir, id, cwd, prompt string, at time.Time) string {
+	t.Helper()
+	header := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","cwd":"` + cwd + `"}` + "\n"
+	user := `{"type":"message","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","message":{"role":"user","content":[{"type":"text","text":` + strconv.Quote(prompt) + `}]}}` + "\n"
+	path := filepath.Join(dir, at.UTC().Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
+	if err := os.WriteFile(path, []byte(header+user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
+	argv := rt.lastCreate().Command
+	if len(argv) != 8 || !slices.Equal(argv[1:7], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low"}) {
+		t.Fatalf("argv = %q", argv)
+	}
+	if m := launchPrompt.FindStringSubmatch(argv[7]); m == nil || m[1] != "s1" {
+		t.Fatalf("prompt = %q", argv[7])
+	}
+	id := "01a1abdf-088f-707d-8973-c784c54b54eb"
+	ompConversation(t, ompSessions(t, h), id, h.home, argv[len(argv)-1], time.Now())
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "show", h.ok("supervisor", "show"), "session: "+id)
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
+	h.ok("supervisor", "stop")
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+id)
+	if got := rt.lastCreate().Command; !slices.Equal(got[len(got)-2:], []string{"--resume", id}) {
+		t.Fatalf("resume argv = %q", got)
+	}
+}
+
+func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", "" })
+	has(t, "to omp", h.ok("supervisor", "switch", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s2", "harness: omp")
+	argv := rt.lastCreate().Command
+	if !slices.Equal(argv[1:7], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low"}) || !strings.Contains(argv[len(argv)-1], "You replace s1, which ran on claude;") {
+		t.Fatalf("omp argv = %q", argv)
+	}
+}
+
 func TestSwitchingFromAgyToClaudeAndBack(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startAgySupervisor(t, h, rt)

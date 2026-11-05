@@ -38,7 +38,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude, codex, opencode, agy or copilot")
+	name := fs.String("harness", "", "claude, codex, opencode, agy, copilot or omp")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")

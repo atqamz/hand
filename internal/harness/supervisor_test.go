@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,9 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
 		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, opencodeSession, "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--session", opencodeSession, "--prompt", "go"}},
 		{"opencode resume", "/bin/opencode", Spec{Harness: "opencode"}, "ses_1", "", true, []string{"/bin/opencode", "--standalone", "--auto", "--session", "ses_1"}},
+		{"omp new", "/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "go"}},
+		{"omp resume", "/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, "01a1abdf-088f-707d-8973-c784c54b54eb", "", true, []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--resume", "01a1abdf-088f-707d-8973-c784c54b54eb"}},
+		{"omp bare new", "/bin/omp", Spec{Harness: "omp"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "go"}},
 	}
 	for _, dir := range spacedDirs(t) {
 		for _, c := range cases {
@@ -78,6 +82,9 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		},
 		"codex with a session": func() ([]string, error) {
 			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "abc", "go", "/fleet", false)
+		},
+		"omp with a session": func() ([]string, error) {
+			return SupervisorArgv("/bin/omp", Spec{Harness: "omp"}, "abc", "go", "/fleet", false)
 		},
 		"codex relative dir": func() ([]string, error) {
 			return SupervisorArgv("/bin/codex", Spec{Harness: "codex"}, "", "go", "fleet", false)
@@ -193,6 +200,50 @@ func TestAgySessionPicksTheLaunchedConversation(t *testing.T) {
 	}
 	if id, err := AgySession(filepath.Join(dir, "absent"), fleet, since, marker); err != nil || id != "" {
 		t.Fatalf("no folder = %q, %v", id, err)
+	}
+}
+
+func ompRollout(t *testing.T, home, project, name, id, cwd, prompt string, at time.Time) string {
+	t.Helper()
+	dir := filepath.Join(home, "sessions", project)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	quoted, err := json.Marshal(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := `{"type":"title","v":1,"title":"","updatedAt":"` + at.UTC().Format(time.RFC3339Nano) + `"}` + "\n"
+	header := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","cwd":` + string(quoted) + `}` + "\n"
+	user := `{"type":"message","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","message":{"role":"user","content":[{"type":"text","text":` + strconv.Quote(prompt) + `}]}}` + "\n"
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(title+header+user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestOmpSessionFindsTheFirstSessionForTheFolderSinceLaunch(t *testing.T) {
+	home := t.TempDir()
+	since := time.Now().Add(-time.Minute)
+	ompRollout(t, home, "-other", "a.jsonl", "elsewhere", "/other", marker+"x.", time.Now())
+	ompRollout(t, home, "-fleet", "b.jsonl", "too-old", "/fleet", marker+"x.", since.Add(-time.Hour))
+	ompRollout(t, home, "-fleet", "c.jsonl", "operator", "/fleet", "Trust this folder for me", since.Add(time.Second/4))
+	ompRollout(t, home, "-fleet", "d.jsonl", "quoting", "/fleet", "Why did Hand say "+marker+"x.?", since.Add(time.Second/2))
+	ompRollout(t, home, "-fleet", "e.jsonl", "mine", "/fleet", marker+"x. Follow AGENTS.md", since.Add(time.Second))
+	ompRollout(t, home, "-fleet", "f.jsonl", "later", "/fleet", marker+"x.", since.Add(2*time.Second))
+	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
+		t.Fatalf("session = %q, %v", id, err)
+	}
+	if id, err := OmpSession(t.TempDir(), "/fleet", since, marker); err != nil || id != "" {
+		t.Fatalf("empty home = %q, %v", id, err)
+	}
+	partial := ompRollout(t, home, "-fleet", "g.jsonl", "partial", "/fleet", "", since.Add(3*time.Second))
+	if err := os.WriteFile(partial, []byte(`{"type":"session","version":3,"id":"partial","timestamp":"`+since.Add(3*time.Second).UTC().Format(time.RFC3339Nano)+`","cwd":"/fleet"}`+"\n"+`{"type":"message"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
+		t.Fatalf("partial file = %q, %v", id, err)
 	}
 }
 

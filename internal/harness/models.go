@@ -65,6 +65,7 @@ var listers = map[string]lister{
 	"opencode": opencodeLister,
 	"agy":      agyLister,
 	"copilot":  copilotLister,
+	"omp":      ompLister,
 }
 
 const (

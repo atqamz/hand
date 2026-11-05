@@ -18,7 +18,7 @@ func TestCopilotIsRefusedAsASupervisor(t *testing.T) {
 		{"supervisor", "start", "--harness", "copilot", "--model", "auto"},
 		{"supervisor", "start", "--profile", "cp"},
 	} {
-		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "copilot starts workers only; run the supervisor on claude, codex, opencode or agy") {
+		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp") {
 			t.Fatalf("%q: code=%d stderr=%q", args, code, errOut)
 		}
 	}

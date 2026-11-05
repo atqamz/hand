@@ -479,6 +479,69 @@ func TestOpencodeFailuresNameNoStderr(t *testing.T) {
 	}
 }
 
+const ompJSON = `{"models":[{"provider":"commandcode","kind":"chat","id":"deepseek/deepseek-v4.1-flash","selector":"commandcode/deepseek/deepseek-v4.1-flash","name":"DeepSeek V4.1 Flash","reasoning":true,"thinking":["low","high","max"]},{"provider":"commandcode","kind":"chat","id":"plain","selector":"commandcode/plain","name":"Plain","reasoning":false,"thinking":null}]}`
+
+func TestOmpListsSelectorsAndThinkingLevels(t *testing.T) {
+	f := newFixture(t)
+	f.install("omp", map[string]string{"stdout": ompJSON})
+	l := f.refresh("omp")
+	if l.Failed != nil || l.Version != "omp 1.2.3" || len(l.Models) != 2 {
+		t.Fatalf("listing = %+v", l)
+	}
+	flash := l.Models[0]
+	if flash.Name != "commandcode/deepseek/deepseek-v4.1-flash" || flash.Label != "DeepSeek V4.1 Flash" || !slices.Equal(flash.Efforts, []string{"low", "high", "max"}) || flash.Source != SourceDiscovered {
+		t.Fatalf("flash = %+v", flash)
+	}
+	if plain := l.Models[1]; plain.Name != "commandcode/plain" || len(plain.Efforts) != 0 {
+		t.Fatalf("plain = %+v", plain)
+	}
+	if l.Key == "" {
+		t.Fatal("the listing has no key")
+	}
+	if got, err := Detected("omp", f.env); err != nil || len(got) != 2 {
+		t.Fatalf("detected = %+v, %v", got, err)
+	}
+	if st := StatusOf("omp", f.env, f.clock()); !st.Found || st.Stale {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestOmpTreatsAnEmptyListAsAFailureAndKeepsTheLastList(t *testing.T) {
+	for name, out := range map[string]string{
+		"empty":      `{"models":[]}`,
+		"no models":  `{}`,
+		"not json":   `No models available.`,
+		"wrong type": `{"models":{}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.install("omp", map[string]string{"stdout": ompJSON})
+			f.refresh("omp")
+			f.install("omp", map[string]string{"stdout": out})
+			l := f.refresh("omp")
+			if l.Failed == nil || len(l.Models) != 2 {
+				t.Fatalf("listing = %+v", l)
+			}
+		})
+	}
+}
+
+func TestOmpAgentDir(t *testing.T) {
+	env := map[string]string{"HOME": "/home/me"}
+	getenv := func(k string) string { return env[k] }
+	if got := OmpAgent(getenv); got != filepath.Join("/home/me", ".omp", "agent") {
+		t.Fatalf("default = %s", got)
+	}
+	env["PI_CONFIG_DIR"] = "/cfg"
+	if got := OmpAgent(getenv); got != filepath.Join("/cfg", "agent") {
+		t.Fatalf("config override = %s", got)
+	}
+	env["PI_CODING_AGENT_DIR"] = "/agent"
+	if got := OmpAgent(getenv); got != "/agent" {
+		t.Fatalf("agent override = %s", got)
+	}
+}
+
 func TestAgyListsIdsAndLabels(t *testing.T) {
 	f := newFixture(t)
 	f.install("agy", map[string]string{"stdout": agyList, "stderr": "Fetching available models...\n"})
@@ -981,7 +1044,7 @@ func TestRefreshWithoutAFolderForTheCacheSaysSo(t *testing.T) {
 }
 
 func TestChildEnvironmentKeepsOnlyPathHomesAndTheHarnessesOwn(t *testing.T) {
-	environ := []string{"Path=C:\\bin", "HOME=/h", "AWS_SECRET_ACCESS_KEY=" + secret, "ANTHROPIC_BASE_URL=http://gw.invalid", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_REGION=us-east-1", "GITHUB_TOKEN=" + secret, "CODEX_HOME=/c", "OPENCODE_CONFIG_CONTENT={}"}
+	environ := []string{"Path=C:\\bin", "HOME=/h", "AWS_SECRET_ACCESS_KEY=" + secret, "ANTHROPIC_BASE_URL=http://gw.invalid", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_REGION=us-east-1", "GITHUB_TOKEN=" + secret, "CODEX_HOME=/c", "OPENCODE_CONFIG_CONTENT={}", "PI_CODING_AGENT_DIR=/agent", "PI_CONFIG_DIR=/cfg"}
 	got := childEnv(environ, claudeLister.prefixes)
 	want := []string{"Path=C:\\bin", "HOME=/h", "ANTHROPIC_BASE_URL=http://gw.invalid", "CLAUDE_CODE_USE_BEDROCK=1", "AWS_REGION=us-east-1"}
 	if !slices.Equal(got, want) {
@@ -992,6 +1055,9 @@ func TestChildEnvironmentKeepsOnlyPathHomesAndTheHarnessesOwn(t *testing.T) {
 	}
 	if got := childEnv(environ, agyLister.prefixes); !slices.Equal(got, []string{"Path=C:\\bin", "HOME=/h"}) {
 		t.Fatalf("agy env = %q", got)
+	}
+	if got := childEnv(environ, ompLister.prefixes); !slices.Equal(got, []string{"Path=C:\\bin", "HOME=/h", "PI_CODING_AGENT_DIR=/agent", "PI_CONFIG_DIR=/cfg"}) {
+		t.Fatalf("omp env = %q", got)
 	}
 }
 

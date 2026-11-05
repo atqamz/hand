@@ -35,6 +35,7 @@ func (w *watcher) sweepModels(ctx context.Context) {
 				"codex":    &codexSource{transcriptSource{w, "codex"}},
 				"claude":   &claudeSource{transcriptSource{w, "claude"}},
 				"copilot":  &copilotSource{transcriptSource{w, "copilot"}},
+				"omp":      &ompSource{transcriptSource{w, "omp"}},
 			}
 		}
 		labels := map[string]func(string, time.Time) (string, string){}
@@ -96,6 +97,9 @@ func settle(name, storedModel, storedEffort, model, effort string) (string, stri
 	if name == "claude" && harness.Resolves(storedModel, model) {
 		model = storedModel
 	}
+	if name == "omp" {
+		return model, storedEffort
+	}
 	if effort == "" && (name == "claude" || name == "copilot") {
 		effort = storedEffort
 	}
@@ -137,6 +141,21 @@ type copilotSource struct{ transcriptSource }
 
 func (copilotSource) attemptSession(_ context.Context, a state.Attempt) string {
 	return argvValue(a.Argv, "--session-id")
+}
+
+type ompSource struct{ transcriptSource }
+
+func (o *ompSource) attemptSession(_ context.Context, a state.Attempt) string {
+	created, err := time.Parse(time.RFC3339Nano, a.CreatedAt)
+	if err != nil || len(a.Argv) == 0 {
+		return ""
+	}
+	dir := a.Worktree
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	id, _ := harness.OmpSession(harness.OmpAgent(o.w.r.env.Getenv), dir, created.Truncate(time.Second), a.Argv[len(a.Argv)-1])
+	return id
 }
 
 type codexSource struct{ transcriptSource }

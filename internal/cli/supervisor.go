@@ -48,7 +48,7 @@ func (r *runner) supervisorLock(wait bool) (func(), bool, error) { return r.lock
 
 func cmdSupervisorStart(r *runner, args []string) error {
 	fs := flags("supervisor start")
-	name := fs.String("harness", "", "claude, codex, opencode or agy")
+	name := fs.String("harness", "", "claude, codex, opencode, agy or omp")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
@@ -395,7 +395,7 @@ func cmdSupervisorSwitch(r *runner, args []string) error {
 	effort := fs.String("effort", "", "reasoning effort")
 	profile := fs.String("profile", "", "routing profile from routing.json")
 	cancel := fs.Bool("cancel", false, "cancel the pending switch")
-	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode or agy")
+	other := fs.String("harness", "", "switch to another harness between turns: claude, codex, opencode, agy or omp")
 	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
@@ -607,6 +607,9 @@ func installText(name string) string {
 	if name == "copilot" {
 		return "copilot (`npm install -g @github/copilot` or run `gh copilot` once, then `copilot login`)"
 	}
+	if name == "omp" {
+		return "omp (`curl -fsSL https://omp.sh/install | sh`)"
+	}
 	return name
 }
 
@@ -735,6 +738,9 @@ func cmdSupervisorShow(r *runner, args []string) error {
 		}
 		if !ok {
 			return fmt.Errorf("%w: there is no supervisor yet; start one: `hand supervisor start --harness H --model M --effort E`", state.ErrNotFound)
+		}
+		if sup.Session == "" && sup.Live() {
+			_ = r.findSession(ctx, st, &sup)
 		}
 		pending, err := st.PendingSupervisorInputs(ctx)
 		if err != nil {
@@ -922,6 +928,8 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 		id, err = harness.CodexSession(harness.CodexHome(r.env.Getenv), dir, since, marker)
 	case "agy":
 		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")
+	case "omp":
+		id, err = harness.OmpSession(harness.OmpAgent(r.env.Getenv), dir, since, marker)
 	}
 	if err != nil || id == "" {
 		return err

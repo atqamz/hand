@@ -68,7 +68,7 @@ func newFixture(t *testing.T) *fixture {
 		Luvus:      luvus.Client{Socket: fx.srv.Socket},
 		Transcript: &transcript.Reader{Paths: transcript.Paths{Claude: fx.claude}},
 		Home:       t.TempDir(),
-		Harness:    harness.Env{Path: pathWith(t, "claude", "codex", "opencode", "agy")},
+		Harness:    harness.Env{Path: pathWith(t, "claude", "codex", "opencode", "agy", "omp")},
 	}
 	return fx
 }
@@ -186,7 +186,7 @@ func TestEveryPanelState(t *testing.T) {
 				contains(t, "blocked", body, "Trust this folder?", `name="revision" value="7"`, `value="esc"`, `value="1"`)
 			}
 			if c.status == "" {
-				contains(t, "start", body, `value="claude"`, `value="codex"`, `value="opencode"`)
+				contains(t, "start", body, `value="claude"`, `value="codex"`, `value="opencode"`, `value="omp"`)
 			}
 		})
 	}
@@ -541,6 +541,34 @@ func TestDeliveredMessagesShowTheirTime(t *testing.T) {
 	contains(t, "log", get(t, fx.handler(), "/supervisor/log"), "delivered <time")
 }
 
+func TestTheChatReadsAnOmpSession(t *testing.T) {
+	fx := newFixture(t)
+	home, id := t.TempDir(), "01a1abdf-088f-707d-8973-c784c54b54eb"
+	dir := filepath.Join(home, "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"2026-09-28T01:00:00.000Z","cwd":"/fleet"}` + "\n" +
+		`{"type":"message","timestamp":"2026-09-28T01:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"You are supervisor s1 of the Hand fleet demo."}]}}` + "\n" +
+		`{"type":"message","timestamp":"2026-09-28T01:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hello from omp."}],"provider":"commandcode","model":"deepseek/deepseek-v4-pro","stopReason":"stop","usage":{"input":100,"cacheRead":20}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "2026-09-28T01-00-00-000Z_"+id+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.options.Transcript = &transcript.Reader{Paths: transcript.Paths{Omp: home}}
+	ctx := context.Background()
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "omp", Model: "commandcode/deepseek/deepseek-v4-pro", Effort: "low", Argv: []string{"/bin/omp", "x"}, Session: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	fx.status = "idle"
+	tl := region(get(t, fx.handler(), "/"), "timeline")
+	contains(t, "omp chat", tl, "Hello from omp.")
+	lacks(t, "omp chat", tl, "has no reader")
+}
+
 func TestChatKeepsAnEarlierSession(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
@@ -592,7 +620,7 @@ func TestModelMenuListsModels(t *testing.T) {
 	fx.status = "idle"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	console := region(get(t, fx.handler(), "/"), "console")
-	contains(t, "console", console, `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna" data-efforts="low medium">gpt-6-luna</option>`, `name="harness" value="opencode"`, "Switch to codex", "Switch to opencode")
+	contains(t, "console", console, `<option value="opus" data-efforts="low medium high xhigh max">opus</option>`, `<option value="xhigh">xhigh</option>`, `name="harness" value="codex"`, `<option value="gpt-6-luna" data-efforts="low medium">gpt-6-luna</option>`, `name="harness" value="opencode"`, `name="harness" value="omp"`, "Switch to codex", "Switch to opencode", "Switch to omp")
 }
 
 func TestAnInterruptedSupervisorOffersResumeInTheComposer(t *testing.T) {

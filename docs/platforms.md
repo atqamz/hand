@@ -1,6 +1,6 @@
 # Platform support
 
-Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tested) and native Windows (amd64, Windows 10 or 11). Supported means the project fixes problems that people report on those systems, not that every step has run on a real machine; the table below says how each part is verified. Known gaps: Windows has run in CI, with the real Luvus, and not yet on a real Windows machine; the real Mac run of 2026-10-17 ([#895](https://github.com/atqamz/hand/issues/895)) used a stand-in `claude`; Windows has no desktop notifications; the macOS LaunchAgent's `RunAtLoad` at a real login is unverified.
+Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tested) and native Windows (amd64, Windows 10 or 11). Supported means the project fixes problems that people report on those systems, not that every step has run on a real machine; the table below says how each part is verified. Known gaps: Windows has run in CI, with the real Luvus, and not yet on a real Windows machine; the real Mac run of 2026-10-17 ([#895](https://github.com/atqamz/hand/issues/895)) used a stand-in `claude`; Windows has no desktop notifications; the macOS LaunchAgent's `RunAtLoad` at a real login is unverified. `omp` has run on one Linux host only: neither Windows nor macOS has run a real `omp`, and a provider limit screen or a blocked approval screen was not captured, so Hand has no omp limit line.
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](../SECURITY.md) says.
 
@@ -28,6 +28,7 @@ In the table:
 | Accept Codex's trust screens for its own worktree and project | CI, real harness | CI, real harness | CI, real harness |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Start copilot (a worker only), and accept its trust screen | real, auto only; CI, fake | CI, fake | CI, fake |
+| Start `omp` as a worker or the supervisor, list its models, and find and resume its supervisor session | real, Linux only | not run | not run |
 | Find `copilot` off `PATH`: in npm's global `bin` folder (`npm prefix -g`), then in the folder `gh copilot` downloads to (`~/.local/share/gh/copilot`, `$XDG_DATA_HOME/gh/copilot`, on Windows `%LOCALAPPDATA%\GitHub CLI\copilot\copilot.exe`) | real, both, then a worker started and reported; unit tests | unit tests; the path is read from the gh source, not from a run | unit tests; the path is read from the gh source, not from a run |
 | Hand refuses a harness found only as a `.cmd` or `.bat` (except the `.exe` that npm puts inside the package of `claude`, `codex`, `opencode` and `copilot`, found beside the shim in a layout copied from the npm tarballs, not from a Windows install), and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |

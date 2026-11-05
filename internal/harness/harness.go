@@ -57,7 +57,7 @@ func ValidServed(model, effort string) bool {
 
 func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
-	case "claude", "codex", "agy", "copilot":
+	case "claude", "codex", "agy", "copilot", "omp":
 	case "opencode":
 		return checkOpencode(s, env)
 	default:
@@ -71,7 +71,7 @@ func Check(s Spec, env Env) (string, error) {
 		if s.Effort != "" {
 			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
 		}
-	case s.Harness == "copilot" && s.Effort == "":
+	case (s.Harness == "copilot" || s.Harness == "omp") && s.Effort == "":
 	case !effortToken.MatchString(s.Effort):
 		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
 	}
@@ -82,6 +82,8 @@ func Check(s Spec, env Env) (string, error) {
 		return checkCodex(s, env), nil
 	case "copilot":
 		return checkCopilot(s, env), nil
+	case "omp":
+		return checkOmp(s, env), nil
 	}
 	return checkAgy(s, env), nil
 }
@@ -169,6 +171,24 @@ func checkCopilot(s Spec, env Env) string {
 	return ""
 }
 
+func checkOmp(s Spec, env Env) string {
+	l, err := catalog("omp", env)
+	switch {
+	case err != nil:
+		return unverified([]string{fmt.Sprintf("omp model %s could not be checked: %s", s.Model, plainReason(err))})
+	case slices.Contains(l.Gone, s.Model):
+		return unverified([]string{goneText(s)})
+	}
+	m, ok := find(l.Models, s.Model)
+	switch {
+	case !ok:
+		return unverified([]string{fmt.Sprintf("omp model %s is not in `omp models --json`", s.Model)})
+	case s.Effort != "" && len(m.Efforts) > 0 && !slices.Contains(m.Efforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("omp model %s lists thinking levels %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
+	}
+	return ""
+}
+
 func unverified(warns []string) string {
 	if len(warns) == 0 {
 		return ""
@@ -184,7 +204,7 @@ func Prefills(name string) bool { return name == "opencode" }
 
 func CheckSupervisor(s Spec) error {
 	if s.Harness == "copilot" {
-		return fmt.Errorf("%w: copilot starts workers only; run the supervisor on claude, codex, opencode or agy", state.ErrInvalid)
+		return fmt.Errorf("%w: copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp", state.ErrInvalid)
 	}
 	return nil
 }
@@ -375,6 +395,15 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, rea
 		return append(argv, "--allow-all-tools", "--allow-all-paths", "--session-id", NewSessionID(), "-i", prompt), nil
 	case "codex":
 		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+	case "omp":
+		argv := []string{bin, "--auto-approve", "--no-title"}
+		if s.Model != "" {
+			argv = append(argv, "--model", s.Model)
+		}
+		if s.Effort != "" {
+			argv = append(argv, "--thinking", s.Effort)
+		}
+		return append(argv, prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }

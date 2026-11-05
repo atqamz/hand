@@ -113,8 +113,112 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 			return append(argv, "--conversation", session), nil
 		}
 		return append(argv, "-i", prompt), nil
+	case "omp":
+		argv := []string{bin, "--auto-approve", "--no-title"}
+		if s.Model != "" {
+			argv = append(argv, "--model", s.Model)
+		}
+		if s.Effort != "" {
+			argv = append(argv, "--thinking", s.Effort)
+		}
+		if resume {
+			return append(argv, "--resume", session), nil
+		}
+		return append(argv, prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
+}
+
+func OmpSession(agentDir, cwd string, since time.Time, marker string) (string, error) {
+	files, err := filepath.Glob(filepath.Join(agentDir, "sessions", "*", "*.jsonl"))
+	if err != nil {
+		return "", err
+	}
+	want := realPath(cwd)
+	var id string
+	var newest time.Time
+	for _, file := range files {
+		gotID, at, from, err := ompMeta(file)
+		if err != nil {
+			return "", err
+		}
+		if from == "" || realPath(from) != want || at.Before(since) || (id != "" && !at.Before(newest)) {
+			continue
+		}
+		ok, err := ompLaunched(file, marker)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			id, newest = gotID, at
+		}
+	}
+	return id, nil
+}
+
+func ompMeta(file string) (string, time.Time, string, error) {
+	f, err := os.Open(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", time.Time{}, "", nil
+	}
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(io.LimitReader(f, promptScan))
+	for {
+		var line struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
+			Cwd       string `json:"cwd"`
+			Timestamp string `json:"timestamp"`
+		}
+		if err := dec.Decode(&line); err != nil {
+			return "", time.Time{}, "", nil
+		}
+		if line.Type != "session" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
+		if err != nil {
+			return "", time.Time{}, "", nil
+		}
+		return line.ID, at, line.Cwd, nil
+	}
+}
+
+func ompLaunched(file, marker string) (bool, error) {
+	f, err := os.Open(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(io.LimitReader(f, promptScan))
+	for {
+		var rec struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if err := dec.Decode(&rec); err != nil {
+			return false, nil
+		}
+		if rec.Type != "message" || rec.Message.Role != "user" {
+			continue
+		}
+		for _, c := range rec.Message.Content {
+			if launches(c.Text, marker) {
+				return true, nil
+			}
+		}
+	}
 }
 
 func AgySession(dir, cwd string, since time.Time, marker string) (string, error) {
