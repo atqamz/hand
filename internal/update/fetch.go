@@ -23,7 +23,7 @@ import (
 type Build struct {
 	Path, Version, Channel, Commit string
 	Schema                         int
-	Luvus                          string
+	Luvus, Iroh                    string
 }
 
 var luvusTriples = map[string]string{
@@ -37,13 +37,19 @@ var luvusTriples = map[string]string{
 
 var client = &http.Client{Timeout: 5 * time.Minute}
 
+var ErrMissing = errors.New("not published")
+
 const maxBinary = 512 << 20
 
-func FetchHand(ctx context.Context, base, channel, goos, arch, dir string, env []string) (Build, error) {
-	url := strings.TrimRight(base, "/") + "/download/edge"
+func releaseURL(base, channel string) string {
 	if channel == "stable" {
-		url = strings.TrimRight(base, "/") + "/latest/download"
+		return strings.TrimRight(base, "/") + "/latest/download"
 	}
+	return strings.TrimRight(base, "/") + "/download/edge"
+}
+
+func FetchHand(ctx context.Context, base, channel, goos, arch, dir string, env []string) (Build, error) {
+	url := releaseURL(base, channel)
 	stem := "hand-" + goos + "-" + arch
 	ext, exe := packaging(goos)
 	sums := "checksums.txt"
@@ -82,6 +88,16 @@ func FetchLuvus(ctx context.Context, base, version, goos, arch, dir string) (str
 	}
 	bin := filepath.Join(dir, "luvus"+exe)
 	return bin, extract(filepath.Join(dir, name+ext), "luvus"+exe, bin)
+}
+
+func FetchIroh(ctx context.Context, base, channel, goos, arch, dir string) (string, error) {
+	stem := "hand-iroh-" + goos + "-" + arch
+	ext, exe := packaging(goos)
+	if err := fetchChecked(ctx, releaseURL(base, channel), dir, stem+ext, stem+".sha256"); err != nil {
+		return "", err
+	}
+	bin := filepath.Join(dir, "hand-iroh"+exe)
+	return bin, extract(filepath.Join(dir, stem+ext), "hand-iroh"+exe, bin)
 }
 
 func packaging(goos string) (ext, exe string) {
@@ -139,14 +155,19 @@ func parseBuild(out string) Build {
 			b.Schema, _ = strconv.Atoi(value)
 		case "luvus":
 			b.Luvus = value
+		case "iroh":
+			b.Iroh = value
 		}
 	}
 	return b
 }
 
 func fetchChecked(ctx context.Context, url, dir, asset, sums string) error {
-	for _, name := range []string{asset, sums} {
+	for i, name := range []string{asset, sums} {
 		if err := download(ctx, url+"/"+name, filepath.Join(dir, name)); err != nil {
+			if i > 0 && errors.Is(err, ErrMissing) {
+				err = errors.New(err.Error())
+			}
 			return err
 		}
 	}
@@ -194,6 +215,9 @@ func download(ctx context.Context, url, path string) error {
 		return fmt.Errorf("update: %w", err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("update: %s: %s: %w", url, res.Status, ErrMissing)
+	}
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("update: %s: %s", url, res.Status)
 	}

@@ -32,6 +32,9 @@ func TestMain(m *testing.M) {
 	fakebin.Main(map[string]func([]string) int{"hand": fakeHandMain, "sleep": func([]string) int {
 		time.Sleep(5 * time.Minute)
 		return 0
+	}, "sidecar": func([]string) int {
+		fmt.Println("hand-iroh " + fakebin.Params()["version"] + " iroh 1.4.1")
+		return 0
 	}, "luvus": func(args []string) int {
 		if len(args) > 1 && args[0] == "session" && args[1] == "list" {
 			b, _ := json.Marshal(map[string]any{"sessions": []map[string]any{{"name": os.Getenv("HAND_SESSION"), "session_dir": os.Getenv("HAND_SESSION_DIR"), "endpoint": map[string]string{"address": "x"}}}})
@@ -195,19 +198,22 @@ func sum(b []byte) string {
 	return hex.EncodeToString(s[:])
 }
 
-func handScript(t *testing.T, version, channel, commit, schema, luvus string) string {
+func handScript(t *testing.T, version, channel, commit, schema, luvus string, iroh ...string) string {
 	t.Helper()
 	lines := "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\n"
 	if schema != "" {
 		lines += "schema: " + schema + "\n"
 	}
 	lines += "luvus: " + luvus + "\n"
+	for _, v := range iroh {
+		lines += "iroh: " + v + "\n"
+	}
 	return string(fakebin.Embed(t, "hand", map[string]string{"version": lines}))
 }
 
-func fakeHand(t *testing.T, version, channel, commit, schema, luvus string) map[string][]byte {
+func fakeHand(t *testing.T, version, channel, commit, schema, luvus string, iroh ...string) map[string][]byte {
 	t.Helper()
-	script := handScript(t, version, channel, commit, schema, luvus)
+	script := handScript(t, version, channel, commit, schema, luvus, iroh...)
 	archive := tarball(t, "hand", script)
 	archiveZip := zipball(t, "hand.exe", script)
 	s := sum(archive)
