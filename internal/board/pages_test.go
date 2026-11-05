@@ -485,3 +485,25 @@ func TestTheReportHeadGroupsItsMetaAndAction(t *testing.T) {
 	body := get(t, fx.handler(), "/task/t1")
 	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from <a class="ref" href="/attempt/a1">a1</a></span><span class="badge" data-status="done">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
 }
+
+func TestThreadPagesShareOneHead(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, "running", "gen-1")
+	task := active(t, fx.st, "Fix login")
+	if _, err := fx.st.Ask(context.Background(), task.ID, "Keep the old cookie name?"); err != nil {
+		t.Fatal(err)
+	}
+	briefed(t, fx.st, task.ID, "/w", []string{"/bin/claude", "do it"})
+	h := fx.handler()
+	for _, path := range []string{"/task/t1", "/decision/d1", "/attempt/a1"} {
+		body := get(t, h, path)
+		rest := body[strings.Index(body, `<main`):]
+		for _, mark := range []string{`<p class="crumbs">`, `<h2 class="thread-title">`, `<p class="slug">`, `</header>`, `<hr class="rule">`} {
+			_, after, ok := strings.Cut(rest, mark)
+			if !ok {
+				t.Fatalf("%s: %s is out of order or missing", path, mark)
+			}
+			rest = after
+		}
+	}
+}

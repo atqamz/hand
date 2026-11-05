@@ -589,7 +589,7 @@ form.inline{display:inline}
 .card.error .back{margin:0;padding:0 12px 12px}
 .thread-title{overflow-wrap:anywhere;font-size:22px;line-height:30px;font-weight:600;letter-spacing:-.01em;text-wrap-style:balance}
 .fleet .mark{color:var(--tint)}
-.thread-head+.needs-here{border-top:0}
+.rule+.needs-here{border-top:0}
 .thread-head .question{max-height:none;overflow:visible}
 .thread>.timeline{max-height:none;overflow:visible;mask-image:none}
 .thread>.timeline{--sb:0px}
