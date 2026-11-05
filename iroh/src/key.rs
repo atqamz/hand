@@ -1,14 +1,17 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use iroh::SecretKey;
 
 const FILE: &str = "hand-iroh.key";
+const STALE_TEMP: Duration = Duration::from_secs(60);
 
 pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
     create_dir(dir)?;
-    private(dir, 0o022, "700")?;
+    private(dir, 0o022, "can be changed by other users", "chmod go-w")?;
+    sweep(dir);
     let path = dir.join(FILE);
     match read(&path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -20,12 +23,53 @@ pub fn load_or_create(dir: &Path) -> io::Result<SecretKey> {
         f.write_all(&key.to_bytes())?;
         f.sync_all()
     });
-    let linked = written.and_then(|()| fs::hard_link(&temp, &path));
+    let linked = written.and_then(|()| link(&temp, &path));
     let _ = fs::remove_file(&temp);
     match linked {
         Ok(()) => Ok(key),
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read(&path),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => read(&path).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!(
+                        "{} is a link to a file that does not exist; delete the link to make a new key",
+                        path.display()
+                    ),
+                )
+            } else {
+                e
+            }
+        }),
         Err(e) => Err(e),
+    }
+}
+
+fn link(temp: &Path, path: &Path) -> io::Result<()> {
+    fs::hard_link(temp, path).map_err(|e| match e.kind() {
+        io::ErrorKind::AlreadyExists => e,
+        kind => io::Error::new(
+            kind,
+            format!("{e}; the key folder must be on a filesystem that supports hard links"),
+        ),
+    })
+}
+
+fn sweep(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let ours = name.starts_with(&format!("{FILE}.")) && name.ends_with(".tmp");
+        let age = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok());
+        if ours && age.is_some_and(|age| age > STALE_TEMP) {
+            let _ = fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -40,7 +84,7 @@ fn read(path: &Path) -> io::Result<SecretKey> {
             ),
         )
     })?;
-    private(path, 0o077, "600")?;
+    private(path, 0o077, "can be read by other users", "chmod 600")?;
     Ok(SecretKey::from_bytes(&bytes))
 }
 
@@ -74,22 +118,19 @@ fn create_private(path: &Path) -> io::Result<File> {
 }
 
 #[cfg(unix)]
-fn private(path: &Path, others: u32, chmod: &str) -> io::Result<()> {
+fn private(path: &Path, others: u32, problem: &str, fix: &str) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     if fs::metadata(path)?.permissions().mode() & others != 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!(
-                "{} is open to other users; run chmod {chmod} on it",
-                path.display()
-            ),
+            format!("{} {problem}; run {fix} on it", path.display()),
         ));
     }
     Ok(())
 }
 
 #[cfg(not(unix))]
-fn private(_: &Path, _: u32, _: &str) -> io::Result<()> {
+fn private(_: &Path, _: u32, _: &str, _: &str) -> io::Result<()> {
     Ok(())
 }
 
@@ -97,6 +138,7 @@ fn private(_: &Path, _: u32, _: &str) -> io::Result<()> {
 mod tests {
     use std::sync::Arc;
     use std::thread;
+    use std::time::SystemTime;
 
     use super::*;
     use crate::testutil::TempDir;
@@ -158,6 +200,10 @@ mod tests {
             fs::set_permissions(dir.path(), fs::Permissions::from_mode(mode)).unwrap();
             let error = load_or_create(dir.path()).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::PermissionDenied, "{mode:o}");
+            assert!(
+                error.to_string().contains("run chmod go-w on it"),
+                "{error}"
+            );
             assert!(!dir.path().join(FILE).exists());
         }
         let dir = TempDir::new();
@@ -175,5 +221,51 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
         let error = load_or_create(dir.path()).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("run chmod 600 on it"), "{error}");
+    }
+
+    #[test]
+    fn temporary_leftovers_older_than_a_minute_are_removed_and_nothing_else() {
+        let dir = TempDir::new();
+        let stale = dir.file(&format!("{FILE}.aaaa.tmp"), "old");
+        let fresh = dir.file(&format!("{FILE}.bbbb.tmp"), "new");
+        let unrelated = dir.file("notes.tmp", "mine");
+        let old = SystemTime::now() - Duration::from_secs(120);
+        File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        load_or_create(dir.path()).unwrap();
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert!(unrelated.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_nothing_is_named_in_the_error() {
+        let dir = TempDir::new();
+        std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join(FILE)).unwrap();
+        let error = load_or_create(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(
+            error
+                .to_string()
+                .contains("link to a file that does not exist"),
+            "{error}"
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_link_that_cannot_be_made_says_what_the_folder_needs() {
+        let dir = TempDir::new();
+        let error = link(&dir.path().join("absent"), &dir.path().join("target")).unwrap_err();
+        assert!(error.to_string().contains("supports hard links"), "{error}");
+        let existing = dir.file("existing", "");
+        let error = link(&existing, &existing).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     }
 }

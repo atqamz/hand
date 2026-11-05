@@ -17,6 +17,7 @@ impl TempDir {
         let path =
             std::env::temp_dir().join(format!("hand-iroh-{}-{nanos}-{count}", std::process::id()));
         fs::create_dir(&path).unwrap();
+        private(&path);
         Self(path)
     }
 
@@ -30,6 +31,15 @@ impl TempDir {
         path
     }
 }
+
+#[cfg(unix)]
+fn private(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn private(_: &Path) {}
 
 impl Drop for TempDir {
     fn drop(&mut self) {
