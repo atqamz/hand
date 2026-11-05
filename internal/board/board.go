@@ -217,7 +217,7 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, Proof(b.token, r.URL.Query().Get("nonce")))
 		return
 	}
-	if t := r.URL.Query().Get("token"); t != "" {
+	if t := r.URL.Query().Get("token"); t != "" && peerOf(r) == nil {
 		if !b.valid(t) {
 			b.failNeutral(w, http.StatusForbidden, "this board link is not valid")
 			return

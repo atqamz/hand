@@ -21,12 +21,13 @@ const (
 	prefaceMax   = 256
 	peerRequests = 32
 	peerBytes    = 64 << 10
-	peerHeaders  = 16 << 10
+	peerHeaders  = 12 << 10
 )
 
 var (
-	peerID      = regexp.MustCompile(`^[0-9a-z]{16,64}$`)
-	silentClose = io.EOF
+	peerID       = regexp.MustCompile(`^[0-9a-z]{16,64}$`)
+	silentClose  = io.EOF
+	peerBodyWait = 10 * time.Second
 )
 
 type peerKey struct{}
@@ -141,26 +142,31 @@ func unpairedPath(path string) bool {
 func (p *Peer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	harden(w)
 	c := peerOf(r)
-	if viaFunnel(r) {
-		hostFail(w, http.StatusForbidden, funnelRefusal)
-		return
-	}
+	funnel := viaFunnel(r)
 	for k := range r.Header {
 		if k == "Forwarded" || strings.HasPrefix(k, "X-Forwarded-") || strings.HasPrefix(k, "Tailscale-") {
 			delete(r.Header, k)
 		}
 	}
-	if !c.paired.Load() && c.requests.Add(1) > peerRequests {
-		w.Header().Set("Connection", "close")
-		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this phone first, or open a new connection.")
-		return
-	}
-	if !unpairedPath(r.URL.Path) {
-		if len(p.h.phoneFleets(r, "")) == 0 {
-			hostFail(w, http.StatusForbidden, sessionFaults(noSession, true))
-			return
-		}
+	counted := !c.paired.Load()
+	over := counted && c.requests.Add(1) > peerRequests
+	public := unpairedPath(r.URL.Path)
+	proved := !funnel && (!public || counted) && len(p.h.phoneFleets(r, "")) > 0
+	if proved {
 		c.paired.Store(true)
 	}
-	p.h.ServeHTTP(w, r)
+	switch {
+	case over && !proved:
+		w.Header().Set("Connection", "close")
+		hostFail(w, http.StatusTooManyRequests, "This connection has asked for too much before pairing. Pair this phone first, or open a new connection.")
+	case funnel:
+		hostFail(w, http.StatusForbidden, funnelRefusal)
+	case !public && !proved:
+		hostFail(w, http.StatusForbidden, sessionFaults(noSession, true))
+	default:
+		if !c.paired.Load() {
+			_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(peerBodyWait))
+		}
+		p.h.ServeHTTP(w, r)
+	}
 }

@@ -90,8 +90,10 @@ func cmdBoard(r *runner, args []string) error {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = peer.Shutdown(sctx)
+		var drained sync.WaitGroup
+		drained.Go(func() { _ = peer.Shutdown(sctx) })
 		_ = srv.Shutdown(sctx)
+		drained.Wait()
 	}()
 	forget, err := recordAddr(root, local)
 	if err != nil {

@@ -166,7 +166,11 @@ func tailnetLogin(r *http.Request) string {
 	if d, err := new(mime.WordDecoder).DecodeHeader(v); err == nil {
 		v = d
 	}
-	return state.CleanLogin(v)
+	login := state.CleanLogin(v)
+	if strings.HasPrefix(login, "iroh:") {
+		return ""
+	}
+	return login
 }
 
 func remote(r *http.Request) string {
@@ -199,7 +203,7 @@ func (b *Board) PhoneSession(r *http.Request) bool {
 }
 
 func (b *Board) identify(r *http.Request) (session, sessionFault) {
-	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && b.valid(c.Value) {
+	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && peerOf(r) == nil && b.valid(c.Value) {
 		return session{CSRF: b.token}, signedIn
 	}
 	return b.phoneIdentify(r)
