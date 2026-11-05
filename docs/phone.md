@@ -51,6 +51,50 @@ The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given 
 
 **What it does not protect against.** Any process of your own user can read `board.peer`, the fleet's `board.token` and `hand.db`, so it can do anything a peer can. On a machine with other users, any of them can connect to the loopback port; without the secret they are anonymous remote, and still need a pairing code that shows only on your laptop. The listener takes loopback addresses only, and only beside a loopback `--addr`, because the preface carries the secret in the clear. A board that `hand open` or `hand update` restarts starts on the default address without it, as it does without any other flag but `--update-every`: put `--peer-addr` in the unit's `ExecStart=`, the plist or the shortcut, as [Update on a timer](update.md#update-on-a-timer) shows for `--update-every`.
 
+## The hand-iroh sidecar
+
+**What it is.** [`hand-iroh`](vocabulary.md#hand-iroh) is a program that lets a phone reach the [peer listener](#the-peer-listener) over [iroh](https://docs.iroh.computer/): the phone dials the laptop's endpoint ID, through a public relay or directly, and the sidecar turns each stream it opens into one connection to the peer listener, with the [peer preface](vocabulary.md#peer-preface) in front. It is a separate Rust program in `iroh/`, so `hand` stays a static Go binary with no new Go dependency.
+
+**Nothing in Hand starts it yet.** The board does not run it, `hand doctor` has no row for it, `install.sh`, `install.ps1` and `hand update` do not fetch it, and no page pairs a phone over it. Today it is for trying the peer listener by hand.
+
+**Where it comes from.** A release cut after 0.13.0 carries one asset per system, each with a `.sha256` file that holds its checksum. 0.13.0 and earlier carry none.
+
+| System | Asset | Build |
+|---|---|---|
+| Linux amd64, arm64 | `hand-iroh-linux-amd64.tar.gz`, `hand-iroh-linux-arm64.tar.gz` | static, musl |
+| macOS Apple silicon, Intel | `hand-iroh-darwin-arm64.tar.gz`, `hand-iroh-darwin-amd64.tar.gz` | |
+| Windows amd64 | `hand-iroh-windows-amd64.zip` | MSVC |
+
+The `Iroh` workflow (`.github/workflows/iroh.yaml`) builds them, and the `Release` workflow attaches them to the draft release with their attestations; a failed attestation fails the run after the upload, and running `Release` again overwrites the assets. A change under `iroh/`, or to `internal/board/peer.go` (the preface grammar is written on both sides), runs `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test` on Linux, macOS and Windows, and `cargo test` again for the three targets those do not cover: Linux musl on amd64 and arm64, and macOS Intel (under Rosetta on an Apple silicon runner). It builds all five assets without publishing, and starts each built binary: it must print its ready line, keep its ID across two runs and exit when its input closes. The forwarding tests run in the debug profile; the packed release binary (thin LTO, `panic=abort`, stripped) runs only that start, key and exit check. The `Release` build starts from a clean build folder: it restores no cache. The rolling `edge` release does not carry the sidecar. To build it yourself, run `cargo build --release --locked` in `iroh/`, with the Rust toolchain that `iroh/rust-toolchain.toml` pins.
+
+**Running it by hand.** It exits when its standard input closes, so that the board can own its life; from a shell, keep the input open:
+
+```sh
+tail -f /dev/null | hand-iroh --board 127.0.0.1:7778 --secret-file ~/.secondhand/board.peer --key-dir ~/.secondhand/iroh
+```
+
+It prints one line, `ready id=ENDPOINTID relay=URL`, once it is online (it waits up to 10 seconds; `relay=none` when it is not online by then, or when it runs without a relay). The ID is the address a phone dials. It writes nothing else to standard output, and its errors go to standard error. It stops cleanly on `SIGTERM`, Ctrl-C or when its input closes, and `hand-iroh --version` prints `hand-iroh VERSION iroh VERSION`. Changing `board.peer` takes a restart of the sidecar as well as of the board.
+
+| Flag | Meaning |
+|---|---|
+| `--board ADDR` | The peer listener, a loopback IP address and port. Anything else is refused, because the secret crosses it in the clear. |
+| `--secret-file PATH` | The file that holds the secret, `board.peer` in `~/.secondhand`: 16 to 128 printable characters without spaces. There is no flag or environment variable for the secret itself. |
+| `--key-dir DIR` | Where the endpoint's key lives: `hand-iroh.key`, 32 bytes, created on the first run, with mode 0600 in a folder made with mode 0700 on Linux and macOS. On Linux and macOS the sidecar refuses a key file that group or others can access (`chmod 600`) and a folder that they can write (`chmod go-w`). The folder must be on a filesystem that supports hard links, which the first run uses so that two first runs agree on one key: not FAT or exFAT, and not every network share. A leftover `hand-iroh.key.*.tmp` older than a minute, from a crash in the first run, is deleted at the next start. Its ID stays the same across runs. Delete the file to get a new ID. |
+| `--relay default\|none\|URL` | `default` uses the public relays the iroh project runs and publishes the endpoint's address to its DNS. A URL uses that relay instead of the public ones and publishes nowhere: no DNS record, no lookup, so a dialer needs the relay URL, which the ready line prints. `none` is for tests and trials on one machine: no relay, no DNS, no port mapping, and the sockets are bound to `127.0.0.1` only, so a phone cannot reach it. |
+| `--max-connections N` | Connections served at once, 1 to 1024. Default 16. Past that, dialers are refused before the handshake until one leaves. Handshakes in flight are counted apart, below. |
+| `--idle SECONDS` | 1 to 86400. Default 60. A stream that moves no byte for this long is reset, and a connection on which no byte has moved on any stream for this long is closed: opening or ending a stream moves no byte. |
+
+**What it decides, and what it does not.** It does not know who is paired. iroh admits any dialer that completes the handshake, and endpoint IDs are not secret, so every dialer reaches the peer listener, which serves an unpaired peer only `/<fleet id>/pair` and the files it loads, under its own byte, request and idle limits. The sidecar's limits bound what it spends. They do not tell a stranger from a paired phone. iroh 1.4.1 has no limiter of its own (no per-address or per-handshake cap, no rate limit), so these are the sidecar's:
+
+- **Handshakes.** A dialer whose address has not been proved gets a retry packet and costs the sidecar no state, so a spoofed address ends there; a real dialer pays one more round trip (about 27 ms measured on loopback). Then at most 8 handshakes run at once, each given up after 3 seconds, and at most 4 per source: a direct dialer's IPv4 address or IPv6 /64, or a relayed dialer's endpoint ID. A handshake holds no connection slot.
+- **Connections.** After the handshake a connection takes one of the `--max-connections` slots and counts against its source's 4. It closes when no byte has moved on any stream for `--idle` seconds.
+- **Streams.** At most 12 open at once per connection, and new ones accepted at 20 a second after a burst of 12, so one dialer cannot spend the Board's loopback accept rate. Each stream is one loopback connection to the board, and one descriptor: with the defaults that is at most 16 by 12 and about 11 for the process, 203 measured, under the 256 that a macOS shell allows. If you raise `--max-connections`, raise `ulimit -n` by 12 for each. A sidecar out of descriptors resets the stream that cannot reach the board and stays up.
+- **Codes.** A connection that completes its handshake with no slot free is closed with code 1, and one with no byte for `--idle` with code 2. A stream is reset with code 3 when the board cannot be reached, 4 when no byte moved for `--idle` seconds and 5 when the board's connection broke. A board that answers and closes at once still gets its answer to the phone; the phone's upload is stopped with code 5.
+
+What this does not defend is availability. A stranger who moves one byte on every connection each `--idle` seconds, from enough addresses (direct) or made-up endpoint IDs (through a relay, where a new ID costs nothing), holds every slot, and a paired phone is refused until one frees. Behind one NAT address a stranger shares a source, and so its 4 connections, with your phone. The real fix is for the board to tell the sidecar which IDs are paired, so that slots are kept for them; that is a later step.
+
+**Known limits.** On Windows the sidecar neither sets nor checks permissions on the key file or its folder, so choose a folder only you can open. It handles Ctrl-C, not a console close or a shutdown, and has no `SIGTERM`: closing its input stops it on every system. The build pulls in `paste` 1.0.15 through iroh's `netwatch`: RUSTSEC-2024-0436, "unmaintained", informational. An OSV query of `iroh/Cargo.lock` on 2026-11-05 found no vulnerability advisory on the other crates.
+
 ## SSH tunnel
 
 **What it is.** The phone is an SSH client. It forwards a port on the phone to the board's port on the laptop, and the phone's browser opens `http://127.0.0.1:7777` on the phone itself. The board stays on loopback, so chat, files and supervisor control work.

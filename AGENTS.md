@@ -3,7 +3,7 @@
 Personal supervisor layer for agents. Read `docs/spec.md` before changing anything.
 
 - Terms follow `docs/vocabulary.md`; update it when a term, state, wake kind or ref changes.
-- Standard library first. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` (already one of its own) for macOS process start times.
+- Standard library first. The dependencies are `modernc.org/sqlite`, and `golang.org/x/sys` (already one of its own) for macOS process start times. `iroh/` is a separate Rust crate that builds `hand-iroh`; it adds no Go dependency, and a change there runs `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings` and `cargo test --locked` in `iroh/` (`docs/phone.md`); `internal/board/peer.go` and `iroh/src/preface.rs` write the same preface grammar, so a change to either runs the `Iroh` workflow.
 - No code comments unless a hidden constraint needs one (≤3 lines).
 - Every state change goes through `internal/state` in one transaction that also appends an event.
 - Output is TOON via `internal/toon`; keep `hand orient` within its byte budget.
