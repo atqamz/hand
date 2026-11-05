@@ -57,6 +57,8 @@ The recipe needs `sh`, so it is for Linux and macOS. On Windows it is not given 
 
 **Nothing in Hand starts it yet.** The board does not run it, `hand doctor` has no row for it, `install.sh`, `install.ps1` and `hand update` do not fetch it, and no page pairs a phone over it. Today it is for trying the peer listener by hand.
 
+What an app may rely on when it dials the sidecar (the protocol name, the streams, the codes, the caps) and the link it reads to pair are fixed in [The Android Companion contract](companion.md).
+
 **Where it comes from.** A release cut after 0.13.0 carries one asset per system, each with a `.sha256` file that holds its checksum. 0.13.0 and earlier carry none.
 
 | System | Asset | Build |
