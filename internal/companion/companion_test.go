@@ -83,14 +83,8 @@ func validRelay(v string) (string, bool) {
 	if m == nil || len(m[1]) > 253 {
 		return "", false
 	}
-	numeric := true
-	for _, label := range strings.Split(strings.TrimSuffix(m[1], "."), ".") {
-		if strings.Trim(label, "0123456789") != "" {
-			numeric = false
-			break
-		}
-	}
-	if numeric {
+	labels := strings.Split(strings.TrimSuffix(m[1], "."), ".")
+	if numericLabel(labels[len(labels)-1]) {
 		return "", false
 	}
 	if m[6] != "" {
@@ -99,6 +93,14 @@ func validRelay(v string) (string, bool) {
 		}
 	}
 	return url, true
+}
+
+func numericLabel(label string) bool {
+	if strings.Trim(label, "0123456789") == "" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(label, "0x")
+	return ok && rest != "" && strings.Trim(rest, "0123456789abcdef") == ""
 }
 
 func parse(link string) (parsed, string) {

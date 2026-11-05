@@ -580,6 +580,16 @@
       "reject": "relay"
     },
     {
+      "name": "relay on a hexadecimal IPv4 address",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F0x7f000001%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on a short IPv4 address",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F127.1%2F",
+      "reject": "relay"
+    },
+    {
       "name": "relay given twice",
       "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F&r=https%3A%2F%2Frelay.example.test%2F",
       "reject": "duplicate_key"
