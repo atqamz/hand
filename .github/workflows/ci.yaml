@@ -27,6 +27,7 @@ env:
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
   TAURI_CLI_VERSION: "2.12.4"
+  HAND_SHA: f7c6e1c5c9da9c8d3735c2754fce68df3845ebff
 
 jobs:
   actionlint:
@@ -45,11 +46,24 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      NDK_VERSION: 27.3.13750724
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - name: Install the NDK
+        run: sdkmanager --install "ndk;$NDK_VERSION"
+      - name: Install the desktop web view libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf
       - name: Install the pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
       - run: rustup target add aarch64-linux-android
@@ -62,9 +76,23 @@ jobs:
             target
           key: check-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: check-
+      - name: Build the pinned hand-iroh sidecar
+        run: |
+          git init "$RUNNER_TEMP/hand"
+          git -C "$RUNNER_TEMP/hand" remote add origin https://github.com/atqamz/hand.git
+          git -C "$RUNNER_TEMP/hand" fetch --depth=1 origin "$HAND_SHA"
+          git -C "$RUNNER_TEMP/hand" checkout --detach FETCH_HEAD
+          cargo build --locked --manifest-path "$RUNNER_TEMP/hand/iroh/Cargo.toml" --bin hand-iroh
+          echo "HAND_IROH_BIN=$RUNNER_TEMP/hand/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
       - run: cargo fmt --all --check
-      - run: cargo test --locked -p hand-android-core
-      - run: cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: Clippy for Android
+        run: |
+          toolchain="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$toolchain/aarch64-linux-android24-clang"
+          cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings
 
   apk:
     runs-on: ubuntu-latest

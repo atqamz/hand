@@ -1,6 +1,6 @@
 # Hand's Android Companion
 
-The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dials a laptop's `hand-iroh` sidecar over iroh and shows the Board in a web view. Status: bootstrap, nothing of that works yet; see the roadmap in `README.md`.
+The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dials a laptop's `hand-iroh` sidecar over iroh and shows the Board in a web view. Status: roadmap steps 1 and 2 are built (the iroh dialer, the loopback proxy and the web view); pairing, the QR scanner and release signing are not. See the roadmap in `README.md`.
 
 ## Rules
 
@@ -8,12 +8,12 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 - No code comments. Names, types and tests carry what the code does. Keep only lines a tool reads, such as linter directives.
 - No dependency, abstraction, compatibility layer or configuration without a concrete need. The pull request that adds a dependency says why the standard library or an existing crate does not do. Pin Rust dependencies exactly (`=x.y.z`) and commit `Cargo.lock`.
 - Tests carry behaviour. Docs carry only what code cannot say: why, measurements, external constraints, failure modes, manual steps.
-- Before committing, run `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings` and `cargo test --locked -p hand-android-core`. A change to `src-tauri/` also builds the debug APK (`README.md`).
+- Before committing, run `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --target aarch64-linux-android -- -D warnings` and `cargo test --locked --workspace` with `HAND_IROH_BIN` set to a sidecar built from the pinned Hand commit, as `README.md` says. A change to `src-tauri/` also builds the debug APK (`README.md`).
 - Commits are small, imperative, lowercase-first, without a trailing period. Never bypass hooks or signing.
 
 ## Layout
 
-- `core/`: `hand-android-core`, plain Rust with no Tauri in it. The iroh dialer, the loopback proxy and the pairing logic go here, with tests that run on the host.
+- `core/`: `hand-android-core`, plain Rust with no Tauri in it. The iroh dialer, the loopback proxy and the pairing logic go here, with tests that run on the host. Its sidecar tests need `HAND_IROH_BIN`; they skip without it.
 - `src-tauri/`: the Tauri shell. It registers commands that call the core and holds no logic of its own. Its only target is Android, so `cargo clippy` for it runs with `--target aarch64-linux-android`: a host build would need the desktop web view libraries.
 - `web/`: the bundled first screen. Static files, no build step, no npm.
 - `src-tauri/gen/android/`: made once by `cargo tauri android init`, committed and edited by hand since. Running `init` again overwrites our edits to `AndroidManifest.xml`, `app/build.gradle.kts` and `res/xml/network_security_config.xml`; redo them from the Android rules below.
@@ -28,7 +28,7 @@ The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dial
 
 ## Contract with Hand
 
-Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract document lives in `docs/` of https://github.com/atqamz/hand, added by its own pull request; until it lands, `docs/phone.md` (the peer listener and the `hand-iroh` sidecar) and the peer preface entry of `docs/vocabulary.md` in that repository are the source. When one of them disagrees with this file, they win; fix this file.
+Hand is the Board on the laptop. This app is the dialer of its `hand-iroh` sidecar, so every fact below is Hand's and changes there first. The contract is `docs/companion.md` with its vectors in `docs/companion-vectors.json`, in https://github.com/atqamz/hand. The app is built against the head of Hand's PR #1135, `f7c6e1c5c9da9c8d3735c2754fce68df3845ebff`; a newer head wins. `docs/phone.md` describes the peer listener and the sidecar. When one of them disagrees with this file, they win; fix this file.
 
 - Transport: iroh, pinned to the sidecar's version (`iroh = "=1.4.1"` there), ALPN `hand-board`. The app dials the laptop's endpoint ID, through a relay or directly. Endpoint IDs are not secrets and iroh admits any dialer that completes the handshake; the Board decides who is paired.
 - Streams: one bidirectional QUIC stream per loopback TCP connection, and bidirectional only: the sidecar allows no unidirectional stream. At most 12 streams are open on a connection, and new ones are accepted at 20 a second after a burst of 12. Finishing the send side is the upload's end of file, and the Board's end of file finishes the stream.

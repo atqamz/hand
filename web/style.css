@@ -3,6 +3,9 @@
   --bg: #ffffff;
   --fg: #111827;
   --quiet: #4b5563;
+  --line: #d1d5db;
+  --accent: #1d4ed8;
+  --error: #b91c1c;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -10,6 +13,9 @@
     --bg: #111827;
     --fg: #f9fafb;
     --quiet: #9ca3af;
+    --line: #374151;
+    --accent: #93c5fd;
+    --error: #fca5a5;
   }
 }
 
@@ -24,15 +30,60 @@ body {
 }
 
 main {
-  padding: 16px;
-  text-align: center;
+  width: min(100% - 32px, 34rem);
+  padding: 16px 0;
 }
 
 h1 {
   font-size: 1.5rem;
 }
 
+dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 0.875rem;
+}
+
+dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+form {
+  display: grid;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+label {
+  font-size: 0.875rem;
+  color: var(--quiet);
+}
+
+input,
+button {
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+button {
+  margin-top: 8px;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .quiet {
   color: var(--quiet);
+  font-size: 0.875rem;
+}
+
+.error {
+  color: var(--error);
   font-size: 0.875rem;
 }
