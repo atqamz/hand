@@ -140,7 +140,7 @@ func migrateTx(tx *sql.Tx) error {
 		}
 		v = MinSchemaVersion
 	}
-	for _, m := range migrations[v-MinSchemaVersion:] {
+	for _, m := range migrations[v-MinSchemaVersion : SchemaVersion-MinSchemaVersion] {
 		if _, err := tx.Exec(m); err != nil {
 			return err
 		}

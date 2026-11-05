@@ -476,7 +476,7 @@ If it fails: file what the owner saw, and whether macOS asked for permission.
 
 Steps:
 
-**1.** Install v0.13.0 or a later release as a second copy (the update stops processes by pid file from v0.11.0 on, so an older copy cannot restart the watcher and the board on macOS), make a fleet in a second home, and start its watcher and board with that old copy:
+**1.** Install v0.13.0 as a second copy (the update stops processes by pid file from v0.11.0 on, so an older copy cannot restart the watcher and the board on macOS), make a fleet in a second home, and start its watcher and board with that old copy:
 
 ```zsh
 . $D/env.sh

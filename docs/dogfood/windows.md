@@ -499,7 +499,7 @@ If it fails: file it as `W4c: ...`, with `hand attempt show $a` and `hand attemp
 
 Steps:
 
-**1.** Install v0.13.0 or a later release as a second copy (the update stops processes by pid file from v0.11.0 on), make a fleet in a second home, and start its watcher and board with that old copy:
+**1.** Install v0.13.0 as a second copy (the update stops processes by pid file from v0.11.0 on), make a fleet in a second home, and start its watcher and board with that old copy:
 
 ```powershell
 . "$D\env.ps1"

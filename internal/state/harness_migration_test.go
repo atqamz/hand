@@ -76,7 +76,7 @@ func TestADatabaseOlderThanTheMinimumIsRefusedUntouched(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = Open(path, clock)
-		want := fmt.Sprintf("schema %d, older than this hand reads (%d to %d); hand %s is the last release that migrates it", version, MinSchemaVersion, SchemaVersion, lastMigrating)
+		want := fmt.Sprintf("schema %d, older than this hand reads (%d to %d); hand 0.13.0 is the last release that migrates it", version, MinSchemaVersion, SchemaVersion)
 		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
 			t.Fatalf("version %d: open = %v", version, err)
 		}
@@ -176,5 +176,33 @@ func TestAPendingWriteAheadLogHidesTheHeaderVersion(t *testing.T) {
 	}
 	if _, ok := headerVersion(path); ok {
 		t.Fatal("a pending write-ahead log left the stale header trusted")
+	}
+}
+
+func TestOpenReadsTheSchemaOfADatabaseWhoseNewestCommitIsStillInTheLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA user_version = 13; PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(schema + fmt.Sprintf(`PRAGMA user_version = %d`, MinSchemaVersion)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := headerVersion(path); ok {
+		t.Fatal("the committed schema is not in the log")
+	}
+	s, err := Open(path, clock)
+	if err != nil {
+		t.Fatalf("open refused a healthy database: %v", err)
+	}
+	defer s.Close()
+	var v int
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
+		t.Fatalf("user_version = %d, %v", v, err)
 	}
 }
