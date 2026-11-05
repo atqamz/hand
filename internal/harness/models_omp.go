@@ -50,6 +50,9 @@ func OmpAgent(getenv func(string) string) string {
 		return dir
 	}
 	if dir := getenv("PI_CONFIG_DIR"); dir != "" {
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(getenv("HOME"), dir)
+		}
 		return filepath.Join(dir, "agent")
 	}
 	return filepath.Join(getenv("HOME"), ".omp", "agent")

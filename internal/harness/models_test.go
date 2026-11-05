@@ -532,12 +532,18 @@ func TestOmpAgentDir(t *testing.T) {
 	if got := OmpAgent(getenv); got != filepath.Join("/home/me", ".omp", "agent") {
 		t.Fatalf("default = %s", got)
 	}
-	env["PI_CONFIG_DIR"] = "/cfg"
-	if got := OmpAgent(getenv); got != filepath.Join("/cfg", "agent") {
-		t.Fatalf("config override = %s", got)
+	env["PI_CONFIG_DIR"] = ".omp-work"
+	if got := OmpAgent(getenv); got != filepath.Join("/home/me", ".omp-work", "agent") {
+		t.Fatalf("relative config override = %s", got)
 	}
-	env["PI_CODING_AGENT_DIR"] = "/agent"
-	if got := OmpAgent(getenv); got != "/agent" {
+	cfg := filepath.Join(t.TempDir(), "cfg")
+	env["PI_CONFIG_DIR"] = cfg
+	if got := OmpAgent(getenv); got != filepath.Join(cfg, "agent") {
+		t.Fatalf("absolute config override = %s", got)
+	}
+	agent := filepath.Join(t.TempDir(), "agent")
+	env["PI_CODING_AGENT_DIR"] = agent
+	if got := OmpAgent(getenv); got != agent {
 		t.Fatalf("agent override = %s", got)
 	}
 }
