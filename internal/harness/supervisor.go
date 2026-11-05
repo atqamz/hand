@@ -130,9 +130,25 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 }
 
 func OmpSession(agentDir, cwd string, since time.Time, marker string) (string, error) {
-	files, err := filepath.Glob(filepath.Join(agentDir, "sessions", "*", "*.jsonl"))
+	base := filepath.Join(agentDir, "sessions")
+	dirs, err := os.ReadDir(base)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
+	}
+	var files []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(filepath.Join(base, dir.Name()))
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+				files = append(files, filepath.Join(base, dir.Name(), entry.Name()))
+			}
+		}
 	}
 	want := realPath(cwd)
 	var id string
@@ -140,14 +156,14 @@ func OmpSession(agentDir, cwd string, since time.Time, marker string) (string, e
 	for _, file := range files {
 		gotID, at, from, err := ompMeta(file)
 		if err != nil {
-			return "", err
+			continue
 		}
 		if from == "" || realPath(from) != want || at.Before(since) || (id != "" && !at.Before(newest)) {
 			continue
 		}
 		ok, err := ompLaunched(file, marker)
 		if err != nil {
-			return "", err
+			continue
 		}
 		if ok {
 			id, newest = gotID, at

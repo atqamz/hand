@@ -252,6 +252,33 @@ func TestOmpSessionFindsTheFirstSessionForTheFolderSinceLaunch(t *testing.T) {
 	}
 }
 
+func TestOmpSessionReadsAnAgentFolderWithGlobCharacters(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home[1]")
+	since := time.Now().Add(-time.Minute)
+	ompRollout(t, home, "-fleet", "a.jsonl", "mine", "/fleet", marker+"x.", since.Add(time.Second))
+	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
+		t.Fatalf("session = %q, %v", id, err)
+	}
+}
+
+func TestOmpSessionSkipsAnUnreadableFile(t *testing.T) {
+	home := t.TempDir()
+	since := time.Now().Add(-time.Minute)
+	bad := ompRollout(t, home, "-fleet", "a.jsonl", "unreadable", "/fleet", marker+"x.", since.Add(time.Second))
+	if err := os.Chmod(bad, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bad, 0o644) })
+	if f, err := os.Open(bad); err == nil {
+		f.Close()
+		t.Skip("the file is still readable, as for root or on Windows")
+	}
+	ompRollout(t, home, "-fleet", "b.jsonl", "mine", "/fleet", marker+"x.", since.Add(2*time.Second))
+	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
+		t.Fatalf("session = %q, %v", id, err)
+	}
+}
+
 func TestOpencodeReturnsItsOutputWhileAChildHoldsStdout(t *testing.T) {
 	bin := fakebin.Install(t, t.TempDir(), "opencode", "lister", map[string]string{"stdout": `{"messages":[]}`, "hold": "1", "holders": holders(t)})
 	began := time.Now()
