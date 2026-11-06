@@ -94,6 +94,8 @@ func cmdFleetMove(r *runner, args []string) error {
 		return r.finishPendingMove(st, f, root, home, dest, pf, pt, *dry, *rewriteOnly, len(rest) == 1)
 	}
 	switch {
+	case f.Home == "" && *fromFlag == "":
+		return fmt.Errorf("%w: this database records no home, so the command cannot tell a fleet in place from a copy of one; pass `--from %s` if this fleet is in place, or `--from OLD` with the folder its recorded paths name", state.ErrConflict, home)
 	case f.Home != "" && !samePlace(f.Home, home) && *fromFlag == "":
 		return fmt.Errorf("%w: the database records this fleet's home as %s, but this folder is %s; run `hand fleet move --rewrite-only --from %s` here to rewrite the recorded paths", state.ErrConflict, f.Home, home, f.Home)
 	case f.Home != "" && !samePlace(f.Home, from):

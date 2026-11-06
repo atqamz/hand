@@ -458,6 +458,22 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 	}
 }
 
+func TestFleetMoveRequiresFromWhenNoHomeIsRecorded(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	db := openMoveDB(t, home)
+	moveExec(t, db, `UPDATE fleet SET home = ''`)
+	db.Close()
+	dest := filepath.Join(t.TempDir(), "moved")
+	if _, errOut, code := h.run("fleet", "move", "--dry-run", dest); code != 3 || !strings.Contains(errOut, "records no home") || !strings.Contains(errOut, "--from "+home) {
+		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
+	}
+	out := h.ok("fleet", "move", "--dry-run", "--from", home, dest)
+	if !strings.Contains(out, "move: dry-run") || !strings.Contains(out, "verification: 0") || !strings.Contains(out, "cells[19]") {
+		t.Fatalf("dry run with --from = %q", out)
+	}
+}
+
 func TestFleetMoveToADirectChildOfHomeKeepsTheShorthand(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
