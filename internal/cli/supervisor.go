@@ -739,8 +739,13 @@ func cmdSupervisorShow(r *runner, args []string) error {
 		if !ok {
 			return fmt.Errorf("%w: there is no supervisor yet; start one: `hand supervisor start --harness H --model M --effort E`", state.ErrNotFound)
 		}
-		if sup.Session == "" && sup.Live() {
-			_ = r.findSession(ctx, st, &sup)
+		if sup.Session == "" && sup.Live() && sup.Harness == "omp" {
+			if unlock, ok, err := r.supervisorLock(false); err != nil {
+				return err
+			} else if ok {
+				_ = r.findSession(ctx, st, &sup)
+				unlock()
+			}
 		}
 		pending, err := st.PendingSupervisorInputs(ctx)
 		if err != nil {
@@ -777,7 +782,7 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			}
 			d.Field("pane", sup.PaneID)
 			d.Field("agent", ag.Status)
-			if sup.Session == "" && sup.Harness == "omp" && ag.Session != "" {
+			if ompSessionLate(r, sup) {
 				d.Field("note", ompSessionMismatch(r.env.Getenv, r.home, ag.Session))
 			}
 			if ag.Hint != "" {
@@ -946,8 +951,20 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 
 const ompSessionNote = "omp session mismatch: "
 
+func ompSessionLate(r *runner, sup state.Supervisor) bool {
+	if sup.Harness != "omp" || sup.Session != "" {
+		return false
+	}
+	created, err := time.Parse(time.RFC3339Nano, sup.CreatedAt)
+	return err == nil && r.env.Now().Sub(created) > launchGrace
+}
+
 func ompSessionMismatch(getenv func(string) string, home, session string) string {
-	return ompSessionNote + "Luvus sees omp session " + session + " in the pane, but " + filepath.Join(harness.OmpAgent(getenv, home), "sessions") + " has no session for it; the Luvus server may have started with a different PI_CODING_AGENT_DIR: restart the server from this shell, or unset the variable"
+	dir := filepath.Join(harness.OmpAgent(getenv, home), "sessions")
+	if session == "" {
+		return ompSessionNote + "no omp session under " + dir + " matches this supervisor; the Luvus server may have started with a different PI_CODING_AGENT_DIR: restart the server from this shell, or unset the variable"
+	}
+	return ompSessionNote + "Luvus sees omp session " + session + " in the pane, but " + dir + " has no session for it; the Luvus server may have started with a different PI_CODING_AGENT_DIR: restart the server from this shell, or unset the variable"
 }
 
 func cmdSupervisorSend(r *runner, args []string) error {
@@ -1037,10 +1054,9 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
 		}
 		if sup.Session == "" {
-			if sup.Harness == "omp" {
-				if ag, err := c.Explain(ctx, sup.PaneID); err == nil && ag.Session != "" {
-					return ompSessionMismatch(r.env.Getenv, r.home, ag.Session), nil
-				}
+			if ompSessionLate(r, sup) {
+				ag, _ := c.Explain(ctx, sup.PaneID)
+				return ompSessionMismatch(r.env.Getenv, r.home, ag.Session), nil
 			}
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
 		}

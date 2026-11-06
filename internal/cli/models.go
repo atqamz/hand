@@ -127,7 +127,8 @@ func listingState(name string, st harness.Status) string {
 }
 
 func (r *runner) modelSummary(name string) string {
-	env, now := harness.EnvOf(r.env.Getenv), r.env.Now()
+	env, _ := r.modelOptions()
+	now := r.env.Now()
 	st := harness.StatusOf(name, env, now)
 	models, _ := harness.Detected(name, env)
 	if !st.Found || len(models) == 0 {

@@ -253,6 +253,23 @@ func TestOmpTranscriptIsCalm(t *testing.T) {
 	}
 }
 
+func TestOmpTranscriptReadsItsSessionFromTheLaunchFolder(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ompSession(t, home, "omp-1", string(fixture))
+	r := &Reader{Paths: Paths{}}
+	got, err := r.Read(context.Background(), "omp", "omp-1", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(texts(got), []string{"hand: supervisor s1 started", "supervisor: Two tasks:\n- t1", "operator: hi", "supervisor: Hello."}) {
+		t.Fatalf("entries = %q", texts(got))
+	}
+}
+
 func TestOmpTranscriptReadsAnAgentFolderWithGlobCharacters(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home[1]")
 	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))

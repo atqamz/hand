@@ -203,6 +203,7 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	has(t, "show before a send", h.ok("supervisor", "show"), `session: ""`)
 	has(t, "send", h.ok("supervisor", "send", "--text", "second"), "delivered: yes")
 	if got := rt.prompts(); !slices.Equal(got, []string{"first", "second"}) {
 		t.Fatalf("prompts = %q", got)
@@ -1272,9 +1273,61 @@ func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing
 	h.vars["PI_CODING_AGENT_DIR"] = agent
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
 	rt.setSession(rt.terms[len(rt.terms)-1].id, "01a1abdf-088f-707d-8973-c784c54b54ed")
+	h.advance(3 * time.Minute)
 	out := h.ok("supervisor", "show")
 	has(t, "show", out, `session: ""`, "note: ", "PI_CODING_AGENT_DIR", "01a1abdf-088f-707d-8973-c784c54b54ed")
 	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "PI_CODING_AGENT_DIR")
+}
+
+func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	h.advance(3 * time.Minute)
+	has(t, "show", h.ok("supervisor", "show"), `session: ""`, "note: ", filepath.Join(agent, "sessions"), "PI_CODING_AGENT_DIR", "different")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", filepath.Join(agent, "sessions"), "PI_CODING_AGENT_DIR")
+}
+
+func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	h.advance(3 * time.Minute)
+	fx := &attemptFixture{h: h, rt: rt}
+	stop := startWatch(t, fx)
+	pane := rt.terms[len(rt.terms)-1].pane
+	explains := func() int { return len(rt.srv.Calls("agent.explain")) }
+	publish := func() {
+		before := explains()
+		rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": pane, "status": "working", "agent": "omp"})
+		eventually(t, func() bool { return explains() > before })
+	}
+	publish()
+	publish()
+	id := "01a1abdf-088f-707d-8973-c784c54b54ef"
+	dir := filepath.Join(agent, "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := ompConversation(t, dir, id, h.home, rt.lastCreate().Command[len(rt.lastCreate().Command)-1], h.clock())
+	publish()
+	st := openStore(t, h)
+	if err := st.SetSupervisorSession(context.Background(), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	publish()
+	out, code := stop()
+	if code != 0 {
+		t.Fatalf("watch exit = %d, out %q", code, out)
+	}
+	if n := strings.Count(out, "omp session mismatch: "); n != 2 {
+		t.Fatalf("mismatch notes = %d, out %q", n, out)
+	}
 }
 
 func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {

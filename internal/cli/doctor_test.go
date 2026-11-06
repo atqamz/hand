@@ -310,6 +310,17 @@ func TestDoctorChecksLongPathsOnWindows(t *testing.T) {
 	}
 }
 
+func TestDoctorReadsTheOmpCacheFromTheFleetHomeWhateverTheWorkingDirectory(t *testing.T) {
+	fx := newDoctorFixture(t)
+	fx.h.vars["PI_CODING_AGENT_DIR"] = ".omp-agent"
+	fx.h.ok("models", "--refresh", "omp")
+	t.Chdir(t.TempDir())
+	row := checkRows(t, fx.h.ok("doctor"))["models omp"]
+	if row[0] != "info" || strings.Contains(row[1], "stale") {
+		t.Fatalf("models omp = %q", row)
+	}
+}
+
 func TestDoctorRepairsNothing(t *testing.T) {
 	fx := newDoctorFixture(t)
 	link := filepath.Join(fx.h.vars["SECONDHAND_HOME"], "fleets", fx.id)

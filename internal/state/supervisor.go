@@ -214,8 +214,12 @@ func (s *Store) setSwitch(ctx context.Context, id int64, model, effort string) (
 
 func (s *Store) SetSupervisorSession(ctx context.Context, id int64, session string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := getSupervisor(tx, id); err != nil {
+		sup, err := getSupervisor(tx, id)
+		if err != nil {
 			return err
+		}
+		if sup.Session == session {
+			return nil
 		}
 		if _, err := tx.Exec(`UPDATE supervisor SET session = ? WHERE id = ?`, session, id); err != nil {
 			return err
