@@ -1115,6 +1115,38 @@ func TestLongTurnResetsPerTurn(t *testing.T) {
 	})
 }
 
+func TestAConfirmedBlockEndsTheLongTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	fx.h.advance(61 * time.Minute)
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	publishBlocked(fx, "2", "claude")
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	publishStatus(fx, "2", "working")
+	eventually(t, func() bool {
+		fx.h.advance(61 * time.Minute)
+		return longEvents(fx) == 2
+	})
+}
+
+func TestAOnePollBlockKeepsTheLongTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	fx.h.advance(31 * time.Minute)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.h.advance(30 * time.Minute)
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	if woken(fx, "attempt.blocked") {
+		t.Fatal("a one-poll block woke the supervisor")
+	}
+}
+
 func TestShortTurnDoesNotWake(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
