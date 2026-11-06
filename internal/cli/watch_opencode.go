@@ -76,6 +76,7 @@ func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilit
 					return err
 				}
 				if since.IsZero() || !b.idle[session].After(since) {
+					delete(w.blockedPending, a.ID)
 					w.seen[a.ID] = "idle"
 					delete(w.heldAt, a.ID)
 					continue
