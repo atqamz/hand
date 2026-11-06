@@ -136,7 +136,7 @@ func (w *watcher) reapRemove(ctx context.Context, c luvus.Client, a state.Attemp
 	if err := removeWorktree(ctx, c, g, a.Worktree, false, false); err != nil {
 		return err
 	}
-	_, warns := removeScratch(scanScratch(w.r.leftovers(a.Harness, a.Worktree), 0))
+	_, warns := removeScratch(scanScratch(append(w.r.leftovers(a.Harness, a.Worktree), w.r.scratchDir(a)), 0))
 	for _, warn := range warns {
 		w.say(state.AttemptRef(a.ID) + ": " + warn)
 	}

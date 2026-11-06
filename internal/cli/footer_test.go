@@ -25,6 +25,23 @@ func TestReportFooterByOS(t *testing.T) {
 	}
 }
 
+func TestReportFooterNamesTheScratchFolderOnce(t *testing.T) {
+	for goos, names := range map[string][]string{
+		"linux":   {"`$TMPDIR`", "`$GOTMPDIR`", "not in `$HOME`"},
+		"windows": {"`%TEMP%`", "`%TMP%`", "not in `%USERPROFILE%`"},
+	} {
+		footer := reportFooterFor(goos, "/bin/hand")
+		if n := strings.Count(footer, "scratch folder, which is"); n != 1 {
+			t.Errorf("%s footer has %d scratch sentences, want 1", goos, n)
+		}
+		for _, want := range names {
+			if !strings.Contains(footer, want) {
+				t.Errorf("%s footer lacks %q", goos, want)
+			}
+		}
+	}
+}
+
 func TestReportFooterAsksForDeliveredLines(t *testing.T) {
 	const ask = "Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file."
 	const wait = "Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. Apart from a milestone, write a report only when the work is done or you are stuck."

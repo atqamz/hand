@@ -92,6 +92,7 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
 	rt.mu.Lock()
 	if rt.runsIn != "" {
 		cmd.Dir = rt.runsIn
@@ -362,7 +363,24 @@ func (rt *fakeRuntime) set(fn func(*fakeRuntime)) {
 	fn(rt)
 }
 
+func harnessArgv(argv []string) []string {
+	if len(argv) > 5 && argv[1] == "attempt" && argv[2] == "_exec" && argv[3] == "--dir" {
+		if i := slices.Index(argv, "--"); i >= 0 {
+			return argv[i+1:]
+		}
+	}
+	return argv
+}
+
 func (rt *fakeRuntime) lastCreate() createCall {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	call := rt.creates[len(rt.creates)-1]
+	call.Command = harnessArgv(call.Command)
+	return call
+}
+
+func (rt *fakeRuntime) lastSent() createCall {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.creates[len(rt.creates)-1]

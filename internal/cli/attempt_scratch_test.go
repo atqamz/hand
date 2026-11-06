@@ -52,6 +52,7 @@ func exists(path string) bool {
 func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	wt := fx.h.worktree("t1-a1")
 	scratch := fx.scratch(wt)
@@ -64,7 +65,7 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 		t.Fatal(err)
 	}
 	out := fx.h.ok("attempt", "clean", "a1")
-	if !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, scratch+",10") {
+	if !strings.Contains(out, "scratch_removed[2]{path,bytes}") || !strings.Contains(out, scratch+",10") || !strings.Contains(out, scratchOf(fx.h, wt)) {
 		t.Fatalf("clean = %q", out)
 	}
 	if exists(scratch) {
@@ -78,21 +79,26 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	scratch := fx.scratch(fx.h.worktree("t1-a1"))
 	out := fx.h.ok("attempt", "clean", "--keep-scratch", "a1")
-	if !strings.Contains(out, "scratch_kept[1]{path,bytes}") || !strings.Contains(out, scratch) || strings.Contains(out, "scratch_removed") {
+	if !strings.Contains(out, "scratch_kept[2]{path,bytes}") || !strings.Contains(out, scratch) || strings.Contains(out, "scratch_removed") {
 		t.Fatalf("clean = %q", out)
 	}
-	if !exists(scratch) {
-		t.Fatal("--keep-scratch removed the directory")
+	if !exists(scratch) || !exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) {
+		t.Fatal("--keep-scratch removed a directory")
 	}
 }
 
 func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
+	if err := os.RemoveAll(scratchOf(fx.h, fx.h.worktree("t1-a1"))); err != nil {
+		t.Fatal(err)
+	}
 	if out := fx.h.ok("attempt", "clean", "a1"); strings.Contains(out, "scratch") {
 		t.Fatalf("clean = %q", out)
 	}
@@ -211,12 +217,13 @@ func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
 func TestCleanWarnsWhenTheScratchDirectoryStaysAndStillCleans(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	wt := fx.h.worktree("t1-a1")
 	stuck := fx.scratch(wt)
 	undeletable(t, stuck)
 	out := fx.h.ok("attempt", "clean", "a1")
-	if !strings.Contains(out, "removed: "+wt) || !strings.Contains(out, `warn: "scratch not removed: `) || strings.Contains(out, "scratch_removed") || !exists(stuck) {
+	if !strings.Contains(out, "removed: "+wt) || !strings.Contains(out, `warn: "scratch not removed: `) || !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, scratchOf(fx.h, wt)) || !exists(stuck) {
 		t.Fatalf("clean = %q", out)
 	}
 }

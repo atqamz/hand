@@ -96,6 +96,10 @@ func Run(args []string, env Env) int {
 	if err == nil {
 		return 0
 	}
+	var status exitStatus
+	if errors.As(err, &status) {
+		return status.code
+	}
 	named := strings.NewReplacer("`hand ", "`"+env.command()+" ", "usage: hand ", "usage: "+env.command()+" ")
 	var h helpError
 	if errors.As(err, &h) {
@@ -137,6 +141,9 @@ func dispatch(args []string, env Env) error {
 	flagHome := ""
 	if len(args) >= 2 && args[0] == "--home" {
 		flagHome, args = args[1], args[2:]
+	}
+	if len(args) >= 2 && args[0] == "attempt" && args[1] == "_exec" {
+		return cmdAttemptExec(&runner{env: env}, args[2:])
 	}
 	if len(args) == 0 {
 		return usageError{"usage: hand [--home DIR] COMMAND; commands: " + names(commands)}

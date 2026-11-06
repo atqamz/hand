@@ -43,6 +43,8 @@ func WatchUnit(id string) string { return "secondhand-watch-" + id }
 
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
 
+func Scratch(root, id string) string { return filepath.Join(root, "scratch", id) }
+
 func Check(root, id, home string) error {
 	target, err := readLink(root, id)
 	switch {
