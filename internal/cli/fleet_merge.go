@@ -47,7 +47,7 @@ type mergeCollision struct{ path, reason string }
 
 func cmdFleetMerge(r *runner, args []string) error {
 	set := flags("fleet merge")
-	dry := set.Bool("dry-run", false, "compute the merge on a copy and print its manifest; change no row or file, though SQLite may touch hand.db-shm; refuses --stop")
+	dry := set.Bool("dry-run", false, "compute the merge on a copy and print its manifest; change no row or file, though SQLite may touch a hand.db-shm; refuses --stop")
 	stop := set.Bool("stop", false, "stop the source's watcher and supervisor after every refusal is checked; workers are never stopped")
 	archive := set.Bool("archive-source", false, "after a real merge, stop the source's Luvus server, write merged-into and then remove its registry file")
 	cancel := set.Bool("cancel-timers", false, "cancel the source's armed timers, recording a timer.cancelled event for each")
@@ -436,7 +436,7 @@ func printMergeManifest(r *runner, m *mergeManifest) error {
 		"After a merge, rename or move the survivor with hand fleet move PATH; run the merge first, then the move",
 		"db_sha256 is a sorted logical dump, so a dry run and a real run over the same inputs print the same value"}
 	if m.dry {
-		help = append([]string{"A dry run changes no row and moves no file, though SQLite may rewrite the destination's hand.db-shm"}, help...)
+		help = append([]string{"A dry run changes no row and moves no file, though SQLite may touch a hand.db-shm"}, help...)
 	} else {
 		help = append([]string{"The database is committed when this manifest first appears; later fields report the file move"}, help...)
 	}
