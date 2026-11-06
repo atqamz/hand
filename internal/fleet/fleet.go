@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -111,6 +112,88 @@ func Home(root, id string) (string, error) {
 		return "", fmt.Errorf("%w: no fleet %s is registered in %s", state.ErrInvalid, id, root)
 	}
 	return target, err
+}
+
+func Resolve(root, ref string) (Entry, error) {
+	ids, err := registeredIDs(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s", state.ErrInvalid, ref, root)
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	if state.FleetID.MatchString(ref) {
+		entry, ok, err := resolveID(root, ref)
+		if err != nil {
+			return Entry{}, err
+		}
+		if ok {
+			return entry, nil
+		}
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s (fleets: %s)", state.ErrInvalid, ref, root, strings.Join(ids, ", "))
+	}
+	var hits []Entry
+	for _, id := range ids {
+		target, err := readLink(root, id)
+		if err != nil {
+			continue
+		}
+		f, err := state.ReadFleet(target)
+		if err != nil {
+			continue
+		}
+		if f.ID != id {
+			continue
+		}
+		if ref == f.Name {
+			hits = append(hits, Entry{ID: f.ID, Name: f.Name, Home: target, State: "ok"})
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s (fleets: %s)", state.ErrInvalid, ref, root, strings.Join(ids, ", "))
+	}
+	slices.SortFunc(hits, func(a, b Entry) int { return strings.Compare(a.ID, b.ID) })
+	names := make([]string, 0, len(hits))
+	for _, h := range hits {
+		names = append(names, h.ID)
+	}
+	return Entry{}, fmt.Errorf("%w: %q names more than one fleet: %s; use the fleet id", state.ErrConflict, ref, strings.Join(names, ", "))
+}
+
+func registeredIDs(root string) ([]string, error) {
+	des, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(des))
+	for _, de := range des {
+		if state.FleetID.MatchString(de.Name()) {
+			ids = append(ids, de.Name())
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+func resolveID(root, id string) (Entry, bool, error) {
+	target, err := readLink(root, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, false, nil
+	}
+	if err != nil {
+		return Entry{}, false, err
+	}
+	f, err := state.ReadFleet(target)
+	if err != nil {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s at %s: %v", state.ErrInvalid, id, target, err)
+	}
+	if f.ID != id {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s is registered at %s, which holds %s; run `hand init` there", state.ErrConflict, id, target, f.ID)
+	}
+	return Entry{ID: f.ID, Name: f.Name, Home: target, State: "ok"}, true, nil
 }
 
 func List(root string) ([]Entry, error) {

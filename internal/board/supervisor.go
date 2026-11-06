@@ -783,7 +783,15 @@ func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool)
 	case b.o.Transcript == nil:
 		return nil, transcript.ErrUnreadable.Error()
 	}
-	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
+	dir := b.o.Home
+	if sup.Harness == "omp" {
+		getenv := b.o.Harness.Getenv
+		if getenv == nil {
+			getenv = func(string) string { return "" }
+		}
+		dir = harness.OmpAgent(getenv, b.o.Home)
+	}
+	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, dir)
 	if err != nil {
 		return nil, Scrub(err.Error())
 	}

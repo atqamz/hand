@@ -19,8 +19,8 @@ type Spec struct {
 }
 
 type Env struct {
-	CodexHome, Path string
-	Getenv          func(string) string
+	CodexHome, Path, Dir string
+	Getenv               func(string) string
 }
 
 func EnvOf(getenv func(string) string) Env {
@@ -42,6 +42,7 @@ var (
 	opencodeName  = regexp.MustCompile(`^[^\s/#\p{Cc}][^/#\p{Cc}]*/[^\s#\p{Cc}][^#\p{Cc}]*$`)
 	effortToken   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+	ompEfforts    = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"}
 )
 
 func validModel(harness, model string) bool {
@@ -57,7 +58,7 @@ func ValidServed(model, effort string) bool {
 
 func Check(s Spec, env Env) (string, error) {
 	switch s.Harness {
-	case "claude", "codex", "agy", "copilot":
+	case "claude", "codex", "agy", "copilot", "omp":
 	case "opencode":
 		return checkOpencode(s, env)
 	default:
@@ -71,7 +72,7 @@ func Check(s Spec, env Env) (string, error) {
 		if s.Effort != "" {
 			return "", fmt.Errorf("%w: agy names the effort in its model id; leave effort empty", state.ErrInvalid)
 		}
-	case s.Harness == "copilot" && s.Effort == "":
+	case (s.Harness == "copilot" || s.Harness == "omp") && s.Effort == "":
 	case !effortToken.MatchString(s.Effort):
 		return "", fmt.Errorf("%w: %s effort %q must be 1 to 32 lowercase letters, digits, _ or -, starting with a letter", state.ErrInvalid, s.Harness, s.Effort)
 	}
@@ -82,6 +83,8 @@ func Check(s Spec, env Env) (string, error) {
 		return checkCodex(s, env), nil
 	case "copilot":
 		return checkCopilot(s, env), nil
+	case "omp":
+		return checkOmp(s, env), nil
 	}
 	return checkAgy(s, env), nil
 }
@@ -169,6 +172,24 @@ func checkCopilot(s Spec, env Env) string {
 	return ""
 }
 
+func checkOmp(s Spec, env Env) string {
+	l, err := catalog("omp", env)
+	switch {
+	case err != nil:
+		return unverified([]string{fmt.Sprintf("omp model %s could not be checked: %s", s.Model, plainReason(err))})
+	case slices.Contains(l.Gone, s.Model):
+		return unverified([]string{goneText(s)})
+	}
+	_, ok := find(l.Models, s.Model)
+	switch {
+	case !ok:
+		return unverified([]string{fmt.Sprintf("omp model %s is not in `omp models --json`", s.Model)})
+	case s.Effort != "" && !slices.Contains(ompEfforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("omp model %s: thinking level %s is not one of %s", s.Model, s.Effort, strings.Join(ompEfforts, ", "))})
+	}
+	return ""
+}
+
 func unverified(warns []string) string {
 	if len(warns) == 0 {
 		return ""
@@ -184,7 +205,7 @@ func Prefills(name string) bool { return name == "opencode" }
 
 func CheckSupervisor(s Spec) error {
 	if s.Harness == "copilot" {
-		return fmt.Errorf("%w: copilot starts workers only; run the supervisor on claude, codex, opencode or agy", state.ErrInvalid)
+		return fmt.Errorf("%w: copilot starts workers only; run the supervisor on claude, codex, opencode, agy or omp", state.ErrInvalid)
 	}
 	return nil
 }
@@ -252,13 +273,13 @@ func CopilotHome(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".copilot")
 }
 
-func CheckPrompt(prompt string) error {
+func CheckPrompt(harness, prompt string) error {
 	switch {
 	case strings.TrimSpace(prompt) == "":
 		return fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
 	case len(prompt) > MaxPromptBytes:
 		return fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument; shorten it, or write the long text to a file and make the prompt say to read that file", state.ErrInvalid, len(prompt), MaxPromptBytes)
-	case strings.HasPrefix(prompt, "-"):
+	case strings.HasPrefix(prompt, "-") && harness != "omp":
 		return fmt.Errorf("%w: prompt must not start with '-', or the harness reads it as a flag", state.ErrInvalid)
 	case strings.ContainsRune(prompt, 0):
 		return fmt.Errorf("%w: prompt must not contain NUL", state.ErrInvalid)
@@ -332,7 +353,7 @@ func launchArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, rea
 }
 
 func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, readonly bool) ([]string, error) {
-	if err := CheckPrompt(prompt); err != nil {
+	if err := CheckPrompt(s.Harness, prompt); err != nil {
 		return nil, err
 	}
 	if err := CheckMCP(s.Harness, mcp); err != nil {
@@ -375,6 +396,15 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, rea
 		return append(argv, "--allow-all-tools", "--allow-all-paths", "--session-id", NewSessionID(), "-i", prompt), nil
 	case "codex":
 		return []string{bin, "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", dir, "-m", s.Model, "-c", "model_reasoning_effort=" + s.Effort, prompt}, nil
+	case "omp":
+		argv := []string{bin, "--auto-approve", "--no-title"}
+		if s.Model != "" {
+			argv = append(argv, "--model", s.Model)
+		}
+		if s.Effort != "" {
+			argv = append(argv, "--thinking", s.Effort)
+		}
+		return append(argv, "--", prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }

@@ -138,6 +138,26 @@ func TestSupervisorEventsAreRecorded(t *testing.T) {
 	}
 }
 
+func TestSettingTheSameSupervisorSessionEmitsNothing(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	sup, _ := s.AddSupervisor(ctx, supervisorSpec)
+	if err := s.SetSupervisorSession(ctx, sup.ID, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.LastEventSeq(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSupervisorSession(ctx, sup.ID, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.LastEventSeq(ctx)
+	if err != nil || after != before {
+		t.Fatalf("seq %d -> %d, %v", before, after, err)
+	}
+}
+
 func TestAddSupervisorInputRefusesWhatSendRefuses(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

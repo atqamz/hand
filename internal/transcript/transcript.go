@@ -44,6 +44,7 @@ type Paths struct {
 	OpencodeData string
 	Agy          string
 	Copilot      string
+	Omp          string
 }
 
 type Reader struct {
@@ -122,6 +123,8 @@ func (r *Reader) load(ctx context.Context, harness, id, dir string) (*session, e
 		err = r.agy(s, id)
 	case "copilot":
 		err = r.copilot(s, id)
+	case "omp":
+		err = r.omp(s, id, dir)
 	default:
 		err = fmt.Errorf("transcript: harness %q has no reader", harness)
 	}

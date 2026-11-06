@@ -608,7 +608,7 @@ func TestTheStartStripHasItsOwnRow(t *testing.T) {
 	contains(t, "first run", console, `<div class="starter">`, `<select name="profile" aria-label="Profile" required>`, `<option value="default" selected>`, `<details class="others" id="start-others">`)
 	lacks(t, "first run", console, "or pick a harness")
 	others := strings.Index(console, `id="start-others"`)
-	for _, name := range []string{"claude", "codex", "opencode", "agy"} {
+	for _, name := range []string{"claude", "codex", "opencode", "agy", "omp"} {
 		if i := strings.Index(console, `name="harness" value="`+name+`"`); i < others {
 			t.Errorf("the %s row is outside the other-harness details", name)
 		}
