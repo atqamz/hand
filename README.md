@@ -10,9 +10,19 @@ Hand is a personal supervisor layer for agents. You talk to one supervisor agent
 
 Hand is built for one operator, who runs it every day on Linux. macOS (Apple silicon) and native Windows (amd64) are supported best effort, with no timeline for fixes: CI runs the tests on both, one real Mac has run a fleet with a stand-in `claude`, and no real Windows machine has run one yet, so they rely on your reports. [`docs/platforms.md`](docs/platforms.md) says how each part is verified.
 
-## Install
+## Installation
 
-You need git and at least one harness, logged in: Claude Code (`claude`), Codex (`codex`), opencode (`opencode`) or oh-my-pi (`omp`). `hand init` downloads the tested Luvus when none is on `PATH`. [Requirements](docs/install.md#requirements) has the rest.
+> [!WARNING]
+> Hand needs git and at least one harness, installed and logged in before use. It starts only these:
+>
+> - **Claude Code** (`claude`): install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
+> - **Codex** (`codex`): install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
+> - **opencode 2.x** (`opencode`): install [opencode 2](https://opencode.ai/v2/docs/) and run `opencode auth login`
+> - **oh-my-pi** (`omp`): install [oh-my-pi](https://omp.sh) and run `omp login`
+> - **Antigravity** (`agy`, optional): install [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli), then run `agy` once and sign in
+> - **GitHub Copilot** (`copilot`, workers only): install [Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) and run `copilot login`
+
+### Command line
 
 On Linux or macOS:
 
@@ -26,9 +36,13 @@ On Windows, in PowerShell, then open a new terminal; [Windows](docs/install.md#w
 irm https://raw.githubusercontent.com/atqamz/hand/main/install.ps1 | iex
 ```
 
-For the rolling `edge` build of `main`, or a pinned release such as `v0.13.0`, set `HAND_INSTALL_VERSION` first: `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. To update, run `hand update`. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
+Then run `hand init` in a folder of its own, then `hand open`: init pins Luvus, downloading the tested version when none is on `PATH`, and open starts a board when none answers.
 
-[`docs/install.md`](docs/install.md) has every install option and building from source. [`docs/update.md`](docs/update.md) says what `hand update` does and how to restore a backup.
+`hand update` moves to a newer release. `hand doctor` checks your setup and prints a fix for each problem.
+
+For the rolling `edge` build of `main`, or a pinned release such as `v0.13.0`, set `HAND_INSTALL_VERSION` first: `s=$(curl -fsSL https://raw.githubusercontent.com/atqamz/hand/main/install.sh) && HAND_INSTALL_VERSION=edge sh -c "$s"`, or `$env:HAND_INSTALL_VERSION = 'edge'` before the PowerShell line. Releases after v0.11.0 and the edge build also get a build attestation, best effort: `gh attestation verify hand-linux-amd64.tar.gz --repo atqamz/hand` checks who built a download.
+
+[`docs/install.md`](docs/install.md) has every install option and building from source; [Requirements](docs/install.md#requirements) has the rest. [`docs/update.md`](docs/update.md) says what `hand update` does and how to restore a backup.
 
 ## Safe use
 
