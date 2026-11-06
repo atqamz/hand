@@ -13,12 +13,12 @@ Hand is built for one operator, who runs it every day on Linux. macOS (Apple sil
 ## Installation
 
 > [!WARNING]
-> Hand needs git and at least one harness, installed and logged in before use. It starts only these:
+> Hand needs git and at least one harness that can run the supervisor (every listed harness except Copilot), installed and logged in before use. It starts only these:
 >
 > - **Claude Code** (`claude`): install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
 > - **Codex** (`codex`): install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
 > - **opencode 2.x** (`opencode`): install [opencode 2](https://opencode.ai/v2/docs/) and run `opencode auth login`
-> - **oh-my-pi** (`omp`): install [oh-my-pi](https://omp.sh) and run `omp login`
+> - **oh-my-pi** (`omp`, optional; `edge` until the next release, since v0.13.0 does not start it; measured on Linux only): install [oh-my-pi](https://omp.sh) and run `omp login`
 > - **Antigravity** (`agy`, optional): install [Antigravity CLI](https://antigravity.google/docs/getting-started?tab=cli), then run `agy` once and sign in
 > - **GitHub Copilot** (`copilot`, workers only): install [Copilot CLI](https://docs.github.com/copilot/how-tos/copilot-cli) and run `copilot login`
 
