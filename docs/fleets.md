@@ -2,7 +2,7 @@
 
 A fleet is any folder `hand init` has run in. Commands find it from `--home DIR` (given before the command), from the working directory or any folder inside it, or from `$HAND_HOME`. Run as many fleets as you like: each has its own Luvus session, worktrees and watcher, and one board serves them all. `hand fleet list` shows them.
 
-Rename a fleet with `hand init --name NEW`. To move one, `mv` the folder and run `hand init` in its new place.
+Rename a fleet with `hand init --name NEW`. To move one, run `hand fleet move PATH`: `--dry-run` first lists every cell whose recorded home changes, then `--yes` rewrites those cells in one transaction, verifies the old home is gone, moves the folder and points the registry at it. The fleet ID, refs, branch names and worktree paths do not change. A plain `mv` leaves every recorded path behind; `hand init` in the new place is still what repairs worktrees of projects that were inside the old home.
 
 ## Merge a fleet into another
 
