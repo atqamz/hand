@@ -30,8 +30,8 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 		return false
 	}
 	defer w.clicks.Add(-1)
-	url := w.boardURL(ctx, ref)
-	if url == "" {
+	url, openable := w.boardURL(ctx, ref)
+	if url == "" || !openable {
 		return false
 	}
 	nctx, cancel := context.WithTimeout(w.clickCtx, clickTimeout)
