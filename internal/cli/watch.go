@@ -71,6 +71,7 @@ type watcher struct {
 	supModel      modelSession
 	busy          map[string]bool
 	heldAt        map[int64]time.Time
+	blockedAt     map[int64]time.Time
 	busyNow       chan busyList
 	busyMisses    int
 	modelsSaid    map[string]string
@@ -208,7 +209,7 @@ func (w *watcher) session(ctx context.Context) error {
 	for id, seen := range w.seen {
 		carried[id] = seen == "held"
 	}
-	w.seen, w.heldAt = map[int64]string{}, map[int64]time.Time{}
+	w.seen, w.heldAt, w.blockedAt = map[int64]string{}, map[int64]time.Time{}, map[int64]time.Time{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
@@ -234,6 +235,9 @@ func (w *watcher) session(ctx context.Context) error {
 			return err
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
+				err = w.confirmBlocked(sctx, c, caps)
+			}
+			if err == nil {
 				err = w.longTurns(sctx)
 			}
 			if err == nil {
@@ -400,6 +404,7 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
+			delete(w.blockedAt, a.ID)
 			w.r.screens.take(a.ID)
 			ref := state.AttemptRef(a.ID)
 			w.alert(ctx, "attempt."+now.Status, ref, ref+" "+now.Status+": "+now.Reason)
@@ -642,6 +647,15 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	if prev == "held" && (status == "done" || status == "idle") {
 		return nil
 	}
+	if status == "blocked" {
+		if _, held := w.blockedAt[a.ID]; !held {
+			if prev != "blocked" {
+				w.blockedAt[a.ID] = w.r.env.Now()
+			}
+			return nil
+		}
+	}
+	delete(w.blockedAt, a.ID)
 	t := w.turns[a.ID]
 	switch {
 	case status != "working":
@@ -726,6 +740,39 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			return err
 		}
 		w.alert(ctx, kind, ref, ref+" quiet: "+detail)
+	}
+	return nil
+}
+
+func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
+	if len(w.blockedAt) == 0 {
+		return nil
+	}
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	checked := map[int64]bool{}
+	for _, a := range live {
+		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration {
+			continue
+		}
+		if _, ok := w.blockedAt[a.ID]; !ok {
+			continue
+		}
+		checked[a.ID] = true
+		ag, err := c.Explain(ctx, a.PaneID)
+		if err != nil {
+			continue
+		}
+		if err := w.observe(ctx, c, a, ag.Status); err != nil {
+			return err
+		}
+	}
+	for id := range w.blockedAt {
+		if !checked[id] {
+			delete(w.blockedAt, id)
+		}
 	}
 	return nil
 }
