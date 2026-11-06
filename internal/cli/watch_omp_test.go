@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -16,12 +17,12 @@ func writeOmpSession(t *testing.T, agent, id, cwd, marker, model, effort string,
 	stamp := at.UTC().Format(time.RFC3339Nano)
 	user := ""
 	if marker != "" {
-		user = `{"type":"message","timestamp":"` + stamp + `","message":{"role":"user","content":[{"type":"text","text":"` + marker + `"}]}}` + "\n"
+		user = `{"type":"message","timestamp":"` + stamp + `","message":{"role":"user","content":[{"type":"text","text":` + strconv.Quote(marker) + `}]}}` + "\n"
 	}
-	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + stamp + `","cwd":"` + cwd + `"}` + "\n" +
+	body := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + stamp + `","cwd":` + strconv.Quote(cwd) + `}` + "\n" +
 		user +
-		`{"type":"thinking_level_change","timestamp":"` + stamp + `","thinkingLevel":"` + effort + `"}` + "\n" +
-		`{"type":"message","timestamp":"` + stamp + `","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"provider":"acme","model":"` + model + `","stopReason":"stop","usage":{"input":1}}}` + "\n"
+		`{"type":"thinking_level_change","timestamp":"` + stamp + `","thinkingLevel":` + strconv.Quote(effort) + `}` + "\n" +
+		`{"type":"message","timestamp":"` + stamp + `","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"provider":"acme","model":` + strconv.Quote(model) + `,"stopReason":"stop","usage":{"input":1}}}` + "\n"
 	dir := filepath.Join(agent, "sessions", "-fleet")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

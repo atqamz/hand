@@ -1285,8 +1285,8 @@ func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
 	h.vars["PI_CODING_AGENT_DIR"] = agent
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
 	h.advance(3 * time.Minute)
-	has(t, "show", h.ok("supervisor", "show"), `session: ""`, "note: ", filepath.Join(agent, "sessions"), "PI_CODING_AGENT_DIR", "different")
-	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", filepath.Join(agent, "sessions"), "PI_CODING_AGENT_DIR")
+	has(t, "show", h.ok("supervisor", "show"), `session: ""`, "note: ", "sessions", "PI_CODING_AGENT_DIR", "different")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "sessions", "PI_CODING_AGENT_DIR")
 }
 
 func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *testing.T) {
