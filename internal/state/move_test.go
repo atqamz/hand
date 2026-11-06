@@ -620,6 +620,28 @@ func TestOpenReadRefusesANewerSchema(t *testing.T) {
 	}
 }
 
+func TestOpenReadRefusesANewerSchemaInTheWAL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hand.db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA user_version = 99`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE wal_only(x)`); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path + "-wal")
+	if err != nil || info.Size() == 0 {
+		t.Fatalf("the test did not leave a nonempty WAL: %v, %v", info, err)
+	}
+	if _, err := OpenRead(path); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "newer than this hand") {
+		t.Fatalf("OpenRead with the version in the WAL = %v", err)
+	}
+}
+
 func TestMoveHomeConfirmMoveNeedsAPendingMarker(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
@@ -652,5 +674,74 @@ func TestMoveHomeEventSeqIsNotTheMarker(t *testing.T) {
 	}
 	if got := strconv.FormatInt(rep.EventSeq, 10); got != "0" {
 		t.Fatalf("event = %s", got)
+	}
+}
+
+func moveManyTasks(t *testing.T, s *Store, goal func(int) string) int {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO project(name, repo, created_at) VALUES ('app', ?, ?)`, s.home+"/repo", "2026-09-26T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	n := moveBatch + 17
+	for i := 1; i <= n; i++ {
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (?, 'app', ?, ?, 'inbox', ?, ?)`,
+			i, "Task "+strconv.Itoa(i), goal(i), "2026-09-26T00:00:00Z", "2026-09-26T00:00:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return n
+}
+
+func TestMoveHomePagesBeyondABatch(t *testing.T) {
+	parent := t.TempDir()
+	setUserHome(t, parent)
+	old := filepath.Join(parent, "fleet")
+	s := openAt(t, old)
+	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+		t.Fatal(err)
+	}
+	n := moveManyTasks(t, s, func(int) string { return "See " + old + "/a" })
+	to := filepath.Join(parent, "moved")
+	rep, err := s.MoveHome(ctx, old, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := n + 2; rep.Absolute != want || len(rep.Cells) != want || len(rep.Hits) != 0 {
+		t.Fatalf("counts = %d absolute, %d cells, %d hits; want %d, %d, 0", rep.Absolute, len(rep.Cells), len(rep.Hits), want, want)
+	}
+	count := func(arg string) int {
+		t.Helper()
+		var c int
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task WHERE instr(goal, ?) > 0`, arg).Scan(&c); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if left := count(old); left != 0 {
+		t.Fatalf("%d row(s) still name the old home", left)
+	}
+	if moved := count(to + "/a"); moved != n {
+		t.Fatalf("%d of %d row(s) name the new home", moved, n)
+	}
+}
+
+func TestPlanHomeReportsEveryHitBeyondABatch(t *testing.T) {
+	parent := t.TempDir()
+	old := filepath.Join(parent, "fleet")
+	s := openAt(t, old)
+	setUserHome(t, t.TempDir())
+	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+		t.Fatal(err)
+	}
+	n := moveManyTasks(t, s, func(int) string { return "~/" + filepath.Base(old) + "/a" })
+	rep, err := s.PlanHome(ctx, old, filepath.Join(parent, "moved"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Hits) != n {
+		t.Fatalf("hits = %d, want %d", len(rep.Hits), n)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,27 +59,24 @@ type moveWriter interface {
 }
 
 func OpenRead(path string) (*Store, error) {
-	if v, ok := headerVersion(path); ok && v > SchemaVersion {
-		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d)", ErrInvalid, path, v, SchemaVersion)
-	} else if ok && v != 0 && v < MinSchemaVersion {
-		return nil, tooOld(path+" has", v)
-	}
-	_, walErr := os.Stat(path + "-wal")
-	_, shmErr := os.Stat(path + "-shm")
 	db, err := sql.Open("sqlite", "file:"+uriPath.Replace(path)+"?mode=ro&_pragma=busy_timeout(10000)")
 	if err != nil {
 		return nil, err
 	}
-	return &Store{db: db, now: time.Now, home: filepath.Dir(path), cleanup: func() {
-		if errors.Is(walErr, fs.ErrNotExist) {
-			if info, err := os.Stat(path + "-wal"); err == nil && info.Size() == 0 {
-				_ = os.Remove(path + "-wal")
-			}
-		}
-		if errors.Is(shmErr, fs.ErrNotExist) {
-			_ = os.Remove(path + "-shm")
-		}
-	}}, nil
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("%w: %s: %v", ErrInvalid, path, err)
+	}
+	switch {
+	case v > SchemaVersion:
+		_ = db.Close()
+		return nil, fmt.Errorf("%w: %s has schema %d, newer than this hand (%d)", ErrInvalid, path, v, SchemaVersion)
+	case v != 0 && v < MinSchemaVersion:
+		_ = db.Close()
+		return nil, tooOld(path+" has", v)
+	}
+	return &Store{db: db, now: time.Now, home: filepath.Dir(path)}, nil
 }
 
 func (s *Store) PlanHome(ctx context.Context, from, to string) (MoveReport, error) {
@@ -310,6 +306,8 @@ func moveColumns(ctx context.Context, q moveQueryer) ([]moveTextColumn, error) {
 	return cols, rows.Err()
 }
 
+const moveBatch = 512
+
 type moveRow struct {
 	rowid int64
 	ref   string
@@ -331,43 +329,55 @@ func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bo
 	patterns := moveHitPatterns(from, to, home)
 	fold := foldHome()
 	for _, c := range cols {
-		rows, err := q.QueryContext(ctx, `SELECT rowid, `+moveRef(c.table)+`, `+moveNullSafe(c.column)+` FROM `+quoteIdent(c.table)+moveHistory(c.table)+` ORDER BY rowid`)
-		if err != nil {
-			return pass, err
-		}
-		var found []moveRow
-		for rows.Next() {
-			var r moveRow
-			if err := rows.Scan(&r.rowid, &r.ref, &r.value); err != nil {
-				_ = rows.Close()
+		last := int64(-1 << 63)
+		for {
+			found, err := moveBatchRows(ctx, q, `SELECT rowid, `+moveRef(c.table)+`, `+moveNullSafe(c.column)+` FROM `+quoteIdent(c.table)+` WHERE rowid > ?`+moveHistory(c.table)+` ORDER BY rowid LIMIT ?`, last, moveBatch)
+			if err != nil {
 				return pass, err
 			}
-			found = append(found, r)
-		}
-		if err := rows.Close(); err != nil {
-			return pass, err
-		}
-		if err := rows.Err(); err != nil {
-			return pass, err
-		}
-		for _, r := range found {
-			out, absolute, tilde := rewriteHome(r.value, from, to, home)
-			if out != r.value {
-				if apply {
-					if _, err := q.ExecContext(ctx, `UPDATE `+quoteIdent(c.table)+` SET `+quoteIdent(c.column)+` = ? WHERE rowid = ?`, out, r.rowid); err != nil {
-						return pass, err
+			for _, r := range found {
+				out, absolute, tilde := rewriteHome(r.value, from, to, home)
+				if out != r.value {
+					if apply {
+						if _, err := q.ExecContext(ctx, `UPDATE `+quoteIdent(c.table)+` SET `+quoteIdent(c.column)+` = ? WHERE rowid = ?`, out, r.rowid); err != nil {
+							return pass, err
+						}
 					}
+					pass.Cells = append(pass.Cells, MoveCell{Table: c.table, Column: c.column, Ref: r.ref, Absolute: absolute, Tilde: tilde})
+					pass.Absolute += absolute
+					pass.Tilde += tilde
 				}
-				pass.Cells = append(pass.Cells, MoveCell{Table: c.table, Column: c.column, Ref: r.ref, Absolute: absolute, Tilde: tilde})
-				pass.Absolute += absolute
-				pass.Tilde += tilde
+				if !moveIsTo(out, to) && countHits(out, patterns, fold) > 0 {
+					pass.Hits = append(pass.Hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
+				}
 			}
-			if !moveIsTo(out, to) && countHits(out, patterns, fold) > 0 {
-				pass.Hits = append(pass.Hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
+			if len(found) < moveBatch {
+				break
 			}
+			last = found[len(found)-1].rowid
 		}
 	}
 	return pass, nil
+}
+
+func moveBatchRows(ctx context.Context, q moveQueryer, query string, args ...any) ([]moveRow, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	var found []moveRow
+	for rows.Next() {
+		var r moveRow
+		if err := rows.Scan(&r.rowid, &r.ref, &r.value); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		found = append(found, r)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return found, rows.Err()
 }
 
 func moveHits(ctx context.Context, q moveQueryer, from, to, home string) ([]MoveCell, error) {
@@ -389,39 +399,28 @@ func moveHits(ctx context.Context, q moveQueryer, from, to, home string) ([]Move
 			}
 			args = append(args, p)
 		}
-		query := `SELECT rowid, ` + moveRef(c.table) + `, ` + moveNullSafe(c.column) + ` FROM ` + quoteIdent(c.table)
-		if c.table == "event" {
-			query += ` WHERE kind NOT IN ('fleet.moved', 'fleet.moving') AND (`
-		} else {
-			query += ` WHERE (`
-		}
-		query += strings.Join(where, " OR ") + ") ORDER BY rowid"
-		rows, err := q.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, err
-		}
-		var found []moveRow
-		for rows.Next() {
-			var r moveRow
-			if err := rows.Scan(&r.rowid, &r.ref, &r.value); err != nil {
-				_ = rows.Close()
+		query := `SELECT rowid, ` + moveRef(c.table) + `, ` + moveNullSafe(c.column) + ` FROM ` + quoteIdent(c.table) +
+			` WHERE rowid > ?` + moveHistory(c.table) + ` AND (` + strings.Join(where, " OR ") + `) ORDER BY rowid LIMIT ?`
+		last := int64(-1 << 63)
+		for {
+			batch := append([]any{last}, args...)
+			batch = append(batch, moveBatch)
+			found, err := moveBatchRows(ctx, q, query, batch...)
+			if err != nil {
 				return nil, err
 			}
-			found = append(found, r)
-		}
-		if err := rows.Close(); err != nil {
-			return nil, err
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		for _, r := range found {
-			if moveIsTo(r.value, to) {
-				continue
+			for _, r := range found {
+				if moveIsTo(r.value, to) {
+					continue
+				}
+				if countHits(r.value, patterns, fold) > 0 {
+					hits = append(hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
+				}
 			}
-			if countHits(r.value, patterns, fold) > 0 {
-				hits = append(hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
+			if len(found) < moveBatch {
+				break
 			}
+			last = found[len(found)-1].rowid
 		}
 	}
 	return hits, nil
@@ -453,7 +452,7 @@ func moveRef(table string) string {
 
 func moveHistory(table string) string {
 	if table == "event" {
-		return ` WHERE kind NOT IN ('fleet.moved', 'fleet.moving')`
+		return ` AND kind NOT IN ('fleet.moved', 'fleet.moving')`
 	}
 	return ""
 }

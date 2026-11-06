@@ -46,10 +46,9 @@ var (
 )
 
 type Store struct {
-	db      *sql.DB
-	now     func() time.Time
-	home    string
-	cleanup func()
+	db   *sql.DB
+	now  func() time.Time
+	home string
 }
 
 func Open(path string, now func() time.Time) (*Store, error) {
@@ -100,11 +99,7 @@ func tooOld(what string, v int) error {
 }
 
 func (s *Store) Close() error {
-	err := s.db.Close()
-	if s.cleanup != nil {
-		s.cleanup()
-	}
-	return err
+	return s.db.Close()
 }
 
 func (s *Store) migrate(ctx context.Context) error {
