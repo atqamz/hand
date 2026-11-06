@@ -29,11 +29,12 @@ func (e exitStatus) Error() string { return "exit status " + strconv.Itoa(e.code
 func cmdAttemptExec(r *runner, args []string) error {
 	fs := flags("attempt _exec")
 	dir := fs.String("dir", "", "")
+	root := fs.String("root", "", "")
 	if err := fs.Parse(args); err != nil {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
 	}
 	argv := fs.Args()
-	scratch, err := attemptScratch(r.env.Getenv, *dir, argv)
+	scratch, err := attemptScratch(*root, *dir, argv)
 	if err != nil {
 		return err
 	}
@@ -54,7 +55,7 @@ func scratchShapeUsage(dir string) error {
 	return usageError{fmt.Sprintf("attempt _exec: --dir must be the attempt's scratch folder, <fleet home>/scratch/tN-aM, not %s", dir)}
 }
 
-func attemptScratch(getenv func(string) string, dir string, argv []string) (string, error) {
+func attemptScratch(root, dir string, argv []string) (string, error) {
 	if dir == "" || !filepath.IsAbs(dir) || len(argv) == 0 {
 		return "", scratchShapeUsage(dir)
 	}
@@ -72,7 +73,7 @@ func attemptScratch(getenv func(string) string, dir string, argv []string) (stri
 	if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
 		return "", scratchShapeUsage(dir)
 	}
-	realHome, err := registeredHome(getenv, home, key, dir)
+	realHome, err := registeredHome(root, home, key, dir)
 	if err != nil {
 		return "", err
 	}
@@ -85,39 +86,22 @@ func attemptScratch(getenv func(string) string, dir string, argv []string) (stri
 			return "", scratchShapeUsage(dir)
 		}
 	}
-	expected := filepath.Join(realHome, "scratch", key)
-	realPath, err := canonical(path)
-	if err != nil {
-		return "", err
-	}
-	if !samePath(realPath, expected) {
-		return "", scratchShapeUsage(dir)
-	}
-	return expected, nil
+	return filepath.Join(realHome, "scratch", key), nil
 }
 
-func sharedRoot(getenv func(string) string) (string, error) {
-	root := getenv("SECONDHAND_HOME")
-	if root == "" {
-		home := getenv("HOME")
-		if home == "" {
-			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
-		}
-		root = filepath.Join(home, ".secondhand")
+func sharedRoot(given string) (string, error) {
+	if given == "" || !filepath.IsAbs(given) {
+		return "", fmt.Errorf("%w: --root must be the shared folder's absolute path", state.ErrInvalid)
 	}
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	return canonical(abs)
+	return canonical(given)
 }
 
-func registeredHome(getenv func(string) string, home, key, dir string) (string, error) {
+func registeredHome(given, home, key, dir string) (string, error) {
 	realHome, err := canonical(home)
 	if err != nil {
 		return "", err
 	}
-	root, err := sharedRoot(getenv)
+	root, err := sharedRoot(given)
 	if err != nil {
 		return "", fmt.Errorf("attempt _exec: %w", err)
 	}

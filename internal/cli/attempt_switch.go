@@ -109,7 +109,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		run := append([]string{exe, "attempt", "_exec", "--dir", r.scratchDir(a), "--"}, argv...)
+		run := append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, argv...)
 		_, busy, _, err := transcript.OpencodeSessions(ctx, bin, r.home, r.env.Now(), longTurn)
 		if err != nil {
 			return fmt.Errorf("%w: cannot read opencode's session list (%v); nothing changed", state.ErrConflict, err)

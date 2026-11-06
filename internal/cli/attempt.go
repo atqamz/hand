@@ -153,7 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--dir", r.scratchDir(a), "--"}, a.Argv...))
+		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...))
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}

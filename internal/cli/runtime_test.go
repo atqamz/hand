@@ -381,7 +381,7 @@ func (rt *fakeRuntime) set(fn func(*fakeRuntime)) {
 }
 
 func harnessArgv(argv []string) []string {
-	if len(argv) > 5 && argv[1] == "attempt" && argv[2] == "_exec" && argv[3] == "--dir" {
+	if len(argv) > 5 && argv[1] == "attempt" && argv[2] == "_exec" {
 		if i := slices.Index(argv, "--"); i >= 0 {
 			return argv[i+1:]
 		}

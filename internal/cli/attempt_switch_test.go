@@ -74,8 +74,12 @@ func TestAttemptSwitchRestartsThePaneOnTheSameSessionWithNoBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
+	root, err := filepath.EvalSymlinks(fx.h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
 	sent := fx.rt.lastSent().Command
-	wantSent := append([]string{self, "attempt", "_exec", "--dir", scratch, "--"}, argv...)
+	wantSent := append([]string{self, "attempt", "_exec", "--root", root, "--dir", scratch, "--"}, argv...)
 	if !slices.Equal(sent, wantSent) {
 		t.Fatalf("Luvus command = %q, want %q", sent, wantSent)
 	}

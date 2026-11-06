@@ -82,8 +82,12 @@ func TestAttemptLaunchUsesTheScratchWrapper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root, err := filepath.EvalSymlinks(fx.h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
 	sent := fx.rt.lastSent().Command
-	want := append([]string{self, "attempt", "_exec", "--dir", scratch, "--"}, harness...)
+	want := append([]string{self, "attempt", "_exec", "--root", root, "--dir", scratch, "--"}, harness...)
 	if !slices.Equal(sent, want) {
 		t.Errorf("Luvus command = %q, want %q", sent, want)
 	}
@@ -121,12 +125,14 @@ func execScratch(t *testing.T, h *harness, dir string, command ...string) (strin
 	if len(command) == 0 {
 		command = []string{"/usr/bin/true"}
 	}
-	args := append([]string{os.Args[0], "attempt", "_exec", "--dir", dir, "--"}, command...)
-	cmd := exec.Command(args[0], args[1:]...)
+	args := []string{os.Args[0], "attempt", "_exec"}
 	overrides := []string{"HAND_TEST_AS_HAND=1"}
 	if h != nil {
+		args = append(args, "--root", h.vars["SECONDHAND_HOME"])
 		overrides = append(overrides, "SECONDHAND_HOME="+h.vars["SECONDHAND_HOME"])
 	}
+	args = append(append(args, "--dir", dir, "--"), command...)
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = environment(os.Environ(), overrides...)
 	out, err := cmd.CombinedOutput()
 	var exited *exec.ExitError
@@ -486,6 +492,74 @@ func TestAttemptExecRefusesAHomeTheSharedFolderDoesNotRegister(t *testing.T) {
 	}
 }
 
+func TestAttemptExecRefusesTwoRegistrationsForOneHome(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitScratch(t, home)
+	root := fx.h.vars["SECONDHAND_HOME"]
+	link := fleetLink(t, fx.h)
+	recorded, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twin := "f000000000002"
+	if err := os.WriteFile(filepath.Join(root, "fleets", twin), recorded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{filepath.Base(link), twin} {
+		if err := os.MkdirAll(filepath.Join(root, "worktrees", id, "t2-a1"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scratch := filepath.Join(home, "scratch", "t2-a1")
+	before := snapshotTree(t, home)
+	out, code := execScratch(t, fx.h, scratch)
+	if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
+		t.Fatalf("exit = %d, output %q; want 2 and the expected shape", code, out)
+	}
+	if _, err := os.Lstat(scratch); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the wrapper created %s", scratch)
+	}
+	assertTreeUnchanged(t, before, home)
+}
+
+func TestAttemptExecUsesTheRootTheLauncherPassed(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitScratch(t, home)
+	scratch := filepath.Join(home, "scratch", "t1-a1")
+	for _, tc := range []struct {
+		name string
+		root []string
+	}{
+		{"a root that does not register the home", []string{"--root", t.TempDir()}},
+		{"no root at all", nil},
+		{"a relative root", []string{"--root", "relative/root"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{os.Args[0], "attempt", "_exec"}, tc.root...)
+			args = append(args, "--dir", scratch, "--", "/usr/bin/true")
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Env = environment(os.Environ(), "HAND_TEST_AS_HAND=1", "SECONDHAND_HOME="+fx.h.vars["SECONDHAND_HOME"])
+			before := snapshotTree(t, home)
+			out, err := cmd.CombinedOutput()
+			var exited *exec.ExitError
+			if !errors.As(err, &exited) || exited.ExitCode() != 2 {
+				t.Fatalf("exit = %v, want 2; output %q", err, out)
+			}
+			assertTreeUnchanged(t, before, home)
+		})
+	}
+}
+
 func TestAttemptExecRefusesARegisteredHomeWithoutItsDatabase(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
@@ -523,12 +597,13 @@ func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
 	eventually(t, func() bool { return exists(scratch) })
 	overrides := []string{"HAND_TEST_AS_HAND=1", "SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
+	root := []string{"attempt", "_exec", "--root", fx.h.vars["SECONDHAND_HOME"]}
 	if runtime.GOOS == "windows" {
 		comspec := os.Getenv("ComSpec")
 		if comspec == "" {
 			t.Skip("no ComSpec")
 		}
-		cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratch, "--", comspec, "/c", "exit 7")
+		cmd := exec.Command(os.Args[0], append(append(root, "--dir", scratch, "--"), comspec, "/c", "exit 7")...)
 		cmd.Env = environment(os.Environ(), overrides...)
 		out, err := cmd.CombinedOutput()
 		var exited *exec.ExitError
@@ -537,7 +612,7 @@ func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 		}
 		return
 	}
-	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratch, "--", "/bin/sh", "-c", "cat; exit 7")
+	cmd := exec.Command(os.Args[0], append(append(root, "--dir", scratch, "--"), "/bin/sh", "-c", "cat; exit 7")...)
 	cmd.Env = environment(os.Environ(), overrides...)
 	cmd.Stdin = strings.NewReader("through")
 	out, err := cmd.CombinedOutput()
