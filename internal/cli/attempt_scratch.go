@@ -24,6 +24,10 @@ var scratchFields = []string{"path", "bytes"}
 
 var attemptScratchKey = regexp.MustCompile(`^t[0-9]+-a[0-9]+$`)
 
+func scratchShape(dir string) bool {
+	return attemptScratchKey.MatchString(filepath.Base(dir)) && filepath.Base(filepath.Dir(dir)) == "scratch"
+}
+
 func (r *runner) scratchDir(a state.Attempt) string {
 	name := filepath.Base(a.Worktree)
 	if r.home == "" || !attemptScratchKey.MatchString(name) {

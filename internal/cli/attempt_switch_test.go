@@ -69,6 +69,16 @@ func TestAttemptSwitchRestartsThePaneOnTheSameSessionWithNoBrief(t *testing.T) {
 	if !slices.Equal(argv[1:], []string{"--standalone", "--auto", "--session", session}) {
 		t.Fatalf("relaunch argv = %q", argv)
 	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
+	sent := fx.rt.lastSent().Command
+	wantSent := append([]string{self, "attempt", "_exec", "--dir", scratch, "--"}, argv...)
+	if !slices.Equal(sent, wantSent) {
+		t.Fatalf("Luvus command = %q, want %q", sent, wantSent)
+	}
 	if got := attemptSwitchedEvents(t, fx); len(got) != 1 || !strings.HasPrefix(got[0], "a1: switched to local/m2 deep, pane ") {
 		t.Fatalf("attempt.switched events = %q", got)
 	}

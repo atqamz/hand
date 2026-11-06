@@ -24,16 +24,20 @@ func cmdAttemptExec(r *runner, args []string) error {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
 	}
 	argv := fs.Args()
-	if *dir == "" || !filepath.IsAbs(*dir) || len(argv) == 0 {
+	path := filepath.Clean(*dir)
+	if *dir == "" || !filepath.IsAbs(path) || len(argv) == 0 {
 		return usageError{"usage: hand attempt _exec --dir DIR -- COMMAND [ARG...]"}
 	}
-	if _, err := os.Stat(filepath.Dir(filepath.Dir(*dir))); err != nil {
-		return fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", *dir, err)
+	if !scratchShape(path) {
+		return usageError{fmt.Sprintf("attempt _exec: --dir must be the attempt's scratch folder, <fleet home>/scratch/tN-aM, not %s", *dir)}
 	}
-	if err := makePrivate(*dir); err != nil {
+	if _, err := os.Stat(filepath.Dir(filepath.Dir(path))); err != nil {
+		return fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", path, err)
+	}
+	if err := makePrivate(path); err != nil {
 		return err
 	}
-	err := replaceProcess(argv, scratchEnvironment(r.environ(), *dir))
+	err := replaceProcess(argv, scratchEnvironment(r.environ(), path))
 	if code, ok := processExitCode(err); ok {
 		return exitStatus{code}
 	}

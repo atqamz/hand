@@ -18,6 +18,11 @@ import (
 
 var scratchNames = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
 
+func scratchPath(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "scratch", name)
+}
+
 func scratchOf(h *harness, worktree string) string {
 	root, err := filepath.EvalSymlinks(h.home)
 	if err != nil {
@@ -93,22 +98,84 @@ func TestAttemptLaunchUsesTheScratchWrapper(t *testing.T) {
 }
 
 func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
-	h := newHarness(t)
 	dir := filepath.Join(t.TempDir(), "gone", "scratch", "t1-a1")
-	_, errOut, code := h.run("attempt", "_exec", "--dir", dir, "--", "/bin/true")
-	if code != 1 || !strings.Contains(errOut, "the fleet home for") {
-		t.Fatalf("code=%d stderr=%q", code, errOut)
+	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", dir, "--", "/bin/true")
+	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+	out, err := cmd.CombinedOutput()
+	var exited *exec.ExitError
+	if !errors.As(err, &exited) || exited.ExitCode() != 1 {
+		t.Fatalf("exit = %v, want 1; output %q", err, out)
+	}
+	if !strings.Contains(string(out), "the fleet home for") {
+		t.Fatalf("output = %q", out)
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the wrapper recreated %s: %v", dir, err)
 	}
 }
 
+func TestAttemptExecRefusesADirectoryOutsideTheAttemptScratch(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "shared")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(parent, "work")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{parent, dir}
+	before := map[string]os.FileMode{}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[path] = info.Mode().Perm()
+	}
+	if runtime.GOOS != "windows" && before[parent] != 0o755 {
+		t.Fatalf("parent mode = %o, want 755 before the refusal", before[parent])
+	}
+	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", dir, "--", "/bin/true")
+	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+	out, err := cmd.CombinedOutput()
+	var exited *exec.ExitError
+	if !errors.As(err, &exited) || exited.ExitCode() != 2 {
+		t.Fatalf("exit = %v, want 2; output %q", err, out)
+	}
+	if !strings.Contains(string(out), "<fleet home>/scratch/tN-aM") {
+		t.Fatalf("output = %q", out)
+	}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != before[path] {
+			t.Errorf("%s mode = %o, want %o", path, info.Mode().Perm(), before[path])
+		}
+	}
+	if _, err := os.Stat(filepath.Join(parent, "scratch")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the wrapper created a scratch folder: %v", err)
+	}
+}
+
 func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("the passthrough check needs a POSIX shell")
+		comspec := os.Getenv("ComSpec")
+		if comspec == "" {
+			t.Skip("no ComSpec")
+		}
+		cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratchPath(t, "t1-a1"), "--", comspec, "/c", "exit 7")
+		cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+		out, err := cmd.CombinedOutput()
+		var exited *exec.ExitError
+		if !errors.As(err, &exited) || exited.ExitCode() != 7 {
+			t.Fatalf("exit = %v, want 7; output %q", err, out)
+		}
+		return
 	}
-	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", t.TempDir(), "--", "/bin/sh", "-c", "cat; exit 7")
+	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratchPath(t, "t1-a1"), "--", "/bin/sh", "-c", "cat; exit 7")
 	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
 	cmd.Stdin = strings.NewReader("through")
 	out, err := cmd.CombinedOutput()
