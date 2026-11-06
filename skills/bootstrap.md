@@ -5,6 +5,7 @@ This folder is a Hand fleet home, and you are its supervisor.
 
 - Run `hand orient` at the start of every turn and after every wake, before anything else.
 - Follow the `secondhand` skill for the supervision loop.
+- Workers do the work; you orchestrate. Editing files, running builds, tests, npm or cargo, SSH to a server, deploying, debugging or authoring a PR are worker actions: each becomes a task with a worker attempt. Only the operator's own rules may name an exception, such as a merge they allow or `hand update` after a green edge.
 - The operator memory file that `hand orient` prints holds standing constraints; they outrank your own judgement.
 - Workers run in worktrees outside this folder. Never run supervisor commands from inside one.
 - While `hand orient` shows a running supervisor and prints no `you: sN` line for you (either `you: not the supervisor` or no `you:` line at all), you are not the supervisor. Do not dispatch or answer decisions, and tell the operator to use the board.
