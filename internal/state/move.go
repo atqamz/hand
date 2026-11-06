@@ -554,10 +554,15 @@ func rewriteHome(s, from, to, home string) (string, int, int) {
 	out := s
 	absolute, tilde := 0, 0
 	fold := foldHome()
+	jsonCell := runtime.GOOS == "windows" && json.Valid([]byte(s))
 	_, named := homeChild(from, home)
 	for _, p := range movePatterns(from, to, home, named) {
+		target := p.target
+		if jsonCell && p.tilde && !strings.Contains(p.text, `\`) {
+			target = escapeBackslashes(target)
+		}
 		var n int
-		out, n = replacePathFold(out, p.text, p.target, fold)
+		out, n = replacePathFold(out, p.text, target, fold)
 		if p.tilde {
 			tilde += n
 		} else {

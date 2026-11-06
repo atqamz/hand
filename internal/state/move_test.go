@@ -206,6 +206,10 @@ func TestReplacePathBoundaries(t *testing.T) {
 	home := filepath.Join(string(filepath.Separator), "home", "a")
 	old := filepath.Join(home, "fleet")
 	to := filepath.Join(home, "new")
+	upperTilde := `~\u002F` + filepath.Base(to) + `\u002Fx`
+	if runtime.GOOS == "windows" {
+		upperTilde = strings.ReplaceAll(upperTilde, `\u002F`, `\u002f`)
+	}
 	cases := []struct {
 		in       string
 		want     string
@@ -240,7 +244,7 @@ func TestReplacePathBoundaries(t *testing.T) {
 		{"pre~/" + filepath.Base(old), "pre~/" + filepath.Base(old), 0, 0},
 		{`~\/` + filepath.Base(old) + `/x`, `~\/` + filepath.Base(to) + `/x`, 0, 1},
 		{`~\u002f` + filepath.Base(old) + `\u002fx`, `~\u002f` + filepath.Base(to) + `\u002fx`, 0, 1},
-		{`~\u002F` + filepath.Base(old) + `\u002Fx`, `~\u002F` + filepath.Base(to) + `\u002Fx`, 0, 1},
+		{`~\u002F` + filepath.Base(old) + `\u002Fx`, upperTilde, 0, 1},
 		{`\/home\/a\/fleet\/x`, `\/home\/a\/new\/x`, 1, 0},
 		{`\u002fhome\u002fa\u002ffleet\u002fx`, `\u002fhome\u002fa\u002fnew\u002fx`, 1, 0},
 		{`file:///home/a/fleet/x`, `file:///home/a/new/x`, 1, 0},
