@@ -65,13 +65,17 @@ func npmBinDir(prefix, goos string) string {
 func miseShimsDir(get func(string) string, goos string) string {
 	data := get("MISE_DATA_DIR")
 	if !filepath.IsAbs(data) {
-		if xdg := get("XDG_DATA_HOME"); xdg != "" {
-			data = filepath.Join(xdg, "mise")
-		} else {
-			home := get("HOME")
-			if goos == "windows" {
-				home = get("USERPROFILE")
+		switch {
+		case get("XDG_DATA_HOME") != "":
+			data = filepath.Join(get("XDG_DATA_HOME"), "mise")
+		case goos == "windows":
+			local := get("LOCALAPPDATA")
+			if local == "" {
+				return ""
 			}
+			data = filepath.Join(local, "mise")
+		default:
+			home := get("HOME")
 			if home == "" {
 				return ""
 			}
