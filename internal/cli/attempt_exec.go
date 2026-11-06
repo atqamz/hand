@@ -1,17 +1,28 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/atqamz/hand/internal/fleet"
+	"github.com/atqamz/hand/internal/state"
 )
 
 var scratchEnvVars = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
+
+const (
+	unixSocketPathLimit = 104
+	unixSocketNameRoom  = 8
+)
 
 type exitStatus struct{ code int }
 
@@ -24,24 +35,104 @@ func cmdAttemptExec(r *runner, args []string) error {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
 	}
 	argv := fs.Args()
-	path := filepath.Clean(*dir)
-	if *dir == "" || !filepath.IsAbs(path) || len(argv) == 0 {
-		return usageError{"usage: hand attempt _exec --dir DIR -- COMMAND [ARG...]"}
-	}
-	if !scratchShape(path) {
-		return usageError{fmt.Sprintf("attempt _exec: --dir must be the attempt's scratch folder, <fleet home>/scratch/tN-aM, not %s", *dir)}
-	}
-	if _, err := os.Stat(filepath.Dir(filepath.Dir(path))); err != nil {
-		return fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", path, err)
-	}
-	if err := makePrivate(path); err != nil {
+	scratch, err := attemptScratch(*dir, argv)
+	if err != nil {
 		return err
 	}
-	err := replaceProcess(argv, scratchEnvironment(r.environ(), path))
+	if warn := scratchSocketWarning(scratch); warn != "" {
+		fmt.Fprintln(r.env.Stderr, "warning: "+warn)
+	}
+	if err := makePrivate(scratch); err != nil {
+		return err
+	}
+	err = replaceProcess(argv, scratchEnvironment(r.environ(), scratch))
 	if code, ok := processExitCode(err); ok {
 		return exitStatus{code}
 	}
 	return err
+}
+
+func scratchShapeUsage(dir string) error {
+	return usageError{fmt.Sprintf("attempt _exec: --dir must be the attempt's scratch folder, <fleet home>/scratch/tN-aM, not %s", dir)}
+}
+
+func attemptScratch(dir string, argv []string) (string, error) {
+	if dir == "" || !filepath.IsAbs(dir) || len(argv) == 0 {
+		return "", scratchShapeUsage(dir)
+	}
+	path := filepath.Clean(dir)
+	key := filepath.Base(path)
+	taskID, attemptID, ok := parseScratchKey(key)
+	if !ok {
+		return "", scratchShapeUsage(dir)
+	}
+	home := filepath.Dir(filepath.Dir(path))
+	if info, err := os.Stat(home); err != nil {
+		return "", fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", path, err)
+	} else if !info.IsDir() {
+		return "", scratchShapeUsage(dir)
+	}
+	db := filepath.Join(home, "hand.db")
+	if info, err := os.Stat(db); err != nil || !info.Mode().IsRegular() {
+		return "", scratchShapeUsage(dir)
+	}
+	st, err := state.Open(db, time.Now)
+	if err != nil {
+		return "", fmt.Errorf("attempt _exec: %w", err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	a, err := st.Attempt(ctx, attemptID)
+	if errors.Is(err, state.ErrNotFound) {
+		return "", scratchShapeUsage(dir)
+	}
+	if err != nil {
+		return "", fmt.Errorf("attempt _exec: %w", err)
+	}
+	if a.TaskID != taskID || filepath.Base(a.Worktree) != key {
+		return "", scratchShapeUsage(dir)
+	}
+	f, err := st.Fleet(ctx)
+	if err != nil {
+		return "", fmt.Errorf("attempt _exec: %w", err)
+	}
+	wt := filepath.Clean(a.Worktree)
+	root := filepath.Dir(filepath.Dir(filepath.Dir(wt)))
+	id := filepath.Base(filepath.Dir(wt))
+	if !filepath.IsAbs(wt) || f.ID != id || filepath.Base(filepath.Dir(filepath.Dir(wt))) != "worktrees" {
+		return "", scratchShapeUsage(dir)
+	}
+	recorded, err := fleet.Home(root, id)
+	if err != nil {
+		return "", fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", path, err)
+	}
+	realHome, err := canonical(recorded)
+	if err != nil {
+		return "", err
+	}
+	claimant, err := canonical(home)
+	if err != nil {
+		return "", err
+	}
+	if !samePath(realHome, claimant) {
+		return "", scratchShapeUsage(dir)
+	}
+	expected := filepath.Join(realHome, "scratch", key)
+	realPath, err := canonical(path)
+	if err != nil {
+		return "", err
+	}
+	if !samePath(realPath, expected) {
+		return "", scratchShapeUsage(dir)
+	}
+	return expected, nil
+}
+
+func scratchSocketWarning(dir string) string {
+	if runtime.GOOS == "windows" || len(dir)+unixSocketNameRoom <= unixSocketPathLimit {
+		return ""
+	}
+	return fmt.Sprintf("the scratch folder path is %d bytes; a Unix socket inside it may fail with \"AF_UNIX path too long\" (sun_path holds 104 bytes on macOS and 108 on Linux, including the socket's own name)", len(dir))
 }
 
 func (r *runner) environ() []string {

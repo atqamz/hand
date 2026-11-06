@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,21 @@ func TestScratchEnvironmentReplacesEveryTempVariable(t *testing.T) {
 	want := []string{"A=1", "B=2", "TMPDIR=/scratch", "TMP=/scratch", "TEMP=/scratch", "GOTMPDIR=/scratch", "CLAUDE_CODE_TMPDIR=/scratch"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("environment = %q, want %q", got, want)
+	}
+}
+
+func TestScratchSocketWarningCoversTheSunPathLimit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sun_path is a Unix limit")
+	}
+	for _, tc := range []struct {
+		length int
+		warn   bool
+	}{{96, false}, {97, true}, {116, true}} {
+		got := scratchSocketWarning(strings.Repeat("d", tc.length))
+		if (got != "") != tc.warn {
+			t.Errorf("%d bytes: warning = %q, want a warning: %v", tc.length, got, tc.warn)
+		}
 	}
 }
 

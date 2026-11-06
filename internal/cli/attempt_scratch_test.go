@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]`)
@@ -159,6 +161,36 @@ func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
 	out := fx.h.ok("attempt", "gc", "--older-than", "72h")
 	if !strings.Contains(out, "orphans[2]") || !strings.Contains(out, oldDir) || !strings.Contains(out, deepDir) || strings.Contains(out, newDir) {
 		t.Fatalf("gc = %q", out)
+	}
+}
+
+func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
+	fx := newAttemptFixture(t)
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldDir := filepath.Join(home, "scratch", "t5-a8")
+	newDir := filepath.Join(home, "scratch", "t5-a9")
+	for _, dir := range []string{oldDir, newDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "f"), []byte("0123456789"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ageTree(t, oldDir, 100*time.Hour)
+	out := fx.h.ok("attempt", "gc", "--older-than", "72h")
+	if !strings.Contains(out, toon.Value(oldDir)) || !strings.Contains(out, ",10") || strings.Contains(out, toon.Value(newDir)) {
+		t.Fatalf("gc = %q", out)
+	}
+	out = fx.h.ok("attempt", "gc", "--older-than", "72h", "--apply")
+	if !strings.Contains(out, toon.Value(oldDir)) || strings.Contains(out, toon.Value(newDir)) {
+		t.Fatalf("gc --apply = %q", out)
+	}
+	if exists(oldDir) || !exists(newDir) {
+		t.Fatalf("after --apply: old=%v fresh=%v", exists(oldDir), exists(newDir))
 	}
 }
 

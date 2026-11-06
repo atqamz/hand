@@ -22,10 +22,16 @@ func init() {
 
 var scratchFields = []string{"path", "bytes"}
 
-var attemptScratchKey = regexp.MustCompile(`^t[0-9]+-a[0-9]+$`)
+var attemptScratchKey = regexp.MustCompile(`^t([0-9]+)-a([0-9]+)$`)
 
-func scratchShape(dir string) bool {
-	return attemptScratchKey.MatchString(filepath.Base(dir)) && filepath.Base(filepath.Dir(dir)) == "scratch"
+func parseScratchKey(key string) (taskID, attemptID int64, ok bool) {
+	m := attemptScratchKey.FindStringSubmatch(key)
+	if m == nil {
+		return 0, 0, false
+	}
+	taskID, terr := strconv.ParseInt(m[1], 10, 64)
+	attemptID, aerr := strconv.ParseInt(m[2], 10, 64)
+	return taskID, attemptID, terr == nil && aerr == nil
 }
 
 func (r *runner) scratchDir(a state.Attempt) string {

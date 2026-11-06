@@ -502,7 +502,14 @@ func fakeBin(t *testing.T) string {
 
 func newAttemptFixture(t *testing.T) *attemptFixture {
 	t.Helper()
-	fx := &attemptFixture{h: newHarness(t), repo: gitRepo(t)}
+	return newAttemptFixtureAt(t, t.TempDir())
+}
+
+func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
+	t.Helper()
+	fx := &attemptFixture{h: newHarness(t)}
+	fx.h.home = home
+	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
 	fx.h.vars["PATH"] = fakeBin(t)
