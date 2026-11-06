@@ -64,7 +64,8 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 		"i,",
 		"url,1",
 		"home,",
-		"ambiguous[1]{table,key,column,refs}:",
+		"ambiguous[",
+		",d1",
 		"event,",
 		"a1b2c3d",
 		"  memory,",
@@ -92,6 +93,9 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 	if field(real, "text_sha256") != field(first, "text_sha256") {
 		t.Fatalf("real text differs from the dry run:\n--- dry\n%s\n--- real\n%s", first, real)
 	}
+	if field(real, "db_sha256") != field(first, "db_sha256") {
+		t.Fatalf("real database hash differs from the dry run:\n--- dry\n%s\n--- real\n%s", first, real)
+	}
 	if field(real, "merged") != p.dstID+" hand" || field(real, "source") != p.srcID+" personal" {
 		t.Fatalf("manifest identity = %q / %q", field(real, "merged"), field(real, "source"))
 	}
@@ -115,7 +119,7 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 	if err := dst.QueryRow(`SELECT title, goal FROM task WHERE id = 4`).Scan(&title, &goal); err != nil {
 		t.Fatal(err)
 	}
-	if title != "Fix t4 with a2 and r2, see d2 and w2 and i2" {
+	if title != "Fix t4 with a2 and r2, see d11 and w2 and i2" {
 		t.Fatalf("title = %q", title)
 	}
 	for _, kept := range []string{"hand/" + p.srcID + "/t1-a1", "reports/t1", "briefs/t1", "shots/t1"} {
@@ -164,7 +168,7 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 	if err := dst.QueryRow(`SELECT detail FROM event WHERE kind = 'board.opened'`).Scan(&url); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(url, "/"+p.dstID+"/decision/d2") || strings.Contains(url, "/"+p.srcID+"/") {
+	if !strings.Contains(url, "/"+p.dstID+"/decision/d11") || strings.Contains(url, "/"+p.srcID+"/") {
 		t.Fatalf("cross-fleet URL = %q (source %s, destination %s)", url, p.srcID, p.dstID)
 	}
 
@@ -187,6 +191,163 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 	}
 	assertCount(t, src, `SELECT COUNT(*) FROM task`, 2)
 	assertCount(t, src, `SELECT COUNT(*) FROM event`, 3)
+}
+
+func TestFleetMergeRewritesOnlyWholeRefs(t *testing.T) {
+	p := newMergePair(t)
+	out := p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if !strings.Contains(out, ",d1") {
+		t.Fatalf("the short decision ref was not reported ambiguous:\n%s", out)
+	}
+	dst := openMergeDB(t, p.dst)
+	defer dst.Close()
+	var body string
+	if err := dst.QueryRow(`SELECT body FROM report WHERE id = 2`).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{
+		"ledger-light-r1.png",
+		"ident-a2-home.png",
+		"ident-a3-shot.png",
+		"brainstorm.md#7-data-model-d1",
+		"wp-scratch-t183-cont",
+		"/(r1|640)/",
+		"routines/r1",
+		"45374764-a190-4f00-8000-000000000000",
+		"wrangler d1 create",
+		"`wrangler d1 migrations apply`",
+	} {
+		if !strings.Contains(body, kept) {
+			t.Fatalf("body lost %q: %q", kept, body)
+		}
+	}
+	for _, changed := range []string{"t4", "a2", "r2", "d11", "w2", "i2", p.dst + "/.cache/wp-scratch-t183-cont", "~/" + filepath.Base(p.dst) + "."} {
+		if !strings.Contains(body, changed) {
+			t.Fatalf("body missing rewrite %q: %q", changed, body)
+		}
+	}
+	if strings.Contains(body, p.src+"/.cache") {
+		t.Fatalf("source home kept in the body: %q", body)
+	}
+	var argv string
+	if err := dst.QueryRow(`SELECT argv FROM attempt WHERE id = 2`).Scan(&argv); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(argv, "45374764-a190-4f00-8000-000000000000") || !strings.Contains(argv, "wp-scratch-t183-cont") {
+		t.Fatalf("argv changed a path or UUID segment: %q", argv)
+	}
+	var goal string
+	if err := dst.QueryRow(`SELECT goal FROM task WHERE id = 2`).Scan(&goal); err != nil {
+		t.Fatal(err)
+	}
+	want := "see t1 and a1 at " + p.dst + "/dstx and " + p.src + "/srcx."
+	if goal != want {
+		t.Fatalf("destination text changed:\n got %q\nwant %q", goal, want)
+	}
+}
+
+func TestFleetMergeRefusesAFileWithTheSamePathAndDifferentContent(t *testing.T) {
+	p := newMergePair(t)
+	writeMergeFile(t, filepath.Join(p.dst, "reports", "t1", "report.md"), "destination report\n")
+	before := dumpMergeState(t, p.dst)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "reports/t1/report.md") || !strings.Contains(errOut, "different content") {
+		t.Fatalf("same path, different content: code=%d stderr=%q", code, errOut)
+	}
+	if after := dumpMergeState(t, p.dst); after != before {
+		t.Fatalf("a file collision changed the destination:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+	if _, err := os.Stat(filepath.Join(p.src, "reports", "t1", "report.md")); err != nil {
+		t.Fatalf("a refused merge moved the source file: %v", err)
+	}
+}
+
+func TestFleetMergeRefusesLiveSupervisorPendingInputSameFleetAndNestedHomes(t *testing.T) {
+	cases := []struct {
+		name   string
+		setup  func(t *testing.T, p mergePair)
+		want   string
+		code   int
+		home   func(p mergePair) string
+		srcArg func(p mergePair) string
+	}{
+		{
+			name: "live supervisor",
+			setup: func(t *testing.T, p mergePair) {
+				db := openMergeDB(t, p.src)
+				defer db.Close()
+				mustExec(t, db, `UPDATE supervisor SET status = 'running'`)
+			},
+			want: "live supervisor",
+			code: 3,
+		},
+		{
+			name: "pending input",
+			setup: func(t *testing.T, p mergePair) {
+				db := openMergeDB(t, p.src)
+				defer db.Close()
+				mustExec(t, db, `INSERT INTO supervisor_input(id, body, created_at, delivered_at) VALUES (2, 'waiting', '2026-11-04T00:00:00Z', '')`)
+			},
+			want: "pending input",
+			code: 3,
+		},
+		{
+			name:   "same fleet",
+			setup:  func(t *testing.T, p mergePair) {},
+			want:   "same fleet",
+			code:   2,
+			srcArg: func(p mergePair) string { return p.dstID },
+		},
+		{
+			name: "nested homes",
+			setup: func(t *testing.T, p mergePair) {
+				nested := filepath.Join(p.src, "nested")
+				if err := os.Rename(p.dst, nested); err != nil {
+					t.Fatal(err)
+				}
+				writeMergeFile(t, filepath.Join(p.h.vars["SECONDHAND_HOME"], "fleets", p.dstID), nested+"\n")
+			},
+			want: "nested",
+			code: 2,
+			home: func(p mergePair) string { return filepath.Join(p.src, "nested") },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newMergePair(t)
+			if tc.setup != nil {
+				tc.setup(t, p)
+			}
+			home := p.dst
+			if tc.home != nil {
+				home = tc.home(p)
+			}
+			src := p.srcID
+			if tc.srcArg != nil {
+				src = tc.srcArg(p)
+			}
+			args := []string{"--home", home, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", src, "INTO", p.dstID}
+			_, errOut, code := p.h.run(args...)
+			if code != tc.code || !strings.Contains(errOut, tc.want) {
+				t.Fatalf("%s: code=%d stderr=%q", tc.name, code, errOut)
+			}
+		})
+	}
+}
+
+func TestFleetMergeGateRejectsAPreexistingForeignKeyViolation(t *testing.T) {
+	p := newMergePair(t)
+	db := openMergeDB(t, p.dst)
+	mustExec(t, db, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (99, 'gone', 'broken', 'broken', 'done', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z')`)
+	db.Close()
+	before := dumpMergeState(t, p.dst)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code == 0 || !strings.Contains(strings.ToLower(errOut), "foreign key") {
+		t.Fatalf("foreign key gate: code=%d stderr=%q", code, errOut)
+	}
+	if after := dumpMergeState(t, p.dst); after != before {
+		t.Fatalf("the foreign key gate did not roll back:\n--- before\n%s\n--- after\n%s", before, after)
+	}
 }
 
 func TestFleetMergeRefusesALiveAttemptAndRollsBackABadForeignKey(t *testing.T) {
@@ -275,18 +436,19 @@ func fillMergeFixture(t *testing.T, p mergePair) {
 	defer dst.Close()
 	mustExec(t, src, `INSERT INTO project(name, repo, settings, created_at) VALUES ('web', ?, '', '2026-11-01T00:00:00Z'), ('solo', ?, '', '2026-11-01T00:00:00Z')`, p.src+"/projects/web", p.src+"/projects/solo")
 	mustExec(t, src, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES
-		(1, 'web', 'Fix t1 with a1 and r1, see d1 and w1 and i1', ?, 'active', '2026-11-01T00:00:00Z', '2026-11-04T00:00:00Z'),
+		(1, 'web', 'Fix t1 with a1 and r1, see d10 and w1 and i1', ?, 'active', '2026-11-01T00:00:00Z', '2026-11-04T00:00:00Z'),
 		(2, 'solo', 'Second t2', 'see t1', 'done', '2026-11-01T00:00:00Z', '2026-11-04T00:00:00Z')`,
 		"home "+p.src+" branch hand/"+p.srcID+"/t1-a1 path reports/t1 briefs/t1 shots/t1")
 	mustExec(t, src, `INSERT INTO plan(task_id, revision, body, created_at) VALUES (1, 1, 'Plan t1 a1 r1 d1 w1 i1 `+p.src+`/x', '2026-11-02T00:00:00Z')`)
-	mustExec(t, src, `INSERT INTO decision(id, task_id, question, status, answer, answered_by, created_at, closed_at) VALUES (1, 1, 'Q a1 d1 i1', 'answered', 'A r1 w1', 'operator', '2026-11-02T00:00:00Z', '2026-11-02T01:00:00Z')`)
+	mustExec(t, src, `INSERT INTO decision(id, task_id, question, status, answer, answered_by, created_at, closed_at) VALUES (10, 1, 'Q10 d1 a1', 'answered', 'A r1 w1', 'operator', '2026-11-02T00:00:00Z', '2026-11-02T01:00:00Z')`)
 	mustExec(t, src, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, reason, created_at, ended_at, continues, approve, access, kept) VALUES
 		(1, 1, 'claude', 'sonnet', 'low', ?, ?, ?, 'stopped', '', '2026-11-02T00:00:00Z', '2026-11-03T00:00:00Z', 0, 'never', 'open', ''),
 		(2, 2, 'claude', 'sonnet', 'low', ?, ?, ?, 'interrupted', 'reaped', '2026-11-03T00:00:00Z', '2026-11-03T01:00:00Z', 1, 'ask', 'readonly', 'kept')`,
-		`["claude","--prompt","see t1 a1 r1 d1 w1 i1 hand/`+p.srcID+`/t1-a1 `+p.src+`/x"]`,
+		`["claude","--session-id","45374764-a190-4f00-8000-000000000000","--prompt","see t1 a1 r1 d10 w1 i1 hand/`+p.srcID+`/t1-a1 `+p.src+`/x `+p.src+`/.cache/wp-scratch-t183-cont"]`,
 		"/wt/"+p.srcID+"/t1-a1", "hand/"+p.srcID+"/t1-a1",
 		`["claude","--prompt","continue t2"]`, "/wt/"+p.srcID+"/t2-a2", "hand/"+p.srcID+"/t2-a2")
-	mustExec(t, src, `INSERT INTO report(id, attempt_id, task_id, status, body, created_at, acked_at, acked_by) VALUES (1, 1, 1, 'done', 'Done t1 a1 r1 d1 w1 i1 `+p.src+`/reports/t1', '2026-11-03T01:00:00Z', '', '')`)
+	reportBody := fmt.Sprintf("Done t1 a1 r1 d10 w1 i1 %s/reports/t1; files ledger-light-r1.png ident-a2-home.png ident-a3-shot.png brainstorm.md#7-data-model-d1 wp-scratch-t183-cont /(r1|640)/ routines/r1 uuid 45374764-a190-4f00-8000-000000000000; wrangler d1 create; `wrangler d1 migrations apply`; scratch %s/.cache/wp-scratch-t183-cont; end ~/%s.", p.src, p.src, filepath.Base(p.src))
+	mustExec(t, src, `INSERT INTO report(id, attempt_id, task_id, status, body, created_at, acked_at, acked_by) VALUES (1, 1, 1, 'done', `+quote(reportBody)+`, '2026-11-03T01:00:00Z', '', '')`)
 	mustExec(t, src, `INSERT INTO timer(id, due_at, every, task_id, note, status, created_at, ended_at, waits) VALUES (1, '2027-01-01T00:00:00Z', 0, 1, 'note t1 a1 r1 d1 w1 i1', 'armed', '2026-11-03T00:00:00Z', '', 0)`)
 	mustExec(t, src, `INSERT INTO supervisor_input(id, body, created_at, delivered_at) VALUES (1, 'input t1 a1 r1 d1 w1 i1 `+p.src+`/x', '2026-11-03T00:00:00Z', '2026-11-03T00:01:00Z')`)
 	mustExec(t, src, `INSERT INTO supervisor(id, harness, model, effort, argv, status, wake_cursor, created_at, ended_at) VALUES (1, 'claude', 'sonnet', 'low', '["claude"]', 'stopped', 0, '2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z')`)
@@ -298,8 +460,9 @@ func fillMergeFixture(t *testing.T, p mergePair) {
 	mustExec(t, dst, `INSERT INTO project(name, repo, settings, created_at) VALUES ('web', ?, '', '2026-10-01T00:00:00Z'), ('app', ?, '', '2026-10-01T00:00:00Z')`, p.dst+"/vendor/web", p.dst+"/projects/app")
 	mustExec(t, dst, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES
 		(1, 'web', 'Destination one t1 a1', 'keep t1', 'done', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z'),
-		(2, 'app', 'Destination two', 'see t1 and a1', 'active', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z'),
-		(3, 'app', 'Destination three', 'nothing', 'inbox', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z')`)
+		(2, 'app', 'Destination two', ?, 'active', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z'),
+		(3, 'app', 'Destination three', 'nothing', 'inbox', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z')`,
+		"see t1 and a1 at "+p.dst+"/dstx and "+p.src+"/srcx.")
 	mustExec(t, dst, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at, ended_at, approve, access) VALUES (1, 1, 'claude', 'sonnet', 'low', '["claude"]', '/wt/dst/t1-a1', 'hand/`+p.dstID+`/t1-a1', 'stopped', '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z', 'never', 'open')`)
 	mustExec(t, dst, `INSERT INTO report(id, attempt_id, task_id, status, body, created_at) VALUES (1, 1, 1, 'done', 'destination report r1', '2026-10-02T00:00:00Z')`)
 	mustExec(t, dst, `INSERT INTO decision(id, task_id, question, status, answer, answered_by, created_at, closed_at) VALUES (1, 1, 'destination d1', 'answered', 'yes', 'operator', '2026-10-02T00:00:00Z', '2026-10-02T01:00:00Z')`)
@@ -307,7 +470,7 @@ func fillMergeFixture(t *testing.T, p mergePair) {
 	mustExec(t, dst, `INSERT INTO supervisor_input(id, body, created_at, delivered_at) VALUES (1, 'destination i1', '2026-10-02T00:00:00Z', '2026-10-02T00:01:00Z')`)
 	mustExec(t, dst, `INSERT INTO supervisor(id, harness, model, effort, argv, status, wake_cursor, created_at, ended_at) VALUES (1, 'claude', 'sonnet', 'low', '["claude"]', 'stopped', 2, '2026-10-01T00:00:00Z', '2026-10-02T00:00:00Z')`)
 	mustExec(t, dst, `INSERT INTO event(seq, at, kind, task_id, detail) VALUES
-		(1, '2026-11-03T00:00:00Z', 'board.opened', 0, 'http://127.0.0.1:8787/`+p.srcID+`/decision/d1'),
+		(1, '2026-11-03T00:00:00Z', 'board.opened', 0, 'http://127.0.0.1:8787/`+p.srcID+`/decision/d10'),
 		(2, '2026-11-04T01:00:00Z', 'task.added', 2, 't1 a1'),
 		(3, '2026-11-06T00:00:00Z', 'task.done', 3, 't2')`)
 

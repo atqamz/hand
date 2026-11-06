@@ -151,9 +151,9 @@ A fleet home holds:
 
 A **merge** appends one fleet's rows and files to another with `hand fleet merge SRC INTO DST`. The destination is the **survivor**: its fleet id, home, board path, token, device row, routing.json and supervisor stay. The source home, id and database are left in place as history.
 
-An **offset** is the survivor's current maximum id for a table. Each source id is carried as `id + offset`, and every reference in database text is rewritten by the same offset so it points at the carried row. Ids are never reused. A ref inside a branch, worktree or report path is protected and left as it was, because it names history rather than a row. Events are renumbered by time instead of offset, and the survivor supervisor's wake cursor follows its event to the new number.
+An **offset** is the survivor's current maximum id for a table. Each source id is carried as `id + offset`, and every reference in database text is rewritten by the same offset so it points at the carried row. Ids are never reused. A ref is rewritten only as a whole token; one in a branch, worktree or report/brief/shot path, a filename, a markdown anchor, a UUID, a code span or a quoted literal is protected and left as it was, because it names history, code or a file rather than a row. A one-digit `dN`, such as the product name `d1`, is reported as ambiguous and left as written. Events are renumbered by time instead of offset, and the survivor supervisor's wake cursor follows its event to the new number.
 
-A merge is offline: workers and their Luvus panes cannot move, so the operator stops every `launching` or `running` attempt before it runs. It merges rows and files, not `routing.json`, `board.token`, the device pairing or the prose inside `memory/operator.md`.
+A merge is offline: workers and their Luvus panes cannot move, so the operator stops every `launching` or `running` attempt before it runs. It merges rows and files, not `routing.json`, `board.token`, the device pairing or the prose inside `memory/operator.md`. Renaming or moving the survivor afterwards is `hand fleet move`'s job; run the merge first, then the move.
 
 ### Inbox folder and trash
 
