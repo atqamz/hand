@@ -402,6 +402,27 @@ func TestFleetMergeArchivesOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+func TestFleetMergeArchiveRefusesASocketOverride(t *testing.T) {
+	p := newMergePair(t)
+	p.h.vars["HAND_LUVUS_SOCKET"] = filepath.Join(t.TempDir(), "luvus.sock")
+	out, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", "--archive-source", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "HAND_LUVUS_SOCKET") {
+		t.Fatalf("archive with a socket override: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "post_commit_error") || !strings.Contains(out, "HAND_LUVUS_SOCKET") {
+		t.Fatalf("manifest hides the archive refusal:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(p.h.vars["SECONDHAND_HOME"], "fleets", p.srcID)); err != nil {
+		t.Fatalf("archive removed the registry despite the refusal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.src, "merged-into")); !os.IsNotExist(err) {
+		t.Fatalf("archive wrote a marker despite the refusal: %v", err)
+	}
+	dst := openMergeDB(t, p.dst)
+	defer dst.Close()
+	assertCount(t, dst, `SELECT COUNT(*) FROM task`, 5)
+}
+
 func newMergePair(t *testing.T) mergePair {
 	t.Helper()
 	h := newHarness(t)

@@ -433,7 +433,7 @@ func printMergeManifest(r *runner, m *mergeManifest) error {
 	}
 	help := []string{"The source database and folder stay; the files a real run moves are no longer in it. Remove its registry link only after checking the merge",
 		"Workers are never stopped by this command: stop every launching or running attempt yourself before merging",
-		"After a merge, rename or move the survivor with hand fleet move PATH; run the merge first, then the move",
+		"After a merge, the survivor stays where it is; hand fleet move PATH, which moves and rewrites it, arrives in atqamz/hand#1143",
 		"db_sha256 is a sorted logical dump, so a dry run and a real run over the same inputs print the same value"}
 	if m.dry {
 		help = append([]string{"A dry run changes no row and moves no file, though SQLite may touch a hand.db-shm"}, help...)
@@ -716,6 +716,9 @@ func movePath(src, dst string) error {
 }
 
 func (r *runner) archiveMergeSource(ctx context.Context, root string, src, dst fleet.Entry) (string, error) {
+	if r.env.Getenv("HAND_LUVUS_SOCKET") != "" {
+		return "", fmt.Errorf("%w: archive: cannot locate the source Luvus server's pid while HAND_LUVUS_SOCKET is set; stop it by hand", state.ErrConflict)
+	}
 	session := fleet.Session(src.ID)
 	client := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
 	if err := client.StopServer(ctx, luvus.SessionDir(r.env.Getenv, session), stopOne); err != nil {
