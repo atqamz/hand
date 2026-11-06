@@ -173,8 +173,14 @@ func TestFleetMoveDryRunListsEveryCellAndWritesNothing(t *testing.T) {
 	if after := sha256File(t, filepath.Join(home, "hand.db")); after != before {
 		t.Fatalf("the dry run changed hand.db: %s -> %s", before, after)
 	}
-	if got := dirNames(t, home); strings.Join(got, ",") != strings.Join(names, ",") {
-		t.Fatalf("the dry run changed the home: %q -> %q", names, got)
+	var kept []string
+	for _, name := range dirNames(t, home) {
+		if name != "hand.db-wal" && name != "hand.db-shm" {
+			kept = append(kept, name)
+		}
+	}
+	if strings.Join(kept, ",") != strings.Join(names, ",") {
+		t.Fatalf("the dry run changed the home: %q -> %q", names, kept)
 	}
 	if _, err := os.Stat(dest); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the dry run created the destination: %v", err)
@@ -436,8 +442,14 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 		t.Fatalf("init = %q", out)
 	}
 	dest := filepath.Join(t.TempDir(), "moved")
-	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "rewrite-only --from "+home) {
+	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "rewrite-only --yes --from "+home) {
 		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
+	}
+	if out := h.ok("orient"); !strings.Contains(out, "--rewrite-only --yes --from '"+home+"'") {
+		t.Fatalf("orient = %q", out)
+	}
+	if dry := h.ok("fleet", "move", "--dry-run", "--rewrite-only", "--from", home); !strings.Contains(dry, "Run `hand fleet move --rewrite-only --yes --from '"+home+"'` here") {
+		t.Fatalf("rewrite-only dry run = %q", dry)
 	}
 	out := h.ok("fleet", "move", "--rewrite-only", "--yes", "--from", home)
 	for _, want := range []string{"move: rewritten", "from: " + toon.Value(home), "to: " + toon.Value(copied), "verification: 0"} {
@@ -593,7 +605,7 @@ func TestFleetMoveResumesAPendingMove(t *testing.T) {
 	if out := h.ok("fleet", "move", "--dry-run", dest); !strings.Contains(out, "move: pending") {
 		t.Fatalf("dry run = %q", out)
 	}
-	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names") {
+	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names") || !strings.Contains(out, "hand fleet move --yes '"+dest+"'") {
 		t.Fatalf("orient = %q", out)
 	}
 	if out := h.ok("fleet", "move", "--yes", dest); !strings.Contains(out, "move: resumed") || !strings.Contains(out, "verification: 0") {
@@ -757,6 +769,62 @@ func TestFleetMoveQuotesTheDestinationInHelp(t *testing.T) {
 	out := h.ok("fleet", "move", "--dry-run", dest)
 	if !strings.Contains(out, "--yes '"+dest+"'") {
 		t.Fatalf("help does not quote the path:\n%s", out)
+	}
+}
+
+func TestOrientQuotesTheInterruptedMoveDestination(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	dest := filepath.Join(t.TempDir(), "new folder")
+	st, err := state.Open(filepath.Join(home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MoveHome(context.Background(), home, dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out := h.ok("orient")
+	if !strings.Contains(out, "hand fleet move --yes '"+dest+"'") || strings.Contains(out, "--yes "+dest) {
+		t.Fatalf("orient = %q", out)
+	}
+}
+
+func TestOrientReportsAnUnreadablePendingMove(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	db := openMoveDB(t, home)
+	moveExec(t, db, `INSERT INTO event(at, kind, detail) VALUES (?, 'fleet.moving', 'not a move')`, moveAt)
+	db.Close()
+	out := h.ok("orient")
+	if !strings.Contains(out, "the pending move is unreadable") || !strings.Contains(out, "fleet.moving") {
+		t.Fatalf("orient = %q", out)
+	}
+}
+
+func TestFleetMoveKeepsAnEmptyDestinationWhenTheRewriteFails(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	other := t.TempDir()
+	t.Setenv("HOME", other)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", other)
+	}
+	dest := filepath.Join(t.TempDir(), "moved")
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "verification found") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	info, err := os.Stat(dest)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("the refused move removed the empty destination: %v", err)
+	}
+	if entries, err := os.ReadDir(dest); err != nil || len(entries) != 0 {
+		t.Fatalf("the refused move wrote into the destination: %v, %v", entries, err)
 	}
 }
 

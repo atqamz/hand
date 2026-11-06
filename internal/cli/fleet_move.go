@@ -97,12 +97,12 @@ func cmdFleetMove(r *runner, args []string) error {
 	case f.Home == "" && *fromFlag == "":
 		return fmt.Errorf("%w: this database records no home, so the command cannot tell a fleet in place from a copy of one; pass `--from %s` if this fleet is in place, or `--from OLD` with the folder its recorded paths name", state.ErrConflict, home)
 	case f.Home != "" && !samePlace(f.Home, home) && *fromFlag == "":
-		return fmt.Errorf("%w: the database records this fleet's home as %s, but this folder is %s; run `hand fleet move --rewrite-only --from %s` here to rewrite the recorded paths", state.ErrConflict, f.Home, home, f.Home)
+		return fmt.Errorf("%w: the database records this fleet's home as %s, but this folder is %s; run `hand fleet move --rewrite-only --yes --from %s` here to rewrite the recorded paths", state.ErrConflict, f.Home, home, f.Home)
 	case f.Home != "" && !samePlace(f.Home, from):
 		return fmt.Errorf("%w: the database records this fleet's home as %s, not %s; pass `--from %s`", state.ErrConflict, f.Home, from, f.Home)
 	}
 	if !*rewriteOnly && !samePlace(from, home) {
-		return fmt.Errorf("%w: %s is not the folder this fleet is in; run `hand fleet move --rewrite-only --from %s` here first, then run the move again", state.ErrConflict, from, from)
+		return fmt.Errorf("%w: %s is not the folder this fleet is in; run `hand fleet move --rewrite-only --yes --from %s` here first, then run the move again", state.ErrConflict, from, from)
 	}
 	if samePlace(from, dest) {
 		return fmt.Errorf("%w: %s is already this fleet's home", state.ErrConflict, dest)
@@ -132,7 +132,7 @@ func cmdFleetMove(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.printMoveDryRun(f, rep)
+		return r.printMoveDryRun(f, rep, *rewriteOnly)
 	}
 	backup := moveBackup(home, r.env.Now().UTC())
 	if err := st.Backup(ctx, backup); err != nil {
@@ -145,11 +145,6 @@ func cmdFleetMove(r *runner, args []string) error {
 		}
 		return r.printMoveRewritten(f, root, rep, backup)
 	}
-	if empty {
-		if err := os.Remove(dest); err != nil {
-			return err
-		}
-	}
 	rep, err := st.MoveHome(ctx, from, dest)
 	if err != nil {
 		return fmt.Errorf("%w; the database was not changed, the pre-move copy is %s", err, backup)
@@ -157,8 +152,13 @@ func cmdFleetMove(r *runner, args []string) error {
 	if err := st.Close(); err != nil {
 		return fmt.Errorf("%w: the database at %s now names %s, but closing it failed: %v; the pre-move database is %s; run `hand fleet move --yes %s` to finish the rename", state.ErrConflict, home, dest, err, backup, dest)
 	}
+	if empty {
+		if err := os.Remove(dest); err != nil {
+			return fmt.Errorf("%w: the database at %s names %s, but the empty destination %s could not be removed: %v; the pre-move database is %s; remove %s and run `hand fleet move --yes %s` to finish the rename", state.ErrConflict, home, dest, dest, err, backup, dest, dest)
+		}
+	}
 	if err := fsx.Rename(home, dest); err != nil {
-		return fmt.Errorf("%w: the database at %s now names %s, but the folder did not move: %v; the pre-move database is %s; run `hand fleet move --yes %s` to finish the rename, or undo it by copying %s over %s and removing %s and %s", state.ErrConflict, home, dest, err, backup, dest, backup, db, db+"-wal", db+"-shm")
+		return fmt.Errorf("%w: the database at %s now names %s, but the folder did not move: %v; the pre-move database is %s; run `hand fleet move --yes %s` to finish the rename, or undo it by copying %s over %s and removing %s and %s, which discards anything written since the rewrite", state.ErrConflict, home, dest, err, backup, dest, backup, db, db+"-wal", db+"-shm")
 	}
 	if _, err := fleet.Register(root, f.ID, dest); err != nil {
 		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish, or `hand init` there", state.ErrConflict, dest, filepath.Join(root, "fleets", f.ID), home, err, dest, dest)
@@ -179,7 +179,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		d.Field("from", from)
 		d.Field("to", to)
 		d.Field("home", home)
-		d.Help("The move from " + shellQuote(from) + " to " + shellQuote(to) + " did not finish; run `hand fleet move --yes " + shellQuote(to) + "` in " + shellQuote(from) + " (or in " + shellQuote(to) + ") to finish it")
+		d.Help("The move from " + toon.ShellQuote(from) + " to " + toon.ShellQuote(to) + " did not finish; run `hand fleet move --yes " + toon.ShellQuote(to) + "` in " + toon.ShellQuote(from) + " (or in " + toon.ShellQuote(to) + ") to finish it")
 		return r.print(&d)
 	}
 	ctx := r.ctx()
@@ -206,7 +206,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 	if rewriteOnly || !haveDest || !samePlace(dest, to) {
 		return fmt.Errorf("%w: the move from %s to %s did not finish; run `hand fleet move --yes %s` in %s to finish it", state.ErrConflict, from, to, to, from)
 	}
-	backup, backupText := preMoveDatabase(home)
+	backup, backupText := preMoveDatabase(ctx, home, from)
 	empty, err := moveDestination(home, to)
 	if err != nil {
 		return err
@@ -218,19 +218,19 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 	if len(blockers) != 0 {
 		return fmt.Errorf("%w: %s", state.ErrConflict, strings.Join(blockers, "; "))
 	}
-	if empty {
-		if err := os.Remove(to); err != nil {
-			return err
-		}
-	}
 	db := filepath.Join(home, "hand.db")
 	if err := st.Close(); err != nil {
 		return fmt.Errorf("%w: the database at %s already names %s, but closing it failed: %v; %s; run `hand fleet move --yes %s` again", state.ErrConflict, home, to, err, backupText, to)
 	}
+	if empty {
+		if err := os.Remove(to); err != nil {
+			return fmt.Errorf("%w: the database at %s names %s, but the empty destination %s could not be removed: %v; %s; remove %s and run `hand fleet move --yes %s` again", state.ErrConflict, home, to, to, err, backupText, to, to)
+		}
+	}
 	if err := fsx.Rename(home, to); err != nil {
-		undo := "; run `hand fleet move --yes " + shellQuote(to) + "` again"
+		undo := "; run `hand fleet move --yes " + toon.ShellQuote(to) + "` again"
 		if backup != "" {
-			undo = fmt.Sprintf("; run `hand fleet move --yes %s` again, or undo it by copying %s over %s and removing %s and %s", shellQuote(to), backup, db, db+"-wal", db+"-shm")
+			undo = fmt.Sprintf("; run `hand fleet move --yes %s` again, or undo it by copying %s over %s and removing %s and %s, which discards anything written since the rewrite", toon.ShellQuote(to), backup, db, db+"-wal", db+"-shm")
 		}
 		return fmt.Errorf("%w: the database at %s names %s, but the folder did not move: %v; %s%s", state.ErrConflict, home, to, err, backupText, undo)
 	}
@@ -258,7 +258,7 @@ func confirmMove(r *runner, ctx context.Context, dir, from, to string) (int64, [
 	return seq, hits, err
 }
 
-func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport) error {
+func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnly bool) error {
 	var d toon.Doc
 	d.Field("move", "dry-run")
 	d.Field("fleet", f.Name)
@@ -272,7 +272,10 @@ func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport) error {
 		rows = append(rows, []string{c.Table, c.Column, c.Ref, strconv.Itoa(c.Absolute), strconv.Itoa(c.Tilde)})
 	}
 	d.Rows("cells", []string{"table", "column", "ref", "absolute", "tilde"}, rows)
-	help := []string{"Run `hand fleet move --yes " + shellQuote(rep.To) + "` to rewrite the database and move the folder"}
+	help := []string{"Run `hand fleet move --yes " + toon.ShellQuote(rep.To) + "` to rewrite the database and move the folder"}
+	if rewriteOnly {
+		help = []string{"Run `hand fleet move --rewrite-only --yes --from " + toon.ShellQuote(rep.From) + "` here to rewrite the recorded paths without moving the folder"}
+	}
 	d.Field("verification", strconv.Itoa(len(rep.Hits)))
 	if len(rep.Hits) > 0 {
 		d.Rows("remaining", []string{"table", "column", "ref"}, moveOnlyRows(rep.Hits))
@@ -420,7 +423,7 @@ func moveDestination(home, dest string) (bool, error) {
 		return false, err
 	}
 	if !same {
-		return false, fmt.Errorf("%w: %s and %s are on different filesystems; copy the folder there, delete or move the original, run `hand init` in the copy, then run `hand fleet move --rewrite-only --from %s` in it", state.ErrConflict, home, dest, home)
+		return false, fmt.Errorf("%w: %s and %s are on different filesystems; copy the folder there, delete or move the original, run `hand init` in the copy, then run `hand fleet move --rewrite-only --yes --from %s` in it", state.ErrConflict, home, dest, home)
 	}
 	return empty, nil
 }
@@ -476,16 +479,33 @@ func moveBackup(home string, now time.Time) string {
 	}
 }
 
-func preMoveDatabase(home string) (string, string) {
+func preMoveDatabase(ctx context.Context, home, from string) (string, string) {
+	name := "the pre-move database is the hand.db.pre-move-* copy beside the database"
 	matches, err := filepath.Glob(filepath.Join(home, "hand.db.pre-move-*"))
-	if err == nil && len(matches) != 0 {
-		newest := matches[0]
-		for _, m := range matches[1:] {
-			if m > newest {
-				newest = m
-			}
-		}
-		return newest, "the pre-move database is " + newest
+	if err != nil || len(matches) == 0 {
+		return "", name
 	}
-	return "", "the pre-move database is the hand.db.pre-move-* copy beside the database"
+	newest := ""
+	for _, m := range matches {
+		if strings.HasSuffix(m, "-wal") || strings.HasSuffix(m, "-shm") {
+			continue
+		}
+		if m > newest {
+			newest = m
+		}
+	}
+	if newest == "" || !preMoveCopy(ctx, newest, from) {
+		return "", name
+	}
+	return newest, "the pre-move database is " + newest
+}
+
+func preMoveCopy(ctx context.Context, path, from string) bool {
+	st, err := state.OpenRead(path)
+	if err != nil {
+		return false
+	}
+	defer st.Close()
+	f, err := st.Fleet(ctx)
+	return err == nil && f.Home != "" && samePlace(f.Home, from)
 }

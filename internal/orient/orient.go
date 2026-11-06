@@ -251,8 +251,12 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 }
 
 func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home string) string {
-	if from, to, pending, err := st.PendingMove(ctx); err == nil && pending {
-		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + to + "` in " + from + " or in " + to
+	from, to, pending, err := st.PendingMove(ctx)
+	if err != nil {
+		return "the pending move is unreadable: " + Clip(err.Error(), 200) + "; `hand fleet move` refuses until the `fleet.moving` event is fixed"
+	}
+	if pending {
+		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + toon.ShellQuote(to) + "` in " + toon.ShellQuote(from) + " or in " + toon.ShellQuote(to)
 	}
 	if f.Home == "" {
 		return ""
@@ -264,7 +268,7 @@ func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home strin
 	if same {
 		return ""
 	}
-	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --from " + f.Home + "` here"
+	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --yes --from " + toon.ShellQuote(f.Home) + "` here"
 }
 
 func inboxFolder(home string) string {
