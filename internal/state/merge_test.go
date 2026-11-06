@@ -3,7 +3,9 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -74,6 +76,119 @@ func TestMergeReadsOneSourceSnapshot(t *testing.T) {
 	}
 	if sourceTasks != 2 {
 		t.Fatalf("source tasks = %d, want the concurrent write to land", sourceTasks)
+	}
+}
+
+func TestTextRewriterLeavesPathsAnchorsUUIDsAndCodeAlone(t *testing.T) {
+	refs := &mergeRefs{
+		ids:   map[string]map[int64]bool{"t": {1: true}, "a": {2: true}, "r": {1: true}, "d": {1: true, 10: true}, "w": {1: true}, "i": {1: true}},
+		off:   map[string]int64{"t": 500, "a": 500, "r": 500, "d": 500, "w": 500, "i": 500},
+		srcID: "f000000000001", dstID: "f000000000002",
+	}
+	w := newTextRewriter(refs, "", "")
+	w.cell("report", "1", "body")
+	for _, kept := range []string{
+		"r1.png",
+		"ledger-light-r1.png",
+		"ident-a2-home.png",
+		"brainstorm.md#7-data-model-d1",
+		"wp-scratch-t183-cont",
+		"/(r1|640)/",
+		"routines/r1",
+		"45374764-a190-4f00-8000-000000000000",
+		"wrangler d1 create",
+		"`wrangler d1 migrations apply`",
+		`"r6"`,
+		`\"r6\"`,
+	} {
+		if got := w.text(kept); got != kept {
+			t.Fatalf("%q became %q", kept, got)
+		}
+	}
+	for in, want := range map[string]string{
+		"see t1 and a2.": "see t501 and a502.",
+		"see r1,":        "see r501,",
+		"d10":            "d510",
+	} {
+		if got := w.text(in); got != want {
+			t.Fatalf("%q became %q, want %q", in, got, want)
+		}
+	}
+	if got := w.text("see d1"); got != "see d1" {
+		t.Fatalf("d1 became %q", got)
+	}
+	if len(w.cells) == 0 {
+		t.Fatal("the short decision ref was not reported ambiguous")
+	}
+}
+
+func TestTextDigestCoversEveryTextColumn(t *testing.T) {
+	s, _ := openTest(t)
+	mergeExec(t, s, `INSERT INTO project(name, repo, settings, created_at) VALUES ('p', 'p', '', '2026-11-01T00:00:00Z')`)
+	mergeExec(t, s, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'p', 'one', 'one', 'done', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')`)
+	mergeExec(t, s, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '[]', '/w1', 'b', 'stopped', '2026-11-01T00:00:00Z')`)
+	mergeExec(t, s, `INSERT INTO event(at, kind, task_id, detail) VALUES ('2026-11-01T00:00:00Z', 'task.added', 1, '')`)
+	first, err := textDigest(context.Background(), s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeExec(t, s, `UPDATE attempt SET worktree = '/w2'`)
+	second, err := textDigest(context.Background(), s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("textDigest ignores attempt.worktree")
+	}
+	mergeExec(t, s, `UPDATE event SET kind = 'task.done'`)
+	third, err := textDigest(context.Background(), s.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == third {
+		t.Fatal("textDigest ignores event.kind")
+	}
+}
+
+func TestMergeRefusesLiveAttemptsInTheTransaction(t *testing.T) {
+	for _, side := range []string{"source", "destination"} {
+		t.Run(side, func(t *testing.T) {
+			srcDir, dstDir := t.TempDir(), t.TempDir()
+			srcPath, dstPath := filepath.Join(srcDir, "hand.db"), filepath.Join(dstDir, "hand.db")
+			src, err := Open(srcPath, clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer src.Close()
+			dst, err := Open(dstPath, clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dst.Close()
+			mergeFleet(t, src, "f000000000001", "source")
+			mergeFleet(t, dst, "f000000000002", "destination")
+			for _, s := range []*Store{src, dst} {
+				mergeExec(t, s, `INSERT INTO project(name, repo, settings, created_at) VALUES ('p', 'p', '', '2026-11-01T00:00:00Z')`)
+				mergeExec(t, s, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'p', 'one', 'one', 'done', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')`)
+				mergeExec(t, s, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES (1, 1, 'claude', 'sonnet', 'low', '[]', '/w', 'b', 'stopped', '2026-11-01T00:00:00Z')`)
+			}
+			live := src
+			if side == "destination" {
+				live = dst
+			}
+			mergeExec(t, live, `UPDATE attempt SET status = 'running' WHERE id = 1`)
+			_, err = Merge(context.Background(), srcPath, dstPath, MergeOptions{SourceHome: srcDir, DestHome: dstDir})
+			if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "live attempt") {
+				t.Fatalf("merge = %v, want a live-attempt conflict", err)
+			}
+			var tasks int64
+			if err := dst.db.QueryRow(`SELECT COUNT(*) FROM task`).Scan(&tasks); err != nil {
+				t.Fatal(err)
+			}
+			if tasks != 1 {
+				t.Fatalf("destination tasks = %d, want 1: the transaction committed", tasks)
+			}
+		})
 	}
 }
 

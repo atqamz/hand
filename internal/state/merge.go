@@ -208,36 +208,114 @@ func copySnapshot(path string) (string, func(), error) {
 }
 
 func DatabaseHash(path string) (string, error) {
-	f, err := os.CreateTemp("", "hand-merge-*.db")
+	snapshot, cleanup, err := copySnapshot(path)
 	if err != nil {
 		return "", err
 	}
-	tmp := f.Name()
-	_ = f.Close()
-	_ = os.Remove(tmp)
-	defer os.Remove(tmp)
-	db, err := openSnapshot(path)
+	defer cleanup()
+	db, err := openSnapshot(snapshot)
 	if err != nil {
 		return "", err
 	}
-	_, vacuumErr := db.Exec(`VACUUM INTO ?`, tmp)
-	closeErr := db.Close()
-	if vacuumErr != nil {
-		return "", vacuumErr
-	}
-	if closeErr != nil {
-		return "", closeErr
-	}
-	f, err = os.Open(tmp)
+	defer db.Close()
+	return canonicalDigest(context.Background(), db, false)
+}
+
+func canonicalDigest(ctx context.Context, q queryer, textOnly bool) (string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name`)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return "", err
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return "", err
+	}
+	if err := rows.Close(); err != nil {
+		return "", err
+	}
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	for _, table := range tables {
+		rows, err := q.QueryContext(ctx, `SELECT * FROM "`+strings.ReplaceAll(table, `"`, `""`)+`"`)
+		if err != nil {
+			return "", err
+		}
+		cols, err := rows.Columns()
+		if err != nil {
+			_ = rows.Close()
+			return "", err
+		}
+		_, _ = io.WriteString(h, "table "+table+"\ncolumns "+strings.Join(cols, "|")+"\n")
+		var lines []string
+		for rows.Next() {
+			raw := make([]any, len(cols))
+			dest := make([]any, len(cols))
+			for i := range raw {
+				dest[i] = &raw[i]
+			}
+			if err := rows.Scan(dest...); err != nil {
+				_ = rows.Close()
+				return "", err
+			}
+			var line strings.Builder
+			for _, v := range raw {
+				if textOnly && !isTextValue(v) {
+					line.WriteString("-\x1f")
+					continue
+				}
+				line.WriteString(digestValue(v))
+				line.WriteByte('\x1f')
+			}
+			lines = append(lines, line.String())
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return "", err
+		}
+		if err := rows.Close(); err != nil {
+			return "", err
+		}
+		sort.Strings(lines)
+		for _, line := range lines {
+			_, _ = io.WriteString(h, line+"\n")
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func isTextValue(v any) bool {
+	switch v.(type) {
+	case string, []byte:
+		return true
+	}
+	return false
+}
+
+func digestValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "n"
+	case int64:
+		return "i" + strconv.FormatInt(x, 10)
+	case float64:
+		return "f" + strconv.FormatFloat(x, 'g', -1, 64)
+	case bool:
+		return "b" + strconv.FormatBool(x)
+	case string:
+		return "s" + strconv.Itoa(len(x)) + ":" + x
+	case []byte:
+		return "b" + strconv.Itoa(len(x)) + ":" + string(x)
+	default:
+		return fmt.Sprintf("?%v", x)
+	}
 }
 
 func Merge(ctx context.Context, srcPath, dstPath string, o MergeOptions) (MergeReport, error) {
@@ -286,7 +364,7 @@ type mergeRefs struct {
 
 var (
 	mergeRef     = regexp.MustCompile(`[tardiw][0-9]+`)
-	mergeShield  = regexp.MustCompile(`(?i)https?://[^\s)>\]]+|\b(?:hand|worktrees)/[0-9a-f]{13}/t[0-9]+-a[0-9]+(?:-[A-Za-z0-9._-]+)?|\bt[0-9]+-a[0-9]+\b|\b(?:reports|briefs|shots)/t[0-9]+(?:[./][A-Za-z0-9._-]+)*`)
+	mergeShield  = regexp.MustCompile(`(?i)https?://[^\s)>\]]+|\b(?:hand|worktrees)/[0-9a-f]{13}/t[0-9]+-a[0-9]+(?:-[A-Za-z0-9._-]+)?|\bt[0-9]+-a[0-9]+\b|\b(?:reports|briefs|shots)/t[0-9]+(?:[./][A-Za-z0-9._-]+)*|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	mergeBranch  = regexp.MustCompile(`(?i)\b(?:hand|worktrees)/[0-9a-f]{13}/t[0-9]+-a[0-9]+|\bt[0-9]+-a[0-9]+\b`)
 	mergeFleetID = regexp.MustCompile(`f[0-9a-f]{12}`)
 )
@@ -315,6 +393,35 @@ func (w *textRewriter) text(s string) string {
 		return s
 	}
 	var b strings.Builder
+	for {
+		open := strings.IndexByte(s, '`')
+		if open < 0 {
+			b.WriteString(w.outside(s))
+			return b.String()
+		}
+		b.WriteString(w.outside(s[:open]))
+		n := 1
+		for open+n < len(s) && s[open+n] == '`' {
+			n++
+		}
+		fence := strings.Repeat("`", n)
+		rest := s[open+n:]
+		close := strings.Index(rest, fence)
+		if close < 0 {
+			b.WriteString(w.code(s[open:]))
+			return b.String()
+		}
+		end := open + n + close + n
+		b.WriteString(w.code(s[open:end]))
+		s = s[end:]
+	}
+}
+
+func (w *textRewriter) outside(s string) string {
+	if s == "" {
+		return s
+	}
+	var b strings.Builder
 	pos := 0
 	for _, loc := range mergeShield.FindAllStringIndex(s, -1) {
 		b.WriteString(w.plain(s[pos:loc[0]]))
@@ -323,12 +430,22 @@ func (w *textRewriter) text(s string) string {
 			b.WriteString(w.url(span))
 		} else {
 			w.countProtected(span)
-			b.WriteString(span)
+			b.WriteString(w.home(span))
 		}
 		pos = loc[1]
 	}
 	b.WriteString(w.plain(s[pos:]))
 	return b.String()
+}
+
+func (w *textRewriter) code(s string) string {
+	for _, loc := range mergeRef.FindAllStringIndex(s, -1) {
+		tok := s[loc[0]:loc[1]]
+		if !w.ambiguous(s, loc, tok) {
+			w.protected[tok[:1]]++
+		}
+	}
+	return w.home(s)
 }
 
 func (w *textRewriter) destination(s string) string {
@@ -338,16 +455,16 @@ func (w *textRewriter) destination(s string) string {
 	var b strings.Builder
 	pos := 0
 	for _, loc := range mergeShield.FindAllStringIndex(s, -1) {
-		b.WriteString(w.home(s[pos:loc[0]]))
+		b.WriteString(s[pos:loc[0]])
 		span := s[loc[0]:loc[1]]
 		if strings.HasPrefix(strings.ToLower(span), "http") {
 			b.WriteString(w.url(span))
 		} else {
-			b.WriteString(w.home(span))
+			b.WriteString(span)
 		}
 		pos = loc[1]
 	}
-	b.WriteString(w.home(s[pos:]))
+	b.WriteString(s[pos:])
 	return b.String()
 }
 
@@ -355,13 +472,10 @@ func (w *textRewriter) plain(s string) string {
 	var b strings.Builder
 	pos := 0
 	for _, loc := range mergeRef.FindAllStringIndex(s, -1) {
-		if loc[0] > 0 && isRefByte(s[loc[0]-1]) {
-			continue
-		}
 		tok := s[loc[0]:loc[1]]
-		if loc[1] < len(s) && isRefByte(s[loc[1]]) {
-			if w.ambiguous(s, loc, tok) {
-				continue
+		if (loc[0] > 0 && refAdjacent(s[loc[0]-1])) || (loc[1] < len(s) && !refEndAt(s, loc[1])) {
+			if !w.ambiguous(s, loc, tok) {
+				w.protected[tok[:1]]++
 			}
 			continue
 		}
@@ -375,6 +489,29 @@ func (w *textRewriter) plain(s string) string {
 	}
 	b.WriteString(s[pos:])
 	return w.home(b.String())
+}
+
+func refAdjacent(c byte) bool {
+	return isRefByte(c) || c == '.' || c == '/' || c == '#' || c == '-' || c == '|' || c == '"' || c == '\''
+}
+
+func refEndAt(s string, end int) bool {
+	if end == len(s) {
+		return true
+	}
+	c := s[end]
+	if !refAdjacent(c) {
+		return true
+	}
+	switch c {
+	case '.', ',', ';', ')':
+		return end+1 == len(s) || isSpace(s[end+1])
+	}
+	return false
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
 func isRefByte(c byte) bool {
@@ -405,6 +542,10 @@ func (w *textRewriter) ambiguous(s string, loc []int, tok string) bool {
 	kind := tok[:1]
 	if kind != "a" && kind != "d" {
 		return false
+	}
+	if kind == "d" && len(tok) == 2 {
+		w.cellAmbiguous(tok)
+		return true
 	}
 	if loc[1] < len(s) {
 		c := s[loc[1]]
@@ -511,18 +652,33 @@ func replacePath(s, from, to string) (string, int) {
 			break
 		}
 		start, end := pos+i, pos+i+len(from)
-		if end == len(s) || !isPathByte(s[end]) {
-			b.WriteString(s[pos:start])
-			b.WriteString(to)
-			n++
+		if (start > 0 && isPathByte(s[start-1])) || !pathEndAt(s, end) {
+			b.WriteString(s[pos:end])
 			pos = end
 			continue
 		}
-		b.WriteString(s[pos:end])
+		b.WriteString(s[pos:start])
+		b.WriteString(to)
+		n++
 		pos = end
 	}
 	b.WriteString(s[pos:])
 	return b.String(), n
+}
+
+func pathEndAt(s string, end int) bool {
+	if end == len(s) {
+		return true
+	}
+	c := s[end]
+	if !isPathByte(c) {
+		return true
+	}
+	switch c {
+	case '.', ',', ';', ':', '!', '?', ')', ']', '}':
+		return end+1 == len(s) || isSpace(s[end+1])
+	}
+	return false
 }
 
 func isPathByte(c byte) bool {
@@ -1226,63 +1382,5 @@ func checkMerged(ctx context.Context, tx *sql.Tx) error {
 }
 
 func textDigest(ctx context.Context, q queryer) (string, error) {
-	h := sha256.New()
-	type query struct {
-		sql  string
-		args []any
-	}
-	queries := []query{
-		{`SELECT id, title, goal FROM task ORDER BY id`, nil},
-		{`SELECT task_id, revision, body FROM plan ORDER BY task_id, revision`, nil},
-		{`SELECT id, body FROM report ORDER BY id`, nil},
-		{`SELECT id, question, answer FROM decision ORDER BY id`, nil},
-		{`SELECT id, note FROM timer ORDER BY id`, nil},
-		{`SELECT seq, detail FROM event ORDER BY seq`, nil},
-		{`SELECT id, body FROM supervisor_input ORDER BY id`, nil},
-		{`SELECT id, argv FROM attempt ORDER BY id`, nil},
-	}
-	for _, item := range queries {
-		rows, err := q.QueryContext(ctx, item.sql, item.args...)
-		if err != nil {
-			return "", err
-		}
-		cols, err := rows.Columns()
-		if err != nil {
-			_ = rows.Close()
-			return "", err
-		}
-		for rows.Next() {
-			raw := make([]any, len(cols))
-			dest := make([]any, len(cols))
-			for i := range raw {
-				dest[i] = &raw[i]
-			}
-			if err := rows.Scan(dest...); err != nil {
-				_ = rows.Close()
-				return "", err
-			}
-			for i, v := range raw {
-				if i > 0 {
-					_, _ = io.WriteString(h, "|")
-				}
-				switch x := v.(type) {
-				case int64:
-					_, _ = io.WriteString(h, strconv.FormatInt(x, 10))
-				case string:
-					_, _ = io.WriteString(h, x)
-				case []byte:
-					_, _ = h.Write(x)
-				}
-			}
-			_, _ = io.WriteString(h, "\n")
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return "", err
-		}
-		if err := rows.Close(); err != nil {
-			return "", err
-		}
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return canonicalDigest(ctx, q, true)
 }
