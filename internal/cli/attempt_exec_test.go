@@ -115,7 +115,7 @@ func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
 func execScratch(t *testing.T, dir string, command ...string) (string, int) {
 	t.Helper()
 	if len(command) == 0 {
-		command = []string{"/bin/true"}
+		command = []string{"/usr/bin/true"}
 	}
 	args := append([]string{os.Args[0], "attempt", "_exec", "--dir", dir, "--"}, command...)
 	cmd := exec.Command(args[0], args[1:]...)
