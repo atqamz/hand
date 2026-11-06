@@ -119,7 +119,7 @@ func cmdFleetImport(r *runner, args []string) error {
 	}
 	if *dry {
 		printErr := printImportDatabase(r, src, dst, true, res, marker)
-		files := importContent(src.Home, dst.Home, src.ID, res.Reports, true)
+		files := importContent(src.Home, dst.Home, src.ID, res, true)
 		printErr = errors.Join(printErr, printImportFiles(r, files))
 		if len(files.Failed) > 0 {
 			return errors.Join(fmt.Errorf("%d file(s) would fail to copy; nothing was written", len(files.Failed)), printErr)
@@ -128,7 +128,7 @@ func cmdFleetImport(r *runner, args []string) error {
 	}
 	printErr := printImportDatabase(r, src, dst, false, res, marker)
 	writeErr := writeImportMarker(marker, dst.ID, res)
-	files := importContent(src.Home, dst.Home, src.ID, res.Reports, false)
+	files := importContent(src.Home, dst.Home, src.ID, res, false)
 	printErr = errors.Join(printErr, printImportFiles(r, files))
 	var done error
 	switch {
@@ -197,8 +197,12 @@ func taskCount(res state.ImportResult) int {
 	return n
 }
 
-func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportRow, dry bool) importFileReport {
+func importContent(srcHome, dstHome, srcID string, res state.ImportResult, dry bool) importFileReport {
 	var out importFileReport
+	projectAs := make(map[string]string, len(res.Projects))
+	for _, p := range res.Projects {
+		projectAs[p.Name] = p.As
+	}
 	for _, dir := range importDirs {
 		root := filepath.Join(srcHome, dir)
 		if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
@@ -222,8 +226,14 @@ func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportR
 				return nil
 			}
 			to := rel
-			if filepath.ToSlash(rel) == "memory/operator.md" {
+			switch {
+			case filepath.ToSlash(rel) == "memory/operator.md":
 				to = filepath.Join("memory", "operator."+srcID+".md")
+			case filepath.ToSlash(filepath.Dir(rel)) == "memory/projects" && strings.HasSuffix(rel, ".md"):
+				name := strings.TrimSuffix(filepath.Base(rel), ".md")
+				if as, ok := projectAs[name]; ok && as != name {
+					to = filepath.Join("memory", "projects", as+".md")
+				}
 			}
 			if !d.Type().IsRegular() {
 				out.Failed = append(out.Failed, importFilePair{Source: rel, Destination: to, Reason: "not a regular file"})
@@ -237,6 +247,8 @@ func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportR
 				out.Same++
 			case action == importCollision:
 				out.Collisions = append(out.Collisions, importFilePair{Source: rel, Destination: to, Reason: "different content"})
+			case action == importNotRegular:
+				out.Collisions = append(out.Collisions, importFilePair{Source: rel, Destination: to, Reason: "destination is not a regular file"})
 			default:
 				out.Copied++
 			}
@@ -247,7 +259,7 @@ func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportR
 		}
 	}
 	out.Archive = filepath.Join("reports", "archive-"+srcID)
-	for _, rep := range reports {
+	for _, rep := range res.Reports {
 		name := fmt.Sprintf("r%d-%s.md", rep.ID, importSlug(rep.TaskTitle))
 		to := filepath.Join(out.Archive, name)
 		body := importReportBody(srcID, rep)
@@ -259,6 +271,8 @@ func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportR
 			out.Same++
 		case action == importCollision:
 			out.Collisions = append(out.Collisions, importFilePair{Source: state.ReportRef(rep.ID), Destination: to, Reason: "different content"})
+		case action == importNotRegular:
+			out.Collisions = append(out.Collisions, importFilePair{Source: state.ReportRef(rep.ID), Destination: to, Reason: "destination is not a regular file"})
 		default:
 			out.Exported++
 		}
@@ -266,10 +280,13 @@ func importContent(srcHome, dstHome, srcID string, reports []state.ImportReportR
 	return out
 }
 
+var importWriteFile = func(f *os.File, b []byte) (int, error) { return f.Write(b) }
+
 const (
 	importCopied = iota
 	importSame
 	importCollision
+	importNotRegular
 )
 
 func copyImportFile(src, dst string, dry bool) (int, error) {
@@ -279,6 +296,8 @@ func copyImportFile(src, dst string, dry bool) (int, error) {
 	}
 	di, err := os.Stat(dst)
 	switch {
+	case err == nil && !di.Mode().IsRegular():
+		return importNotRegular, nil
 	case err == nil && di.Size() == si.Size() && sameImportFile(src, dst):
 		return importSame, nil
 	case err == nil:
@@ -340,11 +359,18 @@ func sameImportFile(a, b string) bool {
 }
 
 func copyImportBytes(b []byte, dst string, dry bool) (int, error) {
-	cur, err := os.ReadFile(dst)
+	di, err := os.Stat(dst)
 	switch {
-	case err == nil && bytes.Equal(cur, b):
-		return importSame, nil
+	case err == nil && !di.Mode().IsRegular():
+		return importNotRegular, nil
 	case err == nil:
+		cur, rerr := os.ReadFile(dst)
+		if rerr != nil {
+			return 0, rerr
+		}
+		if bytes.Equal(cur, b) {
+			return importSame, nil
+		}
 		return importCollision, nil
 	case !errors.Is(err, fs.ErrNotExist):
 		return 0, err
@@ -359,8 +385,11 @@ func copyImportBytes(b []byte, dst string, dry bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	_, werr := f.Write(b)
+	_, werr := importWriteFile(f, b)
 	cerr := f.Close()
+	if werr != nil || cerr != nil {
+		_ = os.Remove(dst)
+	}
 	return importCopied, errors.Join(werr, cerr)
 }
 
@@ -420,7 +449,7 @@ func printImportDatabase(r *runner, src, dst fleet.Entry, dry bool, res state.Im
 	})
 	projects := make([][]string, 0, len(res.Projects))
 	for _, p := range res.Projects {
-		projects = append(projects, []string{p.Name, p.Repo, p.Source, p.Action})
+		projects = append(projects, []string{p.Name, p.Repo, p.As, p.Action})
 	}
 	d.Rows("projects", []string{"name", "repo", "as", "action"}, projects)
 	statuses := make([]string, 0, len(res.Tasks))

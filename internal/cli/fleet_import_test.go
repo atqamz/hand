@@ -589,3 +589,77 @@ func readFileString(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+func writeImportFile(t *testing.T, home, rel, body string) {
+	t.Helper()
+	p := filepath.Join(home, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFleetImportMapsAReusedProjectLesson(t *testing.T) {
+	fx := importFixture(t)
+	repo := gitRepo(t)
+	fx.h.ok("project", "add", "beta", repo)
+	fx.h.ok("--home", fx.src, "project", "add", "alpha", repo)
+	fx.h.ok("--home", fx.src, "task", "add", "alpha", "one")
+	writeImportFile(t, fx.src, "memory/projects/alpha.md", "alpha lesson\n")
+	out := fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
+	if !strings.Contains(out, "alpha,"+repo+",beta,reused") {
+		t.Fatalf("manifest does not map alpha to beta:\n%s", out)
+	}
+	if got := importQuery(t, fx.dest, `SELECT project FROM task WHERE title = 'one'`); got != "beta" {
+		t.Fatalf("imported task project = %q, want beta", got)
+	}
+	if got := readFileString(t, filepath.Join(fx.dest, "memory", "projects", "beta.md")); got != "alpha lesson\n" {
+		t.Fatalf("mapped lesson = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(fx.dest, "memory", "projects", "alpha.md")); !os.IsNotExist(err) {
+		t.Fatalf("lesson stayed under the source name: %v", err)
+	}
+}
+
+func TestFleetImportReportsAReusedProjectLessonCollision(t *testing.T) {
+	fx := importFixture(t)
+	repo := gitRepo(t)
+	fx.h.ok("project", "add", "beta", repo)
+	fx.h.ok("--home", fx.src, "project", "add", "alpha", repo)
+	fx.h.ok("--home", fx.src, "task", "add", "alpha", "one")
+	writeImportFile(t, fx.src, "memory/projects/alpha.md", "source alpha\n")
+	writeImportFile(t, fx.dest, "memory/projects/beta.md", "dest beta\n")
+	out := fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
+	want := "memory/projects/alpha.md,memory/projects/beta.md,different content"
+	if !strings.Contains(out, want) {
+		t.Fatalf("manifest lacks the lesson collision %q:\n%s", want, out)
+	}
+	if got := readFileString(t, filepath.Join(fx.dest, "memory", "projects", "beta.md")); got != "dest beta\n" {
+		t.Fatalf("lesson collision overwrote the destination: %q", got)
+	}
+}
+
+func TestFleetImportRemovesATruncatedArchiveFile(t *testing.T) {
+	fx := importFixture(t)
+	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
+	fx.h.ok("--home", fx.src, "task", "add", "app", "one")
+	importExec(t, fx.src, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, created_at) VALUES(1, 1, 'claude', 'sonnet', 'low', 'x', 'w', 'b', 'exited', '2026-10-06T00:00:00Z')`)
+	importExec(t, fx.src, `INSERT INTO report(id, attempt_id, task_id, status, body, created_at) VALUES(1, 1, 1, 'done', 'the body', '2026-10-06T00:01:00Z')`)
+	old := *cli.ImportWrite
+	*cli.ImportWrite = func(f *os.File, b []byte) (int, error) {
+		_, _ = f.Write(b[:len(b)/2])
+		return 0, errors.New("disk full")
+	}
+	defer func() { *cli.ImportWrite = old }()
+	var out, errOut bytes.Buffer
+	code := cli.Run([]string{"fleet", "import", fx.srcID, "INTO", fx.destID}, fx.h.env(&out, &errOut))
+	if code != 1 || !strings.Contains(out.String(), "disk full") || !strings.Contains(errOut.String(), "failed to copy") {
+		t.Fatalf("failing report write: code=%d out=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	archive := filepath.Join(fx.dest, "reports", "archive-"+fx.srcID, "r1-one.md")
+	if _, err := os.Stat(archive); !os.IsNotExist(err) {
+		t.Fatalf("truncated archive file survived: %v", err)
+	}
+}

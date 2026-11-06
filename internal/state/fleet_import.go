@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/flock"
 )
@@ -62,7 +64,7 @@ type ImportHealth struct {
 }
 
 type ImportProject struct {
-	Name, Repo, Source, Action string
+	Name, Repo, As, Action string
 }
 
 type ImportRef struct {
@@ -304,12 +306,12 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 				return p, fmt.Errorf("%w: project %s exists on both sides with a different repo (%s and %s); rename it in the source fleet or import into a fleet without it", ErrConflict, pr.Name, have.Repo, repo)
 			}
 			projectOf[pr.Name] = pr.Name
-			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: have.Repo, Source: pr.Name, Action: "reused"})
+			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: have.Repo, As: pr.Name, Action: "reused"})
 			continue
 		}
 		if have, ok := byRepo[canonical]; ok {
 			projectOf[pr.Name] = have.Name
-			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, Source: pr.Name, Action: "reused " + have.Name})
+			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, As: have.Name, Action: "reused"})
 			continue
 		}
 		stored := storedPath(o.DestHome, repo)
@@ -317,7 +319,7 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 		byName[pr.Name] = Project{Name: pr.Name, Repo: repo}
 		byRepo[canonical] = Project{Name: pr.Name, Repo: repo}
 		projectOf[pr.Name] = pr.Name
-		p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, Source: pr.Name, Action: "added"})
+		p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, As: pr.Name, Action: "added"})
 	}
 	srcTasks, err := importTasks(ctx, src)
 	if err != nil {
@@ -334,6 +336,9 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 			return p, fmt.Errorf("%w: task %s names project %s, which is not on the destination", ErrConflict, TaskRef(t.ID), t.Project)
 		}
 		title, refs, left, amb := rewriteImportText(t.Title, ids, p.result.Offset, TaskRef(t.ID), "title")
+		if n := utf8.RuneCountInString(title); n > 200 {
+			return p, fmt.Errorf("%w: task %s title would be %d characters after the import, over the 200-character limit", ErrInvalid, TaskRef(t.ID), n)
+		}
 		goal, grefs, gleft, gamb := rewriteImportText(t.Goal, ids, p.result.Offset, TaskRef(t.ID), "goal")
 		if t.ID+p.result.Offset < p.result.NewTaskMin || p.result.NewTaskMin == 0 {
 			p.result.NewTaskMin = t.ID + p.result.Offset
@@ -449,7 +454,8 @@ func rewriteImportText(s string, ids map[int64]bool, offset int64, key, column s
 	seen := map[[2]int]bool{}
 	pos := 0
 	for _, loc := range importRefPattern.FindAllStringIndex(s, -1) {
-		if loc[0] > 0 && importGlue(s[loc[0]-1]) {
+		prev, _ := utf8.DecodeLastRuneInString(s[:loc[0]])
+		if loc[0] > 0 && importGlueRune(prev) {
 			start, end := importRunStart(s, loc[0]), importRunEnd(s, loc[1])
 			if !seen[[2]int{start, end}] {
 				seen[[2]int{start, end}] = true
@@ -458,7 +464,7 @@ func rewriteImportText(s string, ids map[int64]bool, offset int64, key, column s
 			continue
 		}
 		tok := s[loc[0]:loc[1]]
-		if loc[0] > 0 && importRisky(s[loc[0]-1]) || loc[1] < len(s) && !importWholeEnd(s, loc[1]) {
+		if loc[0] > 0 && importRiskyRune(prev) || loc[1] < len(s) && !importWholeEnd(s, loc[1]) {
 			start, end := importRunStart(s, loc[0]), importRunEnd(s, loc[1])
 			if !seen[[2]int{start, end}] {
 				seen[[2]int{start, end}] = true
@@ -486,44 +492,47 @@ func rewriteImportText(s string, ids map[int64]bool, offset int64, key, column s
 	return b.String(), refs, left, ambiguous
 }
 
-func importGlue(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == '/' || c == '#' || c == '-'
+func importGlueRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || strings.ContainsRune("_./#-", r)
 }
 
-func importPunct(c byte) bool { return c == '.' || c == ',' || c == ';' || c == ')' }
+func importPunctRune(r rune) bool { return strings.ContainsRune(".,;)", r) }
 
-func importRisky(c byte) bool {
-	return strings.ContainsRune(`|\^$*+?[]{}`, rune(c))
-}
+func importRiskyRune(r rune) bool { return strings.ContainsRune(`|\^$*+?[]{}`, r) }
 
 func importWholeEnd(s string, i int) bool {
-	c := s[i]
-	if importRisky(c) {
+	r, size := utf8.DecodeRuneInString(s[i:])
+	if importRiskyRune(r) {
 		return false
 	}
-	if !importPunct(c) {
-		return !importGlue(c)
+	if !importPunctRune(r) {
+		return !importGlueRune(r)
 	}
-	if i+1 == len(s) {
+	if i+size == len(s) {
 		return true
 	}
-	switch s[i+1] {
-	case ' ', '\t', '\n', '\r':
-		return true
-	}
-	return false
+	next, _ := utf8.DecodeRuneInString(s[i+size:])
+	return next == ' ' || next == '\t' || next == '\n' || next == '\r'
 }
 
 func importRunStart(s string, start int) int {
-	for start > 0 && importGlue(s[start-1]) {
-		start--
+	for start > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:start])
+		if !importGlueRune(r) {
+			break
+		}
+		start -= size
 	}
 	return start
 }
 
 func importRunEnd(s string, end int) int {
-	for end < len(s) && importGlue(s[end]) {
-		end++
+	for end < len(s) {
+		r, size := utf8.DecodeRuneInString(s[end:])
+		if !importGlueRune(r) {
+			break
+		}
+		end += size
 	}
 	return end
 }
@@ -535,6 +544,12 @@ func importContext(s string, start, end int) string {
 	}
 	if hi > len(s) {
 		hi = len(s)
+	}
+	for lo < start && !utf8.RuneStart(s[lo]) {
+		lo++
+	}
+	for hi < len(s) && !utf8.RuneStart(s[hi]) {
+		hi++
 	}
 	return strings.Join(strings.Fields(s[lo:hi]), " ")
 }

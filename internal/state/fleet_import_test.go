@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,6 +33,13 @@ func TestRewriteImportTextGrammar(t *testing.T) {
 		{"see t29, then", "see t58, then", []string{"t29"}, nil, nil},
 		{"see t99", "see t99", nil, nil, nil},
 		{"see t2t29", "see t2t29", nil, []string{"t2t29"}, nil},
+		{"see ét2 here", "see ét2 here", nil, []string{"ét2"}, nil},
+		{"see 中t2 here", "see 中t2 here", nil, []string{"中t2"}, nil},
+		{"see e\u0301t2 here", "see e\u0301t2 here", nil, []string{"e\u0301t2"}, nil},
+		{"see t2é here", "see t2é here", nil, []string{"t2é"}, nil},
+		{"see t2中 here", "see t2中 here", nil, []string{"t2中"}, nil},
+		{"see t2e\u0301 here", "see t2e\u0301 here", nil, []string{"t2e\u0301"}, nil},
+		{"see ét2.", "see ét2.", nil, []string{"ét2."}, nil},
 	}
 	for _, c := range cases {
 		got, refs, left, amb := rewriteImportText(c.text, ids, 29, "t1", "title")
@@ -209,5 +217,39 @@ func TestLockImportRefusesASecondHolder(t *testing.T) {
 	}
 	if err := second.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestImportFleetRefusesATitleOverTheLimitAfterRewrite(t *testing.T) {
+	fx := newImportStateFixture(t)
+	src, err := Open(filepath.Join(fx.srcHome, "hand.db"), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	title := strings.Repeat("a", 197) + " t1"
+	if _, err := src.db.Exec(`UPDATE task SET title = ? WHERE id = 1`, title); err != nil {
+		t.Fatal(err)
+	}
+	if err := src.Close(); err != nil {
+		t.Fatal(err)
+	}
+	dst, err := Open(filepath.Join(fx.dstHome, "hand.db"), time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 9 {
+		if _, err := dst.AddTask(context.Background(), "app", "filler "+strconv.Itoa(i), ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ImportFleet(context.Background(), fx.options())
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "t1") || !strings.Contains(err.Error(), "201") {
+		t.Fatalf("overlong title: %v", err)
+	}
+	if n := countImport(t, fx.dstHome, `SELECT count(*) FROM task`); n != 9 {
+		t.Fatalf("tasks = %d, want the 9 destination tasks only", n)
 	}
 }
