@@ -204,8 +204,64 @@ func TestWatchCapsWaitingClickNotificationsAtEight(t *testing.T) {
 	}
 }
 
+func TestWatchFreesAClickSlotWhenAClickEnds(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	releasedir := t.TempDir()
+	notifyLog, _, _, pidLog := installClick(t, fx, map[string]string{"help": clickHelp, "releasedir": releasedir})
+	fx.start()
+	stop := startWatch(t, fx, "--every", "50ms")
+	defer stop()
+	for i := 1; i <= 8; i++ {
+		fx.h.ok("decision", "ask", "t1", fmt.Sprintf("Question %d?", i))
+	}
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 8 })
+	eventually(t, func() bool { return len(readLines(pidLog)) == 8 })
+	fx.h.ok("decision", "ask", "t1", "While the cap is held?")
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 9 })
+	if got := readLines(notifyLog)[8]; strings.Contains(got, "--action") {
+		t.Fatalf("ninth click got an action while eight waited: %q", got)
+	}
+	pids := readLines(pidLog)
+	pid, err := strconv.Atoi(pids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(releasedir, pids[0]), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitGone(t, "released click", func() bool { return !processRunning(pid) })
+	eventually(t, func() bool {
+		fx.h.ok("decision", "ask", "t1", "After the release?")
+		time.Sleep(100 * time.Millisecond)
+		lines := readLines(notifyLog)
+		return len(lines) > 9 && strings.Contains(lines[len(lines)-1], "--action=default=Open")
+	})
+}
+
+func TestWatchFallsBackWhenTheClickFails(t *testing.T) {
+	fx := newAttemptFixture(t)
+	setBoardAddr(t, fx)
+	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "exit": "1"})
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 2 })
+	lines := readLines(notifyLog)
+	if !strings.Contains(lines[0], "--action=default=Open") || !strings.HasPrefix(lines[1], "--app-name=hand|--|") || strings.Contains(lines[1], "--action") {
+		t.Fatalf("notifications = %q", lines)
+	}
+	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+		t.Fatalf("opener ran for a failed click")
+	}
+}
+
 func TestWatchKillsTheClickProcessGroupAtTheTimeout(t *testing.T) {
 	old := *cli.ClickWait
+	if *cli.ClickWait != 10*time.Minute {
+		t.Fatalf("default click wait = %v, want 10m", *cli.ClickWait)
+	}
 	*cli.ClickWait = 5 * time.Second
 	t.Cleanup(func() { *cli.ClickWait = old })
 	fx := newAttemptFixture(t)
@@ -237,6 +293,9 @@ func TestWatchKillsTheClickProcessGroupAtTheTimeout(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
 		t.Fatalf("opener ran after the timeout")
+	}
+	if n := len(readLines(notifyLog)); n != 1 {
+		t.Fatalf("a timed-out click sent %d notifications, want 1", n)
 	}
 }
 
@@ -270,10 +329,13 @@ func TestWatchKeepsAClickAcrossAStreamReconnect(t *testing.T) {
 		t.Fatalf("watch exit = %d", code)
 	}
 	waitGone(t, "click child", func() bool { return !processRunning(pid) })
+	if n := len(readLines(notifyLog)); n != 1 {
+		t.Fatalf("a cancelled click sent %d notifications, want 1", n)
+	}
 }
 
 func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
-	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n", "port only": ":7777\n"} {
+	for name, addr := range map[string]string{"empty": "\n", "garbage": "not a host\n", "port only": ":7777\n", "userinfo": "127.0.0.1:7777@evil.example\n", "portless": "127.0.0.1\n", "query": "127.0.0.1:7777?x=1\n", "fragment": "127.0.0.1:7777#x\n", "path": "127.0.0.1:7777/elsewhere\n", "non-loopback": "192.168.1.5:7777\n", "shorthand": "192.168.1:7777\n", "dns": "evil.example:7777\n", "dns port 80": "evil.example\n"} {
 		t.Run(name, func(t *testing.T) {
 			fx := newAttemptFixture(t)
 			writeBoardAddr(t, fx, addr)
@@ -291,6 +353,44 @@ func TestWatchFallsBackWhenTheBoardAddrIsNotAnOpenableURL(t *testing.T) {
 				t.Fatalf("opener ran for board.addr %q", addr)
 			}
 		})
+	}
+}
+
+func TestWatchClickOpensALoopbackBoardAddr(t *testing.T) {
+	for name, addr := range map[string]string{"localhost": "localhost:7777\n", "ipv6": "[::1]:7777\n"} {
+		t.Run(name, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			writeBoardAddr(t, fx, addr)
+			_, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+			fx.start()
+			stop := startWatch(t, fx)
+			defer stop()
+			quietAlert(fx)
+			eventually(t, func() bool { return len(readLines(openLog)) == 1 && readLines(openLog)[0] != "" })
+			want := "http://" + strings.TrimSpace(addr) + "/"
+			if got := readLines(openLog)[0]; !strings.HasPrefix(got, want) || !strings.HasSuffix(got, "/attempt/a1") {
+				t.Fatalf("opened %q, want prefix %q", got, want)
+			}
+		})
+	}
+}
+
+func TestWatchFallsBackWhenTheBoardIsOnANetworkAddress(t *testing.T) {
+	fx := newAttemptFixture(t)
+	writeBoardAddr(t, fx, "192.168.1.5:7777\n")
+	notifyLog, _, openLog, _ := installClick(t, fx, map[string]string{"help": clickHelp, "print": "default\n"})
+	installTailscale(t, fx.h.vars["PATH"], map[string]string{"serve": serveFor("192.168.1.5:7777", "/")})
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	quietAlert(fx)
+	eventually(t, func() bool { return len(readLines(notifyLog)) == 1 })
+	if got := readLines(notifyLog)[0]; strings.Contains(got, "--action") || !strings.HasPrefix(got, "--app-name=hand|--|") {
+		t.Fatalf("notify args = %q", got)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(openLog); !os.IsNotExist(err) {
+		t.Fatalf("opener ran for a board on a network address")
 	}
 }
 

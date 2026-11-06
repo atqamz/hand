@@ -60,6 +60,14 @@ func clickMain(args []string) int {
 			return 0
 		}
 	}
+	if p["releasedir"] != "" && slices.Contains(args, "--wait") {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(p["releasedir"], strconv.Itoa(os.Getpid()))); err == nil {
+				return 0
+			}
+		}
+		return 0
+	}
 	d, _ := time.ParseDuration(p["sleep"])
 	if p["clickhold"] != "" && slices.Contains(args, "--wait") {
 		d, _ = time.ParseDuration(p["clickhold"])

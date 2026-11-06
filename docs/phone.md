@@ -10,8 +10,8 @@ Hand sets up none of them and changes no setting. The Phone page, `/<fleet id>/c
 | [SSH tunnel](#ssh-tunnel) | yes | no: plain HTTP on the phone's own loopback | yes | only while the tunnel is up | An SSH server, an SSH app | Whoever can log in over SSH |
 | [Cloudflare Tunnel with Access](#cloudflare-tunnel-with-access) | yes | yes | yes | after you rewrite the link | A domain on Cloudflare, `cloudflared`, an Access policy | Whoever the Access policy admits. Cloudflare can read the traffic |
 | [WireGuard, behind a TLS proxy](#wireguard) | yes | yes, with a private CA on the phone | yes | after you rewrite the link | WireGuard, a proxy, a CA | Every WireGuard peer |
-| [WireGuard, read-only](#wireguard) | no, decisions only | no: plain HTTP inside the tunnel | yes, read-only | yes | WireGuard | Every WireGuard peer |
-| [A LAN address](#a-lan-address) | no, decisions only | no: plain HTTP | yes, read-only, over plain HTTP | only with a specific address, not `0.0.0.0` | None | Everyone on the network, who can also sniff the token |
+| [WireGuard, read-only](#wireguard) | no, decisions only | no: plain HTTP inside the tunnel | yes, read-only | no: the board listens on a network address | WireGuard | Every WireGuard peer |
+| [A LAN address](#a-lan-address) | no, decisions only | no: plain HTTP | yes, read-only, over plain HTTP | no: the board listens on a network address | None | Everyone on the network, who can also sniff the token |
 
 A path that reaches the board over HTTPS through a proxy that sends `X-Forwarded-Proto: https` and `X-Forwarded-For` (`tailscale serve`, a Cloudflare Tunnel, a TLS proxy in front of WireGuard) lets the phone install the Board as an app and shows an offline page when the laptop does not answer: see [Install the Board as an app](board.md#install-the-board-as-an-app). An SSH tunnel, a LAN address and WireGuard over plain HTTP do not get it, because their pages are not secure and carry no proxy header.
 
@@ -27,7 +27,7 @@ The phone's session is a cookie per fleet it is paired with, `hand_phone_<fleet 
 
 Tapping an alert opens the item in the phone's browser with the phone's session, because the phone's cookie is `SameSite=Lax`: a browser sends it when a link from another app opens a page. Lax allows only that page load and withholds the cookie on a form posted from another site, and the form token every change needs, the tailnet login check and the 90-day life of the session still protect the board. A phone paired before this change keeps its `Strict` cookie until it is paired again.
 
-`HAND_NOTIFY_URL` is `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. When the board listens on `0.0.0.0`, that address is still `127.0.0.1`. Only `tailscale serve` changes it by itself. For a path with its own HTTPS name, rewrite the link in the command in `routing.json` ([Alerts on your phone](alerts.md)). With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
+`HAND_NOTIFY_URL` is `http://127.0.0.1:7777/<fleet id>/...`, from the address the board wrote to `board.addr`. When the board listens on `0.0.0.0`, that address is still `127.0.0.1`. A board on another network address has no URL. Only `tailscale serve` changes it by itself: it gives a network board the tailnet address instead. For a path with its own HTTPS name, rewrite the link in the command in `routing.json` ([Alerts on your phone](alerts.md)). With POSIX `sh`, and `https://board.example.com` as the address the phone opens:
 
 ```json
 "notify": ["sh", "-c", "exec curl -s -H \"Title: $HAND_NOTIFY_REF\" -H \"Click: https://board.example.com${HAND_NOTIFY_URL#http://127.0.0.1:7777}\" --data-raw \"$HAND_NOTIFY_TEXT\" https://ntfy.sh/CHOOSE-A-LONG-RANDOM-TOPIC"]
@@ -213,7 +213,7 @@ The board refuses Funnel traffic by its `Tailscale-Funnel-Request` header. It ha
 
 - Of the four paths, this one has the most to run. Read-only is the short version, and gives up the composer, attachments and supervisor control.
 - Read-only is plain HTTP, not HTTPS. The copy buttons use the Clipboard API where the browser allows it, and fall back to `execCommand`.
-- In read-only mode the alert link is already `http://10.8.0.1:7777/...`: it is the address the board wrote to `board.addr`. It opens on the phone while WireGuard is up. With a TLS proxy it needs the rewrite above.
+- In read-only mode the alert link is empty: the board listens on the WireGuard address, and Hand links only a loopback board or a ready `tailscale serve`. The phone opens the board directly while WireGuard is up.
 - Every peer can open the board's login page. Do not add a peer you do not trust.
 
 **Security.** Every WireGuard peer reaches the board's port. The token or a pairing still guards every page, and in read-only mode a session can answer decisions, which steer the supervisor. A proxy that sends `X-Forwarded-For` hides the fleet list from a request that holds no valid phone session. Do not bind `0.0.0.0`.
@@ -237,7 +237,7 @@ Use the laptop's address on that network. `0.0.0.0:7777` also works and listens 
 **Cost and what goes wrong.**
 
 - Plain HTTP. Anyone on the network who can see the traffic can take the token, the pairing code or a phone's session cookie, and the document viewer reads the fleet folder's files with the token. A decision they answer goes to the supervisor. On a shared or public network, do not use this path.
-- `/` shows no fleet list on a network address. The alert link is `http://127.0.0.1:7777/...` when you listen on `0.0.0.0`, and the LAN address only when you name it.
+- `/` shows no fleet list on a network address. The alert link is `http://127.0.0.1:7777/...` when you listen on `0.0.0.0`, which a phone cannot open; on a named LAN address it is empty. Run `tailscale serve` for a link the phone opens.
 - Not HTTPS. The copy buttons use the Clipboard API where the browser allows it, and fall back to `execCommand`.
 
 **Security.** Everyone on the network reaches the board's port. Use it at home on a network you trust, or not at all.

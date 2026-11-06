@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -794,7 +795,8 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string, []string, []string) {
 	p, err := harness.LoadPolicy(w.r.home)
 	if err == nil && len(p.Notify) > 0 {
-		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + w.boardURL(ctx, ref)}
+		url, _ := w.boardURL(ctx, ref)
+		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + url}
 	}
 	if _, serr := os.Stat(filepath.Join(w.r.home, harness.PolicyFile)); err != nil && serr == nil && w.warned.CompareAndSwap(false, true) {
 		w.say(harness.PolicyFile + " unreadable, using the desktop notifier: " + err.Error())
@@ -803,33 +805,100 @@ func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string,
 	return name, args, nil
 }
 
-func (w *watcher) boardURL(ctx context.Context, ref string) string {
+func (w *watcher) boardURL(ctx context.Context, ref string) (string, bool) {
 	addr, err := os.ReadFile(filepath.Join(w.r.root, "board.addr"))
 	if err != nil {
-		return ""
+		return "", false
 	}
 	host := strings.TrimSpace(string(addr))
 	if host == "" {
-		return ""
+		return "", false
+	}
+	base, openable := boardBase("http://" + host)
+	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
+		if b, ok := phoneBase(phone); ok {
+			base = b
+		}
+	}
+	if base == nil {
+		return "", false
 	}
 	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
-		return ""
+		return "", false
 	}
-	base := "http://" + host
-	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
-		base = phone
-	}
-	raw := base + "/" + w.r.fleet.ID + path + fragment
-	if !openableURL(raw) {
-		return ""
-	}
-	return raw
+	u := *base
+	u.Path = "/" + w.r.fleet.ID + path
+	u.Fragment = strings.TrimPrefix(fragment, "#")
+	return u.String(), openable
 }
 
-func openableURL(raw string) bool {
+func boardBase(raw string) (*url.URL, bool) {
+	u, ok := baseURL(raw)
+	if !ok {
+		return nil, false
+	}
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if port == "" {
+		return nil, false
+	}
+	if host == "localhost" {
+		return u, true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return nil, false
+	}
+	return u, true
+}
+
+func phoneBase(raw string) (*url.URL, bool) {
+	u, ok := baseURL(raw)
+	if !ok {
+		return nil, false
+	}
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if host == "localhost" {
+		if port == "" {
+			return nil, false
+		}
+		return u, true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !ip.IsLoopback() || port == "" {
+			return nil, false
+		}
+		return u, true
+	}
+	if !dnsName(host) {
+		return nil, false
+	}
+	return u, true
+}
+
+func baseURL(raw string) (*url.URL, bool) {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, false
+	}
+	return u, u.Hostname() != ""
+}
+
+func dnsName(host string) bool {
+	if len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (w *watcher) flushWarns() {
