@@ -115,6 +115,15 @@ func Home(root, id string) (string, error) {
 }
 
 func Resolve(root, ref string) (Entry, error) {
+	if state.FleetID.MatchString(ref) {
+		entry, ok, err := resolveID(root, ref)
+		if err != nil {
+			return Entry{}, err
+		}
+		if ok {
+			return entry, nil
+		}
+	}
 	des, err := os.ReadDir(filepath.Join(root, "fleets"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s", state.ErrInvalid, ref, root)
@@ -167,6 +176,24 @@ func Resolve(root, ref string) (Entry, error) {
 		names = append(names, h.ID)
 	}
 	return Entry{}, fmt.Errorf("%w: %q names more than one fleet: %s; use the fleet id", state.ErrConflict, ref, strings.Join(names, ", "))
+}
+
+func resolveID(root, id string) (Entry, bool, error) {
+	target, err := readLink(root, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, false, nil
+	}
+	if err != nil {
+		return Entry{}, false, err
+	}
+	f, err := state.ReadFleet(target)
+	if err != nil {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s at %s: %v", state.ErrInvalid, id, target, err)
+	}
+	if f.ID != id {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s is registered at %s, which holds %s; run `hand init` there", state.ErrConflict, id, target, f.ID)
+	}
+	return Entry{ID: f.ID, Name: f.Name, Home: target, State: "ok"}, true, nil
 }
 
 func List(root string) ([]Entry, error) {

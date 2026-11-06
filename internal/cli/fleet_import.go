@@ -34,11 +34,9 @@ func init() {
 	fleetCommands["import"] = cmdFleetImport
 }
 
-func importMarker(home string) string { return filepath.Join(home, "imported-into") }
-
 func cmdFleetImport(r *runner, args []string) error {
-	set := flags("fleet import")
-	dry := set.Bool("dry-run", false, "print the manifest and write nothing")
+	set := flags("fleet import SRC INTO DST")
+	dry := set.Bool("dry-run", false, "print the manifest, write no rows, files or marker; SQLite may create hand.db-shm/-wal beside an opened database")
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
 		if a == "--dry-run" {
@@ -70,7 +68,14 @@ func cmdFleetImport(r *runner, args []string) error {
 	if src.ID == dst.ID || sameHome(src.Home, dst.Home) {
 		return fmt.Errorf("%w: source and destination are the same fleet %s", state.ErrConflict, src.ID)
 	}
-	marker := importMarker(src.Home)
+	if !*dry {
+		lock, err := state.LockImport(dst.Home)
+		if err != nil {
+			return err
+		}
+		defer lock.Close()
+	}
+	marker := state.ImportMarker(src.Home)
 	if _, err := os.Stat(marker); err == nil {
 		return fmt.Errorf("%w: fleet %s was already imported (marker %s)", state.ErrConflict, src.ID, marker)
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -108,30 +113,33 @@ func cmdFleetImport(r *runner, args []string) error {
 			return fmt.Errorf("%w: %s fleet %s is live (%s); stop it first", state.ErrConflict, f.what, f.id, strings.Join(live, ", "))
 		}
 	}
-	res, err := state.ImportFleet(ctx, state.ImportOptions{SourceID: src.ID, SourceHome: src.Home, DestHome: dst.Home, DryRun: *dry})
+	res, err := state.ImportFleet(ctx, state.ImportOptions{SourceID: src.ID, SourceHome: src.Home, DestID: dst.ID, DestHome: dst.Home, DryRun: *dry})
 	if err != nil {
 		return err
 	}
-	if !*dry {
-		writeErr := writeImportMarker(marker, dst.ID, res)
-		files := importContent(src.Home, dst.Home, src.ID, res.Reports, false)
-		if err := printImportManifest(r, src, dst, *dry, res, files, marker); err != nil {
+	if err := printImportDatabase(r, src, dst, *dry, res, marker); err != nil {
+		return err
+	}
+	if *dry {
+		files := importContent(src.Home, dst.Home, src.ID, res.Reports, true)
+		if err := printImportFiles(r, files); err != nil {
 			return err
 		}
-		if writeErr != nil {
-			return fmt.Errorf("the database import committed, but the source marker failed: %w", writeErr)
-		}
 		if len(files.Failed) > 0 {
-			return fmt.Errorf("the database import committed, but %d file(s) failed to copy", len(files.Failed))
+			return fmt.Errorf("%d file(s) would fail to copy; nothing was written", len(files.Failed))
 		}
 		return nil
 	}
-	files := importContent(src.Home, dst.Home, src.ID, res.Reports, true)
-	if err := printImportManifest(r, src, dst, *dry, res, files, marker); err != nil {
+	writeErr := writeImportMarker(marker, dst.ID, res)
+	files := importContent(src.Home, dst.Home, src.ID, res.Reports, false)
+	if err := printImportFiles(r, files); err != nil {
 		return err
 	}
+	if writeErr != nil {
+		return fmt.Errorf("the database import committed, but the source marker failed: %w", writeErr)
+	}
 	if len(files.Failed) > 0 {
-		return fmt.Errorf("%d file(s) would fail to copy; nothing was written", len(files.Failed))
+		return fmt.Errorf("the database import committed, but %d file(s) failed to copy", len(files.Failed))
 	}
 	return nil
 }
@@ -265,7 +273,7 @@ func copyImportFile(src, dst string, dry bool) (int, error) {
 	if dry {
 		return importCopied, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return 0, err
 	}
 	in, err := os.Open(src)
@@ -328,7 +336,7 @@ func copyImportBytes(b []byte, dst string, dry bool) (int, error) {
 	if dry {
 		return importCopied, nil
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
 		return 0, err
 	}
 	f, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -344,7 +352,8 @@ func importReportBody(srcID string, rep state.ImportReportRow) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "source: %s\n", srcID)
 	fmt.Fprintf(&b, "task: %s\n", state.TaskRef(rep.NewTaskID))
-	fmt.Fprintf(&b, "attempt: %s\n", state.AttemptRef(rep.AttemptID))
+	fmt.Fprintf(&b, "source_task: %s\n", state.TaskRef(rep.TaskID))
+	fmt.Fprintf(&b, "source_attempt: %s (not imported)\n", state.AttemptRef(rep.AttemptID))
 	fmt.Fprintf(&b, "created: %s\n", rep.CreatedAt)
 	fmt.Fprintf(&b, "status: %s\n\n", rep.Status)
 	b.WriteString(rep.Body)
@@ -377,8 +386,9 @@ func importSlug(s string) string {
 	return out
 }
 
-func printImportManifest(r *runner, src, dst fleet.Entry, dry bool, res state.ImportResult, files importFileReport, marker string) error {
+func printImportDatabase(r *runner, src, dst fleet.Entry, dry bool, res state.ImportResult, marker string) error {
 	var d toon.Doc
+	d.Field("manifest", "database")
 	d.Field("source", src.ID+" "+src.Name)
 	d.Field("destination", dst.ID+" "+dst.Name)
 	d.Bool("dry_run", dry)
@@ -422,6 +432,21 @@ func printImportManifest(r *runner, src, dst fleet.Entry, dry bool, res state.Im
 		ambiguous = append(ambiguous, []string{a.Table, a.Key, a.Column, a.Token, a.Context})
 	}
 	d.Rows("ambiguous", []string{"table", "key", "column", "token", "context"}, ambiguous)
+	d.Field("text_sha256", res.TextSHA256)
+	if dry {
+		d.Field("marker", "would write "+marker)
+		d.Help("Dry run: no row, file or marker was written; the file part follows")
+	} else {
+		d.Field("marker", marker)
+		d.Field("event_seq", strconv.FormatInt(res.EventSeq, 10))
+		d.Help("The database import committed; the file part follows")
+	}
+	return r.print(&d)
+}
+
+func printImportFiles(r *runner, files importFileReport) error {
+	var d toon.Doc
+	d.Field("manifest", "files")
 	d.Field("archive", files.Archive)
 	d.Field("reports_exported", strconv.Itoa(files.Exported))
 	d.Rows("files", []string{"kind", "count"}, [][]string{
@@ -440,13 +465,6 @@ func printImportManifest(r *runner, src, dst fleet.Entry, dry bool, res state.Im
 		failed = append(failed, []string{f.Source, f.Destination, f.Reason})
 	}
 	d.Rows("failed", []string{"source", "destination", "reason"}, failed)
-	d.Field("text_sha256", res.TextSHA256)
-	if dry {
-		d.Field("marker", "would write "+marker)
-	} else {
-		d.Field("marker", marker)
-		d.Field("event_seq", strconv.FormatInt(res.EventSeq, 10))
-	}
-	d.Help("Import copies the source's files and exports its reports; the source home stays complete")
+	d.Help("Copied files keep their source names, and copied briefs and reports keep source task ids; the archive headers name the source task and source attempt, which are not imported")
 	return r.print(&d)
 }

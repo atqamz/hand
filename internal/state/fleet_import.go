@@ -7,18 +7,53 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atqamz/hand/internal/flock"
 )
 
 type ImportOptions struct {
 	SourceID   string
 	SourceHome string
+	DestID     string
 	DestHome   string
 	DryRun     bool
+}
+
+type ImportLock struct {
+	file *os.File
+}
+
+func ImportMarker(home string) string { return filepath.Join(home, "imported-into") }
+
+func LockImport(home string) (*ImportLock, error) {
+	f, err := os.OpenFile(filepath.Join(home, "hand.db.import.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	ok, err := flock.Lock(f, false)
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if !ok {
+		_ = f.Close()
+		return nil, fmt.Errorf("%w: another fleet import is running in %s", ErrConflict, home)
+	}
+	return &ImportLock{file: f}, nil
+}
+
+func (l *ImportLock) Close() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	return flock.Release(l.file)
 }
 
 type ImportHealth struct {
@@ -158,6 +193,9 @@ func ImportFleet(ctx context.Context, o ImportOptions) (ImportResult, error) {
 	defer store.Close()
 	var out ImportResult
 	err = store.tx(ctx, func(tx *sql.Tx) error {
+		if err := checkImportRecorded(ctx, tx, o); err != nil {
+			return err
+		}
 		p, err := planImport(ctx, src, tx, o)
 		if err != nil {
 			return err
@@ -173,6 +211,23 @@ func ImportFleet(ctx context.Context, o ImportOptions) (ImportResult, error) {
 		return err
 	})
 	return out, err
+}
+
+func checkImportRecorded(ctx context.Context, tx *sql.Tx, o ImportOptions) error {
+	marker := ImportMarker(o.SourceHome)
+	if _, err := os.Stat(marker); err == nil {
+		return fmt.Errorf("%w: fleet %s was already imported (marker %s)", ErrConflict, o.SourceID, marker)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM event WHERE kind = 'fleet.imported' AND detail LIKE ?`, o.SourceID+" %").Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: fleet %s was already imported into %s (fleet.imported event)", ErrConflict, o.SourceID, o.DestID)
+	}
+	return nil
 }
 
 type importQueryer interface {
@@ -238,20 +293,21 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 	byRepo := map[string]Project{}
 	for _, pr := range dstProjects {
 		byName[pr.Name] = pr
-		byRepo[filepath.Clean(pr.Repo)] = pr
+		byRepo[importCanonical(o.DestHome, pr.Repo)] = pr
 	}
 	projectOf := map[string]string{}
 	for _, pr := range srcProjects {
 		repo := importRepo(o.SourceHome, pr.Repo)
+		canonical := importCanonical(o.SourceHome, pr.Repo)
 		if have, ok := byName[pr.Name]; ok {
-			if filepath.Clean(have.Repo) != filepath.Clean(repo) {
+			if importCanonical(o.DestHome, have.Repo) != canonical {
 				return p, fmt.Errorf("%w: project %s exists on both sides with a different repo (%s and %s); rename it in the source fleet or import into a fleet without it", ErrConflict, pr.Name, have.Repo, repo)
 			}
 			projectOf[pr.Name] = pr.Name
 			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: have.Repo, Source: pr.Name, Action: "reused"})
 			continue
 		}
-		if have, ok := byRepo[filepath.Clean(repo)]; ok {
+		if have, ok := byRepo[canonical]; ok {
 			projectOf[pr.Name] = have.Name
 			p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, Source: pr.Name, Action: "reused " + have.Name})
 			continue
@@ -259,7 +315,7 @@ func planImport(ctx context.Context, src *sql.DB, dst importQueryer, o ImportOpt
 		stored := storedPath(o.DestHome, repo)
 		p.projects = append(p.projects, Project{Name: pr.Name, Repo: stored, Settings: pr.Settings, CreatedAt: pr.CreatedAt})
 		byName[pr.Name] = Project{Name: pr.Name, Repo: repo}
-		byRepo[filepath.Clean(repo)] = Project{Name: pr.Name, Repo: repo}
+		byRepo[canonical] = Project{Name: pr.Name, Repo: repo}
 		projectOf[pr.Name] = pr.Name
 		p.result.Projects = append(p.result.Projects, ImportProject{Name: pr.Name, Repo: repo, Source: pr.Name, Action: "added"})
 	}
@@ -364,6 +420,14 @@ func importRepo(home, repo string) string {
 	return filepath.Clean(filepath.Join(home, repo))
 }
 
+func importCanonical(home, repo string) string {
+	path := importRepo(home, repo)
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
+}
+
 func importTextHash(projects []Project, tasks []Task) string {
 	h := sha256.New()
 	for _, p := range projects {
@@ -382,15 +446,24 @@ func rewriteImportText(s string, ids map[int64]bool, offset int64, key, column s
 	var b strings.Builder
 	var refs, left []ImportRef
 	var ambiguous []ImportAmbiguous
+	seen := map[[2]int]bool{}
 	pos := 0
 	for _, loc := range importRefPattern.FindAllStringIndex(s, -1) {
 		if loc[0] > 0 && importGlue(s[loc[0]-1]) {
+			start, end := importRunStart(s, loc[0]), importRunEnd(s, loc[1])
+			if !seen[[2]int{start, end}] {
+				seen[[2]int{start, end}] = true
+				ambiguous = append(ambiguous, ImportAmbiguous{Table: "task", Key: key, Column: column, Token: s[start:end], Context: importContext(s, start, end)})
+			}
 			continue
 		}
 		tok := s[loc[0]:loc[1]]
 		if loc[0] > 0 && importRisky(s[loc[0]-1]) || loc[1] < len(s) && !importWholeEnd(s, loc[1]) {
-			run := importRun(s, loc[0], loc[1])
-			ambiguous = append(ambiguous, ImportAmbiguous{Table: "task", Key: key, Column: column, Token: run, Context: importContext(s, loc[0], loc[1])})
+			start, end := importRunStart(s, loc[0]), importRunEnd(s, loc[1])
+			if !seen[[2]int{start, end}] {
+				seen[[2]int{start, end}] = true
+				ambiguous = append(ambiguous, ImportAmbiguous{Table: "task", Key: key, Column: column, Token: s[start:end], Context: importContext(s, start, end)})
+			}
 			continue
 		}
 		b.WriteString(s[pos:loc[0]])
@@ -441,11 +514,18 @@ func importWholeEnd(s string, i int) bool {
 	return false
 }
 
-func importRun(s string, start, end int) string {
+func importRunStart(s string, start int) int {
+	for start > 0 && importGlue(s[start-1]) {
+		start--
+	}
+	return start
+}
+
+func importRunEnd(s string, end int) int {
 	for end < len(s) && importGlue(s[end]) {
 		end++
 	}
-	return s[start:end]
+	return end
 }
 
 func importContext(s string, start, end int) string {
