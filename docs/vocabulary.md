@@ -148,6 +148,10 @@ A fleet home holds:
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
 
+### Import
+
+`hand fleet import SRC INTO DST`: the archive copy of one registered fleet into another. It adds the source projects and tasks (the tasks at `t + offset`, with only `tN` references in their title and goal shifted), copies its content folders, and exports its report bodies under `reports/archive-<source id>/`; it imports no attempt, report, decision, timer, event or supervisor input row. A project with the same repository is reused, a project with the same name and another repository is refused, and a file whose destination path already holds different content is left alone and reported. The source home keeps its files and gains an `imported-into` marker; the destination gains one `fleet.imported` event. `--dry-run` prints the manifest and writes nothing.
+
 ### Inbox folder and trash
 
 `inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>`, with or without an extension (see Supervisor input). Hand deletes nothing there except through a prune:

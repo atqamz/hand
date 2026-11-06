@@ -108,12 +108,14 @@ func (s *Store) TrustProject(ctx context.Context, name, settings string) error {
 	})
 }
 
-func (s *Store) stored(repo string) string {
+func (s *Store) stored(repo string) string { return storedPath(s.home, repo) }
+
+func storedPath(home, repo string) string {
 	real := repo
 	if r, err := filepath.EvalSymlinks(repo); err == nil {
 		real = r
 	}
-	rel, err := filepath.Rel(s.home, real)
+	rel, err := filepath.Rel(home, real)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return repo
 	}
