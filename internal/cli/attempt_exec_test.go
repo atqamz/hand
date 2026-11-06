@@ -17,11 +17,11 @@ import (
 var scratchNames = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
 
 func scratchOf(h *harness, worktree string) string {
-	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
+	root, err := filepath.EvalSymlinks(h.home)
 	if err != nil {
-		root = h.vars["SECONDHAND_HOME"]
+		root = h.home
 	}
-	return filepath.Join(root, "scratch", filepath.Base(filepath.Dir(worktree)), filepath.Base(worktree))
+	return filepath.Join(root, "scratch", filepath.Base(worktree))
 }
 
 func readScratchEnv(t *testing.T, path string) (map[string]string, []string) {

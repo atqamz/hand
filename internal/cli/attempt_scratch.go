@@ -26,10 +26,10 @@ var attemptScratchKey = regexp.MustCompile(`^t[0-9]+-a[0-9]+$`)
 
 func (r *runner) scratchDir(a state.Attempt) string {
 	name := filepath.Base(a.Worktree)
-	if !r.rootOK() || !attemptScratchKey.MatchString(name) {
+	if r.home == "" || !attemptScratchKey.MatchString(name) {
 		return ""
 	}
-	return filepath.Join(fleet.Scratch(r.root, r.fleet.ID), name)
+	return filepath.Join(fleet.Scratch(r.home), name)
 }
 
 func (r *runner) rootOK() bool { return r.root != "" && r.fleet.ID != "" }
@@ -38,7 +38,7 @@ func (r *runner) scratchOrphans(live []state.Attempt) []string {
 	if !r.rootOK() {
 		return nil
 	}
-	base := fleet.Scratch(r.root, r.fleet.ID)
+	base := fleet.Scratch(r.home)
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		return nil

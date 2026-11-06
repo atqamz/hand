@@ -42,7 +42,7 @@ A worker can:
 
 A git worktree is not a fence. It is a folder.
 
-Hand gives each worker a scratch folder under `~/.secondhand/scratch` and points its temporary-directory variables at it, so its temporary files, downloads and build output have a correct default. That folder is not a fence either: it sits in your home folder, and a worker that ignores the variables or writes an absolute path can still reach anything its account can.
+Hand gives each worker a scratch folder under the fleet home's `scratch/` and points its temporary-directory variables at it, so its temporary files, downloads and build output have a correct default. That folder is not a fence either: it sits in the fleet home, and a worker that ignores the variables or writes an absolute path can still reach anything its account can.
 
 ## What to do about it
 
