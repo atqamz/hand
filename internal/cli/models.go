@@ -64,7 +64,9 @@ func (r *runner) modelOptions() (harness.Env, harness.Options) {
 	if dir == "" {
 		dir, _ = r.getwd()
 	}
-	return harness.EnvOf(r.env.Getenv), harness.Options{Environ: r.env.Environ(), Dir: dir, Now: r.env.Now}
+	env := harness.EnvOf(r.env.Getenv)
+	env.Dir = dir
+	return env, harness.Options{Environ: r.env.Environ(), Dir: dir, Now: r.env.Now}
 }
 
 func (r *runner) refreshModels(names []string, env harness.Env, o harness.Options) error {
@@ -125,7 +127,8 @@ func listingState(name string, st harness.Status) string {
 }
 
 func (r *runner) modelSummary(name string) string {
-	env, now := harness.EnvOf(r.env.Getenv), r.env.Now()
+	env, _ := r.modelOptions()
+	now := r.env.Now()
 	st := harness.StatusOf(name, env, now)
 	models, _ := harness.Detected(name, env)
 	if !st.Found || len(models) == 0 {

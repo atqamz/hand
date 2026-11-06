@@ -129,7 +129,7 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 		t.Fatalf("luvus = %q", field(out, "luvus"))
 	}
 	rows := checkRows(t, out)
-	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "luvus server", "board", "watcher"}
+	want := []string{"hand", "git", "harness claude", "harness codex", "harness opencode", "harness agy", "harness copilot", "harness omp", "luvus pin", "schema", "fleet", "routing.json", "profile default", "profile quick", "luvus server", "board", "watcher"}
 	if runtime.GOOS == "linux" {
 		want = append(want, "systemd")
 	}
@@ -149,8 +149,8 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 	if row := rows["iroh"]; row[0] != "info" || !strings.Contains(row[1], "not installed") {
 		t.Fatalf("iroh = %q with no hand-iroh in %q", row, out)
 	}
-	if len(rows) != len(want)+10 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+10, out)
+	if len(rows) != len(want)+11 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+11, out)
 	}
 }
 
@@ -167,6 +167,7 @@ func TestDoctorReportsWhatEachHarnessListed(t *testing.T) {
 		"models codex":    "1 detected (discovered 1), cache <1m old",
 		"models agy":      "1 detected (discovered 1), cache <1m old",
 		"models copilot":  "3 detected (discovered 3), cache <1m old",
+		"models omp":      "2 detected (discovered 2), cache <1m old",
 		"models opencode": "no list: opencode models --standalone printed no model names",
 	} {
 		if row := rows[check]; row[0] != "info" || !strings.Contains(row[1], want) {
@@ -309,6 +310,17 @@ func TestDoctorChecksLongPathsOnWindows(t *testing.T) {
 	fakebin.Install(t, fx.tools, "git", "fake", map[string]string{"on --version": "git version 2.51.0.windows.1\n", "on config": "false\n"})
 	if row := checkRows(t, fx.h.ok("doctor"))["git"]; row[0] != "warn" || !strings.Contains(row[1], "git config --global core.longpaths true") {
 		t.Fatalf("git = %q", row)
+	}
+}
+
+func TestDoctorReadsTheOmpCacheFromTheFleetHomeWhateverTheWorkingDirectory(t *testing.T) {
+	fx := newDoctorFixture(t)
+	fx.h.vars["PI_CODING_AGENT_DIR"] = ".omp-agent"
+	fx.h.ok("models", "--refresh", "omp")
+	t.Chdir(t.TempDir())
+	row := checkRows(t, fx.h.ok("doctor"))["models omp"]
+	if row[0] != "info" || strings.Contains(row[1], "stale") {
+		t.Fatalf("models omp = %q", row)
 	}
 }
 

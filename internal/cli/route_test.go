@@ -58,6 +58,20 @@ func TestRouteListPrintsModels(t *testing.T) {
 	}
 }
 
+func TestRouteListShowsOmp(t *testing.T) {
+	h := newHarness(t)
+	h.vars["PATH"] = fakeBin(t)
+	h.ok("init")
+	policy := `{"profiles":{"default":{"harness":"omp","model":"commandcode/deepseek/deepseek-v4.1-flash","effort":"low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list := h.ok("route", "list")
+	if !strings.Contains(list, `default,omp,commandcode/deepseek/deepseek-v4.1-flash,low,yes,""`) || !strings.Contains(list, "omp,commandcode/deepseek/deepseek-v4.1-flash,low high max") {
+		t.Fatalf("route list = %q", list)
+	}
+}
+
 func TestRouteListShowsAgyEfforts(t *testing.T) {
 	h := newHarness(t)
 	h.vars["PATH"] = fakeBin(t)

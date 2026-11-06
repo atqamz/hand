@@ -60,7 +60,7 @@ const (
 	AccessReadonly = "readonly"
 )
 
-var Harnesses = []string{"claude", "codex", "opencode", "agy", "copilot"}
+var Harnesses = []string{"claude", "codex", "opencode", "agy", "copilot", "omp"}
 
 var attemptEnds = map[string][]string{
 	AttemptLaunching: {AttemptFailed},

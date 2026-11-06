@@ -516,6 +516,18 @@ func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
 	}
 }
 
+func TestTheRefreshActionListsOmp(t *testing.T) {
+	r := newModelRig(t)
+	r.install(t, "omp", "printer", map[string]string{"out": `{"models":[{"selector":"commandcode/deepseek/deepseek-v4.1-flash","name":"DeepSeek V4.1 Flash","thinking":["low","high"]}]}`})
+	if rec := fetchPost(r.fx.handler(), "/models/refresh", url.Values{"harness": {"omp"}}); rec.Code != http.StatusNoContent {
+		t.Fatalf("refresh omp = %d", rec.Code)
+	}
+	waitFor(t, "the omp list", func() bool { return harness.StatusOf("omp", r.env, time.Now()).Found })
+	if models, err := harness.Detected("omp", r.env); err != nil || len(models) != 1 || models[0].Name != "commandcode/deepseek/deepseek-v4.1-flash" {
+		t.Fatalf("detected %v, %v", models, err)
+	}
+}
+
 func TestTheRefreshActionListsCopilot(t *testing.T) {
 	r := newModelRig(t)
 	r.install(t, "copilot", "printer", map[string]string{"out": "  `model`: AI model\n    - \"gpt-6-luna\"\n\n  `other`: x\n"})
