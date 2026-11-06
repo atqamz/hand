@@ -581,7 +581,15 @@ func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
 	}
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
 	eventually(t, func() bool { return exists(scratch) })
-	if out, code := execScratch(t, fx.h, scratch); code != 0 {
+	command := []string{"/usr/bin/true"}
+	if runtime.GOOS == "windows" {
+		comspec := os.Getenv("ComSpec")
+		if comspec == "" {
+			t.Skip("no ComSpec")
+		}
+		command = []string{comspec, "/c", "exit 0"}
+	}
+	if out, code := execScratch(t, fx.h, scratch, command...); code != 0 {
 		t.Fatalf("_exec: exit = %d, output %q", code, out)
 	}
 	if after := fx.h.ok("attempt", "list"); after != before {
