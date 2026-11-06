@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -529,15 +530,24 @@ func rewriteHome(s, from, to, home string) (string, int, int) {
 	}
 	tilde := 0
 	if oldBase, ok := homeChild(from, home); ok {
+		jsonCell := runtime.GOOS == "windows" && json.Valid([]byte(s))
 		target := to
 		if newBase, ok := homeChild(to, home); ok {
 			target = "~/" + newBase
 		}
-		out, tilde = replacePath(out, "~/"+oldBase, target)
+		escapedTarget := target
+		if jsonCell {
+			escapedTarget = escapeBackslashes(target)
+		}
+		out, tilde = replacePath(out, "~/"+oldBase, escapedTarget)
 		if foldHome() {
 			var n int
 			out, n = replacePath(out, `~\`+oldBase, target)
 			tilde += n
+			if jsonCell {
+				out, n = replacePath(out, `~\\`+oldBase, escapedTarget)
+				tilde += n
+			}
 		}
 	}
 	return out, absolute, tilde

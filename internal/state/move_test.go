@@ -105,6 +105,7 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 		}
 		return v
 	}
+	wantArgv, _ := json.Marshal([]string{"x", to + "/y"})
 	cases := []struct{ q, want string }{
 		{`SELECT repo FROM project WHERE name = 'app'`, to + "/repo"},
 		{`SELECT settings FROM project WHERE name = 'app'`, `{"repo":"` + to + `"}`},
@@ -115,7 +116,7 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 		{`SELECT answer FROM decision WHERE id = 1`, "a " + newTilde + "/x and " + to},
 		{`SELECT answered_by FROM decision WHERE id = 1`, newTilde},
 		{`SELECT detail FROM event WHERE kind = 'test'`, "e " + to + "/reports/t1/x.md. " + newTilde},
-		{`SELECT argv FROM attempt WHERE id = 1`, `["x","` + to + `/y"] ` + newTilde},
+		{`SELECT argv FROM attempt WHERE id = 1`, string(wantArgv) + " " + newTilde},
 		{`SELECT reason FROM attempt WHERE id = 1`, to},
 		{`SELECT screen FROM attempt WHERE id = 1`, newTilde + "/screen"},
 		{`SELECT kept FROM attempt WHERE id = 1`, to + " kept"},
@@ -375,7 +376,7 @@ func TestMoveHomeVerificationSeesFormsTheMatcherMisses(t *testing.T) {
 	}{
 		{"file url", func(t *testing.T, s *Store, old string) string { return "file://" + old + "/x" }},
 		{"json slash", func(t *testing.T, s *Store, old string) string {
-			return strings.ReplaceAll(old, "/", `\u002f`) + `\u002fx`
+			return strings.ReplaceAll(filepath.ToSlash(old), "/", `\u002f`) + `\u002fx`
 		}},
 		{"case variant", func(t *testing.T, s *Store, old string) string {
 			if runtime.GOOS != "windows" {
