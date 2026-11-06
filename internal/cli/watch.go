@@ -58,25 +58,25 @@ type watcher struct {
 	pruned  string
 	reaped  atomic.Value
 
-	rest          rest
-	policyWarned  bool
-	inboxWarned   bool
-	modelsBusy    atomic.Bool
-	sweepBusy     atomic.Bool
-	reapBusy      atomic.Bool
-	reapWarned    atomic.Bool
-	transcripts   *transcript.Reader
-	sources       map[string]modelSource
-	modelSessions map[int64]modelSession
-	supModel      modelSession
-	busy          map[string]bool
-	heldAt        map[int64]time.Time
-	blockedAt     map[int64]time.Time
-	busyNow       chan busyList
-	busyMisses    int
-	modelsSaid    map[string]string
-	sessionNote   atomic.Value
-	saying        sync.Mutex
+	rest           rest
+	policyWarned   bool
+	inboxWarned    bool
+	modelsBusy     atomic.Bool
+	sweepBusy      atomic.Bool
+	reapBusy       atomic.Bool
+	reapWarned     atomic.Bool
+	transcripts    *transcript.Reader
+	sources        map[string]modelSource
+	modelSessions  map[int64]modelSession
+	supModel       modelSession
+	busy           map[string]bool
+	heldAt         map[int64]time.Time
+	blockedPending map[int64]struct{}
+	busyNow        chan busyList
+	busyMisses     int
+	modelsSaid     map[string]string
+	sessionNote    atomic.Value
+	saying         sync.Mutex
 
 	clickCtx  context.Context
 	clicks    atomic.Int32
@@ -209,7 +209,7 @@ func (w *watcher) session(ctx context.Context) error {
 	for id, seen := range w.seen {
 		carried[id] = seen == "held"
 	}
-	w.seen, w.heldAt, w.blockedAt = map[int64]string{}, map[int64]time.Time{}, map[int64]time.Time{}
+	w.seen, w.heldAt, w.blockedPending = map[int64]string{}, map[int64]time.Time{}, map[int64]struct{}{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
@@ -235,7 +235,7 @@ func (w *watcher) session(ctx context.Context) error {
 			return err
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
-				err = w.confirmBlocked(sctx, c, caps)
+				err = w.confirmBlocked(sctx, c)
 			}
 			if err == nil {
 				err = w.longTurns(sctx)
@@ -404,7 +404,6 @@ func (w *watcher) reconcile(ctx context.Context, c luvus.Client, caps luvus.Capa
 		}
 		if !now.Live() {
 			delete(w.seen, a.ID)
-			delete(w.blockedAt, a.ID)
 			w.r.screens.take(a.ID)
 			ref := state.AttemptRef(a.ID)
 			w.alert(ctx, "attempt."+now.Status, ref, ref+" "+now.Status+": "+now.Reason)
@@ -645,17 +644,18 @@ func (w *watcher) longTurns(ctx context.Context) error {
 func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, status string) error {
 	prev := w.seen[a.ID]
 	if prev == "held" && (status == "done" || status == "idle") {
+		delete(w.blockedPending, a.ID)
 		return nil
 	}
 	if status == "blocked" {
-		if _, held := w.blockedAt[a.ID]; !held {
+		if _, pending := w.blockedPending[a.ID]; !pending {
 			if prev != "blocked" {
-				w.blockedAt[a.ID] = w.r.env.Now()
+				w.blockedPending[a.ID] = struct{}{}
 			}
 			return nil
 		}
 	}
-	delete(w.blockedAt, a.ID)
+	delete(w.blockedPending, a.ID)
 	t := w.turns[a.ID]
 	switch {
 	case status != "working":
@@ -744,8 +744,8 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	return nil
 }
 
-func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client, caps luvus.Capabilities) error {
-	if len(w.blockedAt) == 0 {
+func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client) error {
+	if len(w.blockedPending) == 0 {
 		return nil
 	}
 	live, err := w.st.LiveAttempts(ctx)
@@ -754,10 +754,7 @@ func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client, caps luvus
 	}
 	checked := map[int64]bool{}
 	for _, a := range live {
-		if a.Status != state.AttemptRunning || a.ServerGeneration != caps.ServerGeneration {
-			continue
-		}
-		if _, ok := w.blockedAt[a.ID]; !ok {
+		if _, ok := w.blockedPending[a.ID]; !ok {
 			continue
 		}
 		checked[a.ID] = true
@@ -769,9 +766,9 @@ func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client, caps luvus
 			return err
 		}
 	}
-	for id := range w.blockedAt {
+	for id := range w.blockedPending {
 		if !checked[id] {
-			delete(w.blockedAt, id)
+			delete(w.blockedPending, id)
 		}
 	}
 	return nil

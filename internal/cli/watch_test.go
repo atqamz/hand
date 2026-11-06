@@ -143,6 +143,30 @@ func TestWatchIgnoresABlockThatLastsOnePoll(t *testing.T) {
 	}
 }
 
+func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	for range 3 {
+		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	stop()
+	events := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if n := strings.Count(events, ",attempt.blocked,"); n != 0 {
+		t.Fatalf("three one-poll flickers recorded attempt.blocked %d times", n)
+	}
+	if n := strings.Count(events, ",attempt.working,"); n != 0 {
+		t.Fatalf("three one-poll flickers recorded attempt.working %d times", n)
+	}
+}
+
 func TestWatchNotesAPersistentBlockOnce(t *testing.T) {
 	fx := newAttemptFixture(t)
 	notes := fakeNotify(t, fx)
