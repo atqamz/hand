@@ -120,6 +120,20 @@ func TestTextDigestReportsReadErrors(t *testing.T) {
 	}
 }
 
+func TestMergeURLRewritesRefsWithoutTouchingFleetIDs(t *testing.T) {
+	refs := &mergeRefs{
+		ids:   map[string]map[int64]bool{"a": {1: true}, "d": {1: true}},
+		off:   map[string]int64{"a": 1, "d": 1},
+		srcID: "f000000000001", dstID: "fa1d1c0000002",
+	}
+	w := newTextRewriter(refs, "", "")
+	got := w.url("http://127.0.0.1:8787/f000000000001/decision/d1")
+	want := "http://127.0.0.1:8787/fa1d1c0000002/decision/d2"
+	if got != want {
+		t.Fatalf("url = %q, want %q", got, want)
+	}
+}
+
 func TestRowsAnyReportsReadErrors(t *testing.T) {
 	s, _ := openTest(t)
 	mergeExec(t, s, `CREATE TABLE probe(x INTEGER)`)

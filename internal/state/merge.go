@@ -465,12 +465,23 @@ func (w *textRewriter) url(s string) string {
 		return s
 	}
 	s = strings.ReplaceAll(s, srcPath, dstPath)
-	s = mergeRef.ReplaceAllStringFunc(s, func(tok string) string {
+	var b strings.Builder
+	pos := 0
+	for _, loc := range mergeFleetID.FindAllStringIndex(s, -1) {
+		b.WriteString(w.mapURLRefs(s[pos:loc[0]]))
+		b.WriteString(s[loc[0]:loc[1]])
+		pos = loc[1]
+	}
+	b.WriteString(w.mapURLRefs(s[pos:]))
+	w.changed["url"]++
+	return b.String()
+}
+
+func (w *textRewriter) mapURLRefs(s string) string {
+	return mergeRef.ReplaceAllStringFunc(s, func(tok string) string {
 		out, _ := w.mapped(tok)
 		return out
 	})
-	w.changed["url"]++
-	return s
 }
 
 func (w *textRewriter) home(s string) string {
