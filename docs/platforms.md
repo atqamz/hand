@@ -1,6 +1,6 @@
 # Platform support
 
-Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tested) and native Windows (amd64, Windows 10 or 11). Supported means the project fixes problems that people report on those systems, not that every step has run on a real machine; the table below says how each part is verified. Known gaps: Windows has run in CI, with the real Luvus, and not yet on a real Windows machine; the real Mac run of 2026-10-17 ([#895](https://github.com/atqamz/hand/issues/895)) used a stand-in `claude`; Windows has no desktop notifications; the macOS LaunchAgent's `RunAtLoad` at a real login is unverified.
+Hand supports Linux, macOS (Apple silicon; Intel builds are released but not tested) and native Windows (amd64, Windows 10 or 11). Supported means the project fixes problems that people report on those systems, not that every step has run on a real machine; the table below says how each part is verified. Known gaps: Windows has run in CI, with the real Luvus, and not yet on a real Windows machine; the real Mac run of 2026-10-17 ([#895](https://github.com/atqamz/hand/issues/895)) used a stand-in `claude`; Windows has no desktop notifications; the macOS LaunchAgent's `RunAtLoad` at a real login is unverified. `omp` has run on one Linux host only: neither Windows nor macOS has run a real `omp`, and a provider limit screen or a blocked approval screen was not captured, so Hand has no omp limit line.
 
 Report a problem with the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml), and a vulnerability as [`SECURITY.md`](../SECURITY.md) says.
 
@@ -20,6 +20,7 @@ In the table:
 | What | Linux | macOS | Windows |
 |---|---|---|---|
 | Install script | CI e2e | real Mac (#895), CI e2e | CI e2e, in PowerShell 5.1 and 7 |
+| Install script fetches `hand-iroh` next to `hand`, and keeps the old binaries when its checksum, version or archive fails | CI e2e, CI | CI e2e | CI e2e, in PowerShell 5.1 and 7, for a corrupted sidecar archive |
 | `hand init` and the Luvus pin | daily, CI e2e | real Mac (#895), CI e2e | CI e2e |
 | Download the tested Luvus | CI, real Luvus | CI, real Luvus | CI, real Luvus |
 | Luvus server, panes and events | daily | real Mac (#895), stand-in claude | CI, real Luvus over its named pipe |
@@ -28,6 +29,7 @@ In the table:
 | Accept Codex's trust screens for its own worktree and project | CI, real harness | CI, real harness | CI, real harness |
 | Start opencode | CI, fake | CI, fake | CI, fake |
 | Start copilot (a worker only), and accept its trust screen | real, auto only; CI, fake | CI, fake | CI, fake |
+| Start `omp` as a worker or the supervisor, list its models, and find and resume its supervisor session | real, Linux only | not run | not run |
 | Find `copilot` off `PATH`: in npm's global `bin` folder (`npm prefix -g`), then in the folder `gh copilot` downloads to (`~/.local/share/gh/copilot`, `$XDG_DATA_HOME/gh/copilot`, on Windows `%LOCALAPPDATA%\GitHub CLI\copilot\copilot.exe`) | real, both, then a worker started and reported; unit tests | unit tests; the path is read from the gh source, not from a run | unit tests; the path is read from the gh source, not from a run |
 | Hand refuses a harness found only as a `.cmd` or `.bat` (except the `.exe` that npm puts inside the package of `claude`, `codex`, `opencode` and `copilot`, found beside the shim in a layout copied from the npm tarballs, not from a Windows install), and prefers a `.exe` anywhere on `PATH` | not needed | not needed | CI |
 | A prompt reaches the harness byte for byte when it fits both limits (16 KiB, and on Windows 32,766 characters of quoted command line), and Hand refuses one that does not | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` | CI, real Luvus, fake `codex.exe` |
@@ -42,6 +44,9 @@ In the table:
 | Luvus switch on repin: stop the server through UHP and `server.pid` | CI, fake | CI, fake | CI, fake |
 | Luvus switch of a quiet fleet: stop the supervisor and the server, start the pin, resume the supervisor | CI, real Luvus, fake claude | CI, real Luvus, fake claude | CI, real Luvus, fake claude |
 | `hand board --update-every`, the timer's `hand update` | CI, fake | CI, fake | CI, fake |
+| `hand board --iroh` runs `hand-iroh` as its child, shows its state in the Phone page and `hand doctor`, and the child leaves when the board stops | CI e2e and CI, fake sidecar | CI e2e, fake sidecar | CI e2e, fake sidecar: the board is ended with `TerminateProcess` and the closed pipe stops the child |
+| `hand update` fetches `hand-iroh` with a new `hand` | CI e2e, CI, fake release | CI e2e, fake release | CI e2e, fake release |
+| The real `hand-iroh` starts, keeps its ID, holds its key with modes 0700 and 0600 and leaves when its input closes | CI, real sidecar | CI, real sidecar | CI, real sidecar |
 | First run with no harness: `hand init`, `doctor`, `orient`, projects, tasks, `route list`, `models` | CI e2e | CI e2e | CI e2e |
 | The Board over HTTP: fleet page, `/events` beat, document viewer, phone pairing and revoke, install manifest | CI e2e | CI e2e | CI e2e |
 | The Board in Chromium at 1440 and 390 px: five regions, document dialog, project badges, no console error | CI e2e | CI e2e | CI e2e |

@@ -62,13 +62,24 @@ func TestCheckCommandLineRefusesWhatWindowsCannotStart(t *testing.T) {
 }
 
 func TestCheckPromptNamesTheLimitAndTheFix(t *testing.T) {
-	err := CheckPrompt(strings.Repeat("x", MaxPromptBytes+1))
+	err := CheckPrompt("claude", strings.Repeat("x", MaxPromptBytes+1))
 	if !errors.Is(err, state.ErrInvalid) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, want := range []string{strconv.Itoa(MaxPromptBytes + 1), strconv.Itoa(MaxPromptBytes), "write the long text to a file"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %q, want it to name %q", err, want)
+		}
+	}
+}
+
+func TestOnlyOmpTakesAPromptThatStartsWithADash(t *testing.T) {
+	if err := CheckPrompt("omp", "-not-a-flag"); err != nil {
+		t.Fatalf("omp: %v", err)
+	}
+	for _, name := range []string{"claude", "codex", "opencode", "agy", "copilot"} {
+		if err := CheckPrompt(name, "-not-a-flag"); !errors.Is(err, state.ErrInvalid) {
+			t.Fatalf("%s: err = %v", name, err)
 		}
 	}
 }

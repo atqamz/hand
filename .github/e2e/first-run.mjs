@@ -1,14 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture } from './fixture.mjs';
-import { Box, Client, candidate, check, commit, distDir, equal, exe, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
+import { Box, candidate, check, Client, commit, distDir, equal, exe, irohVersion, lacks, luvusTested, matches, ok, phase, schema, serve, startBoard, stopAll, textOf, toon, version, win } from './lib.mjs';
 
 const missing = (h) => `${h} not found on PATH`;
 const profileFix = 'invalid: claude not found on PATH; install claude, or add its folder to PATH';
 
 async function cli(box, srv) {
   const v = toon((await ok(await box.hand(['version']), 'hand version')).out).fields;
-  equal([v.version, v.channel, v.commit, v.schema, v.luvus], [version, 'stable', commit(), String(schema), luvusTested], 'hand version reports the candidate build');
+  equal([v.version, v.channel, v.commit, v.schema, v.luvus, v.iroh], [version, 'stable', commit(), String(schema), luvusTested, irohVersion], 'hand version reports the candidate build');
 
   const made = await fixture(box);
   const init = toon(made.init.out).fields;
@@ -39,7 +39,7 @@ async function cli(box, srv) {
   check(profiles.every((p) => p.valid === profileFix), 'every profile says why it is invalid, with a fix');
 
   const models = toon((await ok(await box.hand(['models']), 'hand models exits 0 with no harness installed')).out);
-  equal(models.tables.listings.map((l) => [l.harness, l.state]), ['claude', 'codex', 'opencode', 'agy', 'copilot'].map((h) => [h, missing(h)]), 'hand models gives each harness a reason, not an error');
+  equal(models.tables.listings.map((l) => [l.harness, l.state]), ['claude', 'codex', 'opencode', 'agy', 'copilot', 'omp'].map((h) => [h, missing(h)]), 'hand models gives each harness a reason, not an error');
   check(models.tables.models.some((m) => m.harness === 'claude' && m.source === 'built-in'), 'hand models lists the built-in Claude models');
   check(!models.tables.models.some((m) => m.source === 'discovered'), 'hand models discovers no model without a harness');
 
@@ -56,6 +56,8 @@ async function cli(box, srv) {
   check(warning.every((c) => c.fix === profileFix), 'hand doctor: each warning profile names the missing claude');
   check(checks.every((c) => !/^harness /.test(c.check) || c.state !== 'fail'), 'hand doctor: no harness row fails');
   equal(toon(doctor.out).fields.server, 'not running', 'hand doctor: the Luvus server is not running yet');
+  equal(state('iroh'), 'info', 'hand doctor: iroh is information only while the Board runs without --iroh');
+  matches(toon(doctor.out).fields.iroh ?? '', new RegExp(`^${irohVersion.replace(/\./g, '\\.')} `), 'hand doctor: the installed sidecar and its version are listed');
   return made;
 }
 
@@ -205,6 +207,37 @@ async function board(box, srv, made) {
   equal(toon((await ok(await box.hand(['board', 'stop']), 'a second hand board stop')).out).fields.board, 'not running', 'a second stop says not running');
 }
 
+async function iroh(box, made) {
+  const id = toon(made.init.out).fields.id;
+  const stub = (name) => path.join(box.file('iroh'), name);
+  const wait = async (what, ok) => {
+    for (let i = 0; i < 300 && !ok(); i++) await new Promise((r) => setTimeout(r, 100));
+    check(ok(), what);
+  };
+  fs.writeFileSync(box.file('board.iroh'), 'stopped\n');
+  const link = await startBoard(box);
+  await wait('a Board restarted with the recorded setting starts the sidecar', () => /^ready [0-9a-f]{64} https:\/\/relay\.example\.test\.\/$/m.test(box.read('board.iroh') ?? ''));
+  const endpoint = 'ab'.repeat(32);
+  const doctor = toon((await ok(await box.hand(['doctor']), 'hand doctor with the sidecar running')).out);
+  equal(doctor.tables.checks.find((c) => c.check === 'iroh')?.state, 'ok', 'hand doctor: iroh is ok while the sidecar is ready');
+  equal(doctor.fields.iroh_id, endpoint, 'hand doctor prints the endpoint ID');
+  const laptop = new Client(link.origin);
+  await laptop.get(`${link.pathname}${link.search}`);
+  const connect = await laptop.get(`/${id}/connect`);
+  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. No phone can pair over iroh yet\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
+  const args = fs.readFileSync(stub('stub.args'), 'utf8').split('\n');
+  equal(args.slice(0, 6).filter((_, i) => i % 2 === 0), ['--board', '--secret-file', '--key-dir'], 'the sidecar was started with the board address, the secret file and the key folder');
+  equal([path.basename(args[3]), path.basename(args[5]), path.dirname(args[3]) === path.dirname(args[5])], ['board.peer', 'iroh', true], 'the secret file and the key folder sit together in the Hand home');
+  matches(args[1], /^127\.0\.0\.1:[0-9]+$/, 'the sidecar is pointed at a loopback peer listener');
+  const secret = fs.readFileSync(box.file('board.peer'), 'utf8').trim();
+  check(!args.join('\n').includes(secret), 'the secret is in neither the sidecar arguments nor its environment');
+  check(args.slice(6).every((l) => l === '' || /^SystemRoot=/i.test(l)), 'the sidecar runs with an empty environment');
+  fs.rmSync(stub('stub.stopped'), { force: true });
+  equal(toon((await ok(await box.hand(['board', 'stop']), 'hand board stop with the sidecar running')).out).fields.board, 'stopped', 'hand board stop stops the board');
+  await wait('the sidecar exits when the Board is gone: its input closed', () => fs.existsSync(stub('stub.stopped')));
+  fs.rmSync(box.file('board.iroh'), { force: true });
+}
+
 async function update(box, srv) {
   const res = await ok(await box.hand(['update', '--check'], { env: { HAND_INSTALL_BASE: srv.base } }), 'hand update --check against the local release server');
   const doc = toon(res.out);
@@ -222,6 +255,7 @@ await phase('first-run', async () => {
   try {
     const made = await cli(box, srv);
     await board(box, srv, made);
+    await iroh(box, made);
     await update(box, srv);
   } finally {
     await stopAll(box);

@@ -52,7 +52,7 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 			return nil, fmt.Errorf("%w: resume needs a session id of letters, digits, '_' and '-', not %q", state.ErrInvalid, session)
 		}
 	} else {
-		if err := CheckPrompt(prompt); err != nil {
+		if err := CheckPrompt(s.Harness, prompt); err != nil {
 			return nil, err
 		}
 		if s.Harness == "claude" && !uuidPattern.MatchString(session) {
@@ -113,8 +113,128 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 			return append(argv, "--conversation", session), nil
 		}
 		return append(argv, "-i", prompt), nil
+	case "omp":
+		argv := []string{bin, "--auto-approve", "--no-title"}
+		if s.Model != "" {
+			argv = append(argv, "--model", s.Model)
+		}
+		if s.Effort != "" {
+			argv = append(argv, "--thinking", s.Effort)
+		}
+		if resume {
+			return append(argv, "--resume", session), nil
+		}
+		return append(argv, "--", prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
+}
+
+func OmpSession(agentDir, cwd string, since time.Time, marker string) (string, error) {
+	base := filepath.Join(agentDir, "sessions")
+	dirs, err := os.ReadDir(base)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var files []string
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(filepath.Join(base, dir.Name()))
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+				files = append(files, filepath.Join(base, dir.Name(), entry.Name()))
+			}
+		}
+	}
+	want := realPath(cwd)
+	var id string
+	var newest time.Time
+	for _, file := range files {
+		gotID, at, from, err := ompMeta(file)
+		if err != nil {
+			continue
+		}
+		if from == "" || realPath(from) != want || at.Before(since) || (id != "" && !at.Before(newest)) {
+			continue
+		}
+		ok, err := ompLaunched(file, marker)
+		if err != nil {
+			continue
+		}
+		if ok {
+			id, newest = gotID, at
+		}
+	}
+	return id, nil
+}
+
+func ompMeta(file string) (string, time.Time, string, error) {
+	f, err := os.Open(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", time.Time{}, "", nil
+	}
+	if err != nil {
+		return "", time.Time{}, "", err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(io.LimitReader(f, promptScan))
+	for {
+		var line struct {
+			Type      string `json:"type"`
+			ID        string `json:"id"`
+			Cwd       string `json:"cwd"`
+			Timestamp string `json:"timestamp"`
+		}
+		if err := dec.Decode(&line); err != nil {
+			return "", time.Time{}, "", nil
+		}
+		if line.Type != "session" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, line.Timestamp)
+		if err != nil {
+			return "", time.Time{}, "", nil
+		}
+		return line.ID, at, line.Cwd, nil
+	}
+}
+
+func ompLaunched(file, marker string) (bool, error) {
+	f, err := os.Open(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(io.LimitReader(f, promptScan))
+	for {
+		var rec struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string `json:"role"`
+				Content []struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if err := dec.Decode(&rec); err != nil {
+			return false, nil
+		}
+		if rec.Type != "message" || rec.Message.Role != "user" {
+			continue
+		}
+		for _, c := range rec.Message.Content {
+			if launches(c.Text, marker) {
+				return true, nil
+			}
+		}
+	}
 }
 
 func AgySession(dir, cwd string, since time.Time, marker string) (string, error) {
@@ -231,7 +351,11 @@ func sameDay(a, b time.Time) bool {
 }
 
 func launches(text, marker string) bool {
-	return strings.HasPrefix(strings.TrimLeft(text, "\" \t\r\n"), marker)
+	return strings.HasPrefix(launchText(text), launchText(marker))
+}
+
+func launchText(s string) string {
+	return strings.TrimLeft(s, "\" \t\r\n")
 }
 
 func codexLaunched(file, marker string) (bool, error) {

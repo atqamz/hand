@@ -81,6 +81,9 @@ func (r *runner) startBoard(ctx context.Context, up func() (bool, error)) error 
 	if every := recordedEvery(r.root); every > 0 {
 		args, props = append(args, "--update-every", every.String()), []string{"KillMode=process"}
 	}
+	if recordedIroh(r.root) {
+		args = append(args, "--iroh")
+	}
 	_, err := r.startService(ctx, spawnSpec{
 		unit:    boardUnit,
 		log:     log,

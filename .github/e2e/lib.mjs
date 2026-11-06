@@ -17,10 +17,12 @@ export const binDir = path.join(tmpRoot, 'bin');
 const source = (rel) => fs.readFileSync(path.join(repoRoot, rel), 'utf8');
 export const schema = Number(source('internal/state/state.go').match(/\bSchemaVersion = (\d+)/)[1]);
 export const luvusTested = source('internal/luvus/pin.go').match(/^const Tested = "(.+)"$/m)[1];
+export const irohVersion = source('internal/sidecar/sidecar.go').match(/^\s*Version = "(.+)"$/m)[1];
 export const version = '0.0.0-e2e';
 export const goos = win ? 'windows' : process.platform;
 export const goarch = process.arch === 'arm64' ? 'arm64' : 'amd64';
 export const asset = win ? 'hand-windows-amd64.zip' : `hand-${goos}-${goarch}.tar.gz`;
+export const irohAsset = win ? 'hand-iroh-windows-amd64.zip' : `hand-iroh-${goos}-${goarch}.tar.gz`;
 export const sums = win ? 'hand-windows-amd64.sha256' : 'checksums.txt';
 export const commit = () => fs.readFileSync(path.join(distDir, 'commit.txt'), 'utf8').trim().slice(0, 12);
 export const nextCommit = () => fs.readFileSync(path.join(distDir, 'next', 'commit.txt'), 'utf8').trim().slice(0, 12);
@@ -166,7 +168,7 @@ export function toon(text) {
   return doc;
 }
 
-const harnesses = ['claude', 'codex', 'opencode', 'agy', 'copilot'];
+const harnesses = ['claude', 'codex', 'opencode', 'agy', 'copilot', 'omp'];
 
 function found(name, dirs) {
   const exts = win ? ['', '.exe', '.cmd', '.bat', '.com', '.ps1'] : [''];
@@ -412,7 +414,9 @@ export async function startBoard(box) {
   if (addr) {
     const out = fs.openSync(path.join(box.dir, 'board.out'), 'a');
     const bin = path.join(box.bin, `hand${exe}`);
-    spawn(bin, ['board', '--addr', addr], { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true }).unref();
+    const args = ['board', '--addr', addr];
+    if (fs.existsSync(box.file('board.iroh'))) args.push('--iroh');
+    spawn(bin, args, { cwd: box.fleet, env: box.env(), stdio: ['ignore', out, out], detached: true }).unref();
     for (let i = 0; i < 50 && !box.read('board.addr'); i++) await new Promise((r) => setTimeout(r, 100));
   }
   const open = await ok(await box.hand(['open', '--print']), 'hand open --print starts the Board and prints the login link');

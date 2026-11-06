@@ -106,7 +106,7 @@ func (o *opencodeSource) attemptSession(_ context.Context, a state.Attempt) stri
 	return argvSession(a.Argv)
 }
 
-func (o *opencodeSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
+func (o *opencodeSource) labels(ctx context.Context, _ string) func(string, time.Time) (string, string) {
 	var listed map[string]transcript.ModelLabel
 	fetched := false
 	return func(session string, _ time.Time) (string, string) {

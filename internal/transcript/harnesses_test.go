@@ -219,6 +219,97 @@ func TestOpencodeReexportsOnlyWhenItsDatabaseChanges(t *testing.T) {
 	}
 }
 
+func ompSession(t *testing.T, home, id, body string) string {
+	t.Helper()
+	dir := filepath.Join(home, "sessions", "-fleets-demo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "2026-09-28T01-00-00-000Z_"+id+".jsonl")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestOmpTranscriptIsCalm(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ompSession(t, home, "omp-1", string(fixture))
+	r := &Reader{Paths: Paths{Omp: home}}
+	got, err := r.Read(context.Background(), "omp", "omp-1", "/fleets/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"hand: supervisor s1 started", "supervisor: Two tasks:\n- t1", "operator: hi", "supervisor: Hello."}
+	if !slices.Equal(texts(got), want) {
+		t.Fatalf("entries = %q", texts(got))
+	}
+	if st := r.Status("omp", "omp-1"); st.Model != "commandcode/deepseek/deepseek-v4-pro" || st.Effort != "low" || st.Context != 1500 || st.ModelAt != "2026-09-28T01:00:05.000Z" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
+func TestOmpTranscriptReadsItsSessionFromTheLaunchFolder(t *testing.T) {
+	home := t.TempDir()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ompSession(t, home, "omp-1", string(fixture))
+	r := &Reader{Paths: Paths{}}
+	got, err := r.Read(context.Background(), "omp", "omp-1", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(texts(got), []string{"hand: supervisor s1 started", "supervisor: Two tasks:\n- t1", "operator: hi", "supervisor: Hello."}) {
+		t.Fatalf("entries = %q", texts(got))
+	}
+}
+
+func TestOmpTranscriptReadsAnAgentFolderWithGlobCharacters(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home[1]")
+	fixture, err := os.ReadFile(filepath.Join("testdata", "omp-calm.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ompSession(t, home, "omp-1", string(fixture))
+	r := &Reader{Paths: Paths{Omp: home}}
+	got, err := r.Read(context.Background(), "omp", "omp-1", "/fleets/demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("entries = %q", texts(got))
+	}
+}
+
+func TestOmpReadsASessionThatAppearsLateAndToleratesATruncatedLine(t *testing.T) {
+	home := t.TempDir()
+	r := &Reader{Paths: Paths{Omp: home}}
+	ctx := context.Background()
+	if _, err := r.Read(ctx, "omp", "omp-1", "/fleets/demo"); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("missing session err = %v", err)
+	}
+	path := ompSession(t, home, "omp-1", `{"type":"session","version":3,"id":"omp-1","timestamp":"2026-09-28T01:00:00.000Z","cwd":"/fleets/demo"}`+"\n")
+	if _, err := r.Read(ctx, "omp", "omp-1", "/fleets/demo"); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(`{"type":"message","timestamp":"2026-09-28T01:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"hello"}]}}` + "\n")
+	_, _ = f.WriteString(`{"type":"message","timestamp":"2026-09-28T01:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"cut`)
+	_ = f.Close()
+	if got, err := r.Read(ctx, "omp", "omp-1", "/fleets/demo"); err != nil || !slices.Equal(texts(got), []string{"operator: hello"}) {
+		t.Fatalf("after a truncated line = %q, %v", texts(got), err)
+	}
+}
+
 func TestClaudeStatusTracksUsageAndCompactions(t *testing.T) {
 	body := `{"type":"assistant","timestamp":"2026-09-28T01:00:01Z","message":{"model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30},"content":[{"type":"text","text":"one"}]}}
 {"type":"user","timestamp":"2026-09-28T01:00:02Z","isCompactSummary":true,"message":{"content":"summary"}}

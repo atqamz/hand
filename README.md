@@ -1,6 +1,6 @@
 # Hand
 
-Hand is a personal supervisor layer for agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode, Antigravity or GitHub Copilot workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
+Hand is a personal supervisor layer for agents. You talk to one supervisor agent. It captures every request as a task, starts Claude Code, Codex, opencode, Antigravity, GitHub Copilot or oh-my-pi workers in isolated git worktrees through [Luvus](https://github.com/RizRiyz/luvus), waits for them with zero tokens, reads their reports, and asks you only through decisions. Each fleet is a folder with its own SQLite state, and one `hand board` shows every fleet.
 
 ![The Board in a browser, dark theme. On the left, Needs holds one open decision, "Which theme should new users get?", with three choices and a Send answer button, and one unread worker report; below it, the task list shows two active tasks and one in the inbox. On the right, the chat with the supervisor: a request to register a project and fix a typo, the worker's report, and the supervisor's replies.](docs/images/board-desktop.png)
 
@@ -12,7 +12,7 @@ Hand is built for one operator, who runs it every day on Linux. macOS (Apple sil
 
 ## Install
 
-You need git and at least one harness, logged in: Claude Code (`claude`), Codex (`codex`) or opencode (`opencode`). `hand init` downloads the tested Luvus when none is on `PATH`. [Requirements](docs/install.md#requirements) has the rest.
+You need git and at least one harness, logged in: Claude Code (`claude`), Codex (`codex`), opencode (`opencode`) or oh-my-pi (`omp`). `hand init` downloads the tested Luvus when none is on `PATH`. [Requirements](docs/install.md#requirements) has the rest.
 
 On Linux or macOS:
 

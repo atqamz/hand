@@ -1,0 +1,8 @@
+{"type":"title","v":1,"title":"","updatedAt":"2026-09-28T01:00:00.000Z"}
+{"type":"session","version":3,"id":"omp-1","timestamp":"2026-09-28T01:00:00.000Z","cwd":"/fleets/demo"}
+{"type":"model_change","id":"m0","parentId":null,"timestamp":"2026-09-28T01:00:00.500Z","model":"commandcode/deepseek/deepseek-v4.1-flash","resolvedModelIsFallback":false}
+{"type":"thinking_level_change","id":"t0","parentId":"m0","timestamp":"2026-09-28T01:00:00.600Z","thinkingLevel":"low","configured":null}
+{"type":"message","id":"u0","parentId":"t0","timestamp":"2026-09-28T01:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"You are supervisor s1 of the Hand fleet demo. Follow AGENTS.md: run `hand orient` now."}],"timestamp":1790586001000}}
+{"type":"message","id":"a0","parentId":"u0","timestamp":"2026-09-28T01:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Two tasks:\n- t1"},{"type":"toolCall","name":"read"}],"api":"openai-responses","provider":"commandcode","model":"deepseek/deepseek-v4.1-flash","usage":{"input":8664,"output":3,"cacheRead":46,"cacheWrite":0,"totalTokens":8713},"stopReason":"toolUse","timestamp":1790586002000}}
+{"type":"message","id":"u1","parentId":"a0","timestamp":"2026-09-28T01:00:04.000Z","message":{"role":"user","content":[{"type":"text","text":"hi"}],"timestamp":1790586004000}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-28T01:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hello."}],"api":"openai-responses","provider":"commandcode","model":"deepseek/deepseek-v4-pro","usage":{"input":1000,"output":10,"cacheRead":200,"cacheWrite":300,"totalTokens":1510},"stopReason":"stop","timestamp":1790586005000}}

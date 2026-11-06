@@ -61,6 +61,8 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleet
 ├── fleets/<fleet id>                  file naming the fleet folder
 ├── worktrees/<fleet id>/tN-aN/        one worktree per attempt
 ├── luvus/                             pinned Luvus copies and pin.json
+├── iroh/                              the hand-iroh endpoint's key, hand-iroh.key
+├── board.iroh                         the board's --iroh setting and the sidecar's last state
 └── board.addr                         where the running board listens
 ```
 

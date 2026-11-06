@@ -18,7 +18,7 @@ const (
 	refreshWait  = time.Minute
 )
 
-var refreshable = []string{"claude", "codex", "agy", "copilot"}
+var refreshable = []string{"claude", "codex", "agy", "copilot", "omp"}
 
 type refresher struct {
 	mu      sync.Mutex
@@ -58,7 +58,7 @@ func (b *Board) refreshModels(w http.ResponseWriter, r *http.Request) {
 	names := refreshable
 	if h := r.PostFormValue("harness"); h != "" {
 		if !slices.Contains(refreshable, h) {
-			b.fail(w, http.StatusBadRequest, "refresh the models of claude, codex, agy or copilot")
+			b.fail(w, http.StatusBadRequest, "refresh the models of claude, codex, agy, copilot or omp")
 			return
 		}
 		names = []string{h}

@@ -2,12 +2,15 @@ package update
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/atqamz/hand/internal/fsx"
+	"github.com/atqamz/hand/internal/sidecar"
 )
 
 func swap(src, target string) error {
@@ -15,6 +18,13 @@ func swap(src, target string) error {
 	tmp, err := stage(src, target)
 	if err != nil {
 		return fail(err)
+	}
+	if _, err := os.Lstat(target); errors.Is(err, fs.ErrNotExist) {
+		if err := fsx.Rename(tmp, target); err != nil {
+			_ = os.Remove(tmp)
+			return fail(err)
+		}
+		return nil
 	}
 	old := target + ".old"
 	_ = os.Remove(old)
@@ -38,7 +48,7 @@ func swap(src, target string) error {
 func CleanOld(exe string) {
 	entries, _ := os.ReadDir(filepath.Dir(exe))
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), filepath.Base(exe)+".old") {
+		if strings.HasPrefix(e.Name(), filepath.Base(exe)+".old") || strings.HasPrefix(e.Name(), sidecar.Name+".exe.old") {
 			_ = os.Remove(filepath.Join(filepath.Dir(exe), e.Name()))
 		}
 	}

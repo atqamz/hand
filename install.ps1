@@ -74,9 +74,33 @@
         throw "install.ps1: too many redirects fetching $OutFile"
     }
 
+    function Install-Binary([string]$Built, [string]$Name) {
+        $target = Join-Path $Dir $Name
+        $part = Join-Path $Dir (".$Name." + [guid]::NewGuid().ToString('N') + '.part')
+        try {
+            Copy-Item -LiteralPath $Built -Destination $part -Force
+            $old = $null
+            if (Test-Path -LiteralPath $target) {
+                $old = "$target.old"
+                Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath $old) { $old = "$target.old-" + [guid]::NewGuid().ToString('N') }
+                Move-Item -LiteralPath $target -Destination $old -Force
+            }
+            try {
+                Move-Item -LiteralPath $part -Destination $target -Force
+            }
+            catch {
+                if ($old) { Move-Item -LiteralPath $old -Destination $target -Force }
+                throw
+            }
+        }
+        finally {
+            Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("hand-install-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
-    $part = $null
     try {
         $zip = Join-Path $tmp "$stem.zip"
         $sums = Join-Path $tmp "$stem.sha256"
@@ -97,29 +121,56 @@
         $built = Join-Path $unpacked 'hand.exe'
         if (-not (Test-Path -LiteralPath $built)) { throw "install.ps1: $stem.zip holds no hand.exe" }
 
+        $want = $null
+        foreach ($line in @(& $built version)) { if ($line -match '^iroh: (\S+)\s*$') { $want = $Matches[1] } }
+        $irohBuilt = $null
+        if ($want) {
+            $irohStem = 'hand-iroh-windows-amd64'
+            $irohZip = Join-Path $tmp "$irohStem.zip"
+            $irohSums = Join-Path $tmp "$irohStem.sha256"
+            $found = $true
+            try { Get-Download "$url/$irohStem.zip" $irohZip }
+            catch [Net.WebException] {
+                if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 404) { throw }
+                $found = $false
+            }
+            if ($found) {
+                Get-Download "$url/$irohStem.sha256" $irohSums
+                $irohWant = $null
+                foreach ($line in Get-Content -LiteralPath $irohSums) {
+                    if ($line -match "^([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($irohStem)).zip\s*$") { $irohWant = $Matches[1] }
+                }
+                $irohGot = (Get-FileHash -LiteralPath $irohZip -Algorithm SHA256).Hash
+                if (-not $irohWant -or $irohGot -ne $irohWant) {
+                    throw "install.ps1: checksum mismatch for $irohStem.zip"
+                }
+                $irohUnpacked = Join-Path $tmp 'iroh-unpacked'
+                Expand-Archive -LiteralPath $irohZip -DestinationPath $irohUnpacked
+                $irohBuilt = Join-Path $irohUnpacked 'hand-iroh.exe'
+                if (-not (Test-Path -LiteralPath $irohBuilt)) { throw "install.ps1: $irohStem.zip holds no hand-iroh.exe" }
+                $irohVersion = $null
+                $irohLines = @(& $irohBuilt --version)
+                if ($LASTEXITCODE -eq 0 -and $irohLines.Count -gt 0) {
+                    if ($irohLines[0].Trim() -cmatch '^hand-iroh ([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*) iroh \S+$') { $irohVersion = $Matches[1] }
+                }
+                if ($irohVersion -ne $want) {
+                    $shown = if ($irohVersion) { $irohVersion } else { 'unknown' }
+                    throw "install.ps1: $irohStem.zip is hand-iroh $shown, but this hand needs $want"
+                }
+            }
+            else {
+                Write-Output "this release has no $irohStem.zip; phone access over iroh is not installed"
+            }
+        }
+
         New-Item -ItemType Directory -Path $Dir -Force | Out-Null
         $Dir = (Resolve-Path -LiteralPath $Dir).ProviderPath
+        if ($irohBuilt) { Install-Binary $irohBuilt 'hand-iroh.exe' }
+        Install-Binary $built 'hand.exe'
         $target = Join-Path $Dir 'hand.exe'
-        $part = Join-Path $Dir (".hand.exe." + [guid]::NewGuid().ToString('N') + '.part')
-        Copy-Item -LiteralPath $built -Destination $part -Force
-        $old = $null
-        if (Test-Path -LiteralPath $target) {
-            $old = "$target.old"
-            Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $old) { $old = "$target.old-" + [guid]::NewGuid().ToString('N') }
-            Move-Item -LiteralPath $target -Destination $old -Force
-        }
-        try {
-            Move-Item -LiteralPath $part -Destination $target -Force
-        }
-        catch {
-            if ($old) { Move-Item -LiteralPath $old -Destination $target -Force }
-            throw
-        }
     }
     finally {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-        if ($part) { Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue }
     }
 
     $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
@@ -143,4 +194,5 @@
 
     $first = (& $target version | Select-Object -First 1)
     Write-Output "installed hand $first to $target"
+    if ($irohBuilt) { Write-Output "installed hand-iroh $irohVersion to $(Join-Path $Dir 'hand-iroh.exe')" }
 } @args

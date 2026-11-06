@@ -27,6 +27,7 @@ import (
 	"github.com/atqamz/hand/internal/harness"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/markdown"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -138,6 +139,7 @@ type Options struct {
 	Harness    harness.Env
 	Models     harness.Options
 	Phone      func(context.Context) PhoneLink
+	Iroh       func() sidecar.Status
 }
 
 type Board struct {
