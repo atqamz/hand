@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -372,5 +373,78 @@ func TestAReleasedHoldLeavesNoHeldAtEntryBehind(t *testing.T) {
 	}
 	if w.seen[g.a.ID] != "working" || len(w.heldAt) != 0 {
 		t.Fatalf("seen = %q, heldAt = %v", w.seen[g.a.ID], w.heldAt)
+	}
+}
+
+func TestAPendingBlockDoesNotSurviveAnIdleSweep(t *testing.T) {
+	ctx := context.Background()
+	g := newOpencodeRig(t, false, true)
+	g.w.r.env.Stdout = io.Discard
+	a := g.attempt()
+	w := g.w
+	w.seen, w.heldAt = map[int64]string{a.ID: "idle?"}, map[int64]time.Time{a.ID: g.now}
+	w.turns, w.blockedPending = map[int64]*turn{}, map[int64]struct{}{}
+	if err := w.observe(ctx, luvus.Client{}, a, "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.blockedPending[a.ID]; !ok {
+		t.Fatal("the first blocked sample recorded no pending block")
+	}
+	b := busyList{at: g.now.Add(time.Second), ids: map[string]bool{}, idle: map[string]time.Time{}}
+	if err := w.held(ctx, luvus.Client{}, luvus.Capabilities{ServerGeneration: "g"}, b); err != nil {
+		t.Fatal(err)
+	}
+	if w.seen[a.ID] != "idle" {
+		t.Fatalf("seen after the sweep = %q", w.seen[a.ID])
+	}
+	if err := w.observe(ctx, luvus.Client{}, a, "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if events := eventKinds(t, g.st, "attempt.blocked"); len(events) != 0 {
+		t.Fatalf("the first sample after the sweep recorded %v", events)
+	}
+}
+
+func TestAPendingBlockSurvivesAnIdleSweep(t *testing.T) {
+	ctx := context.Background()
+	g := newOpencodeRig(t, false, true)
+	g.w.r.env.Stdout = io.Discard
+	srv := fakeuhp.Start(t, fakeuhp.ShortSocket(t))
+	srv.Handle("agent.explain", func(json.RawMessage) (any, error) {
+		return map[string]any{"pane": "1", "agent": "opencode", "status": "blocked", "hint": "Do you want to proceed?"}, nil
+	})
+	a := g.attempt()
+	w := g.w
+	w.seen, w.heldAt = map[int64]string{a.ID: "idle?"}, map[int64]time.Time{a.ID: g.now}
+	w.turns, w.blockedPending = map[int64]*turn{}, map[int64]struct{}{}
+	if err := w.observe(ctx, luvus.Client{}, a, "blocked"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := w.blockedPending[a.ID]; !ok {
+		t.Fatal("the blocked event did not record a pending block")
+	}
+	b := busyList{at: g.now.Add(time.Second), ids: map[string]bool{}, idle: map[string]time.Time{}}
+	client := luvus.Client{Socket: srv.Socket}
+	caps := luvus.Capabilities{ServerGeneration: "g"}
+	if err := w.held(ctx, client, caps, b); err != nil {
+		t.Fatal(err)
+	}
+	if w.seen[a.ID] != "blocked" {
+		t.Fatalf("seen after the sweep = %q", w.seen[a.ID])
+	}
+	if _, ok := w.blockedPending[a.ID]; ok {
+		t.Fatal("the sweep left the block pending")
+	}
+	if events := eventKinds(t, g.st, "attempt.blocked"); len(events) != 1 {
+		t.Fatalf("the sweep recorded %v", events)
+	}
+	if err := w.confirmBlocked(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.held(ctx, client, caps, b); err != nil {
+		t.Fatal(err)
+	}
+	if events := eventKinds(t, g.st, "attempt.blocked"); len(events) != 1 {
+		t.Fatalf("later observations recorded %v", events)
 	}
 }
