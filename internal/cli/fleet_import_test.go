@@ -112,6 +112,7 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 	}
 
 	out := h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
+	collision := filepath.Join("memory", "projects", "common.md")
 	for _, want := range []string{
 		"task_offset: 1",
 		"project,1,0",
@@ -123,7 +124,7 @@ func TestFleetImportCopiesProjectsTasksFilesAndReports(t *testing.T) {
 		"same,1",
 		"collision,1",
 		"collisions[1]{source,destination,reason}:",
-		"memory/projects/common.md",
+		collision,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("manifest missing %q:\n%s", want, out)
