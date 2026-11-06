@@ -18,6 +18,7 @@ var (
 	NotifyArgv       = notifyArgv
 	WatchExe         = &watchExecutable
 	WatcherSweep     = &watcherSweep
+	ServePeer        = &servePeer
 	BoardWait        = &boardStartWait
 	Reconnect        = &reconnectDelay
 	UpdateMin        = &updateMin

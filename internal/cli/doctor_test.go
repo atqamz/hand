@@ -146,8 +146,11 @@ func TestDoctorPassesOnAHealthyFleet(t *testing.T) {
 			t.Fatalf("models %s = %q in %q", name, row, out)
 		}
 	}
-	if len(rows) != len(want)+10 {
-		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+9, out)
+	if row := rows["iroh"]; row[0] != "info" || !strings.Contains(row[1], "not installed") {
+		t.Fatalf("iroh = %q with no hand-iroh in %q", row, out)
+	}
+	if len(rows) != len(want)+11 {
+		t.Fatalf("rows = %d, want %d: %q", len(rows), len(want)+11, out)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -74,6 +75,11 @@ type watcher struct {
 	modelsSaid    map[string]string
 	sessionNote   atomic.Value
 	saying        sync.Mutex
+
+	clickCtx  context.Context
+	clicks    atomic.Int32
+	clickOnce sync.Once
+	clickOK   bool
 }
 
 type turn struct {
@@ -122,11 +128,15 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
-	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1)}
+	clickCtx, clickStop := context.WithCancel(ctx)
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1), clickCtx: clickCtx}
+	defer func() {
+		clickStop()
+		w.pending.Wait()
+	}()
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
 	}
-	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
 		if errors.Is(err, luvus.ErrIncompatible) {
@@ -768,6 +778,9 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.pending.Add(1)
 	go func() {
 		defer w.pending.Done()
+		if extra == nil && w.notifyClick(ctx, bin, w.r.fleet.Name, text, ref) {
+			return
+		}
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(nctx, bin, args...)
@@ -795,16 +808,28 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 	if err != nil {
 		return ""
 	}
+	host := strings.TrimSpace(string(addr))
+	if host == "" {
+		return ""
+	}
 	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
 		return ""
 	}
-	host := strings.TrimSpace(string(addr))
 	base := "http://" + host
 	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
 		base = phone
 	}
-	return base + "/" + w.r.fleet.ID + path + fragment
+	raw := base + "/" + w.r.fleet.ID + path + fragment
+	if !openableURL(raw) {
+		return ""
+	}
+	return raw
+}
+
+func openableURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
 }
 
 func (w *watcher) flushWarns() {

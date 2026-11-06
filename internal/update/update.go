@@ -17,6 +17,7 @@ import (
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/proc"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -47,6 +48,7 @@ type Report struct {
 	Status         string
 	From, To       Build
 	PinFrom, PinTo string
+	Iroh           string
 	Backups        []string
 	Units          []UnitResult
 	Fleets         []FleetResult
@@ -57,6 +59,11 @@ type Report struct {
 
 func Target(exe string) (string, error) {
 	return filepath.EvalSymlinks(exe)
+}
+
+func sidecarPath(target, goos string) string {
+	_, exe := packaging(goos)
+	return filepath.Join(filepath.Dir(target), sidecar.Name+exe)
 }
 
 func lockFile(root string) (*os.File, bool, error) {
@@ -137,6 +144,35 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pin, pinned) }
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
+	irohNext := sidecarPath(o.Target, o.OS)
+	irohStale := false
+	if current && rep.To.Iroh != "" {
+		got, err := sidecar.BinaryVersion(ctx, irohNext)
+		irohStale = err != nil || got != rep.To.Iroh
+	}
+	var irohBin string
+	if current && irohStale {
+		if o.Check {
+			exists, err := probeIroh(ctx, o.HandBase, o.Channel, o.OS, o.Arch)
+			if err != nil {
+				return rep, err
+			}
+			if exists {
+				rep.Iroh = "would install"
+			} else {
+				rep.Iroh = "none in this release"
+			}
+		} else {
+			if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
+				return rep, err
+			}
+			if irohBin != "" {
+				if err := swap(irohBin, irohNext); err != nil {
+					return rep, err
+				}
+			}
+		}
+	}
 	if current && !repin {
 		var stale []fleet.Entry
 		if !o.KeepLuvus {
@@ -164,6 +200,11 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		rep.Status = "checked"
 		return rep, nil
 	}
+	if !current && rep.To.Iroh != "" {
+		if irohBin, rep.Iroh, err = o.fetchIroh(ctx, tmp, rep.To); err != nil {
+			return rep, err
+		}
+	}
 	if repin {
 		bin, err := FetchLuvus(ctx, o.LuvusBase, rep.To.Luvus, o.OS, o.Arch, tmp)
 		if err != nil {
@@ -190,6 +231,12 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		return rep, fmt.Errorf("update: cannot write %s: %w", journalPath(o.Root), err)
 	}
 	if !current {
+		if irohBin != "" {
+			if err := swap(irohBin, irohNext); err != nil {
+				_ = os.Remove(journalPath(o.Root))
+				return rep, err
+			}
+		}
 		if err := swap(rep.To.Path, o.Target); err != nil {
 			_ = os.Remove(journalPath(o.Root))
 			return rep, err
@@ -212,6 +259,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	rep.clearJournal(o)
 	rep.Status = "updated"
 	return rep, nil
+}
+
+func (o Options) fetchIroh(ctx context.Context, dir string, to Build) (string, string, error) {
+	bin, err := FetchIroh(ctx, o.HandBase, o.Channel, o.OS, o.Arch, dir)
+	if errors.Is(err, ErrMissing) {
+		return "", "none in this release", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	got, err := sidecar.BinaryVersion(ctx, bin)
+	if err != nil {
+		return "", "", fmt.Errorf("update: the downloaded hand-iroh does not run: %w", err)
+	}
+	if got != to.Iroh {
+		return "", "", fmt.Errorf("update: the downloaded hand-iroh is %s, but the downloaded hand %s needs %s", got, to.Version, to.Iroh)
+	}
+	return bin, got + " installed", nil
 }
 
 func (r *Report) clearJournal(o Options) {
@@ -698,6 +763,9 @@ func Render(r Report) *toon.Doc {
 		d.Field("luvus", r.PinTo+" kept")
 	} else {
 		d.Field("luvus", r.PinFrom+" -> "+r.PinTo)
+	}
+	if r.Iroh != "" {
+		d.Field("iroh", r.Iroh)
 	}
 	d.List("backups", r.Backups)
 	units := [][]string{}

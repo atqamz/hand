@@ -33,10 +33,41 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"sidecar": sidecarMain, "args": fakebin.RecordArgs, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
+}
+
+func clickMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) == 1 && args[0] == "--help" {
+		fakebin.Append(p["helplog"], "--help")
+		fmt.Print(p["help"])
+		return 0
+	}
+	if p["pids"] != "" {
+		fakebin.Append(p["pids"], strconv.Itoa(os.Getpid()))
+	}
+	if p["log"] != "" {
+		fakebin.Append(p["log"], strings.Join(args, "|"))
+	}
+	if p["child"] != "" {
+		c := exec.Command("/bin/sleep", p["child"])
+		if err := c.Start(); err == nil {
+			fakebin.Append(p["pids"], strconv.Itoa(c.Process.Pid))
+			_ = c.Wait()
+			return 0
+		}
+	}
+	d, _ := time.ParseDuration(p["sleep"])
+	if p["clickhold"] != "" && slices.Contains(args, "--wait") {
+		d, _ = time.ParseDuration(p["clickhold"])
+	}
+	time.Sleep(d)
+	fmt.Print(p["print"])
+	code, _ := strconv.Atoi(p["exit"])
+	return code
 }
 
 func ocexportMain(args []string) int {
