@@ -43,9 +43,10 @@ var (
 )
 
 type Store struct {
-	db   *sql.DB
-	now  func() time.Time
-	home string
+	db      *sql.DB
+	now     func() time.Time
+	home    string
+	cleanup func()
 }
 
 func Open(path string, now func() time.Time) (*Store, error) {
@@ -95,7 +96,13 @@ func tooOld(what string, v int) error {
 	return fmt.Errorf("%w: %s schema %d, older than this hand reads (%d to %d); hand %s is the last release that migrates it", ErrInvalid, what, v, MinSchemaVersion, SchemaVersion, lastMigrating)
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.cleanup != nil {
+		s.cleanup()
+	}
+	return err
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	conn, err := s.db.Conn(ctx)

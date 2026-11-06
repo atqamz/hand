@@ -134,7 +134,7 @@ Any folder that holds `hand.db`, which `hand init` creates. Commands find the fl
 2. the working directory or the nearest folder above it that holds `hand.db`;
 3. `$HAND_HOME`.
 
-A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, `mv` its folder and run `hand init` in the new place. A copy of a fleet home is refused until one of the two copies is deleted.
+A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, use [Move](#move); a plain `mv` leaves every recorded home path behind. A copy of a fleet home is refused until one of the two copies is deleted.
 
 A fleet home holds:
 
@@ -147,6 +147,10 @@ A fleet home holds:
 - `reports/` and `shots/`: the documents and screenshots workers leave for the operator (see Retention);
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
+
+### Move
+
+Moving a fleet is `hand fleet move PATH`: one transaction rewrites every text column's old absolute home to the new absolute home and `~/<old folder>` to `~/<new folder>`, verifies the old home no longer occurs as a path, checks foreign keys and integrity, and appends `fleet.moved`; then the folder moves and the link in `~/.secondhand/fleets` follows. The fleet ID, refs, branch names and worktree paths do not change; the `fleet.moved` event keeps the old home on purpose as history. `--dry-run` lists each cell with its absolute and `~` occurrence counts and writes nothing. A move refuses a live supervisor, attempt, watcher or board, a pending supervisor input, an armed timer, a destination that exists and is not empty, the same or a nested path, another filesystem, and a fleet missing from the registry.
 
 ### Inbox folder and trash
 
