@@ -90,8 +90,8 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Absolute != 18 || rep.Tilde != 9 || len(rep.Cells) != 22 || rep.ShorthandCount != 0 || len(rep.Hits) != 0 {
-		t.Fatalf("counts = %d absolute, %d tilde, %d cells, %d shorthand, %d hits; want 18, 9, 22, 0, 0: %+v", rep.Absolute, rep.Tilde, len(rep.Cells), rep.ShorthandCount, len(rep.Hits), rep.Cells)
+	if rep.Absolute != 16 || rep.Tilde != 8 || len(rep.Cells) != 19 || len(rep.Hits) != 0 {
+		t.Fatalf("counts = %d absolute, %d tilde, %d cells, %d hits; want 16, 8, 19, 0: %+v", rep.Absolute, rep.Tilde, len(rep.Cells), len(rep.Hits), rep.Cells)
 	}
 	if rep.AfterAbsolute != 0 || rep.ForeignKeys != 0 || rep.Integrity != "ok" || rep.MarkerSeq == 0 || rep.EventSeq != 0 {
 		t.Fatalf("checks = %+v", rep)
@@ -119,11 +119,11 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 		{`SELECT argv FROM attempt WHERE id = 1`, string(wantArgv) + " " + newTilde},
 		{`SELECT reason FROM attempt WHERE id = 1`, to},
 		{`SELECT screen FROM attempt WHERE id = 1`, newTilde + "/screen"},
-		{`SELECT kept FROM attempt WHERE id = 1`, to + " kept"},
+		{`SELECT kept FROM attempt WHERE id = 1`, old + " kept"},
 		{`SELECT body FROM report WHERE id = 1`, "Delivered: " + to + "/reports/t1/x.md. and " + to + "/y,"},
 		{`SELECT argv FROM supervisor WHERE id = 1`, `["` + to + `"]`},
-		{`SELECT body FROM supervisor_input WHERE id = 1`, newTilde + " input"},
-		{`SELECT note FROM timer WHERE id = 1`, to + " note"},
+		{`SELECT body FROM supervisor_input WHERE id = 1`, tilde + " input"},
+		{`SELECT note FROM timer WHERE id = 1`, old + " note"},
 		{`SELECT name FROM device WHERE id = 1`, newTilde},
 		{`SELECT login FROM device WHERE id = 1`, to},
 		{`SELECT pattern FROM project_grant WHERE id = 1`, to + "/bin"},
@@ -148,7 +148,7 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 	if len(hash) != 64 || !strings.HasPrefix(hash, newTilde) {
 		t.Fatalf("secret_hash = %q", hash)
 	}
-	if got := read(`SELECT detail FROM event WHERE kind = 'fleet.moving'`); got != old+" -> "+to {
+	if got := read(`SELECT detail FROM event WHERE kind = 'fleet.moving'`); got != moveDetail(old, to) {
 		t.Fatalf("marker = %q", got)
 	}
 	from, markerTo, pending, err := s.PendingMove(ctx)
@@ -168,7 +168,7 @@ func TestMoveHomeRewritesEveryTextColumnAndKeepsBoundaries(t *testing.T) {
 	if _, _, pending, err := s.PendingMove(ctx); err != nil || pending {
 		t.Fatalf("still pending: %v, %v", pending, err)
 	}
-	if got := read(`SELECT detail FROM event WHERE kind = 'fleet.moved'`); got != old+" -> "+to {
+	if got := read(`SELECT detail FROM event WHERE kind = 'fleet.moved'`); got != moveDetail(old, to) {
 		t.Fatalf("move event = %q", got)
 	}
 }
@@ -177,7 +177,7 @@ func TestMoveHomeRollsBackACellAddedAfterTheScan(t *testing.T) {
 	s, _ := openTest(t)
 	old := s.home
 	to := filepath.Join(t.TempDir(), "new")
-	moveFixture(t, s, old, "~/"+filepath.Base(old))
+	moveFixture(t, s, old, "~/.secondhand")
 	ctx := context.Background()
 	_, err := s.moveHome(ctx, old, to, false, func(tx moveWriter) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'late', ?)`, old+"/late")
@@ -219,6 +219,11 @@ func TestReplacePathBoundaries(t *testing.T) {
 		{old + ".bak", old + ".bak", 0, 0},
 		{old + ".old/x", old + ".old/x", 0, 0},
 		{old + "./x", old + "./x", 0, 0},
+		{old + ".1", old + ".1", 0, 0},
+		{old + ".12:00", old + ".12:00", 0, 0},
+		{old + " ", old + " ", 0, 0},
+		{old + "+", old + "+", 0, 0},
+		{old + "é", old + "é", 0, 0},
 		{old + ",", to + ",", 1, 0},
 		{old + "-old", old + "-old", 0, 0},
 		{old + "x", old + "x", 0, 0},
@@ -229,7 +234,16 @@ func TestReplacePathBoundaries(t *testing.T) {
 		{"~/" + filepath.Base(old) + ".", "~/" + filepath.Base(to) + ".", 0, 1},
 		{"~/" + filepath.Base(old) + ".bak", "~/" + filepath.Base(old) + ".bak", 0, 0},
 		{"~/" + filepath.Base(old) + "-old", "~/" + filepath.Base(old) + "-old", 0, 0},
+		{"~/" + filepath.Base(old) + " ", "~/" + filepath.Base(old) + " ", 0, 0},
+		{"~/" + filepath.Base(old) + "+", "~/" + filepath.Base(old) + "+", 0, 0},
+		{"~/" + filepath.Base(old) + "é", "~/" + filepath.Base(old) + "é", 0, 0},
 		{"pre~/" + filepath.Base(old), "pre~/" + filepath.Base(old), 0, 0},
+		{`~\/` + filepath.Base(old) + `/x`, `~\/` + filepath.Base(to) + `/x`, 0, 1},
+		{`~\u002f` + filepath.Base(old) + `\u002fx`, `~\u002f` + filepath.Base(to) + `\u002fx`, 0, 1},
+		{`~\u002F` + filepath.Base(old) + `\u002Fx`, `~\u002F` + filepath.Base(to) + `\u002Fx`, 0, 1},
+		{`\/home\/a\/fleet\/x`, `\/home\/a\/new\/x`, 1, 0},
+		{`\u002fhome\u002fa\u002ffleet\u002fx`, `\u002fhome\u002fa\u002fnew\u002fx`, 1, 0},
+		{`file:///home/a/fleet/x`, `file:///home/a/new/x`, 1, 0},
 	}
 	for _, c := range cases {
 		got, absolute, tilde := rewriteHome(c.in, old, to, home)
@@ -301,8 +315,8 @@ func TestMoveHomeRewritesTheSameBasenameShorthandToTheAbsoluteDestination(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Absolute != 2 || rep.Tilde != 1 || rep.ShorthandCount != 0 {
-		t.Fatalf("counts = %d, %d, %d", rep.Absolute, rep.Tilde, rep.ShorthandCount)
+	if rep.Absolute != 2 || rep.Tilde != 1 {
+		t.Fatalf("counts = %d, %d", rep.Absolute, rep.Tilde)
 	}
 	var detail string
 	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&detail); err != nil {
@@ -330,8 +344,8 @@ func TestMoveHomeRewritesTheShorthandWhenBothAreUnderHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Absolute != 2 || rep.Tilde != 1 || rep.ShorthandCount != 0 {
-		t.Fatalf("counts = %d, %d, %d", rep.Absolute, rep.Tilde, rep.ShorthandCount)
+	if rep.Absolute != 2 || rep.Tilde != 1 {
+		t.Fatalf("counts = %d, %d", rep.Absolute, rep.Tilde)
 	}
 	var detail string
 	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&detail); err != nil {
@@ -342,7 +356,7 @@ func TestMoveHomeRewritesTheShorthandWhenBothAreUnderHome(t *testing.T) {
 	}
 }
 
-func TestMoveHomeLeavesAndListsShorthandThatIsNotTheHome(t *testing.T) {
+func TestMoveHomeRefusesTheShorthandWhenTheOldHomeIsNotUnderHome(t *testing.T) {
 	setUserHome(t, t.TempDir())
 	s, _ := openTest(t)
 	ctx := context.Background()
@@ -351,42 +365,119 @@ func TestMoveHomeLeavesAndListsShorthandThatIsNotTheHome(t *testing.T) {
 	}
 	old := s.home
 	to := filepath.Join(t.TempDir(), "new")
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'test', ?)`, "~/"+filepath.Base(old)+"/x "+old); err != nil {
+	detail := "~/" + filepath.Base(old) + "/x " + old
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'test', ?)`, detail); err != nil {
 		t.Fatal(err)
 	}
-	rep, err := s.MoveHome(ctx, old, to)
-	if err != nil {
+	_, err := s.MoveHome(ctx, old, to)
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "verification found 1 old home path(s)") || !strings.Contains(err.Error(), "event.detail") || !strings.Contains(err.Error(), "edit them to name "+to) {
+		t.Fatalf("err = %v", err)
+	}
+	if rep, err := s.PlanHome(ctx, old, to); err != nil || len(rep.Hits) != 1 || rep.Tilde != 0 || rep.Absolute != 2 {
+		t.Fatalf("plan = %+v, %v", rep, err)
+	}
+	var got, home string
+	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&got); err != nil {
 		t.Fatal(err)
 	}
-	if rep.Tilde != 0 || rep.ShorthandCount != 1 || len(rep.Shorthand) != 1 {
-		t.Fatalf("tilde = %d, shorthand = %d, cells = %+v", rep.Tilde, rep.ShorthandCount, rep.Shorthand)
+	if got != detail {
+		t.Fatalf("the move committed: detail = %q", got)
 	}
-	var detail string
-	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&detail); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT home FROM fleet`).Scan(&home); err != nil {
 		t.Fatal(err)
 	}
-	if detail != "~/"+filepath.Base(old)+"/x "+to {
-		t.Fatalf("detail = %q", detail)
+	if home != old {
+		t.Fatalf("home = %q", home)
 	}
 }
 
-func TestMoveHomeVerificationSeesFormsTheMatcherMisses(t *testing.T) {
+func TestMoveHomeAcceptsADestinationWithNameBytes(t *testing.T) {
+	for _, suffix := range []string{" 2026", "+2026", "é", "."} {
+		t.Run(strconv.Quote(suffix), func(t *testing.T) {
+			parent := t.TempDir()
+			setUserHome(t, parent)
+			old := filepath.Join(parent, "fleet-hand")
+			s := openAt(t, old)
+			to := filepath.Join(parent, filepath.Base(old)+suffix)
+			ctx := context.Background()
+			if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+				t.Fatal(err)
+			}
+			sibling := "see " + old + " backup and " + old + "+old and " + old + "é and " + old + ".bak"
+			if _, err := s.db.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'test', ?)`, sibling); err != nil {
+				t.Fatal(err)
+			}
+			rep, err := s.MoveHome(ctx, old, to)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rep.AfterAbsolute != 0 || len(rep.Hits) != 0 {
+				t.Fatalf("verification = %d, hits = %+v", rep.AfterAbsolute, rep.Hits)
+			}
+			var detail, recorded string
+			if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&detail); err != nil {
+				t.Fatal(err)
+			}
+			if detail != sibling {
+				t.Fatalf("a sibling with name bytes was rewritten: %q", detail)
+			}
+			if err := s.db.QueryRowContext(ctx, `SELECT home FROM fleet`).Scan(&recorded); err != nil {
+				t.Fatal(err)
+			}
+			if recorded != to {
+				t.Fatalf("home = %q, want %q", recorded, to)
+			}
+		})
+	}
+}
+
+func TestMoveHomeSurvivesArrowsInAPath(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+		t.Fatal(err)
+	}
+	old := s.home
+	to := filepath.Join(t.TempDir(), "a -> b")
+	if _, err := s.MoveHome(ctx, old, to); err != nil {
+		t.Fatal(err)
+	}
+	from, gotTo, pending, err := s.PendingMove(ctx)
+	if err != nil || !pending || from != old || gotTo != to {
+		t.Fatalf("pending = %q, %q, %v, %v; want %q, %q", from, gotTo, pending, err, old, to)
+	}
+	if _, err := s.ConfirmMove(ctx, old, to); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, pending, err := s.PendingMove(ctx); err != nil || pending {
+		t.Fatalf("still pending: %v, %v", pending, err)
+	}
+}
+
+func TestMoveHomeRewritesFormsBeyondThePlainPath(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct {
 		name string
-		run  func(t *testing.T, s *Store, old string) string
+		run  func(t *testing.T, s *Store, old, to string) (string, string)
 	}{
-		{"file url", func(t *testing.T, s *Store, old string) string { return "file://" + old + "/x" }},
-		{"json slash", func(t *testing.T, s *Store, old string) string {
-			return strings.ReplaceAll(filepath.ToSlash(old), "/", `\u002f`) + `\u002fx`
+		{"file url", func(t *testing.T, s *Store, old, to string) (string, string) {
+			return "file://" + old + "/x", "file://" + to + "/x"
 		}},
-		{"case variant", func(t *testing.T, s *Store, old string) string {
+		{"json slash", func(t *testing.T, s *Store, old, to string) (string, string) {
+			return strings.ReplaceAll(filepath.ToSlash(old), "/", `\u002f`) + `\u002fx`,
+				strings.ReplaceAll(filepath.ToSlash(to), "/", `\u002f`) + `\u002fx`
+		}},
+		{"json escaped slash", func(t *testing.T, s *Store, old, to string) (string, string) {
+			return strings.ReplaceAll(filepath.ToSlash(old), "/", `\/`) + `\/x`,
+				strings.ReplaceAll(filepath.ToSlash(to), "/", `\/`) + `\/x`
+		}},
+		{"case variant", func(t *testing.T, s *Store, old, to string) (string, string) {
 			if runtime.GOOS != "windows" {
 				t.Skip("case variants only name the home on Windows")
 			}
-			return strings.ToUpper(old) + "/x"
+			return strings.ToUpper(old) + "/x", to + "/x"
 		}},
-		{"symlinked home", func(t *testing.T, s *Store, old string) string {
+		{"symlinked home", func(t *testing.T, s *Store, old, to string) (string, string) {
 			if runtime.GOOS == "windows" {
 				t.Skip("symlink creation needs a privilege")
 			}
@@ -395,7 +486,7 @@ func TestMoveHomeVerificationSeesFormsTheMatcherMisses(t *testing.T) {
 				t.Fatal(err)
 			}
 			setUserHome(t, filepath.Join(raw, "link"))
-			return filepath.Join(raw, "link", filepath.Base(old), "x")
+			return filepath.Join(raw, "link", filepath.Base(old), "x"), to + "/x"
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -405,30 +496,23 @@ func TestMoveHomeVerificationSeesFormsTheMatcherMisses(t *testing.T) {
 			}
 			old := s.home
 			to := filepath.Join(t.TempDir(), "new")
-			detail := c.run(t, s, old)
+			detail, want := c.run(t, s, old, to)
 			if _, err := s.db.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'test', ?)`, detail); err != nil {
 				t.Fatal(err)
 			}
 			rep, err := s.MoveHome(ctx, old, to)
-			if err == nil || !strings.Contains(err.Error(), "verification found 1 old home path(s)") || !strings.Contains(err.Error(), "event.detail") {
-				t.Fatalf("err = %v", err)
+			if err != nil {
+				t.Fatal(err)
 			}
-			if rep.MarkerSeq != 0 {
-				t.Fatalf("marker = %d", rep.MarkerSeq)
+			if rep.Absolute != 2 || rep.Tilde != 0 || len(rep.Hits) != 0 {
+				t.Fatalf("counts = %d absolute, %d tilde, %d hits; cells = %+v", rep.Absolute, rep.Tilde, len(rep.Hits), rep.Cells)
 			}
 			var got string
 			if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'test'`).Scan(&got); err != nil {
 				t.Fatal(err)
 			}
-			if got != detail {
-				t.Fatalf("the move committed: detail = %q", got)
-			}
-			var home string
-			if err := s.db.QueryRowContext(ctx, `SELECT home FROM fleet`).Scan(&home); err != nil {
-				t.Fatal(err)
-			}
-			if home != old {
-				t.Fatalf("home = %q", home)
+			if got != want {
+				t.Fatalf("detail = %q, want %q", got, want)
 			}
 		})
 	}
@@ -459,7 +543,7 @@ func TestMoveHomeKeepsFleetMovedRows(t *testing.T) {
 	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'fleet.moved' ORDER BY seq LIMIT 1`).Scan(&first); err != nil {
 		t.Fatal(err)
 	}
-	if first != old+" -> "+mid {
+	if first != moveDetail(old, mid) {
 		t.Fatalf("history = %q", first)
 	}
 	if _, err := s.ConfirmMove(ctx, mid, final); err != nil {
@@ -469,7 +553,7 @@ func TestMoveHomeKeepsFleetMovedRows(t *testing.T) {
 	if err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'fleet.moved' ORDER BY seq DESC LIMIT 1`).Scan(&last); err != nil {
 		t.Fatal(err)
 	}
-	if last != mid+" -> "+final {
+	if last != moveDetail(mid, final) {
 		t.Fatalf("last = %q", last)
 	}
 }

@@ -23,8 +23,6 @@ type MoveReport struct {
 	From, To        string
 	Cells           []MoveCell
 	Absolute, Tilde int
-	Shorthand       []MoveCell
-	ShorthandCount  int
 	Hits            []MoveCell
 	AfterAbsolute   int
 	AfterTilde      int
@@ -89,7 +87,7 @@ func (s *Store) PlanHome(ctx context.Context, from, to string) (MoveReport, erro
 	rep := MoveReport{From: from, To: to}
 	pass, err := moveScan(ctx, s.db, from, to, userHome(), false)
 	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
-	rep.Shorthand, rep.ShorthandCount, rep.Hits = pass.Shorthand, pass.ShorthandCount, pass.Hits
+	rep.Hits = pass.Hits
 	rep.AfterAbsolute = len(rep.Hits)
 	return rep, err
 }
@@ -120,18 +118,17 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 			return err
 		}
 		rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
-		rep.Shorthand, rep.ShorthandCount = pass.Shorthand, pass.ShorthandCount
 		if after != nil {
 			if err := after(tx); err != nil {
 				return err
 			}
 		}
-		hits, err := moveHits(ctx, tx, from, userHome())
+		hits, err := moveHits(ctx, tx, from, to, userHome())
 		if err != nil {
 			return err
 		}
 		if len(hits) != 0 {
-			return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; nothing changed", ErrConflict, len(hits), moveHitList(hits))
+			return fmt.Errorf("%w: the move verification found %d old home path(s) after the rewrite: %s; edit them to name %s by hand in %s, then run again; nothing changed", ErrConflict, len(hits), moveHitList(hits), to, filepath.Join(s.home, "hand.db"))
 		}
 		rep.Hits, rep.AfterAbsolute = hits, len(hits)
 		if err := moveChecks(ctx, tx, &rep); err != nil {
@@ -166,14 +163,23 @@ func moveEvent(tx *sql.Tx, at, from, to string) (int64, error) {
 	return res.LastInsertId()
 }
 
-func moveDetail(from, to string) string { return from + " -> " + to }
+func moveDetail(from, to string) string {
+	b, _ := json.Marshal(struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}{from, to})
+	return string(b)
+}
 
 func moveSplit(detail string) (string, string, bool) {
-	i := strings.LastIndex(detail, " -> ")
-	if i < 0 {
+	var v struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.Unmarshal([]byte(detail), &v); err != nil || v.From == "" || v.To == "" {
 		return "", "", false
 	}
-	return detail[:i], detail[i+4:], true
+	return v.From, v.To, true
 }
 
 func (s *Store) PendingMove(ctx context.Context) (from, to string, ok bool, err error) {
@@ -251,8 +257,8 @@ func (s *Store) ConfirmMove(ctx context.Context, from, to string) (int64, error)
 	return seq, err
 }
 
-func (s *Store) VerifyHome(ctx context.Context, from string) ([]MoveCell, error) {
-	return moveHits(ctx, s.db, from, userHome())
+func (s *Store) VerifyHome(ctx context.Context, from, to string) ([]MoveCell, error) {
+	return moveHits(ctx, s.db, from, to, userHome())
 }
 
 func moveChecks(ctx context.Context, tx *sql.Tx, rep *MoveReport) error {
@@ -313,8 +319,6 @@ type moveRow struct {
 type movePass struct {
 	Cells           []MoveCell
 	Absolute, Tilde int
-	Shorthand       []MoveCell
-	ShorthandCount  int
 	Hits            []MoveCell
 }
 
@@ -324,16 +328,8 @@ func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bo
 	if err != nil {
 		return pass, err
 	}
-	patterns := moveHitPatterns(from, home)
+	patterns := moveHitPatterns(from, to, home)
 	fold := foldHome()
-	oldBase := filepath.Base(from)
-	tildeHome := false
-	if b, ok := homeChild(from, home); ok {
-		oldBase, tildeHome = b, true
-	}
-	if oldBase == "." || oldBase == string(filepath.Separator) || oldBase == "" {
-		oldBase = ""
-	}
 	for _, c := range cols {
 		rows, err := q.QueryContext(ctx, `SELECT rowid, `+moveRef(c.table)+`, `+moveNullSafe(c.column)+` FROM `+quoteIdent(c.table)+moveHistory(c.table)+` ORDER BY rowid`)
 		if err != nil {
@@ -366,27 +362,20 @@ func moveScan(ctx context.Context, q moveWriter, from, to, home string, apply bo
 				pass.Absolute += absolute
 				pass.Tilde += tilde
 			}
-			if countHits(out, patterns, fold) > 0 {
+			if !moveIsTo(out, to) && countHits(out, patterns, fold) > 0 {
 				pass.Hits = append(pass.Hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
-			}
-			if tildeHome {
-				continue
-			}
-			if n := countHits(out, []string{"~/" + oldBase}, fold); n > 0 {
-				pass.Shorthand = append(pass.Shorthand, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
-				pass.ShorthandCount += n
 			}
 		}
 	}
 	return pass, nil
 }
 
-func moveHits(ctx context.Context, q moveQueryer, from, home string) ([]MoveCell, error) {
+func moveHits(ctx context.Context, q moveQueryer, from, to, home string) ([]MoveCell, error) {
 	cols, err := moveColumns(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	patterns := moveHitPatterns(from, home)
+	patterns := moveHitPatterns(from, to, home)
 	fold := foldHome()
 	var hits []MoveCell
 	for _, c := range cols {
@@ -427,6 +416,9 @@ func moveHits(ctx context.Context, q moveQueryer, from, home string) ([]MoveCell
 			return nil, err
 		}
 		for _, r := range found {
+			if moveIsTo(r.value, to) {
+				continue
+			}
 			if countHits(r.value, patterns, fold) > 0 {
 				hits = append(hits, MoveCell{Table: c.table, Column: c.column, Ref: r.ref})
 			}
@@ -466,107 +458,144 @@ func moveHistory(table string) string {
 	return ""
 }
 
-func moveHitPatterns(from, home string) []string {
-	var patterns []string
-	add := func(p string) {
-		if p == "" {
+type movePattern struct {
+	text, target string
+	tilde        bool
+}
+
+func moveHitPatterns(from, to, home string) []string {
+	ps := movePatterns(from, to, home, true)
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.text
+	}
+	return out
+}
+
+func movePatterns(from, to, home string, tilde bool) []movePattern {
+	var ps []movePattern
+	add := func(text, target string, tilde bool) {
+		if text == "" || text == target {
 			return
 		}
-		for _, have := range patterns {
-			if have == p {
+		for _, have := range ps {
+			if have.text == text {
 				return
 			}
 		}
-		patterns = append(patterns, p)
+		ps = append(ps, movePattern{text: text, target: target, tilde: tilde})
 	}
-	add(from)
-	if escaped := escapeBackslashes(from); escaped != from {
-		add(escaped)
-	}
-	slash := filepath.ToSlash(from)
-	if slash != from {
-		add(slash)
-		if escaped := escapeBackslashes(slash); escaped != slash {
-			add(escaped)
+	var addSpellings func(path, target string)
+	addSpellings = func(path, target string) {
+		add(path, target, false)
+		if escaped := escapeBackslashes(path); escaped != path {
+			add(escaped, escapeBackslashes(target), false)
+		}
+		slash, slashTarget := filepath.ToSlash(path), filepath.ToSlash(target)
+		if slash != path {
+			add(slash, slashTarget, false)
+			if escaped := escapeBackslashes(slash); escaped != slash {
+				add(escaped, escapeBackslashes(slashTarget), false)
+			}
+		}
+		if strings.Contains(path, "/") {
+			add(strings.ReplaceAll(path, "/", `\u002f`), strings.ReplaceAll(target, "/", `\u002f`), false)
+			add(strings.ReplaceAll(path, "/", `\u002F`), strings.ReplaceAll(target, "/", `\u002F`), false)
+			add(strings.ReplaceAll(path, "/", `\/`), strings.ReplaceAll(target, "/", `\/`), false)
+		}
+		if slash != path && strings.Contains(slash, "/") {
+			add(strings.ReplaceAll(slash, "/", `\u002f`), strings.ReplaceAll(slashTarget, "/", `\u002f`), false)
+			add(strings.ReplaceAll(slash, "/", `\u002F`), strings.ReplaceAll(slashTarget, "/", `\u002F`), false)
+			add(strings.ReplaceAll(slash, "/", `\/`), strings.ReplaceAll(slashTarget, "/", `\/`), false)
+		}
+		add("file://"+path, "file://"+target, false)
+		if slash != path {
+			add("file://"+slash, "file://"+slashTarget, false)
+			add("file:///"+slash, "file:///"+slashTarget, false)
 		}
 	}
-	if strings.Contains(from, "/") {
-		add(strings.ReplaceAll(from, "/", `\u002f`))
-		add(strings.ReplaceAll(from, "/", `\u002F`))
-	}
-	if strings.Contains(slash, "/") && slash != from {
-		add(strings.ReplaceAll(slash, "/", `\u002f`))
-		add(strings.ReplaceAll(slash, "/", `\u002F`))
-	}
-	add("file://" + from)
-	if slash != from {
-		add("file://" + slash)
-		add("file:///" + slash)
-	}
-	if oldBase, ok := homeChild(from, home); ok {
-		add("~/" + oldBase)
-		if foldHome() {
-			add(`~\` + oldBase)
-		}
-	}
+	addSpellings(from, to)
 	if alias, ok := homeAlias(from, home); ok {
-		add(alias)
-		if escaped := escapeBackslashes(alias); escaped != alias {
-			add(escaped)
-		}
-		if s := filepath.ToSlash(alias); s != alias {
-			add(s)
-		}
+		addSpellings(alias, to)
 	}
-	return patterns
-}
-
-func rewriteHome(s, from, to, home string) (string, int, int) {
-	out, absolute := replacePath(s, from, to)
-	if escaped := escapeBackslashes(from); escaped != from {
-		var n int
-		out, n = replacePath(out, escaped, escapeBackslashes(to))
-		absolute += n
-	}
-	tilde := 0
-	if oldBase, ok := homeChild(from, home); ok {
-		jsonCell := runtime.GOOS == "windows" && json.Valid([]byte(s))
+	if base := moveBase(from); tilde && base != "" {
 		target := to
 		if newBase, ok := homeChild(to, home); ok {
 			target = "~/" + newBase
 		}
-		escapedTarget := target
-		if jsonCell {
-			escapedTarget = escapeBackslashes(target)
-		}
-		out, tilde = replacePath(out, "~/"+oldBase, escapedTarget)
+		add("~/"+base, target, true)
+		add(`~\/`+base, slashEscaped(target, `\/`), true)
+		add(`~\u002f`+base, slashEscaped(target, `\u002f`), true)
+		add(`~\u002F`+base, slashEscaped(target, `\u002F`), true)
 		if foldHome() {
-			var n int
-			out, n = replacePath(out, `~\`+oldBase, target)
+			add(`~\`+base, target, true)
+			add(`~\\`+base, escapeBackslashes(target), true)
+		}
+	}
+	return ps
+}
+
+func slashEscaped(target, escape string) string {
+	return strings.ReplaceAll(escapeBackslashes(target), "/", escape)
+}
+
+func moveBase(p string) string {
+	b := filepath.Base(filepath.Clean(p))
+	if b == "" || b == "." || b == string(filepath.Separator) {
+		return ""
+	}
+	return b
+}
+
+func rewriteHome(s, from, to, home string) (string, int, int) {
+	if s == "" || from == "" || moveIsTo(s, to) {
+		return s, 0, 0
+	}
+	out := s
+	absolute, tilde := 0, 0
+	fold := foldHome()
+	_, named := homeChild(from, home)
+	for _, p := range movePatterns(from, to, home, named) {
+		var n int
+		out, n = replacePathFold(out, p.text, p.target, fold)
+		if p.tilde {
 			tilde += n
-			if jsonCell {
-				out, n = replacePath(out, `~\\`+oldBase, escapedTarget)
-				tilde += n
-			}
+		} else {
+			absolute += n
 		}
 	}
 	return out, absolute, tilde
 }
 
+func moveIsTo(v, to string) bool {
+	if v == to {
+		return true
+	}
+	return foldHome() && sameHome(v, to)
+}
+
 func replacePath(s, from, to string) (string, int) {
+	return replacePathFold(s, from, to, false)
+}
+
+func replacePathFold(s, from, to string, fold bool) (string, int) {
 	if s == "" || from == "" {
 		return s, 0
+	}
+	hay, needle := s, from
+	if fold {
+		hay, needle = foldASCII(s), foldASCII(from)
 	}
 	var b strings.Builder
 	b.Grow(len(s))
 	last, n := 0, 0
 	for i := 0; ; {
-		j := strings.Index(s[i:], from)
+		j := strings.Index(hay[i:], needle)
 		if j < 0 {
 			break
 		}
 		j += i
-		end := j + len(from)
+		end := j + len(needle)
 		if (j == 0 || !moveLead(s[j-1])) && pathEnd(s, end) {
 			b.WriteString(s[last:j])
 			b.WriteString(to)
@@ -611,13 +640,17 @@ func countPath(s, pattern string) int {
 	}
 }
 
-func moveGlue(c byte) bool {
+func moveName(c byte) bool {
 	switch {
 	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 		return true
+	case c == '_' || c == '-' || c == '.' || c == '+':
+		return true
 	}
-	return c == '_' || c == '-' || c == '.'
+	return c >= 0x80
 }
+
+func moveGlue(c byte) bool { return moveName(c) || c == ' ' }
 
 func pathEnd(s string, end int) bool {
 	if end == len(s) {
@@ -629,12 +662,16 @@ func pathEnd(s string, end int) bool {
 	if end+1 == len(s) {
 		return true
 	}
+	switch s[end+1] {
+	case ' ', '\t', '\n', '\r':
+		return true
+	}
 	c := s[end+1]
 	return !moveGlue(c) && c != '/' && c != '\\'
 }
 
 func moveLead(c byte) bool {
-	return moveGlue(c) || c == '/' || c == '\\' || c == '~'
+	return moveName(c) || c == '/' || c == '\\' || c == '~'
 }
 
 func foldHome() bool { return runtime.GOOS == "windows" }

@@ -62,6 +62,18 @@ func moveExec(t *testing.T, db *sql.DB, q string, args ...any) {
 	}
 }
 
+func moveEventDetail(t *testing.T, from, to string) string {
+	t.Helper()
+	b, err := json.Marshal(struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}{from, to})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 func seedMoveFleet(t *testing.T, home, id string) {
 	t.Helper()
 	db := openMoveDB(t, home)
@@ -135,10 +147,9 @@ func TestFleetMoveDryRunListsEveryCellAndWritesNothing(t *testing.T) {
 		"id: " + id,
 		"from: " + toon.Value(home),
 		"to: " + toon.Value(dest),
-		"absolute: 17",
-		"tilde: 8",
-		"shorthand: 0",
-		"cells[20]{table,column,ref,absolute,tilde}:",
+		"absolute: 15",
+		"tilde: 7",
+		"cells[17]{table,column,ref,absolute,tilde}:",
 		"attempt,argv,a1,1,1",
 		"attempt,screen,a1,0,1",
 		"decision,answer,d1,1,1",
@@ -180,7 +191,7 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 		"move: moved",
 		"from: " + toon.Value(home),
 		"to: " + toon.Value(dest),
-		"before,17,8,20",
+		"before,15,7,17",
 		"after,0,0,0",
 		"verification: 0",
 		"foreign_key_check: 0",
@@ -246,7 +257,7 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 		{`SELECT branch FROM attempt WHERE id = 1`, "hand/" + id + "/t1-a1"},
 		{`SELECT worktree FROM attempt WHERE id = 1`, "~/.secondhand/worktrees/" + id + "/t1-a1"},
 		{`SELECT detail FROM event WHERE kind = 'test'`, "e " + dest + "/reports/t1/x.md. " + newHome},
-		{`SELECT detail FROM event WHERE kind = 'fleet.moved'`, home + " -> " + dest},
+		{`SELECT detail FROM event WHERE kind = 'fleet.moved'`, moveEventDetail(t, home, dest)},
 		{`SELECT home FROM fleet`, dest},
 	} {
 		if got := read(c.q); got != c.want {
@@ -405,7 +416,7 @@ func otherFilesystem(t *testing.T) string {
 }
 
 func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
-	h, home, id := initMoveFleet(t)
+	h, home, _ := initMoveFleet(t)
 	db := openMoveDB(t, home)
 	moveExec(t, db, `INSERT INTO project(name, repo, created_at, settings) VALUES ('app', ?, ?, '')`, filepath.Join(home, "repo"), moveAt)
 	moveExec(t, db, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'app', 'Copied task', 'Read me', 'active', ?, ?)`, moveAt, moveAt)
@@ -414,13 +425,16 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 	db.Close()
 	copied := filepath.Join(t.TempDir(), "copy")
 	copyMoveTree(t, home, copied)
+	h.cwd, h.home = copied, copied
+	if _, errOut, code := h.run("init"); code != 3 || !strings.Contains(errOut, "is also at "+home) {
+		t.Fatalf("init with the original present: code=%d stderr=%q", code, errOut)
+	}
 	if err := os.RemoveAll(home); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id), []byte(copied+"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if out := h.ok("init"); !strings.Contains(out, "moved_from: "+toon.Value(home)) {
+		t.Fatalf("init = %q", out)
 	}
-	h.home = copied
 	dest := filepath.Join(t.TempDir(), "moved")
 	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "rewrite-only --from "+home) {
 		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
@@ -469,7 +483,7 @@ func TestFleetMoveRequiresFromWhenNoHomeIsRecorded(t *testing.T) {
 		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
 	}
 	out := h.ok("fleet", "move", "--dry-run", "--from", home, dest)
-	if !strings.Contains(out, "move: dry-run") || !strings.Contains(out, "verification: 0") || !strings.Contains(out, "cells[19]") {
+	if !strings.Contains(out, "move: dry-run") || !strings.Contains(out, "verification: 0") || !strings.Contains(out, "cells[16]") {
 		t.Fatalf("dry run with --from = %q", out)
 	}
 }
@@ -479,7 +493,7 @@ func TestFleetMoveToADirectChildOfHomeKeepsTheShorthand(t *testing.T) {
 	seedMoveFleet(t, home, id)
 	dest := filepath.Join(filepath.Dir(home), "hand-renamed")
 	out := h.ok("fleet", "move", "--yes", dest)
-	if !strings.Contains(out, "move: moved") || !strings.Contains(out, "before,17,8,20") || !strings.Contains(out, "verification: 0") {
+	if !strings.Contains(out, "move: moved") || !strings.Contains(out, "before,15,7,17") || !strings.Contains(out, "verification: 0") {
 		t.Fatalf("move = %q", out)
 	}
 	db := openMoveDB(t, dest)
@@ -498,7 +512,7 @@ func TestFleetMoveToADirectChildOfHomeKeepsTheShorthand(t *testing.T) {
 	if got := read(`SELECT login FROM device WHERE id = 1`); got != "~/hand-renamed" {
 		t.Fatalf("device name = %q", got)
 	}
-	if got := read(`SELECT body FROM supervisor_input WHERE id = 1`); got != "~/hand-renamed input" {
+	if got := read(`SELECT body FROM supervisor_input WHERE id = 1`); got != "~/"+filepath.Base(home)+" input" {
 		t.Fatalf("input = %q", got)
 	}
 	if got := read(`SELECT body FROM report WHERE id = 1`); got != "Delivered: "+dest+"/reports/t1/x.md. and "+dest+"/y," {
@@ -520,12 +534,12 @@ func TestFleetMoveToASameBasenameUnderHomeRewritesToTheAbsoluteDestination(t *te
 		t.Fatal(err)
 	}
 	dry := h.ok("fleet", "move", "--dry-run", dest)
-	for _, want := range []string{"tilde: 8", "shorthand: 0", "verification: 0", "cells[20]"} {
+	for _, want := range []string{"tilde: 7", "verification: 0", "cells[17]"} {
 		if !strings.Contains(dry, want) {
 			t.Fatalf("dry run missing %q:\n%s", want, dry)
 		}
 	}
-	if strings.Contains(dry, "shorthand_cells") {
+	if strings.Contains(dry, "shorthand") {
 		t.Fatalf("dry run lists shorthand:\n%s", dry)
 	}
 	out := h.ok("fleet", "move", "--yes", dest)
@@ -546,7 +560,7 @@ func TestFleetMoveToASameBasenameUnderHomeRewritesToTheAbsoluteDestination(t *te
 		{`SELECT screen FROM attempt WHERE id = 1`, dest + "/screen"},
 		{`SELECT login FROM device WHERE id = 1`, dest},
 		{`SELECT answered_by FROM decision WHERE id = 1`, dest},
-		{`SELECT body FROM supervisor_input WHERE id = 1`, dest + " input"},
+		{`SELECT body FROM supervisor_input WHERE id = 1`, "~/fleet-hand input"},
 		{`SELECT body FROM report WHERE id = 1`, "Delivered: " + dest + "/reports/t1/x.md. and " + dest + "/y,"},
 	} {
 		if got := read(c.q); got != c.want {
@@ -602,7 +616,7 @@ func TestFleetMoveResumesAPendingMove(t *testing.T) {
 		t.Fatalf("moving events = %d, %v", moving, err)
 	}
 	var detail string
-	if err := db.QueryRow(`SELECT detail FROM event WHERE kind = 'fleet.moved'`).Scan(&detail); err != nil || detail != home+" -> "+dest {
+	if err := db.QueryRow(`SELECT detail FROM event WHERE kind = 'fleet.moved'`).Scan(&detail); err != nil || detail != moveEventDetail(t, home, dest) {
 		t.Fatalf("moved detail = %q, %v", detail, err)
 	}
 }
@@ -625,6 +639,20 @@ func TestFleetMoveFinishesAfterTheFolderMoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.home = dest
+	h.cwd = dest
+	if _, errOut, code := h.run("orient"); code != 3 || !strings.Contains(errOut, "a move from "+home+" to "+dest+" is pending") || !strings.Contains(errOut, "hand fleet move --yes "+dest+"` here") {
+		t.Fatalf("orient before init: code=%d stderr=%q", code, errOut)
+	}
+	if out := h.ok("init"); !strings.Contains(out, "moved_from: "+toon.Value(home)) {
+		t.Fatalf("init = %q", out)
+	}
+	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names "+dest) {
+		t.Fatalf("orient after init = %q", out)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if _, errOut, code := h.run("fleet", "move", "--yes", other); code != 3 || !strings.Contains(errOut, "is pending and this folder is already") {
+		t.Fatalf("new destination: code=%d stderr=%q", code, errOut)
+	}
 	out := h.ok("fleet", "move", "--yes", dest)
 	if !strings.Contains(out, "move: finished") || !strings.Contains(out, "verification: 0") {
 		t.Fatalf("finish = %q", out)
@@ -666,7 +694,7 @@ func TestFleetMoveRefusesALiveWatcherAndBoard(t *testing.T) {
 	}
 }
 
-func TestFleetMoveDryRunReportsWhatTheRewriteMisses(t *testing.T) {
+func TestFleetMoveRewritesAFileURL(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
 	db := openMoveDB(t, home)
@@ -674,21 +702,51 @@ func TestFleetMoveDryRunReportsWhatTheRewriteMisses(t *testing.T) {
 	db.Close()
 	dest := filepath.Join(t.TempDir(), "moved")
 	out := h.ok("fleet", "move", "--dry-run", dest)
-	for _, want := range []string{
-		"verification: 1",
-		"remaining[1]{table,column,ref}:",
-		"report,body,r1",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("dry run missing %q:\n%s", want, out)
-		}
+	if !strings.Contains(out, "verification: 0") || strings.Contains(out, "remaining[") {
+		t.Fatalf("dry run = %q", out)
+	}
+	if out := h.ok("fleet", "move", "--yes", dest); !strings.Contains(out, "move: moved") || !strings.Contains(out, "verification: 0") {
+		t.Fatalf("move = %q", out)
+	}
+	db = openMoveDB(t, dest)
+	defer db.Close()
+	var body string
+	if err := db.QueryRow(`SELECT body FROM report WHERE id = 1`).Scan(&body); err != nil {
+		t.Fatal(err)
+	}
+	if want := "file://" + filepath.Join(dest, "reports", "t1", "x.md"); body != want {
+		t.Fatalf("body = %q, want %q", body, want)
+	}
+}
+
+func TestFleetMoveRefusesShorthandWhenHomeIsElsewhere(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	other := t.TempDir()
+	t.Setenv("HOME", other)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", other)
+	}
+	dest := filepath.Join(t.TempDir(), "moved")
+	dry := h.ok("fleet", "move", "--dry-run", dest)
+	if !strings.Contains(dry, "verification: 7") || !strings.Contains(dry, "remaining[7]{table,column,ref}:") {
+		t.Fatalf("dry run = %q", dry)
 	}
 	_, errOut, code := h.run("fleet", "move", "--yes", dest)
-	if code != 3 || !strings.Contains(errOut, "verification found 1 old home path(s)") || !strings.Contains(errOut, "report.body r1") {
+	if code != 3 || !strings.Contains(errOut, "verification found 7 old home path(s)") || !strings.Contains(errOut, "edit them to name "+dest) {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
 	if _, err := os.Stat(dest); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the refused move created %s", dest)
+	}
+	db := openMoveDB(t, home)
+	defer db.Close()
+	var screen string
+	if err := db.QueryRow(`SELECT screen FROM attempt WHERE id = 1`).Scan(&screen); err != nil {
+		t.Fatal(err)
+	}
+	if screen != "~/"+filepath.Base(home)+"/screen" {
+		t.Fatalf("screen = %q", screen)
 	}
 }
 

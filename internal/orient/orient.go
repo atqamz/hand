@@ -251,6 +251,9 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 }
 
 func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home string) string {
+	if from, to, pending, err := st.PendingMove(ctx); err == nil && pending {
+		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + to + "` in " + from + " or in " + to
+	}
 	if f.Home == "" {
 		return ""
 	}
@@ -260,9 +263,6 @@ func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home strin
 	}
 	if same {
 		return ""
-	}
-	if from, to, pending, err := st.PendingMove(ctx); err == nil && pending {
-		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + to + "` in " + from + " or in " + to
 	}
 	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --from " + f.Home + "` here"
 }
