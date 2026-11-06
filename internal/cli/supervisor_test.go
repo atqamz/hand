@@ -1234,11 +1234,11 @@ func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
 	argv := rt.lastCreate().Command
-	if len(argv) != 8 || !slices.Equal(argv[1:7], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low"}) {
+	if len(argv) != 9 || !slices.Equal(argv[1:8], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--"}) {
 		t.Fatalf("argv = %q", argv)
 	}
-	if m := launchPrompt.FindStringSubmatch(argv[7]); m == nil || m[1] != "s1" {
-		t.Fatalf("prompt = %q", argv[7])
+	if m := launchPrompt.FindStringSubmatch(argv[8]); m == nil || m[1] != "s1" {
+		t.Fatalf("prompt = %q", argv[8])
 	}
 	id := "01a1abdf-088f-707d-8973-c784c54b54eb"
 	ompConversation(t, ompSessions(t, h), id, h.home, argv[len(argv)-1], time.Now())
@@ -1250,6 +1250,31 @@ func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
 	if got := rt.lastCreate().Command; !slices.Equal(got[len(got)-2:], []string{"--resume", id}) {
 		t.Fatalf("resume argv = %q", got)
 	}
+}
+
+func TestAnOmpSupervisorFindsItsSessionUnderARelativeAgentDir(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	h.vars["PI_CODING_AGENT_DIR"] = ".omp-agent"
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
+	argv := rt.lastCreate().Command
+	id := "01a1abdf-088f-707d-8973-c784c54b54ec"
+	dir := filepath.Join(h.home, ".omp-agent", "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ompConversation(t, dir, id, h.home, argv[len(argv)-1], time.Now())
+	has(t, "show", h.ok("supervisor", "show"), "session: "+id)
+}
+
+func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	rt.setSession(rt.terms[len(rt.terms)-1].id, "01a1abdf-088f-707d-8973-c784c54b54ed")
+	out := h.ok("supervisor", "show")
+	has(t, "show", out, `session: ""`, "note: ", "PI_CODING_AGENT_DIR", agent, "01a1abdf-088f-707d-8973-c784c54b54ed")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "PI_CODING_AGENT_DIR", agent)
 }
 
 func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {

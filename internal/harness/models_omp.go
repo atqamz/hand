@@ -15,7 +15,7 @@ var ompLister = lister{
 	ttl:      6 * time.Hour,
 	prefixes: []string{"PI_"},
 	files: func(env Env) []string {
-		return []string{filepath.Join(OmpAgent(env.get), "config.yml")}
+		return []string{filepath.Join(OmpAgent(env.get, ""), "config.yml")}
 	},
 	list: func(ctx context.Context, x runner, _ Env) ([]Model, bool, error) {
 		out, _, err := x.run(ctx, ompTimeout, "", "models", "--json")
@@ -45,9 +45,15 @@ var ompLister = lister{
 	},
 }
 
-func OmpAgent(getenv func(string) string) string {
+func OmpAgent(getenv func(string) string, base string) string {
 	if dir := getenv("PI_CODING_AGENT_DIR"); dir != "" {
-		return dir
+		if filepath.IsAbs(dir) {
+			return dir
+		}
+		if base == "" {
+			base, _ = filepath.Abs(".")
+		}
+		return filepath.Join(base, dir)
 	}
 	if dir := getenv("PI_CONFIG_DIR"); dir != "" {
 		if !filepath.IsAbs(dir) {

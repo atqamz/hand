@@ -383,7 +383,7 @@ func (r *runner) transcriptPaths() transcript.Paths {
 		data = filepath.Join(getenv("HOME"), ".local", "share")
 	}
 	opencode, _ := harness.LookPath("opencode", getenv("PATH"))
-	return transcript.Paths{Claude: claude, Codex: harness.CodexHome(getenv), Opencode: opencode, OpencodeData: filepath.Join(data, "opencode"), Agy: harness.AgyConversations(getenv), Copilot: harness.CopilotHome(getenv), Omp: harness.OmpAgent(getenv)}
+	return transcript.Paths{Claude: claude, Codex: harness.CodexHome(getenv), Opencode: opencode, OpencodeData: filepath.Join(data, "opencode"), Agy: harness.AgyConversations(getenv), Copilot: harness.CopilotHome(getenv), Omp: harness.OmpAgent(getenv, r.home)}
 }
 
 func boardToken(home string) (string, error) {

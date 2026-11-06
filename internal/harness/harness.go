@@ -42,6 +42,7 @@ var (
 	opencodeName  = regexp.MustCompile(`^[^\s/#\p{Cc}][^/#\p{Cc}]*/[^\s#\p{Cc}][^#\p{Cc}]*$`)
 	effortToken   = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+	ompEfforts    = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"}
 )
 
 func validModel(harness, model string) bool {
@@ -179,12 +180,12 @@ func checkOmp(s Spec, env Env) string {
 	case slices.Contains(l.Gone, s.Model):
 		return unverified([]string{goneText(s)})
 	}
-	m, ok := find(l.Models, s.Model)
+	_, ok := find(l.Models, s.Model)
 	switch {
 	case !ok:
 		return unverified([]string{fmt.Sprintf("omp model %s is not in `omp models --json`", s.Model)})
-	case s.Effort != "" && len(m.Efforts) > 0 && !slices.Contains(m.Efforts, s.Effort):
-		return unverified([]string{fmt.Sprintf("omp model %s lists thinking levels %s, not %s", s.Model, strings.Join(m.Efforts, ", "), s.Effort)})
+	case s.Effort != "" && !slices.Contains(ompEfforts, s.Effort):
+		return unverified([]string{fmt.Sprintf("omp model %s: thinking level %s is not one of %s", s.Model, s.Effort, strings.Join(ompEfforts, ", "))})
 	}
 	return ""
 }
@@ -272,13 +273,13 @@ func CopilotHome(getenv func(string) string) string {
 	return filepath.Join(getenv("HOME"), ".copilot")
 }
 
-func CheckPrompt(prompt string) error {
+func CheckPrompt(harness, prompt string) error {
 	switch {
 	case strings.TrimSpace(prompt) == "":
 		return fmt.Errorf("%w: prompt must not be empty", state.ErrInvalid)
 	case len(prompt) > MaxPromptBytes:
 		return fmt.Errorf("%w: prompt is %d bytes; luvus accepts at most %d per argument; shorten it, or write the long text to a file and make the prompt say to read that file", state.ErrInvalid, len(prompt), MaxPromptBytes)
-	case strings.HasPrefix(prompt, "-"):
+	case strings.HasPrefix(prompt, "-") && harness != "omp":
 		return fmt.Errorf("%w: prompt must not start with '-', or the harness reads it as a flag", state.ErrInvalid)
 	case strings.ContainsRune(prompt, 0):
 		return fmt.Errorf("%w: prompt must not contain NUL", state.ErrInvalid)
@@ -352,7 +353,7 @@ func launchArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, rea
 }
 
 func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, readonly bool) ([]string, error) {
-	if err := CheckPrompt(prompt); err != nil {
+	if err := CheckPrompt(s.Harness, prompt); err != nil {
 		return nil, err
 	}
 	if err := CheckMCP(s.Harness, mcp); err != nil {
@@ -403,7 +404,7 @@ func workerArgv(bin string, s Spec, prompt, dir, mcp string, allow []string, rea
 		if s.Effort != "" {
 			argv = append(argv, "--thinking", s.Effort)
 		}
-		return append(argv, prompt), nil
+		return append(argv, "--", prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }

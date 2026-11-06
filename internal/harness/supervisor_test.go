@@ -43,9 +43,9 @@ func TestSupervisorArgvIsExact(t *testing.T) {
 		{"codex resume", "/bin/codex", Spec{"codex", "gpt-6-luna", "low"}, "abc", "", true, []string{"/bin/codex", "resume", "--dangerously-bypass-approvals-and-sandbox", "--disable", "hooks", "--cd", "DIR", "-m", "gpt-6-luna", "-c", "model_reasoning_effort=low", "abc"}},
 		{"opencode new", "/bin/opencode", Spec{Harness: "opencode"}, opencodeSession, "go", false, []string{"/bin/opencode", "--standalone", "--auto", "--session", opencodeSession, "--prompt", "go"}},
 		{"opencode resume", "/bin/opencode", Spec{Harness: "opencode"}, "ses_1", "", true, []string{"/bin/opencode", "--standalone", "--auto", "--session", "ses_1"}},
-		{"omp new", "/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "go"}},
+		{"omp new", "/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--", "go"}},
 		{"omp resume", "/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, "01a1abdf-088f-707d-8973-c784c54b54eb", "", true, []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--resume", "01a1abdf-088f-707d-8973-c784c54b54eb"}},
-		{"omp bare new", "/bin/omp", Spec{Harness: "omp"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "go"}},
+		{"omp bare new", "/bin/omp", Spec{Harness: "omp"}, "", "go", false, []string{"/bin/omp", "--auto-approve", "--no-title", "--", "go"}},
 	}
 	for _, dir := range spacedDirs(t) {
 		for _, c := range cases {
@@ -276,6 +276,22 @@ func TestOmpSessionSkipsAnUnreadableFile(t *testing.T) {
 	ompRollout(t, home, "-fleet", "b.jsonl", "mine", "/fleet", marker+"x.", since.Add(2*time.Second))
 	if id, err := OmpSession(home, "/fleet", since, marker); err != nil || id != "mine" {
 		t.Fatalf("session = %q, %v", id, err)
+	}
+}
+
+func TestLaunchesNormalisesTheMarkerAndTheSessionTextTheSameWay(t *testing.T) {
+	for _, c := range []struct {
+		text, marker string
+		want         bool
+	}{
+		{`"quoted brief`, `"quoted brief`, true},
+		{"  spaced brief", "spaced brief", true},
+		{"\nnewline brief", "newline brief", true},
+		{`"brief`, "other", false},
+	} {
+		if got := launches(c.text, c.marker); got != c.want {
+			t.Fatalf("launches(%q, %q) = %v", c.text, c.marker, got)
+		}
 	}
 }
 

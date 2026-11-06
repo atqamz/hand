@@ -777,6 +777,9 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			}
 			d.Field("pane", sup.PaneID)
 			d.Field("agent", ag.Status)
+			if sup.Session == "" && sup.Harness == "omp" && ag.Session != "" {
+				d.Field("note", ompSessionMismatch(r.env.Getenv, r.home, ag.Session))
+			}
 			if ag.Hint != "" {
 				d.Field("blocked_on", ag.Hint)
 				d.Help("Answer it: `hand supervisor keys --revision " + strconv.FormatInt(s.ContentRevision, 10) + " KEY...` with " + strings.Join(state.SupervisorKeys, ", "))
@@ -929,7 +932,7 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	case "agy":
 		id, err = harness.AgySession(harness.AgyConversations(r.env.Getenv), dir, since, marker+r.fleet.Name+".")
 	case "omp":
-		id, err = harness.OmpSession(harness.OmpAgent(r.env.Getenv), dir, since, marker)
+		id, err = harness.OmpSession(harness.OmpAgent(r.env.Getenv, r.home), dir, since, marker)
 	}
 	if err != nil || id == "" {
 		return err
@@ -939,6 +942,12 @@ func (r *runner) findSession(ctx context.Context, st *state.Store, sup *state.Su
 	}
 	sup.Session = id
 	return nil
+}
+
+const ompSessionNote = "omp session mismatch: "
+
+func ompSessionMismatch(getenv func(string) string, home, session string) string {
+	return ompSessionNote + "Luvus sees omp session " + session + " in the pane, but " + filepath.Join(harness.OmpAgent(getenv, home), "sessions") + " has no session for it; the Luvus server may have started with a different PI_CODING_AGENT_DIR: restart the server from this shell, or unset the variable"
 }
 
 func cmdSupervisorSend(r *runner, args []string) error {
@@ -1028,6 +1037,11 @@ func (r *runner) deliver(ctx context.Context, st *state.Store, c luvus.Client, c
 			return "cannot find the " + sup.Harness + " session: " + err.Error(), nil
 		}
 		if sup.Session == "" {
+			if sup.Harness == "omp" {
+				if ag, err := c.Explain(ctx, sup.PaneID); err == nil && ag.Session != "" {
+					return ompSessionMismatch(r.env.Getenv, r.home, ag.Session), nil
+				}
+			}
 			return "waiting for " + sup.Harness + " to start its session; a trust or setup screen reads as idle", nil
 		}
 	}

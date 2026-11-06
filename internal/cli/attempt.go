@@ -91,7 +91,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		footer = readonlyReportFooter(exe)
 	}
 	text := string(prompt) + footer
-	if err := harness.CheckPrompt(text); err != nil {
+	if err := harness.CheckPrompt(spec.Harness, text); err != nil {
 		return err
 	}
 	return r.withAttempts(func(ctx context.Context, st *state.Store, c luvus.Client) error {

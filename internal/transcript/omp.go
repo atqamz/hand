@@ -9,31 +9,42 @@ import (
 	"strings"
 )
 
-func (r *Reader) omp(s *session, id string) error {
-	if r.Paths.Omp == "" {
-		return ErrNoSession
-	}
-	base := filepath.Join(r.Paths.Omp, "sessions")
-	dirs, err := os.ReadDir(base)
-	if errors.Is(err, fs.ErrNotExist) {
-		return ErrNoSession
-	}
-	if err != nil {
-		return err
+func (r *Reader) omp(s *session, id, dir string) error {
+	roots := []string{r.Paths.Omp}
+	if dir != "" && dir != r.Paths.Omp {
+		roots = append(roots, dir)
 	}
 	var files []string
-	for _, dir := range dirs {
-		entries, err := os.ReadDir(filepath.Join(base, dir.Name()))
-		if err != nil {
+	var readErr error
+	for _, root := range roots {
+		if root == "" {
 			continue
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_"+id+".jsonl") {
-				files = append(files, filepath.Join(base, dir.Name(), entry.Name()))
+		base := filepath.Join(root, "sessions")
+		dirs, err := os.ReadDir(base)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			readErr = err
+			continue
+		}
+		for _, folder := range dirs {
+			entries, err := os.ReadDir(filepath.Join(base, folder.Name()))
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if !entry.IsDir() && strings.HasSuffix(entry.Name(), "_"+id+".jsonl") {
+					files = append(files, filepath.Join(base, folder.Name(), entry.Name()))
+				}
 			}
 		}
 	}
 	if len(files) == 0 {
+		if readErr != nil {
+			return readErr
+		}
 		return ErrNoSession
 	}
 	for _, f := range files {

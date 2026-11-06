@@ -72,6 +72,7 @@ type watcher struct {
 	busyNow       chan busyList
 	busyMisses    int
 	modelsSaid    map[string]string
+	sessionNote   atomic.Value
 	saying        sync.Mutex
 }
 
@@ -436,6 +437,14 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
 	}
+	if strings.HasPrefix(why, ompSessionNote) {
+		if prev, _ := w.sessionNote.Load().(string); prev != why {
+			w.sessionNote.Store(why)
+			w.say("supervisor: " + why)
+		}
+		return
+	}
+	w.sessionNote.Store("")
 	if strings.HasPrefix(why, state.NoteLost) {
 		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.alerted {
 			w.alerted = sup.ID

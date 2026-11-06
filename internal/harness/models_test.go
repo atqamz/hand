@@ -529,22 +529,26 @@ func TestOmpTreatsAnEmptyListAsAFailureAndKeepsTheLastList(t *testing.T) {
 func TestOmpAgentDir(t *testing.T) {
 	env := map[string]string{"HOME": "/home/me"}
 	getenv := func(k string) string { return env[k] }
-	if got := OmpAgent(getenv); got != filepath.Join("/home/me", ".omp", "agent") {
+	if got := OmpAgent(getenv, "/fleet"); got != filepath.Join("/home/me", ".omp", "agent") {
 		t.Fatalf("default = %s", got)
 	}
 	env["PI_CONFIG_DIR"] = ".omp-work"
-	if got := OmpAgent(getenv); got != filepath.Join("/home/me", ".omp-work", "agent") {
+	if got := OmpAgent(getenv, "/fleet"); got != filepath.Join("/home/me", ".omp-work", "agent") {
 		t.Fatalf("relative config override = %s", got)
 	}
 	cfg := filepath.Join(t.TempDir(), "cfg")
 	env["PI_CONFIG_DIR"] = cfg
-	if got := OmpAgent(getenv); got != filepath.Join(cfg, "agent") {
+	if got := OmpAgent(getenv, "/fleet"); got != filepath.Join(cfg, "agent") {
 		t.Fatalf("absolute config override = %s", got)
 	}
 	agent := filepath.Join(t.TempDir(), "agent")
 	env["PI_CODING_AGENT_DIR"] = agent
-	if got := OmpAgent(getenv); got != agent {
+	if got := OmpAgent(getenv, "/fleet"); got != agent {
 		t.Fatalf("agent override = %s", got)
+	}
+	env["PI_CODING_AGENT_DIR"] = ".omp-agent"
+	if got := OmpAgent(getenv, "/worktrees/a1"); got != filepath.Join("/worktrees/a1", ".omp-agent") {
+		t.Fatalf("relative agent override = %s", got)
 	}
 }
 

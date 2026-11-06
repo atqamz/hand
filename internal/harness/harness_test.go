@@ -184,8 +184,10 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"omp listed", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, ompListed, ok, ""},
 		{"omp listed without an effort", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", ""}, ompListed, ok, ""},
 		{"omp selector with three parts", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "max"}, ompListed, ok, ""},
-		{"omp thinking not listed", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "medium"}, ompListed, warn, "lists thinking levels low, high, max, not medium"},
+		{"omp thinking the model does not list", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "medium"}, ompListed, ok, ""},
+		{"omp thinking auto", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "auto"}, ompListed, ok, ""},
 		{"omp null thinking", Spec{"omp", "commandcode/plain", "high"}, ompListed, ok, ""},
+		{"omp thinking omp rejects", Spec{"omp", "commandcode/plain", "ultra"}, ompListed, warn, "thinking level ultra is not one of off, minimal, low, medium, high, xhigh, max, auto"},
 		{"omp unlisted", Spec{"omp", "commandcode/nope", "low"}, ompListed, warn, "omp model commandcode/nope is not in `omp models --json`"},
 		{"omp vanished", Spec{"omp", "commandcode/old", ""}, ompListed, warn, "model commandcode/old is no longer listed by omp"},
 		{"omp no list yet", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", ""}, agyNone, warn, "no model list yet; run `hand models --refresh omp`"},
@@ -318,12 +320,22 @@ func TestOmpArgvIsExact(t *testing.T) {
 		effort string
 		want   []string
 	}{
-		{"low", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "brief"}},
-		{"", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "brief"}},
+		{"low", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--", "brief"}},
+		{"", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--", "brief"}},
 	} {
 		got, err := Argv("/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", tc.effort}, "brief", "", "")
 		if err != nil || !slices.Equal(got, tc.want) {
 			t.Fatalf("effort %q: argv = %q, %v", tc.effort, got, err)
+		}
+	}
+}
+
+func TestOmpPromptIsNeverReadAsAFileOrFlag(t *testing.T) {
+	for _, prompt := range []string{"@types/node: upgrade the typings.", "-not-a-flag: say ok"} {
+		got, err := Argv("/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, prompt, "", "")
+		want := []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--", prompt}
+		if err != nil || !slices.Equal(got, want) {
+			t.Fatalf("prompt %q: argv = %q, %v", prompt, got, err)
 		}
 	}
 }

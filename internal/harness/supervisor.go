@@ -52,7 +52,7 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 			return nil, fmt.Errorf("%w: resume needs a session id of letters, digits, '_' and '-', not %q", state.ErrInvalid, session)
 		}
 	} else {
-		if err := CheckPrompt(prompt); err != nil {
+		if err := CheckPrompt(s.Harness, prompt); err != nil {
 			return nil, err
 		}
 		if s.Harness == "claude" && !uuidPattern.MatchString(session) {
@@ -124,7 +124,7 @@ func supervisorArgv(bin string, s Spec, session, prompt, dir string, resume bool
 		if resume {
 			return append(argv, "--resume", session), nil
 		}
-		return append(argv, prompt), nil
+		return append(argv, "--", prompt), nil
 	}
 	return nil, fmt.Errorf("%w: harness %q has no launch command", state.ErrInvalid, s.Harness)
 }
@@ -351,7 +351,11 @@ func sameDay(a, b time.Time) bool {
 }
 
 func launches(text, marker string) bool {
-	return strings.HasPrefix(strings.TrimLeft(text, "\" \t\r\n"), marker)
+	return strings.HasPrefix(launchText(text), launchText(marker))
+}
+
+func launchText(s string) string {
+	return strings.TrimLeft(s, "\" \t\r\n")
 }
 
 func codexLaunched(file, marker string) (bool, error) {
