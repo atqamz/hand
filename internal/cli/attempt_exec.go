@@ -86,7 +86,15 @@ func attemptScratch(root, dir string, argv []string) (string, error) {
 			return "", scratchShapeUsage(dir)
 		}
 	}
-	return filepath.Join(realHome, "scratch", key), nil
+	expected := filepath.Join(realHome, "scratch", key)
+	realPath, err := canonical(path)
+	if err != nil {
+		return "", err
+	}
+	if !samePath(realPath, expected) {
+		return "", scratchShapeUsage(dir)
+	}
+	return expected, nil
 }
 
 func sharedRoot(given string) (string, error) {

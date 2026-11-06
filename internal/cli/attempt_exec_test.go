@@ -335,6 +335,13 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 			}
 			return filepath.Join(dir, "scratch", "t1-a1")
 		}},
+		{"a key under another folder in the fleet home", func() string {
+			dir := filepath.Join(home, "team", "t1-a1")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return dir
+		}},
 		{"a scratch folder in the worktree", func() string {
 			dir := filepath.Join(wt, "scratch")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
