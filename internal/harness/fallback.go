@@ -29,10 +29,13 @@ func Find(name string, env Env) (string, error) {
 }
 
 func fallbackDirs(name string, env Env) []string {
-	if name != "copilot" {
-		return nil
-	}
 	var dirs []string
+	if dir := miseShimsDir(env.get, runtime.GOOS); dir != "" {
+		dirs = append(dirs, dir)
+	}
+	if name != "copilot" {
+		return dirs
+	}
 	prefix := env.get("NPM_CONFIG_PREFIX")
 	if prefix == "" {
 		prefix = env.get("npm_config_prefix")
@@ -57,6 +60,25 @@ func npmBinDir(prefix, goos string) string {
 		return prefix
 	}
 	return filepath.Join(prefix, "bin")
+}
+
+func miseShimsDir(get func(string) string, goos string) string {
+	data := get("MISE_DATA_DIR")
+	if !filepath.IsAbs(data) {
+		if xdg := get("XDG_DATA_HOME"); xdg != "" {
+			data = filepath.Join(xdg, "mise")
+		} else {
+			home := get("HOME")
+			if goos == "windows" {
+				home = get("USERPROFILE")
+			}
+			if home == "" {
+				return ""
+			}
+			data = filepath.Join(home, ".local", "share", "mise")
+		}
+	}
+	return filepath.Join(data, "shims")
 }
 
 func ghCopilotDir(get func(string) string, goos string) string {

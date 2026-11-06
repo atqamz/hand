@@ -68,6 +68,8 @@ func (p *places) npm() string {
 
 func (p *places) gh() string { return filepath.Join(p.data, "gh", "copilot") }
 
+func (p *places) mise() string { return filepath.Join(p.data, "mise", "shims") }
+
 func (p *places) find(name string) (string, error) {
 	return Find(name, Env{Path: p.path, Getenv: func(k string) string { return p.env[k] }})
 }
@@ -103,6 +105,58 @@ func TestFindFallsBackForCopilotOnly(t *testing.T) {
 	}
 }
 
+func TestFindLooksInMiseShims(t *testing.T) {
+	p := newPlaces(t)
+	if _, err := p.find("omp"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "omp not found on PATH") {
+		t.Fatalf("nothing installed: err = %v", err)
+	}
+	want := exeFile(t, p.mise(), "omp")
+	if got, err := p.find("omp"); err != nil || got != want {
+		t.Fatalf("found %s, %v; want %s", got, err, want)
+	}
+	onPath := exeFile(t, p.path, "omp")
+	if got, err := p.find("omp"); err != nil || got != onPath {
+		t.Fatalf("PATH: found %s, %v; want %s", got, err, onPath)
+	}
+}
+
+func TestFindPrefersMiseDataDirThenXdgThenHome(t *testing.T) {
+	p := newPlaces(t)
+	p.env["MISE_DATA_DIR"] = filepath.Join(t.TempDir(), "mise")
+	mise := exeFile(t, filepath.Join(p.env["MISE_DATA_DIR"], "shims"), "omp")
+	xdg := exeFile(t, p.mise(), "omp")
+	home := exeFile(t, filepath.Join(p.home, ".local", "share", "mise", "shims"), "omp")
+	for _, tc := range []struct {
+		name  string
+		unset string
+		want  string
+	}{
+		{"MISE_DATA_DIR", "", mise},
+		{"XDG_DATA_HOME", "MISE_DATA_DIR", xdg},
+		{"home", "XDG_DATA_HOME", home},
+	} {
+		if tc.unset != "" {
+			delete(p.env, tc.unset)
+		}
+		if got, err := p.find("omp"); err != nil || got != tc.want {
+			t.Fatalf("%s: found %s, %v; want %s", tc.name, got, err, tc.want)
+		}
+		if err := os.Remove(tc.want); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestFindWithoutHomeOrMiseDataDirReportsNotOnPath(t *testing.T) {
+	p := newPlaces(t)
+	for _, k := range []string{"HOME", "USERPROFILE", "XDG_DATA_HOME", "MISE_DATA_DIR"} {
+		delete(p.env, k)
+	}
+	if _, err := p.find("omp"); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "omp not found on PATH") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestFindIgnoresADirectoryNamedLikeTheBinary(t *testing.T) {
 	p := newPlaces(t)
 	name := "copilot"
@@ -133,6 +187,29 @@ func TestFindHonoursBothSpellingsOfTheNpmPrefix(t *testing.T) {
 	want := exeFile(t, p.npm(), "copilot")
 	if got, err := p.find("copilot"); err != nil || got != want {
 		t.Fatalf("found %s, %v; want %s", got, err, want)
+	}
+}
+
+func TestMiseShimsDirFollowsMiseDataFolderRules(t *testing.T) {
+	miseData := filepath.Join(t.TempDir(), "mise-data")
+	for _, tc := range []struct {
+		name string
+		goos string
+		env  map[string]string
+		want string
+	}{
+		{"mise data dir", "linux", map[string]string{"MISE_DATA_DIR": miseData, "XDG_DATA_HOME": "/x", "HOME": "/h"}, filepath.Join(miseData, "shims")},
+		{"relative mise data dir falls through", "linux", map[string]string{"MISE_DATA_DIR": "m", "XDG_DATA_HOME": "/x"}, "/x/mise/shims"},
+		{"linux xdg", "linux", map[string]string{"XDG_DATA_HOME": "/x", "HOME": "/h"}, "/x/mise/shims"},
+		{"linux home", "linux", map[string]string{"HOME": "/h"}, "/h/.local/share/mise/shims"},
+		{"macos home", "darwin", map[string]string{"HOME": "/Users/u"}, "/Users/u/.local/share/mise/shims"},
+		{"windows profile", "windows", map[string]string{"USERPROFILE": `C:\U`}, filepath.Join(`C:\U`, ".local", "share", "mise", "shims")},
+		{"windows xdg", "windows", map[string]string{"XDG_DATA_HOME": `C:\X`, "USERPROFILE": `C:\U`}, filepath.Join(`C:\X`, "mise", "shims")},
+		{"no home", "linux", map[string]string{}, ""},
+	} {
+		if got := miseShimsDir(func(k string) string { return tc.env[k] }, tc.goos); got != filepath.FromSlash(tc.want) {
+			t.Errorf("%s: dir = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
