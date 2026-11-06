@@ -251,7 +251,7 @@ func TestFleetMergeRefusesAFileWithTheSamePathAndDifferentContent(t *testing.T) 
 	writeMergeFile(t, filepath.Join(p.dst, "reports", "t1", "report.md"), "destination report\n")
 	before := dumpMergeState(t, p.dst)
 	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
-	if code != 3 || !strings.Contains(errOut, "reports/t1/report.md") || !strings.Contains(errOut, "different content") {
+	if code != 3 || !strings.Contains(errOut, filepath.Join("reports", "t1", "report.md")) || !strings.Contains(errOut, "different content") {
 		t.Fatalf("same path, different content: code=%d stderr=%q", code, errOut)
 	}
 	if after := dumpMergeState(t, p.dst); after != before {
