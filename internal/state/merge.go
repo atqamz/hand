@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type FleetHealth struct {
@@ -364,8 +365,7 @@ type mergeRefs struct {
 
 var (
 	mergeRef     = regexp.MustCompile(`[tardiw][0-9]+`)
-	mergeShield  = regexp.MustCompile(`(?i)https?://[^\s)>\]]+|\b(?:hand|worktrees)/[0-9a-f]{13}/t[0-9]+-a[0-9]+(?:-[A-Za-z0-9._-]+)?|\bt[0-9]+-a[0-9]+\b|\b(?:reports|briefs|shots)/t[0-9]+(?:[./][A-Za-z0-9._-]+)*|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
-	mergeBranch  = regexp.MustCompile(`(?i)\b(?:hand|worktrees)/[0-9a-f]{13}/t[0-9]+-a[0-9]+|\bt[0-9]+-a[0-9]+\b`)
+	mergeShield  = regexp.MustCompile(`(?i)https?://[^\s)>\]]+`)
 	mergeFleetID = regexp.MustCompile(`f[0-9a-f]{12}`)
 )
 
@@ -425,13 +425,7 @@ func (w *textRewriter) outside(s string) string {
 	pos := 0
 	for _, loc := range mergeShield.FindAllStringIndex(s, -1) {
 		b.WriteString(w.plain(s[pos:loc[0]]))
-		span := s[loc[0]:loc[1]]
-		if strings.HasPrefix(strings.ToLower(span), "http") {
-			b.WriteString(w.url(span))
-		} else {
-			w.countProtected(span)
-			b.WriteString(w.home(span))
-		}
+		b.WriteString(w.url(s[loc[0]:loc[1]]))
 		pos = loc[1]
 	}
 	b.WriteString(w.plain(s[pos:]))
@@ -456,12 +450,7 @@ func (w *textRewriter) destination(s string) string {
 	pos := 0
 	for _, loc := range mergeShield.FindAllStringIndex(s, -1) {
 		b.WriteString(s[pos:loc[0]])
-		span := s[loc[0]:loc[1]]
-		if strings.HasPrefix(strings.ToLower(span), "http") {
-			b.WriteString(w.url(span))
-		} else {
-			b.WriteString(span)
-		}
+		b.WriteString(w.url(s[loc[0]:loc[1]]))
 		pos = loc[1]
 	}
 	b.WriteString(s[pos:])
@@ -473,7 +462,7 @@ func (w *textRewriter) plain(s string) string {
 	pos := 0
 	for _, loc := range mergeRef.FindAllStringIndex(s, -1) {
 		tok := s[loc[0]:loc[1]]
-		if (loc[0] > 0 && refAdjacent(s[loc[0]-1])) || (loc[1] < len(s) && !refEndAt(s, loc[1])) {
+		if !refStart(s, loc[0]) || (loc[1] < len(s) && !refEndAt(s, loc[1])) {
 			if !w.ambiguous(s, loc, tok) {
 				w.protected[tok[:1]]++
 			}
@@ -492,19 +481,29 @@ func (w *textRewriter) plain(s string) string {
 }
 
 func refAdjacent(c byte) bool {
-	return isRefByte(c) || c == '.' || c == '/' || c == '#' || c == '-' || c == '|' || c == '"' || c == '\''
+	return isRefByte(c) || c == '.' || c == '/' || c == '\\' || c == '#' || c == '-' || c == '|' || c == '"' || c == '\''
+}
+
+func refStart(s string, at int) bool {
+	if at == 0 {
+		return true
+	}
+	return !refAdjacent(s[at-1]) && !strings.HasSuffix(s[:at], "’")
 }
 
 func refEndAt(s string, end int) bool {
 	if end == len(s) {
 		return true
 	}
+	if strings.HasPrefix(s[end:], "’") {
+		return false
+	}
 	c := s[end]
 	if !refAdjacent(c) {
 		return true
 	}
 	switch c {
-	case '.', ',', ';', ')':
+	case '.':
 		return end+1 == len(s) || isSpace(s[end+1])
 	}
 	return false
@@ -544,6 +543,9 @@ func (w *textRewriter) ambiguous(s string, loc []int, tok string) bool {
 		return false
 	}
 	if kind == "d" && len(tok) == 2 {
+		if refStart(s, loc[0]) && refEndAt(s, loc[1]) {
+			return false
+		}
 		w.cellAmbiguous(tok)
 		return true
 	}
@@ -561,7 +563,7 @@ func (w *textRewriter) ambiguous(s string, loc []int, tok string) bool {
 			}
 		}
 	}
-	if len(tok) >= 8 {
+	if len(tok) >= 7 {
 		w.cellAmbiguous(tok)
 		return true
 	}
@@ -570,6 +572,13 @@ func (w *textRewriter) ambiguous(s string, loc []int, tok string) bool {
 
 func isHex(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+func mergeLimit(what, s string, limit int) (string, error) {
+	if n := utf8.RuneCountInString(s); n > limit {
+		return "", fmt.Errorf("%w: %s would be %d characters after ref rewriting; the limit is %d; shorten it in the source and retry", ErrConflict, what, n, limit)
+	}
+	return s, nil
 }
 
 func (w *textRewriter) cellAmbiguous(ref string) {
@@ -596,33 +605,81 @@ func (w *textRewriter) countProtected(s string) {
 	}
 }
 
+const (
+	urlLeft = iota
+	urlRewritten
+	urlUnresolved
+)
+
 func (w *textRewriter) url(s string) string {
-	if mergeBranch.MatchString(s) {
-		w.countProtected(s)
-		return s
+	out, ref, state := w.boardURL(s)
+	switch state {
+	case urlRewritten:
+		w.changed["url"]++
+		return out
+	case urlUnresolved:
+		w.cellAmbiguous(ref)
 	}
-	srcPath, dstPath := "/"+w.refs.srcID+"/", "/"+w.refs.dstID+"/"
-	if !strings.Contains(s, srcPath) {
-		return s
-	}
-	s = strings.ReplaceAll(s, srcPath, dstPath)
-	var b strings.Builder
-	pos := 0
-	for _, loc := range mergeFleetID.FindAllStringIndex(s, -1) {
-		b.WriteString(w.mapURLRefs(s[pos:loc[0]]))
-		b.WriteString(s[loc[0]:loc[1]])
-		pos = loc[1]
-	}
-	b.WriteString(w.mapURLRefs(s[pos:]))
-	w.changed["url"]++
-	return b.String()
+	w.countProtected(s)
+	w.protected["url"]++
+	return s
 }
 
-func (w *textRewriter) mapURLRefs(s string) string {
-	return mergeRef.ReplaceAllStringFunc(s, func(tok string) string {
-		out, _ := w.mapped(tok)
-		return out
-	})
+func (w *textRewriter) boardURL(s string) (string, string, int) {
+	scheme := strings.Index(s, "://")
+	if scheme < 0 {
+		return s, "", urlLeft
+	}
+	slash := strings.IndexByte(s[scheme+3:], '/')
+	if slash < 0 {
+		return s, "", urlLeft
+	}
+	pathAt := scheme + 3 + slash
+	path := s[pathAt:]
+	if cut := strings.IndexAny(path, "?#"); cut >= 0 {
+		path = path[:cut]
+	}
+	rest := path[1:]
+	fleetEnd := strings.IndexByte(rest, '/')
+	if fleetEnd < 0 || rest[:fleetEnd] != w.refs.srcID {
+		return s, "", urlLeft
+	}
+	route := rest[fleetEnd+1:]
+	routeEnd := strings.IndexByte(route, '/')
+	if routeEnd < 0 {
+		return s, "", urlLeft
+	}
+	ref := route[routeEnd+1:]
+	if cut := strings.IndexByte(ref, '/'); cut >= 0 {
+		ref = ref[:cut]
+	}
+	var kind byte
+	switch route[:routeEnd] {
+	case "task":
+		kind = 't'
+	case "decision":
+		kind = 'd'
+	case "report":
+		kind = 'r'
+	default:
+		return s, "", urlLeft
+	}
+	if len(ref) < 2 || ref[0] != kind {
+		return s, "", urlLeft
+	}
+	for i := 1; i < len(ref); i++ {
+		if ref[i] < '0' || ref[i] > '9' {
+			return s, "", urlLeft
+		}
+	}
+	mapped, ok := w.mapped(ref)
+	if !ok {
+		return s, ref, urlUnresolved
+	}
+	fleetAt := pathAt + 1
+	refAt := fleetAt + fleetEnd + routeEnd + 2
+	out := s[:fleetAt] + w.refs.dstID + s[fleetAt+len(rest[:fleetEnd]):refAt] + mapped + s[refAt+len(ref):]
+	return out, ref, urlRewritten
 }
 
 func (w *textRewriter) home(s string) string {
@@ -866,7 +923,10 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 		id := num(row, "id")
 		key := strconv.FormatInt(id+off["t"], 10)
 		w.cell("task", key, "title")
-		title := w.text(text(row, "title"))
+		title, err := mergeLimit("task "+TaskRef(id+off["t"])+" title", w.text(text(row, "title")), 200)
+		if err != nil {
+			return err
+		}
 		w.cell("task", key, "goal")
 		goal := w.text(text(row, "goal"))
 		if err := insertRow(tx, "task", []string{"id", "project", "title", "goal", "status", "created_at", "updated_at"},
@@ -949,7 +1009,10 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 		id := num(row, "id")
 		key := strconv.FormatInt(id+off["w"], 10)
 		w.cell("timer", key, "note")
-		note := w.text(text(row, "note"))
+		note, err := mergeLimit("timer "+TimerRef(id+off["w"])+" note", w.text(text(row, "note")), 200)
+		if err != nil {
+			return err
+		}
 		status, ended := text(row, "status"), text(row, "ended_at")
 		if status == TimerArmed && o.CancelTimers {
 			status, ended = TimerCancelled, mergeAt
@@ -1035,6 +1098,9 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 	}
 
 	if err := renumberEvents(ctx, tx); err != nil {
+		return err
+	}
+	if err := rekeyEventCells(ctx, tx, w); err != nil {
 		return err
 	}
 	if err := checkMerged(ctx, tx); err != nil {
@@ -1262,8 +1328,14 @@ func rewriteDestinationText(ctx context.Context, tx *sql.Tx, w *textRewriter, ma
 		for _, row := range rows {
 			var sets []string
 			var args []any
+			keys := make([]string, len(it.key))
+			for i, k := range it.key {
+				keys[i] = strconv.FormatInt(num(row, k), 10)
+			}
+			key := strings.Join(keys, "/")
 			for _, col := range it.cols {
 				old := text(row, col)
+				w.cell(it.table, key, col)
 				next := w.destination(old)
 				if next == old {
 					continue
@@ -1294,6 +1366,7 @@ func rewriteDestinationText(ctx context.Context, tx *sql.Tx, w *textRewriter, ma
 		if err := tx.QueryRowContext(ctx, `SELECT repo FROM project WHERE name = ?`, name).Scan(&repo); err != nil {
 			return err
 		}
+		w.cell("project", name, "repo")
 		if next := w.destination(repo); next != repo {
 			if _, err := tx.ExecContext(ctx, `UPDATE project SET repo = ? WHERE name = ?`, next, name); err != nil {
 				return err
@@ -1322,7 +1395,7 @@ func renumberEvents(ctx context.Context, tx *sql.Tx) error {
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) + 1 FROM event`).Scan(&shift); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS merge_seq`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS temp.merge_seq`); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `CREATE TEMP TABLE merge_seq(old INTEGER PRIMARY KEY, new INTEGER)`); err != nil {
@@ -1345,6 +1418,34 @@ func renumberEvents(ctx context.Context, tx *sql.Tx) error {
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name, seq) SELECT 'event', (SELECT COALESCE(MAX(seq), 0) FROM event) WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'event')`)
 	return err
+}
+
+func rekeyEventCells(ctx context.Context, tx *sql.Tx, w *textRewriter) error {
+	rows, err := tx.QueryContext(ctx, `SELECT old, new FROM merge_seq`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	next := map[string]string{}
+	for rows.Next() {
+		var old, n int64
+		if err := rows.Scan(&old, &n); err != nil {
+			return err
+		}
+		next[strconv.FormatInt(old, 10)] = strconv.FormatInt(n, 10)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, c := range w.cells {
+		if c.Table != "event" {
+			continue
+		}
+		if n, ok := next[c.Key]; ok {
+			c.Key = n
+		}
+	}
+	return nil
 }
 
 func rowsAny(rows *sql.Rows) (bool, error) {
