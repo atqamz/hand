@@ -9,6 +9,7 @@ import (
 
 var fleetCommands = map[string]handler{
 	"list": cmdFleetList,
+	"move": cmdFleetMove,
 }
 
 func init() {

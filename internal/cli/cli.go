@@ -150,6 +150,10 @@ func dispatch(args []string, env Env) error {
 		r.home = flagHome
 		return h(r, args[1:])
 	}
+	if args[0] == "fleet" {
+		r.home = flagHome
+		return h(r, args[1:])
+	}
 	home, err := resolveHome(env, flagHome, r.getwd)
 	if err != nil && !homeless[args[0]] {
 		return err

@@ -26,11 +26,14 @@ var keptSchema string
 //go:embed track.sql
 var trackSchema string
 
-var migrations = []string{keptSchema, trackSchema}
+//go:embed home.sql
+var homeSchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 18
+const SchemaVersion = 19
 
 const lastMigrating = "0.13.0"
 
@@ -95,7 +98,9 @@ func tooOld(what string, v int) error {
 	return fmt.Errorf("%w: %s schema %d, older than this hand reads (%d to %d); hand %s is the last release that migrates it", ErrInvalid, what, v, MinSchemaVersion, SchemaVersion, lastMigrating)
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	return s.db.Close()
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	conn, err := s.db.Conn(ctx)

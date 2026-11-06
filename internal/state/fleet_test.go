@@ -17,7 +17,7 @@ func TestFleetIdentityIsCreatedOnceAndCanBeRenamed(t *testing.T) {
 		t.Fatalf("fleet before create = %v, want ErrNotFound", err)
 	}
 	f, err := s.CreateFleet(ctx, "yes2games")
-	if err != nil || !FleetID.MatchString(f.ID) || f.Name != "yes2games" {
+	if err != nil || !FleetID.MatchString(f.ID) || f.Name != "yes2games" || f.Home != s.home {
 		t.Fatalf("create = %+v, %v", f, err)
 	}
 	if _, err := s.CreateFleet(ctx, "other"); !errors.Is(err, ErrConflict) {

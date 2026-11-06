@@ -135,7 +135,7 @@ Any folder that holds `hand.db`, which `hand init` creates. Commands find the fl
 2. the working directory or the nearest folder above it that holds `hand.db`;
 3. `$HAND_HOME`.
 
-A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, `mv` its folder and run `hand init` in the new place. A copy of a fleet home is refused until one of the two copies is deleted.
+A `HAND_HOME` that differs from the fleet home found from the working directory is refused while you are inside a fleet. A fleet home cannot sit inside another fleet or inside the shared folder. To move a fleet, use [Move](#move); a plain `mv` leaves every recorded home path behind. A copy of a fleet home is refused while the fleet still sits at its registered home: delete the original or move it off that path, which can keep it on disk as an archive, and `hand init` in the copy then adopts it.
 
 A fleet home holds:
 
@@ -148,6 +148,10 @@ A fleet home holds:
 - `reports/` and `shots/`: the documents and screenshots workers leave for the operator (see Retention);
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
+
+### Move
+
+Moving a fleet is `hand fleet move --yes PATH`: one transaction rewrites every text column's old home to the new home in its plain, `file://`, `\/` and JSON `\u002f` spellings (and on Windows its slash and ASCII case variants), records the new home in the `fleet` row, verifies that no recognised spelling remains as a path in the database and refuses naming each cell it cannot reach, checks foreign keys and integrity, and writes a `fleet.moving` marker; then the folder moves, the link in `~/.secondhand/fleets` follows and a `fleet.moved` event records the move. The fleet ID, refs, branch names and worktree paths do not change; `fleet.moved` rows are history and are never rewritten by a later move. `~/<old folder>` becomes `~/<new folder>` only when both are direct children of `$HOME`; otherwise it becomes the absolute destination, and a `~/<old folder>` that is not the old home is left for you to edit, which the dry run lists and the move refuses. A path followed by `.`, `+`, a space or a non-ASCII byte is a longer name (`fleet-hand.bak`, `fleet-hand backup`), never the fleet, except that a `.` at the end of the cell or before whitespace ends the path; `/` and `\` separate it from what follows. `--dry-run` lists each cell with its absolute and `~` occurrence counts and the verification's hits; it writes nothing to `hand.db`, though it can create or change `hand.db-shm` and `hand.db-wal`. `--from OLD` rewrites a recorded home other than the folder the command runs in, and `--rewrite-only --yes` does that rewrite and verification without moving the folder, which is how a copy on another filesystem is adopted; a copy is adopted with `hand init` after the original is deleted or moved, and a folder whose database records another home, which `--from` alone cannot move: rewrite first with `--rewrite-only --yes --from OLD`. If the process stops after the rewrite and before the rename, `hand orient` reports the interrupted move and a rerun of `hand fleet move --yes PATH` finishes it without touching the `fleet.moved` history. A move refuses a live supervisor, attempt, watcher or board, pending supervisor input, an armed timer, a destination that exists and is not empty, the same or a nested path, another filesystem and a fleet missing from the registry; a folder whose database records another home is refused even with `--from`, so rewrite it first with `--rewrite-only --yes --from OLD`. The watcher and board checks trust their pid files, so a stale file or another `$SECONDHAND_HOME` is not seen.
 
 ### Import
 

@@ -141,6 +141,8 @@ func Value(s string) string {
 	return s
 }
 
+func ShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
