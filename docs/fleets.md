@@ -6,14 +6,14 @@ Rename a fleet with `hand init --name NEW`. To move one, `mv` the folder and run
 
 ## Merge a fleet into another
 
-`hand fleet merge SRC INTO DST` moves a source fleet's rows and files into a destination fleet, called the survivor. `SRC` and `DST` are fleet ids or names from `hand fleet list`. The source id, home and database stay in place: the command never deletes a home.
+`hand fleet merge SRC INTO DST` moves a source fleet's rows and files into a destination fleet, called the survivor. `SRC` and `DST` are fleet ids or names from `hand fleet list`. The source id, home and database stay in place: the command never deletes a home, though a real run moves the source's files out of it.
 
 Merge is a stop-the-world operation. It refuses:
 
 - the same fleet, nested homes, an unreadable home, or a schema that is not current (open that fleet once with this hand to migrate it);
 - a running board, a live watcher in either fleet, a live supervisor in either fleet, a `launching` or `running` attempt in either fleet, or pending supervisor input in either fleet;
 - an armed timer in the source, unless `--cancel-timers` cancels it and records a `timer.cancelled` event;
-- a project name that exists on both sides with a different `repo`, unless `--rename-project OLD=NEW` renames the source project (repeat the flag for each collision);
+- a project name that exists on both sides with a different `repo`, unless `--rename-project OLD=NEW` renames the source project (repeat the flag for each collision; its `memory/projects/OLD.md` moves to `NEW.md`);
 - files of the same relative path with different content. `memory/operator.md` is the one exception: the destination file stays, and the source file is saved as `memory/operator.<source id>.md`;
 - a source that the destination's `fleet.merged` event already names. A second merge is a non-operation: it changes nothing and reports the existing event.
 
@@ -24,7 +24,7 @@ With no live writer, the command prints a TOON manifest and, unless `--dry-run` 
 - `offsets`: the destination's current maximum id for each ref kind, added to every source id;
 - `counts`: per-table source, destination and merged row counts plus the offset used;
 - `refs`: refs changed by kind and refs left alone inside protected branch, worktree and report paths;
-- `ambiguous`: every cell where an `aN` or `dN` could be a hexadecimal commit prefix; those cells are reported and not rewritten;
+- `ambiguous`: every cell where an `aN` or `dN` could be a hexadecimal commit prefix; those tokens are reported and left as written, while the rest of the cell's refs and home paths are still rewritten;
 - `text_sha256`, `db_sha256`, `files`, `manual` and `warnings`.
 
 The source is read from one `VACUUM INTO` snapshot, so a concurrent writer cannot make its counts and rows disagree, and the destination is written in one `BEGIN IMMEDIATE` transaction. Source rows are inserted in foreign-key order and their text is rewritten by the offsets. Refs inside `hand/<fleet id>/tN-aM`, `worktrees/<fleet id>/tN-aM`, bare `tN-aM`, `reports/tN`, `briefs/tN` and `shots/tN` are protected, because they are branch, worktree and file names that stay valid as history. A URL to another fleet's row is rewritten to the survivor's fleet id and the mapped ref. Source home paths in database text point at the destination home. Events are renumbered by `at` so the survivor's recent events stay newest, and the destination supervisor's wake cursor follows its event. A cancelled timer's event is sequenced after every source event, so `--cancel-timers` cannot collide with the source's first sequence. A `project_grant` that both sides hold is kept once, with the earliest `created_at`. Source supervisor and device rows are dropped; the survivor keeps its own. One `fleet.merged` event records the source id, name, counts and offsets. The transaction commits only if `PRAGMA foreign_key_check` is empty and `PRAGMA integrity_check` is `ok`; otherwise nothing is written.

@@ -174,10 +174,13 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(p.dst, "memory", "operator."+p.srcID+".md")); err != nil || string(b) != "source rules t1\n" {
 		t.Fatalf("saved operator.md = %q, %v", b, err)
 	}
-	for _, rel := range []string{"memory/projects/solo.md", "reports/t1/report.md", "briefs/t1/brief.md", "shots/t1/shot.txt", "deliverables/t1/deliver.txt", "plans/t1/plan.md", "inbox/20261104-000000-1.txt", "projects/solo/README", "projects/web/README"} {
+	for _, rel := range []string{"memory/projects/solo.md", "memory/projects/srcweb.md", "reports/t1/report.md", "briefs/t1/brief.md", "shots/t1/shot.txt", "deliverables/t1/deliver.txt", "plans/t1/plan.md", "inbox/20261104-000000-1.txt", "projects/solo/README", "projects/web/README"} {
 		if _, err := os.Stat(filepath.Join(p.dst, rel)); err != nil {
 			t.Fatalf("merged file %s: %v", rel, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(p.dst, "memory", "projects", "web.md")); !os.IsNotExist(err) {
+		t.Fatalf("renamed project memory kept the old name: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(p.src, "hand.db")); err != nil {
 		t.Fatalf("source home was removed: %v", err)
@@ -311,6 +314,7 @@ func fillMergeFixture(t *testing.T, p mergePair) {
 	files := map[string]string{
 		"memory/operator.md":          "source rules t1\n",
 		"memory/projects/solo.md":     "solo facts\n",
+		"memory/projects/web.md":      "web facts t1\n",
 		"reports/t1/report.md":        "report t1\n",
 		"briefs/t1/brief.md":          "brief t1\n",
 		"shots/t1/shot.txt":           "shot t1\n",
@@ -410,11 +414,7 @@ func TestFleetMergeOnCopies(t *testing.T) {
 		}
 	}
 	for name, home := range map[string]string{"personal": p.src, "hand": p.dst} {
-		b, err := os.ReadFile(filepath.Join(root, name, "hand.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(home, "hand.db"), b, 0o644); err != nil {
+		if err := state.CopyDatabase(filepath.Join(root, name, "hand.db"), filepath.Join(home, "hand.db")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -584,12 +584,28 @@ func TestFleetMergeRefusesASecondRealRun(t *testing.T) {
 	p := newMergePair(t)
 	p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
 	before := dumpMergeState(t, p.dst)
-	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb2", "--cancel-timers", p.srcID, "INTO", p.dstID)
 	if code != 3 || !strings.Contains(errOut, "already merged") || !strings.Contains(errOut, "non-operation") {
 		t.Fatalf("second run: code=%d stderr=%q", code, errOut)
 	}
 	if after := dumpMergeState(t, p.dst); after != before {
 		t.Fatalf("a second run changed the destination:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+}
+
+func TestFleetMergeRefusesDuplicateFileDestinations(t *testing.T) {
+	p := newMergePair(t)
+	writeMergeFile(t, filepath.Join(p.src, "memory", "projects", "srcweb.md"), "other web facts\n")
+	before := dumpMergeState(t, p.dst)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "both map to") {
+		t.Fatalf("duplicate targets: code=%d stderr=%q", code, errOut)
+	}
+	if after := dumpMergeState(t, p.dst); after != before {
+		t.Fatalf("a duplicate file target changed the destination:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+	if _, err := os.Stat(filepath.Join(p.dst, "reports", "t1", "report.md")); !os.IsNotExist(err) {
+		t.Fatalf("a duplicate file target moved files: %v", err)
 	}
 }
 

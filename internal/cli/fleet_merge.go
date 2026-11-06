@@ -96,7 +96,7 @@ func cmdFleetMerge(r *runner, args []string) error {
 		return fmt.Errorf("%w: fleet homes are nested: %s and %s", state.ErrInvalid, src.Home, dst.Home)
 	}
 	srcPath, dstPath := filepath.Join(src.Home, "hand.db"), filepath.Join(dst.Home, "hand.db")
-	plan, collisions, err := planMergeFiles(src.Home, dst.Home, src.ID)
+	plan, collisions, err := planMergeFiles(src.Home, dst.Home, src.ID, renames)
 	if err != nil {
 		return err
 	}
@@ -431,9 +431,11 @@ func printMergeManifest(r *runner, m *mergeManifest) error {
 	if m.postErr != nil {
 		d.Field("post_commit_error", m.postErr.Error())
 	}
-	help := []string{"The source home and its database stay untouched; remove its registry link only after checking the merge",
+	help := []string{"The source database and folder stay; the files a real run moves are no longer in it. Remove its registry link only after checking the merge",
 		"Workers are never stopped by this command: stop every launching or running attempt yourself before merging"}
-	if !m.dry {
+	if m.dry {
+		help = append([]string{"A dry run changes nothing: the source home and its database are untouched"}, help...)
+	} else {
 		help = append([]string{"The database is committed when this manifest first appears; later fields report the file move"}, help...)
 	}
 	d.Help(help...)
@@ -483,9 +485,10 @@ func (r *runner) runFleetCommand(home string, args ...string) error {
 	return nil
 }
 
-func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, error) {
+func planMergeFiles(src, dst, srcID string, renames map[string]string) (*mergeFilePlan, []mergeCollision, error) {
 	plan := &mergeFilePlan{counts: map[string]*mergeDirCount{}}
 	var collisions []mergeCollision
+	targets := map[string]string{}
 	for _, dir := range mergeDirs {
 		root := filepath.Join(src, dir)
 		info, err := os.Lstat(root)
@@ -512,7 +515,12 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 				return err
 			}
 			targetRel := rel
-			target := filepath.Join(dst, rel)
+			if name, ok := memoryProjectName(rel); ok {
+				if renamed, ok := renames[name]; ok {
+					targetRel = filepath.Join("memory", "projects", renamed+".md")
+				}
+			}
+			target := filepath.Join(dst, targetRel)
 			info, err := d.Info()
 			if err != nil {
 				return err
@@ -524,6 +532,11 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 			targetInfo, err := os.Lstat(target)
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
+				if prev, ok := targets[target]; ok {
+					collisions = append(collisions, mergeCollision{rel, "and " + prev + " both map to " + targetRel})
+					return nil
+				}
+				targets[target] = rel
 				plan.moves = append(plan.moves, mergeFile{src: path, dst: target, from: rel, to: targetRel})
 				count.moved++
 			case err != nil:
@@ -553,6 +566,11 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 				} else if !errors.Is(err, fs.ErrNotExist) {
 					return err
 				}
+				if prev, ok := targets[target]; ok {
+					collisions = append(collisions, mergeCollision{rel, "and " + prev + " both map to " + targetRel})
+					return nil
+				}
+				targets[target] = rel
 				plan.moves = append(plan.moves, mergeFile{src: path, dst: target, from: rel, to: targetRel})
 				plan.manual = append(plan.manual, "memory/operator.md: kept the destination's; the source is saved as "+targetRel)
 				count.moved++
@@ -581,6 +599,15 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 		plan.manual = append(plan.manual, "board.token: kept the destination's; the source token was not copied")
 	}
 	return plan, collisions, nil
+}
+
+func memoryProjectName(rel string) (string, bool) {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	if len(parts) != 3 || parts[0] != "memory" || parts[1] != "projects" || !strings.HasSuffix(parts[2], ".md") {
+		return "", false
+	}
+	name := strings.TrimSuffix(parts[2], ".md")
+	return name, name != ""
 }
 
 func sameContent(a, b string) (bool, error) {
