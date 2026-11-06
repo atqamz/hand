@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/flock"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
@@ -792,6 +794,29 @@ func TestFleetMergeDedupesProjectGrants(t *testing.T) {
 	if created != "2026-10-01T00:00:00Z" {
 		t.Fatalf("grant created_at = %q, want the earliest", created)
 	}
+}
+
+func TestFleetMergeMovesFilesWhenTheDatabaseHashFails(t *testing.T) {
+	p := newMergePair(t)
+	old := *cli.MergeDatabaseHash
+	*cli.MergeDatabaseHash = func(string) (string, error) { return "", errors.New("temp is full") }
+	defer func() { *cli.MergeDatabaseHash = old }()
+	out, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code == 0 {
+		t.Fatalf("hash failure succeeded:\n%s", out)
+	}
+	if !strings.Contains(out, "post_commit_error") || !strings.Contains(out, "temp is full") {
+		t.Fatalf("manifest hides the hash failure:\nstdout=%s\nstderr=%s", out, errOut)
+	}
+	if !strings.Contains(out, "moves[") || !strings.Contains(out, "reports/t1/report.md") {
+		t.Fatalf("manifest does not list the files moved after the hash failure:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(p.dst, "reports", "t1", "report.md")); err != nil {
+		t.Fatalf("the file phase did not run: %v", err)
+	}
+	dst := openMergeDB(t, p.dst)
+	defer dst.Close()
+	assertCount(t, dst, `SELECT COUNT(*) FROM task`, 5)
 }
 
 func TestFleetMergeReportsAPostCommitArchiveFailure(t *testing.T) {

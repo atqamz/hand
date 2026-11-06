@@ -28,6 +28,8 @@ func init() {
 
 var mergeDirs = []string{"memory", "reports", "briefs", "shots", "deliverables", "plans", "inbox", "projects"}
 
+var mergeDatabaseHash = state.DatabaseHash
+
 type mergeFile struct {
 	src, dst string
 	from, to string
@@ -50,7 +52,7 @@ func cmdFleetMerge(r *runner, args []string) error {
 	dry := set.Bool("dry-run", false, "compute the merge on a copy and print its manifest; change no row or file, though SQLite may touch a hand.db-shm; refuses --stop")
 	stop := set.Bool("stop", false, "stop the source's watcher and supervisor after every refusal is checked; workers are never stopped")
 	archive := set.Bool("archive-source", false, "after a real merge, stop the source's Luvus server, write merged-into and then remove its registry file")
-	cancel := set.Bool("cancel-timers", false, "cancel the source's armed timers, recording a timer.cancelled event for each")
+	cancel := set.Bool("cancel-timers", false, "cancel the imported copies of the source's armed timers, recording a timer.cancelled event for each; the source keeps its own")
 	renames := map[string]string{}
 	set.Func("rename-project", "OLD=NEW: rename a source project that collides with a destination project", func(v string) error {
 		old, newName, ok := strings.Cut(v, "=")
@@ -138,7 +140,7 @@ func cmdFleetMerge(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	dbHash, hashErr := state.DatabaseHash(runPath)
+	dbHash, hashErr := mergeDatabaseHash(runPath)
 	archiveState := "not requested"
 	if *archive {
 		archiveState = "pending"
@@ -157,11 +159,6 @@ func cmdFleetMerge(r *runner, args []string) error {
 	}
 	if hashErr != nil {
 		m.postErr = hashErr
-		m.archive = "not run: database hash failed"
-		if err := printMergeManifest(r, m); err != nil {
-			return err
-		}
-		return hashErr
 	}
 	if err := printMergeManifest(r, m); err != nil {
 		return err
@@ -182,7 +179,10 @@ func cmdFleetMerge(r *runner, args []string) error {
 			return err
 		}
 	}
-	return printMergeManifest(r, m)
+	if err := printMergeManifest(r, m); err != nil {
+		return err
+	}
+	return hashErr
 }
 
 func mergeFleets(root string) ([]fleet.Entry, error) {
