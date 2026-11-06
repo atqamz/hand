@@ -18,7 +18,7 @@ A fleet folder looks like this:
 │   ├── operator.md    your standing preferences
 │   └── projects/      one file of lessons per project
 ├── inbox/             files attached on the board, and .trash/ for pruned ones
-├── scratch/tN-aN      one scratch folder per attempt
+├── scratch/tN-aM      one scratch folder per attempt
 └── board.token        the board's token for this fleet
 ```
 
@@ -29,11 +29,11 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleet
 ```text
 ~/.secondhand/
 ├── fleets/<fleet id>                  file naming the fleet folder
-├── worktrees/<fleet id>/tN-aN/        one worktree per attempt
+├── worktrees/<fleet id>/tN-aM/        one worktree per attempt
 ├── luvus/                             pinned Luvus copies and pin.json
 ├── iroh/                              the hand-iroh endpoint's key, hand-iroh.key
 ├── board.iroh                         the board's --iroh setting and the sidecar's last state
 └── board.addr                         where the running board listens
 ```
 
-Each attempt works on the branch `hand/<fleet id>/tN-aN` in the project's repository. `hand attempt clean aN` removes the worktree, the attempt's `scratch/tN-aN` folder and a Claude worker's scratch directory, and keeps the branch. The scratch folder stays inside the fleet home, so a fleet can be moved, copied or mounted as one directory; it is outside `reports/` and `shots/`, so the artifact counts and the database backups never include it. The watcher does the same by itself, 7 days after an attempt ended, when its tree is clean, its commits are pushed and no ignored file looks like config (other ignored files, such as build caches, go with the worktree: a path a worker wants to keep must be outside it); otherwise the Board shows a Needs item with the reason. `hand orient` and the Board warn when `reports/` and `shots/` pass 20 GB or hold files older than 30 days, and `hand gc --older-than 30d` lists them and deletes only with `--yes`. The `retention` object in `routing.json` sets the limits ([Retention](vocabulary.md#retention)).
+Each attempt works on the branch `hand/<fleet id>/tN-aM` in the project's repository. `hand attempt clean aN` removes the worktree, the attempt's `scratch/tN-aM` folder and a Claude worker's scratch directory, and keeps the branch. The scratch folder moves with the fleet home, but worktrees and the peer secret stay outside it until the layout change; it is outside `reports/` and `shots/`, so the artifact counts and the database backups never include it. The watcher does the same by itself, 7 days after an attempt ended, when its tree is clean, its commits are pushed and no ignored file looks like config (other ignored files, such as build caches, go with the worktree: a path a worker wants to keep must be outside it); otherwise the Board shows a Needs item with the reason. `hand orient` and the Board warn when `reports/` and `shots/` pass 20 GB or hold files older than 30 days, and `hand gc --older-than 30d` lists them and deletes only with `--yes`. The `retention` object in `routing.json` sets the limits ([Retention](vocabulary.md#retention)).
