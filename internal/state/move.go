@@ -567,7 +567,7 @@ func replacePath(s, from, to string) (string, int) {
 		}
 		j += i
 		end := j + len(from)
-		if (j == 0 || !moveLead(s[j-1])) && (end == len(s) || !moveGlue(s[end])) {
+		if (j == 0 || !moveLead(s[j-1])) && pathEnd(s, end) {
 			b.WriteString(s[last:j])
 			b.WriteString(to)
 			last, n = end, n+1
@@ -604,7 +604,7 @@ func countPath(s, pattern string) int {
 		}
 		j += i
 		end := j + len(pattern)
-		if (j == 0 || !moveLead(s[j-1])) && (end == len(s) || !moveGlue(s[end])) {
+		if (j == 0 || !moveLead(s[j-1])) && pathEnd(s, end) {
 			n++
 		}
 		i = end
@@ -617,6 +617,20 @@ func moveGlue(c byte) bool {
 		return true
 	}
 	return c == '_' || c == '-' || c == '.'
+}
+
+func pathEnd(s string, end int) bool {
+	if end == len(s) {
+		return true
+	}
+	if c := s[end]; c != '.' {
+		return !moveGlue(c)
+	}
+	if end+1 == len(s) {
+		return true
+	}
+	c := s[end+1]
+	return !moveGlue(c) && c != '/' && c != '\\'
 }
 
 func moveLead(c byte) bool {
