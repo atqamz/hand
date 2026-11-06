@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -415,6 +416,27 @@ func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
 	return out
 }
 
+type irohInfo struct{ Tone, State, Text, ID string }
+
+func irohView(st sidecar.Status) *irohInfo {
+	switch st.State {
+	case sidecar.Ready:
+		if st.Relay == "none" {
+			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a phone elsewhere cannot dial it."}
+		}
+		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. No phone can pair over iroh yet."}
+	case sidecar.Starting:
+		text := "starting."
+		if st.Reason != "" {
+			text = "restarting after: " + Scrub(st.Reason) + "."
+		}
+		return &irohInfo{Tone: "wait", State: "starting", Text: text}
+	case sidecar.Failed:
+		return &irohInfo{Tone: "fail", State: "failed", Text: Scrub(st.Reason) + "."}
+	}
+	return nil
+}
+
 func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, extra map[string]any) {
 	ctx := r.Context()
 	s, _ := ctx.Value(sessionKey{}).(session)
@@ -432,6 +454,9 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 			link = b.o.Phone(ctx)
 		}
 		data["Link"], data["Address"] = link, link.Ready()
+		if b.o.Iroh != nil {
+			data["Iroh"] = irohView(b.o.Iroh())
+		}
 		set, _ := extra["Set"].([]string)
 		data["Choices"] = b.pairChoices(ctx, set)
 	}

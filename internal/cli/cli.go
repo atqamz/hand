@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -85,6 +86,7 @@ var commands = map[string]handler{
 		d.Field("commit", commit())
 		d.Field("schema", strconv.Itoa(state.SchemaVersion))
 		d.Field("luvus", luvus.Tested)
+		d.Field("iroh", sidecar.Version)
 		return r.print(&d)
 	},
 }

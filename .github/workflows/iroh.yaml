@@ -17,12 +17,14 @@ on:
     paths:
       - iroh/**
       - internal/board/peer.go
+      - internal/sidecar/**
       - .github/workflows/iroh.yaml
   pull_request:
     branches: [main]
     paths:
       - iroh/**
       - internal/board/peer.go
+      - internal/sidecar/**
       - .github/workflows/iroh.yaml
 
 permissions:
@@ -66,6 +68,15 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
+      - run: cargo build --locked
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test the Go side against the real sidecar
+        working-directory: .
+        env:
+          HAND_IROH_BIN: ${{ github.workspace }}/iroh/target/debug/hand-iroh${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: go test -count=1 -timeout 10m -v -run TestRealSidecar ./internal/sidecar
 
   check-targets:
     name: check ${{ matrix.name }}
