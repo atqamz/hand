@@ -27,6 +27,9 @@ func cmdAttemptExec(r *runner, args []string) error {
 	if *dir == "" || !filepath.IsAbs(*dir) || len(argv) == 0 {
 		return usageError{"usage: hand attempt _exec --dir DIR -- COMMAND [ARG...]"}
 	}
+	if _, err := os.Stat(filepath.Dir(filepath.Dir(*dir))); err != nil {
+		return fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", *dir, err)
+	}
 	if err := makePrivate(*dir); err != nil {
 		return err
 	}

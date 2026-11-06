@@ -3,6 +3,7 @@ package cli_test
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,6 +88,18 @@ func TestAttemptLaunchUsesTheScratchWrapper(t *testing.T) {
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Errorf("scratch mode = %o, want 700", info.Mode().Perm())
+	}
+}
+
+func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
+	h := newHarness(t)
+	dir := filepath.Join(t.TempDir(), "gone", "scratch", "t1-a1")
+	_, errOut, code := h.run("attempt", "_exec", "--dir", dir, "--", "/bin/true")
+	if code != 1 || !strings.Contains(errOut, "the fleet home for") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the wrapper recreated %s: %v", dir, err)
 	}
 }
 
