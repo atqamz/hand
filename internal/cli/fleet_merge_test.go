@@ -4,10 +4,14 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	_ "modernc.org/sqlite"
 )
@@ -161,7 +165,7 @@ func TestFleetMergeDryRunIsIdenticalAndARealRunCarriesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(url, "/"+p.dstID+"/decision/d2") || strings.Contains(url, "/"+p.srcID+"/") {
-		t.Fatalf("cross-fleet URL = %q", url)
+		t.Fatalf("cross-fleet URL = %q (source %s, destination %s)", url, p.srcID, p.dstID)
 	}
 
 	if b, err := os.ReadFile(filepath.Join(p.dst, "memory", "operator.md")); err != nil || string(b) != "destination rules\n" {
@@ -218,7 +222,7 @@ func TestFleetMergeRefusesALiveAttemptAndRollsBackABadForeignKey(t *testing.T) {
 func TestFleetMergeArchivesOnlyWhenAsked(t *testing.T) {
 	p := newMergePair(t)
 	out := p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", "--archive-source", p.srcID, "INTO", p.dstID)
-	if field(out, "archive") != "server stopped, registry file removed, merged-into written" {
+	if !strings.Contains(out, "merged-into written and verified, registry file removed") {
 		t.Fatalf("archive field: %q", field(out, "archive"))
 	}
 	if _, err := os.Stat(filepath.Join(p.src, "merged-into")); err != nil {
@@ -470,4 +474,166 @@ func TestFleetMergeRefusesAnOldSchema(t *testing.T) {
 	if code != 2 || !strings.Contains(errOut, "has schema 17") {
 		t.Fatalf("old schema: code=%d stderr=%q", code, errOut)
 	}
+}
+
+func TestFleetMergeRefusesDryRunStopAndPreflightsBeforeStopping(t *testing.T) {
+	p := newMergePair(t)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--dry-run", "--stop", p.srcID, "INTO", p.dstID)
+	if code != 2 || !strings.Contains(errOut, "--dry-run") {
+		t.Fatalf("dry-run stop: code=%d stderr=%q", code, errOut)
+	}
+	startMergeWatcher(t, p.src)
+	_, errOut, code = p.h.run("--home", p.dst, "fleet", "merge", "--stop", "--rename-project", "web=srcweb", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "armed timer") {
+		t.Fatalf("armed timer: code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(p.src, "watch.pid")); err != nil {
+		t.Fatalf("a refused merge stopped the source watcher: %v", err)
+	}
+	_, errOut, code = p.h.run("--home", p.dst, "fleet", "merge", "--stop", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "project web exists on both sides") {
+		t.Fatalf("project collision: code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(p.src, "watch.pid")); err != nil {
+		t.Fatalf("a project refusal stopped the source watcher: %v", err)
+	}
+	writeMergeFile(t, filepath.Join(p.dst, "reports", "t1", "report.md"), "destination report\n")
+	_, errOut, code = p.h.run("--home", p.dst, "fleet", "merge", "--stop", "--cancel-timers", "--rename-project", "web=srcweb", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "different content") {
+		t.Fatalf("file collision: code=%d stderr=%q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(p.src, "watch.pid")); err != nil {
+		t.Fatalf("a file refusal stopped the source watcher: %v", err)
+	}
+}
+
+func startMergeWatcher(t *testing.T, home string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "watch")
+	cmd.Env = append(os.Environ(), "HAND_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(filepath.Join(home, "watch.started"))
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	waitMerge(t, func() bool {
+		_, err := os.Stat(filepath.Join(home, "watch.started"))
+		return err == nil
+	}, "the watcher to start")
+	waitMerge(t, func() bool {
+		f, err := os.OpenFile(filepath.Join(home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return false
+		}
+		defer f.Close()
+		ok, err := flock.Lock(f, false)
+		if err != nil {
+			return false
+		}
+		if !ok {
+			return true
+		}
+		_ = flock.Release(f)
+		return false
+	}, "the watcher lock")
+	marker, err := luvus.ProcStartMarker(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePID(t, filepath.Join(home, "watch.pid"), cmd.Process.Pid, marker, selfExe(t))
+}
+
+func waitMerge(t *testing.T, ok func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestFleetMergeCancelTimersWithLowSourceSequences(t *testing.T) {
+	p := newMergePair(t)
+	db := openMergeDB(t, p.src)
+	mustExec(t, db, `DELETE FROM event`)
+	mustExec(t, db, `INSERT INTO event(seq, at, kind, task_id, detail) VALUES
+		(1, '2026-11-04T00:00:00Z', 'task.added', 1, 't1'),
+		(2, '2026-11-04T01:00:00Z', 'task.added', 2, 't2'),
+		(3, '2026-11-04T02:00:00Z', 'task.added', 1, 't1 again')`)
+	db.Close()
+	out := p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if !strings.Contains(out, "event,3,3,8,3") {
+		t.Fatalf("event counts missing from:\n%s", out)
+	}
+	db = openMergeDB(t, p.dst)
+	defer db.Close()
+	assertCount(t, db, `SELECT COUNT(*) FROM event WHERE kind = 'timer.cancelled'`, 1)
+	assertCount(t, db, `SELECT COUNT(*) FROM event`, 8)
+}
+
+func TestFleetMergeRefusesASecondRealRun(t *testing.T) {
+	p := newMergePair(t)
+	p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	before := dumpMergeState(t, p.dst)
+	_, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	if code != 3 || !strings.Contains(errOut, "already merged") || !strings.Contains(errOut, "non-operation") {
+		t.Fatalf("second run: code=%d stderr=%q", code, errOut)
+	}
+	if after := dumpMergeState(t, p.dst); after != before {
+		t.Fatalf("a second run changed the destination:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+}
+
+func TestFleetMergeDedupesProjectGrants(t *testing.T) {
+	p := newMergePair(t)
+	src := openMergeDB(t, p.src)
+	mustExec(t, src, `INSERT INTO project(name, repo, settings, created_at) VALUES ('app', ?, '', '2026-11-01T00:00:00Z')`, p.src+"/projects/app")
+	mustExec(t, src, `INSERT INTO project_grant(project, harness, pattern, created_at) VALUES ('app', 'claude', 'git status', '2026-10-01T00:00:00Z')`)
+	src.Close()
+	dst := openMergeDB(t, p.dst)
+	mustExec(t, dst, `INSERT INTO project_grant(project, harness, pattern, created_at) VALUES ('app', 'claude', 'git status', '2026-11-01T00:00:00Z')`)
+	dst.Close()
+	p.h.ok("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", p.srcID, "INTO", p.dstID)
+	dst = openMergeDB(t, p.dst)
+	defer dst.Close()
+	assertCount(t, dst, `SELECT COUNT(*) FROM project_grant`, 1)
+	var created string
+	if err := dst.QueryRow(`SELECT created_at FROM project_grant`).Scan(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created != "2026-10-01T00:00:00Z" {
+		t.Fatalf("grant created_at = %q, want the earliest", created)
+	}
+}
+
+func TestFleetMergeReportsAPostCommitArchiveFailure(t *testing.T) {
+	p := newMergePair(t)
+	if err := os.MkdirAll(filepath.Join(p.src, "merged-into"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code := p.h.run("--home", p.dst, "fleet", "merge", "--rename-project", "web=srcweb", "--cancel-timers", "--archive-source", p.srcID, "INTO", p.dstID)
+	if code == 0 {
+		t.Fatalf("archive with a blocked marker succeeded:\n%s", out)
+	}
+	if !strings.Contains(out, "counts[13]") || !strings.Contains(out, "post_commit_error") {
+		t.Fatalf("no post-commit manifest:\nstdout=%s\nstderr=%s", out, errOut)
+	}
+	if !strings.Contains(out, "moves[") || !strings.Contains(out, "reports/t1/report.md") {
+		t.Fatalf("manifest does not list completed file moves:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(p.h.vars["SECONDHAND_HOME"], "fleets", p.srcID)); err != nil {
+		t.Fatalf("archive removed the registry before the marker: %v", err)
+	}
+	dst := openMergeDB(t, p.dst)
+	defer dst.Close()
+	assertCount(t, dst, `SELECT COUNT(*) FROM task`, 5)
 }

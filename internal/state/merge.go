@@ -30,7 +30,10 @@ type MergeOptions struct {
 	DestHome      string
 	CancelTimers  bool
 	RenameProject map[string]string
+	Preflight     bool
 }
+
+var mergeAfterSourceCounts func()
 
 type MergeCount struct {
 	Table                string
@@ -136,6 +139,10 @@ func InspectFleet(path string) (FleetHealth, error) {
 		}
 		h.LiveAttempts = append(h.LiveAttempts, id)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return h, err
+	}
 	if err := rows.Close(); err != nil {
 		return h, err
 	}
@@ -152,6 +159,10 @@ func InspectFleet(path string) (FleetHealth, error) {
 			return h, err
 		}
 		h.ArmedTimers = append(h.ArmedTimers, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return h, err
 	}
 	return h, rows.Close()
 }
@@ -176,6 +187,24 @@ func CopyDatabase(srcPath, dstPath string) error {
 	_ = os.Remove(dstPath)
 	_, err = db.Exec(`VACUUM INTO ?`, dstPath)
 	return err
+}
+
+func copySnapshot(path string) (string, func(), error) {
+	f, err := os.CreateTemp("", "hand-merge-src-*.db")
+	if err != nil {
+		return "", nil, err
+	}
+	tmp := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return "", nil, err
+	}
+	_ = os.Remove(tmp)
+	if err := CopyDatabase(path, tmp); err != nil {
+		_ = os.Remove(tmp)
+		return "", nil, err
+	}
+	return tmp, func() { _ = os.Remove(tmp) }, nil
 }
 
 func DatabaseHash(path string) (string, error) {
@@ -213,7 +242,12 @@ func DatabaseHash(path string) (string, error) {
 
 func Merge(ctx context.Context, srcPath, dstPath string, o MergeOptions) (MergeReport, error) {
 	var rep MergeReport
-	src, err := openReadOnly(srcPath)
+	snapshot, cleanup, err := copySnapshot(srcPath)
+	if err != nil {
+		return rep, err
+	}
+	defer cleanup()
+	src, err := openReadOnly(snapshot)
 	if err != nil {
 		return rep, err
 	}
@@ -494,6 +528,13 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 		return err
 	}
 	rep.Source = srcFleet
+	var mergedAt string
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(at), '') FROM event WHERE kind = 'fleet.merged' AND detail LIKE ?`, srcFleet.ID+" %").Scan(&mergedAt); err != nil {
+		return err
+	}
+	if mergedAt != "" {
+		return fmt.Errorf("%w: source %s was already merged into this fleet at %s; a second merge is a non-operation", ErrConflict, srcFleet.ID, mergedAt)
+	}
 	var live int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM attempt WHERE status IN (?, ?)`, AttemptLaunching, AttemptRunning).Scan(&live); err != nil {
 		return err
@@ -525,11 +566,13 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 	if live > 0 {
 		return fmt.Errorf("%w: destination has a live supervisor", ErrConflict)
 	}
-	if err := src.QueryRowContext(ctx, `SELECT COUNT(*) FROM supervisor WHERE status IN (?, ?)`, AttemptLaunching, AttemptRunning).Scan(&live); err != nil {
-		return err
-	}
-	if live > 0 {
-		return fmt.Errorf("%w: source has a live supervisor", ErrConflict)
+	if !o.Preflight {
+		if err := src.QueryRowContext(ctx, `SELECT COUNT(*) FROM supervisor WHERE status IN (?, ?)`, AttemptLaunching, AttemptRunning).Scan(&live); err != nil {
+			return err
+		}
+		if live > 0 {
+			return fmt.Errorf("%w: source has a live supervisor", ErrConflict)
+		}
 	}
 	if !o.CancelTimers {
 		if err := src.QueryRowContext(ctx, `SELECT COUNT(*) FROM timer WHERE status = ?`, TimerArmed).Scan(&live); err != nil {
@@ -574,6 +617,9 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 	sourceCounts, err := tableCounts(ctx, src)
 	if err != nil {
 		return err
+	}
+	if mergeAfterSourceCounts != nil {
+		mergeAfterSourceCounts()
 	}
 	destMax := map[string]int64{}
 	for k, table := range map[string]string{"task": "task", "attempt": "attempt", "report": "report", "decision": "decision", "timer": "timer", "supervisor_input": "supervisor_input", "event": "event"} {
@@ -751,12 +797,18 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 			return err
 		}
 	}
+	var maxSourceSeq int64
+	if err := src.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM event`).Scan(&maxSourceSeq); err != nil {
+		return err
+	}
+	cancelSeq := seqOff + maxSourceSeq
 	for _, id := range cancelled {
 		var task any
 		if err := tx.QueryRowContext(ctx, `SELECT task_id FROM timer WHERE id = ?`, id).Scan(&task); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO event(at, kind, task_id, detail) VALUES (?, ?, ?, ?)`, mergeAt, "timer.cancelled", task, TimerRef(id)); err != nil {
+		cancelSeq++
+		if _, err := tx.ExecContext(ctx, `INSERT INTO event(seq, at, kind, task_id, detail) VALUES (?, ?, ?, ?, ?)`, cancelSeq, mergeAt, "timer.cancelled", task, TimerRef(id)); err != nil {
 			return err
 		}
 	}
@@ -799,8 +851,8 @@ func mergeTx(ctx context.Context, tx *sql.Tx, src *sql.DB, o MergeOptions, rep *
 		return err
 	}
 	for _, row := range grantRows {
-		if err := insertRow(tx, "project_grant", []string{"project", "harness", "pattern", "created_at"},
-			[]any{projectNameOf(mergedProject, text(row, "project")), text(row, "harness"), text(row, "pattern"), text(row, "created_at")}); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO project_grant(project, harness, pattern, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(project, harness, pattern) DO UPDATE SET created_at = min(project_grant.created_at, excluded.created_at)`,
+			projectNameOf(mergedProject, text(row, "project")), text(row, "harness"), text(row, "pattern"), text(row, "created_at")); err != nil {
 			return err
 		}
 	}
@@ -1128,13 +1180,25 @@ func renumberEvents(ctx context.Context, tx *sql.Tx) error {
 	return err
 }
 
+func rowsAny(rows *sql.Rows) (bool, error) {
+	var any bool
+	for rows.Next() {
+		any = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return false, err
+	}
+	return any, rows.Close()
+}
+
 func checkMerged(ctx context.Context, tx *sql.Tx) error {
 	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	if err != nil {
 		return err
 	}
-	broken := rows.Next()
-	if err := rows.Close(); err != nil {
+	broken, err := rowsAny(rows)
+	if err != nil {
 		return err
 	}
 	if broken {
@@ -1200,6 +1264,10 @@ func textDigest(ctx context.Context, q queryer) (string, error) {
 				}
 			}
 			_, _ = io.WriteString(h, "\n")
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return "", err
 		}
 		if err := rows.Close(); err != nil {
 			return "", err

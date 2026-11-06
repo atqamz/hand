@@ -30,6 +30,7 @@ var mergeDirs = []string{"memory", "reports", "briefs", "shots", "deliverables",
 
 type mergeFile struct {
 	src, dst string
+	from, to string
 }
 
 type mergeDirCount struct {
@@ -46,9 +47,9 @@ type mergeCollision struct{ path, reason string }
 
 func cmdFleetMerge(r *runner, args []string) error {
 	set := flags("fleet merge")
-	dry := set.Bool("dry-run", false, "compute the merge and print its manifest, changing nothing")
-	stop := set.Bool("stop", false, "stop the source's watcher and supervisor; workers are never stopped")
-	archive := set.Bool("archive-source", false, "after a real merge, stop the source's Luvus server, remove its registry file and write a marker")
+	dry := set.Bool("dry-run", false, "compute the merge and print its manifest, changing nothing; refuses --stop")
+	stop := set.Bool("stop", false, "stop the source's watcher and supervisor after every refusal is checked; workers are never stopped")
+	archive := set.Bool("archive-source", false, "after a real merge, stop the source's Luvus server, write merged-into and then remove its registry file")
 	cancel := set.Bool("cancel-timers", false, "cancel the source's armed timers, recording a timer.cancelled event for each")
 	renames := map[string]string{}
 	set.Func("rename-project", "OLD=NEW: rename a source project that collides with a destination project", func(v string) error {
@@ -68,6 +69,9 @@ func cmdFleetMerge(r *runner, args []string) error {
 	}
 	if !strings.EqualFold(pos[1], "INTO") {
 		return usageError{"fleet merge: want SRC INTO DST, got " + strings.Join(pos, " ")}
+	}
+	if *dry && *stop {
+		return fmt.Errorf("%w: --dry-run cannot stop a service; drop --stop, or stop the source's watcher and supervisor yourself", state.ErrInvalid)
 	}
 	root, err := r.rootDir()
 	if err != nil {
@@ -92,9 +96,6 @@ func cmdFleetMerge(r *runner, args []string) error {
 		return fmt.Errorf("%w: fleet homes are nested: %s and %s", state.ErrInvalid, src.Home, dst.Home)
 	}
 	srcPath, dstPath := filepath.Join(src.Home, "hand.db"), filepath.Join(dst.Home, "hand.db")
-	if err := r.mergeCheck(root, src, dst, *stop, *cancel); err != nil {
-		return err
-	}
 	plan, collisions, err := planMergeFiles(src.Home, dst.Home, src.ID)
 	if err != nil {
 		return err
@@ -107,91 +108,81 @@ func cmdFleetMerge(r *runner, args []string) error {
 		}
 		return fmt.Errorf("%w: %s", state.ErrConflict, b.String())
 	}
-
+	if err := r.mergePreflight(root, src, dst, *stop, *cancel); err != nil {
+		return err
+	}
+	opts := state.MergeOptions{SourceHome: src.Home, DestHome: dst.Home, CancelTimers: *cancel, RenameProject: renames}
+	if *stop && !*dry {
+		preflight := opts
+		preflight.Preflight = true
+		if err := preflightMerge(r.ctx(), srcPath, dstPath, preflight); err != nil {
+			return err
+		}
+		if err := r.stopMergeSource(src); err != nil {
+			return err
+		}
+	}
 	runPath := dstPath
-	var tmpDir string
 	if *dry {
-		if tmpDir, err = os.MkdirTemp("", "hand-merge-"); err != nil {
+		var cleanup func()
+		runPath, cleanup, err = mergeSnapshot(dstPath)
+		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(tmpDir)
-		runPath = filepath.Join(tmpDir, "hand.db")
-		if err := state.CopyDatabase(dstPath, runPath); err != nil {
-			return err
-		}
+		defer cleanup()
 	}
-	rep, err := state.Merge(r.ctx(), srcPath, runPath, state.MergeOptions{SourceHome: src.Home, DestHome: dst.Home, CancelTimers: *cancel, RenameProject: renames})
+	if err := quietMergeWatchers(src.Home, dst.Home); err != nil {
+		return err
+	}
+	rep, err := state.Merge(r.ctx(), srcPath, runPath, opts)
 	if err != nil {
 		return err
 	}
-	dbHash, err := state.DatabaseHash(runPath)
-	if err != nil {
-		return err
-	}
+	dbHash, hashErr := state.DatabaseHash(runPath)
 	archiveState := "not requested"
 	if *archive {
-		archiveState = "would stop the server, remove the registry file and write merged-into"
-	}
-	if !*dry {
-		if err := applyMergeFiles(src.Home, dst.Home, plan); err != nil {
-			return fmt.Errorf("%w; the database is merged but the files are not: %v", state.ErrConflict, err)
-		}
-		if *archive {
-			if err := r.archiveMergeSource(r.ctx(), root, src, dst); err != nil {
-				return err
-			}
-			archiveState = "server stopped, registry file removed, merged-into written"
+		archiveState = "pending"
+		if *dry {
+			archiveState = "would stop the server, write and verify merged-into, then remove the registry file"
 		}
 	}
-	var d toon.Doc
-	d.Field("merged", dst.ID+" "+dst.Name)
-	d.Field("source", src.ID+" "+src.Name)
-	d.Field("destination_home", dst.Home)
-	d.Field("source_home", src.Home)
-	d.Bool("dry_run", *dry)
-	offsets := make([][]string, 0, len(rep.Offsets))
-	for _, k := range []string{"t", "a", "r", "d", "w", "i", "event"} {
-		offsets = append(offsets, []string{k, strconv.FormatInt(rep.Offsets[k], 10)})
+	m := &mergeManifest{rep: rep, dbHash: dbHash, dry: *dry, src: src.Home, dst: dst.Home, plan: plan, archive: archiveState}
+	if *dry {
+		m.postErr = hashErr
+		err = printMergeManifest(r, m)
+		if err != nil {
+			return err
+		}
+		return hashErr
 	}
-	d.Rows("offsets", []string{"ref", "offset"}, offsets)
-	counts := make([][]string, 0, len(rep.Counts))
-	for _, c := range rep.Counts {
-		counts = append(counts, []string{c.Table, strconv.FormatInt(c.Source, 10), strconv.FormatInt(c.Dest, 10), strconv.FormatInt(c.Merged, 10), strconv.FormatInt(c.Offset, 10)})
+	if hashErr != nil {
+		m.postErr = hashErr
+		m.archive = "not run: database hash failed"
+		if err := printMergeManifest(r, m); err != nil {
+			return err
+		}
+		return hashErr
 	}
-	d.Rows("counts", []string{"table", "source", "destination", "merged", "offset"}, counts)
-	refs := make([][]string, 0, len(rep.Refs))
-	for _, c := range rep.Refs {
-		refs = append(refs, []string{c.Kind, strconv.FormatInt(c.Changed, 10), strconv.FormatInt(c.Protected, 10)})
+	if err := printMergeManifest(r, m); err != nil {
+		return err
 	}
-	d.Rows("refs", []string{"kind", "changed", "protected"}, refs)
-	cells := make([][]string, 0, len(rep.Cells))
-	for _, c := range rep.Cells {
-		cells = append(cells, []string{c.Table, c.Key, c.Column, c.Refs})
+	moved, err := applyMergeFiles(src.Home, dst.Home, plan)
+	m.moved = moved
+	if err != nil {
+		m.postErr = err
+		m.archive = "not run: file move failed"
+		_ = printMergeManifest(r, m)
+		return fmt.Errorf("%w; the database is merged but the files are not: %v", state.ErrConflict, err)
 	}
-	d.Rows("ambiguous", []string{"table", "key", "column", "refs"}, cells)
-	d.Field("text_sha256", rep.TextSHA256)
-	d.Field("db_sha256", dbHash)
-	files := make([][]string, 0, len(mergeDirs))
-	dirs := make([]string, 0, len(plan.counts))
-	for dir := range plan.counts {
-		dirs = append(dirs, dir)
+	if *archive {
+		m.archive, err = r.archiveMergeSource(r.ctx(), root, src, dst)
+		if err != nil {
+			m.postErr = err
+			_ = printMergeManifest(r, m)
+			return err
+		}
 	}
-	sort.Strings(dirs)
-	for _, dir := range dirs {
-		c := plan.counts[dir]
-		files = append(files, []string{dir, strconv.FormatInt(c.files, 10), strconv.FormatInt(c.bytes, 10), strconv.FormatInt(c.moved, 10), strconv.FormatInt(c.same, 10), strconv.FormatInt(c.saved, 10)})
-	}
-	d.Rows("files", []string{"dir", "files", "bytes", "moved", "identical", "saved"}, files)
-	if len(plan.manual) > 0 {
-		d.List("manual", plan.manual)
-	}
-	if len(rep.Warnings) > 0 {
-		d.List("warnings", rep.Warnings)
-	}
-	d.Field("archive", archiveState)
-	d.Help("The source home and its database stay untouched; remove its registry link only after checking the merge",
-		"Workers are never stopped by this command: stop every launching or running attempt yourself before merging")
-	return r.print(&d)
+	return printMergeManifest(r, m)
 }
 
 func mergeFleets(root string) ([]fleet.Entry, error) {
@@ -259,7 +250,7 @@ func resolveMergeFleet(entries []fleet.Entry, root, arg string) (fleet.Entry, er
 	return found[0], nil
 }
 
-func (r *runner) mergeCheck(root string, src, dst fleet.Entry, stop, cancel bool) error {
+func (r *runner) mergePreflight(root string, src, dst fleet.Entry, stop, cancel bool) error {
 	if _, _, _, live := update.LivePID(filepath.Join(root, "board.pid")); live {
 		return fmt.Errorf("%w: the board is running; stop it with `hand board stop` before merging", state.ErrConflict)
 	}
@@ -291,14 +282,24 @@ func (r *runner) mergeCheck(root string, src, dst fleet.Entry, stop, cancel bool
 	if sh.PendingInput > 0 {
 		return fmt.Errorf("%w: source %s has %d pending input(s); deliver or drop them first", state.ErrConflict, src.ID, sh.PendingInput)
 	}
-	held, err := watchHeldAt(src.Home)
-	if err != nil {
-		return err
+	if sh.Supervisor != "" && !stop {
+		return fmt.Errorf("%w: source %s has live supervisor %s; pass --stop or stop it first", state.ErrConflict, src.ID, sh.Supervisor)
 	}
-	if held {
-		if !stop {
-			return fmt.Errorf("%w: source %s has a live watcher; pass --stop or run `hand --home %s watch stop`", state.ErrConflict, src.ID, src.Home)
-		}
+	if held, err := watchHeldAt(src.Home); err != nil {
+		return err
+	} else if held && !stop {
+		return fmt.Errorf("%w: source %s has a live watcher; pass --stop or run `hand --home %s watch stop`", state.ErrConflict, src.ID, src.Home)
+	}
+	if len(sh.ArmedTimers) > 0 && !cancel {
+		return fmt.Errorf("%w: source %s has armed timer(s) %s; pass --cancel-timers or cancel them first", state.ErrConflict, src.ID, timerList(sh.ArmedTimers))
+	}
+	return nil
+}
+
+func (r *runner) stopMergeSource(src fleet.Entry) error {
+	if held, err := watchHeldAt(src.Home); err != nil {
+		return err
+	} else if held {
 		if _, _, err := stopPIDFile("watcher", filepath.Join(src.Home, "watch.pid")); err != nil {
 			return err
 		}
@@ -308,10 +309,11 @@ func (r *runner) mergeCheck(root string, src, dst fleet.Entry, stop, cancel bool
 			return fmt.Errorf("%w: source %s still has a live watcher", state.ErrConflict, src.ID)
 		}
 	}
+	sh, err := state.InspectFleet(filepath.Join(src.Home, "hand.db"))
+	if err != nil {
+		return err
+	}
 	if sh.Supervisor != "" {
-		if !stop {
-			return fmt.Errorf("%w: source %s has live supervisor %s; pass --stop or stop it first", state.ErrConflict, src.ID, sh.Supervisor)
-		}
 		if err := r.runFleetCommand(src.Home, "supervisor", "stop"); err != nil {
 			return err
 		}
@@ -322,10 +324,120 @@ func (r *runner) mergeCheck(root string, src, dst fleet.Entry, stop, cancel bool
 			return fmt.Errorf("%w: source %s still has live supervisor %s", state.ErrConflict, src.ID, sh.Supervisor)
 		}
 	}
-	if len(sh.ArmedTimers) > 0 && !cancel {
-		return fmt.Errorf("%w: source %s has armed timer(s) %s; pass --cancel-timers or cancel them first", state.ErrConflict, src.ID, timerList(sh.ArmedTimers))
+	return nil
+}
+
+func quietMergeWatchers(homes ...string) error {
+	for _, home := range homes {
+		held, err := watchHeldAt(home)
+		if err != nil {
+			return err
+		}
+		if held {
+			return fmt.Errorf("%w: %s has a live watcher; stop it before merging", state.ErrConflict, home)
+		}
 	}
 	return nil
+}
+
+func mergeSnapshot(dstPath string) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "hand-merge-")
+	if err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, "hand.db")
+	if err := state.CopyDatabase(dstPath, path); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", nil, err
+	}
+	return path, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+func preflightMerge(ctx context.Context, srcPath, dstPath string, o state.MergeOptions) error {
+	snapshot, cleanup, err := mergeSnapshot(dstPath)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	_, err = state.Merge(ctx, srcPath, snapshot, o)
+	return err
+}
+
+type mergeManifest struct {
+	rep      state.MergeReport
+	dbHash   string
+	dry      bool
+	src, dst string
+	plan     *mergeFilePlan
+	moved    []mergeFile
+	archive  string
+	postErr  error
+}
+
+func printMergeManifest(r *runner, m *mergeManifest) error {
+	var d toon.Doc
+	d.Field("merged", m.rep.Dest.ID+" "+m.rep.Dest.Name)
+	d.Field("source", m.rep.Source.ID+" "+m.rep.Source.Name)
+	d.Field("destination_home", m.dst)
+	d.Field("source_home", m.src)
+	d.Bool("dry_run", m.dry)
+	offsets := make([][]string, 0, len(m.rep.Offsets))
+	for _, k := range []string{"t", "a", "r", "d", "w", "i", "event"} {
+		offsets = append(offsets, []string{k, strconv.FormatInt(m.rep.Offsets[k], 10)})
+	}
+	d.Rows("offsets", []string{"ref", "offset"}, offsets)
+	counts := make([][]string, 0, len(m.rep.Counts))
+	for _, c := range m.rep.Counts {
+		counts = append(counts, []string{c.Table, strconv.FormatInt(c.Source, 10), strconv.FormatInt(c.Dest, 10), strconv.FormatInt(c.Merged, 10), strconv.FormatInt(c.Offset, 10)})
+	}
+	d.Rows("counts", []string{"table", "source", "destination", "merged", "offset"}, counts)
+	refs := make([][]string, 0, len(m.rep.Refs))
+	for _, c := range m.rep.Refs {
+		refs = append(refs, []string{c.Kind, strconv.FormatInt(c.Changed, 10), strconv.FormatInt(c.Protected, 10)})
+	}
+	d.Rows("refs", []string{"kind", "changed", "protected"}, refs)
+	cells := make([][]string, 0, len(m.rep.Cells))
+	for _, c := range m.rep.Cells {
+		cells = append(cells, []string{c.Table, c.Key, c.Column, c.Refs})
+	}
+	d.Rows("ambiguous", []string{"table", "key", "column", "refs"}, cells)
+	d.Field("text_sha256", m.rep.TextSHA256)
+	d.Field("db_sha256", m.dbHash)
+	files := make([][]string, 0, len(mergeDirs))
+	dirs := make([]string, 0, len(m.plan.counts))
+	for dir := range m.plan.counts {
+		dirs = append(dirs, dir)
+	}
+	sort.Strings(dirs)
+	for _, dir := range dirs {
+		c := m.plan.counts[dir]
+		files = append(files, []string{dir, strconv.FormatInt(c.files, 10), strconv.FormatInt(c.bytes, 10), strconv.FormatInt(c.moved, 10), strconv.FormatInt(c.same, 10), strconv.FormatInt(c.saved, 10)})
+	}
+	d.Rows("files", []string{"dir", "files", "bytes", "moved", "identical", "saved"}, files)
+	if len(m.plan.manual) > 0 {
+		d.List("manual", m.plan.manual)
+	}
+	if len(m.moved) > 0 {
+		moves := make([][]string, 0, len(m.moved))
+		for _, mv := range m.moved {
+			moves = append(moves, []string{filepath.ToSlash(mv.from), filepath.ToSlash(mv.to)})
+		}
+		d.Rows("moves", []string{"from", "to"}, moves)
+	}
+	if len(m.rep.Warnings) > 0 {
+		d.List("warnings", m.rep.Warnings)
+	}
+	d.Field("archive", m.archive)
+	if m.postErr != nil {
+		d.Field("post_commit_error", m.postErr.Error())
+	}
+	help := []string{"The source home and its database stay untouched; remove its registry link only after checking the merge",
+		"Workers are never stopped by this command: stop every launching or running attempt yourself before merging"}
+	if !m.dry {
+		help = append([]string{"The database is committed when this manifest first appears; later fields report the file move"}, help...)
+	}
+	d.Help(help...)
+	return r.print(&d)
 }
 
 func refList(ids []int64) string {
@@ -412,7 +524,7 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 			targetInfo, err := os.Lstat(target)
 			switch {
 			case errors.Is(err, fs.ErrNotExist):
-				plan.moves = append(plan.moves, mergeFile{path, target})
+				plan.moves = append(plan.moves, mergeFile{src: path, dst: target, from: rel, to: targetRel})
 				count.moved++
 			case err != nil:
 				return err
@@ -441,7 +553,7 @@ func planMergeFiles(src, dst, srcID string) (*mergeFilePlan, []mergeCollision, e
 				} else if !errors.Is(err, fs.ErrNotExist) {
 					return err
 				}
-				plan.moves = append(plan.moves, mergeFile{path, target})
+				plan.moves = append(plan.moves, mergeFile{src: path, dst: target, from: rel, to: targetRel})
 				plan.manual = append(plan.manual, "memory/operator.md: kept the destination's; the source is saved as "+targetRel)
 				count.moved++
 				count.saved++
@@ -515,18 +627,20 @@ func fileHash(path string) (string, error) {
 	return string(h.Sum(nil)), nil
 }
 
-func applyMergeFiles(src, dst string, plan *mergeFilePlan) error {
+func applyMergeFiles(src, dst string, plan *mergeFilePlan) ([]mergeFile, error) {
+	var moved []mergeFile
 	for _, m := range plan.moves {
 		if _, err := os.Lstat(m.dst); err == nil {
-			return fmt.Errorf("%s appeared in the destination while merging", m.dst)
+			return moved, fmt.Errorf("%s appeared in the destination while merging", m.dst)
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return moved, err
 		}
 		if err := movePath(m.src, m.dst); err != nil {
-			return err
+			return moved, err
 		}
+		moved = append(moved, m)
 	}
-	return nil
+	return moved, nil
 }
 
 func movePath(src, dst string) error {
@@ -572,21 +686,39 @@ func movePath(src, dst string) error {
 	return os.Remove(src)
 }
 
-func (r *runner) archiveMergeSource(ctx context.Context, root string, src, dst fleet.Entry) error {
+func (r *runner) archiveMergeSource(ctx context.Context, root string, src, dst fleet.Entry) (string, error) {
 	session := fleet.Session(src.ID)
 	client := luvus.Client{Socket: luvus.SocketPath(r.env.Getenv, session)}
 	if err := client.StopServer(ctx, luvus.SessionDir(r.env.Getenv, session), stopOne); err != nil {
-		return fmt.Errorf("%w: archive: stop Luvus server: %v", state.ErrConflict, err)
-	}
-	link := filepath.Join(root, "fleets", src.ID)
-	if b, err := os.ReadFile(link); err == nil && strings.TrimSpace(string(b)) == src.Home {
-		if err := os.Remove(link); err != nil {
-			return err
-		}
+		return "", fmt.Errorf("%w: archive: stop Luvus server: %v", state.ErrConflict, err)
 	}
 	marker := fmt.Sprintf("merged into %s %s\n%s\n", dst.ID, dst.Name, dst.Home)
-	if err := os.WriteFile(filepath.Join(src.Home, "merged-into"), []byte(marker), 0o600); err != nil {
-		return err
+	markerPath := filepath.Join(src.Home, "merged-into")
+	if err := os.WriteFile(markerPath, []byte(marker), 0o600); err != nil {
+		return "server stopped, merged-into not written, registry file kept", err
 	}
-	return nil
+	if b, err := os.ReadFile(markerPath); err != nil {
+		return "server stopped, merged-into not verified, registry file kept", err
+	} else if string(b) != marker {
+		return "server stopped, merged-into not verified, registry file kept", fmt.Errorf("%w: merged-into does not hold what was written", state.ErrInvalid)
+	}
+	link := filepath.Join(root, "fleets", src.ID)
+	recorded, err := os.ReadFile(link)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "server stopped, merged-into written and verified, registry file already absent", nil
+	case err != nil:
+		return "server stopped, merged-into written and verified, registry file not read", err
+	case strings.TrimSpace(string(recorded)) != src.Home:
+		return "server stopped, merged-into written and verified, registry file left in place: it names another home", nil
+	}
+	if err := removeIfSame(link, recorded); err != nil {
+		return "server stopped, merged-into written and verified, registry file not removed", err
+	}
+	if _, err := os.Stat(link); err == nil {
+		return "server stopped, merged-into written and verified, registry file left in place: it changed while merging", nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "server stopped, merged-into written and verified, registry file not verified as removed", err
+	}
+	return "server stopped, merged-into written and verified, registry file removed", nil
 }
