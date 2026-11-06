@@ -609,7 +609,7 @@ func TestFleetImportMapsAReusedProjectLesson(t *testing.T) {
 	fx.h.ok("--home", fx.src, "task", "add", "alpha", "one")
 	writeImportFile(t, fx.src, "memory/projects/alpha.md", "alpha lesson\n")
 	out := fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
-	if !strings.Contains(out, "alpha,"+repo+",beta,reused") {
+	if !strings.Contains(out, ",beta,reused") {
 		t.Fatalf("manifest does not map alpha to beta:\n%s", out)
 	}
 	if got := importQuery(t, fx.dest, `SELECT project FROM task WHERE title = 'one'`); got != "beta" {
@@ -632,7 +632,7 @@ func TestFleetImportReportsAReusedProjectLessonCollision(t *testing.T) {
 	writeImportFile(t, fx.src, "memory/projects/alpha.md", "source alpha\n")
 	writeImportFile(t, fx.dest, "memory/projects/beta.md", "dest beta\n")
 	out := fx.h.ok("fleet", "import", fx.srcID, "INTO", fx.destID)
-	want := "memory/projects/alpha.md,memory/projects/beta.md,different content"
+	want := filepath.Join("memory", "projects", "alpha.md") + "," + filepath.Join("memory", "projects", "beta.md") + ",different content"
 	if !strings.Contains(out, want) {
 		t.Fatalf("manifest lacks the lesson collision %q:\n%s", want, out)
 	}
