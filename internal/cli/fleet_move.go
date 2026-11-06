@@ -115,6 +115,9 @@ func cmdFleetMove(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w; the database was not changed, the pre-move copy is %s", err, backup)
 	}
+	if err := st.Close(); err != nil {
+		return fmt.Errorf("%w: the database at %s now names %s, but closing it failed: %v; the pre-move database is %s", state.ErrConflict, home, dest, err, backup)
+	}
 	if err := fsx.Rename(home, dest); err != nil {
 		return fmt.Errorf("%w: the database at %s now names %s, but the folder did not move: %v; the pre-move database is %s; finish the move with `hand fleet move --yes %s`, or undo it by copying %s over %s and removing %s and %s", state.ErrConflict, home, dest, err, backup, dest, backup, db, db+"-wal", db+"-shm")
 	}

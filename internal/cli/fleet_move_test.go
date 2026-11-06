@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fsx"
+	"github.com/atqamz/hand/internal/toon"
 	_ "modernc.org/sqlite"
 )
 
@@ -112,8 +113,8 @@ func TestFleetMoveDryRunListsEveryCellAndWritesNothing(t *testing.T) {
 		"move: dry-run",
 		"fleet: " + filepath.Base(home),
 		"id: " + id,
-		"from: " + home,
-		"to: " + dest,
+		"from: " + toon.Value(home),
+		"to: " + toon.Value(dest),
 		"absolute: 17",
 		"tilde: 8",
 		"cells[20]{table,column,ref,absolute,tilde}:",
@@ -154,16 +155,16 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 	out := h.ok("fleet", "move", "--yes", dest)
 	for _, want := range []string{
 		"move: moved",
-		"from: " + home,
-		"to: " + dest,
+		"from: " + toon.Value(home),
+		"to: " + toon.Value(dest),
 		"before,17,8,20",
 		"after,0,0,0",
 		"verification: 0",
 		"foreign_key_check: 0",
 		"integrity_check: ok",
 		"rows: ok",
-		"home: " + dest,
-		"registry: " + filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id),
+		"home: " + toon.Value(dest),
+		"registry: " + toon.Value(filepath.Join(h.vars["SECONDHAND_HOME"], "fleets", id)),
 		"Run `hand init` in " + dest,
 	} {
 		if !strings.Contains(out, want) {
@@ -208,13 +209,13 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 		}
 	}
 	h.home = dest
-	if orient := h.ok("orient"); !strings.Contains(orient, "home: "+dest) {
+	if orient := h.ok("orient"); !strings.Contains(orient, "home: "+toon.Value(dest)) {
 		t.Fatalf("orient = %q", orient)
 	}
-	if show := h.ok("task", "show", "t1"); !strings.Contains(show, "See "+dest+"/a.") {
+	if show := h.ok("task", "show", "t1"); !strings.Contains(field(show, "goal"), "See "+dest+"/a.") {
 		t.Fatalf("task show = %q", show)
 	}
-	if show := h.ok("report", "show", "r1"); !strings.Contains(show, "Delivered: "+dest+"/reports/t1/x.md.") {
+	if show := h.ok("report", "show", "r1"); !strings.Contains(field(show, "body"), "Delivered: "+dest+"/reports/t1/x.md.") {
 		t.Fatalf("report show = %q", show)
 	}
 	_, errOut, code := h.run("fleet", "move", "--yes", dest)
@@ -378,7 +379,7 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 	dest := filepath.Join(t.TempDir(), "moved")
 	h.ok("fleet", "move", "--yes", dest)
 	h.home = dest
-	if out := h.ok("orient"); !strings.Contains(out, "home: "+dest) {
+	if out := h.ok("orient"); !strings.Contains(out, "home: "+toon.Value(dest)) {
 		t.Fatalf("orient = %q", out)
 	}
 	if out := h.ok("task", "show", "t1"); !strings.Contains(out, "Copied task") || !strings.Contains(out, "Read me") {
