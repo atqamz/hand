@@ -81,7 +81,7 @@ func TestMergeReadsOneSourceSnapshot(t *testing.T) {
 
 func TestTextRewriterLeavesPathsAnchorsUUIDsAndCodeAlone(t *testing.T) {
 	refs := &mergeRefs{
-		ids:   map[string]map[int64]bool{"t": {1: true}, "a": {2: true}, "r": {1: true}, "d": {1: true, 10: true}, "w": {1: true}, "i": {1: true}},
+		ids:   map[string]map[int64]bool{"t": {1: true}, "a": {1: true, 2: true}, "r": {1: true}, "d": {1: true, 10: true}, "w": {1: true}, "i": {1: true}},
 		off:   map[string]int64{"t": 500, "a": 500, "r": 500, "d": 500, "w": 500, "i": 500},
 		srcID: "f000000000001", dstID: "f000000000002",
 	}
@@ -106,9 +106,10 @@ func TestTextRewriterLeavesPathsAnchorsUUIDsAndCodeAlone(t *testing.T) {
 		}
 	}
 	for in, want := range map[string]string{
-		"see t1 and a2.": "see t501 and a502.",
-		"see r1,":        "see r501,",
-		"d10":            "d510",
+		"see t1 and a2.":            "see t501 and a502.",
+		"see r1,":                   "see r501,",
+		"d10":                       "d510",
+		"the `foo bug in t1 and a1": "the `foo bug in t501 and a501",
 	} {
 		if got := w.text(in); got != want {
 			t.Fatalf("%q became %q, want %q", in, got, want)

@@ -408,7 +408,7 @@ func (w *textRewriter) text(s string) string {
 		rest := s[open+n:]
 		close := strings.Index(rest, fence)
 		if close < 0 {
-			b.WriteString(w.code(s[open:]))
+			b.WriteString(w.outside(s[open:]))
 			return b.String()
 		}
 		end := open + n + close + n
