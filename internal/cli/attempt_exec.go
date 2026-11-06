@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/state"
@@ -35,7 +33,7 @@ func cmdAttemptExec(r *runner, args []string) error {
 		return usageError{fmt.Sprintf("attempt _exec: %v", err)}
 	}
 	argv := fs.Args()
-	scratch, err := attemptScratch(*dir, argv)
+	scratch, err := attemptScratch(r.env.Getenv, *dir, argv)
 	if err != nil {
 		return err
 	}
@@ -56,14 +54,13 @@ func scratchShapeUsage(dir string) error {
 	return usageError{fmt.Sprintf("attempt _exec: --dir must be the attempt's scratch folder, <fleet home>/scratch/tN-aM, not %s", dir)}
 }
 
-func attemptScratch(dir string, argv []string) (string, error) {
+func attemptScratch(getenv func(string) string, dir string, argv []string) (string, error) {
 	if dir == "" || !filepath.IsAbs(dir) || len(argv) == 0 {
 		return "", scratchShapeUsage(dir)
 	}
 	path := filepath.Clean(dir)
 	key := filepath.Base(path)
-	taskID, attemptID, ok := parseScratchKey(key)
-	if !ok {
+	if _, _, ok := parseScratchKey(key); !ok {
 		return "", scratchShapeUsage(dir)
 	}
 	home := filepath.Dir(filepath.Dir(path))
@@ -72,50 +69,21 @@ func attemptScratch(dir string, argv []string) (string, error) {
 	} else if !info.IsDir() {
 		return "", scratchShapeUsage(dir)
 	}
-	db := filepath.Join(home, "hand.db")
-	if info, err := os.Stat(db); err != nil || !info.Mode().IsRegular() {
+	if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
 		return "", scratchShapeUsage(dir)
 	}
-	st, err := state.Open(db, time.Now)
-	if err != nil {
-		return "", fmt.Errorf("attempt _exec: %w", err)
-	}
-	defer st.Close()
-	ctx := context.Background()
-	a, err := st.Attempt(ctx, attemptID)
-	if errors.Is(err, state.ErrNotFound) {
-		return "", scratchShapeUsage(dir)
-	}
-	if err != nil {
-		return "", fmt.Errorf("attempt _exec: %w", err)
-	}
-	if a.TaskID != taskID || filepath.Base(a.Worktree) != key {
-		return "", scratchShapeUsage(dir)
-	}
-	f, err := st.Fleet(ctx)
-	if err != nil {
-		return "", fmt.Errorf("attempt _exec: %w", err)
-	}
-	wt := filepath.Clean(a.Worktree)
-	root := filepath.Dir(filepath.Dir(filepath.Dir(wt)))
-	id := filepath.Base(filepath.Dir(wt))
-	if !filepath.IsAbs(wt) || f.ID != id || filepath.Base(filepath.Dir(filepath.Dir(wt))) != "worktrees" {
-		return "", scratchShapeUsage(dir)
-	}
-	recorded, err := fleet.Home(root, id)
-	if err != nil {
-		return "", fmt.Errorf("attempt _exec: the fleet home for %s is gone: %w", path, err)
-	}
-	realHome, err := canonical(recorded)
+	realHome, err := registeredHome(getenv, home, key, dir)
 	if err != nil {
 		return "", err
 	}
-	claimant, err := canonical(home)
-	if err != nil {
-		return "", err
-	}
-	if !samePath(realHome, claimant) {
-		return "", scratchShapeUsage(dir)
+	for _, p := range []string{filepath.Join(home, "scratch"), path} {
+		info, err := os.Lstat(p)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", scratchShapeUsage(dir)
+		}
+		if err == nil && !info.IsDir() {
+			return "", scratchShapeUsage(dir)
+		}
 	}
 	expected := filepath.Join(realHome, "scratch", key)
 	realPath, err := canonical(path)
@@ -126,6 +94,60 @@ func attemptScratch(dir string, argv []string) (string, error) {
 		return "", scratchShapeUsage(dir)
 	}
 	return expected, nil
+}
+
+func sharedRoot(getenv func(string) string) (string, error) {
+	root := getenv("SECONDHAND_HOME")
+	if root == "" {
+		home := getenv("HOME")
+		if home == "" {
+			return "", fmt.Errorf("%w: set HOME or SECONDHAND_HOME", state.ErrInvalid)
+		}
+		root = filepath.Join(home, ".secondhand")
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	return canonical(abs)
+}
+
+func registeredHome(getenv func(string) string, home, key, dir string) (string, error) {
+	realHome, err := canonical(home)
+	if err != nil {
+		return "", err
+	}
+	root, err := sharedRoot(getenv)
+	if err != nil {
+		return "", fmt.Errorf("attempt _exec: %w", err)
+	}
+	links, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil {
+		return "", scratchShapeUsage(dir)
+	}
+	claimed := 0
+	for _, entry := range links {
+		id := entry.Name()
+		if !state.FleetID.MatchString(id) {
+			continue
+		}
+		recorded, err := fleet.Home(root, id)
+		if err != nil {
+			continue
+		}
+		real, err := canonical(recorded)
+		if err != nil || !samePath(real, realHome) {
+			continue
+		}
+		if info, err := os.Lstat(filepath.Join(root, "worktrees", id, key)); err != nil || !info.IsDir() {
+			continue
+		}
+		claimed++
+	}
+	if claimed != 1 {
+		return "", scratchShapeUsage(dir)
+	}
+	return realHome, nil
 }
 
 func scratchSocketWarning(dir string) string {

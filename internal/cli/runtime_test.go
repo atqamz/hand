@@ -38,6 +38,7 @@ type fakeRuntime struct {
 	mu           sync.Mutex
 	terms        []*fakeTerm
 	creates      []createCall
+	env          []string
 	status       string
 	hint         string
 	ready        bool
@@ -89,14 +90,30 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	return rt
 }
 
+func environment(base []string, overrides ...string) []string {
+	names := make(map[string]bool, len(overrides))
+	for _, kv := range overrides {
+		name, _, _ := strings.Cut(kv, "=")
+		names[name] = true
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, kv := range base {
+		if name, _, ok := strings.Cut(kv, "="); ok && names[name] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, overrides...)
+}
+
 func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
 	rt.mu.Lock()
 	if rt.runsIn != "" {
 		cmd.Dir = rt.runsIn
 	}
+	cmd.Env = environment(os.Environ(), append([]string{"HAND_TEST_AS_HAND=1"}, rt.env...)...)
 	rt.mu.Unlock()
 	proc.NewGroup(cmd)
 	if err := cmd.Start(); err != nil {
@@ -511,6 +528,7 @@ func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
 	fx.h.home = home
 	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
+	fx.rt.env = []string{"SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
 	fx.h.vars["PATH"] = fakeBin(t)
 	fx.h.vars["HOME"] = t.TempDir()

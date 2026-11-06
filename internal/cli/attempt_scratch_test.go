@@ -199,6 +199,7 @@ func TestGCSkipsAnAttemptThatIsLiveInTheDatabase(t *testing.T) {
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
 	scratch := fx.scratch(wt)
+	eventually(t, func() bool { return exists(scratchOf(fx.h, wt)) })
 	if err := os.RemoveAll(wt); err != nil {
 		t.Fatal(err)
 	}

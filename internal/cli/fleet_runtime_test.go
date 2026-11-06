@@ -43,6 +43,7 @@ func TestTwoFleetsSharingARepoKeepTheirWorkersApart(t *testing.T) {
 			h.vars["HAND_LUVUS_SOCKET"] = sock
 		}
 		rt := startRuntime(t, sock)
+		rt.env = []string{"SECONDHAND_HOME=" + root}
 		h.ok("project", "add", "app", repo)
 		h.ok("task", "add", "app", "Fix login")
 		h.ok("task", "start", "t1")

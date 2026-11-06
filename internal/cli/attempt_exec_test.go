@@ -1,7 +1,8 @@
 package cli_test
 
 import (
-	"context"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -12,11 +13,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
+	_ "modernc.org/sqlite"
 )
 
 var scratchNames = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
@@ -96,7 +97,9 @@ func TestAttemptLaunchUsesTheScratchWrapper(t *testing.T) {
 }
 
 func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "gone", "scratch", "t1-a1")
+	root := t.TempDir()
+	dir := filepath.Join(root, "gone", "scratch", "t1-a1")
+	before := snapshotTree(t, root)
 	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", dir, "--", "/bin/true")
 	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
 	out, err := cmd.CombinedOutput()
@@ -110,16 +113,21 @@ func TestAttemptExecRefusesAMovedFleetHome(t *testing.T) {
 	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the wrapper recreated %s: %v", dir, err)
 	}
+	assertTreeUnchanged(t, before, root)
 }
 
-func execScratch(t *testing.T, dir string, command ...string) (string, int) {
+func execScratch(t *testing.T, h *harness, dir string, command ...string) (string, int) {
 	t.Helper()
 	if len(command) == 0 {
 		command = []string{"/usr/bin/true"}
 	}
 	args := append([]string{os.Args[0], "attempt", "_exec", "--dir", dir, "--"}, command...)
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+	overrides := []string{"HAND_TEST_AS_HAND=1"}
+	if h != nil {
+		overrides = append(overrides, "SECONDHAND_HOME="+h.vars["SECONDHAND_HOME"])
+	}
+	cmd.Env = environment(os.Environ(), overrides...)
 	out, err := cmd.CombinedOutput()
 	var exited *exec.ExitError
 	if errors.As(err, &exited) {
@@ -145,14 +153,93 @@ func copyFleetDB(t *testing.T, src, dst string) {
 			t.Fatal(err)
 		}
 	}
-	st, err := state.Open(filepath.Join(dst, "hand.db"), time.Now)
+}
+
+type treeFile struct {
+	mode fs.FileMode
+	sum  string
+	link string
+}
+
+func snapshotTree(t *testing.T, root string) map[string]treeFile {
+	t.Helper()
+	files := map[string]treeFile{}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entry := treeFile{mode: info.Mode()}
+		switch {
+		case info.Mode()&fs.ModeSymlink != 0:
+			entry.link, err = os.Readlink(path)
+		case info.Mode().IsRegular():
+			var b []byte
+			b, err = os.ReadFile(path)
+			sum := sha256.Sum256(b)
+			entry.sum = string(sum[:])
+		}
+		if err != nil {
+			return err
+		}
+		files[rel] = entry
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("open the copied database: %v", err)
+		t.Fatalf("snapshot %s: %v", root, err)
 	}
-	defer st.Close()
-	if _, err := st.Attempt(context.Background(), 1); err != nil {
-		t.Fatalf("the copied database has no attempt a1: %v", err)
+	return files
+}
+
+func assertTreeUnchanged(t *testing.T, before map[string]treeFile, root string) {
+	t.Helper()
+	after := snapshotTree(t, root)
+	for rel, want := range before {
+		got, ok := after[rel]
+		if !ok {
+			t.Errorf("%s disappeared from %s", rel, root)
+			continue
+		}
+		if got != want {
+			t.Errorf("%s changed in %s: mode %v -> %v, bytes %q -> %q, link %q -> %q", rel, root, want.mode, got.mode, want.sum, got.sum, want.link, got.link)
+		}
 	}
+	for rel := range after {
+		if _, ok := before[rel]; !ok {
+			t.Errorf("%s appeared in %s", rel, root)
+		}
+	}
+}
+
+func fleetLink(t *testing.T, h *harness) string {
+	t.Helper()
+	dir := filepath.Join(h.vars["SECONDHAND_HOME"], "fleets")
+	des, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, de := range des {
+		if state.FleetID.MatchString(de.Name()) {
+			names = append(names, de.Name())
+		}
+	}
+	if len(names) != 1 {
+		t.Fatalf("fleets under %s = %v, want one", dir, names)
+	}
+	return filepath.Join(dir, names[0])
+}
+
+func awaitScratch(t *testing.T, home string) {
+	t.Helper()
+	eventually(t, func() bool { return exists(filepath.Join(home, "scratch", "t1-a1")) })
 }
 
 func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
@@ -162,34 +249,35 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	awaitScratch(t, home)
 	wt := fx.h.worktree("t1-a1")
 	base := t.TempDir()
 	cases := []struct {
 		name string
-		make func() (string, []string)
+		make func() string
 	}{
-		{"an unrelated scratch folder", func() (string, []string) {
+		{"an unrelated scratch folder", func() string {
 			dir := filepath.Join(base, "team", "scratch")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(dir, "t1-a1"), []string{dir}
+			return filepath.Join(dir, "t1-a1")
 		}},
-		{"a folder whose parent is not named scratch", func() (string, []string) {
+		{"a folder whose parent is not named scratch", func() string {
 			dir := filepath.Join(base, "work")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(dir, "t1-a1"), []string{dir}
+			return filepath.Join(dir, "t1-a1")
 		}},
-		{"a deeper scratch folder in the fleet home", func() (string, []string) {
+		{"a deeper scratch folder in the fleet home", func() string {
 			dir := filepath.Join(home, "sub", "scratch")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(dir, "t1-a1"), []string{dir, filepath.Dir(dir)}
+			return filepath.Join(dir, "t1-a1")
 		}},
-		{"another fleet home with a copy of the database", func() (string, []string) {
+		{"another fleet home with a copy of the database", func() string {
 			copyHome := filepath.Join(base, "copy")
 			if err := os.MkdirAll(copyHome, 0o755); err != nil {
 				t.Fatal(err)
@@ -199,16 +287,56 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(dir, "t1-a1"), []string{dir, copyHome}
+			return filepath.Join(dir, "t1-a1")
 		}},
-		{"a scratch folder in the worktree", func() (string, []string) {
+		{"an unrelated folder with its own hand.db", func() string {
+			dir := filepath.Join(base, "notes")
+			if err := os.MkdirAll(filepath.Join(dir, "scratch"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", filepath.Join(dir, "hand.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`CREATE TABLE notes(body TEXT)`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`INSERT INTO notes(body) VALUES ('keep me')`); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(dir, "scratch", "t1-a1")
+		}},
+		{"a hand.db that is not a database", func() string {
+			dir := filepath.Join(base, "notdb")
+			if err := os.MkdirAll(filepath.Join(dir, "scratch"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "hand.db"), []byte("not a database\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(dir, "scratch", "t1-a1")
+		}},
+		{"a hardlink to the fleet database", func() string {
+			dir := filepath.Join(base, "hlink")
+			if err := os.MkdirAll(filepath.Join(dir, "scratch"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Link(filepath.Join(home, "hand.db"), filepath.Join(dir, "hand.db")); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(dir, "scratch", "t1-a1")
+		}},
+		{"a scratch folder in the worktree", func() string {
 			dir := filepath.Join(wt, "scratch")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(dir, "t1-a1"), []string{dir}
+			return filepath.Join(dir, "t1-a1")
 		}},
-		{"a scratch root symlinked to another folder", func() (string, []string) {
+		{"a scratch root symlinked to another folder", func() string {
 			target := filepath.Join(base, "target")
 			if err := os.MkdirAll(target, 0o755); err != nil {
 				t.Fatal(err)
@@ -220,9 +348,9 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 			if err := os.Symlink(target, root); err != nil {
 				t.Fatal(err)
 			}
-			return filepath.Join(root, "t1-a1"), []string{target}
+			return filepath.Join(root, "t1-a1")
 		}},
-		{"a scratch entry symlinked to another folder", func() (string, []string) {
+		{"a scratch entry symlinked to another folder", func() string {
 			outside := filepath.Join(base, "outside")
 			if err := os.MkdirAll(outside, 0o755); err != nil {
 				t.Fatal(err)
@@ -238,44 +366,47 @@ func TestAttemptExecRefusesEveryPathButTheAttemptsScratch(t *testing.T) {
 			if err := os.Symlink(outside, entry); err != nil {
 				t.Fatal(err)
 			}
-			return entry, []string{outside}
+			return entry
+		}},
+		{"a scratch entry that is a dangling symlink", func() string {
+			root := filepath.Join(home, "scratch")
+			if err := os.RemoveAll(root); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			entry := filepath.Join(root, "t1-a1")
+			if err := os.Symlink(filepath.Join(base, "nowhere"), entry); err != nil {
+				t.Fatal(err)
+			}
+			return entry
+		}},
+		{"a scratch root that is a dangling symlink", func() string {
+			root := filepath.Join(home, "scratch")
+			if err := os.RemoveAll(root); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(base, "nowhere"), root); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(root, "t1-a1")
 		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir, watch := tc.make()
-			before := map[string]os.FileMode{}
-			for _, path := range watch {
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				before[path] = info.Mode().Perm()
-			}
-			_, entryErr := os.Lstat(dir)
-			out, code := execScratch(t, dir)
+			dir := tc.make()
+			beforeBase := snapshotTree(t, base)
+			beforeHome := snapshotTree(t, home)
+			out, code := execScratch(t, fx.h, dir)
 			if code != 2 {
 				t.Fatalf("exit = %d, want 2; output %q", code, out)
 			}
 			if !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
 				t.Fatalf("output = %q", out)
 			}
-			for _, path := range watch {
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if info.Mode().Perm() != before[path] {
-					t.Errorf("%s mode = %o, want %o", path, info.Mode().Perm(), before[path])
-				}
-			}
-			if entryErr != nil {
-				if _, err := os.Lstat(dir); !errors.Is(err, fs.ErrNotExist) {
-					t.Errorf("the wrapper created %s: %v", dir, err)
-				}
-			} else if _, err := os.Lstat(dir); err != nil {
-				t.Errorf("the wrapper removed %s: %v", dir, err)
-			}
+			assertTreeUnchanged(t, beforeBase, base)
+			assertTreeUnchanged(t, beforeHome, home)
 		})
 	}
 }
@@ -287,22 +418,99 @@ func TestAttemptExecRefusesAKeyThatNamesNoAttempt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	awaitScratch(t, home)
 	root := filepath.Join(home, "scratch")
 	for _, key := range []string{"t1-a2", "t2-a1", "notakey"} {
 		dir := filepath.Join(root, key)
-		out, code := execScratch(t, dir)
+		before := snapshotTree(t, home)
+		out, code := execScratch(t, fx.h, dir)
 		if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
 			t.Errorf("%s: exit = %d, output %q; want 2 and the expected shape", key, code, out)
 		}
 		if _, err := os.Lstat(dir); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s: the wrapper created %s", key, dir)
 		}
+		assertTreeUnchanged(t, before, home)
 	}
+}
+
+func TestAttemptExecRefusesAHomeTheSharedFolderDoesNotRegister(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitScratch(t, home)
+	scratch := filepath.Join(home, "scratch", "t1-a1")
+	link := fleetLink(t, fx.h)
+	original, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		run  func() error
+	}{
+		{"a link that points at another folder", func() error {
+			return os.WriteFile(link, []byte(elsewhere+"\n"), 0o600)
+		}},
+		{"a link that points at a missing folder", func() error {
+			return os.WriteFile(link, []byte(filepath.Join(t.TempDir(), "gone")+"\n"), 0o600)
+		}},
+		{"no registration at all", func() error {
+			return os.Remove(link)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.run(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := os.WriteFile(link, original, 0o600); err != nil {
+					t.Fatalf("restore %s: %v", link, err)
+				}
+			}()
+			before := snapshotTree(t, home)
+			out, code := execScratch(t, fx.h, scratch)
+			if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
+				t.Fatalf("exit = %d, output %q; want 2 and the expected shape", code, out)
+			}
+			assertTreeUnchanged(t, before, home)
+		})
+	}
+}
+
+func TestAttemptExecRefusesARegisteredHomeWithoutItsDatabase(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	awaitScratch(t, home)
+	scratch := filepath.Join(home, "scratch", "t1-a1")
+	for _, name := range []string{"hand.db", "hand.db-wal", "hand.db-shm", "hand.db.lock"} {
+		if err := os.Remove(filepath.Join(home, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotTree(t, home)
+	out, code := execScratch(t, fx.h, scratch)
+	if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
+		t.Fatalf("exit = %d, output %q; want 2 and the expected shape", code, out)
+	}
+	assertTreeUnchanged(t, before, home)
 }
 
 func TestAttemptExecRefusesARelativeDirectory(t *testing.T) {
 	for _, dir := range []string{"scratch/t1-a1", ""} {
-		out, code := execScratch(t, dir)
+		out, code := execScratch(t, nil, dir)
 		if code != 2 || !strings.Contains(out, "<fleet home>/scratch/tN-aM") {
 			t.Errorf("--dir %q: exit = %d, output %q; want 2 and the expected shape", dir, code, out)
 		}
@@ -314,13 +522,14 @@ func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 	fx.start()
 	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
 	eventually(t, func() bool { return exists(scratch) })
+	overrides := []string{"HAND_TEST_AS_HAND=1", "SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
 	if runtime.GOOS == "windows" {
 		comspec := os.Getenv("ComSpec")
 		if comspec == "" {
 			t.Skip("no ComSpec")
 		}
 		cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratch, "--", comspec, "/c", "exit 7")
-		cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+		cmd.Env = environment(os.Environ(), overrides...)
 		out, err := cmd.CombinedOutput()
 		var exited *exec.ExitError
 		if !errors.As(err, &exited) || exited.ExitCode() != 7 {
@@ -329,7 +538,7 @@ func TestAttemptExecPassesStdinAndExitCode(t *testing.T) {
 		return
 	}
 	cmd := exec.Command(os.Args[0], "attempt", "_exec", "--dir", scratch, "--", "/bin/sh", "-c", "cat; exit 7")
-	cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1")
+	cmd.Env = environment(os.Environ(), overrides...)
 	cmd.Stdin = strings.NewReader("through")
 	out, err := cmd.CombinedOutput()
 	var exited *exec.ExitError
@@ -351,7 +560,7 @@ func TestAttemptExecWarnsWhenTheScratchPathIsTooLongForAUnixSocket(t *testing.T)
 	if len(scratch)+8 <= 104 {
 		t.Fatalf("the fixture's scratch path is only %d bytes", len(scratch))
 	}
-	out, code := execScratch(t, scratch)
+	out, code := execScratch(t, fx.h, scratch)
 	if code != 0 {
 		t.Fatalf("exit = %d, output %q", code, out)
 	}
@@ -366,9 +575,17 @@ func TestHiddenExecIsNotInHelpOrAnAttempt(t *testing.T) {
 		t.Fatalf("attempt help: code=%d stderr=%q", code, errOut)
 	}
 	fx.start()
-	out := fx.h.ok("attempt", "list")
-	if !strings.Contains(out, "a1,t1,claude") || strings.Contains(out, "_exec") {
-		t.Fatalf("attempt list = %q", out)
+	before := fx.h.ok("attempt", "list")
+	if !strings.Contains(before, "a1,t1,claude") || strings.Contains(before, "_exec") {
+		t.Fatalf("attempt list = %q", before)
+	}
+	scratch := scratchOf(fx.h, fx.h.worktree("t1-a1"))
+	eventually(t, func() bool { return exists(scratch) })
+	if out, code := execScratch(t, fx.h, scratch); code != 0 {
+		t.Fatalf("_exec: exit = %d, output %q", code, out)
+	}
+	if after := fx.h.ok("attempt", "list"); after != before {
+		t.Fatalf("attempt list after _exec = %q, before %q; _exec changed the attempt table", after, before)
 	}
 }
 
