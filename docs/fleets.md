@@ -4,6 +4,36 @@ A fleet is any folder `hand init` has run in. Commands find it from `--home DIR`
 
 Rename a fleet with `hand init --name NEW`. To move one, `mv` the folder and run `hand init` in its new place.
 
+## Merge a fleet into another
+
+`hand fleet merge SRC INTO DST` moves a source fleet's rows and files into a destination fleet, called the survivor. `SRC` and `DST` are fleet ids or names from `hand fleet list`. The source id, home and database stay in place: the command never deletes a home.
+
+Merge is a stop-the-world operation. It refuses:
+
+- the same fleet, nested homes, an unreadable home, or a schema that is not current (open that fleet once with this hand to migrate it);
+- a running board, a live watcher in either fleet, a live supervisor in either fleet, a `launching` or `running` attempt in either fleet, or pending supervisor input in either fleet;
+- an armed timer in the source, unless `--cancel-timers` cancels it and records a `timer.cancelled` event;
+- a project name that exists on both sides with a different `repo`, unless `--rename-project OLD=NEW` renames the source project (repeat the flag for each collision);
+- files of the same relative path with different content. `memory/operator.md` is the one exception: the destination file stays, and the source file is saved as `memory/operator.<source id>.md`.
+
+`--stop` stops the source's watcher and supervisor when they are live. It never stops a worker: the operator must stop every live attempt first. Stop the board with `hand board stop` before merging, and stop the destination's watcher and supervisor yourself.
+
+With no live writer, the command prints a TOON manifest and, unless `--dry-run` is given, changes the destination. `--dry-run` writes no fleet database and moves no file; it prints the same manifest fields, including a `db_sha256` and `text_sha256` that are identical on two runs over the same inputs. The manifest has:
+
+- `offsets`: the destination's current maximum id for each ref kind, added to every source id;
+- `counts`: per-table source, destination and merged row counts plus the offset used;
+- `refs`: refs changed by kind and refs left alone inside protected branch, worktree and report paths;
+- `ambiguous`: every cell where an `aN` or `dN` could be a hexadecimal commit prefix; those cells are reported and not rewritten;
+- `text_sha256`, `db_sha256`, `files`, `manual` and `warnings`.
+
+The database is opened read-only on the source and written in one `BEGIN IMMEDIATE` transaction on the destination. Source rows are inserted in foreign-key order and their text is rewritten by the offsets. Refs inside `hand/<fleet id>/tN-aM`, `worktrees/<fleet id>/tN-aM`, bare `tN-aM`, `reports/tN`, `briefs/tN` and `shots/tN` are protected, because they are branch, worktree and file names that stay valid as history. A URL to another fleet's row is rewritten to the survivor's fleet id and the mapped ref. Source home paths in database text point at the destination home. Events are renumbered by `at` so the survivor's recent events stay newest, and the destination supervisor's wake cursor follows its event. Source supervisor and device rows are dropped; the survivor keeps its own. One `fleet.merged` event records the source id, name, counts and offsets. The transaction commits only if `PRAGMA foreign_key_check` is empty and `PRAGMA integrity_check` is `ok`; otherwise nothing is written.
+
+After the database commits, the command moves these source folders into the destination, recursively: `memory/`, `reports/`, `briefs/`, `shots/`, `deliverables/`, `plans/`, `inbox/` (including `.trash/`) and `projects/`. It keeps the destination's `routing.json` and `board.token`, and reports both as manual: profiles must be combined by hand, and the token is never copied or printed. File contents are not ref-rewritten; treat old reports and briefs as historical artifacts.
+
+`--archive-source` is optional and runs only after a real merge. It stops the source's Luvus server, removes its registry file when it still points at that home, and writes a `merged-into` marker in the source home. It does not delete the source. Keep the source home and a backup for at least a week, and check the merged fleet with `hand orient`, `hand task show` and `hand report show` before removing anything else.
+
+The command cannot stop or transfer workers or their Luvus panes, merge `routing.json`, `board.token` or the device pairing, edit `memory/operator.md` for you, rewrite prose inside files, or rename or move the destination home. It also cannot know a destination home's future path: moving the survivor afterwards and running `hand init` repairs project and worktree paths, but database text keeps the path it had at merge time.
+
 A fleet folder looks like this:
 
 ```text

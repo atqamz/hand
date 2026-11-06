@@ -147,6 +147,14 @@ A fleet home holds:
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
 
+### Merge, Survivor and Offset
+
+A **merge** appends one fleet's rows and files to another with `hand fleet merge SRC INTO DST`. The destination is the **survivor**: its fleet id, home, board path, token, device row, routing.json and supervisor stay. The source home, id and database are left in place as history.
+
+An **offset** is the survivor's current maximum id for a table. Each source id is carried as `id + offset`, and every reference in database text is rewritten by the same offset so it points at the carried row. Ids are never reused. A ref inside a branch, worktree or report path is protected and left as it was, because it names history rather than a row. Events are renumbered by time instead of offset, and the survivor supervisor's wake cursor follows its event to the new number.
+
+A merge is offline: workers and their Luvus panes cannot move, so the operator stops every `launching` or `running` attempt before it runs. It merges rows and files, not `routing.json`, `board.token`, the device pairing or the prose inside `memory/operator.md`.
+
 ### Inbox folder and trash
 
 `inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>`, with or without an extension (see Supervisor input). Hand deletes nothing there except through a prune:

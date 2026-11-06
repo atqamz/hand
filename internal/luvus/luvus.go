@@ -83,15 +83,19 @@ func (c Client) dial(ctx context.Context) (net.Conn, error) {
 	return nil, fmt.Errorf("%w at %s: %w", ErrUnreachable, addr, err)
 }
 
-func SocketPath(getenv func(string) string, session string) string {
-	if p := getenv("HAND_LUVUS_SOCKET"); p != "" {
-		return p
-	}
+func SessionDir(getenv func(string) string, session string) string {
 	root := getenv("LUVUS_HOME")
 	if root == "" {
 		root = filepath.Join(getenv("HOME"), ".luvus")
 	}
-	p := filepath.Join(root, "sessions", session, "luvus.sock")
+	return filepath.Join(root, "sessions", session)
+}
+
+func SocketPath(getenv func(string) string, session string) string {
+	if p := getenv("HAND_LUVUS_SOCKET"); p != "" {
+		return p
+	}
+	p := filepath.Join(SessionDir(getenv, session), "luvus.sock")
 	if len(p) < 100 {
 		return p
 	}
