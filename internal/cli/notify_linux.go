@@ -40,11 +40,12 @@ func (w *watcher) notifyClick(ctx context.Context, bin, fleet, text, ref string)
 	cmd.Env = w.r.env.Environ()
 	proc.KillGroupOnCancel(cmd)
 	proc.NoWindow(cmd)
-	out, _ := cmd.Output()
+	out, err := cmd.Output()
 	if strings.TrimSpace(string(out)) == clickAction {
 		w.openBoard(url)
+		return true
 	}
-	return true
+	return err == nil || nctx.Err() != nil
 }
 
 func (w *watcher) clickSupport(bin string) bool {

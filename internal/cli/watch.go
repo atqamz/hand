@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -803,24 +804,55 @@ func (w *watcher) boardURL(ctx context.Context, ref string) string {
 	if host == "" {
 		return ""
 	}
+	base, ok := boardBase("http://" + host)
+	if !ok {
+		return ""
+	}
+	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
+		if b, ok := boardBase(phone); ok {
+			base = b
+		}
+	}
 	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
 		return ""
 	}
-	base := "http://" + host
-	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
-		base = phone
-	}
-	raw := base + "/" + w.r.fleet.ID + path + fragment
-	if !openableURL(raw) {
-		return ""
-	}
-	return raw
+	u := *base
+	u.Path = "/" + w.r.fleet.ID + path
+	u.Fragment = strings.TrimPrefix(fragment, "#")
+	return u.String()
 }
 
-func openableURL(raw string) bool {
+func boardBase(raw string) (*url.URL, bool) {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, false
+	}
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	switch {
+	case host == "localhost" || host == "127.0.0.1" || host == "::1":
+		return u, port != ""
+	case net.ParseIP(host) != nil || !dnsName(host):
+		return nil, false
+	}
+	return u, true
+}
+
+func dnsName(host string) bool {
+	if len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (w *watcher) flushWarns() {
