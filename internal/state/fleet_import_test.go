@@ -190,3 +190,24 @@ func TestImportFleetConcurrentCallsImportOnce(t *testing.T) {
 		t.Fatalf("fleet.imported rows = %d, want 1", n)
 	}
 }
+
+func TestLockImportRefusesASecondHolder(t *testing.T) {
+	home := t.TempDir()
+	first, err := LockImport(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LockImport(home); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "another fleet import is running") {
+		t.Fatalf("second holder: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := LockImport(home)
+	if err != nil {
+		t.Fatalf("after release: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

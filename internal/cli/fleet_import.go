@@ -36,7 +36,7 @@ func init() {
 
 func cmdFleetImport(r *runner, args []string) error {
 	set := flags("fleet import SRC INTO DST")
-	dry := set.Bool("dry-run", false, "print the manifest, write no rows, files or marker; SQLite may create hand.db-shm/-wal beside an opened database")
+	dry := set.Bool("dry-run", false, "print the manifest, write no rows, files or marker; SQLite may create hand.db-shm/-wal beside an opened database, and it cannot detect an unwritable destination")
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
 		if a == "--dry-run" {
@@ -69,11 +69,11 @@ func cmdFleetImport(r *runner, args []string) error {
 		return fmt.Errorf("%w: source and destination are the same fleet %s", state.ErrConflict, src.ID)
 	}
 	if !*dry {
-		lock, err := state.LockImport(dst.Home)
+		release, err := lockImportHomes(src.Home, dst.Home)
 		if err != nil {
 			return err
 		}
-		defer lock.Close()
+		defer release()
 	}
 	marker := state.ImportMarker(src.Home)
 	if _, err := os.Stat(marker); err == nil {
@@ -117,31 +117,47 @@ func cmdFleetImport(r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := printImportDatabase(r, src, dst, *dry, res, marker); err != nil {
-		return err
-	}
 	if *dry {
+		printErr := printImportDatabase(r, src, dst, true, res, marker)
 		files := importContent(src.Home, dst.Home, src.ID, res.Reports, true)
-		if err := printImportFiles(r, files); err != nil {
-			return err
-		}
+		printErr = errors.Join(printErr, printImportFiles(r, files))
 		if len(files.Failed) > 0 {
-			return fmt.Errorf("%d file(s) would fail to copy; nothing was written", len(files.Failed))
+			return errors.Join(fmt.Errorf("%d file(s) would fail to copy; nothing was written", len(files.Failed)), printErr)
 		}
-		return nil
+		return printErr
 	}
+	printErr := printImportDatabase(r, src, dst, false, res, marker)
 	writeErr := writeImportMarker(marker, dst.ID, res)
 	files := importContent(src.Home, dst.Home, src.ID, res.Reports, false)
-	if err := printImportFiles(r, files); err != nil {
-		return err
+	printErr = errors.Join(printErr, printImportFiles(r, files))
+	var done error
+	switch {
+	case writeErr != nil:
+		done = fmt.Errorf("the database import committed, but the source marker failed: %w", writeErr)
+	case len(files.Failed) > 0:
+		done = fmt.Errorf("the database import committed, but %d file(s) failed to copy", len(files.Failed))
 	}
-	if writeErr != nil {
-		return fmt.Errorf("the database import committed, but the source marker failed: %w", writeErr)
+	return errors.Join(done, printErr)
+}
+
+func lockImportHomes(homes ...string) (func(), error) {
+	sorted := slices.Clone(homes)
+	slices.Sort(sorted)
+	locks := make([]*state.ImportLock, 0, len(sorted))
+	release := func() {
+		for i := len(locks) - 1; i >= 0; i-- {
+			_ = locks[i].Close()
+		}
 	}
-	if len(files.Failed) > 0 {
-		return fmt.Errorf("the database import committed, but %d file(s) failed to copy", len(files.Failed))
+	for _, home := range sorted {
+		lock, err := state.LockImport(home)
+		if err != nil {
+			release()
+			return nil, err
+		}
+		locks = append(locks, lock)
 	}
-	return nil
+	return release, nil
 }
 
 func sameHome(a, b string) bool {

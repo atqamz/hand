@@ -3,6 +3,7 @@ package cli_test
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/atqamz/hand/internal/cli"
+	"github.com/atqamz/hand/internal/state"
 )
 
 func importDB(t *testing.T, home string) *sql.DB {
@@ -314,6 +318,14 @@ func TestFleetImportDryRunOpensOnlyTheNamedFleets(t *testing.T) {
 			t.Fatalf("dry run opened the unrelated fleet: hand.db%s exists (%v)", suffix, err)
 		}
 	}
+	if _, errOut, code := fx.h.run("fleet", "import", "--dry-run", "f000000000000", "INTO", fx.destID); code != 2 || !strings.Contains(errOut, `no fleet "f000000000000" is registered`) {
+		t.Fatalf("unregistered id: code=%d stderr=%q", code, errOut)
+	}
+	for _, suffix := range []string{"-shm", "-wal"} {
+		if _, err := os.Stat(filepath.Join(third, "hand.db"+suffix)); !os.IsNotExist(err) {
+			t.Fatalf("an unregistered id opened the unrelated fleet: hand.db%s exists (%v)", suffix, err)
+		}
+	}
 }
 
 func TestFleetImportReusesAProjectSpelledRelativeOnTheDestination(t *testing.T) {
@@ -349,6 +361,48 @@ func TestFleetImportHelpNamesTheGrammarAndDryRunCaveat(t *testing.T) {
 	}
 }
 
+type importRun struct {
+	out, errOut string
+	code        int
+}
+
+func runImportProcesses(t *testing.T, h *harness, cmds ...[]string) []importRun {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make([]importRun, len(cmds))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, args := range cmds {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cmd := exec.Command(exe, args...)
+			cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1", "SECONDHAND_HOME="+h.vars["SECONDHAND_HOME"])
+			var out, errOut bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &errOut
+			<-start
+			err := cmd.Run()
+			code := 0
+			if err != nil {
+				exit, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Errorf("run %q: %v", args, err)
+					code = -1
+				} else {
+					code = exit.ExitCode()
+				}
+			}
+			results[i] = importRun{out.String(), errOut.String(), code}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	return results
+}
+
 func TestFleetImportConcurrentInvocationsImportOnce(t *testing.T) {
 	fx := importFixture(t)
 	h := fx.h
@@ -367,43 +421,11 @@ func TestFleetImportConcurrentInvocationsImportOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
+	cmds := make([][]string, 4)
+	for i := range cmds {
+		cmds[i] = []string{"fleet", "import", fx.srcID, "INTO", fx.destID}
 	}
-	const runs = 4
-	type result struct {
-		out, errOut string
-		code        int
-	}
-	results := make([]result, runs)
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	for i := range runs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			cmd := exec.Command(exe, "fleet", "import", fx.srcID, "INTO", fx.destID)
-			cmd.Env = append(os.Environ(), "HAND_TEST_AS_HAND=1", "SECONDHAND_HOME="+h.vars["SECONDHAND_HOME"])
-			var out, errOut bytes.Buffer
-			cmd.Stdout, cmd.Stderr = &out, &errOut
-			<-start
-			err := cmd.Run()
-			code := 0
-			if err != nil {
-				exit, ok := err.(*exec.ExitError)
-				if !ok {
-					t.Errorf("run import: %v", err)
-					results[i].code = -1
-					return
-				}
-				code = exit.ExitCode()
-			}
-			results[i] = result{out.String(), errOut.String(), code}
-		}()
-	}
-	close(start)
-	wg.Wait()
+	results := runImportProcesses(t, h, cmds...)
 	won := 0
 	for _, r := range results {
 		if r.code == 0 {
@@ -432,6 +454,130 @@ func TestFleetImportConcurrentInvocationsImportOnce(t *testing.T) {
 	}
 	if len(entries) != 64 {
 		t.Fatalf("deliverables = %d files, want 64", len(entries))
+	}
+}
+
+func TestFleetImportRefusesAHeldImportLock(t *testing.T) {
+	fx := importFixture(t)
+	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
+	fx.h.ok("--home", fx.src, "task", "add", "app", "held")
+	lock, err := state.LockImport(fx.dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := runImportProcesses(t, fx.h, []string{"fleet", "import", fx.srcID, "INTO", fx.destID})
+	if runs[0].code != 3 || !strings.Contains(runs[0].errOut, "another fleet import is running in "+fx.dest) {
+		t.Fatalf("held lock: code=%d out=%q stderr=%q", runs[0].code, runs[0].out, runs[0].errOut)
+	}
+	if _, err := os.Stat(filepath.Join(fx.src, "imported-into")); !os.IsNotExist(err) {
+		t.Fatalf("a refused import wrote the marker: %v", err)
+	}
+	if got := importQuery(t, fx.dest, `SELECT count(*) FROM task`); got != "0" {
+		t.Fatalf("a refused import wrote %s tasks", got)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runs = runImportProcesses(t, fx.h, []string{"fleet", "import", fx.srcID, "INTO", fx.destID})
+	if runs[0].code != 0 {
+		t.Fatalf("after release: code=%d out=%q stderr=%q", runs[0].code, runs[0].out, runs[0].errOut)
+	}
+	if got := importQuery(t, fx.dest, `SELECT count(*) FROM task`); got != "1" {
+		t.Fatalf("tasks after release = %s, want 1", got)
+	}
+}
+
+func TestFleetImportTwoDestinationsImportTheSourceOnce(t *testing.T) {
+	fx := importFixture(t)
+	other := t.TempDir()
+	otherID := field(fx.h.ok("init", "--name", "other", other), "id")
+	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
+	fx.h.ok("--home", fx.src, "task", "add", "app", "shared")
+	cmds := [][]string{
+		{"fleet", "import", fx.srcID, "INTO", fx.destID},
+		{"fleet", "import", fx.srcID, "INTO", otherID},
+	}
+	hold, err := state.LockImport(fx.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runImportProcesses(t, fx.h, cmds...) {
+		if r.code != 3 || !strings.Contains(r.errOut, "another fleet import is running in "+fx.src) {
+			t.Fatalf("a held source lock let an import through: code=%d out=%q stderr=%q", r.code, r.out, r.errOut)
+		}
+	}
+	for _, home := range []string{fx.dest, other} {
+		if got := importQuery(t, home, `SELECT count(*) FROM task`); got != "0" {
+			t.Fatalf("a refused import wrote %s tasks into %s", got, home)
+		}
+	}
+	if err := hold.Close(); err != nil {
+		t.Fatal(err)
+	}
+	won := -1
+	for i, r := range runImportProcesses(t, fx.h, cmds...) {
+		if r.code == 0 {
+			if won >= 0 {
+				t.Fatalf("two destinations imported one source: %q and %q", cmds[won], cmds[i])
+			}
+			won = i
+			continue
+		}
+		if r.code != 3 || !(strings.Contains(r.errOut, "another fleet import") || strings.Contains(r.errOut, "already imported")) {
+			t.Fatalf("concurrent destination: code=%d out=%q stderr=%q", r.code, r.out, r.errOut)
+		}
+	}
+	if won < 0 {
+		t.Fatalf("neither destination imported the source")
+	}
+	homes := []string{fx.dest, other}
+	for i, home := range homes {
+		want := "0"
+		if i == won {
+			want = "1"
+		}
+		if got := importQuery(t, home, `SELECT count(*) FROM task`); got != want {
+			t.Fatalf("%s tasks = %s, want %s", home, got, want)
+		}
+		if got := importQuery(t, home, `SELECT count(*) FROM event WHERE kind = 'fleet.imported'`); got != want {
+			t.Fatalf("%s fleet.imported rows = %s, want %s", home, got, want)
+		}
+	}
+	if body := readFileString(t, filepath.Join(fx.src, "imported-into")); !strings.Contains(body, []string{fx.destID, otherID}[won]) {
+		t.Fatalf("marker %q does not name the destination that imported", body)
+	}
+}
+
+type errorWriter struct{ err error }
+
+func (w errorWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestFleetImportFinishesTheMarkerAndFilesWhenStdoutFails(t *testing.T) {
+	fx := importFixture(t)
+	fx.h.ok("--home", fx.src, "project", "add", "app", gitRepo(t))
+	fx.h.ok("--home", fx.src, "task", "add", "app", "one")
+	if err := os.MkdirAll(filepath.Join(fx.src, "deliverables"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fx.src, "deliverables", "kept.txt"), []byte("kept\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errOut bytes.Buffer
+	code := cli.Run([]string{"fleet", "import", fx.srcID, "INTO", fx.destID}, fx.h.env(errorWriter{errors.New("stdout is full")}, &errOut))
+	if code != 1 || !strings.Contains(errOut.String(), "stdout is full") {
+		t.Fatalf("failing stdout: code=%d stderr=%q", code, errOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(fx.src, "imported-into")); err != nil {
+		t.Fatalf("a failing stdout skipped the marker: %v", err)
+	}
+	if got := readFileString(t, filepath.Join(fx.dest, "deliverables", "kept.txt")); got != "kept\n" {
+		t.Fatalf("a failing stdout skipped the files: %q", got)
+	}
+	if got := importQuery(t, fx.dest, `SELECT count(*) FROM task`); got != "1" {
+		t.Fatalf("tasks = %s, want 1", got)
+	}
+	if got := importQuery(t, fx.dest, `SELECT count(*) FROM event WHERE kind = 'fleet.imported'`); got != "1" {
+		t.Fatalf("fleet.imported rows = %s, want 1", got)
 	}
 }
 
