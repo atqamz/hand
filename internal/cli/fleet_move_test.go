@@ -117,6 +117,8 @@ func sha256File(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func moveFieldPath(p string) string { return strings.ReplaceAll(p, `\`, `\\`) }
+
 func dirNames(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -445,7 +447,7 @@ func TestFleetMoveOnACopiedFleetKeepsReadsWorking(t *testing.T) {
 	if _, errOut, code := h.run("fleet", "move", "--yes", dest); code != 3 || !strings.Contains(errOut, "rewrite-only --yes --from "+home) {
 		t.Fatalf("move without --from: code=%d stderr=%q", code, errOut)
 	}
-	if out := h.ok("orient"); !strings.Contains(out, "--rewrite-only --yes --from '"+home+"'") {
+	if out := h.ok("orient"); !strings.Contains(out, "--rewrite-only --yes --from '"+moveFieldPath(home)+"'") {
 		t.Fatalf("orient = %q", out)
 	}
 	if dry := h.ok("fleet", "move", "--dry-run", "--rewrite-only", "--from", home); !strings.Contains(dry, "Run `hand fleet move --rewrite-only --yes --from '"+home+"'` here") {
@@ -605,7 +607,7 @@ func TestFleetMoveResumesAPendingMove(t *testing.T) {
 	if out := h.ok("fleet", "move", "--dry-run", dest); !strings.Contains(out, "move: pending") {
 		t.Fatalf("dry run = %q", out)
 	}
-	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names") || !strings.Contains(out, "hand fleet move --yes '"+dest+"'") {
+	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names") || !strings.Contains(out, "hand fleet move --yes '"+moveFieldPath(dest)+"'") {
 		t.Fatalf("orient = %q", out)
 	}
 	if out := h.ok("fleet", "move", "--yes", dest); !strings.Contains(out, "move: resumed") || !strings.Contains(out, "verification: 0") {
@@ -787,7 +789,7 @@ func TestOrientQuotesTheInterruptedMoveDestination(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := h.ok("orient")
-	if !strings.Contains(out, "hand fleet move --yes '"+dest+"'") || strings.Contains(out, "--yes "+dest) {
+	if !strings.Contains(out, "hand fleet move --yes '"+moveFieldPath(dest)+"'") || strings.Contains(out, "--yes "+moveFieldPath(dest)) {
 		t.Fatalf("orient = %q", out)
 	}
 }
