@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/atqamz/hand/internal/fakebin"
 	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
+	"github.com/atqamz/hand/internal/state"
 )
 
 type fixture struct {
@@ -68,7 +70,7 @@ func newFetch(t *testing.T) *fixture {
 	f := &fixture{root: t.TempDir(), calls: filepath.Join(t.TempDir(), "calls")}
 	f.old = handScript(t, "0.8.0", "source", "unknown", "18", "0.14.3")
 	f.target = binary(t, f.old)
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "18", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4")
 	maps.Copy(files, fakeLuvus(t, "0.14.4"))
 	f.srv = release(t, files)
 	f.pin = keepLuvus(t, f.root, "0.14.4")
@@ -147,7 +149,7 @@ func TestRunRefusesAnOlderSchema(t *testing.T) {
 	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "6", "0.14.4") {
 		f.srv.set(name, body)
 	}
-	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: 0.9.0 reads state schema 6, older than this fleet's 18") {
+	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: 0.9.0 reads state schema 6, older than this fleet's "+strconv.Itoa(state.SchemaVersion)) {
 		t.Fatalf("err = %v", err)
 	}
 	f.unchanged(t)
@@ -179,7 +181,7 @@ func TestTargetResolvesASymlink(t *testing.T) {
 	if dest, err := os.Readlink(link); err != nil || dest != f.target {
 		t.Fatalf("link = %q, %v", dest, err)
 	}
-	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "18", "0.14.4") {
+	if b, _ := os.ReadFile(link); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4") {
 		t.Fatal("the link does not reach the new binary")
 	}
 }
@@ -251,7 +253,7 @@ func TestRunNeverLowersThePin(t *testing.T) {
 
 func TestRunRefusesABuildFromAnotherChannel(t *testing.T) {
 	f := newFetch(t)
-	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "18", "0.14.4") {
+	for name, body := range fakeHand(t, "0.9.0", "stable", "0123456789ab", "19", "0.14.4") {
 		f.srv.set(name, body)
 	}
 	if _, err := Run(context.Background(), f.o); err == nil || !strings.Contains(err.Error(), "update: the download is a stable build, not edge") {

@@ -147,6 +147,10 @@ func TestAVersion16HomeKeepsItsRowsAndMigratesToTheCurrentSchema(t *testing.T) {
 	if err := s.db.QueryRow(`SELECT kept FROM attempt WHERE id = 1`).Scan(&kept); err != nil || kept != "" {
 		t.Fatalf("kept after the migration = %q, %v", kept, err)
 	}
+	var home string
+	if err := s.db.QueryRow(`SELECT home FROM fleet`).Scan(&home); err != nil || home != "" {
+		t.Fatalf("home after the migration = %q, %v", home, err)
+	}
 	if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name = 'event_kind_task'`).Scan(&indexes); err != nil || indexes != 1 {
 		t.Fatalf("event_kind_task indexes = %d, %v", indexes, err)
 	}

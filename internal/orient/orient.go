@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
+	move := moveWarning(ctx, st, f, home)
 	counts, err := st.CountTasks(ctx)
 	if err != nil {
 		return nil, err
@@ -234,7 +236,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
+		d := render(home, f, move, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -246,6 +248,23 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		}
 		memLines, truncated = memLines[:len(memLines)-1], true
 	}
+}
+
+func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home string) string {
+	if f.Home == "" {
+		return ""
+	}
+	same := filepath.Clean(f.Home) == filepath.Clean(home)
+	if runtime.GOOS == "windows" {
+		same = strings.EqualFold(filepath.Clean(f.Home), filepath.Clean(home))
+	}
+	if same {
+		return ""
+	}
+	if from, to, pending, err := st.PendingMove(ctx); err == nil && pending {
+		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + to + "` in " + from + " or in " + to
+	}
+	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --from " + f.Home + "` here"
 }
 
 func inboxFolder(home string) string {
@@ -279,10 +298,13 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, move, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
+	if move != "" {
+		d.Field("move", move)
+	}
 	d.Field("supervisor", supervisor)
 	if you != "" {
 		d.Field("you", you)

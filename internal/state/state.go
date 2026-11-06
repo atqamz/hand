@@ -26,11 +26,14 @@ var keptSchema string
 //go:embed track.sql
 var trackSchema string
 
-var migrations = []string{keptSchema, trackSchema}
+//go:embed home.sql
+var homeSchema string
+
+var migrations = []string{keptSchema, trackSchema, homeSchema}
 
 const MinSchemaVersion = 16
 
-const SchemaVersion = 18
+const SchemaVersion = 19
 
 const lastMigrating = "0.13.0"
 
