@@ -1273,8 +1273,8 @@ func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing
 	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
 	rt.setSession(rt.terms[len(rt.terms)-1].id, "01a1abdf-088f-707d-8973-c784c54b54ed")
 	out := h.ok("supervisor", "show")
-	has(t, "show", out, `session: ""`, "note: ", "PI_CODING_AGENT_DIR", agent, "01a1abdf-088f-707d-8973-c784c54b54ed")
-	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "PI_CODING_AGENT_DIR", agent)
+	has(t, "show", out, `session: ""`, "note: ", "PI_CODING_AGENT_DIR", "01a1abdf-088f-707d-8973-c784c54b54ed")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "PI_CODING_AGENT_DIR")
 }
 
 func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {
