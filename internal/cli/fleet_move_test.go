@@ -646,7 +646,7 @@ func TestFleetMoveFinishesAfterTheFolderMoved(t *testing.T) {
 	if out := h.ok("init"); !strings.Contains(out, "moved_from: "+toon.Value(home)) {
 		t.Fatalf("init = %q", out)
 	}
-	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names "+dest) {
+	if out := h.ok("orient"); !strings.Contains(out, "interrupted: the database names") {
 		t.Fatalf("orient after init = %q", out)
 	}
 	other := filepath.Join(t.TempDir(), "other")

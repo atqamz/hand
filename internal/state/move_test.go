@@ -208,7 +208,7 @@ func TestReplacePathBoundaries(t *testing.T) {
 	to := filepath.Join(home, "new")
 	upperTilde := `~\u002F` + filepath.Base(to) + `\u002Fx`
 	if runtime.GOOS == "windows" {
-		upperTilde = strings.ReplaceAll(upperTilde, `\u002F`, `\u002f`)
+		upperTilde = `~\u002f` + filepath.Base(to) + `\u002Fx`
 	}
 	cases := []struct {
 		in       string
