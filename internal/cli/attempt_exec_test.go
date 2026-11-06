@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/toon"
 )
 
 var scratchNames = []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR"}
@@ -142,7 +143,7 @@ func TestCleanRemovesTheAttemptScratch(t *testing.T) {
 	}
 	fx.h.ok("attempt", "stop", "a1")
 	out := fx.h.ok("attempt", "clean", "a1")
-	if !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, scratch) {
+	if !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, toon.Value(scratch)) {
 		t.Fatalf("clean = %q", out)
 	}
 	if exists(scratch) || !exists(sibling) {
@@ -163,11 +164,11 @@ func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := fx.h.ok("attempt", "gc")
-	if !strings.Contains(out, "orphans[1]{path,bytes}") || !strings.Contains(out, orphan+",10") || strings.Contains(out, live) {
+	if !strings.Contains(out, "orphans[1]{path,bytes}") || !strings.Contains(out, toon.Value(orphan)+",10") || strings.Contains(out, toon.Value(live)) {
 		t.Fatalf("gc = %q", out)
 	}
 	out = fx.h.ok("attempt", "gc", "--apply")
-	if !strings.Contains(out, "applied: true") || !strings.Contains(out, orphan) {
+	if !strings.Contains(out, "applied: true") || !strings.Contains(out, toon.Value(orphan)) {
 		t.Fatalf("gc --apply = %q", out)
 	}
 	if exists(orphan) || !exists(live) {
@@ -176,6 +177,9 @@ func TestGCListTheAttemptScratchAndRemovesIt(t *testing.T) {
 }
 
 func TestGCSkipsALiveAttemptsScratch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("removing a live worktree is Unix-only")
+	}
 	fx := newAttemptFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
@@ -184,14 +188,14 @@ func TestGCSkipsALiveAttemptsScratch(t *testing.T) {
 	if err := os.RemoveAll(wt); err != nil {
 		t.Fatal(err)
 	}
-	if out := fx.h.ok("attempt", "gc", "--apply"); strings.Contains(out, scratch) {
+	if out := fx.h.ok("attempt", "gc", "--apply"); strings.Contains(out, toon.Value(scratch)) {
 		t.Fatalf("gc = %q", out)
 	}
 	if !exists(scratch) {
 		t.Fatal("gc removed a live attempt's scratch")
 	}
 	fx.h.ok("attempt", "stop", "a1")
-	if out := fx.h.ok("attempt", "gc"); !strings.Contains(out, scratch) {
+	if out := fx.h.ok("attempt", "gc"); !strings.Contains(out, toon.Value(scratch)) {
 		t.Fatalf("gc after stop = %q", out)
 	}
 }
