@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -51,7 +52,10 @@ func seedMoveFleet(t *testing.T, home, id string) {
 	defer db.Close()
 	old := home
 	tilde := "~/" + filepath.Base(home)
-	moveExec(t, db, `INSERT INTO project(name, repo, created_at, settings) VALUES ('app', ?, ?, ?)`, old+"/repo", moveAt, `{"repo":"`+old+`"}`)
+	settings, _ := json.Marshal(map[string]string{"repo": old})
+	argv, _ := json.Marshal([]string{"x", old + "/y", tilde})
+	supArgv, _ := json.Marshal([]string{old})
+	moveExec(t, db, `INSERT INTO project(name, repo, created_at, settings) VALUES ('app', ?, ?, ?)`, old+"/repo", moveAt, string(settings))
 	moveExec(t, db, `INSERT INTO task(id, project, title, goal, status, created_at, updated_at) VALUES (1, 'app', ?, ?, 'active', ?, ?)`,
 		"Move "+old, "See "+old+"/a. Keep "+old+"x, pre"+old+", and "+tilde+"/ok", moveAt, moveAt)
 	moveExec(t, db, `INSERT INTO plan(task_id, revision, body, created_at) VALUES (1, 1, ?, ?)`, "plan at "+old+"/p, done", moveAt)
@@ -59,7 +63,7 @@ func seedMoveFleet(t *testing.T, home, id string) {
 		"q "+old+"?", "a "+tilde+"/x and "+old, tilde, moveAt, moveAt)
 	moveExec(t, db, `INSERT INTO event(at, kind, task_id, detail) VALUES (?, 'test', 1, ?)`, moveAt, "e "+old+"/reports/t1/x.md. "+tilde)
 	moveExec(t, db, `INSERT INTO attempt(id, task_id, harness, model, effort, argv, worktree, branch, status, reason, created_at, screen, kept) VALUES (1, 1, 'claude', 'sonnet', 'low', ?, ?, ?, 'stopped', ?, ?, ?, ?)`,
-		`["x","`+old+`/y","`+tilde+`"]`,
+		string(argv),
 		"~/.secondhand/worktrees/"+id+"/t1-a1",
 		"hand/"+id+"/t1-a1",
 		old,
@@ -68,7 +72,7 @@ func seedMoveFleet(t *testing.T, home, id string) {
 		old+" kept")
 	moveExec(t, db, `INSERT INTO report(id, attempt_id, task_id, status, body, created_at) VALUES (1, 1, 1, 'done', ?, ?)`,
 		"Delivered: "+old+"/reports/t1/x.md. and "+old+"/y,", moveAt)
-	moveExec(t, db, `INSERT INTO supervisor(id, harness, model, effort, argv, status, created_at) VALUES (1, 'claude', 'sonnet', 'low', ?, 'stopped', ?)`, `["`+old+`"]`, moveAt)
+	moveExec(t, db, `INSERT INTO supervisor(id, harness, model, effort, argv, status, created_at) VALUES (1, 'claude', 'sonnet', 'low', ?, 'stopped', ?)`, string(supArgv), moveAt)
 	moveExec(t, db, `INSERT INTO supervisor_input(id, body, created_at, delivered_at) VALUES (1, ?, ?, ?)`, tilde+" input", moveAt, moveAt)
 	moveExec(t, db, `INSERT INTO timer(id, due_at, task_id, note, status, created_at) VALUES (1, ?, 1, ?, 'fired', ?)`, moveAt, old+" note", moveAt)
 	moveExec(t, db, `INSERT INTO device(id, name, login, secret_hash, paired_at) VALUES (1, ?, ?, ?, ?)`, tilde, old, strings.Repeat("a", 64), moveAt)
@@ -195,10 +199,15 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 		}
 		return v
 	}
+	wantArgv, _ := json.Marshal([]string{"x", dest + "/y", newTilde})
+	wantSettings, _ := json.Marshal(map[string]string{"repo": dest})
+	wantSupArgv, _ := json.Marshal([]string{dest})
 	for _, c := range []struct{ q, want string }{
 		{`SELECT body FROM report WHERE id = 1`, "Delivered: " + dest + "/reports/t1/x.md. and " + dest + "/y,"},
 		{`SELECT goal FROM task WHERE id = 1`, "See " + dest + "/a. Keep " + home + "x, pre" + home + ", and " + newTilde + "/ok"},
-		{`SELECT argv FROM attempt WHERE id = 1`, `["x","` + dest + `/y","` + newTilde + `"]`},
+		{`SELECT argv FROM attempt WHERE id = 1`, string(wantArgv)},
+		{`SELECT settings FROM project WHERE name = 'app'`, string(wantSettings)},
+		{`SELECT argv FROM supervisor WHERE id = 1`, string(wantSupArgv)},
 		{`SELECT branch FROM attempt WHERE id = 1`, "hand/" + id + "/t1-a1"},
 		{`SELECT worktree FROM attempt WHERE id = 1`, "~/.secondhand/worktrees/" + id + "/t1-a1"},
 		{`SELECT detail FROM event WHERE kind = 'test'`, "e " + dest + "/reports/t1/x.md. " + newTilde},
