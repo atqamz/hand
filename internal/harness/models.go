@@ -286,6 +286,9 @@ func Refresh(ctx context.Context, name string, env Env, o Options) (Listing, err
 		}
 	}
 	x := runner{bin: bin, environ: childEnv(o.Environ, l.prefixes), dir: o.Dir}
+	if env.Dir == "" {
+		env.Dir = o.Dir
+	}
 	key := listingKey(bin, l.files(env))
 	version := x.version(ctx)
 	models, complete, err := l.list(ctx, x, env)

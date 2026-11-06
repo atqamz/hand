@@ -194,10 +194,12 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 	if err == nil && f.ID != id {
 		err = fmt.Errorf("%w: %s holds fleet %s, not %s", state.ErrNotFound, home, f.ID, id)
 	}
+	henv := harness.EnvOf(r.env.Getenv)
+	henv.Dir = home
 	fb := &fleetBoard{home: home, st: st, opts: board.Options{
 		Controls:   loopback,
 		Control:    control(r.env, home),
-		Harness:    harness.EnvOf(r.env.Getenv),
+		Harness:    henv,
 		Models:     harness.Options{Environ: r.env.Environ(), Dir: home, Now: r.env.Now},
 		Luvus:      r.client(fleet.Session(id)),
 		Transcript: transcripts,

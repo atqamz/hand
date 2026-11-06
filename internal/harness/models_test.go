@@ -552,6 +552,14 @@ func TestOmpAgentDir(t *testing.T) {
 	}
 }
 
+func TestOmpConfigKeyFollowsTheListingFolder(t *testing.T) {
+	env := Env{Dir: "/fleet", Getenv: func(k string) string { return map[string]string{"PI_CODING_AGENT_DIR": ".omp-agent"}[k] }}
+	got := ompLister.files(env)
+	if want := filepath.Join("/fleet", ".omp-agent", "config.yml"); !slices.Equal(got, []string{want}) {
+		t.Fatalf("files = %q, want %q", got, want)
+	}
+}
+
 func TestAgyListsIdsAndLabels(t *testing.T) {
 	f := newFixture(t)
 	f.install("agy", map[string]string{"stdout": agyList, "stderr": "Fetching available models...\n"})

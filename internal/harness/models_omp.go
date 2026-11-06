@@ -15,7 +15,7 @@ var ompLister = lister{
 	ttl:      6 * time.Hour,
 	prefixes: []string{"PI_"},
 	files: func(env Env) []string {
-		return []string{filepath.Join(OmpAgent(env.get, ""), "config.yml")}
+		return []string{filepath.Join(OmpAgent(env.get, env.Dir), "config.yml")}
 	},
 	list: func(ctx context.Context, x runner, _ Env) ([]Model, bool, error) {
 		out, _, err := x.run(ctx, ompTimeout, "", "models", "--json")

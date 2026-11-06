@@ -64,7 +64,9 @@ func (r *runner) modelOptions() (harness.Env, harness.Options) {
 	if dir == "" {
 		dir, _ = r.getwd()
 	}
-	return harness.EnvOf(r.env.Getenv), harness.Options{Environ: r.env.Environ(), Dir: dir, Now: r.env.Now}
+	env := harness.EnvOf(r.env.Getenv)
+	env.Dir = dir
+	return env, harness.Options{Environ: r.env.Environ(), Dir: dir, Now: r.env.Now}
 }
 
 func (r *runner) refreshModels(names []string, env harness.Env, o harness.Options) error {
