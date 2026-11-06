@@ -149,6 +149,10 @@ A fleet home holds:
 - `board.token`, made the first time the board serves the fleet;
 - run-time files such as `luvus/`, `locks/`, `watch.lock` and `watch.log`.
 
+### Import
+
+`hand fleet import SRC INTO DST`: the archive copy of one registered fleet into another. It adds the source projects and tasks (the tasks at `t + offset`, with only `tN` references in their title and goal shifted), copies its content folders, and exports its report bodies under `reports/archive-<source id>/`; it imports no attempt, report, decision, timer, event or supervisor input row. A project with the same repository is reused, and its lesson file follows the destination project name; a project with the same name and another repository is refused, and a file whose destination path already holds different content is left alone and reported. The source home keeps its files and gains an `imported-into` marker; the destination gains one `fleet.imported` event whose hash covers the inserted project and task rows only and is bound to the destination's task offset. A lock on both homes and a marker/event check inside the transaction make a concurrent import, into one destination or two, exit with a conflict instead of duplicating rows. `--dry-run` prints the manifest and writes no row, file or marker; SQLite may create `hand.db-shm`/`-wal` beside an opened database, and a dry run cannot detect a destination that refuses writes.
+
 ### Inbox folder and trash
 
 `inbox/` in the fleet home holds the files the operator attaches on the board, named `YYYYMMDD-HHMMSS-N.ext` or `YYYYMMDD-HHMMSS-N-<name>`, with or without an extension (see Supervisor input). Hand deletes nothing there except through a prune:

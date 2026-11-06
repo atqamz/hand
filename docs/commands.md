@@ -6,6 +6,7 @@ Run `hand` with no command to list the commands, and a command with no subcomman
 |---|---|
 | `hand init [--name NAME] [DIR]` | Make a fleet, or refresh, rename or adopt a moved one. Refuses to make a fleet in a folder holding Hand 0.7 data. |
 | `hand fleet list` | List the registered fleets and whether each home is found. |
+| `hand fleet import [--dry-run] SRC INTO DST` | Copy another fleet's projects and tasks, its `memory/`, `deliverables/`, `plans/`, `inbox/`, `reports/` and `briefs/` files, and its report bodies as archive files, without rewriting history; `--dry-run` prints the manifest and writes no row, file or marker, though SQLite may create `hand.db-shm`/`-wal` beside a database it opens, and it cannot detect an unwritable destination (see [Fleets](fleets.md#import-another-fleet)). |
 | `hand project add NAME PATH`, `hand project list` | Register a repository by its absolute path, and list projects. |
 | `hand project grants [--remove ID] NAME` | List the command prefixes the operator approved for always on an `ask` attempt's permission screen, which the project's later `ask` attempts start with, or remove one (a live attempt keeps the rules it started with). |
 | `hand project trust NAME` | Accept the project's current git settings that name a program, after Hand refused to run git because they changed; prints each value. |

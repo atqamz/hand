@@ -36,6 +36,7 @@ var (
 	LaunchWait       = &launchWait
 	ExitWait         = &exitWait
 	KillGrace        = &killGrace
+	ImportWrite      = &importWriteFile
 )
 
 func Force(ctx context.Context, env Env, home string) error {
