@@ -3,7 +3,6 @@ package cli
 import "context"
 
 var (
-	Control          = control
 	WakeDigest       = wakeDigest
 	TrustWait        = &trustWait
 	TrustConfirm     = &trustConfirm
@@ -39,6 +38,20 @@ var (
 	KillGrace        = &killGrace
 	ImportWrite      = &importWriteFile
 )
+
+func Control(env Env, home string) func(context.Context, ...string) (string, error) {
+	return control(env, home, "")
+}
+
+func EnsureWatcher(ctx context.Context, env Env, home, root, generation string) (bool, error) {
+	r := &runner{env: env, home: home, root: root, generation: generation}
+	st, err := r.store()
+	if err != nil {
+		return false, err
+	}
+	st.Close()
+	return r.ensureWatcher(ctx)
+}
 
 func Force(ctx context.Context, env Env, home string) error {
 	r := &runner{env: env, home: home}

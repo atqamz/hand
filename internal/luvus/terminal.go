@@ -55,7 +55,12 @@ func (c Client) Validate(ctx context.Context, t Terminal) (string, error) {
 }
 
 func (c Client) Close(ctx context.Context, t Terminal) error {
-	return c.Call(ctx, "terminal.backend.close", t.locator(), nil)
+	_, err := c.CloseID(ctx, t)
+	return err
+}
+
+func (c Client) CloseID(ctx context.Context, t Terminal) (string, error) {
+	return c.CallID(ctx, "terminal.backend.close", t.locator(), nil)
 }
 
 func (c Client) Inventory(ctx context.Context) ([]Terminal, error) {

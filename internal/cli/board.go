@@ -118,6 +118,13 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	defer forget()
+	generation, forgetGeneration, err := recordGeneration(r.env, root)
+	if err != nil {
+		_ = ln.Close()
+		return err
+	}
+	r.generation = generation
+	defer forgetGeneration()
 	defer r.writePID(filepath.Join(root, "board.pid"))()
 	if *every > 0 && Channel == "source" {
 		fmt.Fprintln(r.env.Stderr, "board: --update-every is off: this hand was built from source and has no update channel")
@@ -242,7 +249,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 	henv.Dir = home
 	fb := &fleetBoard{home: home, st: st, opts: board.Options{
 		Controls:   loopback,
-		Control:    control(r.env, home),
+		Control:    control(r.env, home, r.generation),
 		Harness:    henv,
 		Models:     harness.Options{Environ: r.env.Environ(), Dir: home, Now: r.env.Now},
 		Luvus:      r.client(fleet.Session(id)),

@@ -56,6 +56,20 @@ func TestATimerWakeReadsInWords(t *testing.T) {
 	lacks(t, "hand line", tl, "wake:")
 }
 
+func TestARefusedCloseSaysWhy(t *testing.T) {
+	fx := newFixture(t)
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	sup, ok, err := fx.st.LatestSupervisor(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("supervisor = %+v, %v, %v", sup, ok, err)
+	}
+	detail := "held generation 1 a, current 2 b, requested by hand watch pid 9 start m"
+	if err := fx.st.NoteSupervisor(context.Background(), sup.ID, "refused", detail); err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "refused", region(get(t, fx.handler(), "/"), "timeline"), "s1 refused: "+detail)
+}
+
 func TestTheWorkingLineNamesTheSupervisor(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")

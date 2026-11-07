@@ -404,7 +404,7 @@ func TestRestartedServerInterruptsRunningAttempts(t *testing.T) {
 	fx.start()
 	fx.rt.srv.SetGeneration("gen-2")
 	show := fx.h.ok("attempt", "show", "a1")
-	if !strings.Contains(show, "status: interrupted") || !strings.Contains(show, "reason: luvus server restarted") {
+	if !strings.Contains(show, "status: interrupted") || !strings.Contains(show, "reason:") || !strings.Contains(show, "luvus server restarted") {
 		t.Fatalf("show = %q", show)
 	}
 	if out := fx.h.ok("orient"); !strings.Contains(out, "a1 interrupted") {
@@ -419,7 +419,7 @@ func TestExitedWorkerIsRecorded(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.exitAll()
-	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: exited") || !strings.Contains(show, "reason: terminal exited") {
+	if show := fx.h.ok("attempt", "show", "a1"); !strings.Contains(show, "status: exited") || !strings.Contains(show, "reason:") || !strings.Contains(show, "terminal exited") {
 		t.Fatalf("show = %q", show)
 	}
 }

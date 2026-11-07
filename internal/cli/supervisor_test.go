@@ -143,7 +143,7 @@ func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
 	rt.setSession(restored, session)
 	operator := rt.addShell(t, h.home, "")
 	rt.setSession(operator, "0d7a5c6e-6b1f-4f4e-9a57-2b8f0c1d2e3f")
-	has(t, "show", h.ok("supervisor", "show"), "status: interrupted", "reason: luvus server restarted")
+	has(t, "show", h.ok("supervisor", "show"), "status: interrupted", "reason:", "luvus server restarted")
 	if !rt.isClosed(stray) || !rt.isClosed(restored) {
 		t.Fatalf("restored supervisor terminals left open: labelled %v, by session %v", !rt.isClosed(stray), !rt.isClosed(restored))
 	}
@@ -697,7 +697,7 @@ func TestSwitchWhileIdleRelaunchesTheSession(t *testing.T) {
 	resumedArgv(t, rt, session, "opus", "high")
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s2", "resumes: s1", "harness: claude opus high", "status: running", cursor)
 	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.stopped"}, 10)
-	if err != nil || len(events) != 1 || events[0].Detail != "s1: switched to opus high" {
+	if err != nil || len(events) != 1 || !strings.HasPrefix(events[0].Detail, "s1: switched to opus high") {
 		t.Fatalf("stop events = %+v, %v", events, err)
 	}
 }
@@ -1038,7 +1038,7 @@ func TestSwitchToAnotherHarnessStartsTheNextSupervisor(t *testing.T) {
 		t.Fatalf("launch message = %q", prompt)
 	}
 	events, err := openStore(t, h).EventsAfter(context.Background(), 0, []string{"supervisor.stopped"}, 10)
-	if err != nil || len(events) != 1 || events[0].Detail != "s1: switched to codex" {
+	if err != nil || len(events) != 1 || !strings.HasPrefix(events[0].Detail, "s1: switched to codex") {
 		t.Fatalf("stop events = %+v, %v", events, err)
 	}
 }

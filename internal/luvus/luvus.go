@@ -103,16 +103,22 @@ func SocketPath(getenv func(string) string, session string) string {
 var requests atomic.Uint64
 
 func (c Client) Call(ctx context.Context, method string, params, out any) error {
+	_, err := c.CallID(ctx, method, params, out)
+	return err
+}
+
+func (c Client) CallID(ctx context.Context, method string, params, out any) (string, error) {
 	if params == nil {
 		params = struct{}{}
 	}
+	id := "hand-" + strconv.FormatUint(requests.Add(1), 10)
 	req, err := json.Marshal(struct {
 		ID     string `json:"id"`
 		Method string `json:"method"`
 		Params any    `json:"params"`
-	}{"hand-" + strconv.FormatUint(requests.Add(1), 10), method, params})
+	}{id, method, params})
 	if err != nil {
-		return err
+		return id, err
 	}
 	timeout := c.Timeout
 	if timeout == 0 {
@@ -122,33 +128,33 @@ func (c Client) Call(ctx context.Context, method string, params, out any) error 
 	defer cancel()
 	conn, err := c.dial(ctx)
 	if err != nil {
-		return err
+		return id, err
 	}
 	defer conn.Close()
 	if dl, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(dl)
 	}
 	if _, err := conn.Write(append(req, '\n')); err != nil {
-		return err
+		return id, err
 	}
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil && len(bytes.TrimSpace(line)) == 0 {
-		return fmt.Errorf("luvus %s: no reply: %w", method, err)
+		return id, fmt.Errorf("luvus %s: no reply: %w", method, err)
 	}
 	var resp struct {
 		Result json.RawMessage `json:"result"`
 		Error  *Error          `json:"error"`
 	}
 	if err := json.Unmarshal(line, &resp); err != nil {
-		return fmt.Errorf("luvus %s: bad reply: %w", method, err)
+		return id, fmt.Errorf("luvus %s: bad reply: %w", method, err)
 	}
 	if resp.Error != nil {
-		return resp.Error
+		return id, resp.Error
 	}
 	if out == nil {
-		return nil
+		return id, nil
 	}
-	return json.Unmarshal(resp.Result, out)
+	return id, json.Unmarshal(resp.Result, out)
 }
 
 type Capabilities struct {

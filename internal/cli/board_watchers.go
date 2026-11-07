@@ -83,7 +83,7 @@ func (r *runner) keepWatcher(ctx context.Context, root, id string) error {
 	if err != nil {
 		return nil
 	}
-	w := &runner{env: r.env, home: home, root: root}
+	w := &runner{env: r.env, home: home, root: root, generation: r.generation}
 	st, err := w.store()
 	if err != nil {
 		return nil

@@ -153,7 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...))
+		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...), r.requester())
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -885,7 +885,7 @@ func remoteDefault(ctx context.Context, g gitcfg.Repo) string {
 	return ""
 }
 
-func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string) (state.Attempt, error) {
+func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string, who requester) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
@@ -903,13 +903,13 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if err == nil {
 		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 		if err != nil {
-			return a, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
+			return a, errors.Join(err, stopErr(stopWorker(ctx, c, term, who)))
 		}
 		return running, nil
 	}
 	if luvus.Code(err) == "" {
 		err = fmt.Errorf("%w: %w; attempt %s stays launching, and sync fails it %s after it started", errLaunchUnknown, err, state.AttemptRef(a.ID), launchGrace)
-		return a, errors.Join(err, closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID))
+		return a, errors.Join(err, closeErr(closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID, who)))
 	}
 	return a, discard(ctx, g, a, runtimeErr(err))
 }
