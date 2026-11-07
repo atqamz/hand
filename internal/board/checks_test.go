@@ -10,7 +10,7 @@ import (
 	"github.com/atqamz/hand/internal/state"
 )
 
-var checkRow = regexp.MustCompile(`<li class="row check task-row" data-state="([a-z]+)">([\s\S]*?)</li>`)
+var checkRow = regexp.MustCompile(`<li class="row check task-row" data-state="([a-z]+)" data-tone="[a-z]+">([\s\S]*?)</li>`)
 
 func checks(body string) map[string]string {
 	out := map[string]string{}
@@ -102,7 +102,7 @@ func TestAttemptRowsKeepTheirOwnLayout(t *testing.T) {
 	task := active(t, fx.st, "Fix login")
 	attempt(t, fx.st, task.ID, state.AttemptRunning, "")
 	page := get(t, fx.handler(), "/task/t1")
-	contains(t, "task page", page, `<li class="row check" data-state="running" id="a1">`)
+	contains(t, "task page", page, `<li class="row check" data-state="running" data-tone="pass" id="a1">`)
 	lacks(t, "task page", page, "task-row")
 }
 

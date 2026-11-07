@@ -294,12 +294,14 @@
 	};
 	const outcome = (button, state, label) => {
 		button.dataset.state = state;
+		button.dataset.tone = state === "copied" ? "pass" : "fail";
 		button.setAttribute("aria-label", label);
 		button.title = label;
 		say(button, label);
 		clearTimeout(copyTimers.get(button));
 		copyTimers.set(button, setTimeout(() => {
 			delete button.dataset.state;
+			delete button.dataset.tone;
 			button.setAttribute("aria-label", copyLabel);
 			button.title = copyLabel;
 			if (spoken === button) say(null, "");
@@ -420,6 +422,7 @@
 			n.textContent = String(waiting);
 			n.dataset.waiting = String(waiting);
 			n.dataset.worst = w.worst || "";
+			n.dataset.tone = w.tone || "neutral";
 			if (n.matches("[data-needs]")) n.hidden = waiting === 0;
 		}
 		if (!icon || !icons) return;
@@ -1758,9 +1761,12 @@
 				remove();
 				text.focus();
 			});
-			if (error) li.dataset.state = "error";
-			else if (job) {
+			if (error) {
+				li.dataset.state = "error";
+				li.dataset.tone = "fail";
+			} else if (job) {
 				li.dataset.state = "busy";
+				li.dataset.tone = "quiet";
 				const bar = document.createElement("progress");
 				bar.max = 1;
 				bar.value = job.loaded / (job.size || 1);

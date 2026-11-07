@@ -200,16 +200,16 @@ func TestTheRailNamesTheBoardAndKeepsItsNeedsCountLive(t *testing.T) {
 	rail := railOf(t, body)
 	contains(t, "rail", rail, `<span class="label">Board</span>`, `<span class="label">Tasks</span>`, `<span class="label">Conversation</span>`, `<span class="badge" data-needs data-waiting="`)
 	lacks(t, "board page", body, "Desk")
-	tab := regexp.MustCompile(`data-tab="needs">Needs <span class="badge n" data-waiting="(\d+)" data-worst="(\w*)"`).FindStringSubmatch(body)
+	tab := regexp.MustCompile(`data-tab="needs">Needs <span class="badge n" data-waiting="(\d+)" data-worst="(\w*)" data-tone="(\w*)"`).FindStringSubmatch(body)
 	if tab == nil || tab[1] == "0" {
 		t.Fatalf("the Needs tab shows no count:\n%s", body)
 	}
-	contains(t, "badge", rail, `<span class="badge" data-needs data-waiting="`+tab[1]+`" data-worst="`+tab[2]+`">`+tab[1]+`</span>`)
+	contains(t, "badge", rail, `<span class="badge" data-needs data-waiting="`+tab[1]+`" data-worst="`+tab[2]+`" data-tone="`+tab[3]+`">`+tab[1]+`</span>`)
 	lacks(t, "badge", get(t, h, "/tasks"), "data-needs")
 	calm := get(t, board.New(open(t), token, board.Options{Controls: true}), "/")
-	contains(t, "calm", railOf(t, calm), `<span class="badge" data-needs data-waiting="0" data-worst="" hidden>0</span>`)
+	contains(t, "calm", railOf(t, calm), `<span class="badge" data-needs data-waiting="0" data-worst="" data-tone="neutral" hidden>0</span>`)
 	js := asset(t, "app.js")
-	contains(t, "app.js", js, `document.querySelectorAll("[data-tab=needs] .n, [data-needs]")`, `if (n.matches("[data-needs]")) n.hidden = waiting === 0;`)
+	contains(t, "app.js", js, `document.querySelectorAll("[data-tab=needs] .n, [data-needs]")`, `n.dataset.tone = w.tone || "neutral";`, `if (n.matches("[data-needs]")) n.hidden = waiting === 0;`)
 }
 
 func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {

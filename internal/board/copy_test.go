@@ -52,6 +52,7 @@ func TestCodeBlocksGetACopyButtonFromTheScript(t *testing.T) {
 		`outcome(button, "copied", "Copied")`,
 		`outcome(button, "failed", "Copy failed")`,
 		`button.dataset.state = state;`,
+		`button.dataset.tone = state === "copied" ? "pass" : "fail";`,
 		"enhance(root);",
 		"copyKey(document.activeElement, el)",
 		`copies(el).find((c) => copyKey(c, el) === copyFocus)?.focus();`,
@@ -71,8 +72,8 @@ func TestCopyButtonStyles(t *testing.T) {
 	contains(t, "button", css,
 		".code>.copy{position:absolute;top:4px;right:4px;width:var(--control);padding:0;background:var(--surface);color:var(--muted);opacity:0;transition:opacity .15s}",
 		".code:hover>.copy,.code:focus-within>.copy,.code>.copy[data-state]{opacity:1}",
-		".code>.copy[data-state=copied]{color:var(--pass)}",
-		".code>.copy[data-state=failed]{color:var(--fail)}",
+		".code>.copy[data-tone=pass]{color:var(--pass)}",
+		".code>.copy[data-tone=fail]{color:var(--fail)}",
 		".code>.copy:not([data-state])>[data-glyph=copy],.code>.copy[data-state=copied]>[data-glyph=copied],.code>.copy[data-state=failed]>[data-glyph=failed]{display:block}",
 		"body>.sr{position:fixed;top:0;left:0;",
 	)

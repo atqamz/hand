@@ -28,7 +28,7 @@ func TestThePhoneRowCountsTheWorstKind(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `data-worst="failure"><span class="n">1</span> failed`)
+	contains(t, "phone row", region(get(t, fx.handler(), "/"), "status"), `data-worst="failure" data-tone="fail"><span class="n">1</span> failed`)
 }
 
 func TestTheStatusPillNeverShrinksIntoTheSupervisorText(t *testing.T) {
@@ -88,8 +88,17 @@ func TestShortScreensMergeTheTabs(t *testing.T) {
 
 func TestCountsFollowTheSeverityRamp(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "counts", css, ".badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}", ".badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited],[data-worst=stalled]){--tone:var(--wait);--tone-bg:var(--wait-bg)}")
+	contains(t, "counts", css,
+		".badge[data-tone=fail]{--tone:var(--fail);--tone-bg:var(--fail-bg)}",
+		".badge[data-tone=wait]{--tone:var(--wait);--tone-bg:var(--wait-bg)}",
+		".badge[data-tone=pass]{--tone:var(--pass);--tone-bg:var(--pass-bg)}",
+		".badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}")
 	contains(t, "bands", css, ".band[data-tone=fail]{color:var(--fail)}", ".band[data-tone=wait]{color:var(--wait)}")
+	contains(t, "checks", css,
+		".check[data-tone=fail] .icon{color:var(--fail)}",
+		".check[data-tone=wait] .icon{color:var(--wait)}",
+		".check[data-tone=pass] .icon{color:var(--pass)}",
+		".check[data-tone=neutral] .icon{color:var(--neutral)}")
 	lacks(t, "counts", css, ".count:not([data-waiting=\"0\"])")
 }
 
@@ -135,8 +144,8 @@ func TestThePhoneMastheadStaysOneRow(t *testing.T) {
 
 func TestStuckReportsWearTheFailTone(t *testing.T) {
 	css := asset(t, "board.css")
-	contains(t, "stuck", css, ":is(.thread,.task-main)>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}")
-	lacks(t, "stuck", css, "data-status=blocked]", "data-status=failed]")
+	contains(t, "stuck", css, ":is(.thread,.task-main)>.card.report[data-tone=fail]>header.slug{background:var(--fail-bg)}", ":is(.thread,.task-main)>.card.report[data-tone=pass]>header.slug{background:var(--pass-bg)}")
+	lacks(t, "stuck", css, "data-status=stuck]", "data-status=blocked]", "data-status=failed]")
 }
 
 func TestStartingLabelsFollowEveryStartForm(t *testing.T) {
