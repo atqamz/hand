@@ -73,7 +73,7 @@ The unit starts with your graphical session: it is `After=` and `WantedBy=` `gra
 
 The unit keeps the `PATH` of the shell you ran `hand unit board` from. systemd starts user units at boot, before your desktop session exports its `PATH`, and the board and the watchers and Luvus server it starts need it to find `claude`, `hand` and your tools. Run `hand unit board` again, and `systemctl --user daemon-reload`, after you install tools into a new folder.
 
-Migrating from watch units: earlier versions printed a unit per fleet with `hand unit watch`, which no longer exists. The board starts the watchers again within 30 seconds, and no Luvus restart or quiet time is needed. For each installed watch unit:
+Migrating from watch units: earlier versions printed a unit per fleet with `hand unit watch`, which no longer exists. The board starts the watchers again within 30 seconds, and no Luvus restart or quiet time is needed. `hand update` disables and removes an installed watch unit whose `HAND_HOME` is relative or missing, is no longer a registered fleet, or whose fleet's watcher already runs as the transient unit `secondhand-watch-<fleet id>`; it leaves alone a unit Hand wrote that carries no `HAND_HOME`, and `hand doctor` names one it left because Hand did not write it. `hand update --check` only plans that removal. For each installed watch unit:
 
 ```sh
 systemctl --user disable --now secondhand-watch-<name>

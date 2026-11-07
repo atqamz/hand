@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,8 +16,10 @@ import (
 
 	"github.com/atqamz/hand/internal/cli"
 	"github.com/atqamz/hand/internal/fakebin"
+	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/luvus/fakeuhp"
 	"github.com/atqamz/hand/internal/state"
+	"github.com/atqamz/hand/internal/update"
 )
 
 type doctorFixture struct {
@@ -365,5 +368,61 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 	}
 	if _, errOut, code := fx.h.run("doctor", "extra"); code != 2 || !strings.Contains(errOut, "doctor: want 0 argument(s)") {
 		t.Fatalf("usage: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestDoctorReportsAStaleWatchUnit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd user units are linux-only")
+	}
+	fx := newDoctorFixture(t)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := update.Target(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unit := "secondhand-watch-gone.service"
+	row := func(t *testing.T, home, path, description, files, units string) [2]string {
+		t.Helper()
+		dir := t.TempDir()
+		fragment := filepath.Join(dir, unit)
+		if err := os.WriteFile(fragment, []byte("[Unit]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		shown := filepath.Join(dir, "show")
+		body := fmt.Sprintf("Id=%s\nLoadState=loaded\nTransient=no\nFragmentPath=%s\nExecStart={ path=%s ; argv[]=%s watch ; ignore_errors=no }\nEnvironment=HAND_HOME=%s\nDescription=%s\n\n", unit, fragment, path, path, home, description)
+		if err := os.WriteFile(shown, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*list-unit-files*) printf '%%s\\n' '%s';;\n*list-units*) printf '%%s\\n' '%s';;\n*show*) /bin/cat %s;;\nesac\n", files, units, shown)
+		if err := os.WriteFile(filepath.Join(fx.tools, "systemctl"), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		out := fx.h.ok("doctor")
+		got, ok := checkRows(t, out)["watch unit"]
+		if !ok || got[0] != "warn" || !strings.Contains(got[1], unit) {
+			t.Fatalf("watch unit = %q in %q", got, out)
+		}
+		return got
+	}
+	foreign := "Hand did not write it; run `systemctl --user disable --now " + unit + "`"
+	for _, tc := range []struct {
+		name, home, path, desc, files, units, why, fix string
+	}{
+		{"missing", filepath.Join(t.TempDir(), "gone"), "/bin/sh", "my watcher", unit + " enabled", "", "(missing)", foreign},
+		{"relative", "relative/home", "/bin/sh", "my watcher", unit + " enabled", "", "(relative HAND_HOME)", foreign},
+		{"unregistered", t.TempDir(), "/bin/sh", "my watcher", unit + " enabled", "", "(no registered fleet)", foreign},
+		{"replaced", fx.h.home, "/bin/sh", "my watcher", unit + " enabled", fleet.WatchUnit(fx.id) + ".service loaded active running", "(the watcher runs as the transient unit)", foreign},
+		{"hand-written", filepath.Join(t.TempDir(), "gone"), target, "Hand watcher for gone", unit + " enabled", "", "(missing)", "run `hand update` to remove it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := row(t, tc.home, tc.path, tc.desc, tc.files, tc.units)
+			if !strings.Contains(got[1], tc.why) || !strings.Contains(got[1], tc.fix) {
+				t.Fatalf("watch unit = %q, want %q and %q", got[1], tc.why, tc.fix)
+			}
+		})
 	}
 }
