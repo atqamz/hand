@@ -68,14 +68,27 @@ func (s *Store) RenameFleet(ctx context.Context, name string) (Fleet, error) {
 	}
 	var f Fleet
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		err := tx.QueryRow(`UPDATE fleet SET name = ? RETURNING id, name, home`, name).Scan(&f.ID, &f.Name, &f.Home)
-		if errors.Is(err, sql.ErrNoRows) {
-			return errNoFleet
-		}
-		if err != nil {
-			return err
-		}
-		return emit(tx, s.stamp(), "fleet.renamed", 0, f.ID+" "+f.Name)
+		var err error
+		f, err = renameFleet(ctx, tx, s.stamp(), name)
+		return err
 	})
 	return f, err
+}
+
+func renameFleet(ctx context.Context, tx *sql.Tx, at, name string) (Fleet, error) {
+	if err := ValidFleetName(name); err != nil {
+		return Fleet{}, err
+	}
+	var f Fleet
+	err := tx.QueryRowContext(ctx, `UPDATE fleet SET name = ? RETURNING id, name, home`, name).Scan(&f.ID, &f.Name, &f.Home)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Fleet{}, errNoFleet
+	}
+	if err != nil {
+		return Fleet{}, err
+	}
+	if err := emit(tx, at, "fleet.renamed", 0, f.ID+" "+f.Name); err != nil {
+		return Fleet{}, err
+	}
+	return f, nil
 }

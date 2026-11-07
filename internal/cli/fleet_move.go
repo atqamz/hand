@@ -261,7 +261,7 @@ func confirmMove(r *runner, ctx context.Context, dir, from, to string) (int64, [
 func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnly bool) error {
 	var d toon.Doc
 	d.Field("move", "dry-run")
-	d.Field("fleet", f.Name)
+	d.Field("fleet", moveResultName(f, rep))
 	d.Field("id", f.ID)
 	d.Field("from", rep.From)
 	d.Field("to", rep.To)
@@ -288,7 +288,7 @@ func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnl
 func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport, seq int64, remaining int, backup string) error {
 	var d toon.Doc
 	d.Field("move", "moved")
-	d.Field("fleet", f.Name)
+	d.Field("fleet", moveResultName(f, rep))
 	d.Field("id", f.ID)
 	d.Field("from", rep.From)
 	d.Field("to", rep.To)
@@ -313,7 +313,7 @@ func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport
 func (r *runner) printMoveRewritten(f state.Fleet, root string, rep state.MoveReport, backup string) error {
 	var d toon.Doc
 	d.Field("move", "rewritten")
-	d.Field("fleet", f.Name)
+	d.Field("fleet", moveResultName(f, rep))
 	d.Field("id", f.ID)
 	d.Field("from", rep.From)
 	d.Field("to", rep.To)
@@ -360,6 +360,13 @@ func (r *runner) printMoveResumed(f state.Fleet, root, home, from, to string, se
 	d.Field("registry", filepath.Join(root, "fleets", f.ID))
 	d.Help("The move is complete; run `hand init` in " + to + " to repair worktrees and refresh the skills")
 	return r.print(&d)
+}
+
+func moveResultName(f state.Fleet, rep state.MoveReport) string {
+	if rep.Name != "" {
+		return rep.Name
+	}
+	return f.Name
 }
 
 func moveOnlyRows(cells []state.MoveCell) [][]string {

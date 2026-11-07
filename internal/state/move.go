@@ -20,6 +20,7 @@ type MoveCell struct {
 
 type MoveReport struct {
 	From, To        string
+	Name            string
 	Cells           []MoveCell
 	Absolute, Tilde int
 	Hits            []MoveCell
@@ -51,6 +52,7 @@ var moveRefs = map[string]string{
 
 type moveQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 type moveWriter interface {
@@ -81,6 +83,11 @@ func OpenRead(path string) (*Store, error) {
 
 func (s *Store) PlanHome(ctx context.Context, from, to string) (MoveReport, error) {
 	rep := MoveReport{From: from, To: to}
+	name, err := fleetName(ctx, s.db)
+	if err != nil {
+		return rep, err
+	}
+	rep.Name = moveTargetName(name, from, to)
 	pass, err := moveScan(ctx, s.db, from, to, userHome(), false)
 	rep.Cells, rep.Absolute, rep.Tilde = pass.Cells, pass.Absolute, pass.Tilde
 	rep.Hits = pass.Hits
@@ -108,6 +115,16 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 		}
 		if recorded != "" && !sameHome(recorded, from) {
 			return fmt.Errorf("%w: the database records this fleet's home as %s, not %s; nothing changed", ErrConflict, recorded, from)
+		}
+		name, err := fleetName(ctx, tx)
+		if err != nil {
+			return err
+		}
+		rep.Name = moveTargetName(name, from, to)
+		if rep.Name != name {
+			if _, err := renameFleet(ctx, tx, s.stamp(), rep.Name); err != nil {
+				return err
+			}
 		}
 		pass, err := moveScan(ctx, tx, from, to, userHome(), true)
 		if err != nil {
@@ -141,6 +158,25 @@ func (s *Store) moveHome(ctx context.Context, from, to string, inPlace bool, aft
 		return err
 	})
 	return rep, err
+}
+
+func fleetName(ctx context.Context, q moveQueryer) (string, error) {
+	var name, home string
+	err := q.QueryRowContext(ctx, `SELECT name, home FROM fleet`).Scan(&name, &home)
+	if err != nil && strings.Contains(err.Error(), "no such column: home") {
+		err = q.QueryRowContext(ctx, `SELECT name FROM fleet`).Scan(&name)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errNoFleet
+	}
+	return name, err
+}
+
+func moveTargetName(name, from, to string) string {
+	if name == filepath.Base(from) {
+		return filepath.Base(to)
+	}
+	return name
 }
 
 func moveMarker(tx *sql.Tx, at, from, to string) (int64, error) {
