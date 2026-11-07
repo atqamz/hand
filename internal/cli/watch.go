@@ -795,7 +795,7 @@ func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client) error {
 }
 
 func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt, title, screen string) error {
-	if screen != "" && !harness.Waiting(a.Harness, screen) {
+	if screen != "" && title == "" && !harness.Waiting(a.Harness, screen) {
 		return nil
 	}
 	detail := title

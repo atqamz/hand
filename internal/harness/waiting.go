@@ -13,6 +13,8 @@ var (
 	waitingFooter = regexp.MustCompile(`(?i)(Enter to confirm|Enter to select|Enter continue|Esc to cancel|Esc to close|Tab to amend|Press enter)`)
 )
 
+const waitingBottom = 8
+
 func Waiting(name, screen string) bool {
 	if _, ok := Question(name, screen); ok {
 		return true
@@ -20,8 +22,10 @@ func Waiting(name, screen string) bool {
 	if _, ok := ClaudePermission(screen); ok || ClaudeDialog(screen) {
 		return true
 	}
-	asked, choice, footer := false, false, false
-	for _, l := range strings.Split(screen, "\n") {
+	rows := strings.Split(screen, "\n")
+	var asked, choice []int
+	footer := false
+	for i, l := range rows {
 		if ruleLine.MatchString(l) || dashRule.MatchString(l) {
 			continue
 		}
@@ -29,9 +33,24 @@ func Waiting(name, screen string) bool {
 		if waitingAction.MatchString(t) {
 			return true
 		}
-		asked = asked || waitingAsk.MatchString(t) || waitingTrust.MatchString(t)
-		choice = choice || waitingChoice.MatchString(t)
+		if waitingAsk.MatchString(t) || waitingTrust.MatchString(t) {
+			asked = append(asked, i)
+		}
+		if waitingChoice.MatchString(t) {
+			choice = append(choice, i)
+		}
 		footer = footer || waitingFooter.MatchString(t)
 	}
-	return choice && (asked || footer)
+	if footer && len(choice) > 0 {
+		return true
+	}
+	floor := len(rows) - waitingBottom
+	for _, q := range asked {
+		for _, c := range choice {
+			if c > q && c-q <= 2 || q >= floor && c >= floor {
+				return true
+			}
+		}
+	}
+	return false
 }
