@@ -360,14 +360,35 @@ func TestMoveHomeRewritesTheShorthandWhenBothAreUnderHome(t *testing.T) {
 	}
 }
 
+func TestMoveNameEqualFoldsOnlyWithFold(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		fold bool
+		want bool
+	}{
+		{"fleet-hand", "fleet-hand", false, true},
+		{"Fleet-Hand", "fleet-hand", false, false},
+		{"Fleet-Hand", "fleet-hand", true, true},
+		{"fleet-hand.bak", "fleet-hand", false, false},
+		{"fleet-hand.bak", "fleet-hand", true, false},
+		{"fleet-hand", "fleet-hand.bak", true, false},
+		{"", "fleet-hand", true, false},
+	} {
+		if got := moveNameEqual(c.a, c.b, c.fold); got != c.want {
+			t.Errorf("moveNameEqual(%q, %q, %v) = %v, want %v", c.a, c.b, c.fold, got, c.want)
+		}
+	}
+}
+
 func TestMoveHomeRefusesTheShorthandWhenTheOldHomeIsNotUnderHome(t *testing.T) {
 	setUserHome(t, t.TempDir())
 	s, _ := openTest(t)
 	ctx := context.Background()
-	if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+	old := s.home
+	name := filepath.Base(old)
+	if _, err := s.CreateFleet(ctx, name); err != nil {
 		t.Fatal(err)
 	}
-	old := s.home
 	to := filepath.Join(t.TempDir(), "new")
 	detail := "~/" + filepath.Base(old) + "/x " + old
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO event(at, kind, detail) VALUES ('2026-09-26T00:00:00Z', 'test', ?)`, detail); err != nil {
@@ -392,6 +413,17 @@ func TestMoveHomeRefusesTheShorthandWhenTheOldHomeIsNotUnderHome(t *testing.T) {
 	}
 	if home != old {
 		t.Fatalf("home = %q", home)
+	}
+	var gotName string
+	if err := s.db.QueryRowContext(ctx, `SELECT name FROM fleet`).Scan(&gotName); err != nil {
+		t.Fatal(err)
+	}
+	if gotName != name {
+		t.Fatalf("name = %q, want %q", gotName, name)
+	}
+	var renamed int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM event WHERE kind = 'fleet.renamed'`).Scan(&renamed); err != nil || renamed != 0 {
+		t.Fatalf("renamed events = %d, %v; want 0", renamed, err)
 	}
 }
 

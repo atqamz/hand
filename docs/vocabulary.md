@@ -125,7 +125,7 @@ One supervisor's world: a fleet home with its projects, tasks, attempts, Luvus s
 
 ### Fleet ID and fleet name
 
-The first `hand init` in a folder gives the fleet an ID that never changes: `f` followed by 12 hex digits. The ID names the fleet's link in the shared folder, its worktree folder, its Luvus session, its branches and its board path. The name is what people see. It defaults to the folder's name, and `hand init --name NEW` changes it. A move follows the folder while the name still equals the old folder's name; a custom name stays.
+The first `hand init` in a folder gives the fleet an ID that never changes: `f` followed by 12 hex digits. The ID names the fleet's link in the shared folder, its worktree folder, its Luvus session, its branches and its board path. The name is what people see. It defaults to the folder's name, and `hand init --name NEW` changes it. A move follows the folder while the name still equals the old folder's base name (on Windows, ignoring case); a custom name stays.
 
 ### Fleet home
 

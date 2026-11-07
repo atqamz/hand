@@ -173,10 +173,17 @@ func fleetName(ctx context.Context, q moveQueryer) (string, error) {
 }
 
 func moveTargetName(name, from, to string) string {
-	if name == filepath.Base(from) {
+	if moveNameEqual(name, filepath.Base(from), foldHome()) {
 		return filepath.Base(to)
 	}
 	return name
+}
+
+func moveNameEqual(a, b string, fold bool) bool {
+	if fold {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func moveMarker(tx *sql.Tx, at, from, to string) (int64, error) {

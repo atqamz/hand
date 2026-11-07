@@ -336,6 +336,36 @@ func TestFleetMoveKeepsACustomFleetName(t *testing.T) {
 	}
 }
 
+func TestFleetMoveKeepsACustomNameThatContainsTheOldBase(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	name := "fleet-hand.bak"
+	if out := h.ok("init", "--name", name); !strings.Contains(out, "fleet: "+name) {
+		t.Fatalf("rename = %q", out)
+	}
+	seedMoveFleet(t, home, id)
+	before := openMoveDB(t, home)
+	var lastSeq int64
+	if err := before.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM event`).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	before.Close()
+	dest := filepath.Join(t.TempDir(), "fleet-personal")
+	out := h.ok("fleet", "move", "--yes", dest)
+	if !strings.Contains(out, "fleet: "+name) {
+		t.Fatalf("move = %q", out)
+	}
+	db := openMoveDB(t, dest)
+	defer db.Close()
+	var got string
+	if err := db.QueryRow(`SELECT name FROM fleet`).Scan(&got); err != nil || got != name {
+		t.Fatalf("name = %q, %v; want %s", got, err, name)
+	}
+	var renamed int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM event WHERE kind = 'fleet.renamed' AND seq > ?`, lastSeq).Scan(&renamed); err != nil || renamed != 0 {
+		t.Fatalf("renamed events = %d, %v; want 0", renamed, err)
+	}
+}
+
 func TestFleetMoveRewriteOnlyFollowsTheFolderName(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
