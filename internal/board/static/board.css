@@ -315,7 +315,7 @@ body>.sr{position:fixed;top:0;left:0;min-height:0;margin:0;padding:0;border:0}
 .att>progress::-webkit-progress-bar{background:transparent}
 .att>progress::-webkit-progress-value{background:var(--accent)}
 .att>progress::-moz-progress-bar{background:var(--accent)}
-.att[data-tone=quiet]>.att-name{color:var(--muted)}
+.att[data-tone=neutral]>.att-name{color:var(--muted)}
 .att[data-tone=fail]{border-color:var(--fail);background:var(--fail-bg)}
 .att[data-tone=fail]>.badge{--tone:var(--fail);--tone-bg:var(--bg)}
 .att[data-tone=fail]>.att-meta{color:var(--fail);line-height:16px;white-space:normal}

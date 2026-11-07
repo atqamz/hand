@@ -1762,11 +1762,9 @@
 				text.focus();
 			});
 			if (error) {
-				li.dataset.state = "error";
 				li.dataset.tone = "fail";
 			} else if (job) {
-				li.dataset.state = "busy";
-				li.dataset.tone = "quiet";
+				li.dataset.tone = "neutral";
 				const bar = document.createElement("progress");
 				bar.max = 1;
 				bar.value = job.loaded / (job.size || 1);

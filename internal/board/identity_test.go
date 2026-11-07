@@ -280,12 +280,14 @@ func TestEverySlugStateHasItsColour(t *testing.T) {
 	for s, want := range map[string]string{
 		"running": "pass", "waiting": "wait", "failing": "fail",
 		"passing": "pass", "ready": "pass", "working": "accent",
+		"idle": "neutral", "stuck": "fail", "progress": "wait", "done": "pass",
+		"blocked": "fail", // the Needs kind, which severity tones
 	} {
 		tone := board.ToneForTest(s)
 		if tone != want {
 			t.Errorf("tone for %s = %s, want %s", s, tone, want)
 		}
-		if !strings.Contains(css, ".badge[data-tone="+want+"]") {
+		if want != "neutral" && !strings.Contains(css, ".badge[data-tone="+want+"]") {
 			t.Errorf("board.css has no badge tone for the %s state", s)
 		}
 	}

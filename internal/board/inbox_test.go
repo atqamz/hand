@@ -423,7 +423,7 @@ func TestTheComposerHoldsFilesAsChips(t *testing.T) {
 		".att>progress{position:absolute;right:0;bottom:0;left:0;width:100%;height:2px;",
 		".att>progress::-webkit-progress-value{background:var(--accent)}",
 		".att>progress::-moz-progress-bar{background:var(--accent)}",
-		".att[data-tone=quiet]>.att-name{color:var(--muted)}",
+		".att[data-tone=neutral]>.att-name{color:var(--muted)}",
 		".att[data-tone=fail]{border-color:var(--fail);background:var(--fail-bg)}",
 		".att[data-tone=fail]>.badge{--tone:var(--fail);--tone-bg:var(--bg)}",
 		".att[data-tone=fail]>.att-meta{color:var(--fail);")
@@ -432,10 +432,8 @@ func TestTheComposerHoldsFilesAsChips(t *testing.T) {
 		"const li = tpl.content.firstElementChild.cloneNode(true);",
 		"x.setAttribute(\"aria-label\", `${error ? \"Dismiss\" : \"Remove\"} ${title}`);",
 		"remove();\n\t\t\t\ttext.focus();",
-		`li.dataset.state = "error";`,
 		`li.dataset.tone = "fail";`,
-		`li.dataset.state = "busy";`,
-		`li.dataset.tone = "quiet";`,
+		`li.dataset.tone = "neutral";`,
 		"if (focused) [...chips.querySelectorAll(\"button\")].find((b) => b.getAttribute(\"aria-label\") === focused)?.focus();",
 		"const kind = (name) => (name.endsWith(\"/\") ? \"DIR\" : /\\.([^.]{1,4})$/.exec(name)?.[1].toUpperCase() || \"FILE\");",
 		"const human = (n) => (n < 1024 ? `${n} B` : (n + 512) >> 10 < 1024 ? `${(n + 512) >> 10} KiB` : `${(n / (1 << 20)).toFixed(1)} MiB`);")
