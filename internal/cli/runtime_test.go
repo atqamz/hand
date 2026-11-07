@@ -59,6 +59,8 @@ type fakeRuntime struct {
 	readFailed   int
 	keysFail     string
 	keysFailOnce string
+	keysEntered  chan struct{}
+	keysGate     chan struct{}
 	afterKeys    string
 	explainFail  string
 	onPrompt     func()
@@ -334,6 +336,17 @@ func (rt *fakeRuntime) keys(params json.RawMessage) (any, error) {
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, err
+	}
+	rt.mu.Lock()
+	if rt.keysEntered != nil {
+		close(rt.keysEntered)
+		rt.keysEntered = nil
+	}
+	gate := rt.keysGate
+	rt.keysGate = nil
+	rt.mu.Unlock()
+	if gate != nil {
+		<-gate
 	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()

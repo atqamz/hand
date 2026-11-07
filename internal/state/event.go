@@ -132,6 +132,10 @@ func (s *Store) LastAttemptEvent(ctx context.Context, attemptID int64) (string, 
 	return e.Kind, err
 }
 
+func (s *Store) AttemptSignal(ctx context.Context, attemptID int64) (Event, bool, error) {
+	return lastAttemptEvent(ctx, s.db, attemptID)
+}
+
 func (s *Store) LastLimit(ctx context.Context, attemptID int64) (string, error) {
 	prefix := AttemptRef(attemptID) + ": "
 	var detail string
