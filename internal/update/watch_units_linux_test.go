@@ -83,6 +83,24 @@ func TestUpdateRemovesAWatchUnitForAMovedHome(t *testing.T) {
 	}
 }
 
+func TestUpdateRemovesAWatchUnitForAnUnregisteredHome(t *testing.T) {
+	f := newCycle(t)
+	log, path := fakeSystemd(t, f, "secondhand-watch-archive.service", "archive", t.TempDir())
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || rep.Failed {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+	if got := calls(t, log); !strings.Contains(got, "--user disable --now secondhand-watch-archive.service") {
+		t.Fatalf("systemctl calls = %q, want the unregistered home's unit disabled", got)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the unregistered home's unit file still exists: %v", err)
+	}
+	if !slices.Contains(rep.Units, UnitResult{"secondhand-watch-archive.service", "remove", "ok"}) {
+		t.Fatalf("units = %+v", rep.Units)
+	}
+}
+
 func TestUpdateKeepsALiveFleetsWatchUnit(t *testing.T) {
 	f := newCycle(t)
 	log, path := fakeSystemd(t, f, "secondhand-watch-alpha.service", "alpha", f.alpha)

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -365,5 +366,33 @@ func TestDoctorOutsideAFleet(t *testing.T) {
 	}
 	if _, errOut, code := fx.h.run("doctor", "extra"); code != 2 || !strings.Contains(errOut, "doctor: want 0 argument(s)") {
 		t.Fatalf("usage: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestDoctorReportsAStaleWatchUnit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd user units are linux-only")
+	}
+	fx := newDoctorFixture(t)
+	dir := t.TempDir()
+	home := filepath.Join(dir, "gone")
+	unit := "secondhand-watch-gone.service"
+	fragment := filepath.Join(dir, unit)
+	if err := os.WriteFile(fragment, []byte("[Unit]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	shown := filepath.Join(dir, "show")
+	body := fmt.Sprintf("Id=%s\nLoadState=loaded\nTransient=no\nFragmentPath=%s\nExecStart={ path=/bin/sh ; argv[]=/bin/sh watch ; ignore_errors=no }\nEnvironment=HAND_HOME=%s\nDescription=another watcher\n\n", unit, fragment, home)
+	if err := os.WriteFile(shown, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*list-unit-files*) printf '%%s\\n' '%s enabled';;\n*list-units*) ;;\n*show*) /bin/cat %s;;\nesac\n", unit, shown)
+	if err := os.WriteFile(filepath.Join(fx.tools, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := fx.h.ok("doctor")
+	row, ok := checkRows(t, out)["watch unit"]
+	if !ok || row[0] != "warn" || !strings.Contains(row[1], unit) || !strings.Contains(row[1], home) {
+		t.Fatalf("watch unit = %q in %q", row, out)
 	}
 }

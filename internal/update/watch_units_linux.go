@@ -28,41 +28,26 @@ func (r *Report) retireWatchUnits(ctx context.Context, o Options, fleets []fleet
 	if !ok {
 		return
 	}
-	out, err := systemctlOutput(ctx, env, bin, "list-unit-files", "--no-legend", "--plain")
+	units, installed, err := watchUnitCandidates(ctx, env, bin)
 	if err != nil {
-		r.fail(fmt.Sprintf("could not list Hand's systemd units (%v); remove any watch unit for a moved fleet by hand (docs/autostart.md)", err))
+		r.fail(fmt.Sprintf("could not read Hand's systemd units (%v); remove any watch unit for a stale home by hand (docs/autostart.md)", err))
 		return
 	}
-	installed := map[string]bool{}
-	var names []string
-	for line := range strings.Lines(out) {
-		fields := strings.Fields(line)
-		if len(fields) == 0 || !strings.HasPrefix(fields[0], "secondhand-watch-") || !strings.HasSuffix(fields[0], ".service") {
-			continue
-		}
-		installed[fields[0]] = true
-		names = append(names, fields[0])
-	}
-	if len(names) == 0 {
-		return
-	}
-	out, err = systemctlOutput(ctx, env, bin, append(append([]string{"show"}, names...), "-p", "Id,LoadState,Transient,FragmentPath,ExecStart,Environment,Description")...)
-	if err != nil {
-		r.fail(fmt.Sprintf("could not read Hand's systemd units (%v); remove any watch unit for a moved fleet by hand (docs/autostart.md)", err))
+	if len(units) == 0 {
 		return
 	}
 	withTransient, err := transientWatchHomes(ctx, env, bin, fleets, installed)
 	if err != nil {
-		r.fail(fmt.Sprintf("could not list Hand's watcher units (%v); remove any watch unit for a moved fleet by hand (docs/autostart.md)", err))
+		r.fail(fmt.Sprintf("could not list Hand's watcher units (%v); remove any watch unit for a stale home by hand (docs/autostart.md)", err))
 		return
 	}
+	registered := registeredHomes(fleets)
 	removed := false
-	for block := range strings.SplitSeq(out, "\n\n") {
-		u, ok := parseWatchUnit(block)
-		if !ok || !strings.HasPrefix(u.description, "Hand watcher for ") || u.command != "watch" || u.home == "" || !sameBinary(u.binary, o.Target) {
+	for _, u := range units {
+		if !u.handOwned(o.Target) {
 			continue
 		}
-		if _, err := os.Stat(u.home); err == nil && !withTransient[u.home] {
+		if _, stale := u.stale(registered, withTransient); !stale {
 			continue
 		}
 		if r.retireWatchUnit(ctx, o, env, bin, u) {
@@ -75,6 +60,94 @@ func (r *Report) retireWatchUnits(ctx context.Context, o Options, fleets []fleet
 	if _, err := systemctlOutput(ctx, env, bin, "daemon-reload"); err != nil {
 		r.fail(fmt.Sprintf("could not reload systemd (%v); run `systemctl --user daemon-reload`", err))
 	}
+}
+
+func StaleWatchUnits(ctx context.Context, env []string, target, root string) ([]WatchUnitProblem, error) {
+	bin, env, ok := userSystemctl(env)
+	if !ok {
+		return nil, nil
+	}
+	units, installed, err := watchUnitCandidates(ctx, env, bin)
+	if err != nil || len(units) == 0 {
+		return nil, err
+	}
+	fleets, err := fleet.List(root)
+	if err != nil {
+		return nil, err
+	}
+	withTransient, err := transientWatchHomes(ctx, env, bin, fleets, installed)
+	if err != nil {
+		return nil, err
+	}
+	registered := registeredHomes(fleets)
+	var out []WatchUnitProblem
+	for _, u := range units {
+		if u.home == "" {
+			continue
+		}
+		missing, stale := u.stale(registered, withTransient)
+		if !stale {
+			continue
+		}
+		out = append(out, WatchUnitProblem{Name: u.name, Home: u.home, Missing: missing, Fixable: u.handOwned(target)})
+	}
+	return out, nil
+}
+
+func watchUnitCandidates(ctx context.Context, env []string, bin string) ([]installedWatchUnit, map[string]bool, error) {
+	out, err := systemctlOutput(ctx, env, bin, "list-unit-files", "--no-legend", "--plain")
+	if err != nil {
+		return nil, nil, err
+	}
+	installed := map[string]bool{}
+	var names []string
+	for line := range strings.Lines(out) {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || !strings.HasPrefix(fields[0], "secondhand-watch-") || !strings.HasSuffix(fields[0], ".service") {
+			continue
+		}
+		installed[fields[0]] = true
+		names = append(names, fields[0])
+	}
+	if len(names) == 0 {
+		return nil, installed, nil
+	}
+	out, err = systemctlOutput(ctx, env, bin, append(append([]string{"show"}, names...), "-p", "Id,LoadState,Transient,FragmentPath,ExecStart,Environment,Description")...)
+	if err != nil {
+		return nil, nil, err
+	}
+	var units []installedWatchUnit
+	for block := range strings.SplitSeq(out, "\n\n") {
+		if u, ok := parseWatchUnit(block); ok {
+			units = append(units, u)
+		}
+	}
+	return units, installed, nil
+}
+
+func registeredHomes(fleets []fleet.Entry) map[string]bool {
+	homes := map[string]bool{}
+	for _, e := range fleets {
+		if e.Home != "" {
+			homes[filepath.Clean(e.Home)] = true
+		}
+	}
+	return homes
+}
+
+func (u installedWatchUnit) handOwned(target string) bool {
+	return strings.HasPrefix(u.description, "Hand watcher for ") && u.command == "watch" && u.home != "" && sameBinary(u.binary, target)
+}
+
+func (u installedWatchUnit) stale(registered, transient map[string]bool) (missing, stale bool) {
+	home := filepath.Clean(u.home)
+	if !filepath.IsAbs(home) {
+		return true, true
+	}
+	if _, err := os.Stat(home); err != nil {
+		return true, true
+	}
+	return false, !registered[home] || transient[home]
 }
 
 func (r *Report) retireWatchUnit(ctx context.Context, o Options, env []string, bin string, u installedWatchUnit) bool {
@@ -128,7 +201,7 @@ func transientWatchHomes(ctx context.Context, env []string, bin string, fleets [
 		}
 		home, ok := byUnit[fields[0]]
 		if ok && !installed[fields[0]] {
-			homes[home] = true
+			homes[filepath.Clean(home)] = true
 		}
 	}
 	return homes, nil
