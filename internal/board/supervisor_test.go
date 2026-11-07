@@ -528,7 +528,7 @@ func TestAFreshSupervisorSaysWhyInChat(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	ctx := context.Background()
-	why := "resumes s0; the fleet moved from /old to /new, so a session recorded there cannot resume in the new home and Hand started a new one"
+	why := "continues s0; the fleet moved from /old to /new, so a session recorded there cannot resume in the new home and Hand started a new one"
 	if err := fx.st.NoteSupervisor(ctx, 1, "fresh", why); err != nil {
 		t.Fatal(err)
 	}

@@ -158,8 +158,13 @@ func newMovedSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 
 func moveSupervisorFleet(t *testing.T, h *harness) string {
 	t.Helper()
+	return moveSupervisorFleetTo(t, h, "fleet-personal")
+}
+
+func moveSupervisorFleetTo(t *testing.T, h *harness, name string) string {
+	t.Helper()
 	h.advance(time.Minute)
-	dest := filepath.Join(filepath.Dir(h.home), "fleet-personal")
+	dest := filepath.Join(filepath.Dir(h.home), name)
 	h.ok("fleet", "move", "--from", h.home, "--yes", dest)
 	h.home, h.cwd = dest, dest
 	return dest
@@ -183,7 +188,7 @@ func TestSupervisorResumeStartsFreshAfterTheFleetMoved(t *testing.T) {
 	fresh := argv[3]
 	has(t, "resume", out, "supervisor: s2", "status: running", "session: "+fresh)
 	why := field(out, "fresh")
-	if !strings.Contains(why, "resumes s1") || !strings.Contains(why, "moved from "+old+" to "+dest) {
+	if !strings.Contains(why, "continues s1") || !strings.Contains(why, "moved from "+old+" to "+dest) {
 		t.Fatalf("fresh = %q", why)
 	}
 	if prompt := argv[len(argv)-1]; !strings.Contains(prompt, "You continue s1, whose session cannot resume after the fleet moved from "+old+" to "+dest) {
@@ -199,6 +204,7 @@ func TestSupervisorResumeStartsFreshAfterTheFleetMoved(t *testing.T) {
 func TestSupervisorResumeKeepsASessionStartedAfterTheMove(t *testing.T) {
 	h, rt := newMovedSupervisorFixture(t)
 	moveSupervisorFleet(t, h)
+	h.advance(time.Minute)
 	startClaudeSupervisor(h)
 	session := rt.lastCreate().Command[3]
 	h.ok("supervisor", "stop")
@@ -244,7 +250,141 @@ func TestSupervisorResumeReplacesASessionThatPredatesTheMove(t *testing.T) {
 	if slices.Contains(argv, "--resume") || slices.Contains(argv, session) {
 		t.Fatalf("argv = %q, want a fresh session, not %s", argv, session)
 	}
-	if why := field(out, "fresh"); !strings.Contains(why, "resumes s2") {
+	if why := field(out, "fresh"); !strings.Contains(why, "continues s2") {
+		t.Fatalf("fresh = %q", why)
+	}
+}
+
+func TestSupervisorResumeAfterAFailedFreshStartSucceeds(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "stop")
+	moveSupervisorFleet(t, h)
+	rt.srv.Handle("terminal.backend.create", func(json.RawMessage) (any, error) {
+		return nil, fakeuhp.Fail{Code: "spawn_failed", Message: "no pty"}
+	})
+	if _, errOut, code := h.run("supervisor", "resume"); code == 0 {
+		t.Fatalf("failed fresh resume code=0 stderr=%q", errOut)
+	}
+	rt.srv.Handle("terminal.backend.create", rt.create)
+	out := h.ok("supervisor", "resume")
+	argv := rt.lastCreate().Command
+	if slices.Contains(argv, "--resume") {
+		t.Fatalf("argv = %q, want a fresh session", argv)
+	}
+	has(t, "resume", out, "supervisor: s3", "status: running")
+	if why := field(out, "fresh"); !strings.Contains(why, "continues s1") {
+		t.Fatalf("fresh = %q", why)
+	}
+}
+
+func wakeCursor(t *testing.T, h *harness) int64 {
+	t.Helper()
+	m := regexp.MustCompile(`wake_cursor: ([0-9]+)`).FindStringSubmatch(h.ok("supervisor", "show"))
+	if m == nil {
+		t.Fatal("supervisor show has no wake_cursor")
+	}
+	n, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func watchSupervisor(t *testing.T, h *harness, rt *fakeRuntime, flags ...string) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.runCtx(ctx, append([]string{"watch"}, flags...)...)
+	}()
+	eventually(t, func() bool { return rt.srv.Subscribers() == 1 })
+	stop := sync.OnceFunc(func() {
+		cancel()
+		<-done
+		eventually(t, func() bool { return rt.srv.Subscribers() == 0 })
+	})
+	t.Cleanup(stop)
+	return stop
+}
+
+func TestSupervisorFreshStartKeepsPendingWakes(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	cursor := wakeCursor(t, h)
+	h.ok("supervisor", "stop")
+	st := openStore(t, h)
+	if err := st.NoteSupervisor(context.Background(), 1, "stalled", "idle 20m"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	moveSupervisorFleet(t, h)
+	out := h.ok("supervisor", "resume")
+	if why := field(out, "fresh"); !strings.Contains(why, "continues s1") {
+		t.Fatalf("fresh = %q", why)
+	}
+	if got := wakeCursor(t, h); got != cursor {
+		t.Fatalf("wake_cursor = %d, want the old %d", got, cursor)
+	}
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	stop := watchSupervisor(t, h, rt, "--every", "1h")
+	eventually(t, func() bool { return len(rt.prompts()) == 1 })
+	stop()
+	if wake := rt.prompts()[0]; !strings.HasPrefix(wake, "[hand v1 wake]\n") || !strings.Contains(wake, "supervisor.stalled s1: idle 20m") {
+		t.Fatalf("wake = %q", wake)
+	}
+	if got := wakeCursor(t, h); got <= cursor {
+		t.Fatalf("wake_cursor = %d after delivery, want more than %d", got, cursor)
+	}
+}
+
+func TestSupervisorResumeStartsFreshAfterASecondMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	origin := h.home
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "stop")
+	first := moveSupervisorFleet(t, h)
+	has(t, "start", h.ok("supervisor", "start"), "supervisor: s2", "status: running")
+	session := rt.lastCreate().Command[3]
+	h.ok("supervisor", "stop")
+	dest := moveSupervisorFleetTo(t, h, "fleet-archive")
+	out := h.ok("supervisor", "resume")
+	argv := rt.lastCreate().Command
+	if slices.Contains(argv, "--resume") || slices.Contains(argv, session) {
+		t.Fatalf("argv = %q, want a fresh session, not %s", argv, session)
+	}
+	why := field(out, "fresh")
+	if !strings.Contains(why, "continues s2") || !strings.Contains(why, "moved from "+first+" to "+dest) {
+		t.Fatalf("fresh = %q", why)
+	}
+	if strings.Contains(why, "moved from "+origin) {
+		t.Fatalf("fresh = %q, want the second move", why)
+	}
+}
+
+func TestAnOmpSupervisorStartsFreshAfterTheMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "status: running")
+	argv := rt.lastCreate().Command
+	prompt := argv[len(argv)-1]
+	h.ok("supervisor", "stop")
+	old := h.home
+	dest := moveSupervisorFleet(t, h)
+	id := "01a1abdf-088f-707d-8973-c784c54b54ee"
+	ompConversation(t, ompSessions(t, h), id, h.home, prompt, time.Now())
+	out := h.ok("supervisor", "resume")
+	got := rt.lastCreate().Command
+	if slices.Contains(got, "--resume") || slices.Contains(got, id) {
+		t.Fatalf("argv = %q, want a fresh session, not %s", got, id)
+	}
+	if !strings.Contains(got[len(got)-1], "You continue s1") {
+		t.Fatalf("prompt = %q", got[len(got)-1])
+	}
+	why := field(out, "fresh")
+	if !strings.Contains(why, "continues s1") || !strings.Contains(why, "moved from "+old+" to "+dest) {
 		t.Fatalf("fresh = %q", why)
 	}
 }
