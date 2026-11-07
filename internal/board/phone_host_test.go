@@ -21,20 +21,21 @@ import (
 var phoneEpoch = time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 
 type phoneHost struct {
-	t        *testing.T
-	loopback bool
-	fleets   []railFleet
-	h        *board.Host
-	mu       sync.Mutex
-	now      time.Time
-	opened   map[string]int
-	proofs   map[string]int
-	lists    map[string]int
-	revokes  map[string]int
-	bare     map[string]bool
-	down     map[string]bool
-	gone     map[string]bool
-	paths    map[string]string
+	t         *testing.T
+	loopback  bool
+	fleets    []railFleet
+	h         *board.Host
+	mu        sync.Mutex
+	now       time.Time
+	opened    map[string]int
+	proofs    map[string]int
+	lists     map[string]int
+	revokes   map[string]int
+	bare      map[string]bool
+	down      map[string]bool
+	gone      map[string]bool
+	paths     map[string]string
+	closePeer func(string) int
 }
 
 type counted struct {
@@ -139,7 +140,7 @@ func (p *phoneHost) restart() {
 			p.mu.Lock()
 			p.opened[id]++
 			p.mu.Unlock()
-			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock})
+			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer})
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil
 			}

@@ -140,6 +140,7 @@ type Options struct {
 	Models     harness.Options
 	Phone      func(context.Context) PhoneLink
 	Iroh       func() sidecar.Status
+	ClosePeer  func(string) int
 }
 
 type Board struct {
@@ -195,6 +196,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /report/{id}/ack", b.ack)
 	b.mux.HandleFunc("GET /connect", b.connect)
 	b.mux.HandleFunc("POST /connect/code", b.connectCode)
+	b.mux.HandleFunc("POST /connect/app", b.connectApp)
 	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)
 	b.mux.HandleFunc("POST /connect/revoke/in", b.connectRevokePhone(false))
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))

@@ -6,8 +6,10 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -127,13 +129,33 @@ func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
 		secret = strings.TrimSpace(string(b))
 	}
 	page := phonePage(t, fleetURL, token)
-	for _, want := range []string{"Phone access over iroh is online", irohID, "No phone can pair over iroh yet", `data-tone="pass"`} {
+	for _, want := range []string{"Phone access over iroh is online", irohID, "The Hand app can pair with this laptop", `data-tone="pass"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the Phone page lacks %q", want)
 		}
 	}
 	if strings.Contains(page, secret) {
 		t.Fatal("the Phone page shows the peer secret")
+	}
+	csrf := regexp.MustCompile(`name="csrf" value="([0-9a-f]+)"`).FindStringSubmatch(page)
+	id := filepath.Base(fleetURL)
+	if csrf == nil {
+		t.Fatal("the Phone page holds no form token")
+	}
+	req, err := http.NewRequest("POST", fleetURL+"/connect/app", strings.NewReader(url.Values{"csrf": {csrf[1]}}.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appPage, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(string(appPage), "handboard://c#v=1&amp;e="+irohID+"&amp;f="+id+"&amp;c=") || !strings.Contains(string(appPage), "&amp;r=https%3A%2F%2Frelay.test.%2F") || !strings.Contains(string(appPage), `<svg class="qr"`) {
+		t.Fatalf("the Hand app link = %d:\n%s", res.StatusCode, appPage)
 	}
 	if got := fx.log0(); strings.Contains(got, secret) || strings.Contains(got, "stdin closed") {
 		t.Fatalf("sidecar log while the board runs = %q", got)

@@ -239,11 +239,22 @@ func sessionFaults(f sessionFault, viaProxy bool) string {
 	case f == phoneGone:
 		return "This phone is no longer paired with this fleet. Pair it again from the Board on your laptop: Phone, in its menu."
 	case f == phoneOther:
-		return "This phone was paired for another tailnet login, or reached the Board another way. Open the address it was paired with, or pair it again from your laptop."
+		return "This phone was paired on another connection, or reached the Board another way. Open the address it was paired with, or pair it again from your laptop."
 	case viaProxy:
 		return "Pair this phone first: on your laptop, open this fleet's Board, choose Phone in its menu, and show a pairing code."
 	}
 	return "Open this fleet with `hand open` from inside it. On another device or browser, paste the link `hand open --print` prints."
+}
+
+func (b *Board) closePeers(devices ...state.Device) {
+	if b.o.ClosePeer == nil {
+		return
+	}
+	for _, d := range devices {
+		if id, ok := strings.CutPrefix(d.Login, "iroh:"); ok {
+			b.o.ClosePeer(id)
+		}
+	}
 }
 
 func (b *Board) lapsed(d state.Device) bool { return b.now().After(d.PairedAt.Add(phoneLife)) }
@@ -424,7 +435,7 @@ func irohView(st sidecar.Status) *irohInfo {
 		if st.Relay == "none" {
 			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a phone elsewhere cannot dial it."}
 		}
-		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. No phone can pair over iroh yet."}
+		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. The Hand app can pair with this laptop."}
 	case sidecar.Starting:
 		text := "starting."
 		if st.Reason != "" {
@@ -449,6 +460,13 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 		}
 		entries, unread := b.phoneEntries(ctx, own)
 		data["Devices"], data["Unread"] = entries, joined(unread)
+		var named []string
+		for _, d := range own {
+			if strings.HasPrefix(d.Login, "iroh:") {
+				named = append(named, d.Name)
+			}
+		}
+		data["AppPaired"] = joined(named)
 		link := PhoneLink{}
 		if b.o.Phone != nil {
 			link = b.o.Phone(ctx)
@@ -533,6 +551,34 @@ func (b *Board) connectCode(w http.ResponseWriter, r *http.Request) {
 	b.connectPage(w, r, http.StatusOK, extra)
 }
 
+func (b *Board) connectApp(w http.ResponseWriter, r *http.Request) {
+	if s, _ := r.Context().Value(sessionKey{}).(session); s.Device != nil {
+		b.fail(w, http.StatusForbidden, "a paired phone cannot pair another device; show the link on your laptop")
+		return
+	}
+	var st sidecar.Status
+	if b.o.Iroh != nil {
+		st = b.o.Iroh()
+	}
+	if st.State != sidecar.Ready || st.ID == "" || st.Relay == "" || st.Relay == "none" {
+		b.connectPage(w, r, http.StatusBadRequest, map[string]any{"AppError": "Phone access over iroh is not ready with a relay, so a phone cannot reach this laptop yet. Start the Board with `--iroh`, or check the sidecar's state above."})
+		return
+	}
+	if _, err := appLink(st.ID, st.Relay, b.fleetID(), "K7QM3XRD2P"); err != nil {
+		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This laptop cannot show a pairing link: its iroh relay address does not fit one."})
+		return
+	}
+	code, until := b.mint(b.now(), []string{b.fleetID()})
+	link, err := appLink(st.ID, st.Relay, b.fleetID(), code)
+	if err != nil {
+		b.connectPage(w, r, http.StatusInternalServerError, map[string]any{"AppError": "This laptop cannot show a pairing link: its iroh relay address does not fit one."})
+		return
+	}
+	qr, _ := qrSVG(link, "QR code for the Hand app pairing link")
+	w.Header().Set("Cache-Control", "no-store")
+	b.connectPage(w, r, http.StatusOK, map[string]any{"AppLink": link, "AppQR": qr, "AppExpires": until})
+}
+
 func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	s, _ := r.Context().Value(sessionKey{}).(session)
 	id, err := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
@@ -544,9 +590,13 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
 		return
 	}
-	if _, err := b.st.RevokeDevice(r.Context(), id); err != nil && !errors.Is(err, state.ErrNotFound) {
-		b.failErr(w, err)
-		return
+	if d, err := b.st.RevokeDevice(r.Context(), id); err != nil {
+		if !errors.Is(err, state.ErrNotFound) {
+			b.failErr(w, err)
+			return
+		}
+	} else {
+		b.closePeers(d)
 	}
 	b.phones.mu.Lock()
 	delete(b.phones.seen, id)

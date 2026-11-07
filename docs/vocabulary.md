@@ -530,15 +530,15 @@ The opt-in of `hand board --iroh`, off by default and refused beside a `--addr` 
 
 ### Hand's Android Companion
 
-The phone app that will dial the laptop's [hand-iroh](#hand-iroh) endpoint ID and show the Board in a web view. It is for Android only; Hand's iOS Companion is deferred. Neither exists yet, and no page in this build pairs a phone over iroh.
+The phone app that dials the laptop's [hand-iroh](#hand-iroh) endpoint ID and shows the Board in a web view. It is for Android only; the Android app is built outside this repository against the same [contract](#companion-contract). Hand's iOS Companion is deferred, and nothing targets iOS.
 
 ### Companion contract
 
-The page [`companion.md`](companion.md) and the test vectors beside it, which fix what a phone app may rely on when it reaches the [peer listener](#peer-listener) through the [hand-iroh](#hand-iroh) sidecar: the protocol name `hand-board`, one bidirectional stream per TCP connection, the close and reset codes 1 to 5, the caps, the [companion link](#companion-link), what the app opens, and the version rule. It has one whole-number version, 1 today. The app is a separate program built against it; the Board's side of pairing over it, the Phone page's choice and the effect of revoking on an open connection, is not built yet, and the page marks which statements are today's code and which are that step. iOS is deferred.
+The page [`companion.md`](companion.md) and the test vectors beside it, which fix what a phone app may rely on when it reaches the [peer listener](#peer-listener) through the [hand-iroh](#hand-iroh) sidecar: the protocol name `hand-board`, one bidirectional stream per TCP connection, the close and reset codes 1 to 5, the caps, the [companion link](#companion-link), what the app opens, and the version rule. It has one whole-number version, 1 today. The app is a separate program built against it; the Board's side, the Phone page's choice and the effect of revoking on an open connection, is built, and the page marks what remains of step 3. iOS is deferred.
 
 ### Companion link
 
-What the Phone page will show, as a QR code and as text, to pair the Companion app: `handboard://c#v=1&e=ENDPOINTID&f=FLEETID&c=CODE`, and `&r=RELAY` (a percent-encoded relay URL) when the laptop does not use the public relays. It is at most 213 bytes, and everything in it is in the fragment, so a query, a server or a log never holds the [pairing code](#pairing-code). The app checks it against 15 reject rules in a fixed order and, once the user confirms, opens `http://localhost:PORT/<fleet id>/pair#CODE` in its web view, with the name `localhost` and never an IP address.
+What the Phone page shows, as a QR code and as text, to pair the Companion app: `handboard://c#v=1&e=ENDPOINTID&f=FLEETID&c=CODE`, and `&r=RELAY` (a percent-encoded relay URL) when the laptop does not use the public relays. It is at most 213 bytes, and everything in it is in the fragment, so a query, a server or a log never holds the [pairing code](#pairing-code). The app checks it against 15 reject rules in a fixed order and, once the user confirms, opens `http://localhost:PORT/<fleet id>/pair#CODE` in its web view, with the name `localhost` and never an IP address.
 
 ### Board app
 

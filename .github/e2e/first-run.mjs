@@ -224,7 +224,12 @@ async function iroh(box, made) {
   const laptop = new Client(link.origin);
   await laptop.get(`${link.pathname}${link.search}`);
   const connect = await laptop.get(`/${id}/connect`);
-  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. No phone can pair over iroh yet\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
+  matches(textOf(connect.text), new RegExp(`Phone access over iroh is online\\. The Hand app can pair with this laptop\\. Endpoint ID ${endpoint}`), 'the Phone page shows the sidecar ready, with its endpoint ID');
+  const csrf = connect.text.match(/name="csrf" value="([^"]+)"/)?.[1];
+  const app = await laptop.post(`/${id}/connect/app`, { csrf });
+  equal(app.status, 200, 'the laptop asks for a Hand app link');
+  matches(textOf(app.text), new RegExp(`handboard://c#v=1&e=${endpoint}&f=${id}&c=[0-9A-Z]{10}&r=https%3A%2F%2Frelay\\.example\\.test\\.%2F`), 'the Hand app link is canonical, with this fleet and the relay');
+  matches(app.text, /<svg class="qr"/, 'the Hand app link has a QR code');
   const args = fs.readFileSync(stub('stub.args'), 'utf8').split('\n');
   equal(args.slice(0, 6).filter((_, i) => i % 2 === 0), ['--board', '--secret-file', '--key-dir'], 'the sidecar was started with the board address, the secret file and the key folder');
   equal([path.basename(args[3]), path.basename(args[5]), path.dirname(args[3]) === path.dirname(args[5])], ['board.peer', 'iroh', true], 'the secret file and the key folder sit together in the Hand home');

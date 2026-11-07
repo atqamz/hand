@@ -35,6 +35,7 @@ func newPeerRig(t *testing.T, names ...string) *peerRig {
 	t.Helper()
 	p := newPhoneHost(t, true, names...)
 	peer := board.NewPeer(p.h, peerSecret)
+	p.closePeer = peer.CloseEndpoint
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -234,8 +235,12 @@ func TestARevokedPeerIsRefusedOnTheConnectionItAlreadyHolds(t *testing.T) {
 		t.Fatalf("paired = %d", rep.Code)
 	}
 	r.revoke(f, phone)
-	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
-		t.Fatalf("a revoked peer on its open connection = %d", rep.Code)
+	if !c.closed() {
+		t.Fatal("revoke left the connection open")
+	}
+	again := r.as(peerA)
+	if rep := again.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a revoked peer on a new connection = %d", rep.Code)
 	}
 }
 
@@ -767,7 +772,7 @@ func TestAMainListenerClientCannotSpendAPeersPairingTries(t *testing.T) {
 	}
 }
 
-func TestARevokedPeerIsCappedAgainOnTheConnectionItHolds(t *testing.T) {
+func TestARevokedPeerIsCappedAgainOnANewConnection(t *testing.T) {
 	for name, path := range map[string]string{"a private page": "/%s/", "the pair page": "/%s/pair"} {
 		r := newPeerRig(t, "alpha")
 		f := r.fleets[0]
@@ -779,10 +784,16 @@ func TestARevokedPeerIsCappedAgainOnTheConnectionItHolds(t *testing.T) {
 			}
 		}
 		r.revoke(f, phone)
-		c.do("GET", strings.Replace(path, "%s", f.id, 1), nil, nil, phone)
+		if !c.closed() {
+			t.Fatalf("%s: revoke left the connection open", name)
+		}
+		again := r.as(peerA)
+		if rep := again.do("GET", strings.Replace(path, "%s", f.id, 1), nil, nil, phone); rep.Code == http.StatusTooManyRequests {
+			t.Fatalf("%s: the first request on the new connection was already capped", name)
+		}
 		capped := false
 		for i := 0; i < 40 && !capped; i++ {
-			rep, err := c.send("GET", "/"+f.id+"/pair", nil, nil)
+			rep, err := again.send("GET", "/"+f.id+"/pair", nil, nil)
 			capped = err != nil || rep.Code == http.StatusTooManyRequests
 		}
 		if !capped {
@@ -849,5 +860,71 @@ func TestOnlyARealFleetsPairPageIsOpenToAnUnpairedPeer(t *testing.T) {
 		if rep := r.as(peerA).do("GET", path, nil, nil); rep.Code != http.StatusForbidden {
 			t.Fatalf("%s = %d, want the same refusal as any private path", path, rep.Code)
 		}
+	}
+}
+
+func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.T) {
+	for name, revoke := range map[string]struct {
+		path string
+		form func(f railFleet, label string) url.Values
+	}{
+		"revoke": {"/connect/revoke/in", func(f railFleet, label string) url.Values {
+			return url.Values{"csrf": {f.token}, "phone": {label}, "fleet": {f.id}}
+		}},
+		"revoke everywhere": {"/connect/revoke/everywhere", func(f railFleet, label string) url.Values {
+			return url.Values{"csrf": {f.token}, "phone": {label}}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newPeerRig(t, "alpha")
+			f := r.fleets[0]
+			c := r.as(peerA)
+			phone := r.mustPair(c, f)
+			if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+				t.Fatalf("a paired connection = %d", rep.Code)
+			}
+			devices := r.devicesOf(f)
+			if len(devices) != 1 {
+				t.Fatalf("devices = %+v", devices)
+			}
+			label := devices[0].Phone
+			other := r.as(peerB)
+			otherPhone := r.mustPair(other, f)
+			rec := r.send("POST", "/"+f.id+revoke.path, revoke.form(f, label), []*http.Cookie{r.laptop(f)}, nil)
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("%s = %d:\n%s", revoke.path, rec.Code, rec.Body.String())
+			}
+			if !c.closed() {
+				t.Fatal("revoke left the endpoint's connection open")
+			}
+			if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherPhone); rep.Code != http.StatusOK {
+				t.Fatalf("revoking one endpoint closed another: %d", rep.Code)
+			}
+			again := r.as(peerA)
+			if rep := again.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+				t.Fatalf("a revoked endpoint reached the board: %d", rep.Code)
+			}
+			if rep := again.do("GET", "/"+f.id+"/tasks", nil, nil, phone); rep.Code != http.StatusForbidden {
+				t.Fatalf("a revoked endpoint reached the tasks: %d", rep.Code)
+			}
+			pair := again.do("GET", "/"+f.id+"/pair", nil, nil)
+			if pair.Code != http.StatusOK {
+				t.Fatalf("a revoked endpoint could not reach the pair page: %d", pair.Code)
+			}
+			asset := staticRe.FindString(pair.Body)
+			if asset == "" {
+				t.Fatal("the pair page loads no asset")
+			}
+			if rep := again.do("GET", asset, nil, nil); rep.Code != http.StatusOK {
+				t.Fatalf("a revoked endpoint could not reach %s: %d", asset, rep.Code)
+			}
+			fresh, rep := r.pairOver(again, f, nil)
+			if rep.Code != http.StatusSeeOther || fresh == nil {
+				t.Fatalf("a revoked endpoint could not pair again: %d", rep.Code)
+			}
+			if rep := again.do("GET", "/"+f.id+"/", nil, nil, fresh); rep.Code != http.StatusOK {
+				t.Fatalf("a repaired endpoint = %d", rep.Code)
+			}
+		})
 	}
 }

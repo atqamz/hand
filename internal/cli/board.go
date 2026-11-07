@@ -91,18 +91,24 @@ func cmdBoard(r *runner, args []string) error {
 		}
 	}
 	transcripts := &transcript.Reader{Paths: r.transcriptPaths()}
+	var peer *board.Peer
 	host := board.NewHost(board.HostOptions{
 		Loopback: loopback,
 		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
-			return r.openBoard(id, home, local, loopback, transcripts, irohStatus)
+			return r.openBoard(id, home, local, loopback, transcripts, irohStatus, func(endpoint string) int {
+				if peer == nil {
+					return 0
+				}
+				return peer.CloseEndpoint(endpoint)
+			})
 		},
 		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
 		Valid: func(id, token string) bool { return boardTokenIs(root, id, token) },
 	})
 	defer host.Close()
 	srv := &http.Server{Handler: host, ReadHeaderTimeout: 10 * time.Second}
-	peer := board.NewPeer(host, secret)
+	peer = board.NewPeer(host, secret)
 	go func() {
 		<-ctx.Done()
 		sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -229,7 +235,7 @@ func boardHome(root, id string) (string, error) {
 	return home, nil
 }
 
-func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status) (http.Handler, io.Closer, error) {
+func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string) int) (http.Handler, io.Closer, error) {
 	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
 	if err != nil {
 		return nil, nil, err
@@ -251,6 +257,7 @@ func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *t
 		Base:       "/" + id,
 		Phone:      func(ctx context.Context) board.PhoneLink { return r.phoneLink(ctx, local) },
 		Iroh:       iroh,
+		ClosePeer:  closePeer,
 	}}
 	if err == nil {
 		_, err = fb.current()

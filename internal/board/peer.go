@@ -36,11 +36,13 @@ type peerKey struct{}
 
 type peerConn struct {
 	net.Conn
+	peer     *Peer
 	br       *bufio.Reader
 	secret   string
 	once     sync.Once
 	err      error
 	id       string
+	closed   atomic.Bool
 	read     atomic.Int64
 	requests atomic.Int64
 	paired   atomic.Bool
@@ -72,10 +74,18 @@ func (c *peerConn) Read(p []byte) (int, error) {
 	}
 	n, err := c.br.Read(p)
 	if c.read.Add(int64(n)) > peerBytes && !c.paired.Load() {
-		_ = c.Conn.Close()
+		_ = c.Close()
 		return 0, silentClose
 	}
 	return n, err
+}
+
+func (c *peerConn) Close() error {
+	c.closed.Store(true)
+	if c.peer != nil {
+		c.peer.untrack(c)
+	}
+	return c.Conn.Close()
 }
 
 func (c *peerConn) open() {
@@ -92,16 +102,20 @@ func (c *peerConn) open() {
 	line, err := c.br.ReadSlice('\n')
 	f := strings.Split(strings.TrimSuffix(string(line), "\n"), " ")
 	if err != nil || len(f) != 4 || f[1] != "1" || !peerID.MatchString(f[2]) || c.secret == "" || subtle.ConstantTimeCompare([]byte(f[3]), []byte(c.secret)) != 1 {
-		_ = c.Conn.Close()
+		_ = c.Close()
 		c.err = silentClose
 		return
 	}
 	c.id = f[2]
+	if c.peer != nil {
+		c.peer.track(c)
+	}
 }
 
 type peerListener struct {
 	net.Listener
 	secret string
+	peer   *Peer
 }
 
 func (l peerListener) Accept() (net.Conn, error) {
@@ -109,17 +123,19 @@ func (l peerListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &peerConn{Conn: c, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret}, nil
+	return &peerConn{Conn: c, peer: l.peer, br: bufio.NewReaderSize(c, prefaceMax), secret: l.secret}, nil
 }
 
 type Peer struct {
 	h      *Host
 	srv    *http.Server
 	secret string
+	mu     sync.Mutex
+	conns  map[*peerConn]struct{}
 }
 
 func NewPeer(h *Host, secret string) *Peer {
-	p := &Peer{h: h, secret: secret}
+	p := &Peer{h: h, secret: secret, conns: map[*peerConn]struct{}{}}
 	p.srv = &http.Server{
 		Handler:           p,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -130,7 +146,39 @@ func NewPeer(h *Host, secret string) *Peer {
 	return p
 }
 
-func (p *Peer) Serve(ln net.Listener) error { return p.srv.Serve(peerListener{ln, p.secret}) }
+func (p *Peer) Serve(ln net.Listener) error { return p.srv.Serve(peerListener{ln, p.secret, p}) }
+
+func (p *Peer) track(c *peerConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !c.closed.Load() {
+		p.conns[c] = struct{}{}
+	}
+}
+
+func (p *Peer) untrack(c *peerConn) {
+	p.mu.Lock()
+	delete(p.conns, c)
+	p.mu.Unlock()
+}
+
+func (p *Peer) CloseEndpoint(id string) int {
+	if id == "" {
+		return 0
+	}
+	p.mu.Lock()
+	var live []*peerConn
+	for c := range p.conns {
+		if c.id == id {
+			live = append(live, c)
+		}
+	}
+	p.mu.Unlock()
+	for _, c := range live {
+		_ = c.Close()
+	}
+	return len(live)
+}
 
 func (p *Peer) Shutdown(ctx context.Context) error { return p.srv.Shutdown(ctx) }
 
