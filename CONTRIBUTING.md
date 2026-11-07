@@ -6,7 +6,7 @@ Hand is a personal tool for one operator, under the [MIT license](LICENSE). Chan
 
 - For anything beyond a small fix, open an issue first and say what you want to change. Blank issues are off, so use the [bug form](https://github.com/atqamz/hand/issues/new?template=bug.yml) for a change that is not a bug too. The dogfood forms are only for failed real-machine checks.
 - Send one pull request per change. Say in it what changed and why.
-- Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) first, then run the commands in [Development](README.md#development) before you push: `gofmt -l .`, `go vet ./...` and `go test -race ./...`.
+- Read [`AGENTS.md`](AGENTS.md) and [`docs/spec.md`](docs/spec.md) first, then run the commands in [Development](README.md#development) before you push: `gofmt -l .`, `go vet ./...` and `go test -race ./...`. A local Go older than 1.27.3 downloads that toolchain automatically (`GOTOOLCHAIN=auto`, the default); with `GOTOOLCHAIN=local`, install 1.27.3 yourself.
 - Report a vulnerability as [`SECURITY.md`](SECURITY.md) says, never in a pull request.
 
 ## Sign off your commits
