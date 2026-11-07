@@ -53,6 +53,7 @@ func TestCodeBlocksGetACopyButtonFromTheScript(t *testing.T) {
 		`outcome(button, "failed", "Copy failed")`,
 		`button.dataset.state = state;`,
 		`button.dataset.tone = state === "copied" ? "pass" : "fail";`,
+		`delete button.dataset.tone;`,
 		"enhance(root);",
 		"copyKey(document.activeElement, el)",
 		`copies(el).find((c) => copyKey(c, el) === copyFocus)?.focus();`,

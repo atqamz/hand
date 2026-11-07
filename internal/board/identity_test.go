@@ -277,9 +277,15 @@ func TestTheFaviconsAreHashedSVG(t *testing.T) {
 
 func TestEverySlugStateHasItsColour(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, s := range []string{"running", "waiting", "failing", "passing", "ready", "working"} {
+	for s, want := range map[string]string{
+		"running": "pass", "waiting": "wait", "failing": "fail",
+		"passing": "pass", "ready": "pass", "working": "accent",
+	} {
 		tone := board.ToneForTest(s)
-		if !strings.Contains(css, ".badge[data-tone="+tone+"]") {
+		if tone != want {
+			t.Errorf("tone for %s = %s, want %s", s, tone, want)
+		}
+		if !strings.Contains(css, ".badge[data-tone="+want+"]") {
 			t.Errorf("board.css has no badge tone for the %s state", s)
 		}
 	}
