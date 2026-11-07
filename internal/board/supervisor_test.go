@@ -348,7 +348,18 @@ func claudeLog(t *testing.T, fx *fixture, lines []string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, claudeSession+".jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+	f, err := os.CreateTemp(dir, claudeSession+".*.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(strings.Join(lines, "\n") + "\n")
+	if _, err := f.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(f.Name(), filepath.Join(dir, claudeSession+".jsonl")); err != nil {
 		t.Fatal(err)
 	}
 }
