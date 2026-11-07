@@ -18,7 +18,7 @@ import (
 
 func TestMain(m *testing.M) {
 	fakebin.Main(fakeBehaviors())
-	*cli.TrustGrace = 0
+	*cli.TrustGrace, *cli.QuietGrace = 0, 0
 	*cli.PollEvery = 10 * time.Millisecond
 	*cli.SettleQuiet = 50 * time.Millisecond
 	*cli.SubmitPoll = 10 * time.Millisecond

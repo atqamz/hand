@@ -34,6 +34,8 @@ const longTurn = 60 * time.Minute
 
 const longDetail = "working for 60m"
 
+var quietGrace = 30 * time.Second
+
 const notifyTimeout = 10 * time.Second
 
 var reconnectDelay = 500 * time.Millisecond
@@ -730,6 +732,17 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		}
 		if status == "idle" && a.Approve == state.ApproveAsk && !harness.ClaudeIdle(s.Text) {
 			return w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text))
+		}
+		since, _, err := w.st.TurnStart(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		start := since
+		if t != nil {
+			start = t.since
+		}
+		if age := w.r.env.Now().Sub(start); !since.IsZero() && age >= 0 && age < quietGrace {
+			return nil
 		}
 		apiError, _ := harness.APIError(a.Harness, s.Text)
 		kind, detail, err := w.st.RecordQuiet(ctx, a.ID, apiError)
