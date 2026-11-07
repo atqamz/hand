@@ -22,7 +22,12 @@ const (
 	appRelay    = "https://relay.example.test:7842/"
 )
 
-var appCodeRe = regexp.MustCompile(`(?:&amp;|&)c=([0-9A-Z]{10})`)
+var (
+	appCodeRe = regexp.MustCompile(`(?:&amp;|&)c=([0-9A-Z]{10})`)
+	appLinkRe = regexp.MustCompile(`handboard://[^"<\s]+`)
+)
+
+func redactAppPage(page string) string { return appLinkRe.ReplaceAllString(page, "handboard://…") }
 
 func appRig(t *testing.T, st *sidecar.Status) (*phoneRig, string, func() string) {
 	t.Helper()
@@ -54,7 +59,7 @@ func (p *phoneRig) appCode(id string) (string, string) {
 	body := rec.Body.String()
 	m := appCodeRe.FindStringSubmatch(body)
 	if rec.Code != http.StatusOK || m == nil {
-		p.t.Fatalf("connect/app = %d:\n%s", rec.Code, body)
+		p.t.Fatalf("connect/app = %d:\n%s", rec.Code, redactAppPage(body))
 	}
 	return body, m[1]
 }
@@ -68,9 +73,13 @@ func TestTheHandAppLinkIsShownAsTextAndAQRCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	esc := html.EscapeString(want)
-	contains(t, "app page", body, string(qr), `<code class="ref">`+esc+`</code>`,
-		`data-copy="link" data-text="`+esc+`"`,
-		"worth revoking after the phone pairs")
+	for _, want := range []string{string(qr), `<code class="ref">` + esc + `</code>`,
+		`data-copy="link" data-text="` + esc + `"`,
+		"worth revoking after the phone pairs"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("app page missing %q:\n%s", want, redactAppPage(body))
+		}
+	}
 	if rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.laptopAt(id), nil); rec.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("Cache-Control = %q", rec.Header().Get("Cache-Control"))
 	}
@@ -136,6 +145,15 @@ func TestTheHandAppLinkNeedsASidecarWithARelay(t *testing.T) {
 		if strings.Contains(page(), "handboard://") || strings.Contains(page(), "/connect/app") {
 			t.Errorf("%s: the page offers a Hand app link", name)
 		}
+		for text, want := range map[string]string{
+			"starting": "It is starting.",
+			"no relay": "It is running, but it reached no relay, so a phone elsewhere cannot dial it.",
+			"failed":   "It is x.",
+		} {
+			if name == text && !strings.Contains(page(), want) {
+				t.Errorf("%s: the card does not say %q", name, want)
+			}
+		}
 		rec := p.do("POST", "/connect/app", url.Values{"csrf": {token}}, p.laptopAt(id), nil)
 		if rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "handboard://") {
 			t.Errorf("%s: connect/app = %d and shows a link", name, rec.Code)
@@ -154,5 +172,23 @@ func TestTheHandAppFlowLogsNoCodeOrLink(t *testing.T) {
 	p.tryPairAt(id, "AAAAA-AAAAA")
 	if got := buf.String(); strings.Contains(got, code) || strings.Contains(got, "handboard://") {
 		t.Fatalf("the board logged %q", got)
+	}
+}
+
+func TestTheHandAppAndInstallCardsHaveDistinctHeadings(t *testing.T) {
+	p := newPhoneHost(t, true, "alpha")
+	f := p.fleets[0]
+	p.iroh = func() sidecar.Status {
+		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
+	}
+	p.restart()
+	body := p.send("GET", "/"+f.id+"/connect", nil, []*http.Cookie{p.laptop(f)}, proxiedHTS()).Body.String()
+	for _, want := range []string{`<h3 id="handapp-head">Pair the Hand app</h3>`, `aria-labelledby="handapp-head"`, `<h3 id="app-head">Install</h3>`, `aria-labelledby="app-head"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("the Phone page lacks %q", want)
+		}
+	}
+	if got := strings.Count(body, `id="app-head"`); got != 1 {
+		t.Fatalf("the Phone page holds %d id=app-head headings", got)
 	}
 }

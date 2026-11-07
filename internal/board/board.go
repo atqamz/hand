@@ -140,7 +140,7 @@ type Options struct {
 	Models     harness.Options
 	Phone      func(context.Context) PhoneLink
 	Iroh       func() sidecar.Status
-	ClosePeer  func(string) int
+	ClosePeer  func(string)
 }
 
 type Board struct {
@@ -472,6 +472,7 @@ func renderPage(w http.ResponseWriter, status int, name string, data map[string]
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
 	w.WriteHeader(status)
 	_, _ = buf.WriteTo(w)
 }

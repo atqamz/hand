@@ -162,9 +162,9 @@ func (p *Peer) untrack(c *peerConn) {
 	p.mu.Unlock()
 }
 
-func (p *Peer) CloseEndpoint(id string) int {
+func (p *Peer) CloseEndpoint(id string) {
 	if id == "" {
-		return 0
+		return
 	}
 	p.mu.Lock()
 	var live []*peerConn
@@ -177,7 +177,6 @@ func (p *Peer) CloseEndpoint(id string) int {
 	for _, c := range live {
 		_ = c.Close()
 	}
-	return len(live)
 }
 
 func (p *Peer) Shutdown(ctx context.Context) error { return p.srv.Shutdown(ctx) }

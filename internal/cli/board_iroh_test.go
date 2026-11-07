@@ -25,6 +25,10 @@ const (
 	relayURL = "https://relay.test./"
 )
 
+var appLinkRe = regexp.MustCompile(`handboard://[^"<\s]+`)
+
+func redactAppPage(page string) string { return appLinkRe.ReplaceAllString(page, "handboard://…") }
+
 func sidecarMain(args []string) int {
 	p := fakebin.Params()
 	if len(args) == 1 && args[0] == "--version" {
@@ -155,7 +159,7 @@ func TestBoardIrohStartsTheSidecarAsItsChildAndShowsItsState(t *testing.T) {
 	appPage, _ := io.ReadAll(res.Body)
 	_ = res.Body.Close()
 	if res.StatusCode != http.StatusOK || !strings.Contains(string(appPage), "handboard://c#v=1&amp;e="+irohID+"&amp;f="+id+"&amp;c=") || !strings.Contains(string(appPage), "&amp;r=https%3A%2F%2Frelay.test.%2F") || !strings.Contains(string(appPage), `<svg class="qr"`) {
-		t.Fatalf("the Hand app link = %d:\n%s", res.StatusCode, appPage)
+		t.Fatalf("the Hand app link = %d:\n%s", res.StatusCode, redactAppPage(string(appPage)))
 	}
 	if got := fx.log0(); strings.Contains(got, secret) || strings.Contains(got, "stdin closed") {
 		t.Fatalf("sidecar log while the board runs = %q", got)

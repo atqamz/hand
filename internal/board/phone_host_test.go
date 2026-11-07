@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -35,7 +36,8 @@ type phoneHost struct {
 	down      map[string]bool
 	gone      map[string]bool
 	paths     map[string]string
-	closePeer func(string) int
+	closePeer func(string)
+	iroh      func() sidecar.Status
 }
 
 type counted struct {
@@ -140,7 +142,8 @@ func (p *phoneHost) restart() {
 			p.mu.Lock()
 			p.opened[id]++
 			p.mu.Unlock()
-			b := board.New(f.st, f.token, board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer})
+			opts := board.Options{Base: "/" + id, Controls: p.loopback, Now: p.clock, ClosePeer: p.closePeer, Iroh: p.iroh}
+			b := board.New(f.st, f.token, opts)
 			if p.bare[id] {
 				return bare{b}, closer(func() error { return nil }), nil
 			}

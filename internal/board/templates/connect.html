@@ -48,12 +48,12 @@
 </div>
 </div>{{end}}
 </div></section>
-{{if or .Iroh .AppError .AppLink}}<section class="card connect-part" aria-labelledby="app-head">
-<header class="slug"><h3 id="app-head">Pair the Hand app</h3></header>
+{{if or .Iroh .AppError .AppLink}}<section class="card connect-part" aria-labelledby="handapp-head">
+<header class="slug"><h3 id="handapp-head">Pair the Hand app</h3></header>
 <div class="part-body">
 {{with .AppError}}<p class="field-error" role="alert">{{.}}</p>{{end}}
 {{if .Iroh}}{{if eq .Iroh.State "ready"}}<form method="post" action="{{.Base}}/connect/app"><input type="hidden" name="csrf" value="{{.Token}}"><button class="primary">{{if .AppLink}}New code{{else}}Pair the Hand app{{end}}</button></form>
-{{else}}<p>Pairing the Hand app needs the iroh sidecar ready with a relay. It is {{.Iroh.State}}.</p>{{end}}{{end}}
+{{else}}<p>Pairing the Hand app needs the iroh sidecar ready with a relay. It is {{.Iroh.Text}}</p>{{end}}{{end}}
 {{with .AppLink}}<div class="pair-code">
 {{with $.AppQR}}{{.}}{{end}}
 <div class="pair-copy">

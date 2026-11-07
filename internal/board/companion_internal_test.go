@@ -63,30 +63,34 @@ func TestTheEmitterReproducesEveryCanonicalVector(t *testing.T) {
 }
 
 func TestTheEmitterCanonicalisesANonCanonicalVector(t *testing.T) {
+	nonCanonical := 0
 	for _, c := range loadCompanionVectors(t).Valid {
 		if c.Canonical {
 			continue
 		}
+		nonCanonical++
 		relay := ""
 		if c.Parsed.Relay != nil {
 			relay = *c.Parsed.Relay
 		}
 		got, err := appLink(c.Parsed.EndpointID, relay, c.Parsed.Fleet, c.Parsed.Code)
 		if err != nil {
-			t.Fatalf("%s: %v", c.Name, err)
+			t.Errorf("%s: %v", c.Name, err)
+			continue
 		}
 		if got == c.Link {
-			t.Fatalf("%s: the emitter kept the non-canonical link %q", c.Name, c.Link)
+			t.Errorf("%s: the emitter kept the non-canonical link %q", c.Name, c.Link)
 		}
 		if !strings.HasPrefix(got, appLinkHead+"v=1&e=") || strings.Contains(got, "&x_note=") || strings.Contains(got, "&ui=") {
-			t.Fatalf("%s: the emitter wrote %q", c.Name, got)
+			t.Errorf("%s: the emitter wrote %q", c.Name, got)
 		}
 		if c.Parsed.Relay != nil && !strings.Contains(got, "&r="+appEscape(*c.Parsed.Relay)) {
-			t.Fatalf("%s: the emitter dropped the relay: %q", c.Name, got)
+			t.Errorf("%s: the emitter dropped the relay: %q", c.Name, got)
 		}
-		return
 	}
-	t.Fatal("no non-canonical valid vector")
+	if nonCanonical == 0 {
+		t.Fatal("no non-canonical valid vector")
+	}
 }
 
 func TestTheEmitterMovesEachField(t *testing.T) {

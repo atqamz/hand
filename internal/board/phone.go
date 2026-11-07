@@ -590,13 +590,14 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusForbidden, "a paired phone can sign out only itself")
 		return
 	}
+	var revoked *state.Device
 	if d, err := b.st.RevokeDevice(r.Context(), id); err != nil {
 		if !errors.Is(err, state.ErrNotFound) {
 			b.failErr(w, err)
 			return
 		}
 	} else {
-		b.closePeers(d)
+		revoked = &d
 	}
 	b.phones.mu.Lock()
 	delete(b.phones.seen, id)
@@ -604,7 +605,16 @@ func (b *Board) connectRevoke(w http.ResponseWriter, r *http.Request) {
 	if s.Device != nil {
 		http.SetCookie(w, &http.Cookie{Name: b.phoneCookie(r), Path: "/", MaxAge: -1, HttpOnly: true, Secure: secure(r), SameSite: http.SameSiteLaxMode})
 		b.fail(w, http.StatusOK, "This phone is signed out. Pair it again from the Board on your laptop: Phone, in its menu.")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		if revoked != nil {
+			b.closePeers(*revoked)
+		}
 		return
+	}
+	if revoked != nil {
+		b.closePeers(*revoked)
 	}
 	http.Redirect(w, r, b.o.Base+"/connect", http.StatusSeeOther)
 }
@@ -622,7 +632,7 @@ var pairFailure = map[pairResult]struct {
 
 func (b *Board) pairPage(w http.ResponseWriter, r *http.Request, status int, msg, name string) {
 	w.Header().Set("Cache-Control", "no-store")
-	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Neutral": true})
+	b.render(w, status, "pair.html", map[string]any{"Title": "pair", "Page": "", "Error": msg, "Name": name, "Login": tailnetLogin(r), "Peer": peerOf(r) != nil, "Neutral": true})
 }
 
 func (b *Board) pairFleet(ctx context.Context, rd *Redeemed, id string) (Paired, error) {

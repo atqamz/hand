@@ -96,11 +96,10 @@ func cmdBoard(r *runner, args []string) error {
 		Loopback: loopback,
 		Resolve:  func(id string) (string, error) { return boardHome(root, id) },
 		Open: func(id, home string) (http.Handler, io.Closer, error) {
-			return r.openBoard(id, home, local, loopback, transcripts, irohStatus, func(endpoint string) int {
-				if peer == nil {
-					return 0
+			return r.openBoard(id, home, local, loopback, transcripts, irohStatus, func(endpoint string) {
+				if peer != nil {
+					peer.CloseEndpoint(endpoint)
 				}
-				return peer.CloseEndpoint(endpoint)
 			})
 		},
 		List:  func() ([]board.FleetLink, error) { return boardFleets(root) },
@@ -235,7 +234,7 @@ func boardHome(root, id string) (string, error) {
 	return home, nil
 }
 
-func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string) int) (http.Handler, io.Closer, error) {
+func (r *runner) openBoard(id, home, local string, loopback bool, transcripts *transcript.Reader, iroh func() sidecar.Status, closePeer func(string)) (http.Handler, io.Closer, error) {
 	st, err := state.Open(filepath.Join(home, "hand.db"), r.env.Now)
 	if err != nil {
 		return nil, nil, err

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/board"
+	"github.com/atqamz/hand/internal/sidecar"
 )
 
 const peerSecret = "0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -33,7 +34,11 @@ type peerRig struct {
 
 func newPeerRig(t *testing.T, names ...string) *peerRig {
 	t.Helper()
-	p := newPhoneHost(t, true, names...)
+	return servePeerRig(t, newPhoneHost(t, true, names...))
+}
+
+func servePeerRig(t *testing.T, p *phoneHost) *peerRig {
+	t.Helper()
 	peer := board.NewPeer(p.h, peerSecret)
 	p.closePeer = peer.CloseEndpoint
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -926,5 +931,104 @@ func TestRevokeClosesTheEndpointsConnectionsAndLeavesOnlyThePairPage(t *testing.
 				t.Fatalf("a repaired endpoint = %d", rep.Code)
 			}
 		})
+	}
+}
+
+func TestRevokeClosesEveryConnectionOfAnEndpoint(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	first := r.as(peerA)
+	phone := r.mustPair(first, f)
+	second := r.as(peerA)
+	if rep := second.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+		t.Fatalf("a second connection of the paired endpoint = %d", rep.Code)
+	}
+	other := r.as(peerB)
+	otherPhone := r.mustPair(other, f)
+	label := ""
+	for _, d := range r.devicesOf(f) {
+		if d.Login == "iroh:"+peerA {
+			label = d.Phone
+		}
+	}
+	if label == "" {
+		t.Fatal("the paired endpoint holds no device label")
+	}
+	rec := r.send("POST", "/"+f.id+"/connect/revoke/in", url.Values{"csrf": {f.token}, "phone": {label}, "fleet": {f.id}}, []*http.Cookie{r.laptop(f)}, nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("revoke = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	if !first.closed() || !second.closed() {
+		t.Fatal("revoke left a connection of the endpoint open")
+	}
+	if rep := other.do("GET", "/"+f.id+"/", nil, nil, otherPhone); rep.Code != http.StatusOK {
+		t.Fatalf("revoking one endpoint closed another: %d", rep.Code)
+	}
+}
+
+func TestASignOutOverAPeerConnectionIsAcknowledged(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	c := r.as(peerA)
+	phone := r.mustPair(c, f)
+	page := c.do("GET", "/"+f.id+"/connect", nil, nil, phone)
+	csrf := csrfRe.FindStringSubmatch(page.Body)
+	if csrf == nil {
+		t.Fatalf("the phone's own page holds no form token:\n%s", page.Body)
+	}
+	id := strings.SplitN(phone.Value, ".", 2)[0]
+	rep, err := c.send("POST", "/"+f.id+"/connect/revoke", url.Values{"csrf": {csrf[1]}, "id": {id}}, nil, phone)
+	if err != nil {
+		t.Fatalf("signing out over the peer connection: %v", err)
+	}
+	if rep.Code != http.StatusOK || !strings.Contains(rep.Body, "This phone is signed out") {
+		t.Fatalf("the sign-out = %d:\n%s", rep.Code, rep.Body)
+	}
+	if !c.closed() {
+		t.Fatal("the sign-out left the phone's connection open")
+	}
+	if rep := r.as(peerA).do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusForbidden {
+		t.Fatalf("a signed-out phone reopened the board: %d", rep.Code)
+	}
+}
+
+func TestAHandAppCodePairsOverAPeerConnection(t *testing.T) {
+	p := newPhoneHost(t, true, "alpha")
+	f := p.fleets[0]
+	p.iroh = func() sidecar.Status {
+		return sidecar.Status{State: sidecar.Ready, ID: appEndpoint, Relay: appRelay}
+	}
+	p.restart()
+	r := servePeerRig(t, p)
+	rec := r.send("POST", "/"+f.id+"/connect/app", url.Values{"csrf": {f.token}}, []*http.Cookie{r.laptop(f)}, nil)
+	m := appCodeRe.FindStringSubmatch(rec.Body.String())
+	if rec.Code != http.StatusOK || m == nil {
+		t.Fatalf("connect/app = %d:\n%s", rec.Code, redactAppPage(rec.Body.String()))
+	}
+	c := r.as(peerA)
+	rep := c.do("POST", "/"+f.id+"/pair", url.Values{"code": {m[1]}, "name": {"Pixel"}}, nil)
+	var phone *http.Cookie
+	for _, ck := range rep.Cookies {
+		if ck.MaxAge > 0 && strings.Contains(ck.Name, "hand_phone") {
+			phone = ck
+		}
+	}
+	if rep.Code != http.StatusSeeOther || phone == nil {
+		t.Fatalf("pairing the minted app code = %d:\n%s", rep.Code, rep.Body)
+	}
+	if devices := r.devicesOf(f); len(devices) != 1 || devices[0].Login != "iroh:"+peerA {
+		t.Fatalf("the app pairing recorded %+v, want iroh:%s", devices, peerA)
+	}
+	if rep := c.do("GET", "/"+f.id+"/", nil, nil, phone); rep.Code != http.StatusOK {
+		t.Fatalf("the app's paired connection = %d", rep.Code)
+	}
+}
+
+func TestAPairPageOpenedByTheAppNamesTheApp(t *testing.T) {
+	r := newPeerRig(t, "alpha")
+	f := r.fleets[0]
+	page := r.as(peerA).do("GET", "/"+f.id+"/pair", nil, nil)
+	if !strings.Contains(page.Body, "Pairing over the Hand app as iroh:"+peerA+".") || strings.Contains(page.Body, "tailnet login") {
+		t.Fatalf("the app's pair page reads:\n%s", page.Body)
 	}
 }
