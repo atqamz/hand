@@ -142,6 +142,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return rep, err
 	}
+	rep.retireWatchUnits(ctx, o, fleets)
 	server := func(e fleet.Entry) string { return o.serverState(ctx, e, pin, pinned) }
 	current := rep.To.Channel == o.From.Channel && rep.To.Commit == o.From.Commit
 	irohNext := sidecarPath(o.Target, o.OS)
