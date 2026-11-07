@@ -47,3 +47,33 @@ func TestTheTaskPanelDoesNotReadTheTranscript(t *testing.T) {
 		t.Fatalf("the fleet page exports = %q, %v; want 1", b, err)
 	}
 }
+
+func TestTheConversationPageRendersTheGaugeOfItsConversation(t *testing.T) {
+	count := filepath.Join(t.TempDir(), "count")
+	bin := fakebin.Install(t, t.TempDir(), "opencode", "opencode", map[string]string{
+		"args":   "session export --standalone ses_1",
+		"count":  count,
+		"export": scopeExport,
+	})
+	fx := newFixture(t)
+	seed(t, fx.st)
+	fx.options.Transcript = &transcript.Reader{Paths: transcript.Paths{Opencode: bin, OpencodeData: t.TempDir()}}
+	ctx := context.Background()
+	sup, err := fx.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Model: "m", Effort: "low", Argv: []string{"/bin/opencode"}, Session: "ses_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "gen-1", TerminalID: "t1", PaneID: "2", PID: 1, StartMarker: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	h := fx.handler()
+	page := get(t, h, "/supervisor/log")
+	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "run") != 1 {
+		t.Fatalf("the conversation page exports = %q, %v; want 1", b, err)
+	}
+	contains(t, "conversation", page, `class="ctx live"`, "508K")
+	get(t, h, "/task/t1")
+	if b, err := os.ReadFile(count); err != nil || strings.Count(string(b), "run") != 1 {
+		t.Fatalf("the task panel exports = %q, %v; want 1 (the conversation's)", b, err)
+	}
+}

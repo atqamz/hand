@@ -94,7 +94,9 @@ func (b *Board) history(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	b.gaugeData(r.Context(), data)
+	if strip, ok := data["StripData"].(map[string]any); ok && strip != nil {
+		b.gaugeData(r.Context(), strip)
+	}
 	b.render(w, http.StatusOK, "log.html", data)
 }
 
