@@ -1,0 +1,23 @@
+                        ████████████
+                           ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄
+                           ██  ██       ▀▄▄▀ █ █ █ █▄▄▀
+                           ▒▒  ██                  █
+                               ██       v18.18.0
+
+     Tip: Press Alt+P (or /switch) to switch provider, and Ctrl+P to cycle
+                        role models smol -> slow -> etc
+
+────────────────────────────────────────────────────────────────────────────────
+ $ sleep 20
+─── ⣾ Running… (⎋ to cancel) ───────────────────────────────────────────────────
+
+ π > ⬢ DeepSeek V4.1 Flash Ultrafast > 🗑 ompscreen ▶─0.8%───────────────╎┃───1M─
+╰─                                                  ⇧⇥ to change thinking effort
+
+
+
+
+
+
+
+

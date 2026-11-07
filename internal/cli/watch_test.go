@@ -977,7 +977,9 @@ func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.limited") })
 	stop()
-	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.status, rt.screen = "done", claudeLimit+"\nDo you want to proceed?\n❯ 1. Yes"
+	})
 	stop = startWatch(t, fx)
 	defer stop()
 	publishBlocked(fx, "2", "claude")
