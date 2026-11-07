@@ -216,11 +216,43 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 	if last.Switching() {
 		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
 	}
+	if from, to, moved, err := r.movedSince(ctx, st, last); err != nil {
+		return state.Supervisor{}, err
+	} else if moved {
+		return r.freshSupervisor(ctx, st, c, last, spec, from, to)
+	}
 	sup, err := r.relaunch(ctx, st, c, last, spec)
 	if err != nil && last.Switching() && !errors.Is(err, errLaunchUnknown) {
 		err = fmt.Errorf("%w; retry with %s, or %s", err, r.resumeAction(), r.dropAction(last))
 	}
 	return sup, err
+}
+
+func (r *runner) movedSince(ctx context.Context, st *state.Store, sup state.Supervisor) (string, string, bool, error) {
+	created, err := time.Parse(time.RFC3339Nano, sup.CreatedAt)
+	if err != nil {
+		return "", "", false, err
+	}
+	if started, ok, err := st.SessionStart(ctx, sup.Session); err != nil {
+		return "", "", false, err
+	} else if ok && started.Before(created) {
+		created = started
+	}
+	return st.MovedSince(ctx, created)
+}
+
+func (r *runner) freshSupervisor(ctx context.Context, st *state.Store, c luvus.Client, last state.Supervisor, spec harness.Spec, from, to string) (state.Supervisor, error) {
+	origin := state.SupervisorRef(last.ID)
+	note := "You continue " + origin + ", whose session cannot resume after the fleet moved from " + from + " to " + to + "; `" + r.env.command() + " orient` has the fleet's state."
+	sup, err := r.startSupervisor(ctx, st, c, last, spec, note)
+	if err != nil {
+		return sup, err
+	}
+	why := "resumes " + origin + "; the fleet moved from " + from + " to " + to + ", so a session recorded there cannot resume in the new home and Hand started a new one"
+	if err := st.NoteSupervisor(ctx, sup.ID, "fresh", why); err != nil {
+		r.warn("could not record why the supervisor started fresh: " + err.Error())
+	}
+	return sup, nil
 }
 
 func (r *runner) resumeAction() string {
@@ -674,6 +706,11 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("status", running.Status)
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
+	if fresh, ok, err := st.SupervisorFresh(ctx, running); err != nil {
+		return err
+	} else if ok {
+		d.Field("fresh", fresh)
+	}
 	r.fieldWarn(&d)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
 	if prompted {
@@ -799,6 +836,11 @@ func cmdSupervisorShow(r *runner, args []string) error {
 			d.Field("reason", sup.Reason)
 		}
 		d.Field("session", sup.Session)
+		if fresh, ok, err := st.SupervisorFresh(ctx, sup); err != nil {
+			return err
+		} else if ok {
+			d.Field("fresh", fresh)
+		}
 		if sup.Status == state.AttemptRunning {
 			ag, err := c.Explain(ctx, sup.PaneID)
 			if err != nil {

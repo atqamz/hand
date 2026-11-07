@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func moveFixture(t *testing.T, s *Store, old, tilde string) {
@@ -682,6 +683,34 @@ func TestMoveHomeConfirmMoveNeedsAPendingMarker(t *testing.T) {
 	}
 	if _, err := s.ConfirmMove(ctx, s.home, filepath.Join(t.TempDir(), "new")); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "no move is pending") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMovedSinceNamesTheMoveAfterATime(t *testing.T) {
+	parent := t.TempDir()
+	setUserHome(t, parent)
+	old := filepath.Join(parent, "fleet-hand")
+	s := openAt(t, old)
+	ctx := context.Background()
+	if _, err := s.CreateFleet(ctx, "fleet"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, moved, err := s.MovedSince(ctx, time.Time{}); err != nil || moved {
+		t.Fatalf("moved before any move = %v, %v", moved, err)
+	}
+	to := filepath.Join(parent, "fleet-personal")
+	if _, err := s.MoveHome(ctx, old, to); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ConfirmMove(ctx, old, to); err != nil {
+		t.Fatal(err)
+	}
+	from, dest, moved, err := s.MovedSince(ctx, clock().Add(-time.Second))
+	if err != nil || !moved || from != old || dest != to {
+		t.Fatalf("moved since = %q, %q, %v, %v; want %q, %q", from, dest, moved, err, old, to)
+	}
+	if _, _, moved, err := s.MovedSince(ctx, clock()); err != nil || moved {
+		t.Fatalf("a supervisor that started at the move is not before it: moved = %v, %v", moved, err)
 	}
 }
 

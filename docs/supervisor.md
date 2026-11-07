@@ -39,7 +39,7 @@ You can still open an agent in the fleet folder by hand (`cd ~/fleets/demo && cl
 
 ## After a reboot
 
-The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
+The supervisor shows as `interrupted`. Press **Resume**, or run `hand supervisor resume`, to continue the same session with its history. It spends no tokens until you write or a wake arrives. A supervisor that started before `hand fleet move` is the exception: its session lives in the harness's own store under the old folder, so **Resume** starts a fresh session from `hand orient` instead, records `supervisor.fresh`, and `hand supervisor show` prints `fresh:` with the move. **New session** starts fresh from `hand orient`. To resume automatically when `hand watch` starts, add `"supervisor": {"autoresume": true}` to `routing.json`.
 
 ## When the supervisor idles
 

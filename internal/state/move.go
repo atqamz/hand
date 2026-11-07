@@ -259,6 +259,33 @@ func pendingMove(ctx context.Context, q moveQueryer) (from, to string, ok bool, 
 	return from, to, true, nil
 }
 
+func (s *Store) MovedSince(ctx context.Context, at time.Time) (from, to string, moved bool, err error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT at, detail FROM event WHERE kind = 'fleet.moved' ORDER BY seq`)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var stamp, detail string
+		if err := rows.Scan(&stamp, &detail); err != nil {
+			return "", "", false, err
+		}
+		when, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a time: %q", ErrInvalid, stamp)
+		}
+		if !when.After(at) {
+			continue
+		}
+		from, to, moved = moveSplit(detail)
+		if !moved {
+			return "", "", false, fmt.Errorf("%w: event fleet.moved does not name a move: %q", ErrInvalid, detail)
+		}
+		return from, to, true, nil
+	}
+	return "", "", false, rows.Err()
+}
+
 func (s *Store) ConfirmMove(ctx context.Context, from, to string) (int64, error) {
 	var seq int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {

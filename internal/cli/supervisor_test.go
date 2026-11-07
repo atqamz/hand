@@ -132,6 +132,123 @@ func TestSupervisorResumeContinuesTheSession(t *testing.T) {
 	}
 }
 
+func newMovedSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
+	t.Helper()
+	h := newHarness(t)
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", parent)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", parent)
+	}
+	home := filepath.Join(parent, "fleet-hand")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h.home, h.cwd = home, home
+	h.vars["HOME"] = parent
+	h.vars["PATH"] = fakeBin(t)
+	rt := startRuntime(t, fakeuhp.ShortSocket(t))
+	h.vars["HAND_LUVUS_SOCKET"] = rt.srv.Socket
+	h.ok("init")
+	return h, rt
+}
+
+func moveSupervisorFleet(t *testing.T, h *harness) string {
+	t.Helper()
+	h.advance(time.Minute)
+	dest := filepath.Join(filepath.Dir(h.home), "fleet-personal")
+	h.ok("fleet", "move", "--from", h.home, "--yes", dest)
+	h.home, h.cwd = dest, dest
+	return dest
+}
+
+func TestSupervisorResumeStartsFreshAfterTheFleetMoved(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	first := rt.lastCreate().Command[3]
+	old := h.home
+	h.ok("supervisor", "stop")
+	dest := moveSupervisorFleet(t, h)
+	out := h.ok("supervisor", "resume")
+	argv := rt.lastCreate().Command
+	if slices.Contains(argv, "--resume") || slices.Contains(argv, first) {
+		t.Fatalf("argv = %q, want a fresh session, not %s", argv, first)
+	}
+	if len(argv) < 4 || argv[2] != "--session-id" || argv[3] == "" || argv[3] == first {
+		t.Fatalf("argv = %q, want a new --session-id", argv)
+	}
+	fresh := argv[3]
+	has(t, "resume", out, "supervisor: s2", "status: running", "session: "+fresh)
+	why := field(out, "fresh")
+	if !strings.Contains(why, "resumes s1") || !strings.Contains(why, "moved from "+old+" to "+dest) {
+		t.Fatalf("fresh = %q", why)
+	}
+	if prompt := argv[len(argv)-1]; !strings.Contains(prompt, "You continue s1, whose session cannot resume after the fleet moved from "+old+" to "+dest) {
+		t.Fatalf("prompt = %q", prompt)
+	}
+	show := h.ok("supervisor", "show")
+	has(t, "show", show, "supervisor: s2", "session: "+fresh)
+	if got := field(show, "fresh"); got != why {
+		t.Fatalf("show fresh = %q, want %q", got, why)
+	}
+}
+
+func TestSupervisorResumeKeepsASessionStartedAfterTheMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	moveSupervisorFleet(t, h)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	h.ok("supervisor", "stop")
+	out := h.ok("supervisor", "resume")
+	argv := rt.lastCreate().Command
+	if !slices.Contains(argv, "--resume") || !slices.Contains(argv, session) {
+		t.Fatalf("argv = %q, want --resume %s", argv, session)
+	}
+	if why := field(out, "fresh"); why != "" {
+		t.Fatalf("fresh = %q, want none", why)
+	}
+}
+
+func TestSupervisorResumeReplacesASessionThatPredatesTheMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	session := rt.lastCreate().Command[3]
+	h.ok("supervisor", "stop")
+	moveSupervisorFleet(t, h)
+	st, err := state.Open(filepath.Join(h.home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	sup, err := st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"claude"}, Session: session})
+	if err != nil {
+		_ = st.Close()
+		t.Fatal(err)
+	}
+	if _, err := st.SupervisorRunning(ctx, sup.ID, state.Terminal{ServerGeneration: "1", TerminalID: "t", PaneID: "p", PID: 1, StartMarker: "m"}); err != nil {
+		_ = st.Close()
+		t.Fatal(err)
+	}
+	if _, err := st.EndSupervisor(ctx, sup.ID, state.AttemptExited, "terminal exited"); err != nil {
+		_ = st.Close()
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out := h.ok("supervisor", "resume")
+	argv := rt.lastCreate().Command
+	if slices.Contains(argv, "--resume") || slices.Contains(argv, session) {
+		t.Fatalf("argv = %q, want a fresh session, not %s", argv, session)
+	}
+	if why := field(out, "fresh"); !strings.Contains(why, "resumes s2") {
+		t.Fatalf("fresh = %q", why)
+	}
+}
+
 func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
