@@ -572,6 +572,53 @@ func TestWatchLeavesAFreshIdleWorkerAloneAfterARestart(t *testing.T) {
 	}
 }
 
+func TestWatchRecordsNoQuietUntilTheAttemptHasWorked(t *testing.T) {
+	old := *cli.QuietGrace
+	*cli.QuietGrace = time.Minute
+	t.Cleanup(func() { *cli.QuietGrace = old })
+
+	fresh := newAttemptFixture(t)
+	fresh.start()
+	stop := startWatch(t, fresh)
+	defer stop()
+	working := map[string]any{"pane": "2", "status": "working", "agent": "claude"}
+	idle := map[string]any{"pane": "2", "status": "idle", "agent": "claude"}
+	fresh.rt.srv.Publish("pane.agent_status_changed", working)
+	fresh.rt.srv.Publish("pane.agent_status_changed", idle)
+	fresh.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Enter to confirm" })
+	publishBlocked(fresh, "2", "claude")
+	eventually(t, func() bool { return woken(fresh, "attempt.blocked") })
+	if woken(fresh, "attempt.quiet") {
+		t.Fatal("a fresh attempt that only read idle while it started was recorded as a quiet turn")
+	}
+	stop()
+
+	worked := newAttemptFixture(t)
+	worked.start()
+	worked.h.advance(2 * time.Minute)
+	stop = startWatch(t, worked)
+	defer stop()
+	worked.rt.srv.Publish("pane.agent_status_changed", idle)
+	eventually(t, func() bool { return woken(worked, "attempt.quiet") })
+	if n := strings.Count(worked.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.quiet,"); n != 1 {
+		t.Fatalf("attempt.quiet recorded %d times, want 1", n)
+	}
+}
+
+func TestWatchRecordsAQuietTurnWhenTheClockMovedBack(t *testing.T) {
+	old := *cli.QuietGrace
+	*cli.QuietGrace = time.Hour
+	t.Cleanup(func() { *cli.QuietGrace = old })
+
+	fx := newAttemptFixture(t)
+	fx.start()
+	fx.h.advance(-time.Minute)
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+}
+
 func TestWatchReconcilesWithoutAnyEvent(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
