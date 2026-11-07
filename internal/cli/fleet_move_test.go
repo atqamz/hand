@@ -145,7 +145,7 @@ func TestFleetMoveDryRunListsEveryCellAndWritesNothing(t *testing.T) {
 	}
 	for _, want := range []string{
 		"move: dry-run",
-		"fleet: " + filepath.Base(home),
+		"fleet: " + filepath.Base(dest),
 		"id: " + id,
 		"from: " + toon.Value(home),
 		"to: " + toon.Value(dest),
@@ -285,6 +285,112 @@ func TestFleetMoveRewritesTheDatabaseThenMovesTheFolder(t *testing.T) {
 	_, errOut, code := h.run("fleet", "move", "--yes", dest)
 	if code != 3 || !strings.Contains(errOut, "already this fleet's home") {
 		t.Fatalf("second move: code=%d stderr=%q", code, errOut)
+	}
+}
+
+func TestFleetMoveFollowsTheFolderName(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	dest := filepath.Join(t.TempDir(), "fleet-personal")
+	out := h.ok("fleet", "move", "--yes", dest)
+	if !strings.Contains(out, "fleet: fleet-personal") {
+		t.Fatalf("move = %q", out)
+	}
+	db := openMoveDB(t, dest)
+	defer db.Close()
+	var name, detail string
+	if err := db.QueryRow(`SELECT name FROM fleet`).Scan(&name); err != nil || name != "fleet-personal" {
+		t.Fatalf("name = %q, %v; want fleet-personal", name, err)
+	}
+	if err := db.QueryRow(`SELECT detail FROM event WHERE kind = 'fleet.renamed'`).Scan(&detail); err != nil || detail != id+" fleet-personal" {
+		t.Fatalf("rename = %q, %v; want %q", detail, err, id+" fleet-personal")
+	}
+}
+
+func TestFleetMoveKeepsACustomFleetName(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	if out := h.ok("init", "--name", "Yes 2 Games"); !strings.Contains(out, "fleet: Yes 2 Games") {
+		t.Fatalf("rename = %q", out)
+	}
+	seedMoveFleet(t, home, id)
+	before := openMoveDB(t, home)
+	var lastSeq int64
+	if err := before.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM event`).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	before.Close()
+	dest := filepath.Join(t.TempDir(), "fleet-personal")
+	out := h.ok("fleet", "move", "--yes", dest)
+	if !strings.Contains(out, "fleet: Yes 2 Games") {
+		t.Fatalf("move = %q", out)
+	}
+	db := openMoveDB(t, dest)
+	defer db.Close()
+	var name string
+	if err := db.QueryRow(`SELECT name FROM fleet`).Scan(&name); err != nil || name != "Yes 2 Games" {
+		t.Fatalf("name = %q, %v; want Yes 2 Games", name, err)
+	}
+	var renamed int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM event WHERE kind = 'fleet.renamed' AND seq > ?`, lastSeq).Scan(&renamed); err != nil || renamed != 0 {
+		t.Fatalf("renamed events = %d, %v; want 0", renamed, err)
+	}
+}
+
+func TestFleetMoveKeepsACustomNameThatContainsTheOldBase(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	name := "fleet-hand.bak"
+	if out := h.ok("init", "--name", name); !strings.Contains(out, "fleet: "+name) {
+		t.Fatalf("rename = %q", out)
+	}
+	seedMoveFleet(t, home, id)
+	before := openMoveDB(t, home)
+	var lastSeq int64
+	if err := before.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM event`).Scan(&lastSeq); err != nil {
+		t.Fatal(err)
+	}
+	before.Close()
+	dest := filepath.Join(t.TempDir(), "fleet-personal")
+	out := h.ok("fleet", "move", "--yes", dest)
+	if !strings.Contains(out, "fleet: "+name) {
+		t.Fatalf("move = %q", out)
+	}
+	db := openMoveDB(t, dest)
+	defer db.Close()
+	var got string
+	if err := db.QueryRow(`SELECT name FROM fleet`).Scan(&got); err != nil || got != name {
+		t.Fatalf("name = %q, %v; want %s", got, err, name)
+	}
+	var renamed int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM event WHERE kind = 'fleet.renamed' AND seq > ?`, lastSeq).Scan(&renamed); err != nil || renamed != 0 {
+		t.Fatalf("renamed events = %d, %v; want 0", renamed, err)
+	}
+}
+
+func TestFleetMoveRewriteOnlyFollowsTheFolderName(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	seedMoveFleet(t, home, id)
+	copied := filepath.Join(t.TempDir(), "fleet-personal")
+	if err := os.Rename(home, copied); err != nil {
+		t.Fatal(err)
+	}
+	h.home, h.cwd = copied, copied
+	if out := h.ok("init"); !strings.Contains(out, "moved_from: "+toon.Value(home)) {
+		t.Fatalf("init = %q", out)
+	}
+	out := h.ok("fleet", "move", "--rewrite-only", "--yes", "--from", home)
+	for _, want := range []string{"move: rewritten", "fleet: fleet-personal", "home: " + toon.Value(copied)} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rewrite missing %q:\n%s", want, out)
+		}
+	}
+	db := openMoveDB(t, copied)
+	defer db.Close()
+	var name, detail string
+	if err := db.QueryRow(`SELECT name FROM fleet`).Scan(&name); err != nil || name != "fleet-personal" {
+		t.Fatalf("name = %q, %v; want fleet-personal", name, err)
+	}
+	if err := db.QueryRow(`SELECT detail FROM event WHERE kind = 'fleet.renamed'`).Scan(&detail); err != nil || detail != id+" fleet-personal" {
+		t.Fatalf("rename = %q, %v; want %q", detail, err, id+" fleet-personal")
 	}
 }
 
