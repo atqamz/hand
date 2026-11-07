@@ -42,6 +42,16 @@ func Control(env Env, home string) func(context.Context, ...string) (string, err
 	return control(env, home, "")
 }
 
+func EnsureWatcher(ctx context.Context, env Env, home, root, generation string) (bool, error) {
+	r := &runner{env: env, home: home, root: root, generation: generation}
+	st, err := r.store()
+	if err != nil {
+		return false, err
+	}
+	st.Close()
+	return r.ensureWatcher(ctx)
+}
+
 func Force(ctx context.Context, env Env, home string) error {
 	r := &runner{env: env, home: home}
 	st, err := r.store()

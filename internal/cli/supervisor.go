@@ -144,10 +144,11 @@ func (r *runner) switchHarness(ctx context.Context, st *state.Store, c luvus.Cli
 	default:
 		return fmt.Errorf("%w: %s is %s; answer its screen or wait until it is idle, then switch harness", state.ErrConflict, ref, ag.Status)
 	}
-	ok, err := r.checkGeneration(ctx, st, sup)
+	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
 	if err != nil {
 		return err
 	}
+	defer unlockGeneration()
 	if !ok {
 		return r.staleGeneration(sup)
 	}
@@ -379,10 +380,11 @@ func (r *runner) applySwitch(ctx context.Context, st *state.Store, c luvus.Clien
 	if _, err := harnessBin(r, spec); err != nil {
 		return sup, err
 	}
-	ok, err := r.checkGeneration(ctx, st, sup)
+	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
 	if err != nil {
 		return sup, err
 	}
+	defer unlockGeneration()
 	if !ok {
 		return sup, r.staleGeneration(sup)
 	}
@@ -723,10 +725,11 @@ func cmdSupervisorStop(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		ok, err := r.checkGeneration(ctx, st, sup)
+		unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
 		if err != nil {
 			return err
 		}
+		defer unlockGeneration()
 		if !ok {
 			return r.staleGeneration(sup)
 		}
@@ -897,19 +900,19 @@ func (r *runner) settleSupervisor(ctx context.Context, st *state.Store, c luvus.
 			return nil
 		}
 	}
-	_, _, _ = r.closeSupervisorTerminals(ctx, st, c, sup, sup.Live())
+	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
+	if err != nil || !ok {
+		return err
+	}
+	defer unlockGeneration()
+	_, _ = r.closeSupervisorTerminals(ctx, st, c, sup, sup.Live(), r.requester())
 	return nil
 }
 
-func (r *runner) closeSupervisorTerminals(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor, keep bool) (requester, bool, error) {
-	who := r.requester()
-	ok, err := r.checkGeneration(ctx, st, sup)
-	if err != nil || !ok {
-		return who, false, err
-	}
+func (r *runner) closeSupervisorTerminals(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor, keep bool, who requester) (requester, error) {
 	sessions, err := st.SupervisorSessions(ctx)
 	if err != nil {
-		return who, false, err
+		return who, err
 	}
 	homes := []string{r.home}
 	if real, err := filepath.EvalSymlinks(r.home); err == nil && real != r.home {
@@ -927,29 +930,27 @@ func (r *runner) closeSupervisorTerminals(ctx context.Context, st *state.Store, 
 		ag, err := c.Explain(ctx, t.PaneID)
 		return err == nil && ag.Session != "" && slices.Contains(sessions, ag.Session)
 	})
-	return who, true, err
+	return who, err
 }
 
 func (r *runner) endSupervisor(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor, to, reason string) error {
-	ok, err := r.checkGeneration(ctx, st, sup)
+	unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
 	if err != nil {
 		return err
 	}
+	defer unlockGeneration()
 	if !ok {
 		return nil
 	}
 	if err := stopRoot(sup.PID, sup.StartMarker); err != nil {
 		return err
 	}
-	who, closed, err := r.closeSupervisorTerminals(ctx, st, c, sup, false)
+	who, err := r.closeSupervisorTerminals(ctx, st, c, sup, false, r.requester())
 	if err != nil {
 		if sup.Status == state.AttemptLaunching {
 			return nil
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
-	}
-	if !closed {
-		return nil
 	}
 	_ = r.findSession(ctx, st, &sup)
 	if _, err := st.EndSupervisor(ctx, sup.ID, to, who.note(reason)); err != nil && !errors.Is(err, state.ErrConflict) {

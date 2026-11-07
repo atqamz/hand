@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/flock"
+	"github.com/atqamz/hand/internal/state"
 )
+
+const watchGenerationFile = "watch.generation"
 
 var (
 	watchExecutable  = os.Executable
@@ -31,9 +35,39 @@ func (r *runner) watchHeld() (bool, error) {
 	return !ok && err == nil, err
 }
 
+func (r *runner) watcherGeneration() string {
+	b, err := os.ReadFile(filepath.Join(r.home, watchGenerationFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func (r *runner) writeWatchGeneration() {
+	path := filepath.Join(r.home, watchGenerationFile)
+	if err := writeFile(r.home, path, r.generation+"\n"); err != nil {
+		fmt.Fprintf(r.env.Stderr, "warning: cannot write %s: %v; the board cannot tell which generation this watcher holds\n", path, err)
+	}
+}
+
 func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
-	if held, err := r.watchHeld(); held || err != nil {
+	r.recordGeneration()
+	held, err := r.watchHeld()
+	if err != nil {
 		return false, err
+	}
+	if held {
+		if r.watcherGeneration() == r.generation {
+			return false, nil
+		}
+		if _, _, err := stopPIDFile("watcher", filepath.Join(r.home, "watch.pid")); err != nil {
+			return false, err
+		}
+		if held, err := r.watchHeld(); err != nil {
+			return false, err
+		} else if held {
+			return false, fmt.Errorf("%w: a watcher holding another board generation still holds watch.lock; stop it with `%s watch stop`", state.ErrConflict, r.env.command())
+		}
 	}
 	env := []string{"HAND_HOME=" + r.home}
 	if r.generation != "" {

@@ -17,6 +17,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("HAND_TEST_HOLD") != "" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	fakebin.Main(fakeBehaviors())
 	*cli.TrustGrace = 0
 	*cli.PollEvery = 10 * time.Millisecond
@@ -35,6 +40,9 @@ func TestMain(m *testing.M) {
 		fakeUpdate(os.Getenv("SECONDHAND_HOME"))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "watch" && os.Getenv("HAND_HOME") != "" {
+		if len(os.Args) == 2 && os.Getenv("HAND_TEST_REAL_WATCH") != "" {
+			os.Exit(cli.Run(os.Args[1:], cli.Env{Name: "hand", Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: cli.HostGetenv, Environ: os.Environ, Now: time.Now, Getwd: os.Getwd}))
+		}
 		fakeWatch(os.Getenv("HAND_HOME"))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "board" && os.Getenv("SECONDHAND_HOME") != "" {
@@ -59,6 +67,15 @@ func enableWatcher(t *testing.T, home string) {
 
 func fakeWatch(home string) {
 	if err := os.WriteFile(filepath.Join(home, "watch.child"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		fakeExit(1, err.Error())
+	}
+	generation := os.Getenv("HAND_GENERATION")
+	if generation == "" {
+		if b, err := os.ReadFile(filepath.Join(os.Getenv("SECONDHAND_HOME"), "board.generation")); err == nil {
+			generation = strings.TrimSpace(string(b))
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "watch.generation"), []byte(generation+"\n"), 0o600); err != nil {
 		fakeExit(1, err.Error())
 	}
 	started, err := os.OpenFile(filepath.Join(home, "watch.started"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)

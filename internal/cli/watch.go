@@ -126,6 +126,7 @@ func cmdWatch(r *runner, args []string) error {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	r.writeWatchGeneration()
 	defer r.writePID(filepath.Join(r.home, "watch.pid"))()
 	ctx, stop := signal.NotifyContext(r.ctx(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

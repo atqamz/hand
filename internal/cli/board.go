@@ -118,7 +118,7 @@ func cmdBoard(r *runner, args []string) error {
 		return err
 	}
 	defer forget()
-	generation, forgetGeneration, err := recordGeneration(root)
+	generation, forgetGeneration, err := recordGeneration(r.env, root)
 	if err != nil {
 		_ = ln.Close()
 		return err
