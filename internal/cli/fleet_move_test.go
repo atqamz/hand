@@ -394,6 +394,124 @@ func TestFleetMoveRewriteOnlyFollowsTheFolderName(t *testing.T) {
 	}
 }
 
+func moveWorktreesDir(t *testing.T, h *harness, id string) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(h.vars["SECONDHAND_HOME"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "worktrees", id)
+}
+
+func moveSameDir(a, b string) bool {
+	a, b = filepath.ToSlash(a), filepath.ToSlash(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func TestFleetMoveRewritesWorktreeGitfiles(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	repo := filepath.Join(home, "projects", "app")
+	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(gitRepo(t), repo); err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(moveWorktreesDir(t, h, id), "t1-a1")
+	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "worktree", "add", "-b", "hand/"+id+"/t1-a1", wt)
+	gitfile := filepath.Join(wt, ".git")
+	before, err := os.ReadFile(gitfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "moved")
+	dry := h.ok("fleet", "move", "--dry-run", dest)
+	for _, want := range []string{"worktrees_rewritten: 1", "worktrees_correct: 0", "worktrees_broken: 0"} {
+		if !strings.Contains(dry, want) {
+			t.Fatalf("dry run missing %q:\n%s", want, dry)
+		}
+	}
+	afterDry, err := os.ReadFile(gitfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterDry) != string(before) {
+		t.Fatalf("the dry run changed the gitfile: %q -> %q", before, afterDry)
+	}
+	out := h.ok("fleet", "move", "--yes", dest)
+	for _, want := range []string{"worktrees_rewritten: 1", "worktrees_correct: 0", "worktrees_broken: 0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("move missing %q:\n%s", want, out)
+		}
+	}
+	if status := gitIn(t, wt, "status", "--short"); status != "" {
+		t.Fatalf("worktree status = %q", status)
+	}
+	top := gitIn(t, wt, "rev-parse", "--show-toplevel")
+	if real, err := filepath.EvalSymlinks(top); err != nil || !moveSameDir(real, wt) {
+		t.Fatalf("worktree toplevel = %q, %v; want %q", top, err, wt)
+	}
+}
+
+func TestFleetMoveWithNoWorktreeDirectoryReportsZero(t *testing.T) {
+	h, _, _ := initMoveFleet(t)
+	dest := filepath.Join(t.TempDir(), "moved")
+	out := h.ok("fleet", "move", "--yes", dest)
+	for _, want := range []string{"worktrees_rewritten: 0", "worktrees_correct: 0", "worktrees_broken: 0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("move missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "broken[") {
+		t.Fatalf("move lists broken worktrees:\n%s", out)
+	}
+}
+
+func TestFleetMoveFailsOnAWorktreeWhoseGitdirTargetIsMissing(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	wt := filepath.Join(moveWorktreesDir(t, h, id), "t1-a1")
+	if err := os.MkdirAll(wt, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(home, "projects", "app", ".git", "worktrees", "t1-a1")
+	gitfile := filepath.Join(wt, ".git")
+	if err := os.WriteFile(gitfile, []byte("gitdir: "+missing+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "moved")
+	out, errOut, code := h.run("fleet", "move", "--yes", dest)
+	if code != 3 || !strings.Contains(errOut, "worktree verification") {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	for _, want := range []string{
+		"worktrees_rewritten: 1",
+		"worktrees_broken: 1",
+		"broken[1]{worktree,reason}:",
+		"gitdir target does not exist",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("move missing %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("the folder did not move: %v", err)
+	}
+	b, err := os.ReadFile(gitfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, old, want := filepath.ToSlash(string(b)), filepath.ToSlash(home), filepath.ToSlash(filepath.Join(dest, "projects", "app", ".git", "worktrees", "t1-a1"))
+	if strings.Contains(got, old) || !strings.Contains(got, want) {
+		t.Fatalf("gitfile = %q", b)
+	}
+}
+
 func TestFleetMoveUsesTheGivenHomeOutsideTheFleet(t *testing.T) {
 	h, home, id := initMoveFleet(t)
 	seedMoveFleet(t, home, id)
