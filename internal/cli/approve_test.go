@@ -301,6 +301,45 @@ func TestAnAnswerBeforeTheDeadlineRecordsNoDenial(t *testing.T) {
 	}
 }
 
+func TestTheDeadlineDoesNotPressWhileAnAnswerIsInFlight(t *testing.T) {
+	fx, _ := askWatch(t, "")
+	fx.h.advance(9 * time.Minute)
+	fx.h.board = true
+	entered, gate := make(chan struct{}), make(chan struct{})
+	fx.rt.set(func(rt *fakeRuntime) { rt.keysEntered, rt.keysGate = entered, gate })
+	type result struct {
+		errOut string
+		code   int
+	}
+	done := make(chan result, 1)
+	go func() {
+		_, errOut, code := fx.h.run("attempt", "keys", "--revision", "7", "a1", "1")
+		done <- result{errOut, code}
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the keys command did not reach the runtime")
+	}
+	fx.h.advance(5 * time.Minute)
+	for range 3 {
+		stallTick(t, fx)
+	}
+	close(gate)
+	if r := <-done; r.code != 0 {
+		t.Fatalf("keys: exit %d: %s", r.code, r.errOut)
+	}
+	for range 2 {
+		stallTick(t, fx)
+	}
+	if got := fx.rt.keysSent(); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("keys sent = %q, want only the operator's", got)
+	}
+	if n := denials(fx); n != 0 {
+		t.Fatalf("denied events = %d", n)
+	}
+}
+
 func TestAScreenItDoesNotRecogniseIsNeverDenied(t *testing.T) {
 	fx, _ := askWatch(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, "Something odd\n❯ 1. Go\n  2. Stop" })

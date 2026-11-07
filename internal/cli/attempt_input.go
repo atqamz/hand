@@ -151,6 +151,11 @@ func cmdAttemptKeys(r *runner, args []string) error {
 	}
 	keys := fs.Args()[1:]
 	return r.withAttempts(func(ctx context.Context, st *state.Store, c luvus.Client) error {
+		unlock, _, err := r.attemptLock(id, true)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		a, err := runningAttempt(ctx, st, id)
 		if err != nil {
 			return err
