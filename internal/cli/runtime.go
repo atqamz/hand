@@ -143,7 +143,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 	if err := stopRoot(a.PID, a.StartMarker); err != nil {
 		return err
 	}
-	err = closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID)
+	who, err := closeLabelled(ctx, c, "hand-"+state.AttemptRef(a.ID), a.TerminalID, r.requester())
 	sweepWorktree(a.Worktree)
 	if err != nil {
 		if a.Status == state.AttemptLaunching {
@@ -151,7 +151,7 @@ func (r *runner) settle(ctx context.Context, st *state.Store, c luvus.Client, ca
 		}
 		reason += "; terminal cleanup failed: " + err.Error()
 	}
-	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, reason, r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
+	if _, err := st.EndAttemptWithScreen(ctx, a.ID, to, who.note(reason), r.screens.take(a.ID)); err != nil && !errors.Is(err, state.ErrConflict) {
 		return err
 	}
 	return nil
@@ -216,26 +216,30 @@ func (r *runner) exitReason(ctx context.Context, terminalID string) string {
 	return r.exits.wait(ctx, terminalID)
 }
 
-func closeLabelled(ctx context.Context, c luvus.Client, label, terminalID string) error {
-	return closeTerminals(ctx, c, func(t luvus.Terminal) bool {
+func closeLabelled(ctx context.Context, c luvus.Client, label, terminalID string, who requester) (requester, error) {
+	return closeTerminals(ctx, c, who, func(t luvus.Terminal) bool {
 		return t.Label == label || (terminalID != "" && t.TerminalID == terminalID)
 	})
 }
 
-func closeTerminals(ctx context.Context, c luvus.Client, match func(luvus.Terminal) bool) error {
+func closeErr(_ requester, err error) error { return err }
+
+func closeTerminals(ctx context.Context, c luvus.Client, who requester, match func(luvus.Terminal) bool) (requester, error) {
 	terms, err := c.Inventory(ctx)
 	if err != nil {
-		return runtimeErr(err)
+		return who, runtimeErr(err)
 	}
 	for _, t := range terms {
 		if !match(t) {
 			continue
 		}
-		if _, err := stopWorker(ctx, c, t); err != nil {
-			return err
+		_, closed, err := stopWorker(ctx, c, t, who)
+		if err != nil {
+			return who, err
 		}
+		who = closed
 	}
-	return nil
+	return who, nil
 }
 
 func repoGit(ctx context.Context, st *state.Store, p state.Project) (gitcfg.Repo, error) {

@@ -107,6 +107,7 @@ func cmdWatch(r *runner, args []string) error {
 		return err
 	}
 	defer st.Close()
+	r.recordGeneration()
 	lock, err := os.OpenFile(filepath.Join(r.home, "watch.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return err

@@ -120,7 +120,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err := atPrompt(); err != nil {
 			return err
 		}
-		note, err := stopWorker(ctx, c, terminal(a.Terminal))
+		note, _, err := stopWorker(ctx, c, terminal(a.Terminal), r.requester())
 		if err != nil {
 			return err
 		}
@@ -130,13 +130,13 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, run)
 			if err != nil {
 				if luvus.Code(err) == "" {
-					_ = closeLabelled(ctx, c, "hand-"+ref, "")
+					_, _ = closeLabelled(ctx, c, "hand-"+ref, "", r.requester())
 				}
 				return a, runtimeErr(err)
 			}
 			running, err := st.AttemptSwitched(ctx, id, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker}, text, model, effort, requested)
 			if err != nil {
-				return a, errors.Join(err, stopErr(stopWorker(ctx, c, term)))
+				return a, errors.Join(err, stopErr(stopWorker(ctx, c, term, r.requester())))
 			}
 			waitSettled(ctx, c, term.PaneID)
 			return running, nil

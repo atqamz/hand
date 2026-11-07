@@ -46,17 +46,21 @@ type Env struct {
 type handler func(*runner, []string) error
 
 type runner struct {
-	env      Env
-	home     string
-	homeErr  error
-	root     string
-	fleet    state.Fleet
-	addrs    sync.Map
-	exits    *exitLog
-	screens  *screenLog
-	phone    phoneCache
-	warns    []string
-	noteLost string
+	env        Env
+	home       string
+	homeErr    error
+	root       string
+	fleet      state.Fleet
+	addrs      sync.Map
+	exits      *exitLog
+	screens    *screenLog
+	phone      phoneCache
+	warns      []string
+	noteLost   string
+	caller     string
+	generation string
+	genMu      sync.Mutex
+	refused    string
 }
 
 type usageError struct{ msg string }
@@ -153,6 +157,8 @@ func dispatch(args []string, env Env) error {
 		return usageError{fmt.Sprintf("unknown command %q; commands: %s", args[0], names(commands))}
 	}
 	r := &runner{env: env}
+	r.caller = callerName(env.command(), args)
+	r.generation = env.Getenv("HAND_GENERATION")
 	if args[0] == "init" {
 		r.home = flagHome
 		return h(r, args[1:])
@@ -187,6 +193,17 @@ func names(table map[string]handler) string {
 	}
 	slices.Sort(keys)
 	return strings.Join(keys, ", ")
+}
+
+func callerName(name string, args []string) string {
+	parts := []string{name}
+	for _, arg := range args {
+		if len(parts) == 3 || strings.HasPrefix(arg, "-") {
+			break
+		}
+		parts = append(parts, arg)
+	}
+	return strings.Join(parts, " ")
 }
 
 func flags(name string) *flag.FlagSet {

@@ -41,14 +41,18 @@ func waitGone(pid int, marker string, d time.Duration) bool {
 	return !rootAlive(pid, marker)
 }
 
-func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal) (string, error) {
+func stopWorker(ctx context.Context, c luvus.Client, t luvus.Terminal, who requester) (string, requester, error) {
 	if err := stopRoot(t.Root.PID, t.Root.StartMarker); err != nil {
-		return "", err
+		return "", who, err
 	}
-	if err := c.Close(ctx, t); err != nil && !alreadyClosed(err) {
-		return "Its process is gone, but its terminal did not close (" + runtimeErr(err).Error() + "); it closes when the Luvus server restarts", nil
+	id, err := c.CloseID(ctx, t)
+	if id != "" {
+		who.luvus = id
 	}
-	return "", nil
+	if err != nil && !alreadyClosed(err) {
+		return "Its process is gone, but its terminal did not close (" + runtimeErr(err).Error() + "); it closes when the Luvus server restarts", who, nil
+	}
+	return "", who, nil
 }
 
 func alreadyClosed(err error) bool {
@@ -79,14 +83,15 @@ func cmdAttemptStop(r *runner, args []string) error {
 			return err
 		}
 		to, reason, note := state.AttemptExited, "root process already gone", ""
+		who := r.requester()
 		if rootAlive(a.PID, a.StartMarker) {
-			if note, err = stopWorker(ctx, c, terminal(a.Terminal)); err != nil {
+			if note, who, err = stopWorker(ctx, c, terminal(a.Terminal), who); err != nil {
 				return err
 			}
 			to, reason = state.AttemptStopped, "stopped by operator"
 		}
 		sweepWorktree(a.Worktree)
-		ended, err := st.EndAttempt(ctx, id, to, reason)
+		ended, err := st.EndAttempt(ctx, id, to, who.note(reason))
 		if err != nil {
 			return err
 		}
@@ -240,7 +245,7 @@ func under(roots []string, path string) bool {
 	return false
 }
 
-func stopErr(_ string, err error) error { return err }
+func stopErr(_ string, _ requester, err error) error { return err }
 
 func withNote(note string, lines ...string) []string {
 	if note == "" {

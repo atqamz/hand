@@ -59,6 +59,7 @@ Hand keeps shared state in `~/.secondhand`, or `$SECONDHAND_HOME`. There, `fleet
 ├── luvus/                             pinned Luvus copies and pin.json
 ├── iroh/                              the hand-iroh endpoint's key, hand-iroh.key
 ├── board.iroh                         the board's --iroh setting and the sidecar's last state
+├── board.generation                   the running board's PID and start marker
 └── board.addr                         where the running board listens
 ```
 

@@ -35,11 +35,15 @@ func (r *runner) ensureWatcher(ctx context.Context) (bool, error) {
 	if held, err := r.watchHeld(); held || err != nil {
 		return false, err
 	}
+	env := []string{"HAND_HOME=" + r.home}
+	if r.generation != "" {
+		env = append(env, "HAND_GENERATION="+r.generation)
+	}
 	return r.startService(ctx, spawnSpec{
 		unit:    fleet.WatchUnit(r.fleet.ID),
 		log:     filepath.Join(r.home, "watch.log"),
 		args:    []string{"watch"},
-		env:     []string{"HAND_HOME=" + r.home},
+		env:     env,
 		running: r.watchHeld,
 		await:   r.awaitWatcher,
 	})
