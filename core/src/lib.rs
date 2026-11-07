@@ -17,7 +17,7 @@ pub use dialer::{
     ALPN, BACKOFF_RESET, Dialer, HANDSHAKE_DEADLINE, Notice, OpenError, STREAMS_PER_CONNECTION,
     StreamRecv, StreamSend, parse_target,
 };
-pub use key::{key_path, load_or_create as load_or_create_key};
+pub use key::{CipherError, KeyCipher, key_path, load_or_create as load_or_create_key};
 pub use link::{
     CAMERA_REFUSED, LINK_NEEDS_UPDATE, LINK_REJECTED, Link, MAX_LEN, Reject, parse_link,
     parse_link_with,

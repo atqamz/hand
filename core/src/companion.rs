@@ -2,6 +2,7 @@ use std::fmt;
 use std::io;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use tokio::time::timeout;
 use url::Url;
 
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
-use crate::key;
+use crate::key::{self, KeyCipher};
 use crate::link::LINK_REJECTED;
 use crate::pairing::{Offer, OfferError, Pairing};
 use crate::proxy::{self, Proxy, Signal};
@@ -22,6 +23,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct CompanionConfig {
     pub data_dir: PathBuf,
+    pub cipher: Arc<dyn KeyCipher>,
 }
 
 pub(crate) fn proxy_url(port: u16, path: &str) -> String {
@@ -48,7 +50,7 @@ pub struct Companion {
 impl Companion {
     pub async fn start(config: CompanionConfig) -> Result<Self, StartError> {
         std::fs::create_dir_all(&config.data_dir)?;
-        let secret_key = key::load_or_create(&config.data_dir)?;
+        let secret_key = key::load_or_create(&config.data_dir, config.cipher.as_ref())?;
         let transport = QuicTransportConfig::builder()
             .max_concurrent_bidi_streams(VarInt::from_u32(STREAMS_PER_CONNECTION as u32))
             .max_concurrent_uni_streams(VarInt::from_u32(0))
@@ -245,19 +247,39 @@ impl From<io::Error> for StartError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::key::CipherError;
     use crate::testutil::TempDir;
 
     const LINK: &str = "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P";
     const SECOND_LINK: &str = "handboard://c#v=1&e=d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5&f=fa1b2c3d4e5f6&c=0123456789";
 
+    struct TestCipher;
+
+    impl KeyCipher for TestCipher {
+        fn probe(&self) -> Result<(), CipherError> {
+            Ok(())
+        }
+
+        fn seal(&self, plaintext: &[u8]) -> Result<Vec<u8>, CipherError> {
+            Ok(plaintext.to_vec())
+        }
+
+        fn open(&self, sealed: &[u8]) -> Result<Vec<u8>, CipherError> {
+            Ok(sealed.to_vec())
+        }
+    }
+
+    fn config(dir: &TempDir) -> CompanionConfig {
+        CompanionConfig {
+            data_dir: dir.path().to_owned(),
+            cipher: Arc::new(TestCipher),
+        }
+    }
+
     #[tokio::test]
     async fn offering_a_link_dials_nothing_until_confirmed() {
         let dir = TempDir::new();
-        let companion = Companion::start(CompanionConfig {
-            data_dir: dir.path().to_owned(),
-        })
-        .await
-        .unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
         let offer = companion.offer_link(LINK).unwrap();
         assert_eq!(offer.laptop, "4d92…6ed6");
         assert!(companion.dialer.target().await.is_none());
@@ -266,11 +288,7 @@ mod tests {
     #[tokio::test]
     async fn a_second_link_keeps_the_pending_confirmation() {
         let dir = TempDir::new();
-        let companion = Companion::start(CompanionConfig {
-            data_dir: dir.path().to_owned(),
-        })
-        .await
-        .unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
         let first = companion.offer_link(LINK).unwrap();
         assert_eq!(
             companion.offer_link(SECOND_LINK).unwrap_err(),
@@ -282,11 +300,7 @@ mod tests {
     #[tokio::test]
     async fn a_relaunch_without_a_laptop_stays_on_the_pairing_screen() {
         let dir = TempDir::new();
-        let companion = Companion::start(CompanionConfig {
-            data_dir: dir.path().to_owned(),
-        })
-        .await
-        .unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
         assert_eq!(companion.open_board().await.unwrap(), None);
         assert!(companion.dialer.target().await.is_none());
     }
@@ -296,11 +310,7 @@ mod tests {
         let dir = TempDir::new();
         let laptop = "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6";
         std::fs::write(dir.path().join("laptop"), format!("{laptop}\n")).unwrap();
-        let companion = Companion::start(CompanionConfig {
-            data_dir: dir.path().to_owned(),
-        })
-        .await
-        .unwrap();
+        let companion = Companion::start(config(&dir)).await.unwrap();
         assert_eq!(
             companion.open_board().await.unwrap(),
             Some(format!("http://localhost:{}/", companion.port()))
