@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -132,7 +134,15 @@ func cmdFleetMove(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.printMoveDryRun(f, rep, *rewriteOnly)
+		var wt *moveWorktrees
+		if !*rewriteOnly {
+			w, err := rewriteMoveWorktrees(root, f.ID, from, dest, false)
+			if err != nil {
+				return err
+			}
+			wt = &w
+		}
+		return r.printMoveDryRun(f, rep, *rewriteOnly, wt)
 	}
 	backup := moveBackup(home, r.env.Now().UTC())
 	if err := st.Backup(ctx, backup); err != nil {
@@ -160,6 +170,10 @@ func cmdFleetMove(r *runner, args []string) error {
 	if err := fsx.Rename(home, dest); err != nil {
 		return fmt.Errorf("%w: the database at %s now names %s, but the folder did not move: %v; the pre-move database is %s; run `hand fleet move --yes %s` to finish the rename, or undo it by copying %s over %s and removing %s and %s, which discards anything written since the rewrite", state.ErrConflict, home, dest, err, backup, dest, backup, db, db+"-wal", db+"-shm")
 	}
+	wt, err := rewriteMoveWorktrees(root, f.ID, from, dest, true)
+	if err != nil {
+		return fmt.Errorf("%w: the folder moved to %s, but the worktrees under %s could not be read: %v; fix them and run `hand fleet move --yes %s` there to finish", state.ErrConflict, dest, fleet.Worktrees(root, f.ID), err, dest)
+	}
 	if _, err := fleet.Register(root, f.ID, dest); err != nil {
 		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish, or `hand init` there", state.ErrConflict, dest, filepath.Join(root, "fleets", f.ID), home, err, dest, dest)
 	}
@@ -167,7 +181,7 @@ func cmdFleetMove(r *runner, args []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: the folder moved to %s, but recording fleet.moved failed: %v; run `hand fleet move --yes %s` in %s to finish", state.ErrConflict, dest, err, dest, dest)
 	}
-	return r.printMoveMoved(f, root, rep, seq, len(hits), backup)
+	return r.printMoveMoved(f, root, rep, seq, len(hits), backup, wt)
 }
 
 func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, dest, from, to string, dry, rewriteOnly, haveDest bool) error {
@@ -179,6 +193,11 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		d.Field("from", from)
 		d.Field("to", to)
 		d.Field("home", home)
+		wt, err := rewriteMoveWorktrees(root, f.ID, from, to, false)
+		if err != nil {
+			return err
+		}
+		moveWorktreeFields(&d, wt)
 		d.Help("The move from " + toon.ShellQuote(from) + " to " + toon.ShellQuote(to) + " did not finish; run `hand fleet move --yes " + toon.ShellQuote(to) + "` in " + toon.ShellQuote(from) + " (or in " + toon.ShellQuote(to) + ") to finish it")
 		return r.print(&d)
 	}
@@ -186,6 +205,10 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 	if samePlace(home, to) {
 		if haveDest && !samePlace(dest, to) {
 			return fmt.Errorf("%w: the move from %s to %s is pending and this folder is already %s; run `hand fleet move --yes %s` here to finish it first, then start the move to %s", state.ErrConflict, from, to, to, to, dest)
+		}
+		wt, err := rewriteMoveWorktrees(root, f.ID, from, to, true)
+		if err != nil {
+			return fmt.Errorf("%w: the folder is at %s, but the worktrees under %s could not be read: %v", state.ErrConflict, to, fleet.Worktrees(root, f.ID), err)
 		}
 		if _, err := fleet.Register(root, f.ID, to); err != nil {
 			return fmt.Errorf("%w: the folder is at %s, but %s still names %s: %v; run `hand init` in %s", state.ErrConflict, to, filepath.Join(root, "fleets", f.ID), home, err, to)
@@ -198,7 +221,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		if err != nil {
 			return err
 		}
-		return r.printMoveFinished(f, root, home, from, to, seq, len(hits))
+		return r.printMoveFinished(f, root, home, from, to, seq, len(hits), wt)
 	}
 	if !samePlace(home, from) {
 		return fmt.Errorf("%w: a move from %s to %s is pending, but this folder is %s; run the command in one of those folders", state.ErrConflict, from, to, home)
@@ -234,6 +257,10 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 		}
 		return fmt.Errorf("%w: the database at %s names %s, but the folder did not move: %v; %s%s", state.ErrConflict, home, to, err, backupText, undo)
 	}
+	wt, err := rewriteMoveWorktrees(root, f.ID, from, to, true)
+	if err != nil {
+		return fmt.Errorf("%w: the folder moved to %s, but the worktrees under %s could not be read: %v; fix them and run `hand fleet move --yes %s` there again", state.ErrConflict, to, fleet.Worktrees(root, f.ID), err, to)
+	}
 	if _, err := fleet.Register(root, f.ID, to); err != nil {
 		return fmt.Errorf("%w: the folder moved to %s, but %s still names %s: %v; run `hand fleet move --yes %s` in %s to finish", state.ErrConflict, to, filepath.Join(root, "fleets", f.ID), home, err, to, to)
 	}
@@ -241,7 +268,7 @@ func (r *runner) finishPendingMove(st *state.Store, f state.Fleet, root, home, d
 	if err != nil {
 		return fmt.Errorf("%w: the folder moved to %s, but recording fleet.moved failed: %v; run `hand fleet move --yes %s` in %s to finish", state.ErrConflict, to, err, to, to)
 	}
-	return r.printMoveResumed(f, root, home, from, to, seq, len(hits))
+	return r.printMoveResumed(f, root, home, from, to, seq, len(hits), wt)
 }
 
 func confirmMove(r *runner, ctx context.Context, dir, from, to string) (int64, []state.MoveCell, error) {
@@ -258,7 +285,7 @@ func confirmMove(r *runner, ctx context.Context, dir, from, to string) (int64, [
 	return seq, hits, err
 }
 
-func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnly bool) error {
+func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnly bool, wt *moveWorktrees) error {
 	var d toon.Doc
 	d.Field("move", "dry-run")
 	d.Field("fleet", rep.Name)
@@ -272,6 +299,9 @@ func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnl
 		rows = append(rows, []string{c.Table, c.Column, c.Ref, strconv.Itoa(c.Absolute), strconv.Itoa(c.Tilde)})
 	}
 	d.Rows("cells", []string{"table", "column", "ref", "absolute", "tilde"}, rows)
+	if wt != nil {
+		moveWorktreeFields(&d, *wt)
+	}
 	help := []string{"Run `hand fleet move --yes " + toon.ShellQuote(rep.To) + "` to rewrite the database and move the folder"}
 	if rewriteOnly {
 		help = []string{"Run `hand fleet move --rewrite-only --yes --from " + toon.ShellQuote(rep.From) + "` here to rewrite the recorded paths without moving the folder"}
@@ -285,7 +315,7 @@ func (r *runner) printMoveDryRun(f state.Fleet, rep state.MoveReport, rewriteOnl
 	return r.print(&d)
 }
 
-func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport, seq int64, remaining int, backup string) error {
+func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport, seq int64, remaining int, backup string, wt moveWorktrees) error {
 	var d toon.Doc
 	d.Field("move", "moved")
 	d.Field("fleet", rep.Name)
@@ -298,6 +328,7 @@ func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport
 	}
 	d.Rows("counts", []string{"when", "absolute", "tilde", "cells"}, rows)
 	d.Field("verification", strconv.Itoa(remaining))
+	moveWorktreeFields(&d, wt)
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", seq))
 	d.Field("foreign_key_check", strconv.Itoa(rep.ForeignKeys))
 	d.Field("integrity_check", rep.Integrity)
@@ -307,7 +338,10 @@ func (r *runner) printMoveMoved(f state.Fleet, root string, rep state.MoveReport
 	d.Field("registry", filepath.Join(root, "fleets", f.ID))
 	help := []string{"Run `hand init` in " + rep.To + " to repair worktrees of projects that were inside the old home and now live there, and to refresh the skills"}
 	d.Help(help...)
-	return r.print(&d)
+	if err := r.print(&d); err != nil {
+		return err
+	}
+	return moveWorktreeError(wt, rep.To)
 }
 
 func (r *runner) printMoveRewritten(f state.Fleet, root string, rep state.MoveReport, backup string) error {
@@ -332,7 +366,7 @@ func (r *runner) printMoveRewritten(f state.Fleet, root string, rep state.MoveRe
 	return r.print(&d)
 }
 
-func (r *runner) printMoveFinished(f state.Fleet, root, home, from, to string, seq int64, remaining int) error {
+func (r *runner) printMoveFinished(f state.Fleet, root, home, from, to string, seq int64, remaining int, wt moveWorktrees) error {
 	var d toon.Doc
 	d.Field("move", "finished")
 	d.Field("fleet", f.Name)
@@ -340,14 +374,18 @@ func (r *runner) printMoveFinished(f state.Fleet, root, home, from, to string, s
 	d.Field("from", from)
 	d.Field("to", to)
 	d.Field("verification", strconv.Itoa(remaining))
+	moveWorktreeFields(&d, wt)
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", seq))
 	d.Field("home", home)
 	d.Field("registry", filepath.Join(root, "fleets", f.ID))
 	d.Help("The move is complete; run `hand init` in " + to + " to repair worktrees and refresh the skills")
-	return r.print(&d)
+	if err := r.print(&d); err != nil {
+		return err
+	}
+	return moveWorktreeError(wt, to)
 }
 
-func (r *runner) printMoveResumed(f state.Fleet, root, home, from, to string, seq int64, remaining int) error {
+func (r *runner) printMoveResumed(f state.Fleet, root, home, from, to string, seq int64, remaining int, wt moveWorktrees) error {
 	var d toon.Doc
 	d.Field("move", "resumed")
 	d.Field("fleet", f.Name)
@@ -355,11 +393,15 @@ func (r *runner) printMoveResumed(f state.Fleet, root, home, from, to string, se
 	d.Field("from", from)
 	d.Field("to", to)
 	d.Field("verification", strconv.Itoa(remaining))
+	moveWorktreeFields(&d, wt)
 	d.Field("kept", fmt.Sprintf("event e%d (fleet.moved) names the old home as history", seq))
 	d.Field("home", to)
 	d.Field("registry", filepath.Join(root, "fleets", f.ID))
 	d.Help("The move is complete; run `hand init` in " + to + " to repair worktrees and refresh the skills")
-	return r.print(&d)
+	if err := r.print(&d); err != nil {
+		return err
+	}
+	return moveWorktreeError(wt, to)
 }
 
 func moveOnlyRows(cells []state.MoveCell) [][]string {
@@ -368,6 +410,198 @@ func moveOnlyRows(cells []state.MoveCell) [][]string {
 		rows = append(rows, []string{c.Table, c.Column, c.Ref})
 	}
 	return rows
+}
+
+type worktreeBroken struct {
+	Path, Reason string
+}
+
+type moveWorktrees struct {
+	Rewritten int
+	Correct   int
+	Broken    []worktreeBroken
+	Stale     []string
+}
+
+func moveWorktreeFields(d *toon.Doc, wt moveWorktrees) {
+	d.Field("worktrees_rewritten", strconv.Itoa(wt.Rewritten))
+	d.Field("worktrees_correct", strconv.Itoa(wt.Correct))
+	d.Field("worktrees_broken", strconv.Itoa(len(wt.Broken)+len(wt.Stale)))
+	rows := make([][]string, 0, len(wt.Broken)+len(wt.Stale))
+	for _, b := range wt.Broken {
+		rows = append(rows, []string{b.Path, b.Reason})
+	}
+	for _, p := range wt.Stale {
+		rows = append(rows, []string{p, "gitfile still names the old home"})
+	}
+	if len(rows) > 0 {
+		d.Rows("broken", []string{"worktree", "reason"}, rows)
+	}
+}
+
+func moveWorktreeError(wt moveWorktrees, to string) error {
+	n := len(wt.Broken) + len(wt.Stale)
+	if n == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: the folder moved to %s and the database names it, but the worktree verification left %d broken worktree(s); see broken", state.ErrConflict, to, n)
+}
+
+const moveGitdir = "gitdir: "
+
+func readMoveGitfile(path string) ([]byte, bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, false, nil
+	}
+	b, err := os.ReadFile(path)
+	return b, err == nil, err
+}
+
+func rewriteMoveWorktrees(root, id, oldHome, newHome string, apply bool) (moveWorktrees, error) {
+	var rep moveWorktrees
+	dir := fleet.Worktrees(root, id)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return rep, nil
+	}
+	if err != nil {
+		return rep, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		worktree := filepath.Join(dir, e.Name())
+		gitfile := filepath.Join(worktree, ".git")
+		b, ok, err := readMoveGitfile(gitfile)
+		if err != nil {
+			return rep, err
+		}
+		if !ok {
+			rep.Broken = append(rep.Broken, worktreeBroken{worktree, "no .git file"})
+			continue
+		}
+		target, start, end, ok := moveGitdirTarget(b)
+		if !ok {
+			rep.Broken = append(rep.Broken, worktreeBroken{worktree, "no gitdir line"})
+			continue
+		}
+		next, rewrote := moveReplaceHome(target, oldHome, newHome)
+		exists := moveTargetExists(worktree, target)
+		if rewrote {
+			if apply {
+				out := make([]byte, 0, len(b)-len(target)+len(next))
+				out = append(out, b[:start]...)
+				out = append(out, next...)
+				out = append(out, b[end:]...)
+				if err := os.WriteFile(gitfile, out, 0o644); err != nil {
+					return rep, err
+				}
+			}
+			if apply || !exists {
+				exists = moveTargetExists(worktree, next)
+			}
+			rep.Rewritten++
+		}
+		if !exists {
+			rep.Broken = append(rep.Broken, worktreeBroken{worktree, "gitdir target does not exist"})
+			continue
+		}
+		if !rewrote {
+			rep.Correct++
+		}
+	}
+	if !apply {
+		return rep, nil
+	}
+	rep.Stale, err = moveWorktreesNamingHome(dir, oldHome)
+	return rep, err
+}
+
+func moveGitdirTarget(b []byte) (target string, start, end int, ok bool) {
+	if !bytes.HasPrefix(b, []byte(moveGitdir)) {
+		return "", 0, 0, false
+	}
+	start = len(moveGitdir)
+	end = len(b)
+	if i := bytes.IndexByte(b[start:], '\n'); i >= 0 {
+		end = start + i
+	}
+	if end > start && b[end-1] == '\r' {
+		end--
+	}
+	if end == start {
+		return "", 0, 0, false
+	}
+	return string(b[start:end]), start, end, true
+}
+
+func moveReplaceHome(target, oldHome, newHome string) (string, bool) {
+	if oldHome == "" || len(target) < len(oldHome) || !moveSamePath(target[:len(oldHome)], oldHome) {
+		return target, false
+	}
+	rest := target[len(oldHome):]
+	if rest != "" && rest[0] != '/' && rest[0] != '\\' {
+		return target, false
+	}
+	replacement := newHome
+	if strings.Contains(target, "/") {
+		replacement = filepath.ToSlash(newHome)
+	}
+	return replacement + rest, true
+}
+
+func moveSamePath(a, b string) bool {
+	a, b = filepath.ToSlash(a), filepath.ToSlash(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func moveTargetExists(worktree, target string) bool {
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(worktree, target)
+	}
+	_, err := os.Stat(target)
+	return err == nil
+}
+
+func moveWorktreesNamingHome(dir, home string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var stale []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		worktree := filepath.Join(dir, e.Name())
+		b, ok, err := readMoveGitfile(filepath.Join(worktree, ".git"))
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		if target, _, _, ok := moveGitdirTarget(b); ok {
+			if _, hit := moveReplaceHome(target, home, home); hit {
+				stale = append(stale, worktree)
+			}
+		}
+	}
+	return stale, nil
 }
 
 func samePlace(a, b string) bool {
