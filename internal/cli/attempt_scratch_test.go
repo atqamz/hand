@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atqamz/hand/internal/toon"
 )
 
 var nonAlnum = regexp.MustCompile(`[^a-zA-Z0-9]`)
@@ -52,6 +54,7 @@ func exists(path string) bool {
 func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	wt := fx.h.worktree("t1-a1")
 	scratch := fx.scratch(wt)
@@ -64,7 +67,7 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 		t.Fatal(err)
 	}
 	out := fx.h.ok("attempt", "clean", "a1")
-	if !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, scratch+",10") {
+	if !strings.Contains(out, "scratch_removed[2]{path,bytes}") || !strings.Contains(out, scratch+",10") || !strings.Contains(out, scratchOf(fx.h, wt)) {
 		t.Fatalf("clean = %q", out)
 	}
 	if exists(scratch) {
@@ -78,21 +81,26 @@ func TestCleanRemovesTheClaudeScratchDirectoryAndKeepsTranscripts(t *testing.T) 
 func TestCleanKeepScratchLeavesItAndNamesIt(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	scratch := fx.scratch(fx.h.worktree("t1-a1"))
 	out := fx.h.ok("attempt", "clean", "--keep-scratch", "a1")
-	if !strings.Contains(out, "scratch_kept[1]{path,bytes}") || !strings.Contains(out, scratch) || strings.Contains(out, "scratch_removed") {
+	if !strings.Contains(out, "scratch_kept[2]{path,bytes}") || !strings.Contains(out, scratch) || strings.Contains(out, "scratch_removed") {
 		t.Fatalf("clean = %q", out)
 	}
-	if !exists(scratch) {
-		t.Fatal("--keep-scratch removed the directory")
+	if !exists(scratch) || !exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) {
+		t.Fatal("--keep-scratch removed a directory")
 	}
 }
 
 func TestCleanWithoutScratchPrintsNothingAboutIt(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
+	if err := os.RemoveAll(scratchOf(fx.h, fx.h.worktree("t1-a1"))); err != nil {
+		t.Fatal(err)
+	}
 	if out := fx.h.ok("attempt", "clean", "a1"); strings.Contains(out, "scratch") {
 		t.Fatalf("clean = %q", out)
 	}
@@ -156,11 +164,42 @@ func TestGCOlderThanUsesTheNewestTimeInTheTree(t *testing.T) {
 	}
 }
 
+func TestGCOlderThanUsesTheAttemptScratchRoot(t *testing.T) {
+	fx := newAttemptFixture(t)
+	home, err := filepath.EvalSymlinks(fx.h.home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldDir := filepath.Join(home, "scratch", "t5-a8")
+	newDir := filepath.Join(home, "scratch", "t5-a9")
+	for _, dir := range []string{oldDir, newDir} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "f"), []byte("0123456789"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ageTree(t, oldDir, 100*time.Hour)
+	out := fx.h.ok("attempt", "gc", "--older-than", "72h")
+	if !strings.Contains(out, toon.Value(oldDir)) || !strings.Contains(out, ",10") || strings.Contains(out, toon.Value(newDir)) {
+		t.Fatalf("gc = %q", out)
+	}
+	out = fx.h.ok("attempt", "gc", "--older-than", "72h", "--apply")
+	if !strings.Contains(out, toon.Value(oldDir)) || strings.Contains(out, toon.Value(newDir)) {
+		t.Fatalf("gc --apply = %q", out)
+	}
+	if exists(oldDir) || !exists(newDir) {
+		t.Fatalf("after --apply: old=%v fresh=%v", exists(oldDir), exists(newDir))
+	}
+}
+
 func TestGCSkipsAnAttemptThatIsLiveInTheDatabase(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
 	wt := fx.h.worktree("t1-a1")
 	scratch := fx.scratch(wt)
+	eventually(t, func() bool { return exists(scratchOf(fx.h, wt)) })
 	if err := os.RemoveAll(wt); err != nil {
 		t.Fatal(err)
 	}
@@ -211,12 +250,13 @@ func TestGCApplyRemovesWhatItCanAndWarnsOnTheRest(t *testing.T) {
 func TestCleanWarnsWhenTheScratchDirectoryStaysAndStillCleans(t *testing.T) {
 	fx := newScratchFixture(t)
 	fx.start()
+	eventually(t, func() bool { return exists(scratchOf(fx.h, fx.h.worktree("t1-a1"))) })
 	fx.h.ok("attempt", "stop", "a1")
 	wt := fx.h.worktree("t1-a1")
 	stuck := fx.scratch(wt)
 	undeletable(t, stuck)
 	out := fx.h.ok("attempt", "clean", "a1")
-	if !strings.Contains(out, "removed: "+wt) || !strings.Contains(out, `warn: "scratch not removed: `) || strings.Contains(out, "scratch_removed") || !exists(stuck) {
+	if !strings.Contains(out, "removed: "+wt) || !strings.Contains(out, `warn: "scratch not removed: `) || !strings.Contains(out, "scratch_removed[1]{path,bytes}") || !strings.Contains(out, scratchOf(fx.h, wt)) || !exists(stuck) {
 		t.Fatalf("clean = %q", out)
 	}
 }

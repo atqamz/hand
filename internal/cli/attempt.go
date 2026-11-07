@@ -153,7 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start)
+		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...))
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -885,7 +885,7 @@ func remoteDefault(ctx context.Context, g gitcfg.Repo) string {
 	return ""
 }
 
-func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string) (state.Attempt, error) {
+func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
@@ -899,7 +899,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if err := harness.OpencodeCreateFor(ctx, a.Argv, a.Worktree, harness.Spec{Harness: a.Harness, Model: a.Model, Effort: a.Effort}); err != nil {
 		return a, discard(ctx, g, a, err)
 	}
-	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
+	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), run)
 	if err == nil {
 		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 		if err != nil {

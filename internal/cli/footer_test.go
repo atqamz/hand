@@ -25,6 +25,23 @@ func TestReportFooterByOS(t *testing.T) {
 	}
 }
 
+func TestReportFooterNamesTheScratchFolderOnce(t *testing.T) {
+	for goos, names := range map[string][]string{
+		"linux":   {"`$TMPDIR`", "`$GOTMPDIR`", "not directly under `$HOME`"},
+		"windows": {"`%TEMP%`", "`%TMP%`", "not directly under `%USERPROFILE%`"},
+	} {
+		footer := reportFooterFor(goos, "/bin/hand")
+		if n := strings.Count(footer, "scratch folder, which is"); n != 1 {
+			t.Errorf("%s footer has %d scratch sentences, want 1", goos, n)
+		}
+		for _, want := range names {
+			if !strings.Contains(footer, want) {
+				t.Errorf("%s footer lacks %q", goos, want)
+			}
+		}
+	}
+}
+
 func TestReportFooterAsksForDeliveredLines(t *testing.T) {
 	const ask = "Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file."
 	const wait = "Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. Apart from a milestone, write a report only when the work is done or you are stuck."
@@ -42,16 +59,24 @@ func TestReportFooterAsksForDeliveredLines(t *testing.T) {
 }
 
 func TestReadonlyFooterNamesOnlyTheReportCommand(t *testing.T) {
-	got := readonlyReportFooter("/bin/hand")
-	for _, want := range []string{reportMarker, "'/bin/hand' report add --status done --file - <<'HAND_REPORT_", "Delivered:"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("read-only footer lacks %q", want)
+	for goos, names := range map[string][]string{
+		"linux":   {reportMarker, "'/bin/hand' report add --status done --file - <<'HAND_REPORT_", "not directly under `$HOME`"},
+		"windows": {reportMarker, "hand report add --status done --file PATH", "not directly under `%USERPROFILE%`"},
+	} {
+		got := readonlyReportFooterFor(goos, "/bin/hand")
+		for _, want := range append(names, "Delivered:") {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s read-only footer lacks %q", goos, want)
+			}
+		}
+		for _, bad := range []string{"gh pr checks", "until ...", "sleep"} {
+			if strings.Contains(got, bad) {
+				t.Errorf("%s read-only footer has %q", goos, bad)
+			}
 		}
 	}
-	for _, bad := range []string{"gh pr checks", "until ...", "sleep"} {
-		if strings.Contains(got, bad) {
-			t.Errorf("read-only footer has %q", bad)
-		}
+	if got := readonlyReportFooterFor("windows", "/bin/hand"); strings.Contains(got, "$TMPDIR") {
+		t.Errorf("windows read-only footer names $TMPDIR")
 	}
 }
 

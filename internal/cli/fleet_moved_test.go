@@ -18,6 +18,7 @@ func TestWatchExitsWhenItsHomeMoves(t *testing.T) {
 	}
 	fx := newAttemptFixture(t)
 	fx.start()
+	awaitScratch(t, fx.h.home)
 	type result struct {
 		errOut string
 		code   int
@@ -55,6 +56,7 @@ func TestWatchStopsOnTheFirstEventAfterAMove(t *testing.T) {
 	}
 	fx := newAttemptFixture(t)
 	fx.start()
+	awaitScratch(t, fx.h.home)
 	done := make(chan int, 1)
 	go func() {
 		_, _, code := fx.h.runCtx(context.Background(), "watch", "--every", "1h", "--notify=false")

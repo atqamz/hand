@@ -38,6 +38,7 @@ type fakeRuntime struct {
 	mu           sync.Mutex
 	terms        []*fakeTerm
 	creates      []createCall
+	env          []string
 	status       string
 	hint         string
 	ready        bool
@@ -89,6 +90,22 @@ func startRuntime(t *testing.T, socket string) *fakeRuntime {
 	return rt
 }
 
+func environment(base []string, overrides ...string) []string {
+	names := make(map[string]bool, len(overrides))
+	for _, kv := range overrides {
+		name, _, _ := strings.Cut(kv, "=")
+		names[name] = true
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, kv := range base {
+		if name, _, ok := strings.Cut(kv, "="); ok && names[name] {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, overrides...)
+}
+
 func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
@@ -96,6 +113,7 @@ func (rt *fakeRuntime) spawn(cwd, label string, argv []string) (*fakeTerm, error
 	if rt.runsIn != "" {
 		cmd.Dir = rt.runsIn
 	}
+	cmd.Env = environment(os.Environ(), append([]string{"HAND_TEST_AS_HAND=1"}, rt.env...)...)
 	rt.mu.Unlock()
 	proc.NewGroup(cmd)
 	if err := cmd.Start(); err != nil {
@@ -362,7 +380,24 @@ func (rt *fakeRuntime) set(fn func(*fakeRuntime)) {
 	fn(rt)
 }
 
+func harnessArgv(argv []string) []string {
+	if len(argv) > 5 && argv[1] == "attempt" && argv[2] == "_exec" {
+		if i := slices.Index(argv, "--"); i >= 0 {
+			return argv[i+1:]
+		}
+	}
+	return argv
+}
+
 func (rt *fakeRuntime) lastCreate() createCall {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	call := rt.creates[len(rt.creates)-1]
+	call.Command = harnessArgv(call.Command)
+	return call
+}
+
+func (rt *fakeRuntime) lastSent() createCall {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.creates[len(rt.creates)-1]
@@ -484,8 +519,16 @@ func fakeBin(t *testing.T) string {
 
 func newAttemptFixture(t *testing.T) *attemptFixture {
 	t.Helper()
-	fx := &attemptFixture{h: newHarness(t), repo: gitRepo(t)}
+	return newAttemptFixtureAt(t, t.TempDir())
+}
+
+func newAttemptFixtureAt(t *testing.T, home string) *attemptFixture {
+	t.Helper()
+	fx := &attemptFixture{h: newHarness(t)}
+	fx.h.home = home
+	fx.repo = gitRepo(t)
 	fx.rt = startRuntime(t, fakeuhp.ShortSocket(t))
+	fx.rt.env = []string{"SECONDHAND_HOME=" + fx.h.vars["SECONDHAND_HOME"]}
 	fx.h.vars["HAND_LUVUS_SOCKET"] = fx.rt.srv.Socket
 	fx.h.vars["PATH"] = fakeBin(t)
 	fx.h.vars["HOME"] = t.TempDir()

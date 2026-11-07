@@ -42,6 +42,8 @@ A worker can:
 
 A git worktree is not a fence. It is a folder.
 
+Hand gives each worker a scratch folder under the fleet home's `scratch/` and points its temporary-directory variables at it, so its temporary files, downloads and build output have a correct default. That folder is not a fence either: it sits in the fleet home, and a worker that ignores the variables or writes an absolute path can still reach anything its account can.
+
 ## What to do about it
 
 In order of value for cost. The first two matter most.
@@ -181,7 +183,7 @@ A Claude worker starts with `--strict-mcp-config` and no MCP server. Before, it 
 
 None of this exists yet. The operator's safe-mode study describes them. It is not in this repository. Which of them get built is decided after this page has been read.
 
-- Read-only roles for Codex, opencode, agy and Copilot workers, and a scratch folder a read-only worker may write.
+- Read-only roles for Codex, opencode, agy and Copilot workers.
 - A sandbox. The study advises against a sandbox that Hand builds itself.
 
 Until then, the setup above is the only protection.

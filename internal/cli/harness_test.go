@@ -33,10 +33,28 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"sidecar": sidecarMain, "args": fakebin.RecordArgs, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"sidecar": sidecarMain, "args": fakebin.RecordArgs, "env": envMain, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
+}
+
+func envMain(args []string) int {
+	var lines []string
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR", "HOME"} {
+		lines = append(lines, name+"="+os.Getenv(name))
+	}
+	argv, err := json.Marshal(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	lines = append(lines, "argv="+string(argv))
+	if err := os.WriteFile(fakebin.Params()["out"], []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
 }
 
 func clickMain(args []string) int {
@@ -373,7 +391,7 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
-	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir(), "HAND_LUVUS_BASE": "http://127.0.0.1:1"}}
+	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir(), "HAND_LUVUS_BASE": "http://127.0.0.1:1", "HAND_TEST_AS_HAND": "1"}}
 }
 
 func (h *harness) clock() time.Time {

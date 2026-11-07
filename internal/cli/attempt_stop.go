@@ -103,7 +103,7 @@ func cmdAttemptStop(r *runner, args []string) error {
 func cmdAttemptClean(r *runner, args []string) error {
 	set := flags("attempt clean")
 	discard := set.Bool("discard", false, "remove the worktree even with uncommitted changes")
-	keep := set.Bool("keep-scratch", false, "leave the harness's scratch directory for the worktree and print it; `hand attempt gc` lists it once the worktree is gone")
+	keep := set.Bool("keep-scratch", false, "leave the attempt's scratch folder and the harness's scratch directory, and print them; `hand attempt gc` lists them once the worktree is gone")
 	pos, err := parse(set, args, 1)
 	if err != nil {
 		return err
@@ -145,7 +145,7 @@ func cmdAttemptClean(r *runner, args []string) error {
 		var d toon.Doc
 		d.Field("attempt", ref)
 		d.Field("removed", a.Worktree)
-		if dirs := scanScratch(r.leftovers(a.Harness, a.Worktree), 0); len(dirs) > 0 {
+		if dirs := scanScratch(append(r.leftovers(a.Harness, a.Worktree), r.scratchDir(a)), 0); len(dirs) > 0 {
 			if *keep {
 				rows, _ := scratchRows(dirs)
 				d.Rows("scratch_kept", scratchFields, rows)
