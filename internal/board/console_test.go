@@ -47,6 +47,12 @@ func TestMain(m *testing.M) {
 	}, "forbidden": func(args []string) int {
 		fakebin.Append(fakebin.Params()["log"], strings.Join(args, " "))
 		return 1
+	}, "opencode": func(args []string) int {
+		if len(args) > 1 && args[0] == "session" && args[1] == "export" {
+			fakebin.Append(fakebin.Params()["count"], "run")
+			fmt.Print(fakebin.Params()["export"])
+		}
+		return 0
 	}})
 	os.Exit(m.Run())
 }
