@@ -84,6 +84,9 @@ func (b *Board) revokeLabel(ctx context.Context, label string) (int, error) {
 		delete(b.phones.seen, d.ID)
 	}
 	b.phones.mu.Unlock()
+	if err == nil {
+		b.closePeers(gone...)
+	}
 	return len(gone), err
 }
 

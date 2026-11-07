@@ -60,8 +60,8 @@ export function equal(got, want, msg) {
   pass(msg);
 }
 
-export function matches(text, re, msg) {
-  if (!re.test(text)) throw new Error(`${msg}: ${re} not found in:\n${text.slice(0, 1200)}`);
+export function matches(text, re, msg, shown = text) {
+  if (!re.test(text)) throw new Error(`${msg}: ${re} not found in:\n${shown.slice(0, 1200)}`);
   pass(msg);
 }
 

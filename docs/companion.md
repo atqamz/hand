@@ -4,8 +4,8 @@ The Companion is a phone app that holds an [iroh](https://docs.iroh.computer/) c
 
 **Status.** Two kinds of statement share this page, and each says which it is:
 
-- **Today** describes code in `main`: the [peer listener](phone.md#the-peer-listener) and the [`hand-iroh` sidecar](phone.md#the-hand-iroh-sidecar). A test in `internal/companion` reads the numbers of this page from the vectors file and checks them against that code, so a change to one without the other fails CI.
-- **Step 3** describes what pairing over iroh still has to build: the Phone page's "Pair the Hand app" choice, and what revoking does to a live connection. Until it lands, nothing in Hand shows an app a link and nothing starts the sidecar, so an app can only be tried against a sidecar started by hand.
+- **Today** describes code in `main`: the [peer listener](phone.md#the-peer-listener), the [`hand-iroh` sidecar](phone.md#the-hand-iroh-sidecar), the Phone page's "Pair the Hand app" link, and what revoking does to a live connection. A test in `internal/companion` reads the numbers of this page from the vectors file and checks them against that code, so a change to one without the other fails CI.
+- **Step 3** describes what pairing over iroh still has to build: telling the sidecar which IDs are paired, so it can keep connection slots for them.
 
 The words *must*, *must not* and *may* bind the app or the Board as the sentence says. The contract is OS-neutral, but only Android is in scope: [iOS is deferred](#ios-is-deferred).
 
@@ -164,16 +164,13 @@ The fragment keeps the code out of the request: the Board's pair page reads it w
 - **The device.** A good code creates a device whose login is `iroh:<endpoint id>`, the name the user typed, and a hash of a secret. The page sets the cookie `hand_phone_<fleet id>`: `HttpOnly`, `SameSite=Lax`, path `/`, 90 days. It has neither `Secure` nor the `__Host-` prefix, because the Board dropped `X-Forwarded-Proto` and the origin is plain HTTP. Then it redirects to `/<fleet id>/`.
 - **The binding.** The cookie works only on a connection whose peer is the one in the device's login. From any other endpoint ID it is refused with a 403 that says so, so a stolen cookie opens nothing without the phone's key, and the key opens nothing without the cookie. Cookies are scoped to a host, not a port: every port of `localhost` in one web view sends the same cookie.
 - **After pairing.** The whole Board, with the supervisor's controls, except `/<fleet id>/proof`. A request that carries a cookie that no longer proves puts the connection's caps back.
-- **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". The endpoint ID is not blocked and an open connection is not closed: the key can still dial and still reach only the pair page.
-- **What does not exist.** The Phone page has no "Pair the Hand app" choice and shows no `handboard://` link or QR code. The board does not start the sidecar. The sidecar does not know who is paired.
+- **The app link.** The Phone page's **Pair the Hand app** shows a `handboard://c#…` link, as a QR code and as text, for this laptop's endpoint ID, its relay when it is not a public one, the fleet whose page shows it, and a new code under the rules above. The link is at most 213 bytes. The page names the device that paired ("paired: NAME") and says a leaked QR is worth revoking after use.
+- **Revoking.** On the Phone page, **Revoke** deletes the device and **Revoke everywhere** deletes the phone's devices in every fleet. The cookie fails at once and the page answers 403 "This phone is no longer paired with this fleet". That endpoint ID's live connections are closed, and the laptop then admits that ID only to the pair page until it pairs again. The ID itself is not blocked.
+- **What does not exist.** The sidecar does not know who is paired, so it cannot keep connection slots for a paired phone. A key that is not paired may still dial and reaches only the pair page.
 
-### Step 3 (not built)
+### Step 3
 
-- The Phone page's "Pair the Hand app" shows the link of this page, as a QR code and as text (it is at most 213 bytes, so it fits the encoder), for the laptop's endpoint ID, its relay if it is not the public one, the fleet whose page shows it, and a new code that follows every rule above. The Board learns the ID and the relay from the sidecar's `ready` line; how it runs the sidecar is step 2's work.
-- The Phone page tells the user which device paired ("paired: NAME") and that a leaked QR is worth revoking after use.
-- **Revoke** and **Revoke everywhere** also close the open connections of that endpoint ID, and the laptop then admits that ID only to the pair page until it pairs again.
 - The sidecar may be told which IDs are paired, to keep connection slots for them. When that exists, a connection to a key that is not paired may close with a new code. The app already treats an unassigned code as a lost connection with the message above.
-- Over this path the pair page's wording for a binding fault still speaks of a tailnet login. Step 3 words it for a phone: the app shows whatever the page says.
 
 ## Errors and what the user should see
 

@@ -337,6 +337,7 @@ func number(t *testing.T, file, pattern string, times int) int {
 func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	v := load(t)
 	const forward, args, phone, peer = "iroh/src/forward.rs", "iroh/src/args.rs", "internal/board/phone.go", "internal/board/peer.go"
+	const emit = "internal/board/companion.go"
 	code := func(name string) string {
 		return `pub const ` + name + `: VarInt = VarInt::from_u32\((\d+)\);`
 	}
@@ -397,5 +398,15 @@ func TestTheNumbersInTheFileAreTheOnesInTheCode(t *testing.T) {
 	}
 	if login := strings.TrimSuffix(v.Board.DeviceLogin, "<endpoint id>"); !strings.Contains(string(read(t, peer)), `"`+login+`" + c.id`) {
 		t.Errorf("the Board does not build the device login %q", v.Board.DeviceLogin)
+	}
+	if want := number(t, emit, `appLinkMax\s+= (\d+)`, 1); v.Link.MaxBytes != want {
+		t.Errorf("app link cap: the file says %d, the code says %d", v.Link.MaxBytes, want)
+	}
+	if want := match(t, emit, regexp.QuoteMeta("appRelayRe = regexp.MustCompile(`")+"([^`]+)"+regexp.QuoteMeta("`)")); want != relayRe.String() {
+		t.Errorf("relay rule: the board says %q, the parser says %q", want, relayRe)
+	}
+	cond := "(" + regexp.QuoteMeta("if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' {") + ")"
+	if board, ref := match(t, emit, cond), match(t, "internal/companion/companion_test.go", cond); board != ref {
+		t.Errorf("escape alphabet: the board has %q, the parser has %q", board, ref)
 	}
 }

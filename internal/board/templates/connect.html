@@ -48,6 +48,22 @@
 </div>
 </div>{{end}}
 </div></section>
+{{if or .Iroh .AppError .AppLink}}<section class="card connect-part" aria-labelledby="handapp-head">
+<header class="slug"><h3 id="handapp-head">Pair the Hand app</h3></header>
+<div class="part-body">
+{{with .AppError}}<p class="field-error" role="alert">{{.}}</p>{{end}}
+{{if .Iroh}}{{if eq .Iroh.State "ready"}}<form method="post" action="{{.Base}}/connect/app"><input type="hidden" name="csrf" value="{{.Token}}"><button class="primary">{{if .AppLink}}New code{{else}}Pair the Hand app{{end}}</button></form>
+{{else}}<p>Pairing the Hand app needs the iroh sidecar ready with a relay. It is {{.Iroh.Text}}</p>{{end}}{{end}}
+{{with .AppLink}}<div class="pair-code">
+{{with $.AppQR}}{{.}}{{end}}
+<div class="pair-copy">
+<p>Scan the code with the Hand app, or open this link on the phone:</p>
+<p class="pair-link"><code class="ref">{{.}}</code> <button type="button" class="doc-copy" data-copy="link" data-text="{{.}}">Copy link</button></p>
+<p class="meta">It pairs one phone with this fleet, once, until <time datetime="{{$.AppExpires.Format "2006-01-02T15:04:05Z07:00"}}" data-clock>{{$.AppExpires.Format "15:04"}}</time>. The codes are kept in memory only, so restarting the board cancels them.</p>
+<p class="meta">A QR code that may have leaked is worth revoking after the phone pairs.</p>
+</div></div>{{end}}
+{{with .AppPaired}}<p>paired: {{.}}</p>{{end}}
+</div></section>{{end}}
 <section class="card connect-part" aria-labelledby="dev-head">
 <header class="slug"><h3 id="dev-head">Paired phones</h3></header>
 <div class="part-body">{{with .Unread}}<p class="doc-notice">{{.}} could not be reached, so its phones are not listed here.</p>

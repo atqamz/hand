@@ -474,7 +474,7 @@ func TestACookieWorksOnlyForTheLoginItWasPairedFor(t *testing.T) {
 	phone := p.pair()
 	other := map[string]string{"X-Forwarded-For": "100.64.0.9", "X-Forwarded-Proto": "https", "Tailscale-User-Login": "someone@example.com"}
 	rec := p.do("GET", "/", nil, phone, other)
-	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "another tailnet login") {
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "another connection") {
 		t.Fatalf("phone cookie under another login = %d", rec.Code)
 	}
 	missing := map[string]string{"X-Forwarded-Proto": "https"}
