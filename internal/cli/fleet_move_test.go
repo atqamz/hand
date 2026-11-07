@@ -411,20 +411,62 @@ func moveSameDir(a, b string) bool {
 	return a == b
 }
 
-func TestFleetMoveRewritesWorktreeGitfiles(t *testing.T) {
-	h, home, id := initMoveFleet(t)
-	repo := filepath.Join(home, "projects", "app")
+func moveCanonicalDest(t *testing.T, p string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(real, filepath.Base(p))
+}
+
+func moveRealWorktree(t *testing.T, h *harness, home, id string) (repo, wt string) {
+	t.Helper()
+	repo = filepath.Join(home, "projects", "app")
 	if err := os.MkdirAll(filepath.Dir(repo), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(gitRepo(t), repo); err != nil {
 		t.Fatal(err)
 	}
-	wt := filepath.Join(moveWorktreesDir(t, h, id), "t1-a1")
+	wt = filepath.Join(moveWorktreesDir(t, h, id), "t1-a1")
 	if err := os.MkdirAll(filepath.Dir(wt), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitIn(t, repo, "worktree", "add", "-b", "hand/"+id+"/t1-a1", wt)
+	return repo, wt
+}
+
+func moveAssertWorktree(t *testing.T, wt string) {
+	t.Helper()
+	if status := gitIn(t, wt, "status", "--short"); status != "" {
+		t.Fatalf("worktree status = %q", status)
+	}
+	top := gitIn(t, wt, "rev-parse", "--show-toplevel")
+	if real, err := filepath.EvalSymlinks(top); err != nil || !moveSameDir(real, wt) {
+		t.Fatalf("worktree toplevel = %q, %v; want %q", top, err, wt)
+	}
+}
+
+func moveAssertGitfile(t *testing.T, wt, oldHome, newHome string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(wt, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := filepath.ToSlash(string(b))
+	if strings.Contains(got, filepath.ToSlash(oldHome)) {
+		t.Fatalf("gitfile still names %s: %q", oldHome, b)
+	}
+	want := "gitdir: " + filepath.ToSlash(filepath.Join(moveCanonicalDest(t, newHome), "projects", "app", ".git", "worktrees", filepath.Base(wt)))
+	if !strings.Contains(got, want) {
+		t.Fatalf("gitfile = %q, want %q", b, want)
+	}
+}
+
+func TestFleetMoveRewritesWorktreeGitfiles(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	_, wt := moveRealWorktree(t, h, home, id)
 	gitfile := filepath.Join(wt, ".git")
 	before, err := os.ReadFile(gitfile)
 	if err != nil {
@@ -450,12 +492,68 @@ func TestFleetMoveRewritesWorktreeGitfiles(t *testing.T) {
 			t.Fatalf("move missing %q:\n%s", want, out)
 		}
 	}
-	if status := gitIn(t, wt, "status", "--short"); status != "" {
-		t.Fatalf("worktree status = %q", status)
+	after, err := os.ReadFile(gitfile)
+	if err != nil {
+		t.Fatal(err)
 	}
-	top := gitIn(t, wt, "rev-parse", "--show-toplevel")
-	if real, err := filepath.EvalSymlinks(top); err != nil || !moveSameDir(real, wt) {
-		t.Fatalf("worktree toplevel = %q, %v; want %q", top, err, wt)
+	old, next := home, moveCanonicalDest(t, dest)
+	if strings.Contains(string(before), filepath.ToSlash(home)) {
+		old, next = filepath.ToSlash(old), filepath.ToSlash(next)
+	}
+	if want := strings.Replace(string(before), old, next, 1); string(after) != want {
+		t.Fatalf("gitfile = %q, want %q", after, want)
+	}
+	moveAssertWorktree(t, wt)
+}
+
+func TestFleetMoveRewritesOnlyTheHomePrefixInAWorktreeGitfile(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	dir := moveWorktreesDir(t, h, id)
+	dest := filepath.Join(t.TempDir(), "moved")
+	newHome := moveCanonicalDest(t, dest)
+	outside := t.TempDir()
+	sibling := home + "-backup"
+	target := func(base, name string) string {
+		return filepath.ToSlash(filepath.Join(base, "projects", "app", ".git", "worktrees", name))
+	}
+	for _, p := range []string{
+		target(home, "a"), target(home, "b"), target(home, "c"),
+		target(outside, "d"), target(sibling, "e"),
+	} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct{ name, dir, before, after string }{
+		{"no final newline", "a", "gitdir: " + target(home, "a"), "gitdir: " + target(newHome, "a")},
+		{"crlf", "b", "gitdir: " + target(home, "b") + "\r\n", "gitdir: " + target(newHome, "b") + "\r\n"},
+		{"extra trailing line", "c", "gitdir: " + target(home, "c") + "\nnot a gitdir line\n", "gitdir: " + target(newHome, "c") + "\nnot a gitdir line\n"},
+		{"third path", "d", "gitdir: " + target(outside, "d") + "\n", "gitdir: " + target(outside, "d") + "\n"},
+		{"sibling path", "e", "gitdir: " + target(sibling, "e") + "\n", "gitdir: " + target(sibling, "e") + "\n"},
+	}
+	for _, c := range cases {
+		wt := filepath.Join(dir, c.dir)
+		if err := os.MkdirAll(wt, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wt, ".git"), []byte(c.before), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := h.ok("fleet", "move", "--yes", dest)
+	for _, want := range []string{"worktrees_rewritten: 3", "worktrees_correct: 2", "worktrees_broken: 0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("move missing %q:\n%s", want, out)
+		}
+	}
+	for _, c := range cases {
+		got, err := os.ReadFile(filepath.Join(dir, c.dir, ".git"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != c.after {
+			t.Fatalf("%s: gitfile = %q, want %q", c.name, got, c.after)
+		}
 	}
 }
 
@@ -905,6 +1003,58 @@ func TestFleetMoveFinishesAfterTheFolderMoved(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM event WHERE kind = 'fleet.moved'`).Scan(&moved); err != nil || moved != 1 {
 		t.Fatalf("moved events = %d, %v", moved, err)
 	}
+}
+
+func TestFleetMoveResumeRewritesARealWorktree(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	_, wt := moveRealWorktree(t, h, home, id)
+	dest := filepath.Join(t.TempDir(), "moved")
+	st, err := state.Open(filepath.Join(home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MoveHome(context.Background(), home, dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	out := h.ok("fleet", "move", "--yes", dest)
+	for _, want := range []string{"move: resumed", "worktrees_rewritten: 1", "worktrees_correct: 0", "worktrees_broken: 0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("resume missing %q:\n%s", want, out)
+		}
+	}
+	moveAssertGitfile(t, wt, home, dest)
+	moveAssertWorktree(t, wt)
+}
+
+func TestFleetMoveFinishRewritesARealWorktree(t *testing.T) {
+	h, home, id := initMoveFleet(t)
+	_, wt := moveRealWorktree(t, h, home, id)
+	dest := filepath.Join(t.TempDir(), "moved")
+	st, err := state.Open(filepath.Join(home, "hand.db"), h.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MoveHome(context.Background(), home, dest); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(home, dest); err != nil {
+		t.Fatal(err)
+	}
+	h.home, h.cwd = dest, dest
+	out := h.ok("fleet", "move", "--yes", dest)
+	for _, want := range []string{"move: finished", "worktrees_rewritten: 1", "worktrees_correct: 0", "worktrees_broken: 0"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("finish missing %q:\n%s", want, out)
+		}
+	}
+	moveAssertGitfile(t, wt, home, dest)
+	moveAssertWorktree(t, wt)
 }
 
 func TestFleetMoveRefusesALiveWatcherAndBoard(t *testing.T) {
