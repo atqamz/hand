@@ -504,6 +504,14 @@ func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Cap
 	case err != nil:
 		w.say("autoresume: " + err.Error())
 	case sup.ID != 0:
+		if _, fresh, err := w.st.SupervisorFresh(ctx, sup); err != nil {
+			w.say("autoresume: " + err.Error())
+		} else if fresh {
+			if _, _, err := w.r.settleLaunch(w.r.ctx(), w.st, c, sup); err != nil {
+				w.say("autoresume: " + err.Error())
+				return
+			}
+		}
 		w.say("supervisor " + state.SupervisorRef(sup.ID) + " resumed")
 		w.deliver(ctx, c, caps)
 	}
@@ -651,12 +659,19 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 		delete(w.blockedPending, a.ID)
 		return nil
 	}
+	var screen string
 	if status == "blocked" {
 		if _, pending := w.blockedPending[a.ID]; !pending {
 			if prev != "blocked" {
 				w.blockedPending[a.ID] = struct{}{}
 			}
 			return nil
+		}
+		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID {
+			if !harness.Waiting(a.Harness, s.Text) {
+				return nil
+			}
+			screen = s.Text
 		}
 	}
 	delete(w.blockedPending, a.ID)
@@ -690,7 +705,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			}
 		}
 	case "blocked":
-		return w.noteBlocked(ctx, c, a, "")
+		return w.noteBlocked(ctx, c, a, "", screen)
 	case "done", "idle":
 		if status == "idle" && prev != "working" && prev != "blocked" {
 			return nil
@@ -733,7 +748,7 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 			}
 		}
 		if status == "idle" && a.Approve == state.ApproveAsk && !harness.ClaudeIdle(s.Text) {
-			return w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text))
+			return w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text), s.Text)
 		}
 		since, _, err := w.st.TurnStart(ctx, a.ID)
 		if err != nil {
@@ -789,7 +804,10 @@ func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client) error {
 	return nil
 }
 
-func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt, title string) error {
+func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt, title, screen string) error {
+	if screen != "" && title == "" && !harness.Waiting(a.Harness, screen) {
+		return nil
+	}
 	detail := title
 	if detail == "" {
 		if ag, err := c.Explain(ctx, a.PaneID); err == nil {
@@ -797,10 +815,8 @@ func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attem
 		}
 	}
 	if a.Harness == "codex" {
-		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil {
-			if q, ok := harness.Question(a.Harness, s.Text); ok {
-				detail = q
-			}
+		if q, ok := harness.Question(a.Harness, screen); ok {
+			detail = q
 		}
 	}
 	err := w.st.NoteAttempt(ctx, a.ID, "blocked", detail)

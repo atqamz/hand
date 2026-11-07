@@ -977,7 +977,9 @@ func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.limited") })
 	stop()
-	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.status, rt.screen = "done", claudeLimit+"\nDo you want to proceed?\n❯ 1. Yes"
+	})
 	stop = startWatch(t, fx)
 	defer stop()
 	publishBlocked(fx, "2", "claude")
@@ -1466,6 +1468,8 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 	}
 }
 
+const opencodePermission = "△ Permission required\n  bash: rm -rf build\n  Allow once\n  Allow always\n  Deny\n"
+
 func opencodeSubagent(t *testing.T, fx *attemptFixture, hang ...string) func(running bool, prefix ...string) string {
 	t.Helper()
 	return opencodeSubagentIdle(t, fx, 2*time.Hour, hang...)
@@ -1562,7 +1566,7 @@ func TestOpencodeBlockedAndExitedStillWakeWhileASubagentRuns(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
 	time.Sleep(500 * time.Millisecond)
-	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Allow once" })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.screen = "blocked", "Allow once", opencodePermission })
 	publishBlocked(fx, "2", "opencode")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	fx.rt.exitAll()
@@ -1669,7 +1673,7 @@ func TestAnIdleOpencodeWorkerWithoutASubagentIsLeftAloneAfterARestart(t *testing
 	if woken(fx, "attempt.quiet") || len(turnEvents(t, fx)) != 0 {
 		t.Fatalf("a restart recorded an idle worker: %s", fx.h.ok("wait", "--after", "0", "--timeout", "1ms"))
 	}
-	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Allow once" })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.screen = "blocked", "Allow once", opencodePermission })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "opencode"})
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 }

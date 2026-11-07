@@ -1,0 +1,29 @@
+                                  ████████████
+                                     ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄
+                                     ██  ██       ▀▄▄▀ █ █ █ █▄▄▀
+                                     ▒▒  ██                  █
+                                         ██       v18.18.0
+
+               Tip: `/shake` rips heavy tool results out of context to reclaim tokens
+                    without a full /compact — `/shake images` drops just images
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ $ sleep 20
+─── ⣻ Running… (⎋ to cancel) ───────────────────────────────────────────────────────────────────────
+
+ π > ⬢ DeepSeek V4.1 Flash Ultrafast > 🗑 ompscreen ▶─0.8%────────────────────────────────╎┃──────1M─
+╰─                                                                      ⇧⇥ to change thinking effort
+
+
+
+
+
+
+
+
+
+
+
+
+
+

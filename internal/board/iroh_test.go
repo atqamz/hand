@@ -25,7 +25,7 @@ func TestThePhonePageShowsTheSidecarsState(t *testing.T) {
 		want []string
 	}{
 		"ready": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "https://relay.test./"}, []string{
-			`<span class="badge" data-tone="pass">ready</span>`, "Phone access over iroh is online. No phone can pair over iroh yet.",
+			`<span class="badge" data-tone="pass">ready</span>`, "Phone access over iroh is online. The Hand app can pair with this laptop.",
 			`Endpoint ID <code class="ref">` + irohEndpoint + `</code>.`}},
 		"no relay": {sidecar.Status{State: sidecar.Ready, ID: irohEndpoint, Relay: "none"}, []string{
 			`<span class="badge" data-tone="wait">no relay</span>`, "Phone access over iroh is running, but it reached no relay, so a phone elsewhere cannot dial it.",

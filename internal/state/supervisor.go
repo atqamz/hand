@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -256,6 +257,48 @@ func (s *Store) SupervisorOrigin(ctx context.Context, sup Supervisor) (int64, er
 	var id int64
 	err := s.db.QueryRowContext(ctx, `SELECT MIN(id) FROM supervisor WHERE session = ?`, sup.Session).Scan(&id)
 	return id, err
+}
+
+func (s *Store) SessionStart(ctx context.Context, session string) (time.Time, bool, error) {
+	if session == "" {
+		return time.Time{}, false, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT created_at FROM supervisor WHERE session = ?`, session)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	defer rows.Close()
+	var first time.Time
+	for rows.Next() {
+		var at string
+		if err := rows.Scan(&at); err != nil {
+			return time.Time{}, false, err
+		}
+		when, err := time.Parse(time.RFC3339Nano, at)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		if first.IsZero() || when.Before(first) {
+			first = when
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return time.Time{}, false, err
+	}
+	return first, !first.IsZero(), nil
+}
+
+func (s *Store) SupervisorFresh(ctx context.Context, sup Supervisor) (string, bool, error) {
+	prefix := SupervisorRef(sup.ID) + ": "
+	var detail string
+	err := s.db.QueryRowContext(ctx, `SELECT detail FROM event WHERE kind = 'supervisor.fresh' AND detail LIKE ? ORDER BY seq DESC LIMIT 1`, prefix+"%").Scan(&detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return strings.TrimPrefix(detail, prefix), true, nil
 }
 
 func (s *Store) Supervisors(ctx context.Context) ([]Supervisor, error) {

@@ -81,7 +81,7 @@ func (w *watcher) approve(ctx context.Context, c luvus.Client, a state.Attempt, 
 	}
 	if e.Kind == "attempt.keys" {
 		if s, err := c.Read(ctx, a.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == a.TerminalID && !harness.ClaudeIdle(s.Text) {
-			if err := w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text)); err != nil {
+			if err := w.noteBlocked(ctx, c, a, harness.ClaudeTitle(s.Text), s.Text); err != nil {
 				return false, err
 			}
 		}

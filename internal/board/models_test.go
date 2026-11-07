@@ -505,6 +505,10 @@ func TestTheRefreshRunsInTheBackgroundOncePerHarnessAndInterval(t *testing.T) {
 		t.Fatalf("a refresh after the interval = %d %q", code, msg)
 	}
 	waitFor(t, "the third run", func() bool { b, _ := os.ReadFile(log); return strings.Count(string(b), "models") == 2 })
+	waitFor(t, "the third refresh to end", func() bool {
+		code, _, msg := refresh(url.Values{"harness": {"agy"}})
+		return code == http.StatusTooManyRequests && strings.Contains(msg, "refreshed") && strings.Contains(msg, "s ago; try again in a moment")
+	})
 	if code, _, _ := refresh(url.Values{"harness": {"opencode"}}); code != http.StatusBadRequest {
 		t.Fatalf("refreshing opencode = %d", code)
 	}
