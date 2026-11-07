@@ -32,10 +32,10 @@ pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:auto;font-si
 a.ref{color:var(--accent)}
 .file{display:inline-block;max-width:32ch;overflow:hidden;color:var(--muted);font-family:var(--mono);font-size:12px;line-height:18px;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));padding:0 var(--space-8);border:1px solid transparent;border-radius:var(--r-pill);background:var(--tone-bg,var(--neutral-bg));color:var(--tone,var(--neutral));font-size:12px;font-weight:600;line-height:calc(var(--size,var(--badge)) - 2px);text-align:center;white-space:nowrap}
-.badge:is([data-tone=fail],[data-state=failing],[data-status=stuck],[data-worst=blocked],[data-worst=worker],[data-worst=failure],[data-worst=resume]){--tone:var(--fail);--tone-bg:var(--fail-bg)}
-.badge:is([data-tone=wait],[data-state=waiting],[data-status=progress],[data-worst=decision],[data-worst=nosup],[data-worst=limited],[data-worst=stalled]){--tone:var(--wait);--tone-bg:var(--wait-bg)}
-.badge:is([data-tone=pass],[data-state=ready],[data-state=running],[data-state=passing],[data-status=done]){--tone:var(--pass);--tone-bg:var(--pass-bg)}
-.badge[data-state=working]{--tone:var(--accent);--tone-bg:var(--accent-bg)}
+.badge[data-tone=fail]{--tone:var(--fail);--tone-bg:var(--fail-bg)}
+.badge[data-tone=wait]{--tone:var(--wait);--tone-bg:var(--wait-bg)}
+.badge[data-tone=pass]{--tone:var(--pass);--tone-bg:var(--pass-bg)}
+.badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}
 .badge[data-tone=link]{--tone:var(--accent);--tone-bg:transparent;border-color:var(--line)}
 a.badge:hover{text-decoration:none}
 a.badge[data-tone=link]:hover{border-color:var(--accent)}
@@ -194,10 +194,10 @@ pre.screen::-webkit-scrollbar-thumb{background:var(--screen-thumb);border-radius
 .all-clear{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-6);padding:var(--space-12) 0;color:var(--muted)}
 .all-clear .icon{color:var(--pass)}
 .all-clear>span{color:var(--fg);font-weight:600}
-.check[data-state=failing] .icon{color:var(--fail)}
-.check[data-state=waiting] .icon{color:var(--wait)}
-.check[data-state=running] .icon,.check[data-state=passing] .icon{color:var(--pass)}
-.check[data-state=idle] .icon{color:var(--neutral)}
+.check[data-tone=fail] .icon{color:var(--fail)}
+.check[data-tone=wait] .icon{color:var(--wait)}
+.check[data-tone=pass] .icon{color:var(--pass)}
+.check[data-tone=neutral] .icon{color:var(--neutral)}
 .finished{margin:0;padding:var(--space-8) 0;font-size:12px}
 .status-line{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-6) var(--space-8)}
 .who{font-weight:600}
@@ -267,8 +267,8 @@ pre.screen::-webkit-scrollbar-thumb{background:var(--screen-thumb);border-radius
 .code:hover>.copy,.code:focus-within>.copy,.code>.copy[data-state]{opacity:1}
 .code>.copy>svg{display:none}
 .code>.copy:not([data-state])>[data-glyph=copy],.code>.copy[data-state=copied]>[data-glyph=copied],.code>.copy[data-state=failed]>[data-glyph=failed]{display:block}
-.code>.copy[data-state=copied]{color:var(--pass)}
-.code>.copy[data-state=failed]{color:var(--fail)}
+.code>.copy[data-tone=pass]{color:var(--pass)}
+.code>.copy[data-tone=fail]{color:var(--fail)}
 body>.sr{position:fixed;top:0;left:0;min-height:0;margin:0;padding:0;border:0}
 .md h3,.md h4{margin:var(--space-12) 0 var(--space-4);font-weight:600;letter-spacing:-.01em;text-wrap-style:balance}
 .md h3{font-size:15px;line-height:22px}
@@ -315,10 +315,10 @@ body>.sr{position:fixed;top:0;left:0;min-height:0;margin:0;padding:0;border:0}
 .att>progress::-webkit-progress-bar{background:transparent}
 .att>progress::-webkit-progress-value{background:var(--accent)}
 .att>progress::-moz-progress-bar{background:var(--accent)}
-.att[data-state=busy]>.att-name{color:var(--muted)}
-.att[data-state=error]{border-color:var(--fail);background:var(--fail-bg)}
-.att[data-state=error]>.badge{--tone:var(--fail);--tone-bg:var(--bg)}
-.att[data-state=error]>.att-meta{color:var(--fail);line-height:16px;white-space:normal}
+.att[data-tone=neutral]>.att-name{color:var(--muted)}
+.att[data-tone=fail]{border-color:var(--fail);background:var(--fail-bg)}
+.att[data-tone=fail]>.badge{--tone:var(--fail);--tone-bg:var(--bg)}
+.att[data-tone=fail]>.att-meta{color:var(--fail);line-height:16px;white-space:normal}
 .sup{position:relative;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
 .drop-veil{position:absolute;inset:8px;z-index:2;display:none;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-6);padding:var(--space-24);border:2px dashed var(--accent);border-radius:var(--r-lg);background:color-mix(in srgb,var(--bg) 95%,transparent);pointer-events:none;text-align:center}
 #chat.dropping>.drop-veil{display:flex}
@@ -551,8 +551,8 @@ a.file{padding-block:13px;margin-block:-13px}
 :is(.thread,.task-main)>.card>header .who{color:var(--fg);font-weight:600}
 :is(.thread,.task-main)>.card>.copy{margin:0;padding:var(--space-10) var(--space-12)}
 :is(.thread,.task-main)>.card.report>header.slug{background:var(--neutral-bg)}
-:is(.thread,.task-main)>.card.report[data-status=stuck]>header.slug{background:var(--fail-bg)}
-:is(.thread,.task-main)>.card.report[data-status=done]>header.slug{background:var(--pass-bg)}
+:is(.thread,.task-main)>.card.report[data-tone=fail]>header.slug{background:var(--fail-bg)}
+:is(.thread,.task-main)>.card.report[data-tone=pass]>header.slug{background:var(--pass-bg)}
 .thread>.card.from-you{align-self:flex-end;max-width:75%;border-color:var(--accent-bg);background:var(--accent-bg)}
 .thread>.card.from-you>header.slug{background:transparent}
 .report-title{flex:1 1 12rem;min-width:0;color:var(--fg);font-size:14px;font-weight:600}
@@ -603,7 +603,6 @@ form[data-busy] button{opacity:.6;cursor:progress}
 .answer[data-choose] textarea{min-height:var(--control);padding-block:5px;resize:none}
 @supports (field-sizing:content){.answer[data-choose] textarea{field-sizing:content;max-height:30dvh}}
 .options.done .option:not(.picked) :is(.option-label,.option-key){color:var(--muted)}
-.badge[data-tone=accent]{--tone:var(--accent);--tone-bg:var(--accent-bg)}
 .answer .actions a{margin-left:auto}
 .form-error{color:var(--fail)}
 .form-error:empty{display:none}

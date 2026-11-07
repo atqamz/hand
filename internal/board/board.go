@@ -56,6 +56,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"away":     away,
 	"plain":    plain,
 	"shown":    shown,
+	"tone":     tone,
 	"rest": func(s string) string {
 		_, rest, _ := strings.Cut(strings.TrimSpace(s), "\n")
 		return strings.TrimSpace(rest)
@@ -117,6 +118,23 @@ var (
 	taskPill     = map[string]string{state.StatusActive: "running", state.StatusInbox: "neutral", state.StatusDone: "passing", state.StatusAbandoned: "neutral"}
 	decisionPill = map[string]string{state.DecisionOpen: "waiting", state.DecisionAnswered: "passing", state.DecisionWithdrawn: "neutral"}
 )
+
+func tone(name string) string {
+	if s, ok := severity[name]; ok {
+		return s.tone
+	}
+	switch name {
+	case "failing", "stuck":
+		return "fail"
+	case "waiting", "progress":
+		return "wait"
+	case "ready", "running", "passing", "done":
+		return "pass"
+	case "working":
+		return "accent"
+	}
+	return "neutral"
+}
 
 const (
 	maxCards       = 500

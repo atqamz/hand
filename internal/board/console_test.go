@@ -319,7 +319,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 func TestTheStripNamesWhyTheSupervisorEnded(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptInterrupted, "gen-1")
-	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<span class="badge pill" data-state="failing" title="test">`)
+	contains(t, "ended", region(get(t, fx.handler(), "/"), "status"), `<span class="badge pill" data-state="failing" data-tone="fail" title="test">`)
 	oc := newFixture(t)
 	ctx := context.Background()
 	sup, err := oc.st.AddSupervisor(ctx, state.SupervisorSpec{Harness: "opencode", Argv: []string{"/bin/opencode"}})

@@ -25,10 +25,10 @@ func TestTheTaskPageIsAThread(t *testing.T) {
 		t.Fatalf("task page regions = %d:\n%s", n, body)
 	}
 	contains(t, "task thread", body,
-		`<span class="ref">t1</span>`, `<span class="badge status" data-state="running">active</span>`,
+		`<span class="ref">t1</span>`, `<span class="badge status" data-state="running" data-tone="pass">active</span>`,
 		"plan p1", "<ol><li>reproduce</li><li>fix the cookie</li></ol>", ">Mark read</button>",
 		`<article class="card report" id="r1"`, `<article class="card report" id="r2"`, "<strong>tests</strong>",
-		`<li class="row check" data-state="running" id="a1">`,
+		`<li class="row check" data-state="running" data-tone="pass" id="a1">`,
 		"Keep the old cookie name?", `href="/decision/d1"`)
 }
 
@@ -142,13 +142,13 @@ func TestThreadPagesUseTheDispatchModule(t *testing.T) {
 	contains(t, "task page", task,
 		`<article class="card" data-role="goal"><header class="slug"><span class="who">goal</span>`,
 		`<article class="card" data-role="plan"><header class="slug"><span class="who">plan p1</span>`,
-		`<article class="card report" id="r1" data-status="done"><header class="slug"><span class="who">r1</span>`,
+		`<article class="card report" id="r1" data-status="done" data-tone="pass"><header class="slug"><span class="who">r1</span>`,
 		`<li class="event"><time datetime=`,
-		`<li class="row check" data-state="running" id="a1">`,
+		`<li class="row check" data-state="running" data-tone="pass" id="a1">`,
 		`<span class="badge code" data-tone="wait">DECISION</span>`,
 		`<div class="strip">`)
 	lacks(t, "task page", task, `data-region="status"`)
-	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="badge status" data-state="waiting">open</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
+	contains(t, "decision page", get(t, h, "/decision/d1"), `<p class="slug"><span class="badge status" data-state="waiting" data-tone="wait">open</span><span class="ref">d1</span>`, `<form class="answer" method="post" action="/decision/d1/answer"`)
 	list := board.NewHost(board.HostOptions{Loopback: true, Resolve: func(string) (string, error) { return "", state.ErrNotFound }, List: func() ([]board.FleetLink, error) {
 		return []board.FleetLink{{ID: "f6b63e98d4af2", Name: "hand"}}, nil
 	}})
@@ -170,7 +170,7 @@ func TestThreadPagesCarryAStaticStrip(t *testing.T) {
 		contains(t, path+" loopback", get(t, board.New(st, token, board.Options{Controls: true}), path), `<p class="crumbs"><a href="/">Fleets</a> / `)
 	}
 	lacks(t, "dots", asset(t, "board.css"), "header.slug>*::after")
-	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="badge status" data-state="waiting">open</span>`)
+	contains(t, "decision slug", get(t, h, "/decision/d1"), `<span class="badge status" data-state="waiting" data-tone="wait">open</span>`)
 }
 
 func TestDecisionShowsItsHeadlineAndMarkdownBody(t *testing.T) {
@@ -219,7 +219,7 @@ func TestDecisionSlugFollowsItsStatus(t *testing.T) {
 	if _, err := fx.st.Answer(ctx, 1, "yes", "operator"); err != nil {
 		t.Fatal(err)
 	}
-	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-state="waiting">open`)
+	lacks(t, "answered page", get(t, fx.handler(), "/decision/d1"), `data-state="waiting" data-tone="wait">open`)
 }
 
 func TestUnknownPathsUseTheErrorPage(t *testing.T) {
@@ -381,7 +381,7 @@ func TestAnAttemptPassesOnlyWithADoneReport(t *testing.T) {
 	fx := newFixture(t)
 	task := active(t, fx.st, "Fix login")
 	attempt(t, fx.st, task.ID, state.AttemptExited, "")
-	lacks(t, "exited", get(t, fx.handler(), "/task/t1"), `data-state="passing" id="a1"`)
+	lacks(t, "exited", get(t, fx.handler(), "/task/t1"), `data-state="passing" data-tone="pass" id="a1"`)
 }
 
 func TestDecisionPageCtrlEnter(t *testing.T) {
@@ -483,7 +483,7 @@ func TestTheReportHeadGroupsItsMetaAndAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, fx.handler(), "/task/t1")
-	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from <a class="ref" href="/attempt/a1">a1</a></span><span class="badge" data-status="done">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
+	contains(t, "report head", body, `<span class="report-meta"><span class="meta">from <a class="ref" href="/attempt/a1">a1</a></span><span class="badge" data-status="done" data-tone="pass">done</span><time datetime=`, `<span class="act"><form class="inline" method="post" action="/report/r1/ack">`)
 }
 
 func TestThreadPagesShareOneHead(t *testing.T) {

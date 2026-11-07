@@ -200,7 +200,7 @@ func TestPhoneTabsWorkWithoutJS(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := get(t, board.New(st, token, board.Options{}), "/")
-	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#tasks"`, `href="#chat"`, `Needs <span class="badge n" data-waiting="1" data-worst="decision">1</span>`, `data-waiting="1"`)
+	contains(t, "tabs", body, `<nav class="tabs"`, `href="#needs"`, `href="#tasks"`, `href="#chat"`, `Needs <span class="badge n" data-waiting="1" data-worst="decision" data-tone="wait">1</span>`, `data-waiting="1"`)
 	for _, id := range []string{"needs", "tasks", "chat"} {
 		tag := regexp.MustCompile(`<[a-z]+[^>]*id="` + id + `"[^>]*>`).FindString(body)
 		if tag == "" || strings.Contains(tag, "hidden") {
@@ -277,14 +277,17 @@ func TestTheFaviconsAreHashedSVG(t *testing.T) {
 
 func TestEverySlugStateHasItsColour(t *testing.T) {
 	css := asset(t, "board.css")
-	for _, s := range []string{"running", "waiting", "failing", "passing", "ready", "working"} {
-		tone := false
-		for _, line := range strings.Split(css, "\n") {
-			if strings.HasPrefix(line, ".badge") && strings.Contains(line, "[data-state="+s+"]") {
-				tone = true
-			}
+	for s, want := range map[string]string{
+		"running": "pass", "waiting": "wait", "failing": "fail",
+		"passing": "pass", "ready": "pass", "working": "accent",
+		"idle": "neutral", "stuck": "fail", "progress": "wait", "done": "pass",
+		"blocked": "fail", // the Needs kind, which severity tones
+	} {
+		tone := board.ToneForTest(s)
+		if tone != want {
+			t.Errorf("tone for %s = %s, want %s", s, tone, want)
 		}
-		if !tone {
+		if want != "neutral" && !strings.Contains(css, ".badge[data-tone="+want+"]") {
 			t.Errorf("board.css has no badge tone for the %s state", s)
 		}
 	}

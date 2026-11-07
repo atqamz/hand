@@ -57,12 +57,12 @@ func TestTheAttemptPageShowsWhatHandRecorded(t *testing.T) {
 	contains(t, "attempt page", body,
 		`<title>a1 · test</title>`, `data-page="attempt"`,
 		`<a class="ref" href="/task/t1">t1</a> / <span class="ref">a1</span>`,
-		`<h2 class="thread-title">claude sonnet low</h2>`, `<span class="badge status" data-state="running">running</span>`,
+		`<h2 class="thread-title">claude sonnet low</h2>`, `<span class="badge status" data-state="running" data-tone="pass">running</span>`,
 		`<dt>Pane</dt><dd>7</dd>`, `<time data-since datetime=`,
 		`<dd class="doc-path">hand/`, `<span class="doc-path">`+filepath.Join("/w", "t1-a1")+`</span>`, `data-copy="path" data-text="`+filepath.Join("/w", "t1-a1")+`"`,
 		`<pre class="brief" tabindex="0">do it &lt;script&gt;alert(1)&lt;/script&gt; ]]&gt; U&#43;001B[31mredU&#43;001B[0m U&#43;202Eevil &amp; &#34;quoted&#34;</pre>`,
 		`<pre class="brief" tabindex="0">/bin/claude --model sonnet</pre>`,
-		`<article class="card report" id="r1" data-status="done">`, `action="/report/r1/ack"`, ">Mark read</button>",
+		`<article class="card report" id="r1" data-status="done" data-tone="pass">`, `action="/report/r1/ack"`, ">Mark read</button>",
 		`<a class="badge" data-tone="link" href="https://github.com/atqamz/hand/pull/42"`)
 	lacks(t, "attempt page", body, `>a1</a>: `, "<script>alert", "\x1b", "\u202e", "elsewhere", "other brief", ` style=`, "<style")
 
@@ -125,7 +125,7 @@ func TestTheAttemptPageEndsWithItsStopCleanedAndKeepsPathsIntact(t *testing.T) {
 	}
 	h := board.New(st, token, board.Options{})
 	running := get(t, h, "/attempt/a1")
-	contains(t, "stopped attempt", running, `<span class="badge status" data-state="idle">stopped</span>`, "stopped by &lt;b&gt;you&lt;/b&gt;", "<dt>Stopped</dt>", "<dt>Duration</dt>", `data-copy="path" data-text="`+worktree+`"`)
+	contains(t, "stopped attempt", running, `<span class="badge status" data-state="idle" data-tone="neutral">stopped</span>`, "stopped by &lt;b&gt;you&lt;/b&gt;", "<dt>Stopped</dt>", "<dt>Duration</dt>", `data-copy="path" data-text="`+worktree+`"`)
 	lacks(t, "stopped attempt", running, "data-since", "<dt>Pane</dt>", "Removed")
 
 	if _, err := st.CleanAttempt(ctx, a.ID); err != nil {
@@ -160,7 +160,7 @@ func TestTheAttemptPageNamesWhatItContinuesAndAcceptsABareNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := board.New(st, token, board.Options{})
-	contains(t, "continuing attempt", get(t, h, "/attempt/2"), `<dt>Continues</dt><dd><a class="ref" href="/attempt/a1">a1</a></dd>`, `data-state="running">launching`)
+	contains(t, "continuing attempt", get(t, h, "/attempt/2"), `<dt>Continues</dt><dd><a class="ref" href="/attempt/a1">a1</a></dd>`, `data-state="running" data-tone="pass">launching`)
 }
 
 func TestAMissingAttemptGetsThePlain404(t *testing.T) {
@@ -182,7 +182,7 @@ func TestEveryAttemptRefLeadsToTheAttemptPage(t *testing.T) {
 	seed(t, st)
 	h := board.New(st, token, board.Options{})
 	contains(t, "task page", get(t, h, "/task/t1"),
-		`<li class="row check" data-state="running" id="a1">`, `<a class="ref" href="/attempt/a1">a1</a>`,
+		`<li class="row check" data-state="running" data-tone="pass" id="a1">`, `<a class="ref" href="/attempt/a1">a1</a>`,
 		`<span class="meta">from <a class="ref" href="/attempt/a1">a1</a></span>`)
 	if rec := request(h, "GET", "/ref/a1", nil, true); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/attempt/a1" {
 		t.Fatalf("/ref/a1 = %d %q", rec.Code, rec.Header().Get("Location"))
