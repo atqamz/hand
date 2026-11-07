@@ -19,7 +19,8 @@
 <li>Run <code>tailscale serve --bg {{.Link.Port}}</code> on this computer. On Linux, run <code>sudo tailscale set --operator=$USER</code> once before it.</li>
 <li>Install Tailscale on the phone and log in to the same tailnet.</li>
 </ol>
-{{else}}<p>This Board listens on this computer only. A phone reaches it through a private tunnel you set up, such as <code>tailscale serve</code>, an SSH tunnel or WireGuard. Type the address the phone opens, below.</p>{{end}}</div>
+{{else}}<p>This Board listens on this computer only. A phone reaches it through a private tunnel you set up, such as <code>tailscale serve</code>, an SSH tunnel or WireGuard. Type the address the phone opens, below.</p>{{end}}
+{{with .Iroh}}<ul class="net"><li><span class="badge" data-tone="{{.Tone}}">{{.State}}</span><span>Phone access over iroh is {{.Text}}{{with .ID}} Endpoint ID <code class="ref">{{.}}</code>.{{end}}</span></li></ul>{{end}}</div>
 </section>
 <section class="card connect-part" aria-labelledby="pair-head">
 <header class="slug"><h3 id="pair-head">Pair a phone</h3></header>

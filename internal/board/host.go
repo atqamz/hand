@@ -100,10 +100,14 @@ func NewHost(o HostOptions) *Host {
 	return h
 }
 
-func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func harden(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+}
+
+func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	harden(w)
 	if viaFunnel(r) && !strings.HasPrefix(r.URL.Path, "/static/") {
 		hostFail(w, http.StatusForbidden, funnelRefusal)
 		return
@@ -208,6 +212,9 @@ func (h *Host) phoneProves(id string, r *http.Request) bool {
 
 func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {
 	proven := map[string]bool{current: true}
+	if peerOf(r) != nil {
+		return proven
+	}
 	for _, c := range r.Cookies() {
 		id, ok := strings.CutPrefix(c.Name, cookieName+"_")
 		if ok && state.FleetID.MatchString(id) && h.o.Valid != nil && h.o.Valid(id, c.Value) {
@@ -218,7 +225,7 @@ func (h *Host) tokenFleets(current string, r *http.Request) map[string]bool {
 }
 
 func (h *Host) tokenProves(current, id string, r *http.Request) bool {
-	if id == current || !state.FleetID.MatchString(id) || h.o.Valid == nil {
+	if id == current || !state.FleetID.MatchString(id) || h.o.Valid == nil || peerOf(r) != nil {
 		return false
 	}
 	for _, c := range r.CookiesNamed(cookieName + "_" + id) {

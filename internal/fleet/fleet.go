@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -42,6 +43,8 @@ func Session(id string) string { return "secondhand-" + id }
 func WatchUnit(id string) string { return "secondhand-watch-" + id }
 
 func Worktrees(root, id string) string { return filepath.Join(root, "worktrees", id) }
+
+func Scratch(home string) string { return filepath.Join(home, "scratch") }
 
 func Check(root, id, home string) error {
 	target, err := readLink(root, id)
@@ -78,9 +81,9 @@ func Register(root, id, home string) (string, error) {
 		return "", nil
 	case err != nil:
 		return "", err
-	case target == home && !isSymlink(root, id):
+	case target == home:
 		return "", nil
-	case target == home || sameDir(target, home):
+	case sameDir(target, home):
 		return "", point(root, id, home)
 	}
 	if err := refuseCopy(target, id); err != nil {
@@ -113,6 +116,88 @@ func Home(root, id string) (string, error) {
 	return target, err
 }
 
+func Resolve(root, ref string) (Entry, error) {
+	ids, err := registeredIDs(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s", state.ErrInvalid, ref, root)
+	}
+	if err != nil {
+		return Entry{}, err
+	}
+	if state.FleetID.MatchString(ref) {
+		entry, ok, err := resolveID(root, ref)
+		if err != nil {
+			return Entry{}, err
+		}
+		if ok {
+			return entry, nil
+		}
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s (fleets: %s)", state.ErrInvalid, ref, root, strings.Join(ids, ", "))
+	}
+	var hits []Entry
+	for _, id := range ids {
+		target, err := readLink(root, id)
+		if err != nil {
+			continue
+		}
+		f, err := state.ReadFleet(target)
+		if err != nil {
+			continue
+		}
+		if f.ID != id {
+			continue
+		}
+		if ref == f.Name {
+			hits = append(hits, Entry{ID: f.ID, Name: f.Name, Home: target, State: "ok"})
+		}
+	}
+	switch len(hits) {
+	case 1:
+		return hits[0], nil
+	case 0:
+		return Entry{}, fmt.Errorf("%w: no fleet %q is registered in %s (fleets: %s)", state.ErrInvalid, ref, root, strings.Join(ids, ", "))
+	}
+	slices.SortFunc(hits, func(a, b Entry) int { return strings.Compare(a.ID, b.ID) })
+	names := make([]string, 0, len(hits))
+	for _, h := range hits {
+		names = append(names, h.ID)
+	}
+	return Entry{}, fmt.Errorf("%w: %q names more than one fleet: %s; use the fleet id", state.ErrConflict, ref, strings.Join(names, ", "))
+}
+
+func registeredIDs(root string) ([]string, error) {
+	des, err := os.ReadDir(filepath.Join(root, "fleets"))
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(des))
+	for _, de := range des {
+		if state.FleetID.MatchString(de.Name()) {
+			ids = append(ids, de.Name())
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+func resolveID(root, id string) (Entry, bool, error) {
+	target, err := readLink(root, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Entry{}, false, nil
+	}
+	if err != nil {
+		return Entry{}, false, err
+	}
+	f, err := state.ReadFleet(target)
+	if err != nil {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s at %s: %v", state.ErrInvalid, id, target, err)
+	}
+	if f.ID != id {
+		return Entry{}, false, fmt.Errorf("%w: fleet %s is registered at %s, which holds %s; run `hand init` there", state.ErrConflict, id, target, f.ID)
+	}
+	return Entry{ID: f.ID, Name: f.Name, Home: target, State: "ok"}, true, nil
+}
+
 func List(root string) ([]Entry, error) {
 	des, err := os.ReadDir(filepath.Join(root, "fleets"))
 	if errors.Is(err, fs.ErrNotExist) {
@@ -128,7 +213,8 @@ func List(root string) ([]Entry, error) {
 		}
 		target, err := readLink(root, de.Name())
 		if err != nil {
-			return nil, err
+			out = append(out, Entry{ID: de.Name(), State: "unreadable: " + err.Error()})
+			continue
 		}
 		e := Entry{ID: de.Name(), Home: target, State: "missing"}
 		f, ok, err := at(target)
@@ -148,20 +234,17 @@ func List(root string) ([]Entry, error) {
 func link(root, id string) string { return filepath.Join(root, "fleets", id) }
 
 func readLink(root, id string) (string, error) {
-	if target, err := os.Readlink(link(root, id)); err == nil {
-		return target, nil
-	}
 	b, err := os.ReadFile(link(root, id))
 	target := strings.TrimSpace(string(b))
 	if err == nil && target == "" {
 		err = fmt.Errorf("%w: %s is empty; delete it and run `hand init` in the fleet", state.ErrInvalid, link(root, id))
 	}
+	if err != nil {
+		if info, lstatErr := os.Lstat(link(root, id)); lstatErr == nil && info.Mode()&fs.ModeSymlink != 0 {
+			err = fmt.Errorf("%w: %s is a symlink left by Hand before 0.10, which this hand does not read; delete it and run `hand init` in the fleet's folder", state.ErrInvalid, link(root, id))
+		}
+	}
 	return target, err
-}
-
-func isSymlink(root, id string) bool {
-	info, err := os.Lstat(link(root, id))
-	return err == nil && info.Mode()&fs.ModeSymlink != 0
 }
 
 func stage(root, id, home string) (string, error) {
@@ -192,9 +275,6 @@ func point(root, id, home string) error {
 		return err
 	}
 	err = os.Rename(tmp, link(root, id))
-	if errors.Is(err, fs.ErrPermission) && isSymlink(root, id) && os.Remove(link(root, id)) == nil {
-		err = os.Rename(tmp, link(root, id))
-	}
 	if err != nil {
 		_ = os.Remove(tmp)
 	}

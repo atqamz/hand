@@ -87,3 +87,19 @@ func TestOpenKeepsTheUpdateIntervalOfTheBoardItRestarts(t *testing.T) {
 		t.Fatalf("calls = %q", got)
 	}
 }
+
+func TestOpenKeepsTheIrohSettingOfTheBoardItRestarts(t *testing.T) {
+	for state, want := range map[string]bool{"stopped": true, "ready " + irohID + " " + relayURL: true, "": false} {
+		fx, log := userManagerBoard(t, "not-found")
+		if state != "" {
+			if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.iroh"), []byte(state+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		fx.h.ok("open", "--print")
+		got, _ := os.ReadFile(log)
+		if has := strings.Contains(string(got), " board --iroh\n"); has != want {
+			t.Fatalf("with board.iroh %q: iroh passed = %v, want %v in %q", state, has, want, got)
+		}
+	}
+}

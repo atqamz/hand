@@ -19,7 +19,7 @@ func init() {
 func cmdAttach(r *runner, args []string) error {
 	fs := flags("attach")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("attach: %v; %s", err, attachUsage)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("attach: %v; %s", err, attachUsage)})
 	}
 	if fs.NArg() > 1 {
 		return usageError{attachUsage}

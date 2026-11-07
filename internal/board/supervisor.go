@@ -60,6 +60,7 @@ func (b *Board) stripData(ctx context.Context) map[string]any {
 	if b.statusData(ctx, data, url.Values{}) != nil {
 		return nil
 	}
+	b.gaugeData(ctx, data)
 	return data
 }
 
@@ -83,6 +84,7 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 			return nil, err
 		}
 	}
+	b.gaugeData(ctx, data)
 	return data, nil
 }
 
@@ -92,7 +94,25 @@ func (b *Board) history(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
+	if strip, ok := data["StripData"].(map[string]any); ok && strip != nil {
+		b.gaugeData(r.Context(), strip)
+	}
 	b.render(w, http.StatusOK, "log.html", data)
+}
+
+func (b *Board) gaugeData(ctx context.Context, data map[string]any) {
+	// Status comes from the transcript cache: pages that do not render the
+	// conversation must not pay for a harness export.
+	if b.o.Transcript == nil {
+		return
+	}
+	sup, ok, err := b.st.LatestSupervisor(ctx)
+	if err != nil || !ok {
+		return
+	}
+	st := b.o.Transcript.Status(sup.Harness, sup.Session)
+	text, level, pct := gauge(st)
+	data["Gauge"], data["Compactions"] = map[string]any{"Text": text, "Level": level, "Pct": pct}, st.Compactions
 }
 
 func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Values) error {
@@ -134,12 +154,6 @@ func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Value
 		}
 		data["Pill"], data["PillLabel"] = pill(sup, data)
 		data["AgentState"], data["ComposerHint"] = hint(sup, data)
-		if b.o.Transcript != nil {
-			b.conversation(ctx, sup, ok)
-			st := b.o.Transcript.Status(sup.Harness, sup.Session)
-			text, level, pct := gauge(st)
-			data["Gauge"], data["Compactions"] = map[string]any{"Text": text, "Level": level, "Pct": pct}, st.Compactions
-		}
 		if sup.Status == state.AttemptRunning {
 			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
 			data["Current"] = b.picker(sup.Harness)
@@ -783,7 +797,15 @@ func (b *Board) conversation(ctx context.Context, sup state.Supervisor, ok bool)
 	case b.o.Transcript == nil:
 		return nil, transcript.ErrUnreadable.Error()
 	}
-	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, b.o.Home)
+	dir := b.o.Home
+	if sup.Harness == "omp" {
+		getenv := b.o.Harness.Getenv
+		if getenv == nil {
+			getenv = func(string) string { return "" }
+		}
+		dir = harness.OmpAgent(getenv, b.o.Home)
+	}
+	entries, err := b.o.Transcript.Read(ctx, sup.Harness, sup.Session, dir)
 	if err != nil {
 		return nil, Scrub(err.Error())
 	}

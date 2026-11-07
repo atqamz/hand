@@ -34,7 +34,7 @@ func TestRunUpdatesTheFleet(t *testing.T) {
 	if rep.Status != "updated" || rep.Failed || len(rep.Backups) != 2 {
 		t.Fatalf("report = %+v", rep)
 	}
-	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4") {
+	if b, _ := os.ReadFile(f.target); string(b) != handScript(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4") {
 		t.Fatalf("target = %q", b)
 	}
 	for _, p := range rep.Backups {
@@ -253,7 +253,7 @@ func TestRunKeepsAFleetWhoseServerIsNotRunning(t *testing.T) {
 	if rep, err := Run(context.Background(), f.o); err != nil || rep.Status != "up to date" {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
-	f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 17, Luvus: "0.14.3"}
+	f.o.From = Build{Version: "0.8.0", Channel: "source", Commit: "unknown", Schema: 18, Luvus: "0.14.3"}
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || alphaLuvus(t, rep) != "not running" || len(f.log(t, "server.stop")) != 0 {
 		t.Fatalf("report = %+v, %v", rep, err)
@@ -347,7 +347,7 @@ func TestRunLeavesTheServerAloneWithoutAPin(t *testing.T) {
 	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "dev") {
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "dev") {
 		f.srv.set(name, body)
 	}
 	f.current()
@@ -602,6 +602,38 @@ func TestRunNeverSwitchesThroughASocketOverride(t *testing.T) {
 	f.setenv("HAND_LUVUS_SOCKET=" + f.uhp.Socket)
 	rep, err := Run(context.Background(), f.o)
 	if err != nil || alphaLuvus(t, rep) != "unknown" || len(f.log(t, "server.stop", "force")) != 0 || !slices.ContainsFunc(rep.Help, func(h string) bool { return strings.Contains(h, "while HAND_LUVUS_SOCKET is set") }) {
+		t.Fatalf("report = %+v, %v", rep, err)
+	}
+}
+
+func TestCheckPlansASwitchForAnUnpinnedFleetWhenTheReleaseLuvusIsNewer(t *testing.T) {
+	for _, version := range []string{"0.14.3", "0.99.0"} {
+		f := newCycle(t)
+		if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
+			t.Fatal(err)
+		}
+		f.mu.Lock()
+		f.version = version
+		f.mu.Unlock()
+		f.o.Check = true
+		rep, err := Run(context.Background(), f.o)
+		if err != nil || alphaLuvus(t, rep) != "would switch" || len(rep.Help) != 0 {
+			t.Fatalf("server %s: report = %+v, %v", version, rep, err)
+		}
+	}
+}
+
+func TestCheckKeepsAnUnpinnedFleetWhenNoPinIsWritten(t *testing.T) {
+	f := newCycle(t)
+	if err := os.Remove(filepath.Join(f.root, "luvus", "pin.json")); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "dev") {
+		f.srv.set(name, body)
+	}
+	f.o.Check = true
+	rep, err := Run(context.Background(), f.o)
+	if err != nil || alphaLuvus(t, rep) != "kept" || len(rep.Help) != 0 {
 		t.Fatalf("report = %+v, %v", rep, err)
 	}
 }

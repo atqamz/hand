@@ -14,6 +14,48 @@ The stop is a clean exit, so an installed systemd unit (`Restart=on-failure`) or
 
 Stopping a watcher while the board runs does not keep it down: the board starts it again within 30 seconds when the fleet has a live supervisor, or has `autoresume` set and an ended one, and `hand supervisor start`, `resume` and `switch` start it too. `hand watch stop` says so when a board runs. To keep a fleet's watcher down, run `hand board stop` first, then `hand watch stop`. Stopping the board leaves every watcher running. Neither command starts anything: use `hand board` or `hand open` for the board, and `hand watch` or `hand supervisor start` for a watcher. A supervisor never stops the board or a watcher by itself.
 
+## Open the Board without a terminal
+
+After one `hand open` per fleet and browser, a bookmark opens the Board signed in, with no command run, even after the browser restarts. The login `hand open` makes lasts 400 days on a loopback Board, or until `board.token` changes, which signs every browser out: run `hand open` again in each. A login from a `hand open --print` link, through a header-less forwarder or `ssh -L` lasts until the browser quits.
+
+1. Run the Board at login: [Linux](#linux), [macOS](#macos) or [Windows](#windows) below.
+2. Run `hand open` once in each fleet, for each browser you use. It logs that browser in.
+3. Bookmark `http://127.0.0.1:7777/`, or install it as an app, then click the fleet.
+
+Use `127.0.0.1`, not `localhost`: the browser treats `localhost` as a different site, and it does not hold the login.
+
+Install as an app per browser:
+
+- Chrome: **Install page as app** from the menu.
+- Edge: **Install this site as an app** from the menu.
+- Safari: **Add to Dock**. Run `hand open` in Safari first, then add it. Not tried on a Mac.
+- Firefox: a bookmark. It installs web apps only on Windows, in version 143 and later.
+
+### As an app window
+
+A Chromium browser shows the Board in its own window, with no tab strip and no address bar, from `--app=`. No manifest is needed. On Linux, save this as `~/.local/share/applications/hand.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=Hand
+Exec=chromium --app=http://127.0.0.1:7777/
+Terminal=false
+```
+
+Use `google-chrome-stable` in place of `chromium` for Chrome, and `microsoft-edge-stable` for Edge. The same `--app=` flag works for Chrome and Edge on the other platforms; this was measured on Linux only. The window runs the browser you already have, in the profile you start it with, so run `hand open` in that browser first and the window opens signed in.
+
+Chrome and Edge also install the page as an app from their menu (**Install page as app** in Chrome, **Install this site as an app** in Edge). That needs no manifest either, and the installed app uses the browser profile and its login.
+
+Measured on Linux with Chrome 157: the `--app` window was usable 500–535 ms after the process started, and 659 ms on a new profile; a tab in a browser that is already running takes 100–120 ms. F5 and Ctrl+R reload the page, Ctrl+plus and Ctrl+minus zoom, and a link that opens a new tab, such as a PR link, opens another window. There is no address bar or tab strip.
+
+The login is per browser profile: run `hand open` once in each browser or profile you use. The 400-day cookie belongs to that profile, so the app window shares it, and another browser, profile or private window does not.
+
+Two pages mean something is missing:
+
+- Connection refused: the Board is not running. Run `hand open`, which starts it, or start the autostart in step 1.
+- "Open this fleet with `hand open`": this browser has no login for the fleet. Run `hand open` once inside it.
+
 ## Run the board at login
 
 One autostart is enough: run `hand board` once at login. The board starts every fleet's watcher that needs one, so there is no per-fleet unit. Add `--update-every` to its command ([Update on a timer](update.md#update-on-a-timer)) and it also keeps Hand up to date and switches the Luvus server of each fleet that is quiet; without the flag nothing switches by itself. An autostart that already exists needs the flag added to its command (the unit, the plist or the shortcut), and the board restarted, before it does.

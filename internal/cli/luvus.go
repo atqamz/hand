@@ -77,7 +77,7 @@ func (r *runner) fetchLuvus(root string) (luvus.Pin, error) {
 func cmdLuvusPin(r *runner, args []string) error {
 	fs := flags("luvus pin")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("luvus pin: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("luvus pin: %v", err)})
 	}
 	if fs.NArg() > 1 {
 		return usageError{"usage: hand luvus pin [BIN]"}
@@ -173,7 +173,7 @@ func (r *runner) serverFields(d *toon.Doc, session string, pin luvus.Pin, pinned
 		return nil
 	}
 	version, err := r.client(session).Version(r.ctx())
-	server, match := serverMatch(pin, pinned, version, err)
+	server, match := luvus.Match(pin, pinned, version, err)
 	d.Field("server", server)
 	d.Field("match", match)
 	if match != "no" {
@@ -189,18 +189,4 @@ func pinLabel(p luvus.Pin, ok bool) string {
 		return "none"
 	}
 	return p.Version + " " + p.Path
-}
-
-func serverMatch(pin luvus.Pin, pinned bool, version string, err error) (server, match string) {
-	switch {
-	case errors.Is(err, luvus.ErrUnreachable):
-		return "not running", "not running"
-	case err != nil || version == "":
-		return "unknown", "unknown"
-	case !pinned:
-		return version, "unknown"
-	case version == pin.Version:
-		return version, "yes"
-	}
-	return version, "no"
 }

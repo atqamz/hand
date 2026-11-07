@@ -34,7 +34,7 @@ func cmdDecisionAsk(r *runner, args []string) error {
 	fs := flags("decision ask")
 	file := fs.String("file", "", "file holding the question, or - for stdin")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("decision ask: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("decision ask: %v", err)})
 	}
 	if fs.NArg() < 1 || (*file == "") != (fs.NArg() == 2) || fs.NArg() > 2 {
 		return usageError{"usage: hand decision ask [--file PATH|-] tN [QUESTION]; give exactly one of --file or QUESTION"}

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/atqamz/hand/internal/luvus"
@@ -69,9 +71,34 @@ func (r *runner) startService(ctx context.Context, s spawnSpec) (bool, error) {
 	cmd.Env = append(env, s.env...)
 	cmd.Stdout, cmd.Stderr = log, log
 	proc.Detach(cmd)
+	from, _ := log.Seek(0, io.SeekEnd)
 	if err := cmd.Start(); err != nil {
 		return false, err
 	}
-	go func() { _ = cmd.Wait() }()
-	return true, s.await(ctx, "read "+s.log)
+	awaitCtx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	go func() {
+		_ = cmd.Wait()
+		stop(fmt.Errorf("exited before it answered (%s)%s", cmd.ProcessState, lastLine(s.log, from)))
+	}()
+	err = s.await(awaitCtx, "read "+s.log)
+	if cause := context.Cause(awaitCtx); err != nil && ctx.Err() == nil && cause != nil {
+		if up, uerr := s.running(); uerr == nil && up {
+			return true, nil
+		}
+		return true, fmt.Errorf("%w; read %s", cause, s.log)
+	}
+	return true, err
+}
+
+func lastLine(path string, from int64) string {
+	b, err := os.ReadFile(path)
+	if err != nil || int64(len(b)) < from {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(b[from:])), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); last != "" {
+		return ": " + last
+	}
+	return ""
 }

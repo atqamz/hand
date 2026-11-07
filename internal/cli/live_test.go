@@ -82,8 +82,9 @@ func TestLiveAttemptReports(t *testing.T) {
 		stop.Env = h.env(nil, nil).Environ()
 		_ = stop.Run()
 	})
+	wait := *cli.TrustWait
 	*cli.TrustWait = time.Second
-	t.Cleanup(func() { *cli.TrustWait = 15 * time.Second })
+	t.Cleanup(func() { *cli.TrustWait = wait })
 	h.ok("project", "add", "app", repo)
 	h.ok("task", "add", "app", "Fix login")
 	h.ok("task", "start", "t1")
@@ -131,8 +132,9 @@ func TestLiveAWorkerBriefReachesCodexIntact(t *testing.T) {
 		stop.Env = h.env(nil, nil).Environ()
 		_ = stop.Run()
 	})
+	wait := *cli.TrustWait
 	*cli.TrustWait = time.Second
-	t.Cleanup(func() { *cli.TrustWait = 15 * time.Second })
+	t.Cleanup(func() { *cli.TrustWait = wait })
 	h.ok("project", "add", "app", gitRepo(t))
 	h.ok("task", "add", "app", "Fix login")
 	h.ok("task", "start", "t1")

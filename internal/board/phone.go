@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atqamz/hand/internal/sidecar"
 	"github.com/atqamz/hand/internal/state"
 )
 
@@ -130,7 +131,7 @@ func (b *Board) secretHash(secret string) string { return b.mac("device:" + secr
 func (b *Board) deviceCSRF(secret string) string { return b.mac("csrf:" + secret)[:32] }
 
 func forwarded(r *http.Request) bool {
-	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("Tailscale-User-Login") != ""
+	return peerOf(r) != nil || r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("Tailscale-User-Login") != ""
 }
 
 func viaFunnel(r *http.Request) bool { return r.Header.Get("Tailscale-Funnel-Request") != "" }
@@ -159,22 +160,32 @@ func setPhoneCookie(w http.ResponseWriter, r *http.Request, id string, device in
 }
 
 func tailnetLogin(r *http.Request) string {
+	if c := peerOf(r); c != nil {
+		return c.login()
+	}
 	v := r.Header.Get("Tailscale-User-Login")
 	if d, err := new(mime.WordDecoder).DecodeHeader(v); err == nil {
 		v = d
 	}
-	return state.CleanLogin(v)
+	login := state.CleanLogin(v)
+	if strings.HasPrefix(login, "iroh:") {
+		return ""
+	}
+	return login
 }
 
 func remote(r *http.Request) string {
+	if c := peerOf(r); c != nil {
+		return c.addr()
+	}
 	chain := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if last := strings.TrimSpace(chain[strings.LastIndex(chain, ",")+1:]); last != "" {
-		return last
+		return "addr:" + last
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
+		return "addr:" + host
 	}
-	return r.RemoteAddr
+	return "addr:" + r.RemoteAddr
 }
 
 func (b *Board) session(r *http.Request) (session, sessionFault) {
@@ -193,7 +204,7 @@ func (b *Board) PhoneSession(r *http.Request) bool {
 }
 
 func (b *Board) identify(r *http.Request) (session, sessionFault) {
-	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && b.valid(c.Value) {
+	if c, err := r.Cookie(cookieFor(b.o.Base)); err == nil && peerOf(r) == nil && b.valid(c.Value) {
 		return session{CSRF: b.token}, signedIn
 	}
 	return b.phoneIdentify(r)
@@ -405,6 +416,27 @@ func (b *Board) pairChoices(ctx context.Context, set []string) []fleetChoice {
 	return out
 }
 
+type irohInfo struct{ Tone, State, Text, ID string }
+
+func irohView(st sidecar.Status) *irohInfo {
+	switch st.State {
+	case sidecar.Ready:
+		if st.Relay == "none" {
+			return &irohInfo{Tone: "wait", State: "no relay", ID: st.ID, Text: "running, but it reached no relay, so a phone elsewhere cannot dial it."}
+		}
+		return &irohInfo{Tone: "pass", State: "ready", ID: st.ID, Text: "online. No phone can pair over iroh yet."}
+	case sidecar.Starting:
+		text := "starting."
+		if st.Reason != "" {
+			text = "restarting after: " + Scrub(st.Reason) + "."
+		}
+		return &irohInfo{Tone: "wait", State: "starting", Text: text}
+	case sidecar.Failed:
+		return &irohInfo{Tone: "fail", State: "failed", Text: Scrub(st.Reason) + "."}
+	}
+	return nil
+}
+
 func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, extra map[string]any) {
 	ctx := r.Context()
 	s, _ := ctx.Value(sessionKey{}).(session)
@@ -422,6 +454,9 @@ func (b *Board) connectPage(w http.ResponseWriter, r *http.Request, status int, 
 			link = b.o.Phone(ctx)
 		}
 		data["Link"], data["Address"] = link, link.Ready()
+		if b.o.Iroh != nil {
+			data["Iroh"] = irohView(b.o.Iroh())
+		}
 		set, _ := extra["Set"].([]string)
 		data["Choices"] = b.pairChoices(ctx, set)
 	}

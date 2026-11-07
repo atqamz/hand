@@ -1,0 +1,598 @@
+{
+  "contract": 1,
+  "note": "Normative test vectors for the Companion contract in docs/companion.md. A copy of this file is checked by the app's own tests. Entries are only ever added within a contract version.",
+  "wire": {
+    "alpn": "hand-board",
+    "streams_per_connection": 12,
+    "streams_per_second": 20,
+    "uni_streams": 0,
+    "close_codes": {
+      "full": 1,
+      "idle": 2
+    },
+    "stream_codes": {
+      "board_unreachable": 3,
+      "stream_idle": 4,
+      "board_error": 5
+    },
+    "max_connections_default": 16,
+    "idle_seconds_default": 60,
+    "handshakes_in_flight": 8,
+    "handshake_seconds": 3,
+    "connections_per_source": 4,
+    "preface": "HAND-PEER 1 <endpoint id> <secret>\n"
+  },
+  "board": {
+    "code_alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+    "code_length": 10,
+    "code_seconds": 300,
+    "wrong_tries_per_peer_per_minute": 5,
+    "wrong_tries_before_all_codes_cancel": 10,
+    "phone_days": 90,
+    "unpaired_requests_per_connection": 32,
+    "unpaired_bytes_per_connection": 65536,
+    "unpaired_body_seconds": 10,
+    "idle_connection_seconds": 30,
+    "fleet_id": "^f[0-9a-f]{12}$",
+    "device_login": "iroh:<endpoint id>"
+  },
+  "link": {
+    "max_bytes": 213,
+    "prefix": "handboard://c#",
+    "reasons": [
+      "too_long",
+      "characters",
+      "scheme",
+      "no_fragment",
+      "query",
+      "target",
+      "version_missing",
+      "version_unsupported",
+      "fragment",
+      "duplicate_key",
+      "missing_key",
+      "endpoint_id",
+      "fleet",
+      "code",
+      "relay"
+    ]
+  },
+  "valid": [
+    {
+      "name": "minimal, no relay",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "default-style relay with a trailing dot",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Faps1-1.relay.example.test.%2F",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://aps1-1.relay.example.test./",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "relay with a port",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A7842%2F",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://relay.example.test:7842/",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "relay without the final slash",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://relay.example.test",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "relay on a short host",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://relay.example.test/",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "second endpoint and fleet",
+      "link": "handboard://c#v=1&e=b6fcff633c251a1f5a8598247c85986e1acc1d0a8d6a3e055f7c4f737843783b&f=fa1b2c3d4e5f6&c=0123456789",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "b6fcff633c251a1f5a8598247c85986e1acc1d0a8d6a3e055f7c4f737843783b",
+        "relay": null,
+        "fleet": "fa1b2c3d4e5f6",
+        "code": "0123456789",
+        "open_path": "/fa1b2c3d4e5f6/pair#0123456789"
+      }
+    },
+    {
+      "name": "code of digits only",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=0123456789",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "0123456789",
+        "open_path": "/f0123456789ab/pair#0123456789"
+      }
+    },
+    {
+      "name": "code from the first letters of the alphabet",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=ABCDEFGHJK",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "ABCDEFGHJK",
+        "open_path": "/f0123456789ab/pair#ABCDEFGHJK"
+      }
+    },
+    {
+      "name": "code from the last letters of the alphabet",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=YZVWXTSRQP",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "YZVWXTSRQP",
+        "open_path": "/f0123456789ab/pair#YZVWXTSRQP"
+      }
+    },
+    {
+      "name": "keys in another order",
+      "link": "handboard://c#v=1&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F&f=f0123456789ab&e=d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "d6e458a66697094c1bc7b54cb83fea66a8db57c49f37514944579712cd7e43c5",
+        "relay": "https://relay.example.test/",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "an unknown key is ignored",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&x_note=hello",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "an unknown key with a percent value is ignored",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&ui=a%20b",
+      "canonical": false,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": null,
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    },
+    {
+      "name": "longest link: 213 bytes",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb%2F",
+      "canonical": true,
+      "parsed": {
+        "version": 1,
+        "endpoint_id": "4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6",
+        "relay": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/",
+        "fleet": "f0123456789ab",
+        "code": "K7QM3XRD2P",
+        "open_path": "/f0123456789ab/pair#K7QM3XRD2P"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "one byte over the length cap",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Faaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb%2F",
+      "reject": "too_long"
+    },
+    {
+      "name": "space inside the link",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&x=a b",
+      "reject": "characters"
+    },
+    {
+      "name": "leading space",
+      "link": " handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "characters"
+    },
+    {
+      "name": "trailing line feed",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P\n",
+      "reject": "characters"
+    },
+    {
+      "name": "non-ASCII character",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&x=\u00e9",
+      "reject": "characters"
+    },
+    {
+      "name": "https instead of the app scheme",
+      "link": "https://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "scheme"
+    },
+    {
+      "name": "scheme in capitals",
+      "link": "HANDBOARD://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "scheme"
+    },
+    {
+      "name": "scheme without the slashes",
+      "link": "handboard:c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "scheme"
+    },
+    {
+      "name": "no fragment at all",
+      "link": "handboard://c",
+      "reject": "no_fragment"
+    },
+    {
+      "name": "everything in the query, nothing in a fragment",
+      "link": "handboard://c?v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "no_fragment"
+    },
+    {
+      "name": "a query before a good fragment",
+      "link": "handboard://c?v=1#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "query"
+    },
+    {
+      "name": "another host name",
+      "link": "handboard://pair#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "target"
+    },
+    {
+      "name": "a path after the host",
+      "link": "handboard://c/#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "target"
+    },
+    {
+      "name": "a port after the host",
+      "link": "handboard://c:80#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "target"
+    },
+    {
+      "name": "user information before the host",
+      "link": "handboard://u@c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "target"
+    },
+    {
+      "name": "empty fragment",
+      "link": "handboard://c#",
+      "reject": "version_missing"
+    },
+    {
+      "name": "version is not the first key",
+      "link": "handboard://c#e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&v=1&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_missing"
+    },
+    {
+      "name": "no version",
+      "link": "handboard://c#e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_missing"
+    },
+    {
+      "name": "a later version",
+      "link": "handboard://c#v=2&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_unsupported"
+    },
+    {
+      "name": "a later version with a different shape",
+      "link": "handboard://c#v=2&anything=goes&nothing=here",
+      "reject": "version_unsupported"
+    },
+    {
+      "name": "version written with a leading zero",
+      "link": "handboard://c#v=01&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_unsupported"
+    },
+    {
+      "name": "version with a dot",
+      "link": "handboard://c#v=1.0&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_unsupported"
+    },
+    {
+      "name": "empty version",
+      "link": "handboard://c#v=&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "version_unsupported"
+    },
+    {
+      "name": "empty pair between two keys",
+      "link": "handboard://c#v=1&&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "fragment"
+    },
+    {
+      "name": "a key with no equals sign",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&solo",
+      "reject": "fragment"
+    },
+    {
+      "name": "a second hash",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P#x",
+      "reject": "fragment"
+    },
+    {
+      "name": "a key in capitals",
+      "link": "handboard://c#v=1&E=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "fragment"
+    },
+    {
+      "name": "an empty value",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&x_note=",
+      "reject": "fragment"
+    },
+    {
+      "name": "a relay that is not percent-encoded",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https://relay.example.test/",
+      "reject": "fragment"
+    },
+    {
+      "name": "the code twice",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&c=0123456789",
+      "reject": "duplicate_key"
+    },
+    {
+      "name": "the version twice",
+      "link": "handboard://c#v=1&v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "duplicate_key"
+    },
+    {
+      "name": "an unknown key twice",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&x_a=1&x_a=2",
+      "reject": "duplicate_key"
+    },
+    {
+      "name": "no endpoint",
+      "link": "handboard://c#v=1&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "missing_key"
+    },
+    {
+      "name": "no fleet",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&c=K7QM3XRD2P",
+      "reject": "missing_key"
+    },
+    {
+      "name": "no code",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab",
+      "reject": "missing_key"
+    },
+    {
+      "name": "a missing key wins over a bad value",
+      "link": "handboard://c#v=1&e=short&c=K7QM3XRD2P",
+      "reject": "missing_key"
+    },
+    {
+      "name": "endpoint of 63 characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "endpoint_id"
+    },
+    {
+      "name": "endpoint of 65 characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed60&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "endpoint_id"
+    },
+    {
+      "name": "endpoint in capitals",
+      "link": "handboard://c#v=1&e=4D92ADF6FD9076DDD383C22E08F6AC6FB0CE48210B69C0F954E7E199B4D96ED6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "endpoint_id"
+    },
+    {
+      "name": "endpoint with a character outside hex",
+      "link": "handboard://c#v=1&e=gd92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P",
+      "reject": "endpoint_id"
+    },
+    {
+      "name": "fleet of 11 hex characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789a&c=K7QM3XRD2P",
+      "reject": "fleet"
+    },
+    {
+      "name": "fleet of 13 hex characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789abc&c=K7QM3XRD2P",
+      "reject": "fleet"
+    },
+    {
+      "name": "fleet without the leading f",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=a0123456789ab&c=K7QM3XRD2P",
+      "reject": "fleet"
+    },
+    {
+      "name": "fleet in capitals",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=F0123456789AB&c=K7QM3XRD2P",
+      "reject": "fleet"
+    },
+    {
+      "name": "code of 9 characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2",
+      "reject": "code"
+    },
+    {
+      "name": "code of 11 characters",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P2",
+      "reject": "code"
+    },
+    {
+      "name": "code in lowercase",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=k7qm3xrd2p",
+      "reject": "code"
+    },
+    {
+      "name": "code with the letter I",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRDIP",
+      "reject": "code"
+    },
+    {
+      "name": "code with the letter L",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRDLP",
+      "reject": "code"
+    },
+    {
+      "name": "code with the letter O",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRDOP",
+      "reject": "code"
+    },
+    {
+      "name": "code with the letter U",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRDUP",
+      "reject": "code"
+    },
+    {
+      "name": "code with the hyphen the Phone page prints",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3-XRD2P",
+      "reject": "code"
+    },
+    {
+      "name": "the endpoint is judged before the fleet and the code",
+      "link": "handboard://c#v=1&e=x&f=y&c=z",
+      "reject": "endpoint_id"
+    },
+    {
+      "name": "the fleet is judged before the code",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=y&c=z",
+      "reject": "fleet"
+    },
+    {
+      "name": "the code is judged before the relay",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=z&r=http%3A%2F%2Frelay.example.test%2F",
+      "reject": "code"
+    },
+    {
+      "name": "relay over plain http",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=http%3A%2F%2Frelay.example.test%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with user information",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Fuser%40relay.example.test%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a query",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F%3Fx%3D1",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a path",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2Fpath",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a capital in the host",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2FRelay.example.test%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with an empty host",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with port 0",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A0%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with port 65536",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A65536%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a leading zero in the port",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%3A07842%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a truncated percent escape",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with a lowercase percent escape",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3a%2f%2frelay.example.test%2f",
+      "reject": "relay"
+    },
+    {
+      "name": "relay with an encoded unreserved character",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay%2Eexample.test%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on an IPv4 address",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F127.0.0.1%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on an IPv4 address with a port",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F10.1.2.3%3A7842%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on a numeric host",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F123456789%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on a hexadecimal IPv4 address",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F0x7f000001%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay on a short IPv4 address",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2F127.1%2F",
+      "reject": "relay"
+    },
+    {
+      "name": "relay given twice",
+      "link": "handboard://c#v=1&e=4d92adf6fd9076ddd383c22e08f6ac6fb0ce48210b69c0f954e7e199b4d96ed6&f=f0123456789ab&c=K7QM3XRD2P&r=https%3A%2F%2Frelay.example.test%2F&r=https%3A%2F%2Frelay.example.test%2F",
+      "reject": "duplicate_key"
+    }
+  ]
+}

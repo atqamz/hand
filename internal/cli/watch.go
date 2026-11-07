@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -56,23 +58,30 @@ type watcher struct {
 	pruned  string
 	reaped  atomic.Value
 
-	rest          rest
-	policyWarned  bool
-	inboxWarned   bool
-	modelsBusy    atomic.Bool
-	sweepBusy     atomic.Bool
-	reapBusy      atomic.Bool
-	reapWarned    atomic.Bool
-	transcripts   *transcript.Reader
-	sources       map[string]modelSource
-	modelSessions map[int64]modelSession
-	supModel      modelSession
-	busy          map[string]bool
-	heldAt        map[int64]time.Time
-	busyNow       chan busyList
-	busyMisses    int
-	modelsSaid    map[string]string
-	saying        sync.Mutex
+	rest           rest
+	policyWarned   bool
+	inboxWarned    bool
+	modelsBusy     atomic.Bool
+	sweepBusy      atomic.Bool
+	reapBusy       atomic.Bool
+	reapWarned     atomic.Bool
+	transcripts    *transcript.Reader
+	sources        map[string]modelSource
+	modelSessions  map[int64]modelSession
+	supModel       modelSession
+	busy           map[string]bool
+	heldAt         map[int64]time.Time
+	blockedPending map[int64]struct{}
+	busyNow        chan busyList
+	busyMisses     int
+	modelsSaid     map[string]string
+	sessionNote    atomic.Value
+	saying         sync.Mutex
+
+	clickCtx  context.Context
+	clicks    atomic.Int32
+	clickOnce sync.Once
+	clickOK   bool
 }
 
 type turn struct {
@@ -121,11 +130,15 @@ func cmdWatch(r *runner, args []string) error {
 	defer stop()
 	r.exits = &exitLog{m: map[string]exitRecord{}}
 	r.screens = &screenLog{m: map[int64]string{}}
-	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1)}
+	clickCtx, clickStop := context.WithCancel(ctx)
+	w := &watcher{r: r, st: st, notify: *notify, every: *every, turns: map[int64]*turn{}, busyNow: make(chan busyList, 1), clickCtx: clickCtx}
+	defer func() {
+		clickStop()
+		w.pending.Wait()
+	}()
 	if w.asked, err = st.LastEventSeq(ctx); err != nil {
 		return err
 	}
-	defer w.pending.Wait()
 	for ctx.Err() == nil {
 		err := w.session(ctx)
 		if errors.Is(err, luvus.ErrIncompatible) {
@@ -196,7 +209,7 @@ func (w *watcher) session(ctx context.Context) error {
 	for id, seen := range w.seen {
 		carried[id] = seen == "held"
 	}
-	w.seen, w.heldAt = map[int64]string{}, map[int64]time.Time{}
+	w.seen, w.heldAt, w.blockedPending = map[int64]string{}, map[int64]time.Time{}, map[int64]struct{}{}
 	if err := w.reconcile(sctx, c, caps); err != nil {
 		return err
 	}
@@ -222,6 +235,9 @@ func (w *watcher) session(ctx context.Context) error {
 			return err
 		case <-tick.C:
 			if err = w.reconcile(sctx, c, caps); err == nil {
+				err = w.confirmBlocked(sctx, c)
+			}
+			if err == nil {
 				err = w.longTurns(sctx)
 			}
 			if err == nil {
@@ -307,7 +323,7 @@ func (l *screenLog) take(id int64) string {
 	return text
 }
 
-const exitWait = time.Second
+var exitWait = time.Second
 
 func (l *exitLog) budget() {
 	l.mu.Lock()
@@ -436,6 +452,14 @@ func (w *watcher) deliver(ctx context.Context, c luvus.Client, caps luvus.Capabi
 	if err != nil {
 		w.say("supervisor delivery: " + err.Error())
 	}
+	if strings.HasPrefix(why, ompSessionNote) {
+		if prev, _ := w.sessionNote.Load().(string); prev != why {
+			w.sessionNote.Store(why)
+			w.say("supervisor: " + why)
+		}
+		return
+	}
+	w.sessionNote.Store("")
 	if strings.HasPrefix(why, state.NoteLost) {
 		if sup, ok, err := w.st.LiveSupervisor(ctx); err == nil && ok && sup.ID != w.alerted {
 			w.alerted = sup.ID
@@ -620,8 +644,18 @@ func (w *watcher) longTurns(ctx context.Context) error {
 func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, status string) error {
 	prev := w.seen[a.ID]
 	if prev == "held" && (status == "done" || status == "idle") {
+		delete(w.blockedPending, a.ID)
 		return nil
 	}
+	if status == "blocked" {
+		if _, pending := w.blockedPending[a.ID]; !pending {
+			if prev != "blocked" {
+				w.blockedPending[a.ID] = struct{}{}
+			}
+			return nil
+		}
+	}
+	delete(w.blockedPending, a.ID)
 	t := w.turns[a.ID]
 	switch {
 	case status != "working":
@@ -710,6 +744,36 @@ func (w *watcher) observe(ctx context.Context, c luvus.Client, a state.Attempt, 
 	return nil
 }
 
+func (w *watcher) confirmBlocked(ctx context.Context, c luvus.Client) error {
+	if len(w.blockedPending) == 0 {
+		return nil
+	}
+	live, err := w.st.LiveAttempts(ctx)
+	if err != nil {
+		return err
+	}
+	checked := map[int64]bool{}
+	for _, a := range live {
+		if _, ok := w.blockedPending[a.ID]; !ok {
+			continue
+		}
+		checked[a.ID] = true
+		ag, err := c.Explain(ctx, a.PaneID)
+		if err != nil {
+			continue
+		}
+		if err := w.observe(ctx, c, a, ag.Status); err != nil {
+			return err
+		}
+	}
+	for id := range w.blockedPending {
+		if !checked[id] {
+			delete(w.blockedPending, id)
+		}
+	}
+	return nil
+}
+
 func (w *watcher) noteBlocked(ctx context.Context, c luvus.Client, a state.Attempt, title string) error {
 	detail := title
 	if detail == "" {
@@ -759,6 +823,9 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 	w.pending.Add(1)
 	go func() {
 		defer w.pending.Done()
+		if extra == nil && w.notifyClick(ctx, bin, w.r.fleet.Name, text, ref) {
+			return
+		}
 		nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), notifyTimeout)
 		defer cancel()
 		cmd := exec.CommandContext(nctx, bin, args...)
@@ -772,7 +839,8 @@ func (w *watcher) alert(ctx context.Context, kind, ref, text string) {
 func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string, []string, []string) {
 	p, err := harness.LoadPolicy(w.r.home)
 	if err == nil && len(p.Notify) > 0 {
-		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + w.boardURL(ctx, ref)}
+		url, _ := w.boardURL(ctx, ref)
+		return p.Notify[0], p.Notify[1:], []string{"HAND_NOTIFY_KIND=" + kind, "HAND_NOTIFY_REF=" + ref, "HAND_NOTIFY_TEXT=" + text, "HAND_NOTIFY_URL=" + url}
 	}
 	if _, serr := os.Stat(filepath.Join(w.r.home, harness.PolicyFile)); err != nil && serr == nil && w.warned.CompareAndSwap(false, true) {
 		w.say(harness.PolicyFile + " unreadable, using the desktop notifier: " + err.Error())
@@ -781,21 +849,100 @@ func (w *watcher) notifier(ctx context.Context, kind, ref, text string) (string,
 	return name, args, nil
 }
 
-func (w *watcher) boardURL(ctx context.Context, ref string) string {
+func (w *watcher) boardURL(ctx context.Context, ref string) (string, bool) {
 	addr, err := os.ReadFile(filepath.Join(w.r.root, "board.addr"))
 	if err != nil {
-		return ""
+		return "", false
+	}
+	host := strings.TrimSpace(string(addr))
+	if host == "" {
+		return "", false
+	}
+	base, openable := boardBase("http://" + host)
+	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
+		if b, ok := phoneBase(phone); ok {
+			base = b
+		}
+	}
+	if base == nil {
+		return "", false
 	}
 	path, fragment, err := boardPage(ctx, w.st, ref)
 	if err != nil {
-		return ""
+		return "", false
 	}
-	host := strings.TrimSpace(string(addr))
-	base := "http://" + host
-	if phone := w.r.phoneLink(ctx, host).Ready(); phone != "" {
-		base = phone
+	u := *base
+	u.Path = "/" + w.r.fleet.ID + path
+	u.Fragment = strings.TrimPrefix(fragment, "#")
+	return u.String(), openable
+}
+
+func boardBase(raw string) (*url.URL, bool) {
+	u, ok := baseURL(raw)
+	if !ok {
+		return nil, false
 	}
-	return base + "/" + w.r.fleet.ID + path + fragment
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if port == "" {
+		return nil, false
+	}
+	if host == "localhost" {
+		return u, true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return nil, false
+	}
+	return u, true
+}
+
+func phoneBase(raw string) (*url.URL, bool) {
+	u, ok := baseURL(raw)
+	if !ok {
+		return nil, false
+	}
+	host, port := strings.ToLower(u.Hostname()), u.Port()
+	if host == "localhost" {
+		if port == "" {
+			return nil, false
+		}
+		return u, true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !ip.IsLoopback() || port == "" {
+			return nil, false
+		}
+		return u, true
+	}
+	if !dnsName(host) {
+		return nil, false
+	}
+	return u, true
+}
+
+func baseURL(raw string) (*url.URL, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return nil, false
+	}
+	return u, u.Hostname() != ""
+}
+
+func dnsName(host string) bool {
+	if len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, r := range label {
+			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (w *watcher) flushWarns() {

@@ -105,7 +105,13 @@ func DocHref(home, base, p string) string {
 		}
 		p = filepath.Join(user, rest)
 	}
-	if !filepath.IsAbs(p) || strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
+	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") {
+		if _, _, _, err := Resolve(home, p); err != nil {
+			return ""
+		}
+		return docURL(base, path.Clean(p))
+	}
+	if strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, "//") {
 		return ""
 	}
 	homes := []string{home}

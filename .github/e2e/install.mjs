@@ -1,16 +1,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Box, cleaned, cleanEnv, setUserPath, userPath, asset, candidate, check, commit, distDir, equal, exe, fails, install, luvusTested, matches, ok, phase, repoRoot, run, schema, serve, shells, tmpRoot, toon, version, win } from './lib.mjs';
+import { Box, cleaned, cleanEnv, setUserPath, userPath, asset, candidate, check, commit, distDir, equal, exe, fails, install, irohAsset, irohVersion, luvusTested, matches, ok, phase, repoRoot, run, schema, serve, sha256, shells, tmpRoot, toon, version, win } from './lib.mjs';
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-function corrupted() {
-  const dir = path.join(tmpRoot, 'dist-bad');
+function corrupted(name = 'dist-bad', which = asset) {
+  const dir = path.join(tmpRoot, name);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.cpSync(distDir, dir, { recursive: true });
   for (const sub of ['latest/download', `download/${'v' + version}`, 'download/edge']) {
-    const file = path.join(dir, sub, asset);
+    const file = path.join(dir, sub, which);
+    if (!fs.existsSync(file)) continue;
     const bytes = fs.readFileSync(file);
     bytes[bytes.length >> 1] ^= 0xff;
     fs.writeFileSync(file, bytes);
@@ -22,10 +23,10 @@ async function installed(dir, msg) {
   const box = new Box('probe');
   const res = await run(path.join(dir, `hand${exe}`), ['version'], { env: box.env({}, []) });
   const v = toon(res.out).fields;
-  equal([v.version, v.channel, v.commit, v.schema, v.luvus], [version, 'stable', commit(), String(schema), luvusTested], `${msg}: hand version reports the candidate`);
+  equal([v.version, v.channel, v.commit, v.schema, v.luvus, v.iroh], [version, 'stable', commit(), String(schema), luvusTested, irohVersion], `${msg}: hand version reports the candidate`);
 }
 
-async function one(shell, good, bad) {
+async function one(shell, good, bad, badIroh) {
   const box = new Box(`install-${shell}`).prepare();
   const dir = path.join(box.dir, 'Hand Dir', 'bin');
   const target = path.join(dir, `hand${exe}`);
@@ -43,6 +44,11 @@ async function one(shell, good, bad) {
     } else {
       matches(first.out, new RegExp(`^${escape(dir)} is not on PATH; add this line to your shell profile: export PATH="${escape(dir)}:\\$PATH"$`, 'm'), `${shell}: it prints the PATH hint`);
     }
+    const sidecar = path.join(dir, `hand-iroh${exe}`);
+    matches(first.out, new RegExp(`^installed hand-iroh ${escape(irohVersion)} to ${escape(sidecar)}\\r?$`, 'm'), `${shell}: it reports the sidecar and its path`);
+    check(asked.includes(`/latest/download/${irohAsset}`) && asked.includes(`/latest/download/${irohAsset.replace(/\.(tar\.gz|zip)$/, '.sha256')}`), `${shell}: it fetches the sidecar and its checksum from the same release`);
+    const ran = await run(sidecar, ['--version'], { env: box.env({}, []) });
+    matches(ran.out, new RegExp(`^hand-iroh ${escape(irohVersion)} iroh `), `${shell}: the installed sidecar runs and reports the version hand needs`);
     await installed(dir, shell);
 
     const again = await ok(await install(shell, good.base, dir, {}, box, [dir]), `${shell}: a second install over the first exits 0`);
@@ -50,18 +56,30 @@ async function one(shell, good, bad) {
       check(!/added .* to your user PATH/.test(again.out), `${shell}: the second install does not add the folder again`);
       await installed(dir, `${shell} again`);
       await cleaned(dir, () => installed(dir, `${shell} probe`));
-      equal(fs.readdirSync(dir), [`hand${exe}`], `${shell}: the next hand run removed the old executable`);
+      equal(fs.readdirSync(dir).sort(), [`hand-iroh${exe}`, `hand${exe}`], `${shell}: the next hand run removed the old executables`);
     } else {
       check(!/is not on PATH/.test(again.out), `${shell}: no PATH hint when the folder is on PATH`);
-      equal(fs.readdirSync(dir), ['hand'], `${shell}: the folder holds only hand, with no temporary file`);
+      equal(fs.readdirSync(dir).sort(), ['hand', 'hand-iroh'], `${shell}: the folder holds only hand and hand-iroh, with no temporary file`);
     }
 
     for (const [name, extra, prefix] of [['a pinned version', { HAND_INSTALL_VERSION: `v${version}` }, `/download/v${version}/`], ['the edge channel', { HAND_INSTALL_VERSION: 'edge' }, '/download/edge/']]) {
       const other = path.join(box.dir, name.replace(/\W+/g, '-'), 'bin');
-      await ok(await install(shell, good.base, other, extra, box), `${shell}: ${name} installs`);
+      const res = await ok(await install(shell, good.base, other, extra, box), `${shell}: ${name} installs`);
       check(good.requests.splice(0).some((r) => r.startsWith(prefix) && r.endsWith(asset)), `${shell}: ${name} is fetched from ${prefix}`);
       await installed(other, `${shell}: ${name}`);
+      if (prefix === '/download/edge/') {
+        check(!fs.existsSync(path.join(other, `hand-iroh${exe}`)), `${shell}: the edge channel carries no sidecar, so none is installed`);
+        matches(res.out, new RegExp(`^this release has no ${escape(irohAsset)}; phone access over iroh is not installed\\r?$`, 'm'), `${shell}: the installer says the release has no sidecar`);
+      } else {
+        check(fs.existsSync(path.join(other, `hand-iroh${exe}`)), `${shell}: ${name} installs the sidecar`);
+      }
     }
+
+    const hashes = [`hand${exe}`, `hand-iroh${exe}`].map((n) => sha256(path.join(dir, n)));
+    const noSidecar = await install(shell, badIroh.base, dir, {}, box, [dir]);
+    await fails(noSidecar, `${shell}: a corrupted sidecar archive makes the installer exit 1`, 1);
+    matches(noSidecar.out + noSidecar.err, new RegExp(`install\\.(sh|ps1): checksum mismatch for ${escape(irohAsset)}`), `${shell}: it names the sidecar's checksum mismatch`);
+    equal([`hand${exe}`, `hand-iroh${exe}`].map((n) => sha256(path.join(dir, n))), hashes, `${shell}: the installed hand and sidecar are the ones from before`);
 
     const refused = path.join(box.dir, 'refused', 'bin');
     const res = await install(shell, bad.base, refused, {}, box);
@@ -98,14 +116,15 @@ async function one(shell, good, bad) {
 
 await phase('install', async () => {
   const good = await serve(distDir);
-  const badDir = corrupted();
-  const bad = await serve(badDir);
+  const bad = await serve(corrupted());
+  const badIroh = await serve(corrupted('dist-bad-iroh', irohAsset));
   try {
-    for (const shell of shells) await one(shell, good, bad);
+    for (const shell of shells) await one(shell, good, bad, badIroh);
     for (const n of ['install.sh', 'install.ps1']) check(fs.readFileSync(path.join(distDir, n), 'utf8') === fs.readFileSync(path.join(repoRoot, n), 'utf8').replace(/\r\n/g, '\n'), `${n} served from dist is the file in the repository`);
     await candidate();
   } finally {
     await good.close();
     await bad.close();
+    await badIroh.close();
   }
 });

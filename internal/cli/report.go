@@ -15,6 +15,7 @@ import (
 
 	"github.com/atqamz/hand/internal/fleet"
 	"github.com/atqamz/hand/internal/gitcfg"
+	"github.com/atqamz/hand/internal/orient"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/toon"
 )
@@ -38,12 +39,7 @@ func reportFooter(exe string) string { return reportFooterFor(runtime.GOOS, exe)
 
 func reportFooterFor(goos, exe string) string {
 	if goos == "windows" {
-		name := strings.TrimSuffix(filepath.Base(exe), ".exe")
-		full := "If `" + name + "` is not on PATH, call it by its full path: `\"" + exe + "\" report add ...`, with `& ` in front in PowerShell.\n"
-		return "\n\n---\n" + reportMarker + ". Write the report to a file outside the worktree, so none is left in it, then run this in PowerShell or Git Bash:\n" +
-			name + " report add --status done --file PATH\n" + full +
-			"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-			"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n" +
+		return windowsFooterHead(exe) +
 			"Wait for CI, a review or any slow check inside one blocking foreground command, for example `gh pr checks URL --watch`. " +
 			"Keep each call under the longest tool timeout of your harness (about 9 minutes) and issue it again until the wait is done. " +
 			"Never end your turn to wait and never wait in a background shell, because ending a turn wakes the supervisor. " +
@@ -56,23 +52,38 @@ func reportFooterFor(goos, exe string) string {
 		"Apart from a milestone, write a report only when the work is done or you are stuck."
 }
 
+func windowsFooterHead(exe string) string {
+	name := strings.TrimSuffix(filepath.Base(exe), ".exe")
+	full := "If `" + name + "` is not on PATH, call it by its full path: `\"" + exe + "\" report add ...`, with `& ` in front in PowerShell.\n"
+	return "\n\n---\n" + reportMarker + ". Write the report to a file outside the worktree, so none is left in it, then run this in PowerShell or Git Bash:\n" +
+		name + " report add --status done --file PATH\n" + full +
+		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
+		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n" +
+		"Every temporary file, build output, log and download belongs in this attempt's scratch folder, which is `%TEMP%` (and `%TMP%`), not directly under `%USERPROFILE%`.\n"
+}
+
 func unixFooterHead(exe string) string {
 	end := "HAND_REPORT_" + rand.Text()[:8]
 	return "\n\n---\n" + reportMarker + " from inside this worktree, passing the report on stdin so no file is left in it:\n" +
-		shellQuote(exe) + " report add --status done --file - <<'" + end + "'\n" +
+		toon.ShellQuote(exe) + " report add --status done --file - <<'" + end + "'\n" +
 		"YOUR REPORT\n" +
 		end + "\n" +
 		"Use --status stuck instead if you cannot continue, or --status progress for a milestone. " +
-		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n"
+		"Say what changed and list any commits. End with one line `Delivered: <link or absolute path>` for each thing you delivered: a PR, a merge request, a document, a file. Keep large machine files (`.obb`, `.pack`, `.apk`, `.aab`, bundles) out of the fleet's `reports/` and `shots/`: write their path and hash in the report instead, and keep that file outside your worktree: Hand removes a finished worktree, ignored files included. Hand reads your report, not your terminal.\n" +
+		"Every temporary file, build output, log and download belongs in this attempt's scratch folder, which is `$TMPDIR` (and `$GOTMPDIR`), not directly under `$HOME`.\n"
 }
 
-func readonlyReportFooter(exe string) string {
-	return unixFooterHead(exe) + "Apart from a milestone, write a report only when the work is done or you are stuck."
+func readonlyReportFooter(exe string) string { return readonlyReportFooterFor(runtime.GOOS, exe) }
+
+func readonlyReportFooterFor(goos, exe string) string {
+	head := unixFooterHead(exe)
+	if goos == "windows" {
+		head = windowsFooterHead(exe)
+	}
+	return head + "Apart from a milestone, write a report only when the work is done or you are stuck."
 }
 
-func reportRule(exe string) string { return "Bash(" + shellQuote(exe) + " report add *)" }
-
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func reportRule(exe string) string { return "Bash(" + toon.ShellQuote(exe) + " report add *)" }
 
 func (r *runner) attemptHere(ctx context.Context) (int64, string, error) {
 	wd, err := r.getwd()
@@ -246,7 +257,7 @@ func cmdReportList(r *runner, args []string) error {
 		if rep.AckedAt != "" {
 			acked = "yes"
 		}
-		rows = append(rows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), state.TaskRef(rep.TaskID), rep.Status, acked, rep.Summary()})
+		rows = append(rows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), state.TaskRef(rep.TaskID), rep.Status, acked, orient.Clip(rep.Summary(), orient.DefaultBudget.TitleBytes)})
 	}
 	var d toon.Doc
 	d.Rows("reports", []string{"id", "attempt", "task", "status", "acked", "summary"}, rows)

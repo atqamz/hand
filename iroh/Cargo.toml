@@ -1,0 +1,25 @@
+[package]
+name = "hand-iroh"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Forwards iroh connections to the Hand Board's peer listener"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "hand-iroh"
+path = "src/main.rs"
+
+[dependencies]
+iroh = "=1.4.1"
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "net", "sync", "time", "macros", "signal"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 4
+panic = "abort"

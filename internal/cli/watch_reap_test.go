@@ -21,6 +21,10 @@ func TestWatchRemovesOnlyProvablySafeFinishedWorktrees(t *testing.T) {
 	for _, n := range []string{"1", "2", "3", "4"} {
 		fx.h.ok("attempt", "start", "--harness", "claude", "--model", "sonnet", "--effort", "low", "--prompt-file", fx.brief, "t"+n)
 	}
+	scratch := func(n string) string { return scratchOf(fx.h, fx.h.worktree("t"+n+"-a"+n)) }
+	for _, n := range []string{"1", "2", "3", "4"} {
+		eventually(t, func() bool { return exists(scratch(n)) })
+	}
 	for _, n := range []string{"1", "2", "3"} {
 		fx.h.ok("attempt", "stop", "a"+n)
 	}
@@ -57,6 +61,10 @@ func TestWatchRemovesOnlyProvablySafeFinishedWorktrees(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(wt("2"), "wip.txt")); err != nil {
 		t.Fatalf("uncommitted work lost: %v", err)
+	}
+	mustExist(t, scratch("1"), false)
+	for _, n := range []string{"2", "3", "4"} {
+		mustExist(t, scratch(n), true)
 	}
 }
 

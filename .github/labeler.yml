@@ -13,6 +13,9 @@
 'area: harness':
   - changed-files:
       - any-glob-to-any-file: ['internal/harness/**', 'internal/transcript/**', 'internal/agydb/**', 'internal/fakebin/**', 'internal/e2e/**']
+'area: iroh':
+  - changed-files:
+      - any-glob-to-any-file: ['iroh/**']
 'area: state':
   - changed-files:
       - any-glob-to-any-file: ['internal/state/**', 'internal/flock/**']

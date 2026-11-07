@@ -322,7 +322,10 @@ func TestUpdateKeepsRunningWhenItCannotJournal(t *testing.T) {
 	rep := Report{}
 	o := f.o
 	o.Root = filepath.Join(t.TempDir(), "missing")
-	rep.cycle(context.Background(), o, entries(t, f.root), true, func(fleet.Entry) string { return "stale" })
+	rep.cycle(context.Background(), o, entries(t, f.root), true, func(fleet.Entry) string {
+		_, m := luvus.Match(luvus.Pin{Version: "0.14.4"}, true, "0.0.1", nil)
+		return m
+	})
 	if got := f.processCalls(t); len(got) != 0 || !rep.Failed {
 		t.Fatalf("calls %q, report %+v", got, rep)
 	}
@@ -468,7 +471,7 @@ func (f *fixture) serverRuns(t *testing.T) {
 }
 
 func (f *fixture) current() {
-	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 17, Luvus: "0.14.4"}
+	f.o.From = Build{Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 18, Luvus: "0.14.4"}
 }
 
 func alphaLuvus(t *testing.T, rep Report) string {

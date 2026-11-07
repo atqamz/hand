@@ -23,7 +23,7 @@ import (
 	"github.com/atqamz/hand/internal/toon"
 )
 
-const launchWait = 2 * time.Second
+var launchWait = 2 * time.Second
 
 const openUsage = "usage: hand open [supervisor | tN | dN | rN | aN] [--delivered]"
 
@@ -39,12 +39,12 @@ func cmdOpen(r *runner, args []string) error {
 	delivered := set.Bool("delivered", false, "open the task's newest deliverable instead of its board page")
 	printed := set.Bool("print", false, "print the link instead of opening it; a board link holds the fleet's token")
 	if err := set.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
+		return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 	}
 	rest := set.Args()
 	if len(rest) > 0 {
 		if err := set.Parse(rest[1:]); err != nil {
-			return usageError{fmt.Sprintf("open: %v; %s", err, openUsage)}
+			return helpOr(set, err, usageError{fmt.Sprintf("open: %v; %s", err, openUsage)})
 		}
 		rest = append(rest[:1:1], set.Args()...)
 	}
@@ -106,7 +106,7 @@ func cmdOpen(r *runner, args []string) error {
 		}
 		return r.printLink(page+"?token="+token+frag, "The link holds the fleet's token; paste it only into your own browser")
 	}
-	return r.launch(page+"?token="+token+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
+	return r.launch(page+"?token="+token+"&keep=1"+frag, page+frag, "open "+page+frag+" yourself and log in with the token in "+filepath.Join(r.home, "board.token"))
 }
 
 func boardPage(ctx context.Context, st *state.Store, ref string) (string, string, error) {

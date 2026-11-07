@@ -33,10 +33,67 @@ func exe(dir, name string) string {
 }
 
 func fakeBehaviors() map[string]func([]string) int {
-	return map[string]func([]string) int{"args": fakebin.RecordArgs, "fake": fakeMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
+	return map[string]func([]string) int{"sidecar": sidecarMain, "args": fakebin.RecordArgs, "env": envMain, "fake": fakeMain, "click": clickMain, "lister": listerMain, "ocexport": ocexportMain, "ocapi": ocapiMain, "ocsession": ocsessionMain, "wrap": wrapMain, "die": func([]string) int { fmt.Fprint(os.Stderr, "board cannot start\n"); return 1 }, "linger": lingerMain, "quiet": func([]string) int { return 1 }, "reporter": reporterMain, "idle": idleMain, "notifyenv": notifyEnvMain, "tailscale": tailscaleMain, "opener": func(args []string) int {
 		fakebin.Append(os.Getenv("XDG_LOG"), args[len(args)-1])
 		return 0
 	}}
+}
+
+func envMain(args []string) int {
+	var lines []string
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR", "CLAUDE_CODE_TMPDIR", "HOME"} {
+		lines = append(lines, name+"="+os.Getenv(name))
+	}
+	argv, err := json.Marshal(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	lines = append(lines, "argv="+string(argv))
+	if err := os.WriteFile(fakebin.Params()["out"], []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func clickMain(args []string) int {
+	p := fakebin.Params()
+	if len(args) == 1 && args[0] == "--help" {
+		fakebin.Append(p["helplog"], "--help")
+		fmt.Print(p["help"])
+		return 0
+	}
+	if p["pids"] != "" {
+		fakebin.Append(p["pids"], strconv.Itoa(os.Getpid()))
+	}
+	if p["log"] != "" {
+		fakebin.Append(p["log"], strings.Join(args, "|"))
+	}
+	if p["child"] != "" {
+		c := exec.Command("/bin/sleep", p["child"])
+		if err := c.Start(); err == nil {
+			fakebin.Append(p["pids"], strconv.Itoa(c.Process.Pid))
+			_ = c.Wait()
+			return 0
+		}
+	}
+	if p["releasedir"] != "" && slices.Contains(args, "--wait") {
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(p["releasedir"], strconv.Itoa(os.Getpid()))); err == nil {
+				return 0
+			}
+		}
+		return 0
+	}
+	d, _ := time.ParseDuration(p["sleep"])
+	if p["clickhold"] != "" && slices.Contains(args, "--wait") {
+		d, _ = time.ParseDuration(p["clickhold"])
+	}
+	time.Sleep(d)
+	fmt.Print(p["print"])
+	code, _ := strconv.Atoi(p["exit"])
+	return code
 }
 
 func ocexportMain(args []string) int {
@@ -241,6 +298,16 @@ func ocsessionMain(args []string) int {
 	return 0
 }
 
+func lingerMain([]string) int {
+	stop := fakebin.Params()["stop"]
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(stop); err == nil {
+			break
+		}
+	}
+	return 1
+}
+
 func idleMain([]string) int {
 	fmt.Print("> ")
 	time.Sleep(time.Hour)
@@ -324,7 +391,7 @@ type harness struct {
 }
 
 func newHarness(t *testing.T) *harness {
-	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir(), "HAND_LUVUS_BASE": "http://127.0.0.1:1"}}
+	return &harness{t: t, mu: new(sync.Mutex), home: t.TempDir(), now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), vars: map[string]string{"SECONDHAND_HOME": t.TempDir(), "HAND_LUVUS_BASE": "http://127.0.0.1:1", "HAND_TEST_AS_HAND": "1"}}
 }
 
 func (h *harness) clock() time.Time {
@@ -339,7 +406,7 @@ func (h *harness) advance(d time.Duration) {
 	h.now = h.now.Add(d)
 }
 
-func (h *harness) env(out, errOut *bytes.Buffer) cli.Env {
+func (h *harness) env(out, errOut io.Writer) cli.Env {
 	return cli.Env{
 		Name:   h.name,
 		Board:  h.board,

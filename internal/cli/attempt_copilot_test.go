@@ -61,7 +61,7 @@ func copilotTrustScreen(path string, width, cursor int) string {
 
 func TestCopilotWorkersStartWithTheirBrief(t *testing.T) {
 	for effort, flags := range map[string][]string{"": nil, "high": {"--reasoning-effort", "high"}} {
-		fx := agyFixture(t)
+		fx := newAttemptFixture(t)
 		var out string
 		if effort == "" {
 			out = fx.startCopilot()
@@ -86,7 +86,7 @@ func TestCopilotWorkersStartWithTheirBrief(t *testing.T) {
 func TestCopilotTrustScreenIsAcceptedInItsOwnWorktreeAtEveryWidth(t *testing.T) {
 	for _, width := range []int{120, 80, 56} {
 		t.Run(fmt.Sprint(width), func(t *testing.T) {
-			fx := agyFixture(t)
+			fx := newAttemptFixture(t)
 			wt := fx.h.worktree("t1-a1")
 			fx.rt.set(func(rt *fakeRuntime) {
 				rt.screen, rt.revision, rt.afterScreen = copilotTrustScreen(wt, width, 1), 4, "❯\n"
@@ -112,7 +112,7 @@ func TestCopilotTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 	} {
 		for _, width := range []int{80, 56} {
 			t.Run(fmt.Sprintf("%s %d", name, width), func(t *testing.T) {
-				fx := agyFixture(t)
+				fx := newAttemptFixture(t)
 				screen := copilotTrustScreen(path(fx.h.worktree("t1-a1")), width, 1)
 				fx.rt.set(func(rt *fakeRuntime) { rt.screen = screen })
 				out := fx.startCopilot()
@@ -129,7 +129,7 @@ func TestCopilotTrustScreenForAnotherPathIsLeftAlone(t *testing.T) {
 
 func TestCopilotTrustScreenNeverTakesTheRememberRow(t *testing.T) {
 	for _, cursor := range []int{2, 3} {
-		fx := agyFixture(t)
+		fx := newAttemptFixture(t)
 		screen := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, cursor)
 		fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = screen, screen })
 		out := fx.startCopilot()
@@ -140,7 +140,7 @@ func TestCopilotTrustScreenNeverTakesTheRememberRow(t *testing.T) {
 }
 
 func TestCopilotMissingNamesItsInstallAndLogin(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	if err := os.Remove(exe(fx.h.vars["PATH"], "copilot")); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestCopilotMissingNamesItsInstallAndLogin(t *testing.T) {
 }
 
 func TestCopilotStartsFromTheFolderGhCopilotDownloadsTo(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	onPath := exe(fx.h.vars["PATH"], "copilot")
 	data := t.TempDir()
 	fx.h.vars["XDG_DATA_HOME"] = data
@@ -172,7 +172,7 @@ func TestCopilotStartsFromTheFolderGhCopilotDownloadsTo(t *testing.T) {
 }
 
 func TestCopilotAttemptsAreStoredAsWorkers(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	a, err := openStore(t, fx.h).Attempt(t.Context(), 1)
 	if err != nil || a.Harness != "copilot" || a.Model != "auto" || a.Effort != "" || !slices.Contains(state.Harnesses, "copilot") {
@@ -210,7 +210,7 @@ func copilotLaunchScreen(problem string, width int, echoed bool, later string) s
 
 func startCopilotLaunch(t *testing.T, launch string) (*attemptFixture, string) {
 	t.Helper()
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	trust := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, 1)
 	fx.rt.set(func(rt *fakeRuntime) { rt.screen, rt.revision, rt.afterScreen = trust, 4, launch })
 	return fx, fx.startCopilot()
@@ -281,9 +281,8 @@ func TestCopilotLaunchWithoutAnEchoEndsAtTheScreenWait(t *testing.T) {
 }
 
 func TestCopilotLaunchLineThatAppearsOnALaterReadIsNoted(t *testing.T) {
-	fx := agyFixture(t)
-	*cli.ScreenWait = 5 * time.Second
-	t.Cleanup(func() { *cli.ScreenWait = 300 * time.Millisecond })
+	fx := newAttemptFixture(t)
+	setWait(t, cli.ScreenWait, 5*time.Second)
 	trust := copilotTrustScreen(fx.h.worktree("t1-a1"), 80, 1)
 	problem := `✗ Model "gpt-nosuch" from --model flag is not available. Using "auto" instead.`
 	fx.rt.set(func(rt *fakeRuntime) {

@@ -38,14 +38,14 @@ func newSupervisorFixture(t *testing.T) (*harness, *fakeRuntime) {
 	h.vars["PATH"] = fakeBin(t)
 	h.vars["HOME"] = t.TempDir()
 	h.ok("init")
-	wait := *cli.NoteWait
-	*cli.NoteWait = time.Second
-	t.Cleanup(func() { *cli.NoteWait = wait })
-	fastTrust(t)
-	prefill := *cli.PrefillWait
-	*cli.PrefillWait = 2 * time.Second
-	t.Cleanup(func() { *cli.PrefillWait = prefill })
 	return h, rt
+}
+
+func setWait(t *testing.T, p *time.Duration, d time.Duration) {
+	t.Helper()
+	old := *p
+	*p = d
+	t.Cleanup(func() { *p = old })
 }
 
 func has(t *testing.T, what, out string, wants ...string) {
@@ -203,6 +203,7 @@ func TestDeliveryWaitsForTheHarnessSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "rollout-1.jsonl"), []byte(meta), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	has(t, "show before a send", h.ok("supervisor", "show"), `session: ""`)
 	has(t, "send", h.ok("supervisor", "send", "--text", "second"), "delivered: yes")
 	if got := rt.prompts(); !slices.Equal(got, []string{"first", "second"}) {
 		t.Fatalf("prompts = %q", got)
@@ -512,20 +513,26 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)
 	h.ok("supervisor", "stop")
+	setWait(t, cli.SettleQuiet, 300*time.Millisecond)
 	var reads atomic.Int32
+	var restoredAt atomic.Int64
 	rt.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		n := reads.Add(1)
 		text, rev := "", int64(n)
 		if n > 4 {
 			text, rev = "restored conversation", 9
+			restoredAt.CompareAndSwap(0, time.Now().UnixNano())
 		}
 		rt.mu.Lock()
 		defer rt.mu.Unlock()
 		return map[string]any{"text": text, "content_revision": rev, "terminal_id": rt.terms[len(rt.terms)-1].id}, nil
 	})
 	h.ok("supervisor", "resume")
-	if n := reads.Load(); n < 8 {
-		t.Fatalf("resume returned after %d screen reads, before the restored screen settled", n)
+	if restoredAt.Load() == 0 {
+		t.Fatal("the restored screen was never read")
+	}
+	if quiet := time.Since(time.Unix(0, restoredAt.Load())); quiet < *cli.SettleQuiet {
+		t.Fatalf("resume returned %v after the restored screen appeared, before it settled for %v", quiet, *cli.SettleQuiet)
 	}
 }
 
@@ -650,7 +657,7 @@ func opencodeSupervisor(t *testing.T, h *harness, rt *fakeRuntime, keys func(n i
 
 func TestOpencodeEnterIsRetriedWhileItsScreenLoads(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	*cli.PrefillWait = 30 * time.Second
+	setWait(t, cli.PrefillWait, 30*time.Second)
 	opencodeSupervisor(t, h, rt, func(n int32) {
 		if n == 2 {
 			rt.set(func(rt *fakeRuntime) { rt.status = "working" })
@@ -860,6 +867,45 @@ func TestSupervisorForceTypesQueuedMessagesIntoAMisreadScreen(t *testing.T) {
 	}
 	if len(rt.prompts()) != 0 {
 		t.Fatalf("force pasted %q instead of typing", rt.prompts())
+	}
+}
+
+func TestSupervisorForceRecordsWhatItTypedBeforeTheContextWasCancelled(t *testing.T) {
+	for name, queue := range map[string]func(*harness){
+		"queued message": func(h *harness) { h.ok("supervisor", "send", "--text", "1. MIT") },
+		"wake digest": func(h *harness) {
+			h.ok("project", "add", "hand", handRepo)
+			h.ok("task", "add", "hand", "Fix login")
+			h.ok("decision", "ask", "t1", "Keep it?")
+			h.ok("decision", "answer", "d1", "yes")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, rt := newSupervisorFixture(t)
+			startClaudeSupervisor(h)
+			rt.set(func(rt *fakeRuntime) {
+				rt.status, rt.revision, rt.ready, rt.screen = "blocked", 9, false, "────\n❯\u00a0\n────"
+			})
+			queue(h)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			keys := rt.keys
+			rt.srv.Handle("agent.keys", func(params json.RawMessage) (any, error) {
+				defer cancel()
+				return keys(params)
+			})
+			var out, errOut bytes.Buffer
+			forced := cli.Force(ctx, h.env(&out, &errOut), h.home)
+			typed := rt.keysSent()
+			again := h.ok("supervisor", "force")
+			if got := rt.keysSent(); !slices.Equal(got, typed) {
+				t.Fatalf("typed again: %q then %q", typed, got)
+			}
+			has(t, "force again", again, "typed: 0")
+			if forced != nil {
+				t.Fatal(forced)
+			}
+		})
 	}
 }
 
@@ -1094,16 +1140,8 @@ func TestAFailedSwitchLeavesTheStoppedSupervisorToResume(t *testing.T) {
 	has(t, "show", h.ok("supervisor", "show"), "supervisor: s3", "resumes: s1")
 }
 
-func fastTrust(t *testing.T) {
-	t.Helper()
-	wait, confirm := *cli.TrustWait, *cli.TrustConfirm
-	*cli.TrustWait, *cli.TrustConfirm = 2*time.Second, time.Second
-	t.Cleanup(func() { *cli.TrustWait, *cli.TrustConfirm = wait, confirm })
-}
-
 func startAgySupervisor(t *testing.T, h *harness, rt *fakeRuntime) string {
 	t.Helper()
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
 	return h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low")
 }
@@ -1127,7 +1165,6 @@ func TestAnAgySupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 
 func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) {
 		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
 	})
@@ -1148,7 +1185,6 @@ func TestAClaudeSupervisorStartsAndAcceptsItsFleetTrust(t *testing.T) {
 
 func TestAClaudeSupervisorWithCursorOnYesPressesOnlyEnter(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = claudeTrustScreenYes(h.home), "> \n" })
 	has(t, "start", startClaudeSupervisor(h), "trust: accepted")
 	if !slices.Equal(rt.keysSent(), []string{"enter"}) {
@@ -1172,6 +1208,136 @@ func TestAnAgySupervisorFindsAndResumesItsConversation(t *testing.T) {
 	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: c1")
 	if got := rt.lastCreate().Command; !slices.Equal(got[1:], []string{"--model", "gemini-3.8-flash-low", "--dangerously-skip-permissions", "--conversation", "c1"}) {
 		t.Fatalf("resume argv = %q", got)
+	}
+}
+
+func ompSessions(t *testing.T, h *harness) string {
+	t.Helper()
+	dir := filepath.Join(h.vars["HOME"], ".omp", "agent", "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func ompConversation(t *testing.T, dir, id, cwd, prompt string, at time.Time) string {
+	t.Helper()
+	header := `{"type":"session","version":3,"id":"` + id + `","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","cwd":` + strconv.Quote(cwd) + `}` + "\n"
+	user := `{"type":"message","timestamp":"` + at.UTC().Format(time.RFC3339Nano) + `","message":{"role":"user","content":[{"type":"text","text":` + strconv.Quote(prompt) + `}]}}` + "\n"
+	path := filepath.Join(dir, at.UTC().Format("2006-01-02T15-04-05-000Z")+"_"+id+".jsonl")
+	if err := os.WriteFile(path, []byte(header+user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestAnOmpSupervisorFindsAndResumesItsSession(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
+	argv := rt.lastCreate().Command
+	if len(argv) != 9 || !slices.Equal(argv[1:8], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--"}) {
+		t.Fatalf("argv = %q", argv)
+	}
+	if m := launchPrompt.FindStringSubmatch(argv[8]); m == nil || m[1] != "s1" {
+		t.Fatalf("prompt = %q", argv[8])
+	}
+	id := "01a1abdf-088f-707d-8973-c784c54b54eb"
+	ompConversation(t, ompSessions(t, h), id, h.home, argv[len(argv)-1], time.Now())
+	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
+	has(t, "show", h.ok("supervisor", "show"), "session: "+id)
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: yes")
+	h.ok("supervisor", "stop")
+	has(t, "resume", h.ok("supervisor", "resume"), "supervisor: s2", "session: "+id)
+	if got := rt.lastCreate().Command; !slices.Equal(got[len(got)-2:], []string{"--resume", id}) {
+		t.Fatalf("resume argv = %q", got)
+	}
+}
+
+func TestAnOmpSupervisorFindsItsSessionUnderARelativeAgentDir(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	h.vars["PI_CODING_AGENT_DIR"] = ".omp-agent"
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1", "harness: omp", "status: running")
+	argv := rt.lastCreate().Command
+	id := "01a1abdf-088f-707d-8973-c784c54b54ec"
+	dir := filepath.Join(h.home, ".omp-agent", "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ompConversation(t, dir, id, h.home, argv[len(argv)-1], time.Now())
+	has(t, "show", h.ok("supervisor", "show"), "session: "+id)
+}
+
+func TestShowNamesTheAgentDirWhenThePaneHasAnOmpSessionHandCannotFind(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	rt.setSession(rt.terms[len(rt.terms)-1].id, "01a1abdf-088f-707d-8973-c784c54b54ed")
+	h.advance(3 * time.Minute)
+	out := h.ok("supervisor", "show")
+	has(t, "show", out, `session: ""`, "note: ", "PI_CODING_AGENT_DIR", "01a1abdf-088f-707d-8973-c784c54b54ed")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "PI_CODING_AGENT_DIR")
+}
+
+func TestShowNamesTheAgentDirWhenLuvusReportsNoOmpSession(t *testing.T) {
+	h, _ := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	h.advance(3 * time.Minute)
+	has(t, "show", h.ok("supervisor", "show"), `session: ""`, "note: ", "sessions", "PI_CODING_AGENT_DIR", "different")
+	has(t, "send", h.ok("supervisor", "send", "--text", "hello"), "delivered: no", "why: ", "sessions", "PI_CODING_AGENT_DIR")
+}
+
+func TestTheWatcherNamesTheOmpAgentDirOnceAndResetsWhenTheSessionArrives(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	agent := filepath.Join(t.TempDir(), "agent")
+	h.vars["PI_CODING_AGENT_DIR"] = agent
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	h.advance(3 * time.Minute)
+	fx := &attemptFixture{h: h, rt: rt}
+	stop := startWatch(t, fx)
+	pane := rt.terms[len(rt.terms)-1].pane
+	explains := func() int { return len(rt.srv.Calls("agent.explain")) }
+	publish := func() {
+		before := explains()
+		rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": pane, "status": "working", "agent": "omp"})
+		eventually(t, func() bool { return explains() > before })
+	}
+	publish()
+	publish()
+	id := "01a1abdf-088f-707d-8973-c784c54b54ef"
+	dir := filepath.Join(agent, "sessions", "-fleet")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := ompConversation(t, dir, id, h.home, rt.lastCreate().Command[len(rt.lastCreate().Command)-1], h.clock())
+	publish()
+	st := openStore(t, h)
+	if err := st.SetSupervisorSession(context.Background(), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	publish()
+	out, code := stop()
+	if code != 0 {
+		t.Fatalf("watch exit = %d, out %q", code, out)
+	}
+	if n := strings.Count(out, "omp session mismatch: "); n != 2 {
+		t.Fatalf("mismatch notes = %d, out %q", n, out)
+	}
+}
+
+func TestSwitchingToOmpStartsTheNextSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.set(func(rt *fakeRuntime) { rt.status, rt.screen = "idle", "" })
+	has(t, "to omp", h.ok("supervisor", "switch", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s2", "harness: omp")
+	argv := rt.lastCreate().Command
+	if !slices.Equal(argv[1:7], []string{"--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low"}) || !strings.Contains(argv[len(argv)-1], "You replace s1, which ran on claude;") {
+		t.Fatalf("omp argv = %q", argv)
 	}
 }
 
@@ -1234,7 +1400,6 @@ func TestAgyDiscoveryIgnoresAnotherFleetsConversation(t *testing.T) {
 
 func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = trustScreen("/elsewhere") })
 	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not pressed")
 	argv := rt.lastCreate().Command
@@ -1248,7 +1413,6 @@ func TestDeliveryWaitsWhileAgyAsksForTrust(t *testing.T) {
 
 func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen = claudeTrustScreen("/elsewhere") })
 	has(t, "start", startClaudeSupervisor(h), "trust: not pressed")
 	rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -1260,8 +1424,7 @@ func TestDeliveryWaitsWhileClaudeAsksForTrust(t *testing.T) {
 
 func TestAnAgyStartWithoutATrustScreenDoesNotWait(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
-	*cli.TrustWait = 10 * time.Second
+	setWait(t, cli.TrustWait, 10*time.Second)
 	rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	began := time.Now()
 	has(t, "start", h.ok("supervisor", "start", "--harness", "agy", "--model", "gemini-3.8-flash-low"), "trust: not asked")
@@ -1460,7 +1623,6 @@ func TestAutoresumeHonoursAPendingSwitch(t *testing.T) {
 
 func TestBoardStartSurvivesCancelledRequest(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
-	fastTrust(t)
 	rt.set(func(rt *fakeRuntime) { rt.screen, rt.afterScreen = trustScreen(h.home), "> \n" })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

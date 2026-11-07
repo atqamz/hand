@@ -226,6 +226,17 @@ func (r *Retention) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+func (p Policy) Harnesses() []string {
+	var names []string
+	for _, pr := range p.Profiles {
+		if slices.Contains(state.Harnesses, pr.Harness) {
+			names = append(names, pr.Harness)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
 func LoadPolicy(home string) (Policy, error) {
 	path := filepath.Join(home, PolicyFile)
 	b, err := os.ReadFile(path)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -47,6 +48,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	if err != nil {
 		return nil, err
 	}
+	move := moveWarning(ctx, st, f, home)
 	counts, err := st.CountTasks(ctx)
 	if err != nil {
 		return nil, err
@@ -65,7 +67,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		if err != nil {
 			return nil, err
 		}
-		supervisor = strings.Join(strings.Fields(state.SupervisorRef(sup.ID)+" "+sup.Harness+" "+clip(sup.Model, 200)+" "+clip(sup.Effort, 32)+" "+sup.Status), " ")
+		supervisor = strings.Join(strings.Fields(state.SupervisorRef(sup.ID)+" "+sup.Harness+" "+Clip(sup.Model, 200)+" "+Clip(sup.Effort, 32)+" "+sup.Status), " ")
 		if origin != sup.ID {
 			supervisor += " (resumes " + state.SupervisorRef(origin) + ")"
 		}
@@ -121,7 +123,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 			case "attempt.blocked":
 				attempt += " blocked"
 				if hint := strings.TrimPrefix(e.Detail, state.AttemptRef(a.ID)+": "); hint != "" {
-					attempt += ": " + clip(hint, 40)
+					attempt += ": " + Clip(hint, 40)
 				}
 			}
 		}
@@ -138,7 +140,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 				report = state.ReportRef(rep.ID) + " " + rep.Status
 			}
 		}
-		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)})
+		activeRows = append(activeRows, []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes), plan, attempt, report, strconv.Itoa(n)})
 	}
 
 	decisions, err := st.OpenDecisions(ctx, 0, b.Decisions)
@@ -151,7 +153,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 	decisionRows := make([][]string, 0, len(decisions))
 	for _, dec := range decisions {
-		decisionRows = append(decisionRows, []string{state.DecisionRef(dec.ID), state.TaskRef(dec.TaskID), clip(dec.Question, b.TitleBytes)})
+		decisionRows = append(decisionRows, []string{state.DecisionRef(dec.ID), state.TaskRef(dec.TaskID), Clip(dec.Question, b.TitleBytes)})
 	}
 
 	var reports []state.Report
@@ -166,7 +168,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 	reportRows := make([][]string, 0, len(reports))
 	for _, rep := range reports {
-		reportRows = append(reportRows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), rep.Status, clip(rep.Summary(), b.TitleBytes)})
+		reportRows = append(reportRows, []string{state.ReportRef(rep.ID), state.AttemptRef(rep.AttemptID), rep.Status, Clip(rep.Summary(), b.TitleBytes)})
 	}
 
 	inbox, err := st.Tasks(ctx, []string{state.StatusInbox}, b.Inbox)
@@ -175,7 +177,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 	inboxRows := make([][]string, 0, len(inbox))
 	for _, t := range inbox {
-		inboxRows = append(inboxRows, []string{state.TaskRef(t.ID), t.Project, clip(t.Title, b.TitleBytes)})
+		inboxRows = append(inboxRows, []string{state.TaskRef(t.ID), t.Project, Clip(t.Title, b.TitleBytes)})
 	}
 
 	events, err := st.RecentEvents(ctx, b.Events)
@@ -204,7 +206,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 	}
 	timerRows := make([][]string, 0, len(timers))
 	for _, t := range timers {
-		note := clip(t.Note, b.TitleBytes)
+		note := Clip(t.Note, b.TitleBytes)
 		if t.Waits {
 			note = strings.TrimSpace("(waits " + state.TaskRef(t.TaskID) + ") " + note)
 		}
@@ -234,7 +236,7 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		{"recent", []string{"seq", "kind", "task"}, eventRows, len(eventRows), ""},
 	}
 	for {
-		d := render(home, f, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
+		d := render(home, f, move, supervisor, you, watch, resumable, counts, cursor, unwatched, unwatchedTotal, timerRows, folder, artifacts, gcCommand, sections, memLines, truncated)
 		if len(d.String()) < b.Bytes {
 			return d, nil
 		}
@@ -246,6 +248,27 @@ func Build(ctx context.Context, st *state.Store, home, pane string, watch, manag
 		}
 		memLines, truncated = memLines[:len(memLines)-1], true
 	}
+}
+
+func moveWarning(ctx context.Context, st *state.Store, f state.Fleet, home string) string {
+	from, to, pending, err := st.PendingMove(ctx)
+	if err != nil {
+		return "the pending move is unreadable: " + Clip(err.Error(), 200) + "; `hand fleet move` refuses until the `fleet.moving` event is fixed"
+	}
+	if pending {
+		return "interrupted: the database names " + to + "; run `hand fleet move --yes " + toon.ShellQuote(to) + "` in " + toon.ShellQuote(from) + " or in " + toon.ShellQuote(to)
+	}
+	if f.Home == "" {
+		return ""
+	}
+	same := filepath.Clean(f.Home) == filepath.Clean(home)
+	if runtime.GOOS == "windows" {
+		same = strings.EqualFold(filepath.Clean(f.Home), filepath.Clean(home))
+	}
+	if same {
+		return ""
+	}
+	return "the database names " + f.Home + "; run `hand fleet move --rewrite-only --yes --from " + toon.ShellQuote(f.Home) + "` here"
 }
 
 func inboxFolder(home string) string {
@@ -263,7 +286,7 @@ func artifactWarning(home string) (string, string) {
 	}
 	files, err := retention.Scan(home)
 	if err != nil {
-		return "could not check reports/ and shots/: " + clip(err.Error(), 160), retention.GcCommand(p.Retention.WarnDays)
+		return "could not check reports/ and shots/: " + Clip(err.Error(), 160), retention.GcCommand(p.Retention.WarnDays)
 	}
 	text := retention.Warning(files, time.Now(), p.Retention.WarnSize, p.Retention.WarnDays)
 	return text, retention.GcCommand(p.Retention.WarnDays)
@@ -279,10 +302,13 @@ func dropLast(sections []*section) bool {
 	return false
 }
 
-func render(home string, f state.Fleet, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
+func render(home string, f state.Fleet, move, supervisor, you string, watch, resumable bool, counts map[string]int, cursor int64, unwatched state.Unwatched, unwatchedTotal int, timers [][]string, folder, artifacts, gcCommand string, sections []*section, memLines []string, truncated bool) *toon.Doc {
 	var d toon.Doc
 	d.Field("home", home)
 	d.Field("fleet", f.Name+" ("+f.ID+")")
+	if move != "" {
+		d.Field("move", move)
+	}
 	d.Field("supervisor", supervisor)
 	if you != "" {
 		d.Field("you", you)
@@ -344,7 +370,7 @@ func render(home string, f state.Fleet, supervisor, you string, watch, resumable
 	return &d
 }
 
-func clip(s string, n int) string {
+func Clip(s string, n int) string {
 	r := []rune(strings.Join(strings.Fields(s), " "))
 	if len(toon.Value(string(r))) <= n {
 		return string(r)

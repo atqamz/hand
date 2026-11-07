@@ -101,3 +101,22 @@ func TestASymlinkOutOfTheFleetStaysText(t *testing.T) {
 	link(t, "../../projects", filepath.Join(home, "reports", "t1", "clones"))
 	staysText(t, home, filepath.Join(home, "reports", "t1", "escape", "id_ed25519"), filepath.Join(home, "reports", "t1", "escape"), filepath.Join(home, "reports", "t1", "db-link"), filepath.Join(home, "reports", "t1", "clones", "app", "README.md"))
 }
+
+func TestARelativePathThroughASymlinkOutIsNotLinked(t *testing.T) {
+	outside := fleetFolder(t, map[string]string{"secrets/id_ed25519": secret, "notes.md": secret})
+	home := fleetFolder(t, map[string]string{"hand.db": secret, "projects/app/README.md": secret, "reports/t1/design.md": design})
+	link(t, filepath.Join(outside, "secrets"), filepath.Join(home, "reports", "t1", "escape"))
+	link(t, filepath.Join(outside, "notes.md"), filepath.Join(home, "reports", "t1", "notes.md"))
+	link(t, "../../..", filepath.Join(home, "reports", "t1", "up"))
+	link(t, "../../hand.db", filepath.Join(home, "reports", "t1", "db"))
+	link(t, "../../projects", filepath.Join(home, "reports", "t1", "clones"))
+	link(t, "design.md", filepath.Join(home, "reports", "t1", "same.md"))
+	for _, rel := range []string{"reports/t1/escape", "reports/t1/escape/id_ed25519", "reports/t1/notes.md", "reports/t1/up", "reports/t1/db", "reports/t1/clones", "reports/t1/clones/app/README.md"} {
+		if got := board.DocHref(home, "", rel); got != "" {
+			t.Errorf("DocHref(%q) = %q, want no link", rel, got)
+		}
+	}
+	if got := board.DocHref(home, "", "reports/t1/same.md"); got != "/doc/reports/t1/same.md" {
+		t.Errorf("a link inside the fleet = %q", got)
+	}
+}

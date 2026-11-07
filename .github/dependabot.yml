@@ -8,3 +8,7 @@ updates:
     directory: /
     schedule:
       interval: daily
+  - package-ecosystem: cargo
+    directory: /iroh
+    schedule:
+      interval: daily

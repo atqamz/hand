@@ -234,7 +234,7 @@ func TestNeedsAndTasksSitBesideTheChatAtBoardWidth(t *testing.T) {
 	if !strings.Contains(css, "@media (min-width:900px){") {
 		t.Fatal("board.css has no board-width query")
 	}
-	contains(t, "board width", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .board{display:grid;grid-template-columns:minmax(0,1fr) var(--pane)}", ".tabs{display:none}", ".sup{position:relative;border-left:1px solid var(--line);background:var(--panel)}", ".work>.panel{padding:24px 32px 0}")
+	contains(t, "board width", block(t, css, "@media (min-width:900px){"), "body[data-page=fleet] .board{display:grid;grid-template-columns:minmax(0,1fr) var(--pane)}", ".tabs{display:none}", ".sup{position:relative;border-left:1px solid var(--line);background:var(--panel)}", ".work>.panel{padding:var(--space-24) 32px 0}")
 	contains(t, "app.js", asset(t, "app.js"), `matchMedia("(min-width:900px)")`)
 }
 
@@ -244,7 +244,7 @@ func TestTabsBelowBoardWidth(t *testing.T) {
 		t.Fatal("the tabs are hidden below board width")
 	}
 	contains(t, "tabs", block(t, css, "@media (max-width:899px){"), "#tasks .panel-head h2{display:none}", ".work:not(:has(>.panel:not([hidden]))){display:none}")
-	contains(t, "panels", css, ".work>.panel{width:100%;max-width:880px;margin:0 auto;padding:16px 16px 0}")
+	contains(t, "panels", css, ".work>.panel{width:100%;max-width:880px;margin:0 auto;padding:var(--space-16) var(--space-16) 0}")
 }
 
 func TestTheComposerGrowsButStopsAt40dvh(t *testing.T) {
@@ -318,7 +318,7 @@ func TestTheFinishFixesHold(t *testing.T) {
 	for _, rule := range []string{
 		"body:not([data-shell]) .console-box{position:sticky;bottom:0;z-index:2",
 		"@media (max-height:599px){.console-box{position:sticky;bottom:0;z-index:2",
-		"body[data-shell] .timeline{max-height:none;overflow:visible}",
+		"body[data-shell] .timeline{max-height:none;overflow:visible;--sb:0px}",
 		"::placeholder{color:var(--muted)}",
 		".md .table{width:fit-content;max-width:100%;",
 		"scrollbar-gutter:stable both-edges",
@@ -326,7 +326,7 @@ func TestTheFinishFixesHold(t *testing.T) {
 		".menu[open]>summary .icon{transform:rotate(180deg)}",
 		".md table{width:max-content;",
 		"max-height:calc(100dvh - 120px);overflow-y:auto;",
-		"height:var(--control);padding:0 8px 0 10px;white-space:nowrap;",
+		"height:var(--control);padding:0 var(--space-8) 0 var(--space-10);white-space:nowrap;",
 	} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
@@ -370,8 +370,8 @@ func TestTheOnCallPalette(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "control edges", css,
 		"textarea,input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line-strong)",
-		"height:var(--control);padding:0 12px;border:1px solid var(--line-strong)",
-		"padding:4px 4px 8px;border:1px solid var(--line-strong)",
+		"height:var(--control);padding:0 var(--space-12);border:1px solid var(--line-strong)",
+		"padding:var(--space-4) var(--space-4) var(--space-8);border:1px solid var(--line-strong)",
 		"width:var(--control);height:var(--control);border:1px solid var(--line-strong)")
 	contains(t, "tokens", css, "--r-sm:4px;--r-md:6px;--r-lg:10px;--control:32px;--badge:20px;--pane:", "@media (pointer:coarse){:root{--control:44px}}")
 	lacks(t, "deleted tokens", css, "--pencil", "--canary", "--carbon", "--h-", "--ink-band", "--flash", "--header", "--on-header")
@@ -415,7 +415,7 @@ func TestTheSupervisorControlsRenderInThePaneHead(t *testing.T) {
 	form = form[:strings.Index(form, "</form></div>")]
 	lacks(t, "composer box", form, `data-region="console"`, "/supervisor/stop", `id="model-menu"`)
 	css := asset(t, "board.css")
-	for _, rule := range []string{".console{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:52px;padding:8px 16px;border-bottom:1px solid var(--line)}", ".menu-body{position:absolute;top:calc(100% + 6px);left:0;", "#more-menu .menu-body{left:auto;right:0;"} {
+	for _, rule := range []string{".console{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-8);min-height:var(--sheet);padding:var(--space-8) var(--space-16);border-bottom:1px solid var(--line)}", ".menu-body{position:absolute;top:calc(100% + 6px);left:0;", "#more-menu .menu-body{left:auto;right:0;"} {
 		if !strings.Contains(css, rule) {
 			t.Errorf("board.css lacks %q", rule)
 		}
@@ -471,7 +471,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 		".working-line{display:flex;",
 		"@media (pointer:coarse){textarea,input,select{font-size:16px}",
 		"[data-send-key]{display:none}\n.others>summary,.tabs a,.actions a,.finished a,.crumbs a:not(.ref),.back a,.need a:not(.ref),.decision a:not(.ref){min-height:var(--control)}",
-		".keys{gap:12px}",
+		".keys{gap:var(--space-12)}",
 		".timeline .card .copy>:not(.table):not(pre):not(.code){max-width:72ch}",
 		".from-you .copy{max-width:72ch;",
 		".masthead{position:sticky;top:0;",
@@ -483,7 +483,7 @@ func TestTheDeskFinishFixes(t *testing.T) {
 			t.Errorf("board.css lacks %q", rule)
 		}
 	}
-	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before", "\n.card .copy>:not(.table)", "[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width", ".slug>*:not(:last-child)", "a.chip{min-height:44px}"} {
+	for _, gone := range []string{"border-bottom:3px solid var(--tint)", ".slug>*+*::before", "\n.card .copy>:not(.table)", "[data-role=goal] .copy,.thread>.card[data-role=plan] .copy{max-width", ".slug>*:not(:last-child)", "a.chip{min-height:var(--tap)}"} {
 		if strings.Contains(css, gone) {
 			t.Errorf("board.css still has %q", gone)
 		}
@@ -529,10 +529,10 @@ func TestNoSidewaysScrollOnPhone(t *testing.T) {
 func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "controls", css,
-		"button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--control);",
-		"input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 10px}",
+		"button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-6);height:var(--control);",
+		"input:not([type=file]):not([type=hidden]),select{height:var(--control);padding:0 var(--space-10)}",
 		".attach{position:relative;display:inline-flex;align-items:center;justify-content:center;width:var(--control);height:var(--control);",
-		".key{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:var(--control);",
+		".key{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-6);min-width:var(--control);",
 		"button:where(:not(:has(.icon))),.key.stop{display:inline-block;height:auto;min-height:var(--control);")
 	contains(t, "badges", css,
 		".badge{display:inline-block;height:var(--size,var(--badge));min-width:var(--size,var(--badge));",
@@ -540,7 +540,7 @@ func TestControlsAndBadgesTakeTheirHeightFromTokens(t *testing.T) {
 		".needs-count{--size:calc(var(--badge) + 4px);display:none}",
 		"kbd{display:inline-flex;align-items:center;height:var(--badge);",
 		"@media (forced-colors:active){.badge{border-color:CanvasText}}")
-	lacks(t, "fixed heights", css, "min-height:32px", "height:28px", "width:30px", "width:44px", "min-height:44px}\n")
+	lacks(t, "fixed heights", css, "min-height:32px", "height:28px", "width:30px", "width:44px", "min-height:var(--tap)}\n")
 	for _, gone := range []string{".chip{", ".chip.", ".count{", ".state{", "\n.pill{", ".status.pill", ".countdown{padding", ".tabs .n{", ".group .n{"} {
 		if strings.Contains(css, gone) {
 			t.Errorf("board.css still styles %q apart from .badge", gone)
@@ -560,7 +560,7 @@ func TestATableKeepsItsFirstColumnUnpinnedUntilPinned(t *testing.T) {
 	contains(t, "board.css", css,
 		".md .table.pinned th:first-child,.md .table.pinned td:first-child{position:sticky;left:0;z-index:1;border-right:1px solid var(--line);background:var(--bg)}",
 		".md .table.pinned thead th:first-child{background:var(--card)}",
-		".md .table-pin{display:block;margin:0 0 4px}")
+		".md .table-pin{display:block;margin:0 0 var(--space-4)}")
 	lacks(t, "board.css", css, "\n.md th:first-child", "\n.md td:first-child", ".md thead th:first-child", ".doc-table tbody td:first-child", ".doc-table thead th:first-child")
 	js := asset(t, "app.js")
 	contains(t, "app.js", js,
@@ -591,7 +591,7 @@ func TestTheDocumentWidthToggleIsAButtonAndIsRemembered(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "board.css", css,
 		"[data-wide] .doc-body{max-width:none}",
-		".thread.doc[data-wide]{max-width:none;padding-inline:24px}",
+		".thread.doc[data-wide]{max-width:none;padding-inline:var(--space-24)}",
 		"@media (min-width:600px){dialog.viewer[data-wide]{width:calc(100vw - 48px)}}",
 		"@media (max-width:699px){.doc-wide{display:none}}")
 	js := asset(t, "app.js")

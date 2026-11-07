@@ -43,11 +43,14 @@ func TestExitLogNoteReportsSignalOverCode(t *testing.T) {
 
 func TestExitLogWaitStopsWhenTheContextIsCancelled(t *testing.T) {
 	l := &exitLog{m: map[string]exitRecord{}}
+	old := exitWait
+	exitWait = 10 * time.Second
+	t.Cleanup(func() { exitWait = old })
 	l.budget()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	start := time.Now()
-	if got := l.wait(ctx, "t"); got != "terminal exited" || time.Since(start) > exitWait/2 {
+	if got := l.wait(ctx, "t"); got != "terminal exited" || time.Since(start) > time.Second {
 		t.Fatalf("wait = %q after %v", got, time.Since(start))
 	}
 }

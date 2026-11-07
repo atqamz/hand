@@ -78,6 +78,7 @@ func cmdDoctor(r *runner, args []string) error {
 		c.add("fleet", "info", "the fleet checks were skipped: they need the secondhand folder")
 	} else {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
+		r.doctorIroh(ctx, &d, &c, root, path)
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
 	}
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
@@ -236,7 +237,7 @@ func (r *runner) doctorFleet(ctx context.Context, d *toon.Doc, c *checks, root s
 		}
 	}
 	version, err := r.client(fleet.Session(f.ID)).Version(ctx)
-	server, match := serverMatch(pin, pinned, version, err)
+	server, match := luvus.Match(pin, pinned, version, err)
 	d.Field("server", server)
 	switch match {
 	case "yes":

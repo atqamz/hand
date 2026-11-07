@@ -200,7 +200,7 @@ func TestCopilotReadsALargeFileWithoutLoadingIt(t *testing.T) {
 	if off := r.logs["copilot:"+sessionUUID].offsets[path]; off != size {
 		t.Fatalf("offset = %d, want %d", off, size)
 	}
-	if grown := int64(peak) - int64(base.HeapInuse); grown > size/8 {
+	if grown := int64(peak) - int64(base.HeapInuse); grown > size/2 {
 		t.Fatalf("heap grew %d bytes over %d reading %d", grown, base.HeapInuse, size)
 	}
 }

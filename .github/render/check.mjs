@@ -33,11 +33,13 @@ const scenes = [
   ['documents', fleet('012')],
   ['ask', fleet('013')],
   ['cleanup', fleet('014')],
+  ['phone', `${fleet('015')}connect`],
   ['menu', fleet('010'), ['details.nav-menu > summary'], 600],
   ['dialog', fleet('012'), ['?nav.tabs a[data-tab="tasks"]', '[data-region="tasks"] a[href*="/task/"]']],
   ['document', `${fleet('012')}doc/reports/t287/design.md`],
   ['log', `${fleet('010')}supervisor/log`],
   ['task', `${fleet('010')}task/t1`],
+  ['decision', `${fleet('011')}decision/d1`],
   ['attempt', `${fleet('010')}attempt/a1`],
 ].filter(([name]) => !only || only.includes(name));
 
@@ -101,7 +103,13 @@ function measure() {
     if (!!gap !== split) zone.push(`${split ? 'no divider' : `divider ${JSON.stringify(gap.textContent.trim())}`} between two cards of ${split ? 'different' : 'the same'} local days at ${when(e).toString().slice(0, 21)}`);
     else if (gap && !new RegExp(`\\b${when(e).getDate()}\\b`).test(gap.textContent)) zone.push(`divider ${JSON.stringify(gap.textContent.trim())} is not the local day ${when(e).getDate()} of the card above`);
   });
+  const doubled = [...document.querySelectorAll('hr')].filter(visible).flatMap((hr) => {
+    const next = hr.nextElementSibling;
+    if (!next || !visible(next) || parseFloat(getComputedStyle(next).borderTopWidth) === 0) return [];
+    return next.getBoundingClientRect().top - hr.getBoundingClientRect().bottom < 24 ? [String(next.className || next.tagName).slice(0, 24)] : [];
+  });
   return {
+    doubled,
     overflow: document.documentElement.scrollWidth - innerWidth,
     dividers: document.querySelectorAll('.timeline > .day').length,
     zone,
@@ -228,6 +236,7 @@ function problem(r) {
   if (r.file.startsWith('log-') && !r.dividers) found.push('no day dividers');
   for (const z of r.zone) found.push(`day dividers and card times differ in zone: ${z}`);
   if (r.lowCount) found.push(`${r.lowCount} texts under contrast 4.5, first ${JSON.stringify(r.low.slice(0, 3))}`);
+  for (const d of r.doubled) found.push(`double hairline: a rule, then ${d} with its own top border`);
   for (const c of r.csp) found.push(`CSP violation: ${c}`);
   for (const e of r.errors) found.push(`console error: ${e}`);
   for (const c of r.missed) found.push(`nothing to click for ${c}`);

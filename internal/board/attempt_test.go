@@ -221,12 +221,12 @@ func TestTheReadOnlyBoardServesTheAttemptPage(t *testing.T) {
 func TestTheAttemptPageStylesItsFactsBriefAndPhoneOrder(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "facts", css,
-		".facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;margin:0;font-size:12px;line-height:18px}",
+		".facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:var(--space-4) var(--space-12);margin:0;font-size:12px;line-height:18px}",
 		".facts dt{color:var(--muted)}",
 		".facts dd{margin:0;min-width:0;overflow-wrap:anywhere}",
-		".facts .meta{margin:4px 0 0}",
-		".facts .doc-copy{display:block;margin-top:4px}")
-	contains(t, "brief", css, ".brief{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);max-height:24em;overflow:auto;font:12px/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}")
+		".facts .meta{margin:var(--space-4) 0 0}",
+		".facts .doc-copy{display:block;margin-top:var(--space-4)}")
+	contains(t, "brief", css, ".brief{margin:0;padding:var(--space-10) var(--space-12);border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);max-height:24em;overflow:auto;font:12px/18px var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}")
 	contains(t, "phone order", css, "@media (max-width:999px){.task-side:has(.facts){order:0}}")
 }
 

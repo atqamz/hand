@@ -76,6 +76,10 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{Name: "auto", Source: SourceDiscovered},
 		{Name: "gpt-6-luna", Efforts: copilotEfforts, Source: SourceDiscovered, Unverified: true},
 	}, Gone: []string{"gpt-5.5"}})
+	ompListed := seeded(t, Listing{Harness: "omp", Models: []Model{
+		{Name: "commandcode/deepseek/deepseek-v4.1-flash", Efforts: []string{"low", "high", "max"}, Source: SourceDiscovered},
+		{Name: "commandcode/plain", Source: SourceDiscovered},
+	}, Gone: []string{"commandcode/old"}})
 	codexListed := seeded(t, Listing{Harness: "codex", Models: []Model{
 		{Name: "gpt-6-luna", Efforts: []string{"low", "medium"}, Source: SourceBuiltin},
 		{Name: "codex-auto-review", Efforts: []string{"low"}, Source: SourceBuiltin, Hidden: true},
@@ -176,6 +180,20 @@ func TestCheckDecidesBetweenAcceptWarnAndRefuse(t *testing.T) {
 		{"copilot no list yet", Spec{"copilot", "gpt-6-luna", ""}, agyNone, warn, "copilot model gpt-6-luna could not be checked: no model list yet; run `hand models --refresh copilot`"},
 		{"copilot bad effort", Spec{"copilot", "auto", "High"}, Env{}, refuse, "copilot effort"},
 		{"copilot empty model", Spec{"copilot", "", ""}, Env{}, refuse, "copilot model"},
+
+		{"omp listed", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, ompListed, ok, ""},
+		{"omp listed without an effort", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", ""}, ompListed, ok, ""},
+		{"omp selector with three parts", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "max"}, ompListed, ok, ""},
+		{"omp thinking the model does not list", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "medium"}, ompListed, ok, ""},
+		{"omp thinking auto", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "auto"}, ompListed, ok, ""},
+		{"omp null thinking", Spec{"omp", "commandcode/plain", "high"}, ompListed, ok, ""},
+		{"omp thinking omp rejects", Spec{"omp", "commandcode/plain", "ultra"}, ompListed, warn, "thinking level ultra is not one of off, minimal, low, medium, high, xhigh, max, auto"},
+		{"omp unlisted", Spec{"omp", "commandcode/nope", "low"}, ompListed, warn, "omp model commandcode/nope is not in `omp models --json`"},
+		{"omp vanished", Spec{"omp", "commandcode/old", ""}, ompListed, warn, "model commandcode/old is no longer listed by omp"},
+		{"omp no list yet", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", ""}, agyNone, warn, "no model list yet; run `hand models --refresh omp`"},
+		{"omp empty model", Spec{"omp", "", ""}, ompListed, refuse, "omp model"},
+		{"omp model with a space", Spec{"omp", "commandcode/a b", "low"}, ompListed, refuse, "omp model"},
+		{"omp bad effort", Spec{"omp", "commandcode/plain", "High"}, ompListed, refuse, "omp effort"},
 
 		{"opencode bare", Spec{Harness: "opencode"}, Env{}, ok, ""},
 		{"opencode model with a variant", Spec{"opencode", "local/m2", "deep"}, ocListed, ok, ""},
@@ -286,12 +304,39 @@ func TestCopilotArgvIsExact(t *testing.T) {
 func TestCopilotStartsWorkersOnly(t *testing.T) {
 	spec := Spec{Harness: "copilot", Model: "auto"}
 	for _, resume := range []bool{false, true} {
-		if _, err := SupervisorArgv("/bin/copilot", spec, "", "You are supervisor s1", "", resume); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "copilot starts workers only") {
+		if _, err := SupervisorArgv("/bin/copilot", spec, "", "You are supervisor s1", "", resume); !errors.Is(err, state.ErrInvalid) || !strings.Contains(err.Error(), "run the supervisor on claude, codex, opencode, agy or omp") {
 			t.Fatalf("resume %v: err = %v", resume, err)
 		}
 	}
-	if err := CheckSupervisor(Spec{Harness: "agy"}); err != nil {
-		t.Fatalf("agy: %v", err)
+	for _, name := range []string{"agy", "omp"} {
+		if err := CheckSupervisor(Spec{Harness: name}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestOmpArgvIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		effort string
+		want   []string
+	}{
+		{"low", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--", "brief"}},
+		{"", []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--", "brief"}},
+	} {
+		got, err := Argv("/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", tc.effort}, "brief", "", "")
+		if err != nil || !slices.Equal(got, tc.want) {
+			t.Fatalf("effort %q: argv = %q, %v", tc.effort, got, err)
+		}
+	}
+}
+
+func TestOmpPromptIsNeverReadAsAFileOrFlag(t *testing.T) {
+	for _, prompt := range []string{"@types/node: upgrade the typings.", "-not-a-flag: say ok"} {
+		got, err := Argv("/bin/omp", Spec{"omp", "commandcode/deepseek/deepseek-v4.1-flash", "low"}, prompt, "", "")
+		want := []string{"/bin/omp", "--auto-approve", "--no-title", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--thinking", "low", "--", prompt}
+		if err != nil || !slices.Equal(got, want) {
+			t.Fatalf("prompt %q: argv = %q, %v", prompt, got, err)
+		}
 	}
 }
 

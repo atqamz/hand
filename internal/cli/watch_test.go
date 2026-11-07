@@ -41,6 +41,12 @@ func woken(fx *attemptFixture, kind string) bool {
 	return strings.Contains(out, ","+kind+",")
 }
 
+func publishBlocked(fx *attemptFixture, pane, agent string) {
+	for range 2 {
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": pane, "status": "blocked", "agent": agent})
+	}
+}
+
 func fakeNotify(t *testing.T, fx *attemptFixture) string {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "notify.log")
@@ -104,6 +110,114 @@ func TestWatchRecordsBlockedAndQuietTurnsOnce(t *testing.T) {
 			log, _ := os.ReadFile(notes)
 			return strings.Contains(string(log), want)
 		})
+	}
+}
+
+func TestWatchIgnoresABlockThatLastsOnePoll(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen = "I will:\n1. Read the watcher\n2. Change observe\n3. Run the tests"
+		rt.status, rt.hint = "blocked", "its screen waits for a key"
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if woken(fx, "attempt.blocked") {
+		t.Fatal("a block that lasted one poll woke the supervisor")
+	}
+	if out := fx.h.ok("orient"); strings.Contains(out, "blocked") || !strings.Contains(out, "a1 running") {
+		t.Fatalf("orient = %q", out)
+	}
+	stop()
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,"); n != 0 {
+		t.Fatalf("attempt.blocked recorded %d times, want 0", n)
+	}
+	if b, _ := os.ReadFile(notes); strings.Contains(string(b), "a1 blocked:") {
+		t.Fatalf("a one-poll block notified: %q", b)
+	}
+}
+
+func TestWatchIgnoresThreeOnePollFlickers(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	for range 3 {
+		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+		fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+		fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	stop()
+	events := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
+	if n := strings.Count(events, ",attempt.blocked,"); n != 0 {
+		t.Fatalf("three one-poll flickers recorded attempt.blocked %d times", n)
+	}
+	if n := strings.Count(events, ",attempt.working,"); n != 0 {
+		t.Fatalf("three one-poll flickers recorded attempt.working %d times", n)
+	}
+}
+
+func TestWatchNotesAPersistentBlockOnce(t *testing.T) {
+	fx := newAttemptFixture(t)
+	notes := fakeNotify(t, fx)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "50ms")
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	stop()
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,"); n != 1 {
+		t.Fatalf("attempt.blocked recorded %d times, want 1", n)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if b, _ := os.ReadFile(notes); strings.Count(string(b), "a1 blocked:") != 1 {
+		t.Fatalf("a persistent block notified more than once: %q", b)
+	}
+}
+
+func TestWatchNotesABlockAgainAfterTheWorkerWorks(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx)
+	defer stop()
+	blocked := map[string]any{"pane": "2", "status": "blocked", "agent": "claude"}
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", blocked)
+	fx.rt.srv.Publish("pane.agent_status_changed", blocked)
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	eventually(t, func() bool { return !strings.Contains(fx.h.ok("orient"), "running blocked") })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	fx.rt.srv.Publish("pane.agent_status_changed", blocked)
+	fx.rt.srv.Publish("pane.agent_status_changed", blocked)
+	eventually(t, func() bool {
+		return strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,") == 2
+	})
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "working", "" })
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
+	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
+	if n := strings.Count(fx.h.ok("wait", "--after", "0", "--timeout", "1ms"), ",attempt.blocked,"); n != 2 {
+		t.Fatalf("attempt.blocked recorded %d times, want 2", n)
 	}
 }
 
@@ -171,7 +285,7 @@ func TestWatchLinksAnAttemptAlertAndNamesAMissingNotifyCommand(t *testing.T) {
 	}
 	write(`["no-such-notifier"]`)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if !strings.Contains(out, "notify: ") {
@@ -218,7 +332,7 @@ func TestWatchSaysOnceThatAnUnreadablePolicyFallsBackToTheDesktopNotifier(t *tes
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	out, _ := stop()
 	if n := strings.Count(out, "routing.json unreadable, using the desktop notifier: "); n != 1 {
@@ -299,7 +413,7 @@ func TestWatchRecordsAQuietTurnWhenADeclinedPromptLeavesTheWorkerIdle(t *testing
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
@@ -312,7 +426,7 @@ func TestWatchIgnoresAnIdlePaneBeforeTheWorkerWorks(t *testing.T) {
 	fx.start()
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "claude"})
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Enter to confirm" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	if woken(fx, "attempt.quiet") {
 		t.Fatal("an idle pane the watcher never saw working was recorded as a quiet turn")
@@ -325,7 +439,7 @@ func TestOrientStopsShowingBlockedOnceTheWorkerWorksAgain(t *testing.T) {
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return strings.Contains(fx.h.ok("orient"), "a1 running blocked: Do you want to proceed?") })
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
@@ -376,7 +490,7 @@ func TestWatchCatchesUpOnATurnThatEndedAfterABlockWasCleared(t *testing.T) {
 	fx.start()
 	stop := startWatch(t, fx)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "working" })
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
@@ -393,7 +507,7 @@ func TestWatchCatchesUpOnATurnThatEndedWhileItWasDown(t *testing.T) {
 	fx.start()
 	stop := startWatch(t, fx)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "idle" })
@@ -406,7 +520,7 @@ func TestWatchCatchesUpOnAScreenThatBlockedWhileItWasDown(t *testing.T) {
 	fx := newAttemptFixture(t)
 	fx.start()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
-	stop := startWatch(t, fx)
+	stop := startWatch(t, fx, "--every", "100ms")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	stop()
 	stop = startWatch(t, fx, "--every", "100ms")
@@ -439,7 +553,7 @@ func TestWatchCatchesUpOnAScreenThatBlockedAfterAQuietTurn(t *testing.T) {
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
 	stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Esc to cancel · Tab to amend" })
-	stop = startWatch(t, fx)
+	stop = startWatch(t, fx, "--every", "100ms")
 	defer stop()
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 }
@@ -451,7 +565,7 @@ func TestWatchLeavesAFreshIdleWorkerAloneAfterARestart(t *testing.T) {
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Enter to confirm" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	if woken(fx, "attempt.quiet") {
 		t.Fatal("a worker idle since its launch was recorded as a quiet turn after a restart")
@@ -473,7 +587,7 @@ func TestWatchIsNotBlockedByASlowNotifier(t *testing.T) {
 	fx.start()
 	stop := startWatch(t, fx)
 	defer stop()
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "done", "agent": "claude"})
 	start := time.Now()
 	eventually(t, func() bool { return woken(fx, "attempt.quiet") })
@@ -819,7 +933,7 @@ func TestWatchCatchesUpOnALimitedTurnOnce(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
 	stop = startWatch(t, fx)
 	defer stop()
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
 	if n := strings.Count(got, ",attempt.limited,"); n != 1 || strings.Contains(got, ",attempt.quiet,") {
@@ -852,7 +966,7 @@ func TestWatchRecordsAQuietTurnWhileAnEarlierLimitLineStaysOnScreen(t *testing.T
 }
 
 func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fx.startAgy()
 	stop := startWatch(t, fx)
 	defer stop()
@@ -871,7 +985,7 @@ func TestWatchRecordsAnAgyLimitOnceWhileItStaysOnScreen(t *testing.T) {
 }
 
 func TestWatchRecordsACopilotSessionLimitOnceAndAQuietTurnWhenItIsSentAgain(t *testing.T) {
-	fx := agyFixture(t)
+	fx := newAttemptFixture(t)
 	fx.startCopilot()
 	stop := startWatch(t, fx)
 	defer stop()
@@ -959,7 +1073,7 @@ func TestWatchCatchesUpOnAnIdleTurnOnce(t *testing.T) {
 	fx.rt.set(func(rt *fakeRuntime) { rt.status = "done" })
 	stop = startWatch(t, fx)
 	defer stop()
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	if events := turnEvents(t, fx); len(events) != 1 || events[0].Kind != "attempt.idle" {
 		t.Fatalf("turn events across a restart = %+v", events)
@@ -999,6 +1113,38 @@ func TestLongTurnResetsPerTurn(t *testing.T) {
 		fx.h.advance(61 * time.Minute)
 		return longEvents(fx) == 2
 	})
+}
+
+func TestAConfirmedBlockEndsTheLongTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	fx.h.advance(61 * time.Minute)
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
+	publishBlocked(fx, "2", "claude")
+	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
+	publishStatus(fx, "2", "working")
+	eventually(t, func() bool {
+		fx.h.advance(61 * time.Minute)
+		return longEvents(fx) == 2
+	})
+}
+
+func TestAOnePollBlockKeepsTheLongTurn(t *testing.T) {
+	fx := newAttemptFixture(t)
+	fx.start()
+	stop := startWatch(t, fx, "--every", "30ms")
+	defer stop()
+	fx.h.advance(31 * time.Minute)
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "working", "agent": "claude"})
+	fx.h.advance(30 * time.Minute)
+	eventually(t, func() bool { return longEvents(fx) == 1 })
+	if woken(fx, "attempt.blocked") {
+		t.Fatal("a one-poll block woke the supervisor")
+	}
 }
 
 func TestShortTurnDoesNotWake(t *testing.T) {
@@ -1262,7 +1408,7 @@ func TestATurnSignalOfAStoppedAttemptDoesNotWake(t *testing.T) {
 	stop := startWatch(t, fx)
 	defer stop()
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Do you want to proceed?" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "claude"})
+	publishBlocked(fx, "2", "claude")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	fx.h.ok("attempt", "stop", "a1")
 	if out := fx.h.ok("wait", "--after", "0", "--timeout", "1ms"); strings.Contains(out, "attempt.") {
@@ -1370,7 +1516,7 @@ func TestOpencodeBlockedAndExitedStillWakeWhileASubagentRuns(t *testing.T) {
 	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "idle", "agent": "opencode"})
 	time.Sleep(500 * time.Millisecond)
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint = "blocked", "Allow once" })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "opencode"})
+	publishBlocked(fx, "2", "opencode")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	fx.rt.exitAll()
 	fx.rt.srv.Publish("terminal.exited", map[string]any{"pane_id": "2", "terminal_id": "term-1", "server_generation": "gen-1"})
@@ -1567,7 +1713,7 @@ func TestWatchRecordsACodexQuestionInTheBlockedEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	fx.rt.set(func(rt *fakeRuntime) { rt.status, rt.hint, rt.screen = "blocked", "", string(screen) })
-	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "2", "status": "blocked", "agent": "codex"})
+	publishBlocked(fx, "2", "codex")
 	eventually(t, func() bool { return woken(fx, "attempt.blocked") })
 	got := fx.h.ok("wait", "--after", "0", "--timeout", "1ms")
 	if !strings.Contains(got, "a1: question: I can finish this two ways. Should the migration keep the old column or drop it?") {

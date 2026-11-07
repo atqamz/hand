@@ -17,6 +17,7 @@ const (
 	codexBundled = `{"models":[{"slug":"gpt-6-luna","display_name":"GPT-6-Luna","visibility":"list","base_instructions":"` + invented + `","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}]},{"slug":"codex-auto-review","visibility":"hide","supported_reasoning_levels":[{"effort":"low"}]}]}`
 	copilotHelp  = "  `model`: AI model to use for Copilot CLI\n    - \"gpt-6-luna\"\n    - \"claude-sonnet-5.5\"\n\n  `contextTier`: x\n"
 	codexLater   = `{"models":[{"slug":"gpt-5.6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"low"}]}]}`
+	ompModels    = `{"models":[{"provider":"commandcode","kind":"chat","id":"deepseek/deepseek-v4.1-flash","selector":"commandcode/deepseek/deepseek-v4.1-flash","name":"DeepSeek V4.1 Flash","reasoning":true,"thinking":["low","high","max"]},{"provider":"commandcode","kind":"chat","id":"plain","selector":"commandcode/plain","name":"Plain","reasoning":false,"thinking":null}]}`
 )
 
 func listers(t *testing.T, h *harness, log string) string {
@@ -34,6 +35,7 @@ func listers(t *testing.T, h *harness, log string) string {
 	install("opencode", "acme/acme-coder-1\nopencode/big-pickle\n", map[string]string{"stderr": "apiKey=" + invented})
 	install("agy", "Fetching...\ngemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n", nil)
 	install("copilot", copilotHelp, nil)
+	install("omp", ompModels, nil)
 	h.vars["PATH"] = dir
 	h.vars["HOME"] = t.TempDir()
 	h.vars["CODEX_HOME"] = t.TempDir()
@@ -44,13 +46,13 @@ func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
 	h := newHarness(t)
 	listers(t, h, "")
 	cold := h.ok("models")
-	has(t, "cold models", cold, "claude,opus,\"\",low medium high xhigh max,built-in", "listings[5]{harness,version,age,state}:", "claude,\"\",\"\",no list yet; run `hand models --refresh claude`", "opencode,\"\",\"\",no list yet; run `hand models --refresh opencode`")
+	has(t, "cold models", cold, "claude,opus,\"\",low medium high xhigh max,built-in", "listings[6]{harness,version,age,state}:", "claude,\"\",\"\",no list yet; run `hand models --refresh claude`", "opencode,\"\",\"\",no list yet; run `hand models --refresh opencode`", "omp,\"\",\"\",no list yet; run `hand models --refresh omp`")
 	if strings.Contains(cold, "agy,gemini") {
 		t.Fatalf("cold models ran agy: %q", cold)
 	}
 	out := h.ok("models", "--refresh")
 	has(t, "models", out,
-		"models[9]{harness,model,label,efforts,source}:",
+		"models[11]{harness,model,label,efforts,source}:",
 		"claude,opus,Opus,low medium high xhigh max,built-in",
 		"claude,acme-opus,Acme,low medium high xhigh max (unverified),custom",
 		"codex,gpt-6-luna,GPT-6-Luna,low medium,built-in",
@@ -58,12 +60,15 @@ func TestModelsPrintsTheListPerHarnessWithoutAFleet(t *testing.T) {
 		"agy,gemini-3.8-flash-low,Gemini 3.8 Flash (Low),\"\",discovered",
 		"copilot,auto,\"\",\"\",discovered",
 		"copilot,gpt-6-luna,\"\",none minimal low medium high xhigh max (unverified),discovered",
-		"listings[5]{harness,version,age,state}:",
+		"omp,commandcode/deepseek/deepseek-v4.1-flash,DeepSeek V4.1 Flash,low high max,discovered",
+		"omp,commandcode/plain,Plain,\"\",discovered",
+		"listings[6]{harness,version,age,state}:",
 		"claude,claude 9.9,<1m,ok",
 		"codex,codex 9.9,<1m,ok",
 		"opencode,opencode 9.9,<1m,ok",
 		"agy,agy 9.9,<1m,ok",
-		"copilot,copilot 9.9,<1m,ok")
+		"copilot,copilot 9.9,<1m,ok",
+		"omp,omp 9.9,<1m,ok")
 	if strings.Contains(out, "codex-auto-review") || strings.Contains(out, "Run each harness") {
 		t.Fatalf("a hidden model is offered, or the refresh hint stayed: %q", out)
 	}
@@ -82,7 +87,7 @@ func TestModelsOneHarnessAndUsage(t *testing.T) {
 		want string
 		code int
 	}{
-		{[]string{"models", "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot`, 2},
+		{[]string{"models", "gemini"}, `harness "gemini" must be one of claude, codex, opencode, agy, copilot, omp`, 2},
 		{[]string{"models", "agy", "codex"}, "want at most 1 argument", 2},
 		{[]string{"models", "--bogus"}, "models:", 2},
 	} {
@@ -135,7 +140,7 @@ func TestModelsNeverPrintOrCacheASecret(t *testing.T) {
 		}
 	}
 	files, err := filepath.Glob(filepath.Join(h.vars["SECONDHAND_HOME"], "models", "*"))
-	if err != nil || len(files) != 10 {
+	if err != nil || len(files) != 12 {
 		t.Fatalf("cache files = %v, %v", files, err)
 	}
 	for _, f := range files {
@@ -150,8 +155,12 @@ func TestRouteListRefreshesOnlyWhatIsMissing(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "log")
 	listers(t, h, log)
 	h.ok("init")
+	policy := `{"profiles":{"c":{"harness":"claude","model":"sonnet","effort":"low"},"x":{"harness":"codex","model":"gpt-6-luna","effort":"low"},"a":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	first := h.ok("route", "list")
-	has(t, "route list", first, "agy,gemini-3.8-flash-low,\"\"", "codex,gpt-6-luna,low medium", "claude,acme-opus,low medium high xhigh max")
+	has(t, "route list", first, "agy,gemini-3.8-flash-low,\"\"", "codex,gpt-6-luna,low medium", "claude,acme-opus,low medium high xhigh max", "opencode,\"\",\"unavailable: invalid: no model list yet")
 	ran := func() []string {
 		b, _ := os.ReadFile(log)
 		lines := strings.Fields(string(b))
@@ -242,6 +251,9 @@ func TestWatchRefreshesStaleModelListsOnEveryTick(t *testing.T) {
 				t.Fatalf("agy was listed %d times, want %d", loggedRuns(t, log), n)
 			}
 		}
+	}
+	if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(`{"profiles":{"gem":{"harness":"agy","model":"gemini-3.8-flash-low"}}}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	stop := startWatch(t, fx, "--every", "50ms")
 	listed(1)

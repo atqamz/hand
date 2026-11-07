@@ -64,8 +64,8 @@ func TestALinkedOlderMessageIsNotPinnedAway(t *testing.T) {
 func TestTheScrollToLatestButtonStyles(t *testing.T) {
 	css := asset(t, "board.css")
 	contains(t, "button", css,
-		".sup>.hint.read-only{position:relative}",
-		".latest{position:absolute;right:-1px;bottom:calc(100% + 13px);width:var(--control);padding:0;border-radius:999px;opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .15s,transform .15s,visibility 0s .15s}",
+		".sup>.hint.read-only{position:relative;margin:0 max(var(--space-16),calc((100% - 760px)/2)) var(--space-16);",
+		".latest{position:absolute;right:-1px;bottom:calc(100% + 13px);width:var(--control);padding:0;border-radius:var(--r-pill);opacity:0;visibility:hidden;transform:translateY(8px);transition:opacity .15s,transform .15s,visibility 0s .15s}",
 		".latest[data-away]{opacity:1;visibility:visible;transform:none;transition-delay:0s}",
 		".latest>.badge{position:absolute;top:-6px;right:-4px;padding-inline:5px;--tone:var(--on-primary);--tone-bg:var(--primary)}",
 		".latest>.badge[hidden]{display:none}",

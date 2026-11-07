@@ -76,6 +76,16 @@ func (w *watcher) held(ctx context.Context, c luvus.Client, caps luvus.Capabilit
 					return err
 				}
 				if since.IsZero() || !b.idle[session].After(since) {
+					if _, pending := w.blockedPending[a.ID]; pending {
+						ag, err := c.Explain(ctx, a.PaneID)
+						if err == nil {
+							if err := w.observe(ctx, c, a, ag.Status); err != nil {
+								return err
+							}
+							continue
+						}
+					}
+					delete(w.blockedPending, a.ID)
 					w.seen[a.ID] = "idle"
 					delete(w.heldAt, a.ID)
 					continue
@@ -106,7 +116,7 @@ func (o *opencodeSource) attemptSession(_ context.Context, a state.Attempt) stri
 	return argvSession(a.Argv)
 }
 
-func (o *opencodeSource) labels(ctx context.Context) func(string, time.Time) (string, string) {
+func (o *opencodeSource) labels(ctx context.Context, _ string) func(string, time.Time) (string, string) {
 	var listed map[string]transcript.ModelLabel
 	fetched := false
 	return func(session string, _ time.Time) (string, string) {

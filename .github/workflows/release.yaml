@@ -28,6 +28,8 @@ jobs:
   binaries:
     needs: e2e
     runs-on: ubuntu-latest
+    outputs:
+      iroh: ${{ steps.iroh.outputs.present }}
     permissions:
       contents: write
       id-token: write
@@ -52,6 +54,13 @@ jobs:
         env:
           TESTED: ${{ needs.e2e.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$TESTED"
+      - id: iroh
+        run: |
+          if [ -f iroh/Cargo.toml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: go test -race -timeout 30m ./...
       - name: Build
         run: sh .github/scripts/build-dist.sh "${TAG#v}" stable "$(git rev-parse HEAD)"
@@ -73,3 +82,15 @@ jobs:
             checksums.txt
             hand-windows-amd64.zip
             hand-windows-amd64.sha256
+
+  iroh:
+    needs: [e2e, binaries]
+    if: needs.binaries.outputs.iroh == 'true'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/iroh.yaml
+    with:
+      ref: ${{ needs.e2e.outputs.sha }}
+      tag: ${{ inputs.tag || github.ref_name }}

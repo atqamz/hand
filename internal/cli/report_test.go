@@ -46,6 +46,11 @@ func TestWorkerReportsFromInsideItsWorktree(t *testing.T) {
 	if list := fx.h.ok("report", "list", "--unacked"); !strings.Contains(list, "reports[0]") {
 		t.Fatalf("unacked after ack = %q", list)
 	}
+	long := strings.Repeat("word ", 200)
+	fx.h.ok("report", "add", "--status", "progress", "--text", long)
+	if list := fx.h.ok("report", "list", "--unacked"); len(list) > 400 || !strings.Contains(list, "…") {
+		t.Fatalf("list not clipped (%d B) = %q", len(list), list)
+	}
 }
 
 func TestReportOutsideAWorktreeNeedsAnAttempt(t *testing.T) {

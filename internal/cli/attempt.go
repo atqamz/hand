@@ -38,7 +38,7 @@ func init() {
 
 func cmdAttemptStart(r *runner, args []string) error {
 	fs := flags("attempt start")
-	name := fs.String("harness", "", "claude, codex, opencode, agy or copilot")
+	name := fs.String("harness", "", "claude, codex, opencode, agy, copilot or omp")
 	model := fs.String("model", "", "model alias or name")
 	effort := fs.String("effort", "", "reasoning effort")
 	promptFile := fs.String("prompt-file", "", "file holding the worker's briefing")
@@ -91,7 +91,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		footer = readonlyReportFooter(exe)
 	}
 	text := string(prompt) + footer
-	if err := harness.CheckPrompt(text); err != nil {
+	if err := harness.CheckPrompt(spec.Harness, text); err != nil {
 		return err
 	}
 	return r.withAttempts(func(ctx context.Context, st *state.Store, c luvus.Client) error {
@@ -153,7 +153,7 @@ func cmdAttemptStart(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		running, err := launch(ctx, st, c, a, g, start)
+		running, err := launch(ctx, st, c, a, g, start, append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, a.Argv...))
 		if errors.Is(err, errLaunchUnknown) {
 			return err
 		}
@@ -242,6 +242,8 @@ const (
 	fetchWait   = 20 * time.Second
 	submitTries = 3
 )
+
+var pollEvery = 250 * time.Millisecond
 
 var trustWait, trustConfirm, trustGrace, submitConfirm, screenWait, prefillWait, apiCheckWait = 15 * time.Second, 5 * time.Second, 3 * time.Second, 5 * time.Second, 5 * time.Second, 30 * time.Second, 5 * time.Second
 
@@ -443,7 +445,7 @@ func repoRoots(repo string) []string {
 func submitPrefilled(ctx context.Context, c luvus.Client, pane, terminalID, marker string, submitted func(context.Context) bool) (sent, confirmed bool) {
 	ctx, cancel := context.WithTimeout(ctx, prefillWait)
 	defer cancel()
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	for tries := 0; tries < submitTries; {
 		s, err := c.Read(ctx, pane, 60)
@@ -677,7 +679,7 @@ func acceptTrust(ctx context.Context, c luvus.Client, harness, pane, terminalID,
 	}
 	wait, cancel := context.WithTimeout(ctx, trustWait)
 	defer cancel()
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
 	seen, last := false, int64(-1)
 	var quietAt time.Time
@@ -883,7 +885,7 @@ func remoteDefault(ctx context.Context, g gitcfg.Repo) string {
 	return ""
 }
 
-func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string) (state.Attempt, error) {
+func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attempt, g gitcfg.Repo, base string, run []string) (state.Attempt, error) {
 	if err := makePrivate(filepath.Dir(a.Worktree)); err != nil {
 		return a, err
 	}
@@ -897,7 +899,7 @@ func launch(ctx context.Context, st *state.Store, c luvus.Client, a state.Attemp
 	if err := harness.OpencodeCreateFor(ctx, a.Argv, a.Worktree, harness.Spec{Harness: a.Harness, Model: a.Model, Effort: a.Effort}); err != nil {
 		return a, discard(ctx, g, a, err)
 	}
-	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), a.Argv)
+	term, err := c.Create(ctx, a.Worktree, "hand-"+state.AttemptRef(a.ID), run)
 	if err == nil {
 		running, err := st.AttemptRunning(ctx, a.ID, state.Terminal{ServerGeneration: term.ServerGeneration, TerminalID: term.TerminalID, PaneID: term.PaneID, PID: term.Root.PID, StartMarker: term.Root.StartMarker})
 		if err != nil {

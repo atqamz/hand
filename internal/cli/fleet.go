@@ -9,6 +9,7 @@ import (
 
 var fleetCommands = map[string]handler{
 	"list": cmdFleetList,
+	"move": cmdFleetMove,
 }
 
 func init() {
@@ -33,6 +34,6 @@ func cmdFleetList(r *runner, args []string) error {
 	}
 	var d toon.Doc
 	d.Rows("fleets", []string{"id", "name", "home", "state"}, rows)
-	d.Help("Forget a dead fleet by deleting its link in " + filepath.Join(root, "fleets"))
+	d.Help("Forget a missing or moved fleet by deleting its link in " + filepath.Join(root, "fleets") + "; an unreadable fleet is not dead, its row names the cause")
 	return r.print(&d)
 }

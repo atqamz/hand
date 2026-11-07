@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/atqamz/hand/internal/harness"
@@ -38,12 +39,12 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 	model := fs.String("model", "", "opencode model as provider/id")
 	effort := fs.String("effort", "", "opencode variant of the model")
 	if err := fs.Parse(args); err != nil {
-		return usageError{fmt.Sprintf("attempt switch: %v", err)}
+		return helpOr(fs, err, usageError{fmt.Sprintf("attempt switch: %v", err)})
 	}
 	pos := fs.Args()
 	if len(pos) > 0 {
 		if err := fs.Parse(pos[1:]); err != nil {
-			return usageError{fmt.Sprintf("attempt switch: %v", err)}
+			return helpOr(fs, err, usageError{fmt.Sprintf("attempt switch: %v", err)})
 		}
 		pos = append(pos[:1:1], fs.Args()...)
 	}
@@ -104,6 +105,11 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		run := append([]string{exe, "attempt", "_exec", "--root", r.root, "--dir", r.scratchDir(a), "--"}, argv...)
 		_, busy, _, err := transcript.OpencodeSessions(ctx, bin, r.home, r.env.Now(), longTurn)
 		if err != nil {
 			return fmt.Errorf("%w: cannot read opencode's session list (%v); nothing changed", state.ErrConflict, err)
@@ -121,7 +127,7 @@ func cmdAttemptSwitch(r *runner, args []string) error {
 		r.warn(note)
 		r.warn("the worker's background shells and dev servers in its pane's process tree ended with it; a process that left that tree keeps running, and text it had typed but not sent is gone")
 		pane := func(text, model, effort string, requested bool) (state.Attempt, error) {
-			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, argv)
+			term, err := c.Create(ctx, a.Worktree, "hand-"+ref, run)
 			if err != nil {
 				if luvus.Code(err) == "" {
 					_ = closeLabelled(ctx, c, "hand-"+ref, "")

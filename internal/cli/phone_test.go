@@ -110,7 +110,7 @@ func TestOpenWithoutPrintKeepsTheLocalAddressWhateverServeSays(t *testing.T) {
 	if field(out, "opened") != fx.base+"/"+fx.id+"/task/t1" {
 		t.Fatalf("open = %q", out)
 	}
-	if got := fx.opened(t); len(got) != 1 || !strings.HasPrefix(got[0], fx.base+"/"+fx.id+"/task/t1?token=") {
+	if got := fx.opened(t, 1); len(got) != 1 || !strings.HasPrefix(got[0], fx.base+"/"+fx.id+"/task/t1?token=") {
 		t.Fatalf("browser opened %q", got)
 	}
 	if b, _ := os.ReadFile(log); len(b) != 0 {
@@ -204,6 +204,35 @@ func TestWatchAlertKeepsTheLocalAddressWhenServeSaysFunnelOrNothing(t *testing.T
 			b, _ := os.ReadFile(log)
 			if !strings.Contains(string(b), "|http://127.0.0.1:7777/") {
 				t.Fatalf("alert = %q", b)
+			}
+		})
+	}
+}
+
+func TestWatchAlertUsesThePhoneLinkWhenTheBoardIsOnANetworkAddress(t *testing.T) {
+	for name, serve := range map[string]string{"ready": serveFor("192.168.1.5:7777", "/"), "absent": ""} {
+		t.Run(name, func(t *testing.T) {
+			fx := newAttemptFixture(t)
+			log := filepath.Join(t.TempDir(), "notify.log")
+			fakebin.Install(t, fx.h.vars["PATH"], "hand-notify", "notifyenv", map[string]string{"log": log})
+			installTailscale(t, fx.h.vars["PATH"], map[string]string{"serve": serve})
+			policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"notify":["hand-notify"]}`
+			if err := os.WriteFile(filepath.Join(fx.h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(fx.h.vars["SECONDHAND_HOME"], "board.addr"), []byte("192.168.1.5:7777\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stop := startWatch(t, fx, "--every", "50ms")
+			defer stop()
+			fx.h.ok("decision", "ask", "t1", "Question?")
+			eventually(t, func() bool { b, _ := os.ReadFile(log); return len(b) > 0 })
+			want := ""
+			if serve != "" {
+				want = "https://" + phoneName + "/" + field(fx.h.ok("init"), "id") + "/decision/d1"
+			}
+			if got := strings.TrimSpace(string(mustRead(t, log))); !strings.HasSuffix(got, "|"+want) {
+				t.Fatalf("alert = %q, want URL %q", got, want)
 			}
 		})
 	}

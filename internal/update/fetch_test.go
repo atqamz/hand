@@ -32,6 +32,9 @@ func TestMain(m *testing.M) {
 	fakebin.Main(map[string]func([]string) int{"hand": fakeHandMain, "sleep": func([]string) int {
 		time.Sleep(5 * time.Minute)
 		return 0
+	}, "sidecar": func([]string) int {
+		fmt.Println("hand-iroh " + fakebin.Params()["version"] + " iroh 1.4.1")
+		return 0
 	}, "luvus": func(args []string) int {
 		if len(args) > 1 && args[0] == "session" && args[1] == "list" {
 			b, _ := json.Marshal(map[string]any{"sessions": []map[string]any{{"name": os.Getenv("HAND_SESSION"), "session_dir": os.Getenv("HAND_SESSION_DIR"), "endpoint": map[string]string{"address": "x"}}}})
@@ -108,15 +111,22 @@ func luvusAsset(version string) string {
 
 type server struct {
 	*httptest.Server
-	mu    sync.Mutex
-	files map[string][]byte
-	paths []string
+	mu      sync.Mutex
+	files   map[string][]byte
+	paths   []string
+	methods []string
 }
 
 func (s *server) asked() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.paths)
+}
+
+func (s *server) askedMethods() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.methods)
 }
 
 func (s *server) set(name string, body []byte) {
@@ -131,6 +141,7 @@ func release(t *testing.T, files map[string][]byte) *server {
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		s.mu.Lock()
 		s.paths = append(s.paths, req.URL.Path)
+		s.methods = append(s.methods, req.Method)
 		body, ok := s.files[filepath.Base(req.URL.Path)]
 		s.mu.Unlock()
 		switch {
@@ -195,19 +206,22 @@ func sum(b []byte) string {
 	return hex.EncodeToString(s[:])
 }
 
-func handScript(t *testing.T, version, channel, commit, schema, luvus string) string {
+func handScript(t *testing.T, version, channel, commit, schema, luvus string, iroh ...string) string {
 	t.Helper()
 	lines := "version: " + version + "\nchannel: " + channel + "\ncommit: " + commit + "\n"
 	if schema != "" {
 		lines += "schema: " + schema + "\n"
 	}
 	lines += "luvus: " + luvus + "\n"
+	for _, v := range iroh {
+		lines += "iroh: " + v + "\n"
+	}
 	return string(fakebin.Embed(t, "hand", map[string]string{"version": lines}))
 }
 
-func fakeHand(t *testing.T, version, channel, commit, schema, luvus string) map[string][]byte {
+func fakeHand(t *testing.T, version, channel, commit, schema, luvus string, iroh ...string) map[string][]byte {
 	t.Helper()
-	script := handScript(t, version, channel, commit, schema, luvus)
+	script := handScript(t, version, channel, commit, schema, luvus, iroh...)
 	archive := tarball(t, "hand", script)
 	archiveZip := zipball(t, "hand.exe", script)
 	s := sum(archive)
@@ -245,7 +259,7 @@ func absent(t *testing.T, path string) {
 }
 
 func TestFetchHandReadsTheBuild(t *testing.T) {
-	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4"))
+	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4"))
 	goos, arch := hostTarget()
 	_, exe := packaging(goos)
 	for channel, prefix := range map[string]string{"stable": "/latest/download/", "edge": "/download/edge/"} {
@@ -254,7 +268,7 @@ func TestFetchHandReadsTheBuild(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b != (Build{Path: filepath.Join(dir, "hand"+exe), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 17, Luvus: "0.14.4"}) {
+		if b != (Build{Path: filepath.Join(dir, "hand"+exe), Version: "0.9.0", Channel: "edge", Commit: "0123456789ab", Schema: 19, Luvus: "0.14.4"}) {
 			t.Fatalf("%s build = %+v", channel, b)
 		}
 		if !slices.Contains(srv.asked(), prefix+handAsset()) || !slices.Contains(srv.asked(), prefix+handSums()) {
@@ -264,7 +278,7 @@ func TestFetchHandReadsTheBuild(t *testing.T) {
 }
 
 func TestFetchHandReadsAWindowsZip(t *testing.T) {
-	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4"))
+	srv := release(t, fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4"))
 	dir := t.TempDir()
 	b, err := FetchHand(context.Background(), srv.URL, "edge", "windows", "amd64", dir, os.Environ())
 	if err != nil || b.Path != filepath.Join(dir, "hand.exe") || b.Version != "0.9.0" {
@@ -273,7 +287,7 @@ func TestFetchHandReadsAWindowsZip(t *testing.T) {
 	if !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.zip") || !slices.Contains(srv.asked(), "/download/edge/hand-windows-amd64.sha256") {
 		t.Fatalf("asked %q", srv.asked())
 	}
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4")
 	files["hand-windows-amd64.sha256"] = []byte(strings.Repeat("0", 64) + "  hand-windows-amd64.zip\n")
 	other := t.TempDir()
 	if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "windows", "amd64", other, os.Environ()); err == nil || !strings.Contains(err.Error(), "checksum mismatch for hand-windows-amd64.zip") {
@@ -284,7 +298,7 @@ func TestFetchHandReadsAWindowsZip(t *testing.T) {
 
 func TestFetchHandRefusesABadChecksum(t *testing.T) {
 	for name, line := range map[string]string{"corrupt": strings.Repeat("0", 64) + "  hand-linux-amd64.tar.gz\n", "missing": strings.Repeat("0", 64) + "  other.tar.gz\n"} {
-		files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4")
+		files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4")
 		files["checksums.txt"] = []byte(line)
 		dir := t.TempDir()
 		if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "linux", "amd64", dir, os.Environ()); err == nil || !strings.Contains(err.Error(), "checksum mismatch for hand-linux-amd64.tar.gz") {
@@ -295,7 +309,7 @@ func TestFetchHandRefusesABadChecksum(t *testing.T) {
 }
 
 func TestFetchHandRefusesAFailedDownload(t *testing.T) {
-	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "17", "0.14.4")
+	files := fakeHand(t, "0.9.0", "edge", "0123456789ab", "19", "0.14.4")
 	files["hand-linux-amd64.tar.gz"] = nil
 	dir := t.TempDir()
 	if _, err := FetchHand(context.Background(), release(t, files).URL, "edge", "linux", "amd64", dir, os.Environ()); err == nil || !strings.Contains(err.Error(), ": 500") {

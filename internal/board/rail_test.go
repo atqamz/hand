@@ -236,7 +236,7 @@ func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {
 		"@media (min-width:900px){.nav-menu{display:none}",
 		"body:has(>.rail){padding-left:56px}",
 		".rail{position:fixed;inset:0 auto 0 0;z-index:7;display:flex;flex-direction:column;width:56px;",
-		".nav a{position:relative;display:flex;align-items:center;gap:12px;height:max(40px,var(--control));",
+		".nav a{position:relative;display:flex;align-items:center;gap:var(--space-12);height:max(var(--row),var(--control));",
 		".rail .nav-pages a,.rail .nav-fleets a,.rail-toggle{width:var(--control);height:var(--control)}")
 	if strings.Index(css, ".rail{display:none}") > strings.Index(css, "@media (min-width:900px){.nav-menu{display:none}") {
 		t.Fatal("the rail is shown below board width")
