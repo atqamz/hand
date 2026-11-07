@@ -1,7 +1,6 @@
 package update
 
 type WatchUnitProblem struct {
-	Name, Home string
-	Missing    bool
-	Fixable    bool
+	Name, Home, Reason string
+	Fixable            bool
 }

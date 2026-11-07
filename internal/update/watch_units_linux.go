@@ -47,7 +47,7 @@ func (r *Report) retireWatchUnits(ctx context.Context, o Options, fleets []fleet
 		if !u.handOwned(o.Target) {
 			continue
 		}
-		if _, stale := u.stale(registered, withTransient); !stale {
+		if u.stale(registered, withTransient) == "" {
 			continue
 		}
 		if r.retireWatchUnit(ctx, o, env, bin, u) {
@@ -85,11 +85,11 @@ func StaleWatchUnits(ctx context.Context, env []string, target, root string) ([]
 		if u.home == "" {
 			continue
 		}
-		missing, stale := u.stale(registered, withTransient)
-		if !stale {
+		reason := u.stale(registered, withTransient)
+		if reason == "" {
 			continue
 		}
-		out = append(out, WatchUnitProblem{Name: u.name, Home: u.home, Missing: missing, Fixable: u.handOwned(target)})
+		out = append(out, WatchUnitProblem{Name: u.name, Home: u.home, Reason: reason, Fixable: u.handOwned(target)})
 	}
 	return out, nil
 }
@@ -139,15 +139,21 @@ func (u installedWatchUnit) handOwned(target string) bool {
 	return strings.HasPrefix(u.description, "Hand watcher for ") && u.command == "watch" && u.home != "" && sameBinary(u.binary, target)
 }
 
-func (u installedWatchUnit) stale(registered, transient map[string]bool) (missing, stale bool) {
+func (u installedWatchUnit) stale(registered, transient map[string]bool) string {
 	home := filepath.Clean(u.home)
 	if !filepath.IsAbs(home) {
-		return true, true
+		return "relative"
 	}
 	if _, err := os.Stat(home); err != nil {
-		return true, true
+		return "missing"
 	}
-	return false, !registered[home] || transient[home]
+	switch {
+	case !registered[home]:
+		return "unregistered"
+	case transient[home]:
+		return "replaced"
+	}
+	return ""
 }
 
 func (r *Report) retireWatchUnit(ctx context.Context, o Options, env []string, bin string, u installedWatchUnit) bool {

@@ -336,9 +336,16 @@ func (r *runner) doctorWatchUnits(ctx context.Context, c *checks, root string) {
 		return
 	}
 	for _, p := range problems {
-		why := p.Name + " names " + p.Home + " (missing)"
-		if !p.Missing {
-			why = p.Name + " names " + p.Home + " (no registered fleet)"
+		why := p.Name + " names " + p.Home
+		switch p.Reason {
+		case "relative":
+			why += " (relative HAND_HOME)"
+		case "missing":
+			why += " (missing)"
+		case "unregistered":
+			why += " (no registered fleet)"
+		case "replaced":
+			why += " (the watcher runs as the transient unit)"
 		}
 		fix := "run `hand update` to remove it"
 		if !p.Fixable {
