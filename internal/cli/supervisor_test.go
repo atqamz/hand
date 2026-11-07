@@ -389,6 +389,76 @@ func TestAnOmpSupervisorStartsFreshAfterTheMove(t *testing.T) {
 	}
 }
 
+func TestAnOmpSupervisorWithoutAKnownSessionStartsFreshAfterTheMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	has(t, "start", h.ok("supervisor", "start", "--harness", "omp", "--model", "commandcode/deepseek/deepseek-v4.1-flash", "--effort", "low"), "supervisor: s1")
+	h.ok("supervisor", "stop")
+	old := h.home
+	dest := moveSupervisorFleet(t, h)
+	out := h.ok("supervisor", "resume")
+	got := rt.lastCreate().Command
+	if slices.Contains(got, "--resume") {
+		t.Fatalf("argv = %q, want a fresh session", got)
+	}
+	if why := field(out, "fresh"); !strings.Contains(why, "continues s1") || !strings.Contains(why, "moved from "+old+" to "+dest) {
+		t.Fatalf("fresh = %q", why)
+	}
+}
+
+func TestAFreshResumeAcceptsTheNewFoldersTrust(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	h.ok("supervisor", "stop")
+	moveSupervisorFleet(t, h)
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
+	})
+	out := h.ok("supervisor", "resume")
+	has(t, "resume", out, "supervisor: s2", "fresh:", "trust: accepted")
+	if !slices.Equal(rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("keys = %q", rt.keysSent())
+	}
+}
+
+func TestAutoresumeSettlesAFreshLaunchAfterTheMove(t *testing.T) {
+	h, rt := newMovedSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	rt.srv.SetGeneration("gen-2")
+	st := openStore(t, h)
+	stop := startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	eventually(t, func() bool {
+		sup, _, err := st.LatestSupervisor(context.Background())
+		return err == nil && sup.Status == "interrupted"
+	})
+	stop()
+	rt.exitAll()
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	moveSupervisorFleet(t, h)
+	policy := `{"profiles":{"default":{"harness":"claude","model":"sonnet","effort":"medium"}},"supervisor":{"autoresume":true}}`
+	if err := os.WriteFile(filepath.Join(h.home, "routing.json"), []byte(policy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.keyScreens = claudeTrustScreen(h.home), []string{claudeTrustScreenYes(h.home), "> \n"}
+	})
+	st = openStore(t, h)
+	stop = startWatch(t, &attemptFixture{h: h, rt: rt}, "--every", "1h")
+	eventually(t, func() bool {
+		sup, _, err := st.LatestSupervisor(context.Background())
+		return err == nil && sup.ID == 2 && sup.Status == "running"
+	})
+	eventually(t, func() bool { return len(rt.keysSent()) == 2 })
+	stop()
+	if argv := rt.lastCreate().Command; slices.Contains(argv, "--resume") {
+		t.Fatalf("argv = %q, want a fresh session", argv)
+	}
+	if !slices.Equal(rt.keysSent(), []string{"down", "enter"}) {
+		t.Fatalf("keys = %q", rt.keysSent())
+	}
+}
+
 func TestARestoredSupervisorTerminalIsClosed(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)

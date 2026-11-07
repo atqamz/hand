@@ -504,6 +504,14 @@ func (w *watcher) autoresume(ctx context.Context, c luvus.Client, caps luvus.Cap
 	case err != nil:
 		w.say("autoresume: " + err.Error())
 	case sup.ID != 0:
+		if _, fresh, err := w.st.SupervisorFresh(ctx, sup); err != nil {
+			w.say("autoresume: " + err.Error())
+		} else if fresh {
+			if _, _, err := w.r.settleLaunch(w.r.ctx(), w.st, c, sup); err != nil {
+				w.say("autoresume: " + err.Error())
+				return
+			}
+		}
 		w.say("supervisor " + state.SupervisorRef(sup.ID) + " resumed")
 		w.deliver(ctx, c, caps)
 	}

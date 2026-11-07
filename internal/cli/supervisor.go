@@ -211,6 +211,15 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 	case last.Live():
 		return state.Supervisor{}, fmt.Errorf("%w: supervisor %s is %s; only an ended one can be resumed", state.ErrConflict, state.SupervisorRef(last.ID), last.Status)
 	}
+	spec := lastSpec(last)
+	if last.Switching() {
+		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
+	}
+	if from, to, moved, err := r.movedSince(ctx, st, last); err != nil {
+		return state.Supervisor{}, err
+	} else if moved && last.Session == "" {
+		return r.freshSupervisor(ctx, st, c, last, spec, from, to)
+	}
 	if err := r.findSession(ctx, st, &last); err != nil {
 		return state.Supervisor{}, err
 	}
@@ -219,10 +228,6 @@ func (r *runner) resumeSupervisor(ctx context.Context, st *state.Store, c luvus.
 			return state.Supervisor{}, fmt.Errorf("%s has no known session; start a new one", state.SupervisorRef(last.ID))
 		}
 		return state.Supervisor{}, fmt.Errorf("%w: supervisor %s has no known session to resume; start a new one: `hand supervisor start`", state.ErrConflict, state.SupervisorRef(last.ID))
-	}
-	spec := lastSpec(last)
-	if last.Switching() {
-		spec.Model, spec.Effort = last.SwitchModel, last.SwitchEffort
 	}
 	if from, to, moved, err := r.movedSince(ctx, st, last); err != nil {
 		return state.Supervisor{}, err
@@ -707,6 +712,15 @@ func (r *runner) launchSupervisor(ctx context.Context, st *state.Store, c luvus.
 	return running, nil
 }
 
+func (r *runner) settleLaunch(ctx context.Context, st *state.Store, c luvus.Client, sup state.Supervisor) ([][2]string, []string, error) {
+	return afterLaunch(ctx, c, launched{
+		harness: sup.Harness, pane: sup.PaneID, terminalID: sup.TerminalID, worktree: r.home,
+		marker: supervisorMarker, thing: "launch prompt", who: "supervisor", model: sup.Model,
+		look: "hand attach supervisor", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
+		submitted: opencodeSubmitted(r.home, sup.Argv),
+	}, func(kind, detail string) error { return st.NoteSupervisor(ctx, sup.ID, kind, detail) })
+}
+
 func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Client, running state.Supervisor, prompted bool) error {
 	var d toon.Doc
 	d.Field("supervisor", state.SupervisorRef(running.ID))
@@ -714,20 +728,17 @@ func (r *runner) reportLaunch(ctx context.Context, st *state.Store, c luvus.Clie
 	d.Field("status", running.Status)
 	d.Field("pane", running.PaneID)
 	d.Field("session", running.Session)
-	if fresh, ok, err := st.SupervisorFresh(ctx, running); err != nil {
+	fresh, isFresh, err := st.SupervisorFresh(ctx, running)
+	if err != nil {
 		return err
-	} else if ok {
+	}
+	if isFresh {
 		d.Field("fresh", fresh)
 	}
 	r.fieldWarn(&d)
 	help := []string{"Check it: `hand supervisor show`", "Watch it live: `hand attach supervisor`"}
-	if prompted {
-		fields, more, err := afterLaunch(r.ctx(), c, launched{
-			harness: running.Harness, pane: running.PaneID, terminalID: running.TerminalID, worktree: r.home,
-			marker: supervisorMarker, thing: "launch prompt", who: "supervisor", model: running.Model,
-			look: "hand attach supervisor", keys: "hand supervisor keys --revision N enter", screen: "hand attach supervisor",
-			submitted: opencodeSubmitted(r.home, running.Argv),
-		}, func(kind, detail string) error { return st.NoteSupervisor(ctx, running.ID, kind, detail) })
+	if prompted || isFresh {
+		fields, more, err := r.settleLaunch(r.ctx(), st, c, running)
 		if err != nil {
 			return err
 		}
