@@ -402,7 +402,11 @@ pub async fn proxy(dialer: Dialer) -> (TempDir, u16) {
     let dir = TempDir::new();
     let (proxy, listeners) = Proxy::bind(dir.path()).await.unwrap();
     for listener in listeners {
-        tokio::spawn(hand_android_core::proxy::serve(listener, dialer.clone()));
+        tokio::spawn(hand_android_core::proxy::serve(
+            listener,
+            dialer.clone(),
+            None,
+        ));
     }
     (dir, proxy.port())
 }

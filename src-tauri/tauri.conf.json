@@ -11,5 +11,10 @@
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost"
     }
+  },
+  "plugins": {
+    "companion": {
+      "localUrl": "http://tauri.localhost/"
+    }
   }
 }

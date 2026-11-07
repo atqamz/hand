@@ -8,26 +8,21 @@
   </head>
   <body>
     <main>
-      <h1>Hand's Android Companion</h1>
-      <p>Debug build. Pairing is not built yet, so this screen takes the laptop's details by hand.</p>
-      <dl>
-        <dt>Proxy</dt>
-        <dd id="proxy" class="quiet">starting…</dd>
-        <dt>This phone</dt>
-        <dd id="phone" class="quiet">starting…</dd>
-      </dl>
-      <p id="status" class="quiet"></p>
-      <form id="open">
-        <label for="endpoint">Laptop endpoint ID</label>
-        <input id="endpoint" name="endpoint" autocomplete="off" spellcheck="false" required>
-        <label for="relay">Relay URL (optional)</label>
-        <input id="relay" name="relay" autocomplete="off" spellcheck="false" placeholder="https://relay.example.test/">
-        <label for="fleet">Fleet ID (optional, opens its pairing page)</label>
-        <input id="fleet" name="fleet" autocomplete="off" spellcheck="false" placeholder="f0123456789ab">
-        <button type="submit">Open the Board</button>
+      <h1>Pair this phone with Hand</h1>
+      <p>On your laptop, open the Board, choose Phone, and show a pairing link. Paste it here.</p>
+      <form id="paste">
+        <label for="link">Pairing link</label>
+        <input id="link" name="link" autocomplete="off" spellcheck="false" autocapitalize="off" required>
+        <button type="submit">Continue</button>
       </form>
-      <p class="quiet">This temporary field stores nothing. A Board that asks for a login shows its own login page in this web view.</p>
-      <p id="core" class="error"></p>
+      <section id="confirm" hidden>
+        <p>Pair with the laptop <strong id="laptop"></strong>?</p>
+        <button id="yes" type="button">Pair this laptop</button>
+        <button id="no" type="button">Cancel</button>
+      </section>
+      <p id="status" class="quiet"></p>
+      <p id="error" class="error"></p>
+      <p class="quiet">The Board opens in this app. Hand never sees the code.</p>
     </main>
     <script src="main.js"></script>
   </body>

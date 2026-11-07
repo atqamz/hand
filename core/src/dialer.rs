@@ -60,6 +60,7 @@ impl Notice {
 pub enum OpenError {
     NotConfigured,
     Unreachable,
+    Busy,
     Lost,
 }
 
@@ -133,10 +134,6 @@ impl Dialer {
         &self.inner.endpoint
     }
 
-    pub fn endpoint_id(&self) -> EndpointId {
-        self.inner.endpoint.id()
-    }
-
     pub fn notice(&self) -> Notice {
         *self.inner.notice.lock().unwrap()
     }
@@ -172,6 +169,54 @@ impl Dialer {
 
     pub async fn connection(&self) -> Result<Connection, OpenError> {
         self.connect().await
+    }
+
+    pub async fn attempt(&self) -> Result<Connection, OpenError> {
+        if let Some(connection) = self.live().await {
+            return Ok(connection);
+        }
+        let _dial = self.inner.dial.lock().await;
+        if let Some(connection) = self.live().await {
+            return Ok(connection);
+        }
+        let Some(target) = self.target().await else {
+            self.set_notice(Notice::NoTarget);
+            return Err(OpenError::NotConfigured);
+        };
+        match timeout(
+            HANDSHAKE_DEADLINE,
+            self.inner.endpoint.connect(target, ALPN),
+        )
+        .await
+        {
+            Ok(Ok(connection)) => {
+                let generation = self.inner.generation.fetch_add(1, Ordering::Relaxed) + 1;
+                {
+                    let mut state = self.inner.state.lock().await;
+                    state.connection = Some(Active {
+                        connection: connection.clone(),
+                        generation,
+                    });
+                }
+                self.inner.lost.store(0, Ordering::Relaxed);
+                *self.inner.retry_at.lock().unwrap() = None;
+                self.inner.watch(connection.clone(), generation);
+                self.set_notice(Notice::Connected);
+                Ok(connection)
+            }
+            Ok(Err(error)) => {
+                if connect_error(&error).is_some_and(codes::is_refusal) {
+                    self.set_notice(Notice::Busy);
+                    return Err(OpenError::Busy);
+                }
+                self.set_notice(Notice::Lost);
+                Err(OpenError::Lost)
+            }
+            Err(_) => {
+                self.set_notice(Notice::Unreachable);
+                Err(OpenError::Unreachable)
+            }
+        }
     }
 
     pub async fn disconnect(&self) {
