@@ -301,6 +301,19 @@ func TestAnAnswerBeforeTheDeadlineRecordsNoDenial(t *testing.T) {
 	}
 }
 
+func TestAnIdleAskScreenItDoesNotParseStillBlocks(t *testing.T) {
+	fx, stop := askWatch(t, "")
+	defer stop()
+	fx.rt.set(func(rt *fakeRuntime) {
+		rt.screen, rt.status, rt.hint = "Something odd\n❯ 1. Go\n  2. Stop", "idle", ""
+	})
+	fx.rt.srv.Publish("pane.agent_status_changed", map[string]any{"pane": "3", "status": "idle", "agent": "claude"})
+	eventually(t, func() bool {
+		out, _, _ := fx.h.run("wait", "--after", "0", "--timeout", "1ms")
+		return strings.Count(out, ",attempt.blocked,") == 2 && strings.Contains(out, `"a1: Something odd"`)
+	})
+}
+
 func TestAScreenItDoesNotRecogniseIsNeverDenied(t *testing.T) {
 	fx, _ := askWatch(t, "")
 	fx.rt.set(func(rt *fakeRuntime) { rt.revision, rt.screen = 8, "Something odd\n❯ 1. Go\n  2. Stop" })
