@@ -86,6 +86,8 @@ jobs:
           echo "HAND_IROH_BIN=$RUNNER_TEMP/hand/iroh/target/debug/hand-iroh" >> "$GITHUB_ENV"
       - run: cargo fmt --all --check
       - run: cargo test --locked --workspace
+      - name: Test the link wrapper
+        run: node --test src-tauri/tests/external_links.test.mjs
       - name: Clippy for Android
         run: |
           toolchain="$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin"

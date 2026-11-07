@@ -4,9 +4,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use hand_android_core::{
-    Companion, CompanionConfig, ConfirmError, OfferError, OpenError, PAIRING_PENDING,
+    Companion, CompanionConfig, ConfirmError, OfferError, OpenError, PAIRING_PENDING, may_load,
+    proxy_origin,
 };
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 
 struct AppState {
     companion: Arc<Companion>,
@@ -195,10 +197,61 @@ fn apply_secure(app: &tauri::AppHandle, secure: bool) {
     }
 }
 
+fn bundled_origin(config: &tauri::Config) -> tauri::Url {
+    bundled_origin_for(config, cfg!(dev))
+}
+
+fn bundled_origin_for(config: &tauri::Config, dev: bool) -> tauri::Url {
+    let configured = if dev {
+        config.build.dev_url.clone()
+    } else if let Some(tauri::utils::config::FrontendDist::Url(url)) =
+        config.build.frontend_dist.as_ref()
+    {
+        Some(url.clone())
+    } else {
+        None
+    };
+    configured.unwrap_or_else(|| {
+        let scheme = if config
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == "main")
+            .is_some_and(|window| window.use_https_scheme)
+        {
+            "https"
+        } else {
+            "http"
+        };
+        tauri::Url::parse(&format!("{scheme}://tauri.localhost"))
+            .expect("the bundled origin parses")
+    })
+}
+
+fn origin_guard(bundled: tauri::Url) -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("board-origin")
+        .js_init_script(include_str!("external_links.js"))
+        .on_navigation(move |webview, url| {
+            let proxy = webview
+                .try_state::<AppState>()
+                .map(|state| proxy_origin(state.companion.port()));
+            if may_load(url, &bundled, proxy.as_ref()) {
+                return true;
+            }
+            let _ = webview.opener().open_url(url.as_str(), None::<&str>);
+            false
+        })
+        .build()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    let bundled = bundled_origin(context.config());
     tauri::Builder::default()
         .plugin(mobile::init())
+        .plugin(tauri_plugin_opener::Builder::new().build())
+        .plugin(origin_guard(bundled))
         .on_page_load(|webview, payload| {
             if let Some(state) = webview.app_handle().try_state::<AppState>() {
                 let secure = secure_for(payload.url(), state.companion.port());
@@ -239,7 +292,7 @@ pub fn run() {
             confirm_pairing,
             forget_laptop
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("the Tauri app builds")
         .run(|app, event| {
             if let tauri::RunEvent::Resumed = event {
@@ -255,6 +308,46 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bundled_origin_follows_the_app_config() {
+        let config = tauri::Config::default();
+        assert_eq!(
+            bundled_origin_for(&config, true).as_str(),
+            "http://tauri.localhost/"
+        );
+        assert_eq!(
+            bundled_origin_for(&config, false).as_str(),
+            "http://tauri.localhost/"
+        );
+
+        let mut https = tauri::Config::default();
+        https.app.windows = vec![tauri::utils::config::WindowConfig {
+            use_https_scheme: true,
+            ..Default::default()
+        }];
+        assert_eq!(
+            bundled_origin_for(&https, false).as_str(),
+            "https://tauri.localhost/"
+        );
+    }
+
+    #[test]
+    fn the_bundled_origin_follows_a_dev_or_dist_url() {
+        let mut config = tauri::Config::default();
+        config.build.dev_url = Some(tauri::Url::parse("http://localhost:1420/").unwrap());
+        config.build.frontend_dist = Some(tauri::utils::config::FrontendDist::Url(
+            tauri::Url::parse("https://app.example.test/").unwrap(),
+        ));
+        assert_eq!(
+            bundled_origin_for(&config, true).as_str(),
+            "http://localhost:1420/"
+        );
+        assert_eq!(
+            bundled_origin_for(&config, false).as_str(),
+            "https://app.example.test/"
+        );
+    }
 
     #[test]
     fn flag_secure_covers_the_pairing_screen_and_the_pair_page() {

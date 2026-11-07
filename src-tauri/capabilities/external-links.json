@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "external-links",
+  "description": "Opens an outside address in the system browser from the bundled page and the Board",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://localhost:*"]
+  },
+  "permissions": ["opener:allow-open-url", "opener:allow-default-urls"]
+}

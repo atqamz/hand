@@ -10,6 +10,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use tokio::time::timeout;
+use url::Url;
 
 use crate::dialer::{ALPN, Dialer, OpenError, STREAMS_PER_CONNECTION, parse_target};
 use crate::key;
@@ -21,6 +22,19 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct CompanionConfig {
     pub data_dir: PathBuf,
+}
+
+pub(crate) fn proxy_url(port: u16, path: &str) -> String {
+    let path = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
+    format!("http://localhost:{port}{path}")
+}
+
+pub fn proxy_origin(port: u16) -> Url {
+    Url::parse(&proxy_url(port, "/")).expect("the proxy URL parses")
 }
 
 #[derive(Clone)]
@@ -72,6 +86,10 @@ impl Companion {
         self.pairing.lock().unwrap().offer(text.trim())
     }
 
+    pub fn url(&self, path: &str) -> String {
+        proxy_url(self.port, path)
+    }
+
     pub fn pending_offer(&self) -> Option<Offer> {
         self.pairing.lock().unwrap().pending_offer()
     }
@@ -86,7 +104,7 @@ impl Companion {
         };
         let target = parse_target(&active, None).map_err(ConfirmError::Target)?;
         self.dialer.set_target(Some(target)).await;
-        Ok(Some(format!("http://localhost:{}/", self.port)))
+        Ok(Some(proxy_url(self.port, "/")))
     }
 
     pub fn cancel_pairing(&self) {
