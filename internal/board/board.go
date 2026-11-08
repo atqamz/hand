@@ -230,6 +230,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /connect/revoke/in", b.connectRevokePhone(false))
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))
 	b.mux.HandleFunc("GET "+apiPrefix, b.apiUnknown)
+	b.mux.HandleFunc("GET "+apiPrefix+"/session", b.apiSession)
 	b.mux.HandleFunc("GET "+apiPrefix+"/status", b.apiStatus)
 	b.mux.HandleFunc("GET "+apiPrefix+"/timeline", b.apiTimeline)
 	b.mux.HandleFunc("GET "+apiPrefix+"/tasks", b.apiTasks)
@@ -237,6 +238,10 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("GET "+apiPrefix+"/attempt/{id}", b.apiAttempt)
 	b.mux.HandleFunc("GET "+apiPrefix+"/decision/{id}", b.apiDecision)
 	b.mux.HandleFunc("GET "+apiPrefix+"/report/{id}", b.apiReport)
+	b.mux.HandleFunc("POST "+apiPrefix+"/decision/{id}/answer", b.apiAnswer)
+	b.mux.HandleFunc("POST "+apiPrefix+"/report/{id}/ack", b.apiAck)
+	b.mux.HandleFunc("POST "+apiPrefix+"/", b.apiMethod)
+	b.mux.HandleFunc("POST "+apiPrefix, b.apiMethod)
 	b.mux.HandleFunc(apiPrefix+"/", b.apiUnknown)
 	return b
 }

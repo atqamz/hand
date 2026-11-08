@@ -115,7 +115,7 @@ func (a *App) rail(c *ui.Context, p palette) {
 		})
 		ui.Spacer(c)
 		if a.Model != nil {
-			ui.Text(c, "Read-only. The board keeps running.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
+			ui.Text(c, "Answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
@@ -218,6 +218,25 @@ func (a *App) emptyCard(c *ui.Context, p palette, title, body string) {
 	})
 }
 
+func (a *App) actionCard(c *ui.Context, p palette) {
+	if a.ActionErr == "" {
+		return
+	}
+	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
+		Border(1, p.fail).Children(func() {
+		ui.Text(c, "The action did not go through").FontSize(15).Bold().TextColor(p.fail)
+		ui.Text(c, a.ActionErr).FontSize(13)
+		ui.Row(c).Gap(8).Children(func() {
+			if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
+				a.ActionErr = ""
+			}
+			if ui.Button(c.Key("retry-action"), "Refresh").Clicked() {
+				a.Retry()
+			}
+		})
+	})
+}
+
 func (a *App) statusScreen(c *ui.Context, p palette) {
 	sup := a.Status.Supervisor
 	title := "No supervisor"
@@ -306,29 +325,41 @@ func (a *App) needsScreen(c *ui.Context, p palette) {
 		a.emptyCard(c, p, "All clear", body)
 		return
 	}
+	a.actionCard(c, p)
 	ui.Column(c).Gap(0).Children(func() {
 		for _, item := range items {
 			need := item
 			ref := needRef(need)
-			el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
-				BorderWidth(0, 0, 1, 0).BorderColor(p.line)
-			if ref != "" {
-				el.Cursor(ui.CursorPointer)
-			}
-			el.Children(func() {
-				bg, fg := toneColors(need.Tone, p)
-				ui.Badge(c, need.Word).Background(bg).TextColor(fg)
-				if need.Ref != "" {
-					ui.Text(c, need.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
+			ui.Row(c).Gap(6).Children(func() {
+				el := ui.ButtonBase(c.Key("need:"+need.Kind+":"+need.Ref)).Gap(8).Padding(6, 8).
+					BorderWidth(0, 0, 1, 0).BorderColor(p.line).Grow(1)
+				if ref != "" {
+					el.Cursor(ui.CursorPointer)
 				}
-				ui.Text(c, needLabel(need)).FontSize(14).SingleLine().Grow(1)
-				if need.Excerpt != "" {
-					ui.Text(c, firstLine(need.Excerpt)).FontSize(12).TextColor(p.neutral).SingleLine()
+				el.Children(func() {
+					bg, fg := toneColors(need.Tone, p)
+					ui.Badge(c, need.Word).Background(bg).TextColor(fg)
+					if need.Ref != "" {
+						ui.Text(c, need.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
+					}
+					ui.Text(c, needLabel(need)).FontSize(14).SingleLine().Grow(1)
+					if need.Excerpt != "" {
+						ui.Text(c, firstLine(need.Excerpt)).FontSize(12).TextColor(p.neutral).SingleLine()
+					}
+				})
+				if el.Clicked() && ref != "" {
+					a.OpenRef(ref)
+				}
+				if need.Kind == "report" && need.Report != "" {
+					label := "Ack"
+					if a.Busy {
+						label = "Acknowledging…"
+					}
+					if ui.Button(c.Key("ack:"+need.Report), label).Disabled(a.Busy).Clicked() {
+						a.Ack(need.Report)
+					}
 				}
 			})
-			if el.Clicked() && ref != "" {
-				a.OpenRef(ref)
-			}
 		}
 	})
 }
@@ -585,6 +616,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 func (a *App) decisionScreen(c *ui.Context, p palette) {
 	d := a.Decision
 	a.detailHeader(c, p, d.Decision.Ref, d.Decision.Headline)
+	a.actionCard(c, p)
 	ui.Row(c).Gap(8).Children(func() {
 		statusPill(c, p, d.Decision.Pill)
 		ui.Text(c, d.Decision.Status).FontSize(12).TextColor(p.neutral)
@@ -599,25 +631,68 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 			ui.Text(c, body).FontSize(15)
 		}
 	}
+	open := d.Decision.Status == "open"
+	other := false
+	for _, o := range d.Options {
+		if a.AnswerChoice == o.Value && o.Other {
+			other = true
+		}
+	}
 	if len(d.Options) > 0 {
 		a.section(c, p, "Options")
 		ui.Column(c).Gap(6).Children(func() {
 			for _, o := range d.Options {
-				ui.Row(c).Gap(10).Padding(8, 10).Radius(8).Background(p.card).
-					Border(1, p.line).Children(func() {
-					ui.Text(c, o.Key).Font("monospace").FontSize(12).TextColor(p.neutral).Width(18)
+				option := o
+				selected := a.AnswerChoice == option.Value
+				bg, border := p.card, p.line
+				if selected {
+					bg, border = p.passBG, p.pass
+				}
+				el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
+					Radius(8).Background(bg).Border(1, border).Disabled(!open || a.Busy)
+				if open && !a.Busy {
+					el.Cursor(ui.CursorPointer)
+				}
+				el.Children(func() {
+					ui.Text(c, option.Key).Font("monospace").FontSize(12).TextColor(p.neutral).Width(18)
 					ui.Column(c).Gap(2).Grow(1).Children(func() {
 						ui.Row(c).Gap(8).Children(func() {
-							ui.Text(c, o.Label).FontSize(14).Bold()
-							if o.Recommended {
+							ui.Text(c, option.Label).FontSize(14).Bold()
+							if option.Recommended {
 								ui.Badge(c, "Recommended").Background(p.passBG).TextColor(p.pass)
 							}
 						})
-						if o.Note != "" {
-							ui.Text(c, o.Note).FontSize(12).TextColor(p.neutral)
+						if option.Note != "" {
+							ui.Text(c, option.Note).FontSize(12).TextColor(p.neutral)
 						}
 					})
 				})
+				if open && el.Clicked() && !a.Busy {
+					a.AnswerChoice = option.Value
+				}
+			}
+		})
+	}
+	if open {
+		placeholder := "Your answer"
+		if len(d.Options) > 0 {
+			placeholder = "Add a note (optional)"
+		}
+		if other {
+			placeholder = "Write your answer (required)"
+		}
+		ui.TextArea(c, &a.AnswerNote).Label("Note").Placeholder(placeholder).Height(64).
+			Disabled(a.Busy)
+		if other && strings.TrimSpace(a.AnswerNote) == "" {
+			ui.Text(c, "That option needs a note.").FontSize(12).TextColor(p.fail)
+		}
+		ui.Row(c).Gap(8).Children(func() {
+			label := "Send answer"
+			if a.Busy {
+				label = "Sending…"
+			}
+			if ui.Button(c.Key("send-answer"), label).Disabled(a.Busy).Clicked() {
+				a.Answer()
 			}
 		})
 	}
@@ -631,6 +706,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 func (a *App) reportScreen(c *ui.Context, p palette) {
 	r := a.Report
 	a.detailHeader(c, p, r.Report.Ref, r.Report.Summary)
+	a.actionCard(c, p)
 	ui.Row(c).Gap(8).Children(func() {
 		_, statusFg := toneColors(r.Report.Status, p)
 		ui.Badge(c, r.Report.Status).Background(p.neutralBG).TextColor(statusFg)
@@ -638,11 +714,25 @@ func (a *App) reportScreen(c *ui.Context, p palette) {
 		ui.Text(c, r.Report.Task).Font("monospace").FontSize(12).TextColor(p.neutral)
 		ui.Text(c, stamp(r.Report.CreatedAt)).Font("monospace").FontSize(12).TextColor(p.neutral)
 		ui.Spacer(c)
+		if r.Report.AckedAt == "" {
+			label := "Ack"
+			if a.Busy {
+				label = "Acknowledging…"
+			}
+			if ui.Button(c.Key("ack-report"), label).Disabled(a.Busy).Clicked() {
+				a.Ack(r.Report.Ref)
+			}
+		} else {
+			ui.Textf(c, "Acknowledged by %s", r.Report.AckedBy).FontSize(12).TextColor(p.neutral)
+		}
 		if ui.Button(c.Key("open-task"), "Open task").Clicked() {
 			a.OpenRef(r.Task.Ref)
 		}
 	})
 	ui.Text(c, r.Report.Body).FontSize(15)
+	if r.Report.AckedAt != "" {
+		ui.Textf(c, "Acknowledged %s", stamp(r.Report.AckedAt)).FontSize(12).TextColor(p.neutral)
+	}
 }
 
 func (a *App) detailHeader(c *ui.Context, p palette, ref, title string) {

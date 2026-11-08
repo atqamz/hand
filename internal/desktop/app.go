@@ -37,6 +37,11 @@ type App struct {
 	Screen  Screen
 	Ref     string
 	Loading bool
+	Busy    bool
+
+	AnswerChoice string
+	AnswerNote   string
+	ActionErr    string
 
 	Status   Status
 	Timeline Timeline
@@ -133,6 +138,7 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
+	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.Busy = "", "", "", false
 	if a.OnFleet != nil {
 		a.OnFleet(a.Fleet)
 	}
@@ -165,6 +171,7 @@ func (a *App) install(f found, keep bool) {
 
 func (a *App) Show(s Screen) {
 	a.Screen, a.Ref, a.back = s, "", nil
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -187,6 +194,7 @@ func (a *App) OpenRef(ref string) {
 	}
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
 	a.Screen, a.Ref = s, ref
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -198,6 +206,7 @@ func (a *App) Back() {
 	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
 	a.Screen, a.Ref = step.Screen, step.Ref
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -242,6 +251,158 @@ func (a *App) Older() {
 	}()
 }
 
+func (a *App) Answer() {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen || a.Ref == "" {
+		return
+	}
+	choice, note := a.AnswerChoice, a.AnswerNote
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet, ref := a.Model, a.Fleet.ID, a.Ref
+	a.Busy = true
+	detail := func(d DecisionDetail) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.Decision = d
+	}
+	status := func(st Status) {
+		if id != a.loadID {
+			return
+		}
+		a.Status = st
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.ActionErr = friendly(err)
+	}
+	stale := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.ActionErr = "the answer was saved, but the fleet status could not be read: " + friendly(err)
+	}
+	fetch := func() {
+		d, err := model.AnswerDecision(ctx, fleet, ref, choice, note)
+		if err != nil {
+			cancel()
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			detail(d)
+		} else {
+			post(func() { detail(d) })
+		}
+		st, serr := model.Status(ctx, fleet)
+		cancel()
+		if serr != nil {
+			if post == nil {
+				stale(serr)
+			} else {
+				post(func() { stale(serr) })
+			}
+			return
+		}
+		if post == nil {
+			status(st)
+		} else {
+			post(func() { status(st) })
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
+func (a *App) Ack(ref string) {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || ref == "" {
+		return
+	}
+	screen := a.Screen
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet := a.Model, a.Fleet.ID
+	a.Busy = true
+	report := func(r ReportDetail) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		if screen == ReportScreen {
+			a.Report = r
+		}
+	}
+	status := func(st Status) {
+		if id != a.loadID {
+			return
+		}
+		a.Status = st
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.ActionErr = friendly(err)
+	}
+	stale := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.ActionErr = "the report was acknowledged, but the fleet status could not be read: " + friendly(err)
+	}
+	fetch := func() {
+		r, err := model.AckReport(ctx, fleet, ref)
+		if err != nil {
+			cancel()
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			report(r)
+		} else {
+			post(func() { report(r) })
+		}
+		st, serr := model.Status(ctx, fleet)
+		cancel()
+		if serr != nil {
+			if post == nil {
+				stale(serr)
+			} else {
+				post(func() { stale(serr) })
+			}
+			return
+		}
+		if post == nil {
+			status(st)
+		} else {
+			post(func() { status(st) })
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
 func (a *App) Reload() {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
@@ -279,6 +440,8 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(a.Context)
 	a.cancel = cancel
 	a.loadID++
+	a.Busy = false
+	a.ActionErr = ""
 	return a.loadID, ctx, cancel
 }
 
@@ -397,6 +560,9 @@ func friendly(err error) string {
 		case 401:
 			return "the board did not accept this fleet's token; open the fleet once with `hand open`"
 		case 403:
+			if api.Code == "csrf_required" {
+				return api.Message
+			}
 			return "the board's API answers only on its loopback address"
 		}
 		return api.Message

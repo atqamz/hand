@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -18,23 +19,28 @@ const (
 )
 
 type fixture struct {
-	fleets   []desktop.Fleet
-	status   map[string]desktop.Status
-	timeline map[string]desktop.Timeline
-	older    map[string]desktop.Timeline
-	tasks    map[string]desktop.Tasks
-	task     map[string]desktop.TaskDetail
-	attempt  map[string]desktop.AttemptDetail
-	decision map[string]desktop.DecisionDetail
-	extra    map[string]desktop.DecisionDetail
-	report   map[string]desktop.ReportDetail
-	fail     error
-	stall    string
-	nameIn   chan struct{}
-	block    chan struct{}
-	entered  chan struct{}
-	mu       sync.Mutex
-	calls    map[string]int
+	fleets        []desktop.Fleet
+	status        map[string]desktop.Status
+	timeline      map[string]desktop.Timeline
+	older         map[string]desktop.Timeline
+	tasks         map[string]desktop.Tasks
+	task          map[string]desktop.TaskDetail
+	attempt       map[string]desktop.AttemptDetail
+	decision      map[string]desktop.DecisionDetail
+	extra         map[string]desktop.DecisionDetail
+	report        map[string]desktop.ReportDetail
+	fail          error
+	action        error
+	actionBlock   chan struct{}
+	actionEntered chan struct{}
+	choice        string
+	answerNote    string
+	stall         string
+	nameIn        chan struct{}
+	block         chan struct{}
+	entered       chan struct{}
+	mu            sync.Mutex
+	calls         map[string]int
 }
 
 func (f *fixture) count(name string) int {
@@ -150,6 +156,71 @@ func (f *fixture) Report(ctx context.Context, id, ref string) (desktop.ReportDet
 		return desktop.ReportDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: report " + ref}
 	}
 	return d, nil
+}
+
+func (f *fixture) stallAction() {
+	if f.actionBlock != nil {
+		if f.actionEntered != nil {
+			f.actionEntered <- struct{}{}
+		}
+		<-f.actionBlock
+	}
+}
+
+func (f *fixture) AnswerDecision(ctx context.Context, id, ref, choice, note string) (desktop.DecisionDetail, error) {
+	f.note("answer:" + ref)
+	f.mu.Lock()
+	f.choice, f.answerNote = choice, note
+	f.mu.Unlock()
+	f.stallAction()
+	if f.action != nil {
+		return desktop.DecisionDetail{}, f.action
+	}
+	d, ok := f.decision[id]
+	if !ok || (ref != "" && d.Decision.Ref != ref) {
+		return desktop.DecisionDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: decision " + ref}
+	}
+	d.Decision.Status = "answered"
+	d.Decision.Pill = "passing"
+	d.Decision.Answer = strings.TrimSpace(choice + "\n\n" + note)
+	d.Decision.AnsweredBy = "operator (desktop)"
+	d.Decision.ClosedAt = "2026-11-01T05:00:00Z"
+	f.decision[id] = d
+	f.dropNeed(id, d.Decision.Ref)
+	return d, nil
+}
+
+func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.ReportDetail, error) {
+	f.note("ack:" + ref)
+	f.stallAction()
+	if f.action != nil {
+		return desktop.ReportDetail{}, f.action
+	}
+	d, ok := f.report[id]
+	if !ok || (ref != "" && d.Report.Ref != ref) {
+		return desktop.ReportDetail{}, &desktop.APIError{Status: 404, Code: "not_found", Message: "not found: report " + ref}
+	}
+	d.Report.AckedAt = "2026-11-01T05:00:00Z"
+	d.Report.AckedBy = "operator (desktop)"
+	f.report[id] = d
+	f.dropNeed(id, d.Report.Ref)
+	return d, nil
+}
+
+func (f *fixture) dropNeed(id, ref string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	st := f.status[id]
+	kept := make([]desktop.Need, 0, len(st.Needs.Items))
+	for _, need := range st.Needs.Items {
+		if need.Ref == ref || need.Report == ref || need.Decision == ref {
+			continue
+		}
+		kept = append(kept, need)
+	}
+	st.Needs.Items = kept
+	st.Needs.Waiting = len(kept)
+	f.status[id] = st
 }
 
 func goldenFixture(t *testing.T) *fixture {

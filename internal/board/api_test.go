@@ -147,6 +147,68 @@ func testAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code
 	return body.Error
 }
 
+func apiPost(t *testing.T, h http.Handler, path string, body any, csrf string, cookie bool) *httptest.ResponseRecorder {
+	t.Helper()
+	var raw io.Reader = strings.NewReader("")
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = bytes.NewReader(b)
+	}
+	req := httptest.NewRequest("POST", path, raw)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if csrf != "" {
+		req.Header.Set("X-Hand-CSRF", csrf)
+	}
+	if cookie {
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func apiPostRaw(t *testing.T, h http.Handler, path, body, csrf string, cookie bool) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if csrf != "" {
+		req.Header.Set("X-Hand-CSRF", csrf)
+	}
+	if cookie {
+		req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func apiBody[T any](t *testing.T, rec *httptest.ResponseRecorder) (board.APIEnvelope, T) {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Version     int             `json:"version"`
+		Fleet       board.APIFleet  `json:"fleet"`
+		Cursor      string          `json:"cursor"`
+		GeneratedAt string          `json:"generated_at"`
+		Data        json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("POST is not the envelope: %v:\n%s", err, rec.Body.String())
+	}
+	var data T
+	if err := json.Unmarshal(env.Data, &data); err != nil {
+		t.Fatalf("POST data: %v:\n%s", err, env.Data)
+	}
+	return board.APIEnvelope{Version: env.Version, Fleet: env.Fleet, Cursor: env.Cursor, GeneratedAt: env.GeneratedAt, Data: data}, data
+}
+
 func TestAPIGolden(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
@@ -189,6 +251,166 @@ func TestAPIGolden(t *testing.T) {
 			}
 			if out.String() != string(want) {
 				t.Fatalf("GET %s does not match %s:\n%s", c.path, file, out.String())
+			}
+		})
+	}
+}
+
+func TestAPISession(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, sess := apiInto[board.APISession](t, h, "/api/v1/session")
+	if sess.CSRF != token || env.Cursor == "" {
+		t.Fatalf("session = %+v, cursor %q", sess, env.Cursor)
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/session", nil, false), http.StatusUnauthorized, "unauthorized")
+}
+
+func TestAPIAnswerDecision(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	rec := apiPost(t, h, "/api/v1/decision/d1/answer",
+		map[string]string{"choice": "1. Yes, keep it", "note": "the docs keep the old name"}, token, true)
+	env, got := apiBody[board.APIDecisionDetail](t, rec)
+	if env.Cursor == "" || env.Version != 1 || env.Fleet.Name != "golden" {
+		t.Fatalf("envelope = %+v", env)
+	}
+	if got.Decision.Status != "answered" || got.Decision.Answer != "1. Yes, keep it\n\nthe docs keep the old name" ||
+		got.Decision.AnsweredBy != "operator (desktop)" || got.Decision.ClosedAt == "" {
+		t.Fatalf("decision = %+v", got.Decision)
+	}
+	if len(got.Options) != 2 || got.Task.Ref != "t1" || got.Body == "" {
+		t.Fatalf("detail = %+v", got)
+	}
+	_, again := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/d1")
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(again)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("the mutation and the GET disagree:\n%s\n%s", a, b)
+	}
+}
+
+func TestAPIAnswerRefusals(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	path := "/api/v1/decision/d1/answer"
+	body := map[string]string{"choice": "1. Yes, keep it"}
+	testAPIError(t, apiPost(t, h, path, body, "", false), http.StatusUnauthorized, "unauthorized")
+	csrf := testAPIError(t, apiPost(t, h, path, body, "", true), http.StatusForbidden, "csrf_required")
+	if strings.Contains(csrf.Message, "/") {
+		t.Fatalf("the CSRF refusal names a path: %q", csrf.Message)
+	}
+	testAPIError(t, apiPost(t, h, path, body, "wrong", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPost(t, h, "/api/v1/decision/d999/answer", body, token, true), http.StatusNotFound, "not_found")
+	testAPIError(t, apiPost(t, h, path, map[string]string{"choice": " ", "note": " "}, token, true), http.StatusBadRequest, "bad_request")
+
+	for _, raw := range []string{
+		"{",
+		`{"choice":"1. Yes, keep it"} {}`,
+		`{"choice":"1. Yes, keep it"} trailing`,
+		`{"choice":"1. Yes, keep it","note":"` + strings.Repeat("x", 70<<10) + `"}`,
+	} {
+		testAPIError(t, apiPostRaw(t, h, path, raw, token, true), http.StatusBadRequest, "bad_request")
+	}
+	_, still := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/d1")
+	if still.Decision.Status != "open" {
+		t.Fatalf("a refused body changed the decision: %s", still.Decision.Status)
+	}
+
+	d, err := fx.st.Ask(context.Background(), 1, "Which name?\n\n1. Yes\n2. Other — write it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "/api/v1/decision/" + state.DecisionRef(d.ID) + "/answer"
+	testAPIError(t, apiPost(t, h, other, map[string]string{"choice": "2. Other"}, token, true), http.StatusBadRequest, "bad_request")
+	if got := apiPost(t, h, other, map[string]string{"choice": "2. Other", "note": "mine"}, token, true); got.Code != http.StatusOK {
+		t.Fatalf("an other answer with a note = %d:\n%s", got.Code, got.Body.String())
+	}
+
+	if got := apiPost(t, h, path, body, token, true); got.Code != http.StatusOK {
+		t.Fatalf("the first answer = %d:\n%s", got.Code, got.Body.String())
+	}
+	conflict := testAPIError(t, apiPost(t, h, path, body, token, true), http.StatusConflict, "conflict")
+	if strings.Contains(conflict.Message, "/") {
+		t.Fatalf("the conflict names a path: %q", conflict.Message)
+	}
+
+	method := apiPost(t, h, "/api/v1/status", nil, token, true)
+	testAPIError(t, method, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := method.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("405 Allow = %q", got)
+	}
+	put := httptest.NewRequest("PUT", "/api/v1/status", nil)
+	put.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, put)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("PUT /api/v1/status Allow = %q", got)
+	}
+	putAction := httptest.NewRequest("PUT", path, nil)
+	putAction.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, putAction)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("PUT %s Allow = %q", path, got)
+	}
+}
+
+func TestAPIAckReport(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	rec := apiPost(t, h, "/api/v1/report/r1/ack", nil, token, true)
+	env, got := apiBody[board.APIReportDetail](t, rec)
+	if env.Cursor == "" || got.Report.AckedAt == "" || got.Report.AckedBy != "operator (desktop)" {
+		t.Fatalf("report = %+v, cursor %q", got.Report, env.Cursor)
+	}
+	_, again := apiInto[board.APIReportDetail](t, h, "/api/v1/report/r1")
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(again)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("the ack and the GET disagree:\n%s\n%s", a, b)
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/report/r1/ack", nil, "", false), http.StatusUnauthorized, "unauthorized")
+	testAPIError(t, apiPost(t, h, "/api/v1/report/r1/ack", nil, "", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPost(t, h, "/api/v1/report/r999/ack", nil, token, true), http.StatusNotFound, "not_found")
+	testAPIError(t, apiPost(t, h, "/api/v1/report/r1/ack", nil, token, true), http.StatusConflict, "conflict")
+}
+
+func TestAPIMutationGolden(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		path string
+		body any
+	}{
+		{"decision-answered", "/api/v1/decision/d1/answer", map[string]string{"choice": "1. Yes, keep it", "note": "keep the docs"}},
+		{"report-acked", "/api/v1/report/r1/ack", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			rec := apiPost(t, fx.handler(), c.path, c.body, token, true)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST %s = %d:\n%s", c.path, rec.Code, rec.Body.String())
+			}
+			var out bytes.Buffer
+			if err := json.Indent(&out, rec.Body.Bytes(), "", "  "); err != nil {
+				t.Fatal(err)
+			}
+			out.WriteByte('\n')
+			file := filepath.Join("testdata", "api", c.name+".json")
+			if os.Getenv("UPDATE_GOLDEN") != "" {
+				if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("%v (run with UPDATE_GOLDEN=1 to write it)", err)
+			}
+			if out.String() != string(want) {
+				t.Fatalf("POST %s does not match %s:\n%s", c.path, file, out.String())
 			}
 		})
 	}

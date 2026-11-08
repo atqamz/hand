@@ -1,12 +1,16 @@
 package board
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"hash/fnv"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -42,6 +46,10 @@ type APIError struct {
 
 type APIErrorResponse struct {
 	Error APIError `json:"error"`
+}
+
+type APISession struct {
+	CSRF string `json:"csrf"`
 }
 
 type APIGauge struct {
@@ -353,12 +361,123 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API is read-only; send GET")
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodPost:
+	default:
+		w.Header().Set("Allow", apiAllow(r))
+		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on a decision's answer and a report's ack")
 		return
 	}
 	b.mux.ServeHTTP(w, r)
+}
+
+func apiAllow(r *http.Request) string {
+	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
+	if strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
+		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
+		return "POST"
+	}
+	return "GET, HEAD"
+}
+
+func (b *Board) apiSession(w http.ResponseWriter, r *http.Request) {
+	f, since, ok := b.apiSince(w, r)
+	if !ok {
+		return
+	}
+	b.apiOK(w, f, since, APISession{CSRF: b.csrf(r.Context())})
+}
+
+func (b *Board) apiCSRF(w http.ResponseWriter, r *http.Request) bool {
+	s, _ := r.Context().Value(sessionKey{}).(session)
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Hand-CSRF")), []byte(s.CSRF)) != 1 {
+		b.apiFail(w, http.StatusForbidden, "csrf_required", "the X-Hand-CSRF header is missing or wrong; read the session's token first")
+		return false
+	}
+	return true
+}
+
+type apiAnswerBody struct {
+	Choice string `json:"choice"`
+	Note   string `json:"note"`
+}
+
+func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	id, err := pathID(r, "d")
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 64 KiB")
+		return
+	}
+	var in apiAnswerBody
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with choice and note")
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with choice and note")
+		return
+	}
+	choice, note := strings.TrimSpace(in.Choice), strings.TrimSpace(in.Note)
+	answer := strings.TrimSpace(choice + "\n\n" + note)
+	if answer == "" {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "pick an option or write an answer")
+		return
+	}
+	if note == "" && b.asksForANote(ctx, id, choice) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "write your answer: that option asks for one")
+		return
+	}
+	if _, err := b.st.Answer(ctx, id, answer, "operator (desktop)"); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiDecisionData(ctx, id) })
+}
+
+func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	id, err := pathID(r, "r")
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	if _, err := b.st.AckReport(ctx, id, "operator (desktop)"); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiReportData(ctx, id) })
+}
+
+func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, data func() (any, error)) {
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	out, err := data()
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiOK(w, f, "", out)
+}
+
+func (b *Board) apiMethod(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Allow", "GET, HEAD")
+	b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "only a decision's answer and a report's ack take POST")
 }
 
 func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
