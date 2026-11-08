@@ -46,6 +46,7 @@ type App struct {
 
 	Draft    string
 	DraftDir string
+	DraftErr string
 
 	Status   Status
 	Timeline Timeline
@@ -55,17 +56,24 @@ type App struct {
 	Decision DecisionDetail
 	Report   ReportDetail
 
-	Err    string
-	loadID int
-	cancel context.CancelFunc
-	stop   context.CancelFunc
-	gen    int
-	back   []backStep
+	Err     string
+	unsaved map[string]draftFailure
+	writer  *draftWriter
+	loadID  int
+	cancel  context.CancelFunc
+	stop    context.CancelFunc
+	gen     int
+	back    []backStep
 }
 
 type backStep struct {
 	Screen Screen
 	Ref    string
+}
+
+type draftFailure struct {
+	text string
+	err  error
 }
 
 type found struct {
@@ -142,8 +150,15 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
-	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.Busy = "", "", "", false
+	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.DraftErr, a.Busy = "", "", "", "", false
+	if a.writer != nil {
+		a.writer.Flush()
+	}
 	a.Draft = a.drafts().Load(a.Fleet.ID)
+	if u, ok := a.unsaved[a.Fleet.ID]; ok {
+		a.Draft = u.text
+		a.DraftErr = "the draft was not saved: " + friendly(u.err)
+	}
 	if a.OnFleet != nil {
 		a.OnFleet(a.Fleet)
 	}
@@ -409,21 +424,33 @@ func (a *App) Ack(ref string) {
 }
 
 func (a *App) Send() {
-	text := strings.TrimSpace(a.Draft)
-	if a.Busy || a.Model == nil || a.Fleet.ID == "" || text == "" {
+	text := a.Draft
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || strings.TrimSpace(text) == "" {
 		return
 	}
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
-	model, fleet, drafts := a.Model, a.Fleet.ID, a.drafts()
+	model, fleet, writer := a.Model, a.Fleet.ID, a.draftWriter()
 	a.Busy = true
-	applied := func(tl Timeline) {
+	a.DraftErr = ""
+	applied := func(sent Sent) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy = false
-		a.Timeline = tl
 		a.Draft = ""
+		delete(a.unsaved, fleet)
+		if !sent.Fresh {
+			a.ActionErr = "the message was sent, but the conversation could not be read; refresh to see it"
+			return
+		}
+		a.Timeline = sent.Timeline
+	}
+	uncleared := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.DraftErr = "the message was sent, but its stored draft could not be removed: " + friendly(err)
 	}
 	status := func(st Status) {
 		if id != a.loadID {
@@ -445,7 +472,7 @@ func (a *App) Send() {
 		a.ActionErr = "the message was sent, but the fleet status could not be read: " + friendly(err)
 	}
 	fetch := func() {
-		tl, err := model.SendMessage(ctx, fleet, text)
+		sent, err := model.SendMessage(ctx, fleet, text)
 		if err != nil {
 			cancel()
 			if post == nil {
@@ -455,11 +482,17 @@ func (a *App) Send() {
 			}
 			return
 		}
-		_ = drafts.Clear(fleet)
+		if err := writer.ClearIf(fleet, text); err != nil {
+			if post == nil {
+				uncleared(err)
+			} else {
+				post(func() { uncleared(err) })
+			}
+		}
 		if post == nil {
-			applied(tl)
+			applied(sent)
 		} else {
-			post(func() { applied(tl) })
+			post(func() { applied(sent) })
 		}
 		st, serr := model.Status(ctx, fleet)
 		cancel()
@@ -490,8 +523,12 @@ func (a *App) ClearDraft() {
 		return
 	}
 	a.Draft = ""
+	a.DraftErr = ""
+	delete(a.unsaved, a.Fleet.ID)
 	if a.Fleet.ID != "" {
-		_ = a.drafts().Clear(a.Fleet.ID)
+		if err := a.draftWriter().Clear(a.Fleet.ID); err != nil {
+			a.DraftErr = "the stored draft could not be removed: " + friendly(err)
+		}
 	}
 }
 
@@ -499,11 +536,52 @@ func (a *App) drafts() Drafts {
 	return Drafts{Dir: a.DraftDir}
 }
 
+func (a *App) draftWriter() *draftWriter {
+	if a.writer == nil {
+		a.writer = newDraftWriter(a.drafts(), a.draftSaved, a.Post == nil)
+	}
+	return a.writer
+}
+
 func (a *App) saveDraft() {
 	if a.Fleet.ID == "" {
 		return
 	}
-	_ = a.drafts().Save(a.Fleet.ID, a.Draft)
+	a.draftWriter().Save(a.Fleet.ID, a.Draft)
+}
+
+// FlushDrafts waits until every queued draft write has run.
+func (a *App) FlushDrafts() {
+	if a.writer != nil {
+		a.writer.Flush()
+	}
+}
+
+func (a *App) draftSaved(fleet, text string, err error) {
+	if a.Post != nil {
+		a.Post(func() { a.applyDraftSave(fleet, text, err) })
+		return
+	}
+	a.applyDraftSave(fleet, text, err)
+}
+
+func (a *App) applyDraftSave(fleet, text string, err error) {
+	if err != nil {
+		if a.unsaved == nil {
+			a.unsaved = map[string]draftFailure{}
+		}
+		a.unsaved[fleet] = draftFailure{text: text, err: err}
+		if fleet == a.Fleet.ID {
+			a.DraftErr = "the draft was not saved: " + friendly(err)
+		}
+		return
+	}
+	if u, ok := a.unsaved[fleet]; ok && u.text == text {
+		delete(a.unsaved, fleet)
+	}
+	if fleet == a.Fleet.ID {
+		a.DraftErr = ""
+	}
 }
 
 func (a *App) Reload() {

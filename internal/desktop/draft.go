@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const maxDraft = 64 << 10
@@ -101,9 +102,157 @@ func (d Drafts) Clear(fleet string) error {
 	if err != nil {
 		return err
 	}
-	err = os.Remove(path)
+	return d.remove(path)
+}
+
+// ClearIf removes the draft only while it still holds text, so a send cannot
+// delete a newer draft another window saved meanwhile.
+func (d Drafts) ClearIf(fleet, text string) error {
+	path, err := d.path(fleet)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if string(raw) != text {
+		return nil
+	}
+	return d.remove(path)
+}
+
+func (d Drafts) remove(path string) error {
+	err := os.Remove(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	return err
+}
+
+// draftWriter writes drafts on one goroutine, keeping only the latest text per
+// fleet and running a clear after the writes it follows. Without a window it
+// writes inline, as Boot reads.
+type draftWriter struct {
+	drafts Drafts
+	report func(fleet, text string, err error)
+	inline bool
+	mu     sync.Mutex
+	next   map[string]string
+	wake   chan struct{}
+	clears chan draftClear
+	flush  chan chan struct{}
+}
+
+type draftClear struct {
+	fleet string
+	text  string
+	only  bool
+	reply chan error
+}
+
+func newDraftWriter(d Drafts, report func(fleet, text string, err error), inline bool) *draftWriter {
+	w := &draftWriter{
+		drafts: d,
+		report: report,
+		inline: inline,
+		next:   map[string]string{},
+		wake:   make(chan struct{}, 1),
+		clears: make(chan draftClear),
+		flush:  make(chan chan struct{}),
+	}
+	if !inline {
+		go w.run()
+	}
+	return w
+}
+
+func (w *draftWriter) Save(fleet, text string) {
+	if w.inline {
+		w.report(fleet, text, w.drafts.Save(fleet, text))
+		return
+	}
+	w.mu.Lock()
+	w.next[fleet] = text
+	w.mu.Unlock()
+	select {
+	case w.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (w *draftWriter) Clear(fleet string) error {
+	if w.inline {
+		return w.drafts.Clear(fleet)
+	}
+	return w.request(draftClear{fleet: fleet, reply: make(chan error, 1)}, true)
+}
+
+func (w *draftWriter) ClearIf(fleet, text string) error {
+	if w.inline {
+		return w.drafts.ClearIf(fleet, text)
+	}
+	return w.request(draftClear{fleet: fleet, text: text, only: true, reply: make(chan error, 1)}, false)
+}
+
+func (w *draftWriter) Flush() {
+	if w.inline {
+		return
+	}
+	done := make(chan struct{})
+	w.flush <- done
+	<-done
+}
+
+func (w *draftWriter) request(op draftClear, drop bool) error {
+	if drop {
+		w.mu.Lock()
+		delete(w.next, op.fleet)
+		w.mu.Unlock()
+	}
+	w.clears <- op
+	return <-op.reply
+}
+
+func (w *draftWriter) run() {
+	for {
+		if w.writeOne() {
+			continue
+		}
+		select {
+		case <-w.wake:
+		case op := <-w.clears:
+			for w.writeOne() {
+			}
+			op.reply <- w.clear(op)
+		case done := <-w.flush:
+			close(done)
+		}
+	}
+}
+
+func (w *draftWriter) writeOne() bool {
+	w.mu.Lock()
+	fleet, text, ok := "", "", false
+	for f, t := range w.next {
+		fleet, text, ok = f, t, true
+		delete(w.next, f)
+		break
+	}
+	w.mu.Unlock()
+	if !ok {
+		return false
+	}
+	w.report(fleet, text, w.drafts.Save(fleet, text))
+	return true
+}
+
+func (w *draftWriter) clear(op draftClear) error {
+	if op.only {
+		return w.drafts.ClearIf(op.fleet, op.text)
+	}
+	return w.drafts.Clear(op.fleet)
 }

@@ -53,6 +53,28 @@ func TestDraftsRefuseAnUnknownFleetAndAnOversizedDraft(t *testing.T) {
 	}
 }
 
+func TestDraftsClearOnlyTheTextThatWasSent(t *testing.T) {
+	d := desktop.Drafts{Dir: t.TempDir()}
+	if err := d.Save(fleetID, "a newer draft"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ClearIf(fleetID, "the sent text"); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Load(fleetID); got != "a newer draft" {
+		t.Fatalf("ClearIf removed a newer draft: %q", got)
+	}
+	if err := d.ClearIf(fleetID, "a newer draft"); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Load(fleetID); got != "" {
+		t.Fatalf("ClearIf left the sent draft: %q", got)
+	}
+	if err := d.ClearIf(fleetID, "not there"); err != nil {
+		t.Fatalf("ClearIf on a missing draft: %v", err)
+	}
+}
+
 func TestDraftDirFollowsXDGState(t *testing.T) {
 	if got, want := desktop.DraftDir(func(k string) string {
 		switch k {

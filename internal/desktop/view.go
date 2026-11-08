@@ -433,11 +433,14 @@ func (a *App) composer(c *ui.Context, p palette) {
 				a.Send()
 				return true
 			})
+		if a.DraftErr != "" {
+			ui.Text(c, a.DraftErr).FontSize(12).TextColor(p.fail)
+		}
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Text(c, "Enter sends · Shift+Enter starts a new line.").FontSize(12).
 				TextColor(p.neutral).Grow(1)
 			if ui.Button(c.Key("composer:clear"), "Clear").
-				Disabled(a.Busy || strings.TrimSpace(a.Draft) == "").Clicked() {
+				Disabled(a.Busy || a.Draft == "").Clicked() {
 				a.ClearDraft()
 			}
 			label := "Send"

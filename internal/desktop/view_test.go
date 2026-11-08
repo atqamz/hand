@@ -215,6 +215,7 @@ func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
 	click(t, tt, "Message")
 	tt.Type("half a message")
 	tt.Frame()
+	app.FlushDrafts()
 	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "half a message" {
 		t.Fatalf("saved draft = %q", got)
 	}
@@ -272,6 +273,172 @@ func TestTheDraftCanBeCleared(t *testing.T) {
 	click(t, tt, "Clear")
 	if app.Draft != "" || (desktop.Drafts{Dir: dir}).Load(fleetID) != "" {
 		t.Fatalf("Clear left draft %q", app.Draft)
+	}
+}
+
+func TestTheComposerSendsTheDraftTextAsWritten(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("  indented\n\nand trailing\n")
+	tt.Frame()
+	click(t, tt, "Send")
+	if want := "  indented\n\nand trailing\n"; f.sentText != want {
+		t.Fatalf("sent %q, want %q", f.sentText, want)
+	}
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after a send", app.Draft)
+	}
+}
+
+func TestAWhitespaceDraftCanBeCleared(t *testing.T) {
+	dir := t.TempDir()
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("   ")
+	tt.Frame()
+	click(t, tt, "Clear")
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after Clear", app.Draft)
+	}
+	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
+		t.Fatalf("the stored draft = %q after Clear", got)
+	}
+}
+
+func TestASendWhoseTimelineCannotBeReadClearsTheDraft(t *testing.T) {
+	f := goldenFixture(t)
+	f.stale = true
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("sent once")
+	tt.Frame()
+	click(t, tt, "Send")
+	tt.Frame()
+	if got := f.count("send:" + fleetID); got != 1 {
+		t.Fatalf("the message was sent %d times", got)
+	}
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after an accepted send", app.Draft)
+	}
+	mustText(t, tt, "the message was sent, but the conversation could not be read")
+}
+
+func TestTheDraftWhoseSaveFailedSurvivesAFleetSwitch(t *testing.T) {
+	dir := t.TempDir()
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = blocked
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("keep this draft")
+	tt.Frame()
+	mustText(t, tt, "the draft was not saved")
+	click(t, tt, "second")
+	if app.Draft != "" {
+		t.Fatalf("the second fleet inherited the draft %q", app.Draft)
+	}
+	click(t, tt, "golden")
+	if app.Draft != "keep this draft" {
+		t.Fatalf("the unsaved draft did not come back: %q", app.Draft)
+	}
+	click(t, tt, "Timeline")
+	mustText(t, tt, "the draft was not saved")
+}
+
+func TestADraftThatCannotBeRemovedIsReported(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("clear me")
+	tt.Frame()
+	click(t, tt, "Clear")
+	mustText(t, tt, "the stored draft could not be removed")
+	if app.ActionErr != "" {
+		t.Fatalf("a failed cleanup became a failed action: %q", app.ActionErr)
+	}
+}
+
+func TestADraftThatCannotBeRemovedAfterASendIsNotASendFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, fleetID+".txt", "kept"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("sent anyway")
+	tt.Frame()
+	click(t, tt, "Send")
+	mustText(t, tt, "the message was sent, but its stored draft could not be removed")
+	if app.ActionErr != "" {
+		t.Fatalf("a failed draft cleanup became a failed send: %q", app.ActionErr)
+	}
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after a send", app.Draft)
+	}
+}
+
+func TestASendKeepsANewerDraft(t *testing.T) {
+	dir := t.TempDir()
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("the older draft")
+	tt.Frame()
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Send")
+	waitPost(t, posted)()
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never sent the message")
+	}
+	if err := (desktop.Drafts{Dir: dir}).Save(fleetID, "a newer draft"); err != nil {
+		t.Fatal(err)
+	}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "a newer draft" {
+		t.Fatalf("the send left %q", got)
+	}
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after a send", app.Draft)
 	}
 }
 

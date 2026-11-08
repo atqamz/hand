@@ -34,7 +34,14 @@ type ReadModel interface {
 	Report(ctx context.Context, fleet, ref string) (ReportDetail, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
 	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
-	SendMessage(ctx context.Context, fleet, text string) (Timeline, error)
+	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
+}
+
+// Sent is a message the board accepted. Fresh is false when the board queued
+// the text but could not read the conversation back.
+type Sent struct {
+	Timeline Timeline
+	Fresh    bool
 }
 
 const (
@@ -266,10 +273,15 @@ type messageRequest struct {
 	Text string `json:"text"`
 }
 
-func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Timeline, error) {
-	var out Timeline
+type messageReply struct {
+	Accepted bool `json:"accepted"`
+	Timeline
+}
+
+func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Sent, error) {
+	var out messageReply
 	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text}, &out)
-	return out, err
+	return Sent{Timeline: out.Timeline, Fresh: !out.Accepted}, err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {
