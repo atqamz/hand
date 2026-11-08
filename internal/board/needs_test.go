@@ -168,7 +168,7 @@ func TestTheNoSupervisorItemCarriesStartAndResume(t *testing.T) {
 	stopped.supervisor(t, state.AttemptStopped, "gen-1")
 	workerAttempt(t, stopped.st, active(t, stopped.st, "Fix login").ID)
 	item := noSupervisorItem(t, stopped)
-	contains(t, "nosup", item, `action="/supervisor/resume"`, `<button>New session</button>`)
+	contains(t, "nosup", item, `action="/supervisor/resume"`, `<button class="primary">Resume</button>`, `<button>New session</button>`)
 	lacks(t, "nosup beside resume", item, `<button class="primary">New session`)
 
 	cold := newFixture(t)
