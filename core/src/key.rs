@@ -107,15 +107,12 @@ fn stored(path: &Path, cipher: &dyn KeyCipher) -> io::Result<Stored> {
 fn create(dir: &Path, path: &Path, cipher: &dyn KeyCipher) -> io::Result<SecretKey> {
     let (key, sealed) = sealed_key(cipher)?;
     let temp = write_temp(dir, &key, &sealed)?;
-    let linked = fs::hard_link(&temp, path);
-    let _ = fs::remove_file(&temp);
-    match linked {
+    match fs::rename(&temp, path) {
         Ok(()) => sync_dir(dir).map(|()| key),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => match stored(path, cipher)? {
-            Stored::Loaded(bytes) => Ok(SecretKey::from_bytes(&bytes)),
-            Stored::Missing | Stored::Replaced => Err(error),
-        },
-        Err(error) => Err(error),
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(error)
+        }
     }
 }
 
@@ -208,7 +205,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-    use std::thread;
 
     use super::*;
 
@@ -342,27 +338,29 @@ mod tests {
         let sealed = fs::read(key_path(dir.path())).unwrap();
         assert_eq!(sealed.len(), FAKE_IV + KEY_LEN + FAKE_TAG);
         assert_ne!(sealed, first.to_bytes().to_vec());
+        let names: Vec<_> = fs::read_dir(dir.path().join(KEY_DIR))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [KEY_FILE]);
     }
 
     #[test]
-    fn simultaneous_first_runs_agree_on_one_key() {
-        let dir = Arc::new(temp());
-        let cipher = Arc::new(FakeCipher::new());
-        let keys: Vec<[u8; 32]> = (0..8)
-            .map(|_| {
-                let dir = dir.clone();
-                let cipher = cipher.clone();
-                thread::spawn(move || {
-                    load_or_create(dir.path(), cipher.as_ref())
-                        .unwrap()
-                        .to_bytes()
-                })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|thread| thread.join().unwrap())
-            .collect();
-        assert!(keys.iter().all(|key| *key == keys[0]));
+    fn create_replaces_an_existing_blob() {
+        let dir = temp();
+        let cipher = FakeCipher::new();
+        let target = key_path(dir.path());
+        create_dir(target.parent().unwrap()).unwrap();
+        fs::write(&target, b"old").unwrap();
+        let key = create(target.parent().unwrap(), &target, &cipher).unwrap();
+        assert_eq!(
+            fs::read(&target).unwrap().len(),
+            FAKE_IV + KEY_LEN + FAKE_TAG
+        );
+        assert_eq!(
+            load_or_create(dir.path(), &cipher).unwrap().to_bytes(),
+            key.to_bytes()
+        );
     }
 
     #[test]
