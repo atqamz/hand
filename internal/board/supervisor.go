@@ -218,7 +218,7 @@ func dialogAsk(screen string) *askCard {
 			out = append(out, askChoice{Label: m[2], Field: "key", Value: m[1]})
 		}
 	case circleOption.MatchString(text(start)):
-		focus := 0
+		focus := -1
 		for k := start; k <= end; k++ {
 			t := text(k)
 			m := circleOption.FindStringSubmatch(t)
@@ -229,6 +229,9 @@ func dialogAsk(screen string) *askCard {
 				focus = k - start
 			}
 			out = append(out, askChoice{Label: strings.TrimSpace(m[2])})
+		}
+		if focus < 0 {
+			return nil
 		}
 		for i := range out {
 			out[i].Field, out[i].Value = "keys", circleKeys(focus, i)

@@ -252,6 +252,68 @@ func TestATranscriptBulletAloneIsNotAnAskCard(t *testing.T) {
 	lacks(t, "transcript bullet", body, `<div class="ask">`, `data-ask`, "Fixed login</button>")
 }
 
+func TestABulletBelowAQuestionNeedsACursorToBeAnAskCard(t *testing.T) {
+	for _, status := range []string{"blocked", "idle"} {
+		for name, tc := range map[string]struct {
+			screen string
+			card   bool
+		}{
+			"no cursor": {"Trust this folder?\n● Fixed login\nEnter to select · Esc to cancel", false},
+			"cursor":    {"Trust this folder?\n❯ ● Fixed login\nEnter to select · Esc to cancel", true},
+		} {
+			t.Run(status+"/"+name, func(t *testing.T) {
+				fx := newFixture(t)
+				fx.status, fx.hint = status, "Trust this folder?"
+				fx.screen = tc.screen
+				fx.supervisor(t, state.AttemptRunning, "gen-1")
+				body := get(t, fx.handler(), "/supervisor")
+				ask := askBlock(body)
+				if tc.card {
+					if ask == "" {
+						t.Fatal("the focused bullet has no ask card")
+					}
+					contains(t, "focused bullet", ask, `<button name="keys" value="enter">Fixed login</button>`)
+					return
+				}
+				lacks(t, "cursorless bullet", body, `<div class="ask">`, `data-ask`, "Fixed login</button>")
+				contains(t, "cursorless bullet", body, `data-screen-keys`)
+			})
+		}
+	}
+}
+
+func TestACircleBlockBelowAQuestionNeedsACursorToBeAnAskCard(t *testing.T) {
+	for _, status := range []string{"blocked", "idle"} {
+		for name, tc := range map[string]struct {
+			screen string
+			card   bool
+		}{
+			"no cursor": {"Which approach?\n◯ Fast\n◯ Correct\nselect · n note · ↑/↓ move · esc cancel", false},
+			"cursor":    {"Which approach?\n❯ ◯ Fast\n  ◯ Correct\nselect · n note · ↑/↓ move · esc cancel", true},
+		} {
+			t.Run(status+"/"+name, func(t *testing.T) {
+				fx := newFixture(t)
+				fx.status, fx.hint = status, "Which approach?"
+				fx.screen = tc.screen
+				fx.supervisor(t, state.AttemptRunning, "gen-1")
+				body := get(t, fx.handler(), "/supervisor")
+				ask := askBlock(body)
+				if tc.card {
+					if ask == "" {
+						t.Fatal("the focused circle has no ask card")
+					}
+					contains(t, "focused circle", ask,
+						`<button name="keys" value="enter">Fast</button>`,
+						`<button name="keys" value="down enter">Correct</button>`)
+					return
+				}
+				lacks(t, "cursorless circle", body, `<div class="ask">`, `data-ask`, "Fast</button>", "Correct</button>")
+				contains(t, "cursorless circle", body, `data-screen-keys`)
+			})
+		}
+	}
+}
+
 func TestAnOptionThatReadsLikeAFooterKeepsItsButton(t *testing.T) {
 	fx := newFixture(t)
 	fx.status, fx.hint = "idle", ""
@@ -304,13 +366,20 @@ func TestTheScreenNoteFollowsTheStream(t *testing.T) {
 }
 
 func TestTheFourOptionAskScreenIsNotAnAskCard(t *testing.T) {
-	fx := newFixture(t)
-	fx.status, fx.hint = "blocked", "Pick one"
-	fx.screen = capture(t, "askq")
-	fx.supervisor(t, state.AttemptRunning, "gen-1")
-	body := get(t, fx.handler(), "/supervisor")
-	lacks(t, "four options", body, `data-ask`, `name="key" value="4"`, "Cleanup</button>")
-	contains(t, "four options", body, `data-screen-keys`, "Delete the build folder?")
+	for name, screen := range map[string]string{
+		"the fixture":      capture(t, "askq"),
+		"the option block": "Delete the build folder?\n1. Yes\n2. No\n3. Type something.\n4. Chat about this\nEnter to select · ↑/↓ to navigate · Esc to cancel",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fx := newFixture(t)
+			fx.status, fx.hint = "blocked", "Pick one"
+			fx.screen = screen
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			body := get(t, fx.handler(), "/supervisor")
+			lacks(t, "four options", body, `data-ask`, `name="key" value="4"`, "Cleanup</button>")
+			contains(t, "four options", body, `data-screen-keys`, "Delete the build folder?")
+		})
+	}
 }
 
 func TestAnAskOptionKeepsHintWordsInItsLabel(t *testing.T) {
