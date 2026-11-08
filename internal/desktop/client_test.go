@@ -8,7 +8,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -238,6 +240,24 @@ func TestTheClientWithholdsTheTokenFromAnotherService(t *testing.T) {
 	}
 	if cookies != 0 {
 		t.Fatalf("the token went to a service that could not prove it is the board")
+	}
+}
+
+func TestTheProofRequestDoesNotUseTheCookieJar(t *testing.T) {
+	srv, _ := goldenServer(t)
+	c := goldenClient(t, srv.URL)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jar.SetCookies(u, []*http.Cookie{{Name: "hand_board_" + fleetID, Value: testToken}})
+	c.HTTP = &http.Client{Jar: jar}
+	if _, err := c.Status(context.Background(), fleetID); err != nil {
+		t.Fatal(err)
 	}
 }
 

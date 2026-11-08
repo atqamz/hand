@@ -908,19 +908,32 @@ func firstLine(s string) string {
 	return line
 }
 
-var optionLine = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+`)
+var (
+	optionLine  = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+(.+)$`)
+	recommended = regexp.MustCompile(`(?i)\s*\(recommended\)`)
+)
+
+func optionKey(line string) (string, bool) {
+	m := optionLine.FindStringSubmatch(line)
+	if m == nil || strings.TrimSpace(recommended.ReplaceAllString(m[2], "")) == "" {
+		return "", false
+	}
+	return m[1], true
+}
 
 func questionBody(question, headline string, options bool) string {
 	body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), strings.TrimSpace(headline)))
 	if !options {
 		return body
 	}
+	seen := map[string]bool{}
 	var keep []string
 	fenced := false
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			fenced = !fenced
-		} else if !fenced && optionLine.MatchString(line) {
+		} else if key, ok := optionKey(line); ok && !fenced && !seen[key] {
+			seen[key] = true
 			continue
 		}
 		keep = append(keep, line)

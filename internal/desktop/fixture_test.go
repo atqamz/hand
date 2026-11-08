@@ -30,6 +30,7 @@ type fixture struct {
 	report   map[string]desktop.ReportDetail
 	fail     error
 	stall    string
+	nameIn   chan struct{}
 	block    chan struct{}
 	entered  chan struct{}
 	mu       sync.Mutex
@@ -54,10 +55,14 @@ func (f *fixture) note(name string) {
 func (f *fixture) Fleets() []desktop.Fleet { return append([]desktop.Fleet(nil), f.fleets...) }
 
 func (f *fixture) Name(ctx context.Context, id string) (string, error) {
+	f.note("name:" + id)
 	if f.fail != nil {
 		return "", f.fail
 	}
 	if f.stall == id {
+		if f.nameIn != nil {
+			f.nameIn <- struct{}{}
+		}
 		<-ctx.Done()
 		return "", ctx.Err()
 	}

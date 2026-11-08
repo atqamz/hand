@@ -320,10 +320,11 @@ func (c *HTTPClient) http() *http.Client {
 	return http.DefaultClient
 }
 
-// client never follows a redirect: the proof and the cookie belong to the
-// one address the fleet recorded, not to whatever answers there.
+// client never follows a redirect and never uses a cookie jar: the proof and
+// the cookie belong to the one address the fleet recorded.
 func (c *HTTPClient) client() *http.Client {
 	client := *c.http()
+	client.Jar = nil
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &client
 }

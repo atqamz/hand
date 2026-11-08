@@ -595,16 +595,95 @@ func TestAnOmittedTranscriptIsNoticed(t *testing.T) {
 func TestDecisionOptionsAreShownOnce(t *testing.T) {
 	f := goldenFixture(t)
 	dd := f.decision[fleetID]
-	dd.Decision.Question = "Keep the old cookie name?\n\nWe made this earlier.\n\n1. Yes, keep it\n2. No, rename it"
+	dd.Decision.Question = "Keep the old cookie name?\n\nWe made this earlier.\n\n1. Yes, keep it\n2. No, rename it\n\n1. Then update the docs."
 	f.decision[fleetID] = dd
 	app := newApp(t, f)
 	tt := newTester(app)
 	click(t, tt, "Needs")
 	click(t, tt, "Keep the old cookie name?")
-	mustText(t, tt, "We made this earlier.")
+	mustText(t, tt, "We made this earlier.", "Then update the docs.")
 	for _, want := range []string{"Yes, keep it", "No, rename it"} {
 		if n := countText(t, tt, want); n != 1 {
 			t.Fatalf("%q is shown %d times, want once", want, n)
 		}
 	}
+}
+
+func TestARefreshErrorSurvivesAStaleLoad(t *testing.T) {
+	f := goldenFixture(t)
+	first := true
+	app := desktop.New(func() (desktop.ReadModel, error) {
+		if first {
+			first = false
+			return f, nil
+		}
+		return nil, desktop.ErrNoBoard
+	})
+	app.Boot()
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Timeline")
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the board")
+	}
+	click(t, tt, "Refresh")
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "no board is running")
+	close(f.block)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "no board is running")
+	mustNotText(t, tt, "Nothing to show")
+}
+
+func TestRefreshCancelsTheEarlierDiscovery(t *testing.T) {
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.Boot()
+	f.stall = fleetID
+	f.nameIn = make(chan struct{}, 2)
+	app.NameTimeout = 40 * time.Millisecond
+	base := f.count("name:" + secondID)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	click(t, tt, "Refresh")
+	select {
+	case <-f.nameIn:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first discovery never started")
+	}
+	click(t, tt, "Refresh")
+	select {
+	case <-f.nameIn:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second discovery never started")
+	}
+	for i := 0; i < 6; i++ {
+		waitPost(t, posted)()
+	}
+	if got := f.count("name:" + secondID); got != base+1 {
+		t.Fatalf("the canceled discovery looked up %d later fleets, want 1", got-base)
+	}
+}
+
+func TestRefreshUpdatesTheWindowTitle(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	var names []string
+	app.OnFleet = func(fl desktop.Fleet) { names = append(names, fl.Name) }
+	f.fleets[0].Name = "renamed"
+	tt := newTester(app)
+	click(t, tt, "Refresh")
+	if len(names) == 0 || names[len(names)-1] != "renamed" {
+		t.Fatalf("titles = %v, want the renamed fleet", names)
+	}
+	mustText(t, tt, "renamed")
 }

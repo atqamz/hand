@@ -49,6 +49,7 @@ type App struct {
 	Err    string
 	loadID int
 	cancel context.CancelFunc
+	stop   context.CancelFunc
 	gen    int
 	back   []backStep
 }
@@ -73,9 +74,14 @@ func (a *App) Boot() {
 }
 
 func (a *App) Refresh() {
-	post, connect, ctx, wait := a.Post, a.Connect, a.Context, a.nameTimeout()
+	a.invalidate()
+	dctx, stop := context.WithCancel(a.Context)
+	a.stop = stop
+	post, connect, wait := a.Post, a.Connect, a.nameTimeout()
 	if post == nil {
-		a.install(discover(connect, ctx, wait), true)
+		f := discover(connect, dctx, wait)
+		stop()
+		a.install(f, true)
 		return
 	}
 	a.gen++
@@ -84,7 +90,8 @@ func (a *App) Refresh() {
 	a.Loading = true
 	post(func() {})
 	go func() {
-		f := discover(connect, ctx, wait)
+		f := discover(connect, dctx, wait)
+		stop()
 		post(func() {
 			if gen != a.gen {
 				return
@@ -145,6 +152,9 @@ func (a *App) install(f found, keep bool) {
 		a.Err = "no fleets are registered; run `hand init` in a folder to make one"
 	case a.hasFleet(a.Fleet.ID) && keep:
 		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
+		if a.OnFleet != nil {
+			a.OnFleet(a.Fleet)
+		}
 		a.Reload()
 	case a.hasFleet(a.Fleet.ID):
 		a.SelectFleet(a.Fleet.ID)
@@ -272,6 +282,18 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	return a.loadID, ctx, cancel
 }
 
+func (a *App) invalidate() {
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+	if a.stop != nil {
+		a.stop()
+		a.stop = nil
+	}
+	a.loadID++
+}
+
 func (a *App) nameTimeout() time.Duration {
 	if a.NameTimeout > 0 {
 		return a.NameTimeout
@@ -286,6 +308,9 @@ func discover(connect func() (ReadModel, error), ctx context.Context, wait time.
 	}
 	fleets := m.Fleets()
 	for i := range fleets {
+		if ctx.Err() != nil {
+			break
+		}
 		lookup, cancel := context.WithTimeout(ctx, wait)
 		if name, err := m.Name(lookup, fleets[i].ID); err == nil && name != "" {
 			fleets[i].Name = name
