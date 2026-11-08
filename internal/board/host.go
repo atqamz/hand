@@ -175,9 +175,12 @@ func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		log.Printf("board: fleet %s did not open: %v", id, err)
 		if api {
-			if h.o.Loopback && !forwarded(r) {
+			switch {
+			case !h.apiSignedIn(id, r):
+				hostAPIFail(w, http.StatusUnauthorized, "unauthorized", "this request needs the board's session cookie")
+			case h.o.Loopback && !forwarded(r):
 				hostAPIFail(w, http.StatusInternalServerError, "internal", Scrub(err.Error()))
-			} else {
+			default:
 				hostAPIFail(w, http.StatusNotFound, "not_found", "fleet not found")
 			}
 		} else if h.o.Loopback && !forwarded(r) {
@@ -437,6 +440,18 @@ func hostPage(w http.ResponseWriter, status int, name string, data map[string]an
 	data["Base"] = ""
 	data["Fleet"] = "hand"
 	renderPage(w, status, name, data)
+}
+
+func (h *Host) apiSignedIn(id string, r *http.Request) bool {
+	if h.o.Valid == nil {
+		return false
+	}
+	for _, c := range r.CookiesNamed(cookieFor("/" + id)) {
+		if h.o.Valid(id, c.Value) {
+			return true
+		}
+	}
+	return false
 }
 
 func hostAPIPath(path string) bool {

@@ -337,7 +337,11 @@ func TestAPIAuthContract(t *testing.T) {
 	h.ServeHTTP(rec, wrong)
 	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 	testAPIError(t, request(h, "GET", "/api/v1/status?token="+token, nil, false), http.StatusUnauthorized, "unauthorized")
-	testAPIError(t, request(h, "POST", "/api/v1/status", url.Values{"csrf": {token}}, true), http.StatusMethodNotAllowed, "method_not_allowed")
+	method := request(h, "POST", "/api/v1/status", url.Values{"csrf": {token}}, true)
+	testAPIError(t, method, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := method.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("405 Allow = %q", got)
+	}
 	testAPIError(t, request(h, "GET", "/api/v1/nope", nil, true), http.StatusNotFound, "not_found")
 	foreign := base64.RawURLEncoding.EncodeToString([]byte("f00000000e0bb\x00" + strconv.FormatUint(42, 16)))
 	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(foreign), nil, true), http.StatusBadRequest, "bad_cursor")
@@ -347,6 +351,17 @@ func TestAPIAuthContract(t *testing.T) {
 	fleet, _, _ := strings.Cut(string(raw), "\x00")
 	forged := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x0000")) + "." + tag
 	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(forged), nil, true), http.StatusBadRequest, "bad_cursor")
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := strings.IndexByte(alphabet, tag[len(tag)-1])
+	if last < 0 || last+1 >= len(alphabet) {
+		t.Fatalf("the tag ends in %q; cannot make a noncanonical variant", tag[len(tag)-1])
+	}
+	variant := tag[:len(tag)-1] + string(alphabet[last+1])
+	loose := encoded + "." + variant
+	if got, err := base64.RawURLEncoding.DecodeString(variant); err != nil || base64.RawURLEncoding.EncodeToString(got) == variant {
+		t.Fatalf("the variant is not a noncanonical tag: %q", variant)
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(loose), nil, true), http.StatusBadRequest, "bad_cursor")
 	head := request(h, "HEAD", "/api/v1/status", nil, true)
 	if head.Code != http.StatusOK || head.Header().Get("X-Hand-Cursor") == "" {
 		t.Fatalf("HEAD /api/v1/status = %d, cursor %q", head.Code, head.Header().Get("X-Hand-Cursor"))
@@ -457,6 +472,12 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		if err := fx.st.NoteSupervisor(ctx, 1, "blocked", `copilot does not have model "SECRET-SCREEN-TEXT" and runs on auto instead; check the screen`); err != nil {
 			t.Fatal(err)
 		}
+		claudeLog(t, fx, []string{
+			rec("user", ago(20), "status?", 0),
+			rec("assistant", ago(19), "All good.", 0),
+			rec("user", ago(2), "Please investigate api error: timeout", 0),
+			rec("user", ago(1), "[hand v1 wake]\nattempt.limited a1: SECRET-SCREEN-TEXT; leaked-after-semicolon", 0),
+		})
 		h := fx.handler()
 		for _, c := range []string{
 			"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks",
@@ -482,6 +503,19 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		}
 		if blocked == 0 {
 			t.Fatal("the fixture has no blocked item")
+		}
+		_, timeline := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+		var conversation bool
+		for _, e := range timeline.Entries {
+			if e.Role == "operator" && strings.Contains(e.Text, "api error: timeout") {
+				conversation = true
+			}
+		}
+		if !conversation {
+			t.Fatal("the timeline dropped conversation text that names an API error")
+		}
+		if raw := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(raw, "leaked-after-semicolon") {
+			t.Fatalf("the timeline kept a screen detail after a semicolon:\n%s", raw)
 		}
 	})
 	for _, sc := range scenes() {
@@ -565,6 +599,9 @@ func TestAPIComposedTextLosesHostPaths(t *testing.T) {
 	if strings.Contains(status.Supervisor.Reason, "/very/long") || !strings.Contains(status.Supervisor.Reason, "supervisor.log") {
 		t.Fatalf("supervisor reason = %q", status.Supervisor.Reason)
 	}
+	if body := apiRaw(t, h, "/api/v1/timeline"); strings.Contains(body, "/very/long") {
+		t.Fatalf("the timeline names a supervisor end path:\n%s", body)
+	}
 }
 
 func TestAPIThroughTheFleetPrefix(t *testing.T) {
@@ -608,11 +645,16 @@ func TestAPIThroughTheFleetPrefixReportsOpenFailuresAsJSON(t *testing.T) {
 		Open: func(string, string) (http.Handler, io.Closer, error) {
 			return nil, nil, errors.New("cannot open /very/long/path/hand.db")
 		},
-		List: links,
+		List:  links,
+		Valid: func(string, string) bool { return true },
 	})
+	anon := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	rec := httptest.NewRecorder()
+	host.ServeHTTP(rec, anon)
+	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 	req := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
 	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
-	rec := httptest.NewRecorder()
+	rec = httptest.NewRecorder()
 	host.ServeHTTP(rec, req)
 	body := testAPIError(t, rec, http.StatusInternalServerError, "internal")
 	if strings.Contains(body.Message, "/very/long") {
@@ -624,7 +666,8 @@ func TestAPIThroughTheFleetPrefixReportsOpenFailuresAsJSON(t *testing.T) {
 		Open: func(string, string) (http.Handler, io.Closer, error) {
 			return nil, nil, state.ErrNotFound
 		},
-		List: links,
+		List:  links,
+		Valid: func(string, string) bool { return true },
 	})
 	req = httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
 	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
@@ -745,7 +788,7 @@ func agreeWebAndAPI(t *testing.T, h http.Handler) {
 	t.Helper()
 	page := get(t, h, "/")
 	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
-	m := regexp.MustCompile(`<div class="status-line" data-agent="([^"]*)" data-hint="([^"]*)">`).FindStringSubmatch(page)
+	m := regexp.MustCompile(`<div class="status-line" data-agent="([^"]*)" data-hint="([^"]*)"[^>]*>`).FindStringSubmatch(page)
 	if m == nil {
 		t.Fatal("the status line is missing")
 	}

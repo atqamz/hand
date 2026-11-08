@@ -102,11 +102,11 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 
 ### `Timeline.data`
 
-`entries` is the page's conversation, newest first. An entry has `role` (`supervisor`, `operator`, `hand`, `wakes`) plus `at`, `text`, `no`, and where it applies `ref`, `model`, `delivery`, `delivered`, `input`, `queued`, `wakes`, `shots`. A `wakes` entry groups several Hand wake lines in `wakes`. An entry for a screen-derived supervisor event (`supervisor.blocked`, `supervisor.limited`), or one whose text is a harness API error, has no `text`: its `role`, `at` and `ref` remain. `working` is the supervisor's current turn (`ref`, `since`, `on`, `from`, `last`, `input`), absent when it is not working. `older` is the `before` value for the next page, or `0`.
+`entries` is the page's conversation, newest first. An entry has `role` (`supervisor`, `operator`, `hand`, `wakes`) plus `at`, `text`, `no`, and where it applies `ref`, `model`, `delivery`, `delivered`, `input`, `queued`, `wakes`, `shots`. A `wakes` entry groups several Hand wake lines in `wakes`. An entry for a screen-derived supervisor event (`supervisor.blocked`, `supervisor.limited`), or one whose text is a harness API error, has no `text`: its `role`, `at` and `ref` remain. A Hand wake line keeps its event kinds and refs but drops a screen-derived detail. `working` is the supervisor's current turn (`ref`, `since`, `on`, `from`, `last`, `input`), absent when it is not working. `older` is the `before` value for the next page, or `0`.
 
 ### `Tasks.data`
 
-`groups` are the page's groups in order: `name`, `count`, and `tasks`. A task row has `ref`, `title`, `project`, `status`, `state`, and where it applies `agent`, `attempt`, `delivered`, `waits`, `finished_at`. `hidden` and `finished_count` are the page's counts.
+`groups` are the page's groups in order: `name`, `count`, and `tasks`. A task row has `ref`, `title`, `project`, `status`, `state`, and where it applies `agent`, `attempt`, `delivered`, `waits`, `finished_at` (only for a done or abandoned task). `hidden` and `finished_count` are the page's counts.
 
 ### Detail data
 
@@ -133,7 +133,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `401` | `unauthorized` | no valid board session |
 | `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, or v1 on a network-address board |
 | `404` | `not_found` | an unknown route or ref |
-| `405` | `method_not_allowed` | with a valid session, anything but `GET` or `HEAD` |
+| `405` | `method_not_allowed` | with a valid session, anything but `GET` or `HEAD`; the response carries `Allow: GET, HEAD` |
 | `409` | `conflict` | a state conflict while reading |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

@@ -36,7 +36,7 @@ type Task struct {
 	FinishedAt string
 }
 
-const taskSelect = `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, CASE WHEN t.status IN ('done', 'abandoned') THEN COALESCE(f.at, t.updated_at) ELSE '' END FROM task t LEFT JOIN (SELECT task_id, max(at) AS at FROM event WHERE kind IN ('task.done', 'task.abandoned') GROUP BY task_id) f ON f.task_id = t.id`
+const taskSelect = `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, CASE WHEN t.status IN ('done', 'abandoned') THEN COALESCE((SELECT max(e.at) FROM event e WHERE e.task_id = t.id AND e.kind IN ('task.done', 'task.abandoned')), t.updated_at) ELSE '' END FROM task t`
 
 type scanner interface{ Scan(...any) error }
 
@@ -190,7 +190,7 @@ func (s *Store) SearchTasks(ctx context.Context, q TaskQuery) ([]Task, int, erro
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*)`+from, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, `+finishedAt+from+` ORDER BY `+finishedAt+` DESC, t.id DESC LIMIT ? OFFSET ?`,
+	rows, err := s.db.QueryContext(ctx, `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, CASE WHEN t.status IN ('done', 'abandoned') THEN `+finishedAt+` ELSE '' END`+from+` ORDER BY `+finishedAt+` DESC, t.id DESC LIMIT ? OFFSET ?`,
 		append(args, q.Limit, max(q.Offset, 0))...)
 	if err != nil {
 		return nil, 0, err

@@ -354,6 +354,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(context.WithValue(r.Context(), sessionKey{}, s))
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
 		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API is read-only; send GET")
 		return
 	}
@@ -599,11 +600,11 @@ func (b *Board) apiDecodeCursor(fleet, cursor string) bool {
 		return false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(head)
-	if err != nil {
+	if err != nil || base64.RawURLEncoding.EncodeToString(raw) != head {
 		return false
 	}
 	got, err := base64.RawURLEncoding.DecodeString(tag)
-	if err != nil || !hmac.Equal(got, b.apiCursorTag(string(raw))) {
+	if err != nil || base64.RawURLEncoding.EncodeToString(got) != tag || !hmac.Equal(got, b.apiCursorTag(string(raw))) {
 		return false
 	}
 	id, text, ok := strings.Cut(string(raw), "\x00")
@@ -885,10 +886,45 @@ func apiNeed(w waiting) APINeed {
 	return out
 }
 
+func apiWakeText(text string) string {
+	const prefix = "wake: "
+	if !strings.HasPrefix(text, prefix) {
+		return text
+	}
+	parts := strings.Split(strings.TrimPrefix(text, prefix), "; ")
+	out := make([]string, 0, len(parts))
+	drop := false
+	for _, line := range parts {
+		kind := eventKind.FindString(line)
+		if kind == "" || !strings.HasPrefix(line, kind) {
+			if !drop {
+				out = append(out, line)
+			}
+			continue
+		}
+		_, rest, _ := strings.Cut(line, " ")
+		ref, detail, has := strings.Cut(rest, ": ")
+		drop = screenKinds[kind] || (has && strings.Contains(detail, "api error: "))
+		if drop && has {
+			out = append(out, kind+" "+ref)
+		} else {
+			out = append(out, line)
+		}
+	}
+	return prefix + strings.Join(out, "; ")
+}
+
 func apiEntry(c chatItem) APIEntry {
 	text := c.Text
-	if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
-		text = ""
+	switch {
+	case c.Role == "hand" && strings.HasPrefix(text, "wake: "):
+		text = Scrub(apiWakeText(text))
+	case c.Kind != "":
+		if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
+			text = ""
+		} else {
+			text = Scrub(text)
+		}
 	}
 	out := APIEntry{
 		Role:      c.Role,
