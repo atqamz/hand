@@ -55,7 +55,7 @@ In the table:
 | `hand open` starts the board and opens the browser | CI e2e starts the board, fake browser | real Mac (#895) | CI e2e starts the board, fake browser |
 | Paths over 260 characters | not needed | not needed | CI for Hand's git; not run for a worker's |
 | `hand-desktop`: the MyGo window builds cgo-free, and its `ui.NewTester` scenes, navigation and screenshots pass headless | CI, headless | CI, headless; the binary refuses to start | CI, headless; the binary refuses to start |
-| `hand-desktop` over a running board: the fleet switch, Status, Needs, Timeline, Tasks and the four detail screens read `/api/v1` | the window itself has run; the API path has the golden-JSON tests | not run | not run |
+| `hand-desktop` over a running board: the fleet switch, Status, Needs, Timeline, Tasks and the four detail screens read `/api/v1`, and an answer and an Ack post to it | the window itself has run; the API path has the golden-JSON tests | not run | not run |
 | Start the board at login | daily | real Mac (#895) by bootout and bootstrap; not at a real login | not run |
 | The watcher starts a killed Luvus server again | CI, real Luvus, fake claude | real Mac (#895), stand-in claude | CI, real Luvus, fake claude |
 

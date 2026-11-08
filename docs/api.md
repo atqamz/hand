@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is read-only in v1. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never contains a token or a form token.
+The API is the read model plus two actions in v1: answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token. The session endpoint returns the session's CSRF form token, which a mutation sends as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -18,7 +18,7 @@ A local client proves the service at the recorded port is the board before it se
 
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
-v1 has no mutation. `POST`, `PUT`, `PATCH` and `DELETE` get `405` with `method_not_allowed` once the request carries a valid session; without one they get the `401` above first. A later mutation will need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie.
+The two actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the two action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with `Allow: GET, HEAD, POST`.
 
 ## Envelope
 
@@ -66,6 +66,9 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `GET /api/v1/attempt/{aN}` | `AttemptDetail`: attempt, task, state, brief, model_note, duration, reports, events, delivered, transcript | `/attempt/aN` |
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task | the report's card on `/task/tN` |
+| `GET /api/v1/session` | `Session`: `csrf` | none; the form token a mutation sends |
+| `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
+| `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
 
 `{tN}`, `{aN}`, `{dN}` and `{rN}` take the ref or the bare number, as the pages do. An unknown ref is `404`.
 
@@ -120,6 +123,31 @@ An event from a terminal screen (`attempt.blocked`, `attempt.limited`, `supervis
 
 The API never returns a host path. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
 
+## The two actions
+
+Both carry the cookie and `X-Hand-CSRF`, and both answer one envelope with the updated object. A mutation ignores `?since=` and never answers `304`.
+
+### Answering a decision
+
+`POST /api/v1/decision/{dN}/answer` takes one JSON object:
+
+```json
+{"choice": "1. Yes, keep it", "note": "the docs keep the old name"}
+```
+
+`choice` is an option's `value` from the decision detail; `note` is the note the page offers. Either may be empty, though an option the page marks `other` needs a note. The board trims both and stores `choice`, a blank line, then `note`, exactly as the page's form does. `answered_by` is `operator (desktop)`.
+
+- `400 bad_request`: an empty answer, an `other` option with no note, or a body that is not a JSON object.
+- `404 not_found`: an unknown ref.
+- `409 conflict`: the decision is no longer open.
+- `200` with the updated `DecisionDetail`.
+
+### Acknowledging a report
+
+`POST /api/v1/report/{rN}/ack` takes no body. It sets `acked_at` and `acked_by` (`operator (desktop)`) and answers the updated `ReportDetail`. An unknown ref is `404`; a report already acknowledged is `409 conflict`.
+
+A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read.
+
 ## Errors
 
 Every error is this shape, not an envelope, including a registered fleet whose store cannot be opened on an API route:
@@ -130,13 +158,14 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 
 | Status | `code` | When |
 |---|---|---|
-| `400` | `bad_request` | a query value the endpoint cannot read (`before`) |
+| `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `401` | `unauthorized` | no valid board session |
 | `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, or v1 on a network-address board |
+| `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `404` | `not_found` | an unknown route or ref |
-| `405` | `method_not_allowed` | with a valid session, anything but `GET` or `HEAD`; the response carries `Allow: GET, HEAD` |
-| `409` | `conflict` | a state conflict while reading |
+| `405` | `method_not_allowed` | a `POST` outside the two actions, or any other method; the response's `Allow` names what the path takes |
+| `409` | `conflict` | a state conflict while reading or acting |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |
 

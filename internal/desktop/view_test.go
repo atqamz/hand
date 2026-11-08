@@ -139,7 +139,117 @@ func TestReportScreen(t *testing.T) {
 	tt := newTester(app)
 	click(t, tt, "Needs")
 	click(t, tt, "Cookie fixed")
-	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task")
+	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task", "Ack")
+}
+
+func TestAnswerDecision(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	if f.count("answer:d1") != 1 {
+		t.Fatalf("answer calls = %d, want 1", f.count("answer:d1"))
+	}
+	if f.choice != "1. Yes, keep it" || f.answerNote != "" {
+		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
+	}
+	mustText(t, tt, "answered", "Answer", "1. Yes, keep it")
+	mustNotText(t, tt, "Send answer")
+}
+
+func TestAnswerDecisionWithANote(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "No, rename it")
+	click(t, tt, "Note")
+	tt.Type("the old name is in the docs")
+	click(t, tt, "Send answer")
+	if f.choice != "2. No, rename it" || f.answerNote != "the old name is in the docs" {
+		t.Fatalf("sent choice %q note %q", f.choice, f.answerNote)
+	}
+	mustText(t, tt, "answered", "2. No, rename it", "the old name is in the docs")
+}
+
+func TestAFailedAnswerKeepsTheScreen(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "decision d1 is answered"}
+	click(t, tt, "Yes, keep it")
+	click(t, tt, "Send answer")
+	mustText(t, tt, "The action did not go through", "decision d1 is answered",
+		"Keep the old cookie name?", "Send answer")
+	if app.Screen != desktop.DecisionScreen || app.Decision.Decision.Ref != "d1" {
+		t.Fatalf("the error left %v %q", app.Screen, app.Decision.Decision.Ref)
+	}
+	click(t, tt, "Dismiss")
+	mustNotText(t, tt, "The action did not go through")
+	mustText(t, tt, "Keep the old cookie name?")
+}
+
+func TestAckReport(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Ack")
+	if f.count("ack:r1") != 1 {
+		t.Fatalf("ack calls = %d, want 1", f.count("ack:r1"))
+	}
+	mustText(t, tt, "Acknowledged by operator (desktop)", "Acknowledged")
+	if app.Report.Report.AckedAt == "" {
+		t.Fatal("the report is not acknowledged in the window")
+	}
+}
+
+func TestAFailedAckKeepsTheScreen(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Cookie fixed")
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "report r1 is already acknowledged"}
+	click(t, tt, "Ack")
+	mustText(t, tt, "The action did not go through", "report r1 is already acknowledged",
+		"All tests pass.", "Ack")
+	if app.Screen != desktop.ReportScreen {
+		t.Fatalf("the error left screen %v", app.Screen)
+	}
+}
+
+func TestTheAnswerButtonIsDisabledWhileSending(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Yes, keep it")
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Send answer")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Sending…")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never sent the answer")
+	}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "answered", "Answer")
+	mustNotText(t, tt, "Sending…")
 }
 
 func TestBackFromAttemptRestoresTheTask(t *testing.T) {
@@ -364,6 +474,15 @@ func TestScenes(t *testing.T) {
 			click(t, tt, "Needs")
 		}},
 		{"08-error", newApp(t, errorFixture()), nil},
+		{"09-decision-answer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Needs")
+			click(t, tt, "Keep the old cookie name?")
+			click(t, tt, "Yes, keep it")
+		}},
+		{"10-report-ack", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Needs")
+			click(t, tt, "Cookie fixed")
+		}},
 	}
 	for _, sc := range scenes {
 		t.Run(sc.name, func(t *testing.T) {

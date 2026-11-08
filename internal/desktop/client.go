@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -31,6 +32,8 @@ type ReadModel interface {
 	Attempt(ctx context.Context, fleet, ref string) (AttemptDetail, error)
 	Decision(ctx context.Context, fleet, ref string) (DecisionDetail, error)
 	Report(ctx context.Context, fleet, ref string) (ReportDetail, error)
+	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
+	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
 }
 
 const (
@@ -241,28 +244,105 @@ func (c *HTTPClient) Report(ctx context.Context, fleet, ref string) (ReportDetai
 	return out, err
 }
 
+type answerRequest struct {
+	Choice string `json:"choice"`
+	Note   string `json:"note"`
+}
+
+func (c *HTTPClient) AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error) {
+	var out DecisionDetail
+	_, err := c.post(ctx, fleet, "/decision/"+url.PathEscape(ref)+"/answer", answerRequest{Choice: choice, Note: note}, &out)
+	return out, err
+}
+
+func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error) {
+	var out ReportDetail
+	_, err := c.post(ctx, fleet, "/report/"+url.PathEscape(ref)+"/ack", nil, &out)
+	return out, err
+}
+
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return c.getAs(ctx, fleet, token, path, out)
+}
+
+func (c *HTTPClient) getAs(ctx context.Context, fleet, token, path string, out any) (Envelope, error) {
+	res, err := c.do(ctx, fleet, token, "", http.MethodGet, path, nil)
+	if err != nil {
+		return Envelope{}, err
+	}
+	defer res.Body.Close()
+	return c.decode(res, fleet, path, out)
+}
+
+func (c *HTTPClient) post(ctx context.Context, fleet, path string, body, out any) (Envelope, error) {
+	token, err := c.prepare(ctx, fleet)
+	if err != nil {
+		return Envelope{}, err
+	}
+	var sess struct {
+		CSRF string `json:"csrf"`
+	}
+	if _, err := c.getAs(ctx, fleet, token, "/session", &sess); err != nil {
+		return Envelope{}, err
+	}
+	if sess.CSRF == "" {
+		return Envelope{}, errors.New("the board's session has no CSRF token")
+	}
+	var raw io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return Envelope{}, err
+		}
+		raw = bytes.NewReader(b)
+	}
+	res, err := c.do(ctx, fleet, token, sess.CSRF, http.MethodPost, path, raw)
+	if err != nil {
+		return Envelope{}, err
+	}
+	defer res.Body.Close()
+	return c.decode(res, fleet, path, out)
+}
+
+func (c *HTTPClient) prepare(ctx context.Context, fleet string) (string, error) {
 	if !fleetIDShape.MatchString(fleet) {
-		return Envelope{}, fmt.Errorf("%q is not a fleet id", fleet)
+		return "", fmt.Errorf("%q is not a fleet id", fleet)
 	}
 	token, err := c.Token(fleet)
 	if err != nil {
-		return Envelope{}, fmt.Errorf("fleet %s: %w", fleet, err)
+		return "", fmt.Errorf("fleet %s: %w", fleet, err)
 	}
 	if err := c.prove(ctx, fleet, token); err != nil {
-		return Envelope{}, err
+		return "", err
 	}
+	return token, nil
+}
+
+func (c *HTTPClient) do(ctx context.Context, fleet, token, csrf, method, path string, body io.Reader) (*http.Response, error) {
 	u := c.Base + "/" + fleet + "/api/v1" + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
-		return Envelope{}, err
+		return nil, err
 	}
 	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
+	if csrf != "" {
+		req.Header.Set("X-Hand-CSRF", csrf)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	res, err := c.client().Do(req)
 	if err != nil {
-		return Envelope{}, fmt.Errorf("the board at %s did not answer: %v", c.Base, err)
+		return nil, fmt.Errorf("the board at %s did not answer: %v", c.Base, err)
 	}
-	defer res.Body.Close()
+	return res, nil
+}
+
+func (c *HTTPClient) decode(res *http.Response, fleet, path string, out any) (Envelope, error) {
 	if res.StatusCode != http.StatusOK {
 		return Envelope{}, remoteError(res)
 	}

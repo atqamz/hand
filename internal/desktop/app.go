@@ -37,6 +37,11 @@ type App struct {
 	Screen  Screen
 	Ref     string
 	Loading bool
+	Busy    bool
+
+	AnswerChoice string
+	AnswerNote   string
+	ActionErr    string
 
 	Status   Status
 	Timeline Timeline
@@ -133,6 +138,7 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
+	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.Busy = "", "", "", false
 	if a.OnFleet != nil {
 		a.OnFleet(a.Fleet)
 	}
@@ -187,6 +193,7 @@ func (a *App) OpenRef(ref string) {
 	}
 	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
 	a.Screen, a.Ref = s, ref
+	a.AnswerChoice, a.AnswerNote = "", ""
 	a.Reload()
 }
 
@@ -242,6 +249,98 @@ func (a *App) Older() {
 	}()
 }
 
+func (a *App) Answer() {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || a.Screen != DecisionScreen || a.Ref == "" {
+		return
+	}
+	choice, note := a.AnswerChoice, a.AnswerNote
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet, ref := a.Model, a.Fleet.ID, a.Ref
+	a.Busy = true
+	apply := func(d DecisionDetail, st Status, serr, err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		if err != nil {
+			a.ActionErr = friendly(err)
+			return
+		}
+		a.Decision = d
+		if serr == nil {
+			a.Status = st
+		}
+	}
+	fetch := func() (DecisionDetail, Status, error, error) {
+		d, err := model.AnswerDecision(ctx, fleet, ref, choice, note)
+		if err != nil {
+			cancel()
+			return d, Status{}, nil, err
+		}
+		st, serr := model.Status(ctx, fleet)
+		cancel()
+		return d, st, serr, nil
+	}
+	if post == nil {
+		d, st, serr, err := fetch()
+		apply(d, st, serr, err)
+		return
+	}
+	post(func() {})
+	go func() {
+		d, st, serr, err := fetch()
+		post(func() { apply(d, st, serr, err) })
+	}()
+}
+
+func (a *App) Ack(ref string) {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || ref == "" {
+		return
+	}
+	screen := a.Screen
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet := a.Model, a.Fleet.ID
+	a.Busy = true
+	apply := func(r ReportDetail, st Status, serr, err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		if err != nil {
+			a.ActionErr = friendly(err)
+			return
+		}
+		if screen == ReportScreen {
+			a.Report = r
+		}
+		if serr == nil {
+			a.Status = st
+		}
+	}
+	fetch := func() (ReportDetail, Status, error, error) {
+		r, err := model.AckReport(ctx, fleet, ref)
+		if err != nil {
+			cancel()
+			return r, Status{}, nil, err
+		}
+		st, serr := model.Status(ctx, fleet)
+		cancel()
+		return r, st, serr, nil
+	}
+	if post == nil {
+		r, st, serr, err := fetch()
+		apply(r, st, serr, err)
+		return
+	}
+	post(func() {})
+	go func() {
+		r, st, serr, err := fetch()
+		post(func() { apply(r, st, serr, err) })
+	}()
+}
+
 func (a *App) Reload() {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
@@ -279,6 +378,8 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(a.Context)
 	a.cancel = cancel
 	a.loadID++
+	a.Busy = false
+	a.ActionErr = ""
 	return a.loadID, ctx, cancel
 }
 

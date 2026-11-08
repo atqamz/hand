@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
@@ -554,5 +555,127 @@ func TestNewLocalUsesHOME(t *testing.T) {
 	}
 	if len(c.Fleets()) != 1 {
 		t.Fatalf("fleets = %+v", c.Fleets())
+	}
+}
+
+type mutations struct {
+	mu      sync.Mutex
+	badCSRF bool
+	body    string
+	csrf    []string
+}
+
+func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
+	t.Helper()
+	m := &mutations{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prefix := "/" + fleetID
+		if !strings.HasPrefix(r.URL.Path, prefix) {
+			http.NotFound(w, r)
+			return
+		}
+		rest := strings.TrimPrefix(r.URL.Path, prefix)
+		if rest == "/proof" {
+			proof(w, r)
+			return
+		}
+		c, err := r.Cookie("hand_board_" + fleetID)
+		if err != nil || c.Value != testToken {
+			w.WriteHeader(http.StatusUnauthorized)
+			io.WriteString(w, `{"error":{"status":401,"code":"unauthorized","message":"this request needs the board's session cookie"}}`)
+			return
+		}
+		if rest == "/api/v1/session" {
+			csrf := testToken
+			m.mu.Lock()
+			if m.badCSRF {
+				csrf = "wrong"
+			}
+			m.mu.Unlock()
+			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","data":{"csrf":"`+csrf+`"}}`)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		m.mu.Lock()
+		m.csrf = append(m.csrf, r.Header.Get("X-Hand-CSRF"))
+		m.mu.Unlock()
+		if r.Header.Get("X-Hand-CSRF") != testToken {
+			w.WriteHeader(http.StatusForbidden)
+			io.WriteString(w, `{"error":{"status":403,"code":"csrf_required","message":"the X-Hand-CSRF header is missing or wrong"}}`)
+			return
+		}
+		var name string
+		switch rest {
+		case "/api/v1/decision/d1/answer":
+			name = "decision-answered"
+		case "/api/v1/report/r1/ack":
+			name = "report-acked"
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
+			return
+		}
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		m.mu.Lock()
+		m.body = string(b)
+		m.mu.Unlock()
+		data, err := os.ReadFile(filepath.Join("..", "board", "testdata", "api", name+".json"))
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Write(data)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, m
+}
+
+func TestHTTPClientAnswersAndAcks(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+
+	dd, err := c.AnswerDecision(ctx, fleetID, "d1", "1. Yes, keep it", "keep the docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dd.Decision.Status != "answered" || !strings.Contains(dd.Decision.Answer, "keep the docs") {
+		t.Fatalf("decision = %+v", dd.Decision)
+	}
+	m.mu.Lock()
+	body, csrf := m.body, append([]string(nil), m.csrf...)
+	m.mu.Unlock()
+	if !strings.Contains(body, `"choice":"1. Yes, keep it"`) || !strings.Contains(body, `"note":"keep the docs"`) {
+		t.Fatalf("request body = %q", body)
+	}
+	if len(csrf) != 1 || csrf[0] != testToken {
+		t.Fatalf("CSRF headers = %v", csrf)
+	}
+
+	rd, err := c.AckReport(ctx, fleetID, "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rd.Report.AckedBy != "operator (desktop)" || rd.Report.AckedAt == "" {
+		t.Fatalf("report = %+v", rd.Report)
+	}
+}
+
+func TestHTTPClientReportsACSRFRefusal(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.badCSRF = true
+	c := goldenClient(t, srv.URL)
+	_, err := c.AnswerDecision(context.Background(), fleetID, "d1", "1. Yes, keep it", "")
+	var api *desktop.APIError
+	if !errors.As(err, &api) || api.Status != http.StatusForbidden || api.Code != "csrf_required" {
+		t.Fatalf("error = %v", err)
 	}
 }
