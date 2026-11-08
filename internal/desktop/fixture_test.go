@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/atqamz/hand/internal/desktop"
@@ -20,14 +21,34 @@ type fixture struct {
 	fleets   []desktop.Fleet
 	status   map[string]desktop.Status
 	timeline map[string]desktop.Timeline
+	older    map[string]desktop.Timeline
 	tasks    map[string]desktop.Tasks
 	task     map[string]desktop.TaskDetail
 	attempt  map[string]desktop.AttemptDetail
 	decision map[string]desktop.DecisionDetail
+	extra    map[string]desktop.DecisionDetail
 	report   map[string]desktop.ReportDetail
 	fail     error
+	stall    string
 	block    chan struct{}
 	entered  chan struct{}
+	mu       sync.Mutex
+	calls    map[string]int
+}
+
+func (f *fixture) count(name string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[name]
+}
+
+func (f *fixture) note(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[name]++
 }
 
 func (f *fixture) Fleets() []desktop.Fleet { return append([]desktop.Fleet(nil), f.fleets...) }
@@ -35,6 +56,10 @@ func (f *fixture) Fleets() []desktop.Fleet { return append([]desktop.Fleet(nil),
 func (f *fixture) Name(ctx context.Context, id string) (string, error) {
 	if f.fail != nil {
 		return "", f.fail
+	}
+	if f.stall == id {
+		<-ctx.Done()
+		return "", ctx.Err()
 	}
 	for _, fleet := range f.fleets {
 		if fleet.ID == id {
@@ -61,10 +86,14 @@ func (f *fixture) Timeline(ctx context.Context, id string, before int) (desktop.
 	if f.fail != nil {
 		return desktop.Timeline{}, f.fail
 	}
+	if before > 0 {
+		return f.older[id], nil
+	}
 	return f.timeline[id], nil
 }
 
 func (f *fixture) Tasks(ctx context.Context, id string, all bool) (desktop.Tasks, error) {
+	f.note("tasks")
 	if f.fail != nil {
 		return desktop.Tasks{}, f.fail
 	}
@@ -96,6 +125,9 @@ func (f *fixture) Attempt(ctx context.Context, id, ref string) (desktop.AttemptD
 func (f *fixture) Decision(ctx context.Context, id, ref string) (desktop.DecisionDetail, error) {
 	if f.fail != nil {
 		return desktop.DecisionDetail{}, f.fail
+	}
+	if d, ok := f.extra[ref]; ok {
+		return d, nil
 	}
 	d, ok := f.decision[id]
 	if !ok || (ref != "" && d.Decision.Ref != ref) {
@@ -155,6 +187,15 @@ func goldenFixture(t *testing.T) *fixture {
 	load("attempt-running", &ad)
 	load("decision", &dd)
 	load("report", &rd)
+	td.Decisions = append([]desktop.Decision{{
+		Ref: "d0", Task: "t1", Status: "answered", Pill: "pass",
+		Headline:   "Rename the helper?",
+		Question:   "Rename the helper?\n\n1. Yes\n2. No",
+		Answer:     "Yes",
+		CreatedAt:  "2026-10-31T04:40:00Z",
+		ClosedAt:   "2026-10-31T05:00:00Z",
+		AnsweredBy: "you",
+	}}, td.Decisions...)
 	second := st
 	second.Line = "the second fleet's status"
 	second.Pill = "ready"

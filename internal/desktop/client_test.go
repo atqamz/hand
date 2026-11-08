@@ -2,6 +2,9 @@ package desktop_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
@@ -36,6 +39,15 @@ func goldenServer(t *testing.T) (*httptest.Server, *[]string) {
 			return
 		}
 		rest := strings.TrimPrefix(r.URL.Path, prefix)
+		if rest == "/proof" {
+			if _, err := r.Cookie("hand_board_" + fleetID); err == nil {
+				t.Error("the proof request carried the token")
+			}
+			mac := hmac.New(sha256.New, []byte(testToken))
+			mac.Write([]byte(r.URL.Query().Get("nonce")))
+			io.WriteString(w, hex.EncodeToString(mac.Sum(nil)))
+			return
+		}
 		name, ok := files[rest]
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
@@ -139,9 +151,12 @@ func TestHTTPClientReadsTheGoldenAPI(t *testing.T) {
 	if !strings.Contains(rd.Report.Body, "All tests pass.") || rd.Task.Ref != "t1" {
 		t.Fatalf("report = %+v", rd)
 	}
-	for _, p := range *paths {
+	for i, p := range *paths {
 		if strings.Contains(p, testToken) {
 			t.Fatalf("the token is in the URL: %s", p)
+		}
+		if strings.Contains(p, "/api/v1/") && (i == 0 || !strings.Contains((*paths)[i-1], "/proof?")) {
+			t.Fatalf("an API read went before its proof: %v", *paths)
 		}
 	}
 }
@@ -151,14 +166,8 @@ func TestHTTPClientReportsTheAPIsErrors(t *testing.T) {
 	c := goldenClient(t, srv.URL)
 	ctx := context.Background()
 
-	c.Token = func(string) (string, error) { return "wrong", nil }
-	_, err := c.Status(ctx, fleetID)
+	_, err := c.Task(ctx, fleetID, "t999")
 	var api *desktop.APIError
-	if !errors.As(err, &api) || api.Code != "unauthorized" {
-		t.Fatalf("error = %v", err)
-	}
-	c.Token = func(string) (string, error) { return testToken, nil }
-	_, err = c.Task(ctx, fleetID, "t999")
 	if !errors.As(err, &api) || api.Status != 404 || api.Code != "not_found" {
 		t.Fatalf("error = %v", err)
 	}
@@ -182,6 +191,10 @@ func TestHTTPClientRejectsAnotherContract(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/proof") {
+					proof(w, r)
+					return
+				}
 				w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
@@ -198,7 +211,50 @@ func TestHTTPClientReportsATransportError(t *testing.T) {
 	c := goldenClient(t, srv.URL)
 	srv.Close()
 	_, err := c.Status(context.Background(), fleetID)
-	if err == nil || !strings.Contains(err.Error(), "did not answer") {
+	if err == nil || !strings.Contains(err.Error(), "answers at") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func proof(w http.ResponseWriter, r *http.Request) {
+	mac := hmac.New(sha256.New, []byte(testToken))
+	mac.Write([]byte(r.URL.Query().Get("nonce")))
+	io.WriteString(w, hex.EncodeToString(mac.Sum(nil)))
+}
+
+func TestTheClientWithholdsTheTokenFromAnotherService(t *testing.T) {
+	var cookies int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := r.Cookie("hand_board_" + fleetID); err == nil {
+			cookies++
+		}
+		io.WriteString(w, "not a proof")
+	}))
+	defer srv.Close()
+	c := goldenClient(t, srv.URL)
+	_, err := c.Status(context.Background(), fleetID)
+	if err == nil || !strings.Contains(err.Error(), "no board for fleet") {
+		t.Fatalf("error = %v", err)
+	}
+	if cookies != 0 {
+		t.Fatalf("the token went to a service that could not prove it is the board")
+	}
+}
+
+func TestHTTPClientReportsARejectedSession(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/proof") {
+			proof(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"error":{"status":401,"code":"unauthorized","message":"this request needs the board's session cookie"}}`)
+	}))
+	defer srv.Close()
+	c := goldenClient(t, srv.URL)
+	_, err := c.Status(context.Background(), fleetID)
+	var api *desktop.APIError
+	if !errors.As(err, &api) || api.Code != "unauthorized" {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -298,6 +354,34 @@ func TestATokenlessFleetIsNamedInTheError(t *testing.T) {
 	mustNotText(t, tt, "no fleets are registered")
 }
 
+func TestATokenCreatedAfterLaunchIsRead(t *testing.T) {
+	root := t.TempDir()
+	home, _ := writeLocal(t, root)
+	token := filepath.Join(home, "board.token")
+	if err := os.Remove(token); err != nil {
+		t.Fatal(err)
+	}
+	c, err := desktop.NewLocal(func(key string) string {
+		if key == "SECONDHAND_HOME" {
+			return root
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Token(fleetID); err == nil || !strings.Contains(err.Error(), "no board.token yet") {
+		t.Fatalf("token error = %v", err)
+	}
+	if err := os.WriteFile(token, []byte(testToken+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Token(fleetID)
+	if err != nil || got != testToken {
+		t.Fatalf("token = %q, %v after hand open wrote it", got, err)
+	}
+}
+
 func TestALocalTokenMustBeAToken(t *testing.T) {
 	root := t.TempDir()
 	home, _ := writeLocal(t, root)
@@ -357,8 +441,12 @@ func TestNewLocalWithoutABoard(t *testing.T) {
 	}); !errors.Is(err, desktop.ErrNoBoard) {
 		t.Fatalf("error = %v", err)
 	}
-	if _, err := os.Stat(root); err != nil {
-		t.Fatalf("the desktop created its root: %v", err)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("the root is unreadable: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("the desktop wrote %v into its root", entries)
 	}
 }
 

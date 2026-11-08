@@ -2,6 +2,9 @@ package desktop
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -140,9 +143,7 @@ func localFleets(root string) ([]Fleet, map[string]string, error) {
 			continue
 		}
 		token := filepath.Join(home, "board.token")
-		if _, err := os.Stat(token); err == nil {
-			tokens[id] = token
-		}
+		tokens[id] = token
 		fleets = append(fleets, Fleet{ID: id, Name: id})
 	}
 	sort.Slice(fleets, func(i, j int) bool { return fleets[i].ID < fleets[j].ID })
@@ -166,6 +167,9 @@ func readBoardToken(path string) (string, error) {
 		return "", errors.New("no board.token yet; open it once with `hand open` in that fleet")
 	}
 	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("no board.token yet; open it once with `hand open` in that fleet")
+	}
 	if err != nil {
 		return "", fmt.Errorf("board.token cannot be read: %w; open it once with `hand open` in that fleet", err)
 	}
@@ -245,17 +249,16 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 	if err != nil {
 		return Envelope{}, fmt.Errorf("fleet %s: %w", fleet, err)
 	}
+	if err := c.prove(ctx, fleet, token); err != nil {
+		return Envelope{}, err
+	}
 	u := c.Base + "/" + fleet + "/api/v1" + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return Envelope{}, err
 	}
 	req.AddCookie(&http.Cookie{Name: "hand_board_" + fleet, Value: token})
-	client := c.HTTP
-	if client == nil {
-		client = http.DefaultClient
-	}
-	res, err := client.Do(req)
+	res, err := c.http().Do(req)
 	if err != nil {
 		return Envelope{}, fmt.Errorf("the board at %s did not answer: %v", c.Base, err)
 	}
@@ -278,6 +281,43 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 		return Envelope{}, fmt.Errorf("the board's %s data: %v", path, err)
 	}
 	return env, nil
+}
+
+// prove asks the service at Base for HMAC(board.token, nonce) before the
+// token goes out, so a service that took the board's port never sees it.
+func (c *HTTPClient) prove(ctx context.Context, fleet, token string) error {
+	nonce := rand.Text()
+	u := c.Base + "/" + fleet + "/proof?nonce=" + url.QueryEscape(nonce)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return err
+	}
+	res, err := c.http().Do(req)
+	if err != nil {
+		return c.noBoard(fleet)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(res.Body, 256))
+	if err != nil || res.StatusCode != http.StatusOK {
+		return c.noBoard(fleet)
+	}
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte(nonce))
+	if !hmac.Equal([]byte(strings.TrimSpace(string(body))), []byte(hex.EncodeToString(mac.Sum(nil)))) {
+		return c.noBoard(fleet)
+	}
+	return nil
+}
+
+func (c *HTTPClient) noBoard(fleet string) error {
+	return fmt.Errorf("no board for fleet %s answers at %s; start it with `hand open` in that fleet", fleet, c.Base)
+}
+
+func (c *HTTPClient) http() *http.Client {
+	if c.HTTP != nil {
+		return c.HTTP
+	}
+	return http.DefaultClient
 }
 
 func remoteError(res *http.Response) error {

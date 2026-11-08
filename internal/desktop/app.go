@@ -24,6 +24,8 @@ type App struct {
 	Connect func() (ReadModel, error)
 	Model   ReadModel
 	Context context.Context
+	// NameTimeout limits each fleet's name lookup; zero means two seconds.
+	NameTimeout time.Duration
 	// Post runs fetched state on the window's thread and repaints it. Nil
 	// reads inline, as the tests and Boot do.
 	Post    func(func())
@@ -46,6 +48,8 @@ type App struct {
 
 	Err    string
 	loadID int
+	cancel context.CancelFunc
+	gen    int
 	back   []backStep
 }
 
@@ -54,34 +58,41 @@ type backStep struct {
 	Ref    string
 }
 
+type found struct {
+	Model  ReadModel
+	Fleets []Fleet
+	Err    string
+}
+
 func New(connect func() (ReadModel, error)) *App {
 	return &App{Connect: connect, Context: context.Background()}
 }
 
 func (a *App) Boot() {
-	m, err := a.Connect()
-	if err != nil {
-		a.Model, a.Fleets, a.Err = nil, nil, err.Error()
+	a.install(discover(a.Connect, a.Context, a.nameTimeout()), false)
+}
+
+func (a *App) Refresh() {
+	post, connect, ctx, wait := a.Post, a.Connect, a.Context, a.nameTimeout()
+	if post == nil {
+		a.install(discover(connect, ctx, wait), true)
 		return
 	}
-	a.Model = m
+	a.gen++
+	gen := a.gen
 	a.Err = ""
-	a.Fleets = m.Fleets()
-	ctx, cancel := context.WithTimeout(a.Context, 2*time.Second)
-	defer cancel()
-	for i := range a.Fleets {
-		if name, err := m.Name(ctx, a.Fleets[i].ID); err == nil && name != "" {
-			a.Fleets[i].Name = name
-		}
-	}
-	switch {
-	case len(a.Fleets) == 0:
-		a.Err = "no fleets are registered; run `hand init` in a folder to make one"
-	case a.Fleet.ID != "" && a.hasFleet(a.Fleet.ID):
-		a.SelectFleet(a.Fleet.ID)
-	default:
-		a.SelectFleet(a.Fleets[0].ID)
-	}
+	a.Loading = true
+	post(func() {})
+	go func() {
+		f := discover(connect, ctx, wait)
+		post(func() {
+			if gen != a.gen {
+				return
+			}
+			a.Loading = false
+			a.install(f, true)
+		})
+	}()
 }
 
 func (a *App) OpenFleet(ref string) {
@@ -95,28 +106,51 @@ func (a *App) OpenFleet(ref string) {
 }
 
 func (a *App) hasFleet(id string) bool {
+	_, ok := a.fleetByID(id)
+	return ok
+}
+
+func (a *App) fleetByID(id string) (Fleet, bool) {
 	for _, f := range a.Fleets {
 		if f.ID == id {
-			return true
+			return f, true
 		}
 	}
-	return false
+	return Fleet{}, false
 }
 
 func (a *App) SelectFleet(id string) {
-	for _, f := range a.Fleets {
-		if f.ID == id {
-			a.Fleet = f
-			break
-		}
+	if f, ok := a.fleetByID(id); ok {
+		a.Fleet = f
 	}
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
-	a.Timeline, a.Tasks = Timeline{}, Tasks{}
+	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	if a.OnFleet != nil {
 		a.OnFleet(a.Fleet)
 	}
 	a.Reload()
+}
+
+func (a *App) install(f found, keep bool) {
+	a.Err = f.Err
+	if f.Model == nil {
+		a.Model, a.Fleets = nil, nil
+		return
+	}
+	a.Model, a.Fleets = f.Model, f.Fleets
+	switch {
+	case len(a.Fleets) == 0:
+		a.Fleet = Fleet{}
+		a.Err = "no fleets are registered; run `hand init` in a folder to make one"
+	case a.hasFleet(a.Fleet.ID) && keep:
+		a.Fleet, _ = a.fleetByID(a.Fleet.ID)
+		a.Reload()
+	case a.hasFleet(a.Fleet.ID):
+		a.SelectFleet(a.Fleet.ID)
+	default:
+		a.SelectFleet(a.Fleets[0].ID)
+	}
 }
 
 func (a *App) Show(s Screen) {
@@ -159,30 +193,65 @@ func (a *App) Back() {
 
 func (a *App) Retry() {
 	if a.Model == nil || a.Fleet.ID == "" {
-		a.Boot()
+		a.Refresh()
 		return
 	}
 	a.Reload()
+}
+
+func (a *App) Older() {
+	if a.Model == nil || a.Fleet.ID == "" || a.Timeline.Older <= 0 {
+		return
+	}
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet, before := a.Model, a.Fleet.ID, a.Timeline.Older
+	apply := func(tl Timeline, err error) {
+		if id != a.loadID || a.Screen != TimelineScreen {
+			return
+		}
+		if err != nil {
+			a.Err = friendly(err)
+			return
+		}
+		merged := a.Timeline
+		merged.Entries = append(append([]Entry(nil), a.Timeline.Entries...), tl.Entries...)
+		merged.Older = tl.Older
+		a.Timeline = merged
+	}
+	if post == nil {
+		tl, err := model.Timeline(ctx, fleet, before)
+		cancel()
+		apply(tl, err)
+		return
+	}
+	go func() {
+		tl, err := model.Timeline(ctx, fleet, before)
+		cancel()
+		post(func() { apply(tl, err) })
+	}()
 }
 
 func (a *App) Reload() {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
-	a.loadID++
-	id := a.loadID
+	id, ctx, cancel := a.nextLoad()
 	a.Err = ""
 	post := a.Post
 	if post == nil {
 		a.Loading = false
-		a.apply(fetch(a.Model, a.Context, a.Fleet.ID, a.Screen, a.Ref))
+		l := fetch(a.Model, ctx, a.Fleet.ID, a.Screen, a.Ref)
+		cancel()
+		a.apply(l)
 		return
 	}
 	a.Loading = true
 	post(func() {})
-	model, ctx, fleet, screen, ref := a.Model, a.Context, a.Fleet.ID, a.Screen, a.Ref
+	model, fleet, screen, ref := a.Model, a.Fleet.ID, a.Screen, a.Ref
 	go func() {
 		l := fetch(model, ctx, fleet, screen, ref)
+		cancel()
 		post(func() {
 			if id != a.loadID {
 				return
@@ -191,6 +260,39 @@ func (a *App) Reload() {
 			a.apply(l)
 		})
 	}()
+}
+
+func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
+	if a.cancel != nil {
+		a.cancel()
+	}
+	ctx, cancel := context.WithCancel(a.Context)
+	a.cancel = cancel
+	a.loadID++
+	return a.loadID, ctx, cancel
+}
+
+func (a *App) nameTimeout() time.Duration {
+	if a.NameTimeout > 0 {
+		return a.NameTimeout
+	}
+	return 2 * time.Second
+}
+
+func discover(connect func() (ReadModel, error), ctx context.Context, wait time.Duration) found {
+	m, err := connect()
+	if err != nil {
+		return found{Err: err.Error()}
+	}
+	fleets := m.Fleets()
+	for i := range fleets {
+		lookup, cancel := context.WithTimeout(ctx, wait)
+		if name, err := m.Name(lookup, fleets[i].ID); err == nil && name != "" {
+			fleets[i].Name = name
+		}
+		cancel()
+	}
+	return found{Model: m, Fleets: fleets}
 }
 
 type loaded struct {
@@ -210,10 +312,15 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	l := loaded{Screen: screen}
 	st, err := model.Status(ctx, fleet)
 	if err != nil {
-		l.Err = friendly(err)
+		if ctx.Err() == nil {
+			l.Err = friendly(err)
+		}
 		return l
 	}
 	l.StatusOK, l.Status = true, st
+	if ctx.Err() != nil {
+		return l
+	}
 	switch screen {
 	case StatusScreen, NeedsScreen:
 	case TimelineScreen:
@@ -229,7 +336,7 @@ func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, re
 	case ReportScreen:
 		l.Report, err = model.Report(ctx, fleet, ref)
 	}
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		l.Err = friendly(err)
 	}
 	return l

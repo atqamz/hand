@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -269,14 +270,16 @@ func TestAHungBoardDoesNotFreezeTheWindow(t *testing.T) {
 	app.Post = func(fn func()) { posted <- fn }
 	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
 	click(t, tt, "Refresh")
+	waitPost(t, posted)()
+	mustText(t, tt, "Reading the board")
+	waitPost(t, posted)()
 	select {
 	case <-f.entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the window never read the board")
 	}
-	waitPost(t, posted)()
-	mustText(t, tt, "Reading the board")
 	close(f.block)
+	waitPost(t, posted)()
 	waitPost(t, posted)()
 	tt.Frame()
 	mustText(t, tt, "Status", "agent working")
@@ -293,6 +296,8 @@ func TestAFailedFetchShowsTheErrorOffTheRenderPath(t *testing.T) {
 	click(t, tt, "Refresh")
 	waitPost(t, posted)()
 	mustText(t, tt, "Reading the board")
+	waitPost(t, posted)()
+	waitPost(t, posted)()
 	waitPost(t, posted)()
 	tt.Frame()
 	mustText(t, tt, "the board is restarting")
@@ -326,6 +331,7 @@ func TestErrorState(t *testing.T) {
 	tt := newTester(app)
 	mustText(t, tt, "The board could not be read",
 		"the board did not accept this fleet's token; open the fleet once with `hand open`")
+	mustNotText(t, tt, "Back")
 	click(t, tt, "Retry")
 	mustText(t, tt, "The board could not be read")
 }
@@ -395,4 +401,210 @@ func TestBootWithoutABoard(t *testing.T) {
 	mustText(t, tt, "The board could not be read", "no board is running; start it with `hand open` in a fleet")
 	click(t, tt, "Retry")
 	mustText(t, tt, "The board could not be read")
+}
+
+func countText(t *testing.T, tt *ui.Tester, want string) int {
+	t.Helper()
+	n := 0
+	for _, text := range tt.Texts() {
+		n += strings.Count(text, want)
+	}
+	return n
+}
+
+func TestEachFleetGetsItsOwnNameLookup(t *testing.T) {
+	f := goldenFixture(t)
+	f.stall = fleetID
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.NameTimeout = 40 * time.Millisecond
+	app.Boot()
+	app.OpenFleet("second")
+	if app.Fleet.ID != secondID {
+		t.Fatalf("fleet = %q (%s), want the second fleet by name", app.Fleet.Name, app.Fleet.ID)
+	}
+}
+
+func TestRetryDoesNotBlockTheWindow(t *testing.T) {
+	first := true
+	block := make(chan struct{})
+	app := desktop.New(func() (desktop.ReadModel, error) {
+		if first {
+			first = false
+			return nil, desktop.ErrNoBoard
+		}
+		select {
+		case <-block:
+		case <-time.After(3 * time.Second):
+		}
+		return nil, desktop.ErrNoBoard
+	})
+	app.Boot()
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	click(t, tt, "Retry")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Reading the board")
+	close(block)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "no board is running")
+	mustNotText(t, tt, "Reading the board")
+}
+
+func TestSelectingAFleetClearsTheStatus(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "second")
+	if app.Status.Tasks.Active != 0 || app.Status.Line != "" || app.Status.Supervisor != nil {
+		t.Fatalf("status = %+v, want it cleared while the fleet loads", app.Status)
+	}
+	close(f.block)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	if app.Fleet.ID != secondID {
+		t.Fatalf("fleet = %s, want %s", app.Fleet.ID, secondID)
+	}
+}
+
+func TestRefreshDiscoversAgainAndKeepsTheScreen(t *testing.T) {
+	first := goldenFixture(t)
+	second := goldenFixture(t)
+	second.fleets = append(second.fleets, desktop.Fleet{ID: "f00000000e0ac", Name: "third"})
+	calls := 0
+	app := desktop.New(func() (desktop.ReadModel, error) {
+		calls++
+		if calls == 1 {
+			return first, nil
+		}
+		return second, nil
+	})
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Refresh")
+	if app.Model != desktop.ReadModel(second) {
+		t.Fatal("Refresh did not discover the board again")
+	}
+	if app.Screen != desktop.TimelineScreen || app.Fleet.ID != fleetID {
+		t.Fatalf("Refresh left %v %s, want the timeline of %s", app.Screen, app.Fleet.ID, fleetID)
+	}
+	mustText(t, tt, "third", "All good.")
+}
+
+func TestASupersededReloadStartsNoDetailRequest(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	tt := newTester(app)
+	f.block, f.entered = make(chan struct{}), make(chan struct{}, 2)
+	click(t, tt, "Tasks")
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the board")
+	}
+	click(t, tt, "Timeline")
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second read never started")
+	}
+	close(f.block)
+	for i := 0; i < 4; i++ {
+		waitPost(t, posted)()
+	}
+	if got := f.count("tasks"); got != 0 {
+		t.Fatalf("the superseded reload read the task list %d times", got)
+	}
+	tt.Frame()
+	mustText(t, tt, "Timeline")
+}
+
+func TestBackStaysOnTheErrorCard(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	click(t, tt, "Refresh")
+	mustText(t, tt, "The board could not be read", "the board is restarting")
+	click(t, tt, "Back")
+	if app.Screen != desktop.TasksScreen || app.Ref != "" {
+		t.Fatalf("Back left %v %q, want the tasks list", app.Screen, app.Ref)
+	}
+}
+
+func TestTimelineOlderReadsTheEarlierPage(t *testing.T) {
+	f := goldenFixture(t)
+	tl := f.timeline[fleetID]
+	tl.Older = 42
+	f.timeline[fleetID] = tl
+	f.older = map[string]desktop.Timeline{fleetID: {
+		Entries: []desktop.Entry{{Role: "operator", Text: "the earlier message", At: "2026-10-31T04:40:00Z"}},
+	}}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	mustText(t, tt, "Older messages")
+	click(t, tt, "Older messages")
+	mustText(t, tt, "the earlier message", "All good.")
+	mustNotText(t, tt, "Older messages")
+}
+
+func TestTaskShowsDecisionHistory(t *testing.T) {
+	f := goldenFixture(t)
+	td := f.task[fleetID]
+	f.extra = map[string]desktop.DecisionDetail{"d0": {Decision: td.Decisions[0], Task: td.Task, Body: td.Decisions[0].Question}}
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	mustText(t, tt, "Rename the helper?", "Yes")
+	if n := countText(t, tt, "Keep the old cookie name?"); n != 1 {
+		t.Fatalf("the open decision is shown %d times, want its one open row", n)
+	}
+	click(t, tt, "Rename the helper?")
+	if app.Screen != desktop.DecisionScreen || app.Ref != "d0" {
+		t.Fatalf("the history row opened %v %q, want d0", app.Screen, app.Ref)
+	}
+}
+
+func TestAnOmittedTranscriptIsNoticed(t *testing.T) {
+	f := goldenFixture(t)
+	ad := f.attempt[fleetID]
+	ad.Transcript = desktop.Transcript{Shown: true, More: true, Turns: []desktop.Turn{
+		{Role: "supervisor", Text: "the last turn", At: "2026-11-01T04:41:00Z"},
+	}}
+	f.attempt[fleetID] = ad
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	click(t, tt, "a1")
+	mustText(t, tt, "the last turn", "Only the latest 50 entries are shown.")
+}
+
+func TestDecisionOptionsAreShownOnce(t *testing.T) {
+	f := goldenFixture(t)
+	dd := f.decision[fleetID]
+	dd.Decision.Question = "Keep the old cookie name?\n\nWe made this earlier.\n\n1. Yes, keep it\n2. No, rename it"
+	f.decision[fleetID] = dd
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	mustText(t, tt, "We made this earlier.")
+	for _, want := range []string{"Yes, keep it", "No, rename it"} {
+		if n := countText(t, tt, want); n != 1 {
+			t.Fatalf("%q is shown %d times, want once", want, n)
+		}
+	}
 }

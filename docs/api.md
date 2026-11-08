@@ -14,6 +14,8 @@ http://127.0.0.1:7777/<fleet id>/api/v1/status
 
 A board mounted without a fleet prefix, as in tests, answers at `/api/v1/status`. The API uses the same session cookie as the pages: `hand_board_<fleet id>`, or the cookie of a paired phone. Open the fleet once with `hand open` (or paste the link `hand open --print` prints) and the browser or client holds it. There is no `?token=` login on the API.
 
+A local client proves the service at the recorded port is the board before it sends the token, since `board.addr` outlives a board that exits abnormally: `GET /<fleet id>/proof?nonce=<random>` answers the hex HMAC-SHA256 of the client's nonce keyed by `board.token`, with no cookie; a client that reads the token from the fleet compares it and only then sends the cookie. `hand open` and the desktop window both do this, and neither sends the token to a service that fails it.
+
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
 v1 has no mutation. `POST`, `PUT`, `PATCH` and `DELETE` get `405` with `method_not_allowed` once the request carries a valid session; without one they get the `401` above first. A later mutation will need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie.

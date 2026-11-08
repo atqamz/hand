@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -159,7 +160,7 @@ func (a *App) masthead(c *ui.Context, p palette) {
 			}
 		}
 		if ui.Button(c.Key("refresh"), "Refresh").Clicked() && a.Fleet.ID != "" {
-			a.Retry()
+			a.Refresh()
 		}
 	})
 }
@@ -200,6 +201,9 @@ func (a *App) errorCard(c *ui.Context, p palette) {
 		Border(1, p.fail).Children(func() {
 		ui.Text(c, "The board could not be read").FontSize(18).Bold().TextColor(p.fail)
 		ui.Text(c, a.Err).FontSize(14)
+		if len(a.back) > 0 && ui.Button(c.Key("back"), "Back").Width(100).Clicked() {
+			a.Back()
+		}
 		if ui.Button(c.Key("retry"), "Retry").Width(100).Clicked() {
 			a.Retry()
 		}
@@ -374,6 +378,11 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			}
 		})
 	}
+	if a.Timeline.Older > 0 {
+		if ui.Button(c.Key("timeline:older"), "Older messages").Clicked() {
+			a.Older()
+		}
+	}
 }
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {
@@ -454,6 +463,14 @@ func (a *App) taskScreen(c *ui.Context, p palette) {
 			}
 		})
 	}
+	if history := closedDecisions(t.Decisions, t.OpenDecisions); len(history) > 0 {
+		a.section(c, p, "Decisions")
+		ui.Column(c).Gap(0).Children(func() {
+			for _, d := range history {
+				a.decisionRow(c, p, d)
+			}
+		})
+	}
 	if len(t.Reports) > 0 {
 		a.section(c, p, "Reports")
 		ui.Column(c).Gap(0).Children(func() {
@@ -462,7 +479,7 @@ func (a *App) taskScreen(c *ui.Context, p palette) {
 			}
 		})
 		if t.MoreReports {
-			more(c, p)
+			more(c, p, "Only the latest 50 reports are shown.")
 		}
 	}
 	if len(t.Attempts) > 0 {
@@ -481,7 +498,7 @@ func (a *App) taskScreen(c *ui.Context, p palette) {
 			}
 		})
 		if t.MoreEvents {
-			more(c, p)
+			more(c, p, "Only the latest 50 events are shown.")
 		}
 	}
 }
@@ -525,7 +542,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 			}
 		})
 		if at.MoreReports {
-			more(c, p)
+			more(c, p, "Only the latest 50 reports are shown.")
 		}
 	}
 	if at.Transcript.Shown {
@@ -545,6 +562,9 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 				ui.Text(c, turn.Text).FontSize(14)
 			})
 		}
+		if at.Transcript.More {
+			more(c, p, "Only the latest 50 entries are shown.")
+		}
 	} else if at.Transcript.Note != "" {
 		a.section(c, p, "Transcript")
 		ui.Text(c, at.Transcript.Note).FontSize(12).TextColor(p.neutral)
@@ -557,7 +577,7 @@ func (a *App) attemptScreen(c *ui.Context, p palette) {
 			}
 		})
 		if at.MoreEvents {
-			more(c, p)
+			more(c, p, "Only the latest 50 events are shown.")
 		}
 	}
 }
@@ -575,7 +595,9 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 		}
 	})
 	if d.Decision.Question != "" && d.Decision.Question != d.Decision.Headline {
-		ui.Text(c, questionBody(d.Decision.Question, d.Decision.Headline)).FontSize(15)
+		if body := questionBody(d.Decision.Question, d.Decision.Headline, len(d.Options) > 0); body != "" {
+			ui.Text(c, body).FontSize(15)
+		}
 	}
 	if len(d.Options) > 0 {
 		a.section(c, p, "Options")
@@ -637,8 +659,8 @@ func (a *App) section(c *ui.Context, p palette, title string) {
 	section(c, p, title)
 }
 
-func more(c *ui.Context, p palette) {
-	ui.Text(c, "More on the board.").FontSize(12).TextColor(p.neutral)
+func more(c *ui.Context, p palette, text string) {
+	ui.Text(c, text).FontSize(12).TextColor(p.neutral)
 }
 
 func section(c *ui.Context, p palette, title string) {
@@ -652,12 +674,29 @@ func (a *App) paragraph(c *ui.Context, p palette, title, body string) {
 	})
 }
 
+func closedDecisions(all, open []Decision) []Decision {
+	shown := make(map[string]bool, len(open))
+	for _, d := range open {
+		shown[d.Ref] = true
+	}
+	var out []Decision
+	for _, d := range all {
+		if d.Status != "open" && !shown[d.Ref] {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 func (a *App) decisionRow(c *ui.Context, p palette, d Decision) {
 	el := ui.ButtonBase(c.Key("decision:"+d.Ref)).Gap(8).Padding(6, 8).Cursor(ui.CursorPointer).
 		BorderWidth(0, 0, 1, 0).BorderColor(p.line)
 	el.Children(func() {
 		ui.Text(c, d.Ref).Font("monospace").FontSize(12).TextColor(p.neutral)
 		ui.Text(c, d.Headline).FontSize(14).SingleLine().Grow(1)
+		if d.Answer != "" {
+			ui.Text(c, firstLine(d.Answer)).FontSize(12).TextColor(p.neutral).SingleLine()
+		}
 		statusPill(c, p, d.Pill)
 	})
 	if el.Clicked() {
@@ -869,9 +908,24 @@ func firstLine(s string) string {
 	return line
 }
 
-func questionBody(question, headline string) string {
+var optionLine = regexp.MustCompile(`^\s*(\d+|[A-Z])[.)]\s+`)
+
+func questionBody(question, headline string, options bool) string {
 	body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(question), strings.TrimSpace(headline)))
-	return strings.TrimSpace(body)
+	if !options {
+		return body
+	}
+	var keep []string
+	fenced := false
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			fenced = !fenced
+		} else if !fenced && optionLine.MatchString(line) {
+			continue
+		}
+		keep = append(keep, line)
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
 }
 
 func emptyAs(s, fallback string) string {
