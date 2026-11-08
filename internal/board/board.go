@@ -213,6 +213,15 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	b.mux.HandleFunc("POST /connect/revoke", b.connectRevoke)
 	b.mux.HandleFunc("POST /connect/revoke/in", b.connectRevokePhone(false))
 	b.mux.HandleFunc("POST /connect/revoke/everywhere", b.connectRevokePhone(true))
+	b.mux.HandleFunc("GET "+apiPrefix, b.apiUnknown)
+	b.mux.HandleFunc("GET "+apiPrefix+"/status", b.apiStatus)
+	b.mux.HandleFunc("GET "+apiPrefix+"/timeline", b.apiTimeline)
+	b.mux.HandleFunc("GET "+apiPrefix+"/tasks", b.apiTasks)
+	b.mux.HandleFunc("GET "+apiPrefix+"/task/{id}", b.apiTask)
+	b.mux.HandleFunc("GET "+apiPrefix+"/attempt/{id}", b.apiAttempt)
+	b.mux.HandleFunc("GET "+apiPrefix+"/decision/{id}", b.apiDecision)
+	b.mux.HandleFunc("GET "+apiPrefix+"/report/{id}", b.apiReport)
+	b.mux.HandleFunc(apiPrefix+"/", b.apiUnknown)
 	return b
 }
 
@@ -225,7 +234,15 @@ func (b *Board) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if viaFunnel(r) {
-		b.failNeutral(w, http.StatusForbidden, funnelRefusal)
+		if apiPath(r.URL.Path) {
+			b.apiFail(w, http.StatusForbidden, "forbidden", funnelRefusal)
+		} else {
+			b.failNeutral(w, http.StatusForbidden, funnelRefusal)
+		}
+		return
+	}
+	if apiPath(r.URL.Path) {
+		b.apiServe(w, r)
 		return
 	}
 	if r.URL.Path == "/proof" && r.Method == http.MethodGet {

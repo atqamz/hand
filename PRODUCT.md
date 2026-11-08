@@ -50,7 +50,8 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the attempt page: its brief, launch line, reports and events;
   - the decision page;
   - the conversation page;
-  - error pages.
+  - error pages;
+  - a read-only JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, and task, attempt, decision and report detail, with an opaque change cursor.
 - **What needs the operator:**
   - open decisions;
   - blocked supervisor screens;
@@ -70,6 +71,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **JavaScript:** allowed since 2026-09-28, as small first-party code with no framework and no build step, embedded in the binary. The CSP allows `script-src 'self'`. Live updates use Server-Sent Events from the Go server.
 - **Security:**
   - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie named for one fleet, which only that fleet accepts;
+  - the JSON API needs that same session cookie, answers only on a loopback board, and is read-only in v1;
   - CSRF protects every form;
   - supervisor controls work only on a loopback listener. On a network address the controls are off, while answering decisions and acknowledging reports still work;
   - error pages reveal no paths;
