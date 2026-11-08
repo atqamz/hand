@@ -649,7 +649,7 @@ func (a *App) decisionScreen(c *ui.Context, p palette) {
 					bg, border = p.passBG, p.pass
 				}
 				el := ui.ButtonBase(c.Key("option:"+option.Key)).Gap(10).Padding(8, 10).
-					Radius(8).Background(bg).Border(1, border)
+					Radius(8).Background(bg).Border(1, border).Disabled(!open || a.Busy)
 				if open && !a.Busy {
 					el.Cursor(ui.CursorPointer)
 				}
