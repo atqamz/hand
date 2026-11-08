@@ -136,14 +136,16 @@ Each carries the cookie and `X-Hand-CSRF`, and answers one envelope with the upd
 {"text": "please look at the cookie rename"}
 ```
 
-It has the fleet page's composer semantics: the board normalizes CRLF to LF and runs the same `CheckMessage` the form does, so whitespace-only text, more than 16 KiB, invalid UTF-8, a control character other than a newline or tab, and text that starts with Hand's own envelope prefix are refused. The board then runs the supervisor's send path (`supervisor send --text`) and answers the `Timeline` the GET serves, so a client replaces its conversation with the returned data instead of polling for the message. A queued message has `queued: true` and `delivery: "queued"`; a delivered one carries the delivery the GET reports.
+It has the fleet page's composer semantics: the board normalizes CRLF to LF and runs the same `CheckMessage` the form does, so whitespace-only text, more than 16 KiB, invalid UTF-8, a control character other than a newline or tab, and text that starts with Hand's own envelope prefix are refused. A JSON decoder would replace an invalid UTF-8 byte or an unpaired surrogate escape with U+FFFD, so the board refuses those before decoding the text. The board then runs the supervisor's send path (`supervisor send --text`) and answers the `Timeline` the GET serves, so a client replaces its conversation with the returned data instead of polling for the message. A queued message has `queued: true` and `delivery: "queued"`; a delivered one carries the delivery the GET reports.
+
+If the board queued the message but cannot read the conversation back, it still answers `200`, with `{"accepted": true}` as its data. The message is in, so a client must not send it again: it clears its draft and refreshes the timeline instead.
 
 - `400 bad_request`: an empty or invalid message, or a body that is not a JSON object.
 - `403 forbidden`: the board has its controls off.
 - `500 internal`: the supervisor path failed; the message keeps no path.
-- `200` with the updated `Timeline`.
+- `200` with the updated `Timeline`, or `{"accepted": true}` when the conversation could not be read back.
 
-v1 sends text only. The web composer's attachment upload writes an absolute host path into the message, and this API never returns or accepts a host path, so attachments need a contract that carries the inbox file by name; they are not in this version.
+v1 sends text only. The web composer's attachment upload writes an absolute host path into the message; v1 has no attachment upload contract and no field that carries a host path, so attachments need a contract that carries the inbox file by name, and they are not in this version. The text itself is free text: a path the operator types stays in it, exactly as the web composer keeps it.
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after a message, an answer or an ack, because a sent message can change the composer hint and Needs.
 

@@ -435,6 +435,11 @@ func TestAPISendMessageRefusals(t *testing.T) {
 		`{"text":"hello"} {}`,
 		`{"text":"hello"} trailing`,
 		`{"text":"` + strings.Repeat("x", 70<<10) + `"}`,
+		"{\"text\":\"a\xffb\"}",
+		`{"text":"\ud800"}`,
+		`{"text":"\udc00"}`,
+		`{"text":"\ud800x"}`,
+		`{"text":5}`,
 	} {
 		testAPIError(t, apiPostRaw(t, h, path, raw, token, true), http.StatusBadRequest, "bad_request")
 	}
@@ -464,6 +469,73 @@ func TestAPISendMessageRefusals(t *testing.T) {
 	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
 	if got := rec.Header().Get("Allow"); got != "POST" {
 		t.Fatalf("PUT %s Allow = %q", path, got)
+	}
+}
+
+func TestAPISendMessageKeepsAValidSurrogatePair(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var got string
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		got = call[3]
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	h := fx.handler()
+	apiBody[board.APITimeline](t, apiPostRaw(t, h, "/api/v1/message", `{"text":"\ud83d\ude00 hi"}`, token, true))
+	if got != "😀 hi" {
+		t.Fatalf("the supervisor got %q", got)
+	}
+	apiBody[board.APITimeline](t, apiPostRaw(t, h, "/api/v1/message", `{"text":"\\ud800"}`, token, true))
+	if got != `\ud800` {
+		t.Fatalf("the supervisor got %q for an escaped backslash", got)
+	}
+}
+
+func TestAPISendMessageIsAcceptedWhenTheTimelineCannotBeRead(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		if _, err := fx.st.AddSupervisorInput(context.Background(), call[3]); err != nil {
+			return "", err
+		}
+		cancel()
+		return "", nil
+	}
+	req := httptest.NewRequest("POST", "/api/v1/message", strings.NewReader(`{"text":"hello"}`))
+	req = req.WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hand-CSRF", token)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	fx.handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/message = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Version int             `json:"version"`
+		Fleet   board.APIFleet  `json:"fleet"`
+		Cursor  string          `json:"cursor"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Accepted bool `json:"accepted"`
+	}
+	if err := json.Unmarshal(env.Data, &data); err != nil || !data.Accepted {
+		t.Fatalf("data = %s, err %v", env.Data, err)
+	}
+	if env.Cursor == "" || env.Fleet.Name != "golden" {
+		t.Fatalf("envelope = %+v", env)
+	}
+	pending, err := fx.st.PendingSupervisorInputs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Body != "hello" {
+		t.Fatalf("pending = %+v", pending)
 	}
 }
 
