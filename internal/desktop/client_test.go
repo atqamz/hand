@@ -564,6 +564,7 @@ type mutations struct {
 	accepted bool
 	body     string
 	csrf     []string
+	paths    []string
 }
 
 func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
@@ -602,6 +603,7 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.csrf = append(m.csrf, r.Header.Get("X-Hand-CSRF"))
+		m.paths = append(m.paths, r.Method+" "+rest)
 		m.mu.Unlock()
 		if r.Header.Get("X-Hand-CSRF") != testToken {
 			w.WriteHeader(http.StatusForbidden)
@@ -616,6 +618,9 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "report-acked"
 		case "/api/v1/message":
 			name = "message-sent"
+		case "/api/v1/supervisor/start", "/api/v1/supervisor/resume", "/api/v1/supervisor/stop",
+			"/api/v1/supervisor/interrupt", "/api/v1/supervisor/force", "/api/v1/supervisor/keys":
+			name = "status"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
@@ -718,6 +723,43 @@ func TestHTTPClientReportsAnAcceptedMessageWithoutATimeline(t *testing.T) {
 	m.mu.Unlock()
 	if !strings.Contains(body, `"text":"hello from the desktop"`) {
 		t.Fatalf("request body = %q", body)
+	}
+}
+
+func TestHTTPClientPostsSupervisorControls(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	ctx := context.Background()
+	st, err := c.Supervise(ctx, fleetID, "stop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Supervisor == nil || st.Supervisor.Ref != "s1" {
+		t.Fatalf("status = %+v", st)
+	}
+	digest := "0123456789abcdef0123456789abcdef"
+	st, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Supervisor == nil {
+		t.Fatalf("status = %+v", st)
+	}
+	m.mu.Lock()
+	body, csrf, paths := m.body, append([]string(nil), m.csrf...), append([]string(nil), m.paths...)
+	m.mu.Unlock()
+	if len(paths) != 2 || paths[0] != "POST /api/v1/supervisor/stop" || paths[1] != "POST /api/v1/supervisor/keys" {
+		t.Fatalf("requests = %v", paths)
+	}
+	if len(csrf) != 2 || csrf[0] != testToken || csrf[1] != testToken {
+		t.Fatalf("CSRF headers = %v", csrf)
+	}
+	if !strings.Contains(body, `"keys":["down","enter"]`) || !strings.Contains(body, `"revision":6`) ||
+		!strings.Contains(body, `"digest":"`+digest+`"`) || !strings.Contains(body, `"after":2`) {
+		t.Fatalf("keys body = %q", body)
+	}
+	if _, err := c.Supervise(ctx, fleetID, "nope"); err == nil {
+		t.Fatal("an unknown control was sent")
 	}
 }
 

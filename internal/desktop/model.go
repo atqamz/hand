@@ -36,6 +36,14 @@ type Supervisor struct {
 	Live      bool   `json:"live"`
 	Pending   int    `json:"pending"`
 	Resumable bool   `json:"resumable"`
+	Blocked   bool   `json:"blocked,omitempty"`
+	Keys      *Keys  `json:"keys,omitempty"`
+}
+
+type Keys struct {
+	Revision int64  `json:"revision"`
+	Digest   string `json:"digest"`
+	Pressed  int64  `json:"pressed"`
 }
 
 type Gauge struct {

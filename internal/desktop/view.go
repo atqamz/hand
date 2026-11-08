@@ -243,6 +243,7 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 }
 
 func (a *App) statusScreen(c *ui.Context, p palette) {
+	a.actionCard(c, p)
 	sup := a.Status.Supervisor
 	title := "No supervisor"
 	if sup != nil {
@@ -280,6 +281,7 @@ func (a *App) statusScreen(c *ui.Context, p palette) {
 			if sup.Resumable {
 				ui.Text(c, "This session can be resumed").FontSize(12).TextColor(p.neutral)
 			}
+			a.supervisorControls(c, p, sup)
 		})
 	}
 	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.card).
@@ -297,6 +299,56 @@ func (a *App) statusScreen(c *ui.Context, p palette) {
 		}
 	})
 }
+
+type controlButton struct {
+	action, label, busy string
+}
+
+var supervisorControls = []controlButton{
+	{"start", "Start", "Starting…"},
+	{"resume", "Resume", "Resuming…"},
+	{"stop", "Stop", "Stopping…"},
+	{"interrupt", "Interrupt", "Interrupting…"},
+	{"force", "Force", "Forcing…"},
+}
+
+func (a *App) supervisorControls(c *ui.Context, p palette, sup *Supervisor) {
+	ui.Divider(c).Margin(10, 0)
+	ui.Row(c).Gap(8).Children(func() {
+		ui.Text(c, "Controls").FontSize(12).Bold().TextColor(p.neutral).Grow(1)
+		for _, ctrl := range supervisorControls {
+			label := ctrl.label
+			if a.BusyAction == ctrl.action {
+				label = ctrl.busy
+			}
+			if ui.Button(c.Key("control:"+ctrl.action), label).
+				Disabled(a.Busy || !canSupervise(sup, ctrl.action)).Clicked() {
+				a.Supervise(ctrl.action)
+			}
+		}
+	})
+	if !sup.Blocked {
+		return
+	}
+	ui.Row(c).Gap(8).Children(func() {
+		ui.Text(c, "Keys").FontSize(12).Bold().TextColor(p.neutral).Grow(1)
+		for _, key := range supervisorControlKeys {
+			label := key
+			if l, ok := supervisorKeyLabels[key]; ok {
+				label = l
+			}
+			if a.BusyAction == "key:"+key {
+				label = "Sending…"
+			}
+			if ui.Button(c.Key("key:"+key), label).
+				Disabled(a.Busy || sup.Keys == nil).Clicked() {
+				a.Press(key)
+			}
+		}
+	})
+}
+
+var supervisorKeyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "down": "↓"}
 
 func (a *App) stat(c *ui.Context, p palette, value, label string, tone ui.Color) {
 	ui.Column(c).Grow(1).Gap(2).Padding(12).Radius(8).Background(p.card).

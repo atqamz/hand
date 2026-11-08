@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus three actions in v1: sending a message to the supervisor, answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus its actions in v1: sending a message to the supervisor, answering an open decision, acknowledging a report, and the supervisor controls (start, resume, stop, interrupt, force and keys). It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -18,7 +18,7 @@ A local client proves the service at the recorded port is the board before it se
 
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
-The three actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the three action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
+The actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
 ## Envelope
 
@@ -70,6 +70,12 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
+| `POST /api/v1/supervisor/start` | the same `Status` the GET returns, after the start | the console's Start or New session |
+| `POST /api/v1/supervisor/resume` | the same `Status` after the resume | the console's Resume |
+| `POST /api/v1/supervisor/stop` | the same `Status` after the stop | the console's Stop |
+| `POST /api/v1/supervisor/interrupt` | the same `Status` after the interrupt | the console's Interrupt |
+| `POST /api/v1/supervisor/force` | the same `Status` after the force | the blocked screen's "Type queued messages anyway" |
+| `POST /api/v1/supervisor/keys` | the same `Status` after the key press | the supervisor's fixed key buttons |
 
 `{tN}`, `{aN}`, `{dN}` and `{rN}` take the ref or the bare number, as the pages do. An unknown ref is `404`.
 
@@ -106,6 +112,14 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 
 `supervisor` is absent when no supervisor exists. `needs.items` follows the page's order and carries the same `kind`, `ref`, `word` and `tone` (`blocked`, `worker`, `failure`, `limited`, `nosup`, `stalled`, `resume`, `decision`, `report`, `quiet`, `long`, `kept`, `artifacts`). `cleared` and `summary` appear when the page shows "All clear". For a `blocked`, `worker` or `limited` item, `title` is absent because it comes from a terminal screen; use `ref`, `kind` and the attempt or supervisor detail instead.
 
+While the supervisor's pane is blocked, `supervisor` also carries `"blocked": true` and a `keys` object:
+
+```json
+{"blocked": true, "keys": {"revision": 6, "digest": "f8c722e0710879ae811b2fe7ad0c8ba0", "pressed": 2}}
+```
+
+`revision` and `digest` are the same guard the Blocked screen page sends, and `pressed` is the sequence of the last key press (`0` when none has been sent). They are the only facts about the screen the API carries: not its text, question, or the labels parsed from it. The desktop shows the fixed toolbar only while `blocked` is true and posts each key with these three values.
+
 ### `Timeline.data`
 
 `entries` is the page's conversation, newest first. An entry has `role` (`supervisor`, `operator`, `hand`, `wakes`) plus `at`, `text`, `no`, and where it applies `ref`, `model`, `delivery`, `delivered`, `input`, `queued`, `wakes`, `shots`. A `wakes` entry groups several Hand wake lines in `wakes`. An entry for a screen-derived supervisor event (`supervisor.blocked`, `supervisor.limited`), or one whose text is a harness API error, has no `text`: its `role`, `at` and `ref` remain. A Hand wake line keeps its event kinds and refs but drops a screen-derived detail. `working` is the supervisor's current turn (`ref`, `since`, `on`, `from`, `last`, `input`), absent when it is not working. `older` is the `before` value for the next page, or `0`.
@@ -124,7 +138,7 @@ An event from a terminal screen (`attempt.blocked`, `attempt.limited`, `supervis
 
 The API never returns a host path. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
 
-## The three actions
+## The actions
 
 Each carries the cookie and `X-Hand-CSRF`, and answers one envelope with the updated object. A mutation ignores `?since=` and never answers `304`.
 
@@ -147,7 +161,7 @@ If the board queued the message but cannot read the conversation back, it still 
 
 v1 sends text only. The web composer's attachment upload writes an absolute host path into the message; v1 has no attachment upload contract and no field that carries a host path, so attachments need a contract that carries the inbox file by name, and they are not in this version. The text itself is free text: a path the operator types stays in it, exactly as the web composer keeps it.
 
-A client that shows the fleet status re-reads `GET /api/v1/status` after a message, an answer or an ack, because a sent message can change the composer hint and Needs.
+A client that shows the fleet status re-reads `GET /api/v1/status` after a message, an answer or an ack, because a sent message can change the composer hint and Needs. The supervisor controls answer the status itself, so they need no second read.
 
 ### Answering a decision
 
@@ -170,6 +184,38 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after a messa
 
 A client that shows the fleet status re-reads `GET /api/v1/status` after either action, because an answer and an ack leave Needs. The action's own data is already the fresh detail, so the detail screen needs no second read.
 
+### The supervisor controls
+
+`POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` take no body. Each runs the same path as the console button it mirrors and answers the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
+
+- **start** runs `supervisor start` with no profile, copying the last supervisor's harness, model and effort, like the console's "same as sN". There must be an earlier supervisor to copy: with none, the answer is `409 conflict`, and while one is live it is `409 conflict` too. Start a first supervisor from the CLI, which can choose the harness.
+- **resume** continues the last session under a new `sN`; it follows the CLI's rules, so a running supervisor or nothing to resume is a conflict or a not-found.
+- **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`. They stop and interrupt exactly as the console buttons do.
+- **force** is the blocked screen's "Type queued messages anyway": it types the queued messages, or else the wakes, into the prompt. It follows the CLI: a supervisor that is not blocked gets its queued input delivered normally and the answer is still `200`.
+
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
+- `409 conflict`: the supervisor is in a state the control refuses.
+- `404 not_found`: there is nothing to resume.
+- `500 internal`: the control failed; the message keeps no path.
+- `200` with the updated `Status`.
+
+### Pressing keys
+
+`POST /api/v1/supervisor/keys` takes one JSON object:
+
+```json
+{"keys": ["down", "enter"], "revision": 6, "digest": "f8c722e0710879ae811b2fe7ad0c8ba0", "after": 2}
+```
+
+`keys` is a non-empty sequence of the board's allowed keys, `enter`, `esc`, `up`, `down`, `1`, `2` and `3`; they are sent in order in one press. `revision`, `digest` and `after` are all required and are the three values from the supervisor's `keys` object: the board runs the same `supervisor keys --revision N --screen DIGEST --after SEQ KEY...` path the web form uses, so the press is refused if the screen moved or another key was pressed since the client read it. The answer is the updated `Status`; apply it before anything else, because its `keys` object carries the new revision, digest and pressed sequence.
+
+- `400 bad_request`: a body that is not one JSON object, an empty key sequence, a key outside the set, a negative revision or `after`, or a digest that is not 32 lowercase hex characters.
+- `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
+- `409 conflict`: the screen changed since the given revision, or a key was pressed after the given sequence; nothing was sent.
+- `200` with the updated `Status`.
+
+**The keys decision.** The API carries no `Ask` DTO and no option labels, question or screen text. While the supervisor is blocked, `Status.supervisor.keys` carries only the revision, digest and pressed sequence the guard needs, and a client shows the fixed seven-key toolbar only in that state; the operator reads the ask itself on the board's Screen page. This is the smallest contract that keeps the stale-screen guards, and the digest is the same non-reversible value the web form already sends, not screen content.
+
 ## Errors
 
 Every error is this shape, not an envelope, including a registered fleet whose store cannot be opened on an API route:
@@ -183,10 +229,10 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `400` | `bad_request` | a query value the endpoint cannot read (`before`), or a mutation body it cannot read |
 | `400` | `bad_cursor` | `since` is not a cursor this board issued |
 | `401` | `unauthorized` | no valid board session |
-| `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, or v1 on a network-address board |
+| `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, v1 on a network-address board, or a control with the board's controls off |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `404` | `not_found` | an unknown route or ref |
-| `405` | `method_not_allowed` | a `POST` outside the three actions, or any other method; the response's `Allow` names what the path takes |
+| `405` | `method_not_allowed` | a `POST` outside the action paths, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

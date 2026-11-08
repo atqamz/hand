@@ -539,6 +539,193 @@ func TestAPISendMessageIsAcceptedWhenTheTimelineCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestAPISupervisorControls(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var calls [][]string
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		calls = append(calls, append([]string(nil), call...))
+		return "", nil
+	}
+	h := fx.handler()
+	for _, action := range []string{"start", "resume", "stop", "interrupt", "force"} {
+		rec := apiPost(t, h, "/api/v1/supervisor/"+action, nil, token, true)
+		env, got := apiBody[board.APIStatus](t, rec)
+		if env.Cursor == "" || env.Version != 1 || env.Fleet.Name != "golden" {
+			t.Fatalf("%s envelope = %+v", action, env)
+		}
+		if len(calls) == 0 || !slices.Equal(calls[len(calls)-1], []string{"supervisor", action}) {
+			t.Fatalf("%s called %q", action, calls)
+		}
+		_, again := apiInto[board.APIStatus](t, h, "/api/v1/status")
+		a, _ := json.Marshal(got)
+		b, _ := json.Marshal(again)
+		if !bytes.Equal(a, b) {
+			t.Fatalf("%s and the GET disagree:\n%s\n%s", action, a, b)
+		}
+	}
+	if len(calls) != len([]string{"start", "resume", "stop", "interrupt", "force"}) {
+		t.Fatalf("controls called %q", calls)
+	}
+}
+
+func TestAPISupervisorControlRefusals(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	for _, action := range []string{"start", "resume", "stop", "interrupt", "force"} {
+		path := "/api/v1/supervisor/" + action
+		testAPIError(t, apiPost(t, h, path, nil, "", false), http.StatusUnauthorized, "unauthorized")
+		csrf := testAPIError(t, apiPost(t, h, path, nil, "", true), http.StatusForbidden, "csrf_required")
+		if strings.Contains(csrf.Message, "/") {
+			t.Fatalf("%s CSRF refusal names a path: %q", action, csrf.Message)
+		}
+		testAPIError(t, apiPost(t, h, path, nil, "wrong", true), http.StatusForbidden, "csrf_required")
+		if got := apiPost(t, h, path, nil, token, true); got.Code != http.StatusOK {
+			t.Fatalf("%s = %d:\n%s", action, got.Code, got.Body.String())
+		}
+	}
+
+	fx.fail = fmt.Errorf("%w: supervisor s1 is not running", state.ErrConflict)
+	for _, action := range []string{"stop", "interrupt", "force"} {
+		conflict := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/"+action, nil, token, true), http.StatusConflict, "conflict")
+		if strings.Contains(conflict.Message, "/") {
+			t.Fatalf("%s conflict names a path: %q", action, conflict.Message)
+		}
+	}
+	fx.fail = fmt.Errorf("%w: there is no supervisor to resume", state.ErrNotFound)
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/resume", nil, token, true), http.StatusNotFound, "not_found")
+	fx.fail = fmt.Errorf("cannot stop from /home/me/fleet: the supervisor is gone")
+	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/stop", nil, token, true), http.StatusInternalServerError, "internal")
+	if strings.Contains(err.Message, "/") || !strings.Contains(err.Message, "the supervisor is gone") {
+		t.Fatalf("control error = %q", err.Message)
+	}
+	testAPIError(t, request(h, "GET", "/api/v1/supervisor/nope", nil, true), http.StatusNotFound, "not_found")
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/nope", nil, token, true), http.StatusMethodNotAllowed, "method_not_allowed")
+	put := httptest.NewRequest("PUT", "/api/v1/supervisor/stop", nil)
+	put.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, put)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("PUT /api/v1/supervisor/stop Allow = %q", got)
+	}
+
+	ctl := board.New(fx.st, token, board.Options{Controls: true})
+	testAPIError(t, apiPost(t, ctl, "/api/v1/supervisor/stop", nil, token, true), http.StatusForbidden, "forbidden")
+
+	fresh := newFixture(t)
+	testAPIError(t, apiPost(t, fresh.handler(), "/api/v1/supervisor/start", nil, token, true), http.StatusConflict, "conflict")
+}
+
+func TestAPISupervisorKeys(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status = "blocked"
+	fx.screen = "Allow Bash?\n❯ 1. Yes\n  2. No"
+	var args []string
+	var callErr error
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		args = append([]string(nil), call...)
+		return "", callErr
+	}
+	h := fx.handler()
+	_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if st.Supervisor == nil || !st.Supervisor.Blocked || st.Supervisor.Keys == nil {
+		t.Fatalf("supervisor = %+v", st.Supervisor)
+	}
+	keys := st.Supervisor.Keys
+	if keys.Revision != 7 || !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(keys.Digest) || keys.Pressed != 0 {
+		t.Fatalf("keys = %+v", keys)
+	}
+	body := map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed}
+	rec := apiPost(t, h, "/api/v1/supervisor/keys", body, token, true)
+	env, got := apiBody[board.APIStatus](t, rec)
+	if env.Cursor == "" || got.Supervisor == nil || !got.Supervisor.Blocked {
+		t.Fatalf("keys status = %+v", got.Supervisor)
+	}
+	want := []string{"supervisor", "keys", "--revision", "7", "--screen", keys.Digest, "--after", "0", "down", "enter"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("control called %q, want %q", args, want)
+	}
+	_, again := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(again)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("the keys answer and the GET disagree:\n%s\n%s", a, b)
+	}
+
+	for _, bad := range []map[string]any{
+		{"keys": []string{}, "revision": 7, "digest": keys.Digest, "after": 0},
+		{"keys": []string{"space"}, "revision": 7, "digest": keys.Digest, "after": 0},
+		{"keys": []string{"enter"}, "digest": keys.Digest, "after": 0},
+		{"keys": []string{"enter"}, "revision": -1, "digest": keys.Digest, "after": 0},
+		{"keys": []string{"enter"}, "revision": 7, "after": 0},
+		{"keys": []string{"enter"}, "revision": 7, "digest": "short", "after": 0},
+		{"keys": []string{"enter"}, "revision": 7, "digest": keys.Digest},
+	} {
+		testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", bad, token, true), http.StatusBadRequest, "bad_request")
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("a refused keys body reached the supervisor: %q", args)
+	}
+	callErr = fmt.Errorf("%w: the screen changed since revision 7; nothing was sent", state.ErrConflict)
+	conflict := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", body, token, true), http.StatusConflict, "conflict")
+	if strings.Contains(conflict.Message, "/") {
+		t.Fatalf("keys conflict names a path: %q", conflict.Message)
+	}
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", body, "", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", body, "", false), http.StatusUnauthorized, "unauthorized")
+	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/keys", body, "wrong", true), http.StatusForbidden, "csrf_required")
+}
+
+func TestAPISupervisorGoldens(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	fx.status = "blocked"
+	fx.screen = "Allow Bash?\n❯ 1. Yes\n  2. No"
+	fx.options.Control = func(context.Context, ...string) (string, error) { return "", nil }
+	h := fx.handler()
+	_, st := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	keys := st.Supervisor.Keys
+	for _, c := range []struct {
+		name string
+		path string
+		body any
+	}{
+		{"status-blocked", "/api/v1/status", nil},
+		{"supervisor-started", "/api/v1/supervisor/start", nil},
+		{"supervisor-keys", "/api/v1/supervisor/keys", map[string]any{"keys": []string{"down", "enter"}, "revision": keys.Revision, "digest": keys.Digest, "after": keys.Pressed}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var rec *httptest.ResponseRecorder
+			if c.body == nil && c.path == "/api/v1/status" {
+				rec = request(h, "GET", c.path, nil, true)
+			} else {
+				rec = apiPost(t, h, c.path, c.body, token, true)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s %s = %d:\n%s", c.path, c.name, rec.Code, rec.Body.String())
+			}
+			var out bytes.Buffer
+			if err := json.Indent(&out, rec.Body.Bytes(), "", "  "); err != nil {
+				t.Fatal(err)
+			}
+			out.WriteByte('\n')
+			file := filepath.Join("testdata", "api", c.name+".json")
+			if os.Getenv("UPDATE_GOLDEN") != "" {
+				if err := os.WriteFile(file, out.Bytes(), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			want, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("%v (run with UPDATE_GOLDEN=1 to write it)", err)
+			}
+			if out.String() != string(want) {
+				t.Fatalf("%s does not match %s:\n%s", c.name, file, out.String())
+			}
+		})
+	}
+}
+
 func TestAPIMutationGolden(t *testing.T) {
 	for _, c := range []struct {
 		name string

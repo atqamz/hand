@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,17 +61,25 @@ type APIGauge struct {
 }
 
 type APISupervisor struct {
-	Ref       string `json:"ref"`
-	Harness   string `json:"harness"`
-	Model     string `json:"model,omitempty"`
-	Effort    string `json:"effort,omitempty"`
-	Status    string `json:"status"`
-	Live      bool   `json:"live"`
-	Pending   int    `json:"pending"`
-	Resumable bool   `json:"resumable"`
-	Held      bool   `json:"held,omitempty"`
-	Switching string `json:"switching,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Ref       string   `json:"ref"`
+	Harness   string   `json:"harness"`
+	Model     string   `json:"model,omitempty"`
+	Effort    string   `json:"effort,omitempty"`
+	Status    string   `json:"status"`
+	Live      bool     `json:"live"`
+	Pending   int      `json:"pending"`
+	Resumable bool     `json:"resumable"`
+	Blocked   bool     `json:"blocked,omitempty"`
+	Keys      *APIKeys `json:"keys,omitempty"`
+	Held      bool     `json:"held,omitempty"`
+	Switching string   `json:"switching,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
+}
+
+type APIKeys struct {
+	Revision int64  `json:"revision"`
+	Digest   string `json:"digest"`
+	Pressed  int64  `json:"pressed"`
 }
 
 type APITaskCounts struct {
@@ -366,7 +375,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead, http.MethodPost:
 	default:
 		w.Header().Set("Allow", apiAllow(r))
-		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on a message, a decision's answer and a report's ack")
+		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on its action paths")
 		return
 	}
 	b.mux.ServeHTTP(w, r)
@@ -374,7 +383,8 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 
 func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
-	if p == "/message" ||
+	if p == "/message" || p == "/supervisor/start" || p == "/supervisor/resume" || p == "/supervisor/stop" ||
+		p == "/supervisor/interrupt" || p == "/supervisor/force" || p == "/supervisor/keys" ||
 		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
 		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
 		return "POST"
@@ -406,6 +416,13 @@ type apiAnswerBody struct {
 
 type apiMessageBody struct {
 	Text json.RawMessage `json:"text"`
+}
+
+type apiKeysBody struct {
+	Keys     []string `json:"keys"`
+	Revision *int64   `json:"revision"`
+	Digest   string   `json:"digest"`
+	After    *int64   `json:"after"`
 }
 
 // APIMessageAccepted is the message mutation's answer when the board queued
@@ -524,6 +541,73 @@ func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
 	b.apiOK(w, f, "", tl)
 }
 
+func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if b.o.Control == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
+		return
+	}
+	if action == "start" {
+		if _, ok, err := b.st.LatestSupervisor(ctx); err != nil {
+			b.apiFailErr(w, err)
+			return
+		} else if !ok {
+			b.apiFail(w, http.StatusConflict, "conflict", "there is no earlier supervisor to copy; start the first one with `hand supervisor start`")
+			return
+		}
+	}
+	if _, err := b.o.Control(ctx, "supervisor", action); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiStatusData(ctx) })
+}
+
+func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if b.o.Control == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 64 KiB")
+		return
+	}
+	var in apiKeysBody
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+		return
+	}
+	if len(in.Keys) == 0 || in.Revision == nil || *in.Revision < 0 || in.After == nil || *in.After < 0 || !digest.MatchString(in.Digest) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with keys, revision, digest and after")
+		return
+	}
+	for _, k := range in.Keys {
+		if !slices.Contains(state.SupervisorKeys, k) {
+			b.apiFail(w, http.StatusBadRequest, "bad_request", "use one of the board's supervisor keys")
+			return
+		}
+	}
+	args := []string{"supervisor", "keys", "--revision", strconv.FormatInt(*in.Revision, 10), "--screen", in.Digest, "--after", strconv.FormatInt(*in.After, 10)}
+	if _, err := b.o.Control(ctx, append(args, in.Keys...)...); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiStatusData(ctx) })
+}
+
 // apiMessageText rejects the text a JSON decoder would quietly change: invalid
 // UTF-8 bytes and unpaired surrogate escapes both become U+FFFD.
 func apiMessageText(raw json.RawMessage) (string, error) {
@@ -589,7 +673,7 @@ func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, data f
 
 func (b *Board) apiMethod(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Allow", "GET, HEAD")
-	b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "only a message, a decision's answer and a report's ack take POST")
+	b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "only an action path takes POST")
 }
 
 func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {
@@ -863,13 +947,20 @@ func (b *Board) apiStatusData(ctx context.Context) (APIStatus, error) {
 	if err != nil {
 		return APIStatus{}, err
 	}
+	var pressed int64
+	if sv.Sup != nil && sv.Blocked {
+		pressed, err = b.st.LastKeys(ctx, state.SupervisorRef(sv.Sup.ID))
+		if err != nil {
+			return APIStatus{}, err
+		}
+	}
 	status := b.buildStatus(ctx, sv)
 	counts, err := b.st.CountTasks(ctx)
 	if err != nil {
 		return APIStatus{}, err
 	}
 	out := APIStatus{
-		Supervisor:   apiSupervisor(sv),
+		Supervisor:   apiSupervisor(sv, pressed),
 		AgentState:   sv.AgentState,
 		ComposerHint: sv.ComposerHint,
 		Pill:         sv.Pill,
@@ -1047,7 +1138,7 @@ func (b *Board) apiReportData(ctx context.Context, id int64) (APIReportDetail, e
 	return APIReportDetail{Report: apiReport(r), Task: apiTask(t)}, nil
 }
 
-func apiSupervisor(v supervisorView) *APISupervisor {
+func apiSupervisor(v supervisorView, pressed int64) *APISupervisor {
 	if v.Sup == nil {
 		return nil
 	}
@@ -1060,8 +1151,12 @@ func apiSupervisor(v supervisorView) *APISupervisor {
 		Live:      v.Sup.Live(),
 		Pending:   v.Pending,
 		Resumable: v.Resumable,
+		Blocked:   v.Blocked,
 		Held:      v.Held,
 		Reason:    Scrub(v.Sup.Reason),
+	}
+	if v.Blocked {
+		out.Keys = &APIKeys{Revision: v.Revision, Digest: v.Digest, Pressed: pressed}
 	}
 	if out.Ref == "" {
 		out.Ref = state.SupervisorRef(v.Sup.ID)

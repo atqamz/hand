@@ -35,6 +35,8 @@ type ReadModel interface {
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
 	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
 	SendMessage(ctx context.Context, fleet, text string) (Sent, error)
+	Supervise(ctx context.Context, fleet, action string) (Status, error)
+	PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64) (Status, error)
 }
 
 // Sent is a message the board accepted. Fresh is false when the board queued
@@ -282,6 +284,30 @@ func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Sent,
 	var out messageReply
 	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text}, &out)
 	return Sent{Timeline: out.Timeline, Fresh: !out.Accepted}, err
+}
+
+var supervisorActions = map[string]bool{"start": true, "resume": true, "stop": true, "interrupt": true, "force": true}
+
+func (c *HTTPClient) Supervise(ctx context.Context, fleet, action string) (Status, error) {
+	if !supervisorActions[action] {
+		return Status{}, fmt.Errorf("%q is not a supervisor control", action)
+	}
+	var out Status
+	_, err := c.post(ctx, fleet, "/supervisor/"+action, nil, &out)
+	return out, err
+}
+
+type keysRequest struct {
+	Keys     []string `json:"keys"`
+	Revision int64    `json:"revision"`
+	Digest   string   `json:"digest"`
+	After    int64    `json:"after"`
+}
+
+func (c *HTTPClient) PressKeys(ctx context.Context, fleet string, keys []string, revision int64, digest string, after int64) (Status, error) {
+	var out Status
+	_, err := c.post(ctx, fleet, "/supervisor/keys", keysRequest{Keys: keys, Revision: revision, Digest: digest, After: after}, &out)
+	return out, err
 }
 
 func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Envelope, error) {

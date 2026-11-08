@@ -35,10 +35,11 @@ type App struct {
 	Fleets []Fleet
 	Fleet  Fleet
 
-	Screen  Screen
-	Ref     string
-	Loading bool
-	Busy    bool
+	Screen     Screen
+	Ref        string
+	Loading    bool
+	Busy       bool
+	BusyAction string
 
 	AnswerChoice string
 	AnswerNote   string
@@ -147,7 +148,7 @@ func (a *App) SelectFleet(id string) {
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.ActionWarn = "", "", "", false
-	a.DraftErr, a.retry, a.Busy = "", "", false
+	a.DraftErr, a.retry, a.Busy, a.BusyAction = "", "", false, ""
 	if a.writer != nil {
 		a.writer.Flush()
 	}
@@ -526,6 +527,104 @@ func (a *App) Send() {
 	go fetch()
 }
 
+func (a *App) Supervise(action string) {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	sup := a.Status.Supervisor
+	if sup == nil || !canSupervise(sup, action) {
+		return
+	}
+	model, fleet := a.Model, a.Fleet.ID
+	a.runControl(action, func(ctx context.Context) (Status, error) {
+		return model.Supervise(ctx, fleet, action)
+	})
+}
+
+func (a *App) Press(key string) {
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" {
+		return
+	}
+	sup := a.Status.Supervisor
+	if sup == nil || !sup.Blocked || sup.Keys == nil || !supervisorKey(key) {
+		return
+	}
+	keys := *sup.Keys
+	model, fleet := a.Model, a.Fleet.ID
+	a.runControl("key:"+key, func(ctx context.Context) (Status, error) {
+		return model.PressKeys(ctx, fleet, []string{key}, keys.Revision, keys.Digest, keys.Pressed)
+	})
+}
+
+var supervisorControlKeys = []string{"enter", "esc", "up", "down", "1", "2", "3"}
+
+func supervisorKey(key string) bool {
+	for _, k := range supervisorControlKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+func canSupervise(sup *Supervisor, action string) bool {
+	switch action {
+	case "start":
+		return !sup.Live
+	case "resume":
+		return sup.Resumable
+	case "stop", "interrupt":
+		return sup.Status == "running"
+	case "force":
+		return sup.Blocked
+	}
+	return false
+}
+
+func (a *App) runControl(name string, call func(context.Context) (Status, error)) {
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	a.Busy, a.BusyAction = true, name
+	applied := func(st Status) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		a.Status = st
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy, a.BusyAction = false, ""
+		a.ActionErr = friendly(err)
+		a.ActionWarn = false
+	}
+	fetch := func() {
+		st, err := call(ctx)
+		cancel()
+		if err != nil {
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		if post == nil {
+			applied(st)
+		} else {
+			post(func() { applied(st) })
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
 func (a *App) ClearDraft() {
 	if a.Busy {
 		return
@@ -629,6 +728,7 @@ func (a *App) nextLoad() (int, context.Context, context.CancelFunc) {
 	a.cancel = cancel
 	a.loadID++
 	a.Busy = false
+	a.BusyAction = ""
 	a.ActionErr = ""
 	a.ActionWarn = false
 	return a.loadID, ctx, cancel

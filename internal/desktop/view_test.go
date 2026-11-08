@@ -88,6 +88,143 @@ func TestStatusScreen(t *testing.T) {
 		"Active", "Inbox", "Done", "Abandoned", "Projects", "agent working")
 }
 
+func statusWith(t *testing.T, change func(*desktop.Supervisor)) *fixture {
+	t.Helper()
+	f := goldenFixture(t)
+	st := f.status[fleetID]
+	sup := *st.Supervisor
+	change(&sup)
+	st.Supervisor = &sup
+	f.status[fleetID] = st
+	return f
+}
+
+func TestSupervisorControlsFollowTheState(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
+	})
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, "Controls", "Start", "Resume", "Stop", "Interrupt", "Force")
+	mustNotText(t, tt, "Keys")
+	click(t, tt, "Start")
+	click(t, tt, "Resume")
+	click(t, tt, "Force")
+	if f.count("control:start")+f.count("control:resume")+f.count("control:force") != 0 {
+		t.Fatalf("a disabled control ran: %v", []int{f.count("control:start"), f.count("control:resume"), f.count("control:force")})
+	}
+	click(t, tt, "Stop")
+	if f.count("control:stop") != 1 {
+		t.Fatalf("Stop calls = %d", f.count("control:stop"))
+	}
+}
+
+func TestResumeIsEnabledOnlyWithASession(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "interrupted", false, true, false, nil
+	})
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Resume")
+	if f.count("control:resume") != 1 {
+		t.Fatalf("Resume calls = %d", f.count("control:resume"))
+	}
+	click(t, tt, "Stop")
+	click(t, tt, "Interrupt")
+	click(t, tt, "Force")
+	if f.count("control:stop")+f.count("control:interrupt")+f.count("control:force") != 0 {
+		t.Fatal("a control that needs a running supervisor ran")
+	}
+}
+
+func blockedFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked = "running", true, false, true
+		sup.Keys = &desktop.Keys{Revision: 6, Digest: "0123456789abcdef0123456789abcdef", Pressed: 2}
+	})
+	st := f.status[fleetID]
+	st.AgentState, st.Pill, st.Line = "blocked", "failing", "blocked"
+	f.status[fleetID] = st
+	return f
+}
+
+func TestABlockedSupervisorShowsTheKeys(t *testing.T) {
+	f := blockedFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	mustText(t, tt, "Keys", "Enter", "Esc", "↑", "↓", "1", "2", "3")
+	click(t, tt, "Enter")
+	if f.count("keys:enter") != 1 {
+		t.Fatalf("key calls = %d", f.count("keys:enter"))
+	}
+	f.mu.Lock()
+	keys, revision, digest, after := append([]string(nil), f.keys...), f.keyRevision, f.keyDigest, f.keyAfter
+	f.mu.Unlock()
+	if len(keys) != 1 || keys[0] != "enter" || revision != 6 || digest != "0123456789abcdef0123456789abcdef" || after != 2 {
+		t.Fatalf("pressed %q at revision %d digest %q after %d", keys, revision, digest, after)
+	}
+	click(t, tt, "Force")
+	if f.count("control:force") != 1 {
+		t.Fatalf("Force calls = %d", f.count("control:force"))
+	}
+}
+
+func TestASupervisorControlIsBusyAndKeepsTheScreenOnError(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
+	})
+	app := newApp(t, f)
+	tt := newTester(app)
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Stop")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Stopping…")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never stopped the supervisor")
+	}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustNotText(t, tt, "Stopping…")
+
+	app.Post = nil
+	f.action = &desktop.APIError{Status: 409, Code: "conflict", Message: "supervisor s1 is not running"}
+	click(t, tt, "Stop")
+	tt.Frame()
+	mustText(t, tt, "The action did not go through", "supervisor s1 is not running", "s1 claude sonnet low · running")
+	if app.Screen != desktop.StatusScreen {
+		t.Fatalf("screen = %v", app.Screen)
+	}
+}
+
+func TestASupervisorControlAppliesTheReturnedStatus(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
+	})
+	stopped := f.status[fleetID]
+	stopped.Line = "stopped by the test"
+	stopped.Supervisor = &desktop.Supervisor{Ref: "s1", Harness: "claude", Status: "stopped"}
+	f.controlStatus = &stopped
+	app := newApp(t, f)
+	before := f.count("status:" + fleetID)
+	tt := newTester(app)
+	click(t, tt, "Stop")
+	tt.Frame()
+	mustText(t, tt, "stopped by the test")
+	if app.Status.Line != "stopped by the test" || app.Status.Supervisor.Status != "stopped" {
+		t.Fatalf("status = %+v", app.Status)
+	}
+	if got := f.count("status:" + fleetID); got != before {
+		t.Fatalf("the window re-read the status: %d reads, want %d", got, before)
+	}
+}
+
 func TestNeedsScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
@@ -921,6 +1058,7 @@ func TestScenes(t *testing.T) {
 	}
 	errFleet := goldenFixture(t)
 	errApp := newApp(t, errFleet)
+	blocked := blockedFixture(t)
 	scenes := []scene{
 		{"01-fleet-switch", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "second")
@@ -964,6 +1102,7 @@ func TestScenes(t *testing.T) {
 			errFleet.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
 			click(t, tt, "Send")
 		}},
+		{"13-supervisor-controls", newApp(t, blocked), nil},
 	}
 	for _, sc := range scenes {
 		t.Run(sc.name, func(t *testing.T) {
