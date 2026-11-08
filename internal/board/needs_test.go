@@ -164,13 +164,39 @@ func TestAllClear(t *testing.T) {
 }
 
 func TestTheNoSupervisorItemCarriesStartAndResume(t *testing.T) {
-	fx := newFixture(t)
-	fx.supervisor(t, state.AttemptStopped, "gen-1")
-	workerAttempt(t, fx.st, active(t, fx.st, "Fix login").ID)
+	stopped := newFixture(t)
+	stopped.supervisor(t, state.AttemptStopped, "gen-1")
+	workerAttempt(t, stopped.st, active(t, stopped.st, "Fix login").ID)
+	item := noSupervisorItem(t, stopped)
+	contains(t, "nosup", item, `action="/supervisor/resume"`, `<button class="primary">Resume</button>`, `<button>New session</button>`)
+	lacks(t, "nosup beside resume", item, `<button class="primary">New session`)
+
+	cold := newFixture(t)
+	sup, err := cold.st.AddSupervisor(context.Background(), state.SupervisorSpec{Harness: "claude", Model: "sonnet", Effort: "low", Argv: []string{"/bin/claude", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cold.st.EndSupervisor(context.Background(), sup.ID, state.AttemptFailed, "launch did not finish"); err != nil {
+		t.Fatal(err)
+	}
+	workerAttempt(t, cold.st, active(t, cold.st, "Fix login").ID)
+	item = noSupervisorItem(t, cold)
+	contains(t, "nosup", item, `<button class="primary">Start</button>`)
+	lacks(t, "nosup", item, `action="/supervisor/resume"`)
+}
+
+func noSupervisorItem(t *testing.T, fx *fixture) string {
+	t.Helper()
 	q := region(get(t, fx.handler(), "/"), "queue")
-	item := q[strings.Index(q, `data-kind="nosup"`):]
-	item = item[:strings.Index(item, "</details>")]
-	contains(t, "nosup", item, `action="/supervisor/resume"`, `action="/supervisor/start"`)
+	i := strings.Index(q, `data-kind="nosup"`)
+	if i < 0 {
+		t.Fatalf("no no-supervisor item:\n%s", q)
+	}
+	item := q[i:]
+	if j := strings.Index(item, "</details>"); j >= 0 {
+		item = item[:j]
+	}
+	return item
 }
 
 func TestTasksGroupUnderActiveAndInbox(t *testing.T) {

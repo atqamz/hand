@@ -1,5 +1,5 @@
 {{define "decide"}}{{$r := .R}}{{with .D}}{{$ref := decision .ID}}{{if eq .Status "open"}}{{$opts := options .Body}}<form class="answer" method="post" action="{{$r.Base}}/decision/{{$ref}}/answer" data-fetch{{if $opts}} data-choose{{end}}>
-<input type="hidden" name="csrf" value="{{$r.Token}}">
+{{template "csrf" $r.Token}}
 {{with $opts}}<fieldset class="options"><legend class="sr">Options for {{$ref}}</legend>{{range .}}<label class="option{{if .Long}} long{{end}}"><input class="sr" type="radio" name="choice" value="{{.Value}}"{{if .Other}} data-other{{end}}><span class="option-key" aria-hidden="true">{{.Key}}</span><span class="option-text"><span class="option-head"><span class="option-label">{{inline .Label}}</span>{{if .Recommended}}<span class="badge" data-tone="pass">Recommended</span>{{end}}</span>{{with .Note}}<span class="option-note">{{inline .}}</span>{{end}}</span></label>{{end}}</fieldset>{{end}}
 <textarea name="answer" rows="{{if $opts}}1{{else}}3{{end}}" placeholder="{{if $opts}}Add a note (optional){{else}}Your answer{{end}}" aria-label="{{if $opts}}Note{{else}}Your answer{{end}}"{{if not $opts}} required{{end}}></textarea>
 <div class="actions"><button class="primary">Send answer</button>{{if $.Needs}}<a href="{{$r.Base}}/decision/{{$ref}}" target="_blank" rel="noopener">Open {{$ref}}</a>{{end}}</div>
