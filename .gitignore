@@ -25,6 +25,8 @@
 !/install_test.go
 !/internal/
 !/internal/**
+!/cmd/
+!/cmd/**
 !/iroh/
 !/iroh/**
 /iroh/target/

@@ -844,6 +844,10 @@ A `card connect-part` titled Install at the foot of the Phone page, for the lapt
 
 **The Black On White Rule.** The QR code is the one picture the Board colours with literals, never with tokens: black modules on a white ground with a quiet zone of at least 4 modules, in the light and in the dark theme. A scanner needs the dark-on-light contrast whatever the page does, and a themed QR would fail it. The colours are `fill` attributes in the SVG; `board.css` holds no `#fff` or `#000` for it (`TestThePhonePagesStyleEveryPartTheyAdd`).
 
+## The Desktop Window
+
+`hand-desktop` is a second client of the same fleet, not a second design system. Its brief is [`.impeccable/surfaces/internal-desktop.md`](.impeccable/surfaces/internal-desktop.md): the window reads the Board's JSON API, and it reuses this file's colours, five type sizes, severity ramp, word-and-shape rule, tabular refs and flat resting surfaces. Its rail item, row, pill and badge are the shapes defined here, drawn with MyGo primitives; v1 adds no component and no colour. The eight scenes in `docs/images/desktop/` are its screens; the tests write them with `DESKTOP_SHOTS` set to their folder.
+
 ## Do's and Don'ts
 
 ### Do:
