@@ -286,6 +286,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_link_with_surrounding_whitespace_is_accepted() {
+        let dir = TempDir::new();
+        let companion = Companion::start(config(&dir)).await.unwrap();
+        let padded = format!("\n\t {LINK} \r\n");
+        let offer = companion.offer_link(&padded).unwrap();
+        assert_eq!(offer.laptop, "4d92…6ed6");
+        assert_eq!(companion.pending_offer().unwrap().laptop, offer.laptop);
+    }
+
+    #[tokio::test]
     async fn a_second_link_keeps_the_pending_confirmation() {
         let dir = TempDir::new();
         let companion = Companion::start(config(&dir)).await.unwrap();

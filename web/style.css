@@ -56,6 +56,16 @@ form {
   margin: 24px 0;
 }
 
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row button {
+  flex: 1;
+  margin-top: 0;
+}
+
 label {
   font-size: 0.875rem;
   color: var(--quiet);

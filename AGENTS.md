@@ -1,6 +1,6 @@
 # Hand's Android Companion
 
-The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dials a laptop's `hand-iroh` sidecar over iroh and shows the Board in a web view. Status: roadmap steps 1 and 2 are built (the iroh dialer, the loopback proxy and the web view); pairing, the QR scanner and release signing are not. See the roadmap in `README.md`.
+The phone app of Hand: a Tauri 2 shell around a Rust core, Android only. It dials a laptop's `hand-iroh` sidecar over iroh and shows the Board in a web view. Status: roadmap steps 1 to 4 are built (the iroh dialer, the loopback proxy and web view, pairing from an intent, a paste or a QR scan); release signing is not. See the roadmap in `README.md`.
 
 ## Rules
 

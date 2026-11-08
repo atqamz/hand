@@ -13,7 +13,10 @@
       <form id="paste">
         <label for="link">Pairing link</label>
         <input id="link" name="link" autocomplete="off" spellcheck="false" autocapitalize="off" required>
-        <button type="submit">Continue</button>
+        <div class="row">
+          <button type="submit">Continue</button>
+          <button id="scan" type="button">Scan the QR code</button>
+        </div>
       </form>
       <section id="confirm" hidden>
         <p>Pair with the laptop <strong id="laptop"></strong>?</p>

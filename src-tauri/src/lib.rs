@@ -1,4 +1,5 @@
 mod mobile;
+mod scanner;
 
 #[cfg(target_os = "android")]
 mod keystore;
@@ -9,7 +10,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 #[cfg(target_os = "android")]
 use hand_android_core::CompanionConfig;
 use hand_android_core::{
-    Companion, ConfirmError, OfferError, OpenError, PAIRING_PENDING, may_load, proxy_origin,
+    CAMERA_FAILED, Companion, ConfirmError, OfferError, OpenError, PAIRING_PENDING, ScanError,
+    ScanStatus, may_load, proxy_origin, scan_reply,
 };
 use tauri::Manager;
 use tauri_plugin_opener::OpenerExt;
@@ -116,6 +118,43 @@ fn offer_link(state: tauri::State<'_, AppState>, text: String) -> Result<OfferVi
         laptop: offer.laptop,
         notice: None,
     })
+}
+
+#[tauri::command]
+async fn scan_code(app: tauri::AppHandle) -> Result<Option<String>, Failure> {
+    #[cfg(target_os = "android")]
+    {
+        let bridge = app
+            .try_state::<scanner::ScannerBridge>()
+            .ok_or_else(camera_failure)?;
+        let reply = bridge
+            .scan(scanner::ScanArgs {
+                permission_message: hand_android_core::CAMERA_REFUSED.to_owned(),
+                failed_message: CAMERA_FAILED.to_owned(),
+            })
+            .await
+            .map_err(scan_failure)?;
+        scan_reply(ScanStatus::parse(reply.status.as_str()), reply.text).map_err(scan_failure)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(camera_failure())
+    }
+}
+
+fn scan_failure(error: ScanError) -> Failure {
+    Failure {
+        message: error.message().to_owned(),
+        retry: error.retry(),
+    }
+}
+
+fn camera_failure() -> Failure {
+    Failure {
+        message: CAMERA_FAILED.to_owned(),
+        retry: true,
+    }
 }
 
 #[tauri::command]
@@ -269,6 +308,7 @@ pub fn run() {
     let bundled = bundled_origin(context.config());
     let builder = tauri::Builder::default()
         .plugin(mobile::init())
+        .plugin(scanner::init())
         .plugin(tauri_plugin_opener::Builder::new().build())
         .plugin(origin_guard(bundled));
     #[cfg(target_os = "android")]
@@ -329,6 +369,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             intake_intent,
             offer_link,
+            scan_code,
             open_board,
             cancel_pairing,
             confirm_pairing,

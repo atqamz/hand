@@ -1,6 +1,7 @@
 const invoke = window.__TAURI__.core.invoke;
 const paste = document.getElementById("paste");
 const input = document.getElementById("link");
+const scan = document.getElementById("scan");
 const confirm = document.getElementById("confirm");
 const laptop = document.getElementById("laptop");
 const yes = document.getElementById("yes");
@@ -55,18 +56,43 @@ function failed(failure) {
   no.disabled = false;
 }
 
-paste.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function offerText(text) {
   clearTimer();
   error.textContent = "";
   status.textContent = "Checking the link…";
-  const text = input.value;
-  input.value = "";
   try {
     offer(await invoke("offer_link", { text }));
   } catch (failure) {
     status.textContent = "";
     failed(failure);
+  }
+}
+
+paste.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const text = input.value;
+  input.value = "";
+  offerText(text);
+});
+
+scan.addEventListener("click", async () => {
+  scan.disabled = true;
+  clearTimer();
+  error.textContent = "";
+  status.textContent = "Starting the camera…";
+  try {
+    const text = await invoke("scan_code");
+    if (!text) {
+      status.textContent = "";
+      return;
+    }
+    input.value = text;
+    paste.requestSubmit();
+  } catch (failure) {
+    status.textContent = "";
+    failed(failure);
+  } finally {
+    scan.disabled = false;
   }
 });
 
