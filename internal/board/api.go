@@ -381,7 +381,7 @@ func (b *Board) apiSession(w http.ResponseWriter, r *http.Request) {
 func (b *Board) apiCSRF(w http.ResponseWriter, r *http.Request) bool {
 	s, _ := r.Context().Value(sessionKey{}).(session)
 	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Hand-CSRF")), []byte(s.CSRF)) != 1 {
-		b.apiFail(w, http.StatusForbidden, "csrf_required", "the X-Hand-CSRF header is missing or wrong; read the session at /api/v1/session")
+		b.apiFail(w, http.StatusForbidden, "csrf_required", "the X-Hand-CSRF header is missing or wrong; read the session's token first")
 		return false
 	}
 	return true

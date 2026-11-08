@@ -281,7 +281,10 @@ func TestAPIAnswerRefusals(t *testing.T) {
 	path := "/api/v1/decision/d1/answer"
 	body := map[string]string{"choice": "1. Yes, keep it"}
 	testAPIError(t, apiPost(t, h, path, body, "", false), http.StatusUnauthorized, "unauthorized")
-	testAPIError(t, apiPost(t, h, path, body, "", true), http.StatusForbidden, "csrf_required")
+	csrf := testAPIError(t, apiPost(t, h, path, body, "", true), http.StatusForbidden, "csrf_required")
+	if strings.Contains(csrf.Message, "/") {
+		t.Fatalf("the CSRF refusal names a path: %q", csrf.Message)
+	}
 	testAPIError(t, apiPost(t, h, path, body, "wrong", true), http.StatusForbidden, "csrf_required")
 	testAPIError(t, apiPost(t, h, "/api/v1/decision/d999/answer", body, token, true), http.StatusNotFound, "not_found")
 	testAPIError(t, apiPost(t, h, path, map[string]string{"choice": " ", "note": " "}, token, true), http.StatusBadRequest, "bad_request")
