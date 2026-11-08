@@ -152,7 +152,7 @@ func TestANetworkBoardListsOnlyItsOwnFleet(t *testing.T) {
 	h := railHost(f, false, nil)
 	body := visit(t, h, "/"+alpha.id+"/", map[string]string{alpha.id: alpha.token, bravo.id: bravo.token})
 	rail := railOf(t, body)
-	contains(t, "network rail", rail, listed(alpha), `<span class="label">Board</span>`, `<span class="label">Tasks</span>`, `<span class="label">Conversation</span>`)
+	contains(t, "network rail", rail, listed(alpha), `<span class="label">Board</span>`, `<span class="label">Tasks</span>`, `<span class="label">Conversation</span>`, `<span class="label">Screen</span>`)
 	lacks(t, "network board", body, bravo.id, "bravo", "All fleets")
 }
 
@@ -198,7 +198,7 @@ func TestTheRailNamesTheBoardAndKeepsItsNeedsCountLive(t *testing.T) {
 	h := board.New(st, token, board.Options{Controls: true})
 	body := get(t, h, "/")
 	rail := railOf(t, body)
-	contains(t, "rail", rail, `<span class="label">Board</span>`, `<span class="label">Tasks</span>`, `<span class="label">Conversation</span>`, `<span class="badge" data-needs data-waiting="`)
+	contains(t, "rail", rail, `<span class="label">Board</span>`, `<span class="label">Tasks</span>`, `<span class="label">Conversation</span>`, `<span class="label">Screen</span>`, `<span class="badge" data-needs data-waiting="`)
 	lacks(t, "board page", body, "Desk")
 	tab := regexp.MustCompile(`data-tab="needs">Needs <span class="badge n" data-waiting="(\d+)" data-worst="(\w*)" data-tone="(\w*)"`).FindStringSubmatch(body)
 	if tab == nil || tab[1] == "0" {
@@ -225,7 +225,7 @@ func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {
 		return out
 	}
 	rail := railOf(t, body)
-	if r, s := links(rail[:strings.Index(rail, "</nav>")]), links(sheetOf(t, body)); len(r) != 7 || strings.Join(r, " ") != strings.Join(s, " ") {
+	if r, s := links(rail[:strings.Index(rail, "</nav>")]), links(sheetOf(t, body)); len(r) != 8 || strings.Join(r, " ") != strings.Join(s, " ") {
 		t.Fatalf("rail %q, sheet %q", r, s)
 	}
 	css := asset(t, "board.css")
@@ -243,17 +243,17 @@ func TestThePhoneSheetHoldsTheRailsLinks(t *testing.T) {
 	}
 }
 
-func TestTheRailIsSevenTabStopsBeforeTheMasthead(t *testing.T) {
+func TestTheRailIsNineTabStopsBeforeTheMasthead(t *testing.T) {
 	fx := newFixture(t)
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	body := get(t, fx.handler(), "/")
 	before := body[:strings.Index(body, `<header class="masthead">`)]
 	before = before[strings.Index(before, `<a class="skip"`):]
 	stops := regexp.MustCompile(`<(?:a|button)\b[^>]*>`).FindAllString(before, -1)
-	if len(stops) != 8 {
-		t.Fatalf("%d links and buttons before the masthead, want the skip link, the label button, four pages and two fleet links: %q", len(stops), stops)
+	if len(stops) != 9 {
+		t.Fatalf("%d links and buttons before the masthead, want the skip link, the label button, five pages and two fleet links: %q", len(stops), stops)
 	}
-	for i, want := range []string{`class="skip"`, `class="rail-toggle"`, `href="/"`, `href="/tasks"`, `href="/supervisor/log"`, `href="/connect"`} {
+	for i, want := range []string{`class="skip"`, `class="rail-toggle"`, `href="/"`, `href="/tasks"`, `href="/supervisor/log"`, `href="/supervisor"`, `href="/connect"`} {
 		if !strings.Contains(stops[i], want) {
 			t.Fatalf("stop %d = %s, want %s", i, stops[i], want)
 		}

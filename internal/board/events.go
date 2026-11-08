@@ -29,7 +29,10 @@ type version struct {
 	agent, hint string
 	limited     string
 	stale       string
+	screen      string
+	digest      string
 	revision    int64
+	screenNote  string
 	entries     uint64
 	note        string
 	context     transcript.Status
@@ -37,7 +40,7 @@ type version struct {
 	models      int64
 }
 
-func (b *Board) version(ctx context.Context) (version, error) {
+func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 	v := version{models: b.refresh.done.Load()}
 	var err error
 	if v.seq, err = b.st.LastEventSeq(ctx); err != nil {
@@ -56,7 +59,13 @@ func (b *Board) version(ctx context.Context) (version, error) {
 		v.sup, v.status, v.session = sup.ID, sup.Status, sup.Session
 		if sup.Status == state.AttemptRunning {
 			live := b.pane(ctx, sup)
-			v.agent, v.hint, v.limited, v.stale, v.revision = live.Agent, live.Hint, live.Limited, live.Stale, live.Revision
+			v.agent, v.hint, v.limited, v.stale = live.Agent, live.Hint, live.Limited, live.Stale
+			if screen {
+				v.screen, v.digest, v.revision = live.Screen, live.Digest, live.Revision
+				v.screenNote = live.ScreenNote
+			} else if live.Blocked {
+				v.revision = live.Revision
+			}
 		}
 	}
 	entries, note := b.conversation(ctx, sup, ok)
@@ -81,13 +90,27 @@ func (b *Board) version(ctx context.Context) (version, error) {
 	return v, err
 }
 
-func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, error) {
-	data, err := b.fleetData(ctx, q)
+func pageRegions(page string) []string {
+	if page == "supervisor" {
+		return []string{"status", "sup"}
+	}
+	return regionNames
+}
+
+func (b *Board) regions(ctx context.Context, page string, q url.Values) (map[string]string, error) {
+	var data map[string]any
+	var err error
+	if page == "supervisor" {
+		data, err = b.supervisorScreenData(ctx, q)
+	} else {
+		data, err = b.fleetData(ctx, q)
+	}
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]string, len(regionNames))
-	for _, name := range regionNames {
+	names := pageRegions(page)
+	out := make(map[string]string, len(names))
+	for _, name := range names {
 		var dot any = data
 		switch name {
 		case "status":
@@ -96,6 +119,8 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 			dot = data["Console"]
 		case "queue":
 			dot = data["Needs"]
+		case "sup":
+			dot = data["Screen"]
 		case "timeline":
 			dot = data["Timeline"]
 		case "tasks":
@@ -112,6 +137,8 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 
 func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 	ctx, q := r.Context(), r.URL.Query()
+	page := q.Get("page")
+	names := pageRegions(page)
 	rc := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -124,16 +151,16 @@ func (b *Board) events(w http.ResponseWriter, r *http.Request) {
 		if !b.stillSignedIn(ctx) {
 			return
 		}
-		v, err := b.version(ctx)
+		v, err := b.version(ctx, page == "supervisor")
 		if err != nil {
 			return
 		}
 		if len(sent) == 0 || v != last {
-			html, err := b.regions(ctx, q)
+			html, err := b.regions(ctx, page, q)
 			if err != nil {
 				return
 			}
-			for _, name := range regionNames {
+			for _, name := range names {
 				if old, ok := sent[name]; ok && old == html[name] {
 					continue
 				}

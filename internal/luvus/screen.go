@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const ScreenLines = 20
+const ScreenLines = 40
 
 var countdown = regexp.MustCompile(`(deny this request in )\d+:\d{2}`)
 

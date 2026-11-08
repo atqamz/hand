@@ -91,10 +91,16 @@ async function board(box, srv, made) {
   matches(textOf(page.text), /Fix the login redirect/, 'the fleet page lists a task');
   matches(page.headers.get('content-security-policy') ?? '', /default-src 'none'; script-src 'self'; style-src 'self'/, 'the page carries the strict CSP');
   lacks(page.text, /rel="manifest"|data-worker/, 'a loopback page does not offer the install manifest');
+  const screen = await laptop.get(`/${id}/supervisor`);
+  equal(screen.status, 200, 'the Screen page answers 200');
+  matches(screen.text, /data-region="sup"/, 'the Screen page has the sup region');
+  matches(screen.text, /data-region="status"/, 'the Screen page has the live status region');
+  matches(screen.text, /data-icon-working=/, 'the Screen page can change the favicon');
+  matches(screen.text, /href="\/[^"]+\/supervisor"/, 'the rail links the Screen page');
   equal((await laptop.get('/')).status, 200, 'the fleet list answers on loopback');
   matches((await laptop.get('/')).text, new RegExp(`href="/${id}/"`), 'the fleet list links the fleet');
 
-  const events = await laptop.get(`/${id}/events`, { stream: true, timeout: 40_000 });
+  const events = await laptop.get(`/${id}/events?page=supervisor`, { stream: true, timeout: 40_000 });
   equal(events.status, 200, '/events answers 200');
   matches(events.headers.get('content-type') ?? '', /text\/event-stream/, '/events streams');
   const reader = events.res.body.getReader();
@@ -107,6 +113,7 @@ async function board(box, srv, made) {
   }
   await reader.cancel();
   matches(seen, /event: status/, '/events sends the status first');
+  matches(seen, /event: sup/, '/events sends the sup region');
   matches(seen, /event: beat/, '/events sends a heartbeat when nothing else changed');
   equal((await new Client(origin).get(`/${id}/events`)).status, 403, '/events refuses a request without a session');
 

@@ -144,7 +144,7 @@ func TestTheLiveRegionsCarryTheProjectBadges(t *testing.T) {
 	page := get(t, h, "/")
 	ch, _ := stream(t, serve(t, h)+"/events")
 	var queue, tasks string
-	for _, e := range first(t, ch, 5) {
+	for _, e := range first(t, ch, 6) {
 		switch e.name {
 		case "queue":
 			queue = e.data

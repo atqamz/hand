@@ -184,6 +184,7 @@ func New(st *state.Store, token string, o Options) http.Handler {
 	}
 	b := &Board{st: st, token: token, o: o, mux: http.NewServeMux(), phones: phones{codes: map[string]pairCode{}, tries: map[string]burst{}, seen: map[int64]time.Time{}}, refresh: refresher{busy: map[string]bool{}, started: map[string]time.Time{}}}
 	b.mux.HandleFunc("GET /{$}", b.fleet)
+	b.mux.HandleFunc("GET /supervisor", b.supervisorPage)
 	b.mux.HandleFunc("GET /supervisor/log", b.history)
 	b.mux.HandleFunc("GET /events", b.events)
 	b.mux.HandleFunc("POST /supervisor/start", b.start)

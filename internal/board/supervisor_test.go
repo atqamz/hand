@@ -38,6 +38,7 @@ type fixture struct {
 	hint     string
 	revision int
 	screen   string
+	readErr  error
 	claude   string
 	options  board.Options
 }
@@ -60,6 +61,9 @@ func newFixture(t *testing.T) *fixture {
 	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
+		if fx.readErr != nil {
+			return nil, fx.readErr
+		}
 		return map[string]any{"text": fx.screen, "content_revision": fx.revision, "terminal_id": "t1"}, nil
 	})
 	fx.options = board.Options{
@@ -249,11 +253,11 @@ func TestControlsCallTheCLI(t *testing.T) {
 		{"/supervisor/switch", url.Values{"model": {"local/m2"}, "effort": {"deep"}}, []string{"supervisor", "switch", "--model", "local/m2", "--effort", "deep"}, "/"},
 		{"/attempt/a1/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"2"}}, []string{"attempt", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "a1", "2"}, "/"},
 		{"/supervisor/force", nil, []string{"supervisor", "force"}, "/"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"4"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--after", "4", "enter"}, "/"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"-1"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "enter"}, "/"},
-		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"not-a-digest"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/supervisor"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"4"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--after", "4", "enter"}, "/supervisor"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "after": {"-1"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/supervisor"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"0123456789abcdef0123456789abcdef"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "--screen", "0123456789abcdef0123456789abcdef", "enter"}, "/supervisor"},
+		{"/supervisor/keys", url.Values{"revision": {"7"}, "screen": {"not-a-digest"}, "key": {"enter"}}, []string{"supervisor", "keys", "--revision", "7", "enter"}, "/supervisor"},
 		{"/supervisor/send", url.Values{"text": {"hi"}}, []string{"supervisor", "send", "--text", "hi"}, "/"},
 		{"/supervisor/send", url.Values{"text": {"line one\r\nline two"}}, []string{"supervisor", "send", "--text", "line one\nline two"}, "/"},
 		{"/supervisor/switch", url.Values{"profile": {"claude-deep"}}, []string{"supervisor", "switch", "--profile", "claude-deep"}, "/"},

@@ -18,6 +18,7 @@ type gaugeView struct {
 
 type paneState struct {
 	Stale, Agent, Hint, Limited string
+	ScreenNote                  string
 	Blocked                     bool
 	Screen                      string
 	Revision                    int64
@@ -37,22 +38,30 @@ func (b *Board) pane(ctx context.Context, sup state.Supervisor) paneState {
 		return v
 	}
 	v.Agent, v.Hint = ag.Status, ag.Hint
-	if ag.Status == "idle" || ag.Status == "done" {
-		if s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == sup.TerminalID {
+	s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines)
+	read := err == nil && s.TerminalID == sup.TerminalID
+	if read {
+		v.Screen, v.Revision, v.Digest = s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
+		if ag.Status == "idle" || ag.Status == "done" {
 			if line, ok := harness.Limit(sup.Harness, s.Text); ok {
 				v.Limited, _, _ = strings.Cut(line, " (~")
 			}
+		}
+	} else if ag.Status != "blocked" {
+		if err != nil {
+			v.ScreenNote = "The supervisor's screen could not be read: " + Scrub(err.Error())
+		} else {
+			v.ScreenNote = "The pane no longer holds " + state.SupervisorRef(sup.ID) + "; there is no live screen."
 		}
 	}
 	if ag.Status != "blocked" {
 		return v
 	}
-	s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines)
-	if err != nil || s.TerminalID != sup.TerminalID {
+	if !read {
 		v.Stale = staleServer
 		return v
 	}
-	v.Blocked, v.Screen, v.Revision, v.Digest = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
+	v.Blocked = true
 	return v
 }
 
@@ -160,10 +169,12 @@ type statusView struct {
 	supervisorView
 	Gauge       gaugeView
 	Compactions int
+	Waiting     int
 	Worst       string
 	WorstText   string
 	WorstWord   string
 	WorstCount  int
+	NeedsHref   string
 }
 
 func (b *Board) readGauge(ctx context.Context) (gaugeView, int) {

@@ -446,6 +446,10 @@ func scenes() []scene {
 			claudeLog(t, fx, append(chatLines(t, fx, 610000)[:23], rec("user", ago(480), "ok. also bump the toolchain and write the release notes", 0), rec("assistant", ago(478), "Captured both: t7 (toolchain) and t10 (release notes). t10 failed vet on its first run; I will retry after t7 lands since it touches the same module cache.", 0), rec("user", ago(31), "[hand v1 wake]\ndecision.answered d1 2 (t1 \"Fix login\")\nattempt.failed a7 exited 2 (t10 \"Write the release notes for 0.9\")", 0), rec("assistant", ago(12), longReply, 610000)))
 			_, _ = fx.st.AddSupervisorInput(ctx, "when t7 lands, rerun t10")
 		}},
+		{"f00000000e016", "screen", func(t *testing.T, fx *fixture) {
+			fx.screen = "Which file should I change?\n❯ ◉ internal/board/board.go\n◯ internal/board/supervisor.go\n◯ internal/board/queue.go\nselect · n note · ↑/↓ move · esc cancel"
+			supervised("blocked", "Which file should I change?", 640000, nil)(t, fx)
+		}},
 		{"f00000000e012", "documents", func(t *testing.T, fx *fixture) {
 			ctx := context.Background()
 			fx.status = "idle"

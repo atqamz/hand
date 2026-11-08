@@ -164,8 +164,8 @@ func TestAnAskScreenItDoesNotRecogniseFallsBackToTheRawScreen(t *testing.T) {
 	askAttempt(t, fx, "Fix login")
 	fx.screen = "Pick a theme\n❯ 1. Dark\n  2. Light"
 	q := region(get(t, fx.handler(), "/"), "queue")
-	contains(t, "raw screen", q, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>Pick a theme", `>1 Dark</button>`)
-	lacks(t, "raw screen", q, ">Approve</button>", ">Deny</button>")
+	contains(t, "raw screen", q, `<span class="badge">ask</span>`, "<pre class=\"screen\"><code>Pick a theme")
+	lacks(t, "raw screen", q, ">Approve</button>", ">Deny</button>", `>1 Dark</button>`)
 }
 
 func TestOnlyAnAskWorkerSkipsTheGraceWhileASupervisorRuns(t *testing.T) {
