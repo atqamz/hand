@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -197,6 +196,56 @@ func TestClaudeWindows(t *testing.T) {
 	}
 }
 
+// follow reads through a 4 KiB bufio buffer, so a read asks for at most that;
+// 64 KiB leaves room for a chunked reader while failing a whole-file load,
+// and both fixtures are over 24 MiB.
+const maxRead = 64 << 10
+
+type readCount struct {
+	sizes []int
+	total int64
+}
+
+func countReads(t *testing.T) *readCount {
+	t.Helper()
+	previous := openFile
+	counts := &readCount{}
+	openFile = func(name string) (openedFile, error) {
+		f, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		return &countingFile{openedFile: f, counts: counts}, nil
+	}
+	t.Cleanup(func() { openFile = previous })
+	return counts
+}
+
+type countingFile struct {
+	openedFile
+	counts *readCount
+}
+
+func (f *countingFile) Read(p []byte) (int, error) {
+	n, err := f.openedFile.Read(p)
+	f.counts.sizes = append(f.counts.sizes, len(p))
+	f.counts.total += int64(n)
+	return n, err
+}
+
+func (c *readCount) check(t *testing.T, parsed int64) {
+	t.Helper()
+	if len(c.sizes) == 0 {
+		t.Fatal("reader made no read calls")
+	}
+	if largest := slices.Max(c.sizes); largest > maxRead {
+		t.Fatalf("largest read asked for %d bytes, want at most %d", largest, maxRead)
+	}
+	if beyond := c.total - parsed; beyond > maxRead {
+		t.Fatalf("read %d bytes, %d beyond the %d parsed (at most %d allowed)", c.total, beyond, parsed, maxRead)
+	}
+}
+
 func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
 	const chunk, chunks = 16 << 10, 1536
 	long := strings.Repeat("x", 1<<20)
@@ -226,21 +275,12 @@ func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
-	runtime.GC()
-	var base runtime.MemStats
-	runtime.ReadMemStats(&base)
-	peak := base.HeapInuse
+	counts := countReads(t)
 	var longest, lines int
 	s := &session{offsets: map[string]int64{}}
 	err = s.follow(path, func(l []byte) {
 		lines++
 		longest = max(longest, len(l))
-		if lines%256 == 0 {
-			runtime.GC()
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-			peak = max(peak, m.HeapInuse)
-		}
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,9 +291,7 @@ func TestFollowStreamsALargeFileLineByLine(t *testing.T) {
 	if s.offsets[path] != complete {
 		t.Fatalf("offset = %d, want %d", s.offsets[path], complete)
 	}
-	if grown := int64(peak) - int64(base.HeapInuse); grown > complete/4 {
-		t.Fatalf("heap grew %d bytes over %d reading %d", grown, base.HeapInuse, complete)
-	}
+	counts.check(t, complete)
 	f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
