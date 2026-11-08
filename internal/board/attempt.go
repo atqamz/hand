@@ -43,63 +43,14 @@ func (b *Board) attempt(w http.ResponseWriter, r *http.Request) {
 		b.failErr(w, err)
 		return
 	}
-	a, err := b.st.Attempt(ctx, id)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	t, err := b.st.Task(ctx, a.TaskID)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	reports, err := b.st.Reports(ctx, state.ReportFilter{AttemptID: id}, historyLimit+1)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	moreReports := len(reports) > historyLimit
-	if moreReports {
-		reports = reports[1:]
-	}
-	slices.Reverse(reports)
-	events, moreEvents, err := b.st.AttemptEvents(ctx, a.TaskID, id, historyLimit)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	self := state.AttemptRef(id)
-	for i := range events {
-		if events[i].Detail == self {
-			events[i].Detail = ""
-		}
-		events[i].Detail = strings.TrimPrefix(events[i].Detail, self+": ")
-	}
-	done, err := b.st.DoneReportAttempts(ctx)
-	if err != nil {
-		b.failErr(w, err)
-		return
-	}
-	end := b.now()
-	if a.EndedAt != "" {
-		end = parse(a.EndedAt)
-	}
-	var brief, launch string
-	if n := len(a.Argv); n > 1 {
-		brief, launch = a.Argv[n-1], strings.Join(a.Argv[:n-1], " ")
-	} else {
-		launch = strings.Join(a.Argv, " ")
-	}
-	note, err := b.st.ModelNote(ctx, state.AttemptRef(id), a.Model, a.Effort)
+	v, err := b.buildAttempt(ctx, id)
 	if err != nil {
 		b.failErr(w, err)
 		return
 	}
 	b.render(w, http.StatusOK, "attempt.html", map[string]any{
-		"Title": state.AttemptRef(id), "Page": "attempt", "Fleets": b.fleets(ctx), "Attempt": a, "ModelNote": note, "Task": t, "Token": b.csrf(ctx), "State": attemptState(a, done),
-		"Brief": brief, "Launch": launch, "Reports": reports, "MoreReports": moreReports, "Events": events, "MoreEvents": moreEvents,
-		"Delivered": b.linked(Newest(reports, nil)), "Duration": elapsed(end.Sub(parse(a.CreatedAt))),
-		"Transcript": b.workerTurns(ctx, a), "StripData": b.stripData(ctx), "Titles": b.refTitle(ctx),
+		"Title": state.AttemptRef(id), "Page": "attempt", "Fleets": b.fleets(ctx), "Detail": v,
+		"StripData": b.stripData(ctx), "Token": b.csrf(ctx), "Titles": b.refTitle(ctx),
 	})
 }
 

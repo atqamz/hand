@@ -96,6 +96,10 @@ func (b *Board) regions(ctx context.Context, q url.Values) (map[string]string, e
 			dot = data["Console"]
 		case "queue":
 			dot = data["Needs"]
+		case "timeline":
+			dot = data["Timeline"]
+		case "tasks":
+			dot = data["Tasks"]
 		}
 		var buf bytes.Buffer
 		if err := pages.ExecuteTemplate(&buf, "region-"+name, dot); err != nil {

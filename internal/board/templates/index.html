@@ -8,12 +8,12 @@
 </div>
 <div class="panel" id="tasks">
 <header class="panel-head"><h2>Tasks</h2><form class="task-search" role="search" method="get" action="{{.Base}}/tasks"><label>{{template "icon-search"}}<input type="search" name="q" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off"></label></form></header>
-<section class="tasks" data-region="tasks">{{template "region-tasks" .}}</section>
+<section class="tasks" data-region="tasks">{{template "region-tasks" .Tasks}}</section>
 </div>
 </div>
 <div class="panel sup" id="chat">
 {{if .Controls}}<section class="console" data-region="console">{{template "region-console" .Console}}</section>{{end}}
-<section class="timeline" data-region="timeline">{{template "region-timeline" .}}</section>
+<section class="timeline" data-region="timeline">{{template "region-timeline" .Timeline}}</section>
 {{if .Controls}}<div class="console-box"><form id="composer" method="post" action="{{.Base}}/supervisor/send" data-fetch>
 <input type="hidden" name="csrf" value="{{.Token}}">
 <textarea id="composer-text" name="text" required rows="2" placeholder="Message the supervisor" aria-label="Message the supervisor"></textarea>
