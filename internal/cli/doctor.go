@@ -80,6 +80,7 @@ func cmdDoctor(r *runner, args []string) error {
 		pin, pinned := r.doctorPin(ctx, &d, &c, root, path)
 		r.doctorIroh(ctx, &d, &c, root, path)
 		r.doctorFleet(ctx, &d, &c, root, pin, pinned, installed)
+		r.doctorWatchUnits(ctx, &c, root)
 	}
 	d.Rows("checks", []string{"check", "state", "fix"}, c.rows)
 	d.Help(c.help...)
@@ -314,5 +315,42 @@ func (r *runner) doctorPhone(ctx context.Context, d *toon.Doc, c *checks, addr s
 		c.add("phone", "info", "tailscale serve does not proxy the board yet; open Phone in the board for the steps, or run `tailscale serve --bg "+link.Port+"`")
 	default:
 		c.add("phone", "warn", link.Problem+"; run `tailscale serve --bg "+link.Port+"`")
+	}
+}
+
+func (r *runner) doctorWatchUnits(ctx context.Context, c *checks, root string) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	target, err := update.Target(exe)
+	if err != nil {
+		return
+	}
+	problems, err := update.StaleWatchUnits(ctx, r.env.Environ(), target, root)
+	if err != nil {
+		c.add("watch unit", "info", "could not read the systemd user units: "+err.Error())
+		return
+	}
+	for _, p := range problems {
+		why := p.Name + " names " + p.Home
+		switch p.Reason {
+		case "relative":
+			why += " (relative HAND_HOME)"
+		case "missing":
+			why += " (missing)"
+		case "unregistered":
+			why += " (no registered fleet)"
+		case "replaced":
+			why += " (the watcher runs as the transient unit)"
+		}
+		fix := "run `hand update` to remove it"
+		if !p.Fixable {
+			fix = "Hand did not write it; run `systemctl --user disable --now " + p.Name + "`"
+		}
+		c.add("watch unit", "warn", why+"; "+fix)
 	}
 }
