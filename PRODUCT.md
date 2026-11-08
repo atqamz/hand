@@ -51,8 +51,8 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the decision page;
   - the conversation page;
   - error pages;
-  - a JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, task, attempt, decision and report detail, with an opaque change cursor, plus two mutations, an answer to a decision and an acknowledgement of a report;
-  - the native desktop window (`hand-desktop`): a fleet switch, the status, Needs, the timeline, the tasks list and the task, attempt, decision and report detail, read through the JSON API over loopback, and the two actions the API allows, answering a decision and acknowledging a report. It is a client of the board, never a second owner of state: it writes nothing else, and closing it stops neither the board nor a watcher.
+  - a JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, task, attempt, decision and report detail, with an opaque change cursor, plus three mutations, a message to the supervisor, an answer to a decision and an acknowledgement of a report;
+  - the native desktop window (`hand-desktop`): a fleet switch, the status, Needs, the timeline with its composer, the tasks list and the task, attempt, decision and report detail, read through the JSON API over loopback, and the three actions the API allows, sending a message, answering a decision and acknowledging a report, with a per-fleet draft that survives a closed window. It is a client of the board, never a second owner of state: its only local file is that draft, and closing it stops neither the board nor a watcher.
 - **What needs the operator:**
   - open decisions;
   - blocked supervisor screens;

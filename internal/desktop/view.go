@@ -115,7 +115,7 @@ func (a *App) rail(c *ui.Context, p palette) {
 		})
 		ui.Spacer(c)
 		if a.Model != nil {
-			ui.Text(c, "Answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
+			ui.Text(c, "Messages, answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
@@ -372,6 +372,8 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
 		}
 	})
+	a.actionCard(c, p)
+	a.composer(c, p)
 	if w := a.Timeline.Working; w != nil {
 		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
 			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
@@ -414,6 +416,40 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			a.Older()
 		}
 	}
+}
+
+func (a *App) composer(c *ui.Context, p palette) {
+	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
+		Border(1, p.line).Children(func() {
+		ui.TextArea(c, &a.Draft).Label("Message").
+			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
+			OnChange(func() { a.saveDraft() }).
+			OnTextKey(func(k ui.TextKey) bool {
+				if k.Key != ui.KeyEnter || k.Mods != 0 {
+					return false
+				}
+				a.Draft = k.Text()
+				a.saveDraft()
+				a.Send()
+				return true
+			})
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Text(c, "Enter sends · Shift+Enter starts a new line.").FontSize(12).
+				TextColor(p.neutral).Grow(1)
+			if ui.Button(c.Key("composer:clear"), "Clear").
+				Disabled(a.Busy || strings.TrimSpace(a.Draft) == "").Clicked() {
+				a.ClearDraft()
+			}
+			label := "Send"
+			if a.Busy {
+				label = "Sending…"
+			}
+			if ui.Button(c.Key("composer:send"), label).
+				Disabled(a.Busy || strings.TrimSpace(a.Draft) == "").Clicked() {
+				a.Send()
+			}
+		})
+	})
 }
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {

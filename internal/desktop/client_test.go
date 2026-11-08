@@ -613,6 +613,8 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "decision-answered"
 		case "/api/v1/report/r1/ack":
 			name = "report-acked"
+		case "/api/v1/message":
+			name = "message-sent"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
@@ -666,6 +668,27 @@ func TestHTTPClientAnswersAndAcks(t *testing.T) {
 	}
 	if rd.Report.AckedBy != "operator (desktop)" || rd.Report.AckedAt == "" {
 		t.Fatalf("report = %+v", rd.Report)
+	}
+}
+
+func TestHTTPClientSendsAMessage(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	tl, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tl.Entries) == 0 || tl.Entries[0].Role != "operator" || tl.Entries[0].Text != "hello from the desktop" || !tl.Entries[0].Queued {
+		t.Fatalf("timeline = %+v", tl)
+	}
+	m.mu.Lock()
+	body, csrf := m.body, append([]string(nil), m.csrf...)
+	m.mu.Unlock()
+	if !strings.Contains(body, `"text":"hello from the desktop"`) {
+		t.Fatalf("request body = %q", body)
+	}
+	if len(csrf) != 1 || csrf[0] != testToken {
+		t.Fatalf("CSRF headers = %v", csrf)
 	}
 }
 

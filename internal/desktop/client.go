@@ -34,6 +34,7 @@ type ReadModel interface {
 	Report(ctx context.Context, fleet, ref string) (ReportDetail, error)
 	AnswerDecision(ctx context.Context, fleet, ref, choice, note string) (DecisionDetail, error)
 	AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error)
+	SendMessage(ctx context.Context, fleet, text string) (Timeline, error)
 }
 
 const (
@@ -258,6 +259,16 @@ func (c *HTTPClient) AnswerDecision(ctx context.Context, fleet, ref, choice, not
 func (c *HTTPClient) AckReport(ctx context.Context, fleet, ref string) (ReportDetail, error) {
 	var out ReportDetail
 	_, err := c.post(ctx, fleet, "/report/"+url.PathEscape(ref)+"/ack", nil, &out)
+	return out, err
+}
+
+type messageRequest struct {
+	Text string `json:"text"`
+}
+
+func (c *HTTPClient) SendMessage(ctx context.Context, fleet, text string) (Timeline, error) {
+	var out Timeline
+	_, err := c.post(ctx, fleet, "/message", messageRequest{Text: text}, &out)
 	return out, err
 }
 

@@ -35,6 +35,7 @@ type fixture struct {
 	actionEntered chan struct{}
 	choice        string
 	answerNote    string
+	sentText      string
 	stall         string
 	nameIn        chan struct{}
 	block         chan struct{}
@@ -205,6 +206,21 @@ func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Report
 	f.report[id] = d
 	f.dropNeed(id, d.Report.Ref)
 	return d, nil
+}
+
+func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Timeline, error) {
+	f.note("send:" + id)
+	f.mu.Lock()
+	f.sentText = text
+	f.mu.Unlock()
+	f.stallAction()
+	if f.action != nil {
+		return desktop.Timeline{}, f.action
+	}
+	tl := f.timeline[id]
+	tl.Entries = append([]desktop.Entry{{Role: "operator", Text: text, At: "2026-11-01T05:00:00Z", Queued: true}}, tl.Entries...)
+	f.timeline[id] = tl
+	return tl, nil
 }
 
 func (f *fixture) dropNeed(id, ref string) {

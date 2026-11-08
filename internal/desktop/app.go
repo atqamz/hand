@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,9 @@ type App struct {
 	AnswerChoice string
 	AnswerNote   string
 	ActionErr    string
+
+	Draft    string
+	DraftDir string
 
 	Status   Status
 	Timeline Timeline
@@ -139,6 +143,7 @@ func (a *App) SelectFleet(id string) {
 	a.Status, a.Timeline, a.Tasks = Status{}, Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
 	a.AnswerChoice, a.AnswerNote, a.ActionErr, a.Busy = "", "", "", false
+	a.Draft = a.drafts().Load(a.Fleet.ID)
 	if a.OnFleet != nil {
 		a.OnFleet(a.Fleet)
 	}
@@ -401,6 +406,104 @@ func (a *App) Ack(ref string) {
 	}
 	post(func() {})
 	go fetch()
+}
+
+func (a *App) Send() {
+	text := strings.TrimSpace(a.Draft)
+	if a.Busy || a.Model == nil || a.Fleet.ID == "" || text == "" {
+		return
+	}
+	id, ctx, cancel := a.nextLoad()
+	post := a.Post
+	model, fleet, drafts := a.Model, a.Fleet.ID, a.drafts()
+	a.Busy = true
+	applied := func(tl Timeline) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.Timeline = tl
+		a.Draft = ""
+	}
+	status := func(st Status) {
+		if id != a.loadID {
+			return
+		}
+		a.Status = st
+	}
+	failed := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.Busy = false
+		a.ActionErr = friendly(err)
+	}
+	stale := func(err error) {
+		if id != a.loadID {
+			return
+		}
+		a.ActionErr = "the message was sent, but the fleet status could not be read: " + friendly(err)
+	}
+	fetch := func() {
+		tl, err := model.SendMessage(ctx, fleet, text)
+		if err != nil {
+			cancel()
+			if post == nil {
+				failed(err)
+			} else {
+				post(func() { failed(err) })
+			}
+			return
+		}
+		_ = drafts.Clear(fleet)
+		if post == nil {
+			applied(tl)
+		} else {
+			post(func() { applied(tl) })
+		}
+		st, serr := model.Status(ctx, fleet)
+		cancel()
+		if serr != nil {
+			if post == nil {
+				stale(serr)
+			} else {
+				post(func() { stale(serr) })
+			}
+			return
+		}
+		if post == nil {
+			status(st)
+		} else {
+			post(func() { status(st) })
+		}
+	}
+	if post == nil {
+		fetch()
+		return
+	}
+	post(func() {})
+	go fetch()
+}
+
+func (a *App) ClearDraft() {
+	if a.Busy {
+		return
+	}
+	a.Draft = ""
+	if a.Fleet.ID != "" {
+		_ = a.drafts().Clear(a.Fleet.ID)
+	}
+}
+
+func (a *App) drafts() Drafts {
+	return Drafts{Dir: a.DraftDir}
+}
+
+func (a *App) saveDraft() {
+	if a.Fleet.ID == "" {
+		return
+	}
+	_ = a.drafts().Save(a.Fleet.ID, a.Draft)
 }
 
 func (a *App) Reload() {

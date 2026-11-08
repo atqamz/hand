@@ -2,7 +2,7 @@
 
 The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
-The API is the read model plus two actions in v1: answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
+The API is the read model plus three actions in v1: sending a message to the supervisor, answering an open decision and acknowledging a report. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never returns the board token outside the session endpoint. `GET /api/v1/session` returns the session's CSRF form token, which for a laptop session is `board.token` itself; a client must treat it as the secret it is, keep it in memory and never log or store it. A mutation sends it as `X-Hand-CSRF`.
 
 ## Address and login
 
@@ -18,7 +18,7 @@ A local client proves the service at the recorded port is the board before it se
 
 A request without that cookie gets `401` with `unauthorized`; a wrong or expired cookie gets the same. The API answers only on a loopback board: a network-address board, a request through a proxy (`X-Forwarded-For`, `Forwarded`, `Tailscale-User-Login`), the peer listener, and a Tailscale Funnel request all get `403` with `forbidden`.
 
-The two actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the two action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
+The three actions need the session's CSRF token in an `X-Hand-CSRF` header, on top of the cookie. Read it from `GET /api/v1/session`, whose `data` is `{"csrf": "..."}`; a laptop session's value is `board.token`, the same token the cookie holds, and a paired phone's is derived from its pairing. A mutation without the header, or with a wrong one, gets `403` with `csrf_required`. `GET` and `HEAD` are the only other methods: a `POST` outside the three action paths gets `405` with `method_not_allowed` and `Allow: GET, HEAD`, and `PUT`, `PATCH` and `DELETE` get `405` with an `Allow` that names what the requested path takes (`GET, HEAD`, or `POST` on an action path).
 
 ## Envelope
 
@@ -67,6 +67,7 @@ Every `200` and `304` carries `X-Hand-Cursor`; a client may use it instead of re
 | `GET /api/v1/decision/{dN}` | `DecisionDetail`: decision, task, prose body, options | `/decision/dN` |
 | `GET /api/v1/report/{rN}` | `ReportDetail`: report, task | the report's card on `/task/tN` |
 | `GET /api/v1/session` | `Session`: `csrf` | none; the form token a mutation sends |
+| `POST /api/v1/message` | the same `Timeline` the GET returns, after the message | the fleet page's composer |
 | `POST /api/v1/decision/{dN}/answer` | the same `DecisionDetail` the GET returns, after the answer | `/decision/dN` |
 | `POST /api/v1/report/{rN}/ack` | the same `ReportDetail` the GET returns, after the ack | the report's card on `/task/tN` |
 
@@ -123,9 +124,28 @@ An event from a terminal screen (`attempt.blocked`, `attempt.limited`, `supervis
 
 The API never returns a host path. An attempt carries its `branch` but not its worktree or launch command; a file deliverable's `ref` is the file's base name, and its `href` is the board's `/doc/...` path when the file is inside the fleet (absent otherwise). Hand-composed text, such as an attempt's or supervisor's `reason` or an event `detail`, keeps its message but drops the directory part of any absolute path. Free text written by you or the agent, such as a report's `body` or a task's `goal`, is returned as written.
 
-## The two actions
+## The three actions
 
-Both carry the cookie and `X-Hand-CSRF`, and both answer one envelope with the updated object. A mutation ignores `?since=` and never answers `304`.
+Each carries the cookie and `X-Hand-CSRF`, and answers one envelope with the updated object. A mutation ignores `?since=` and never answers `304`.
+
+### Sending a message
+
+`POST /api/v1/message` takes one JSON object:
+
+```json
+{"text": "please look at the cookie rename"}
+```
+
+It has the fleet page's composer semantics: the board normalizes CRLF to LF and runs the same `CheckMessage` the form does, so whitespace-only text, more than 16 KiB, invalid UTF-8, a control character other than a newline or tab, and text that starts with Hand's own envelope prefix are refused. The board then runs the supervisor's send path (`supervisor send --text`) and answers the `Timeline` the GET serves, so a client replaces its conversation with the returned data instead of polling for the message. A queued message has `queued: true` and `delivery: "queued"`; a delivered one carries the delivery the GET reports.
+
+- `400 bad_request`: an empty or invalid message, or a body that is not a JSON object.
+- `403 forbidden`: the board has its controls off.
+- `500 internal`: the supervisor path failed; the message keeps no path.
+- `200` with the updated `Timeline`.
+
+v1 sends text only. The web composer's attachment upload writes an absolute host path into the message, and this API never returns or accepts a host path, so attachments need a contract that carries the inbox file by name; they are not in this version.
+
+A client that shows the fleet status re-reads `GET /api/v1/status` after a message, an answer or an ack, because a sent message can change the composer hint and Needs.
 
 ### Answering a decision
 
@@ -164,7 +184,7 @@ Every error is this shape, not an envelope, including a registered fleet whose s
 | `403` | `forbidden` | not loopback, a proxy, the peer listener, Funnel, or v1 on a network-address board |
 | `403` | `csrf_required` | a mutation without the session's `X-Hand-CSRF` header, or with a wrong one |
 | `404` | `not_found` | an unknown route or ref |
-| `405` | `method_not_allowed` | a `POST` outside the two actions, or any other method; the response's `Allow` names what the path takes |
+| `405` | `method_not_allowed` | a `POST` outside the three actions, or any other method; the response's `Allow` names what the path takes |
 | `409` | `conflict` | a state conflict while reading or acting |
 | `500` | `internal` | any other failure |
 | `507` | `no_space` | the disk was full |

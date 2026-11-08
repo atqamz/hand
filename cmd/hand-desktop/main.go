@@ -20,6 +20,7 @@ func main() {
 	fleet := flag.String("fleet", "", "fleet id or name to open")
 	flag.Parse()
 	app := desktop.New(func() (desktop.ReadModel, error) { return desktop.NewLocal(os.Getenv) })
+	app.DraftDir = desktop.DraftDir(os.Getenv)
 	app.Boot()
 	if *fleet != "" {
 		app.OpenFleet(*fleet)

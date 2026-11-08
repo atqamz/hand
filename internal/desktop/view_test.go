@@ -113,6 +113,168 @@ func TestTimelineScreen(t *testing.T) {
 	mustText(t, tt, "Timeline", "s1 is working", "All good.", "status?", "you", "hand")
 }
 
+func TestComposerSendsWithEnter(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("hello there")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if f.count("send:"+fleetID) != 1 || f.sentText != "hello there" {
+		t.Fatalf("send calls = %d, sent %q", f.count("send:"+fleetID), f.sentText)
+	}
+	mustText(t, tt, "hello there")
+	if app.Draft != "" {
+		t.Fatalf("draft = %q after a send", app.Draft)
+	}
+	click(t, tt, "Message")
+	tt.Type("again")
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if f.sentText != "again" {
+		t.Fatalf("the second send was %q", f.sentText)
+	}
+	mustNotText(t, tt, "Sending…")
+}
+
+func TestComposerShiftEnterBreaksTheLine(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("one")
+	tt.Key(ui.Shift, ui.KeyEnter)
+	tt.Type("two")
+	tt.Frame()
+	if got := f.count("send:" + fleetID); got != 0 {
+		t.Fatalf("Shift+Enter sent the message %d times", got)
+	}
+	if app.Draft != "one\ntwo" {
+		t.Fatalf("draft = %q, want a newline", app.Draft)
+	}
+	click(t, tt, "Send")
+	if f.sentText != "one\ntwo" {
+		t.Fatalf("sent %q", f.sentText)
+	}
+}
+
+func TestAFailedSendKeepsTheDraft(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("keep this text")
+	f.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
+	click(t, tt, "Send")
+	tt.Frame()
+	mustText(t, tt, "The action did not go through", "the supervisor is gone")
+	if app.Draft != "keep this text" {
+		t.Fatalf("draft = %q after a failed send", app.Draft)
+	}
+}
+
+func TestTheComposerIsDisabledWhileSending(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("one moment")
+	posted := make(chan func(), 8)
+	app.Post = func(fn func()) { posted <- fn }
+	f.actionBlock, f.actionEntered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Send")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Sending…")
+	select {
+	case <-f.actionEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never sent the message")
+	}
+	close(f.actionBlock)
+	waitPost(t, posted)()
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "one moment")
+	mustNotText(t, tt, "Sending…")
+}
+
+func TestTheDraftSurvivesAReopenAndFleetSwitch(t *testing.T) {
+	dir := t.TempDir()
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("half a message")
+	tt.Frame()
+	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "half a message" {
+		t.Fatalf("saved draft = %q", got)
+	}
+	click(t, tt, "second")
+	if app.Draft != "" {
+		t.Fatalf("the second fleet inherited the draft %q", app.Draft)
+	}
+	click(t, tt, "golden")
+	if app.Draft != "half a message" {
+		t.Fatalf("the draft did not come back: %q", app.Draft)
+	}
+
+	again := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	again.DraftDir = dir
+	again.Boot()
+	if again.Draft != "half a message" {
+		t.Fatalf("a reopened window loaded %q", again.Draft)
+	}
+	tt = newTester(again)
+	click(t, tt, "Timeline")
+	if again.Draft != "half a message" {
+		t.Fatalf("the reopened composer has %q", again.Draft)
+	}
+	mustText(t, tt, "Message", "Send")
+}
+
+func TestSendingClearsTheStoredDraft(t *testing.T) {
+	dir := t.TempDir()
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("send me")
+	tt.Frame()
+	click(t, tt, "Send")
+	if got := (desktop.Drafts{Dir: dir}).Load(fleetID); got != "" {
+		t.Fatalf("the stored draft = %q after a send", got)
+	}
+}
+
+func TestTheDraftCanBeCleared(t *testing.T) {
+	dir := t.TempDir()
+	f := goldenFixture(t)
+	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = dir
+	app.Boot()
+	tt := newTester(app)
+	click(t, tt, "Timeline")
+	click(t, tt, "Message")
+	tt.Type("throw me away")
+	tt.Frame()
+	click(t, tt, "Clear")
+	if app.Draft != "" || (desktop.Drafts{Dir: dir}).Load(fleetID) != "" {
+		t.Fatalf("Clear left draft %q", app.Draft)
+	}
+}
+
 func TestTasksScreenAndDetail(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)
@@ -452,6 +614,8 @@ func TestScenes(t *testing.T) {
 		app  *desktop.App
 		play func(*testing.T, *ui.Tester)
 	}
+	errFleet := goldenFixture(t)
+	errApp := newApp(t, errFleet)
 	scenes := []scene{
 		{"01-fleet-switch", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "second")
@@ -482,6 +646,18 @@ func TestScenes(t *testing.T) {
 		{"10-report-ack", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
 			click(t, tt, "Needs")
 			click(t, tt, "Cookie fixed")
+		}},
+		{"11-composer", newApp(t, goldenFixture(t)), func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Timeline")
+			click(t, tt, "Message")
+			tt.Type("Please look at the cookie rename after the docs pass.")
+		}},
+		{"12-composer-error", errApp, func(t *testing.T, tt *ui.Tester) {
+			click(t, tt, "Timeline")
+			click(t, tt, "Message")
+			tt.Type("This text stays when the send fails.")
+			errFleet.action = &desktop.APIError{Status: 500, Code: "internal", Message: "the supervisor is gone"}
+			click(t, tt, "Send")
 		}},
 	}
 	for _, sc := range scenes {
