@@ -304,7 +304,7 @@ func TestEventsFollowTheContext(t *testing.T) {
 	claudeLog(t, fx, []string{userRecord("hi"), usageRecord(1000)})
 	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 5)
+	first(t, ch, 6)
 	f, err := os.OpenFile(filepath.Join(fx.claude, "projects", "-fleet", claudeSession+".jsonl"), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)

@@ -33,6 +33,7 @@ const scenes = [
   ['documents', fleet('012')],
   ['ask', fleet('013')],
   ['cleanup', fleet('014')],
+  ['screen', `${fleet('016')}supervisor`],
   ['phone', `${fleet('015')}connect`],
   ['menu', fleet('010'), ['details.nav-menu > summary'], 600],
   ['dialog', fleet('012'), ['?nav.tabs a[data-tab="tasks"]', '[data-region="tasks"] a[href*="/task/"]']],

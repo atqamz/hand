@@ -405,7 +405,7 @@
 	};
 
 	const waitingNow = () => {
-		const el = regions.get("queue")?.querySelector("[data-waiting]");
+		const el = regions.get("queue")?.querySelector("[data-waiting]") ?? regions.get("status")?.querySelector("[data-waiting]") ?? document.querySelector("[data-needs]");
 		return el ? Number(el.dataset.waiting) || 0 : 0;
 	};
 	let waiting = waitingNow();
@@ -413,7 +413,12 @@
 	const icon = document.querySelector("link[rel=icon]");
 	const plain = icon?.getAttribute("href");
 	const icons = document.querySelector("[data-icon-working]")?.dataset;
-	const worst = () => regions.get("queue")?.querySelector("[data-worst]")?.dataset ?? {};
+	const worst = () => {
+		const queue = regions.get("queue"), status = regions.get("status");
+		const el = queue?.querySelector("[data-worst]") ?? status?.querySelector("[data-worst]");
+		const text = queue?.querySelector("[data-worst-text]") ?? status?.querySelector("[data-worst-text]");
+		return { ...(el?.dataset ?? {}), worstText: text?.dataset.worstText || el?.dataset.worstText || "" };
+	};
 	const blockedNow = () => ["blocked", "worker"].includes(worst().worst);
 	const title = () => {
 		const w = worst();
@@ -434,6 +439,8 @@
 		const line = regions.get("status")?.querySelector(".status-line");
 		if (!line) return;
 		agent = line.dataset.agent || "none";
+		const n = waitingNow();
+		if (n !== waiting) count(n);
 		for (const d of document.querySelectorAll("[data-agent-dot]")) d.hidden = agent !== "working";
 		const hint = document.querySelector("#composer .hint");
 		if (hint) {
@@ -1603,7 +1610,7 @@
 	setInterval(since, 30000);
 	setInterval(tick, 1000);
 	if (regions.size === 0) return;
-	const live = regions.has("queue");
+	const live = regions.has("queue") || regions.has("sup");
 	if (live) reflect();
 	const timeline = regions.get("timeline");
 	const aimed = !!timeline?.contains(document.getElementById(location.hash.slice(1)));
@@ -1634,6 +1641,7 @@
 		if (ok) {
 			lost = 0;
 			link.hidden = true;
+			link.replaceChildren();
 			delete document.body.dataset.link;
 			const back = word();
 			if (back?.dataset.was) {
@@ -1653,7 +1661,19 @@
 		}
 		title();
 		const at = new Date(lost).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-		link.textContent = status === 403 ? (body.dataset.session === "phone" ? "Signed out: pair again on your laptop" : "Log in again: hand open --print") : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "Reconnecting…";
+		const message = status === 403 ? (body.dataset.session === "phone" ? "Signed out: pair again on your laptop" : "Log in again: hand open --print") : Date.now() - lost > 30000 ? `Connection lost since ${at}` : "";
+		if (!message) {
+			link.textContent = "Reconnecting…";
+			return;
+		}
+		const reload = document.createElement("a");
+		reload.href = home;
+		reload.textContent = "Reload";
+		reload.addEventListener("click", (e) => {
+			e.preventDefault();
+			location.reload();
+		});
+		link.replaceChildren(document.createTextNode(message + " "), reload);
 	};
 	const refresh = async () => {
 		const res = await fetch(home, { credentials: "same-origin" }).catch(() => null);
@@ -1676,7 +1696,9 @@
 		clearInterval(poll);
 		poll = 0;
 		if (source) return;
-		source = new EventSource(`${base}/events${new URL(home).search}`);
+		const events = new URLSearchParams(new URL(home).search);
+		events.set("page", body.dataset.page || "");
+		source = new EventSource(`${base}/events?${events}`);
 		heard = Date.now();
 		source.addEventListener("open", () => {
 			heard = Date.now();

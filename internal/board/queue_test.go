@@ -592,7 +592,7 @@ func TestTheEventLoopLeavesWorkerScreensUnread(t *testing.T) {
 	}
 	base := serve(t, quick(fx.st, fx.options))
 	ch, _ := stream(t, base+"/events")
-	first(t, ch, 5)
+	first(t, ch, 6)
 	for len(looped) > 0 {
 		<-looped
 	}

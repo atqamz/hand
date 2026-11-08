@@ -32,6 +32,209 @@ var keyLabels = map[string]string{"enter": "Enter", "esc": "Esc", "up": "↑", "
 
 var digest = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
+var (
+	circleOption = regexp.MustCompile(`^(?:[❯›]\s*)?([◯◉○●])\s*(.+)$`)
+	askHint      = regexp.MustCompile(`↑/↓|\besc cancel\b|·\s*n note`)
+	dialogFooter = regexp.MustCompile(`(?i)↑/↓|\bselect\b|\besc\b.{0,12}\bcancel\b|\btab\b.{0,12}\bamend\b`)
+)
+
+type askChoice struct{ Label, Field, Value string }
+
+type askCard struct {
+	Question string
+	Options  []askChoice
+}
+
+func numberedAsk(p prompt, screen string) *askCard {
+	var out []askChoice
+	for _, o := range p.Options {
+		if _, err := strconv.Atoi(o.Name); err != nil {
+			continue
+		}
+		out = append(out, askChoice{Label: o.Label, Field: "key", Value: o.Name})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	question := p.Headline
+	lines := strings.Split(screen, "\n")
+	var clean []int
+	for i, raw := range lines {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || hintLine.MatchString(t) || askHint.MatchString(t) {
+			continue
+		}
+		clean = append(clean, i)
+	}
+	text := func(k int) string { return strings.TrimSpace(boxEdge.ReplaceAllString(lines[clean[k]], "")) }
+	end := -1
+	for k := len(clean) - 1; k >= 0; k-- {
+		if numbered.MatchString(text(k)) {
+			end = k
+			break
+		}
+	}
+	if end >= 0 {
+		start := end
+		for start > 0 && numbered.MatchString(text(start-1)) {
+			start--
+		}
+		if q := askQuestion(lines, clean[start]); q != "" {
+			question = q
+		}
+	}
+	if question == "" {
+		return nil
+	}
+	return &askCard{Question: question, Options: out}
+}
+
+func circleAsk(screen string) *askCard {
+	lines := strings.Split(screen, "\n")
+	var clean []int
+	for i, raw := range lines {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) {
+			continue
+		}
+		clean = append(clean, i)
+	}
+	text := func(k int) string { return strings.TrimSpace(boxEdge.ReplaceAllString(lines[clean[k]], "")) }
+	end := len(clean) - 1
+	for end >= 0 && circleOption.FindStringSubmatch(text(end)) == nil {
+		end--
+	}
+	if end < 0 {
+		return nil
+	}
+	start := end
+	for start > 0 && circleOption.FindStringSubmatch(text(start-1)) != nil {
+		start--
+	}
+	var out []askChoice
+	for k := start; k <= end; k++ {
+		m := circleOption.FindStringSubmatch(text(k))
+		keys := "enter"
+		if n := len(out); n > 0 {
+			keys = strings.TrimSpace(strings.Repeat("down ", n) + "enter")
+		}
+		out = append(out, askChoice{Label: strings.TrimSpace(m[2]), Field: "keys", Value: keys})
+	}
+	question := askQuestion(lines, clean[start])
+	if question == "" {
+		return nil
+	}
+	return &askCard{Question: question, Options: out}
+}
+
+func askQuestion(lines []string, stop int) string {
+	var body []string
+	for _, raw := range lines[:stop] {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || dialogFooter.MatchString(t) {
+			continue
+		}
+		body = append(body, t)
+	}
+	for i := len(body) - 1; i >= 0; i-- {
+		if strings.HasSuffix(body[i], "?") {
+			return body[i]
+		}
+	}
+	if len(body) > 0 {
+		return body[len(body)-1]
+	}
+	return ""
+}
+
+func ask(screen, status string) *askCard {
+	if status == "blocked" {
+		if card := numberedAsk(blockedPrompt(screen), screen); card != nil {
+			return card
+		}
+		if card := circleAsk(screen); card != nil {
+			return card
+		}
+	}
+	return dialogAsk(screen)
+}
+
+func dialogAsk(screen string) *askCard {
+	lines := strings.Split(screen, "\n")
+	var clean []int
+	for i, raw := range lines {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || dialogFooter.MatchString(t) {
+			continue
+		}
+		clean = append(clean, i)
+	}
+	if len(clean) < 2 {
+		return nil
+	}
+	text := func(k int) string { return strings.TrimSpace(boxEdge.ReplaceAllString(lines[clean[k]], "")) }
+	option := func(k int) bool { return numbered.MatchString(text(k)) || circleOption.MatchString(text(k)) }
+	end := len(clean) - 1
+	for end >= 0 && !option(end) {
+		end--
+	}
+	if end < 1 {
+		return nil
+	}
+	start := end
+	for start > 0 && option(start-1) {
+		start--
+	}
+	if start < 1 || !strings.HasSuffix(text(start-1), "?") || !askFooter(lines, clean[end]) {
+		return nil
+	}
+	var out []askChoice
+	switch {
+	case numbered.MatchString(text(start)):
+		for k := start; k <= end; k++ {
+			m := numbered.FindStringSubmatch(text(k))
+			if m == nil || m[1] != strconv.Itoa(k-start+1) {
+				return nil
+			}
+			out = append(out, askChoice{Label: m[2], Field: "key", Value: m[1]})
+		}
+	case circleOption.MatchString(text(start)):
+		for k := start; k <= end; k++ {
+			m := circleOption.FindStringSubmatch(text(k))
+			if m == nil {
+				return nil
+			}
+			keys := "enter"
+			if n := len(out); n > 0 {
+				keys = strings.TrimSpace(strings.Repeat("down ", n) + "enter")
+			}
+			out = append(out, askChoice{Label: strings.TrimSpace(m[2]), Field: "keys", Value: keys})
+		}
+	default:
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return &askCard{Question: text(start - 1), Options: out}
+}
+
+func askFooter(lines []string, end int) bool {
+	seen := false
+	for _, raw := range lines[end+1:] {
+		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
+		switch {
+		case t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "":
+			continue
+		case askHint.MatchString(t) || dialogFooter.MatchString(t):
+			seen = true
+		default:
+			return false
+		}
+	}
+	return seen
+}
+
 func keyButtons() []key {
 	out := make([]key, 0, len(state.SupervisorKeys))
 	for _, k := range state.SupervisorKeys {
@@ -105,7 +308,7 @@ func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, er
 		return nil, err
 	}
 	status := b.buildStatus(ctx, sv)
-	status.Worst, status.WorstText, status.WorstWord, status.WorstCount = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount
+	status.Worst, status.WorstText, status.WorstWord, status.WorstCount, status.Waiting = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount, needs.Waiting
 	data["Status"] = status
 	if err := b.tasksData(ctx, data, q, f); err != nil {
 		return nil, err
@@ -121,6 +324,93 @@ func (b *Board) history(w http.ResponseWriter, r *http.Request) {
 	}
 	data["StripData"] = b.stripData(r.Context())
 	b.render(w, http.StatusOK, "log.html", data)
+}
+
+type screenView struct {
+	supervisorView
+	Controls     bool
+	Base         string
+	Token        string
+	Pressed      int64
+	Ask          *askCard
+	NoSupervisor bool
+}
+
+func (b *Board) buildScreen(ctx context.Context, sv supervisorView, c viewContext) (screenView, error) {
+	v := screenView{supervisorView: sv, Controls: c.Controls, Base: c.Base, Token: c.Token}
+	switch {
+	case sv.Sup == nil:
+		v.NoSupervisor = true
+		return v, nil
+	case sv.Sup.Status != state.AttemptRunning:
+		v.ScreenNote = state.SupervisorRef(sv.Sup.ID) + " is " + sv.Sup.Status + "; there is no live screen."
+		return v, nil
+	case sv.Stale != "":
+		v.ScreenNote = sv.Stale
+		return v, nil
+	case sv.ScreenNote != "":
+		return v, nil
+	case sv.Screen == "":
+		return v, nil
+	}
+	pressed, err := b.st.LastKeys(ctx, state.SupervisorRef(sv.Sup.ID))
+	if err != nil {
+		return v, err
+	}
+	v.Pressed, v.Ask = pressed, ask(sv.Screen, sv.Agent)
+	return v, nil
+}
+
+func (b *Board) supervisorScreenData(ctx context.Context, q url.Values) (map[string]any, error) {
+	f, err := b.facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	projects, err := b.st.Projects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sv, err := b.buildSupervisor(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	c := viewContext{
+		Controls: b.o.Controls,
+		Base:     b.o.Base,
+		Token:    b.csrf(ctx),
+		Multi:    len(projects) > 1,
+		Titles:   b.refTitle(ctx),
+		Local:    b.local(),
+	}
+	needs, err := b.buildNeeds(ctx, f, sv, c)
+	if err != nil {
+		return nil, err
+	}
+	status := b.buildStatus(ctx, sv)
+	status.Worst, status.WorstText, status.WorstWord, status.WorstCount, status.Waiting = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount, needs.Waiting
+	screen, err := b.buildScreen(ctx, sv, c)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{
+		"Title": "supervisor", "Page": "supervisor", "Controls": c.Controls, "Token": c.Token,
+		"Live": true, "Base": c.Base, "Titles": c.Titles, "Local": c.Local, "Multi": c.Multi,
+		"Status": status, "Screen": screen,
+	}
+	if s, ok := ctx.Value(sessionKey{}).(session); ok && s.Device != nil {
+		data["Session"] = "phone"
+	}
+	return data, nil
+}
+
+func (b *Board) supervisorPage(w http.ResponseWriter, r *http.Request) {
+	data, err := b.supervisorScreenData(r.Context(), url.Values{})
+	if err != nil {
+		b.failErr(w, err)
+		return
+	}
+	data["Fleets"] = b.fleets(r.Context())
+	b.render(w, http.StatusOK, "supervisor.html", data)
 }
 
 func lineWord(label string) string {
@@ -828,8 +1118,21 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 	if !b.allowed(w) {
 		return
 	}
-	k, rev := r.PostFormValue("key"), r.PostFormValue("revision")
-	if n, err := strconv.ParseInt(rev, 10, 64); err != nil || n < 0 || !(slices.Contains(state.SupervisorKeys, k) || group == "attempt" && len(k) == 1 && k[0] >= '4' && k[0] <= '9') {
+	keys := strings.Fields(strings.Join(r.PostForm["keys"], " "))
+	if len(keys) == 0 {
+		keys = strings.Fields(strings.Join(r.PostForm["key"], " "))
+	}
+	rev := r.PostFormValue("revision")
+	ok := len(keys) > 0
+	if n, err := strconv.ParseInt(rev, 10, 64); err != nil || n < 0 {
+		ok = false
+	}
+	for _, k := range keys {
+		if !slices.Contains(state.SupervisorKeys, k) && !(group == "attempt" && len(k) == 1 && k[0] >= '4' && k[0] <= '9') {
+			ok = false
+		}
+	}
+	if !ok {
 		b.fail(w, http.StatusBadRequest, "press one of the listed keys on a screen shown by this page")
 		return
 	}
@@ -846,7 +1149,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 	} else {
 		to, _ = b.supRef(r.Context())
 	}
-	if _, err := b.o.Control(r.Context(), append(args, k)...); err != nil {
+	if _, err := b.o.Control(r.Context(), append(args, keys...)...); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			b.fail(w, http.StatusConflict, staleScreen)
 			return
@@ -854,7 +1157,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 		b.failErr(w, err)
 		return
 	}
-	b.done(w, r, b.o.Base+"/", "Sent "+k+" to "+to)
+	b.done(w, r, b.o.Base+"/", "Sent "+strings.Join(keys, " ")+" to "+to)
 }
 
 func (b *Board) send(w http.ResponseWriter, r *http.Request) {

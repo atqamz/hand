@@ -11,6 +11,7 @@ related_targets: []
 
 - **Covers:** every board surface, including:
   - the fleet page: the masthead, the rail, the work pane (Needs in severity bands, then Tasks with its search field), the supervisor pane (its controls, the conversation and the composer) and the separator between the panes;
+  - the Screen page: the supervisor's pane with its revision and digest, the fixed keys, and an Ask card only for a real dialog (a `blocked` supervisor, or a question directly above its option block and prompt footer);
   - the Tasks page (search over every task), the task page, the attempt page, the decision page, the conversation page and the fleet list at `/`;
   - the error pages, the network variant (no supervisor controls; answering decisions and marking reports read still work), and the first-run empty state.
 - **Mode:** Operate.
@@ -25,7 +26,7 @@ related_targets: []
 - **Constraints:**
   - rendered on the server with Go `html/template`, plus small first-party JS embedded in the binary, with no framework and no build step;
   - strict CSP: no inline script, no inline style, no `style` attribute; `app.js` sets `--chat` and the rail tip's `top` through the CSSOM;
-  - live updates over Server-Sent Events, through five fleet-page regions (`status`, `console`, `timeline`, `queue`, `tasks`), with the composer form and the task search form outside every region so a live update never takes a draft;
+  - live updates over Server-Sent Events, through five regions on the fleet page (`status`, `console`, `timeline`, `queue`, `tasks`) and the Screen page's `sup` region, with the composer form and the task search form outside every region so a live update never takes a draft;
   - supervisor controls only on loopback (on a network address only answering decisions and marking reports read work), CSRF on every form, and no paths on error pages;
   - every page shows one fleet; the rail lists the current fleet and only the fleets this browser holds a valid token for, and never another fleet's counts;
   - light and dark themes follow the system;
@@ -50,7 +51,7 @@ OWN-WORLD: A white ground #ffffff with panels #f6f7f9 and cards #f1f3f5 on hairl
 
 STORY: The operator opens the board and knows at once whether anything is paged: the masthead pill and the Needs count on the rail answer before the page settles. They acknowledge the top item in place (press "2 No", pick option 2 on d5 and send it, mark r7 read) and watch it collapse to its receipt while a Hand line lands in the conversation. Then they read s1's reply, drag the line between the panes to give it more room, and steer it from the composer. A task, a report or a decision opens in a new tab, and the board stays where they left it.
 
-FIRST VIEWPORT: At 1440px: a 56px rail of icons at the left edge (Board with the Needs count, Tasks, Conversation, Phone, then the fleets this browser can open); a 44px masthead with the mark and fleet name on the left and on the right the s1 status pill (working with an accent pulse, ready, blocked in red, stopped) and a 48px context bar reading "510K / 1M"; the work pane, with Needs in bands (Blocked, Failed, Decision, Report) as calm one-line rows and the top item open as a card, then Tasks under Active and Inbox with a search field; and the supervisor pane on the right, 400px by default, under its head (`s1`, the model menu, Interrupt, Stop): replies on the pane, "you" as accent-bg bubbles on the right, Hand events as 12px ringed lines, and a slim composer pinned beneath. From 900px both panes show, the chat never under 360px and the work pane never under 440px. Below 900px the tabs read "Needs (n)", "Tasks" and "Chat", a menu button opens the rail's links as a sheet, and the phone's first row answers "1 blocked". With nothing paged, Needs reads "All clear since 12:41 · 1 running · 6 inbox".
+FIRST VIEWPORT: At 1440px: a 56px rail of icons at the left edge (Board with the Needs count, Tasks, Conversation, Screen, Phone, then the fleets this browser can open); a 44px masthead with the mark and fleet name on the left and on the right the s1 status pill (working with an accent pulse, ready, blocked in red, stopped) and a 48px context bar reading "510K / 1M"; the work pane, with Needs in bands (Blocked, Failed, Decision, Report) as calm one-line rows and the top item open as a card, then Tasks under Active and Inbox with a search field; and the supervisor pane on the right, 400px by default, under its head (`s1`, the model menu, Interrupt, Stop): replies on the pane, "you" as accent-bg bubbles on the right, Hand events as 12px ringed lines, and a slim composer pinned beneath. From 900px both panes show, the chat never under 360px and the work pane never under 440px. Below 900px the tabs read "Needs (n)", "Tasks" and "Chat", a menu button opens the rail's links as a sheet, and the phone's first row answers "1 blocked". With nothing paged, Needs reads "All clear since 12:41 · 1 running · 6 inbox".
 
 FORM: The On-Call Board. It takes these raises:
 - from the teletext service: red is reserved for what blocks the operator now;

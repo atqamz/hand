@@ -102,6 +102,16 @@ func blockedPrompt(screen string) prompt {
 			break
 		}
 	}
+	body := clean[:start]
+	q := -1
+	for i, l := range body {
+		if strings.HasSuffix(l, "?") {
+			q = i
+		}
+	}
+	if q < 0 {
+		return p
+	}
 	var no, rest []key
 	fits := true
 	for i, l := range clean[start : end+1] {
@@ -119,16 +129,6 @@ func blockedPrompt(screen string) prompt {
 	}
 	if fits {
 		p.Options = append(append(no, key{"esc", "Esc"}), rest...)
-	}
-	body := clean[:start]
-	q := -1
-	for i, l := range body {
-		if strings.HasSuffix(l, "?") {
-			q = i
-		}
-	}
-	if q < 0 {
-		return p
 	}
 	cmd, kind := "", ""
 	switch {

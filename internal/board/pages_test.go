@@ -264,6 +264,14 @@ func TestALostLinkDimsTheStatusAndQuietsTheIcon(t *testing.T) {
 	contains(t, "app.js", js, `.querySelector(".pill .word")`, `now.dataset.was = now.textContent;`, `now.textContent = "unknown";`, `back.textContent = back.dataset.was;`)
 }
 
+func TestALostLinkOffersAReload(t *testing.T) {
+	js := asset(t, "app.js")
+	contains(t, "app.js", js,
+		`reload.textContent = "Reload";`,
+		`location.reload();`,
+		`link.replaceChildren(document.createTextNode(message + " "), reload);`)
+}
+
 func TestTheLostLinkIsABandUnderTheMasthead(t *testing.T) {
 	fx := newFixture(t)
 	page := get(t, fx.handler(), "/")

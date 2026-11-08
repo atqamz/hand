@@ -38,6 +38,7 @@ type fixture struct {
 	hint     string
 	revision int
 	screen   string
+	readErr  error
 	claude   string
 	options  board.Options
 }
@@ -60,6 +61,9 @@ func newFixture(t *testing.T) *fixture {
 	fx.srv.Handle("agent.read", func(json.RawMessage) (any, error) {
 		fx.mu.Lock()
 		defer fx.mu.Unlock()
+		if fx.readErr != nil {
+			return nil, fx.readErr
+		}
 		return map[string]any{"text": fx.screen, "content_revision": fx.revision, "terminal_id": "t1"}, nil
 	})
 	fx.options = board.Options{

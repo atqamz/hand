@@ -201,7 +201,9 @@ func TestTheViewerDialogFollowsTheHistory(t *testing.T) {
 		`dlg.before(toast);`,
 		"if (announce.parentElement !== hosted()) hosted().append(announce);",
 		"const res = await fetch(home, { credentials: \"same-origin\" }).catch(() => null);",
-		"new EventSource(`${base}/events${new URL(home).search}`)")
+		`const events = new URLSearchParams(new URL(home).search);`,
+		`events.set("page", body.dataset.page || "");`,
+		"new EventSource(`${base}/events?${events}`)")
 	lacks(t, "app.js", js, "fetch(location.href", "location.search", "if (history.state?.viewer) history.back();")
 }
 
