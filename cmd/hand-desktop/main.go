@@ -20,6 +20,7 @@ func main() {
 	fleet := flag.String("fleet", "", "fleet id or name to open")
 	flag.Parse()
 	app := desktop.New(func() (desktop.ReadModel, error) { return desktop.NewLocal(os.Getenv) })
+	app.DraftDir = desktop.DraftDir(os.Getenv)
 	app.Boot()
 	if *fleet != "" {
 		app.OpenFleet(*fleet)
@@ -32,7 +33,9 @@ func main() {
 		app.Post = win.Update
 		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 	})
-	if err := mygo.App.Run(); err != nil {
+	err := mygo.App.Run()
+	app.FlushDrafts()
+	if err != nil {
 		log.Fatal(err)
 	}
 }

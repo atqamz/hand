@@ -51,8 +51,8 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the decision page;
   - the conversation page;
   - error pages;
-  - a JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, task, attempt, decision and report detail, with an opaque change cursor, plus two mutations, an answer to a decision and an acknowledgement of a report;
-  - the native desktop window (`hand-desktop`): a fleet switch, the status, Needs, the timeline, the tasks list and the task, attempt, decision and report detail, read through the JSON API over loopback, and the two actions the API allows, answering a decision and acknowledging a report. It is a client of the board, never a second owner of state: it writes nothing else, and closing it stops neither the board nor a watcher.
+  - a JSON API under `/<fleet id>/api/v1` for a local client: status and Needs, the timeline, the tasks list, task, attempt, decision and report detail, with an opaque change cursor, plus three mutations, a message to the supervisor, an answer to a decision and an acknowledgement of a report;
+  - the native desktop window (`hand-desktop`): a fleet switch, the status, Needs, the timeline with its composer, the tasks list and the task, attempt, decision and report detail, read through the JSON API over loopback, and the three actions the API allows, sending a message, answering a decision and acknowledging a report, with a per-fleet draft that survives a closed window. It is a client of the board, never a second owner of state: its only local file is that draft, and closing it stops neither the board nor a watcher.
 - **What needs the operator:**
   - open decisions;
   - blocked supervisor screens;
@@ -73,7 +73,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
 - **JavaScript:** allowed since 2026-09-28, as small first-party code with no framework and no build step, embedded in the binary. The CSP allows `script-src 'self'`. Live updates use Server-Sent Events from the Go server.
 - **Security:**
   - the board token is exchanged for an `HttpOnly`, `SameSite=Strict` cookie named for one fleet, which only that fleet accepts;
-  - the JSON API needs that same session cookie, answers only on a loopback board, and refuses a mutation without the session's CSRF token; v1 writes only an answer and an acknowledgement;
+  - the JSON API needs that same session cookie, answers only on a loopback board, and refuses a mutation without the session's CSRF token; v1 writes only a message to the supervisor, an answer to a decision and an acknowledgement of a report;
   - CSRF protects every form;
   - supervisor controls work only on a loopback listener. On a network address the controls are off, while answering decisions and acknowledging reports still work;
   - error pages reveal no paths;

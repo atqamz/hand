@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/atqamz/hand/internal/state"
 )
@@ -365,7 +366,7 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead, http.MethodPost:
 	default:
 		w.Header().Set("Allow", apiAllow(r))
-		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on a decision's answer and a report's ack")
+		b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "the v1 API takes GET and HEAD, and POST on a message, a decision's answer and a report's ack")
 		return
 	}
 	b.mux.ServeHTTP(w, r)
@@ -373,7 +374,8 @@ func (b *Board) apiServe(w http.ResponseWriter, r *http.Request) {
 
 func apiAllow(r *http.Request) string {
 	p := strings.TrimPrefix(r.URL.Path, apiPrefix)
-	if strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
+	if p == "/message" ||
+		strings.HasPrefix(p, "/decision/") && strings.HasSuffix(p, "/answer") ||
 		strings.HasPrefix(p, "/report/") && strings.HasSuffix(p, "/ack") {
 		return "POST"
 	}
@@ -400,6 +402,16 @@ func (b *Board) apiCSRF(w http.ResponseWriter, r *http.Request) bool {
 type apiAnswerBody struct {
 	Choice string `json:"choice"`
 	Note   string `json:"note"`
+}
+
+type apiMessageBody struct {
+	Text json.RawMessage `json:"text"`
+}
+
+// APIMessageAccepted is the message mutation's answer when the board queued
+// the text but could not read the conversation back.
+type APIMessageAccepted struct {
+	Accepted bool `json:"accepted"`
 }
 
 func (b *Board) apiAnswer(w http.ResponseWriter, r *http.Request) {
@@ -461,6 +473,106 @@ func (b *Board) apiAck(w http.ResponseWriter, r *http.Request) {
 	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiReportData(ctx, id) })
 }
 
+func (b *Board) apiMessage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !b.apiCSRF(w, r) {
+		return
+	}
+	if b.o.Control == nil {
+		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object under 64 KiB")
+		return
+	}
+	var in apiMessageBody
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with text")
+		return
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with text")
+		return
+	}
+	text, err := apiMessageText(in.Text)
+	if err != nil {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send a JSON object with text")
+		return
+	}
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if err := state.CheckMessage(text); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	if _, err := b.o.Control(ctx, "supervisor", "send", "--text", text); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	tl, err := b.apiTimelineData(ctx, url.Values{})
+	if err != nil {
+		b.apiOK(w, f, "", APIMessageAccepted{Accepted: true})
+		return
+	}
+	b.apiOK(w, f, "", tl)
+}
+
+// apiMessageText rejects the text a JSON decoder would quietly change: invalid
+// UTF-8 bytes and unpaired surrogate escapes both become U+FFFD.
+func apiMessageText(raw json.RawMessage) (string, error) {
+	if len(raw) < 2 || raw[0] != '"' || !utf8.Valid(raw) || !surrogatesPaired(raw) {
+		return "", errors.New("the text is not a JSON string the board can keep")
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", err
+	}
+	return text, nil
+}
+
+func surrogatesPaired(raw []byte) bool {
+	for i := 0; i < len(raw); {
+		if raw[i] != '\\' {
+			i++
+			continue
+		}
+		if i+1 >= len(raw) {
+			return false
+		}
+		if raw[i+1] != 'u' {
+			i += 2
+			continue
+		}
+		if i+6 > len(raw) {
+			return false
+		}
+		v, err := strconv.ParseUint(string(raw[i+2:i+6]), 16, 16)
+		if err != nil {
+			return false
+		}
+		switch {
+		case v < 0xD800 || v > 0xDFFF:
+			i += 6
+		case v > 0xDBFF || i+12 > len(raw) || raw[i+6] != '\\' || raw[i+7] != 'u':
+			return false
+		default:
+			lo, err := strconv.ParseUint(string(raw[i+8:i+12]), 16, 16)
+			if err != nil || lo < 0xDC00 || lo > 0xDFFF {
+				return false
+			}
+			i += 12
+		}
+	}
+	return true
+}
+
 func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, data func() (any, error)) {
 	f, err := b.st.Fleet(ctx)
 	if err != nil {
@@ -477,7 +589,7 @@ func (b *Board) apiMutationOK(w http.ResponseWriter, ctx context.Context, data f
 
 func (b *Board) apiMethod(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Allow", "GET, HEAD")
-	b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "only a decision's answer and a report's ack take POST")
+	b.apiFail(w, http.StatusMethodNotAllowed, "method_not_allowed", "only a message, a decision's answer and a report's ack take POST")
 }
 
 func (b *Board) apiStatus(w http.ResponseWriter, r *http.Request) {

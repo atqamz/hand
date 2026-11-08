@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -378,6 +379,166 @@ func TestAPIAckReport(t *testing.T) {
 	testAPIError(t, apiPost(t, h, "/api/v1/report/r1/ack", nil, token, true), http.StatusConflict, "conflict")
 }
 
+func TestAPISendMessage(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var args []string
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		args = append([]string(nil), call...)
+		if len(call) != 4 || call[0] != "supervisor" || call[1] != "send" || call[2] != "--text" {
+			return "", fmt.Errorf("unexpected control call %q", call)
+		}
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	h := fx.handler()
+	rec := apiPost(t, h, "/api/v1/message", map[string]string{"text": "hello\nworld"}, token, true)
+	env, got := apiBody[board.APITimeline](t, rec)
+	if want := []string{"supervisor", "send", "--text", "hello\nworld"}; !slices.Equal(args, want) {
+		t.Fatalf("control called %q, want %q", args, want)
+	}
+	if env.Cursor == "" || env.Version != 1 || env.Fleet.Name != "golden" {
+		t.Fatalf("envelope = %+v", env)
+	}
+	found := false
+	for _, e := range got.Entries {
+		if e.Role == "operator" && e.Text == "hello\nworld" && e.Queued {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the returned timeline has no queued message:\n%+v", got.Entries)
+	}
+	_, again := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+	a, _ := json.Marshal(got)
+	b, _ := json.Marshal(again)
+	if !bytes.Equal(a, b) {
+		t.Fatalf("the mutation and the GET disagree:\n%s\n%s", a, b)
+	}
+}
+
+func TestAPISendMessageRefusals(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	path := "/api/v1/message"
+	body := map[string]string{"text": "hello"}
+	testAPIError(t, apiPost(t, h, path, body, "", false), http.StatusUnauthorized, "unauthorized")
+	csrf := testAPIError(t, apiPost(t, h, path, body, "", true), http.StatusForbidden, "csrf_required")
+	if strings.Contains(csrf.Message, "/") {
+		t.Fatalf("the CSRF refusal names a path: %q", csrf.Message)
+	}
+	testAPIError(t, apiPost(t, h, path, body, "wrong", true), http.StatusForbidden, "csrf_required")
+	testAPIError(t, apiPost(t, h, path, map[string]string{"text": "   "}, token, true), http.StatusBadRequest, "bad_request")
+	testAPIError(t, apiPost(t, h, path, map[string]string{"text": "\x1b[31mred"}, token, true), http.StatusBadRequest, "bad_request")
+	for _, raw := range []string{
+		"",
+		"{",
+		`{"text":"hello"} {}`,
+		`{"text":"hello"} trailing`,
+		`{"text":"` + strings.Repeat("x", 70<<10) + `"}`,
+		"{\"text\":\"a\xffb\"}",
+		`{"text":"\ud800"}`,
+		`{"text":"\udc00"}`,
+		`{"text":"\ud800x"}`,
+		`{"text":5}`,
+	} {
+		testAPIError(t, apiPostRaw(t, h, path, raw, token, true), http.StatusBadRequest, "bad_request")
+	}
+	if got := fx.called(); len(got) != 0 {
+		t.Fatalf("a refused message reached the supervisor: %q", got)
+	}
+
+	fx.options.Control = func(context.Context, ...string) (string, error) {
+		return "", fmt.Errorf("cannot send from /home/me/fleet: the supervisor is gone")
+	}
+	h = fx.handler()
+	err := testAPIError(t, apiPost(t, h, path, body, token, true), http.StatusInternalServerError, "internal")
+	if strings.Contains(err.Message, "/") {
+		t.Fatalf("the send error names a path: %q", err.Message)
+	}
+	if !strings.Contains(err.Message, "the supervisor is gone") {
+		t.Fatalf("the send error dropped its message: %q", err.Message)
+	}
+
+	ctl := board.New(fx.st, token, board.Options{Controls: true})
+	testAPIError(t, apiPost(t, ctl, path, body, token, true), http.StatusForbidden, "forbidden")
+
+	put := httptest.NewRequest("PUT", path, nil)
+	put.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, put)
+	testAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != "POST" {
+		t.Fatalf("PUT %s Allow = %q", path, got)
+	}
+}
+
+func TestAPISendMessageKeepsAValidSurrogatePair(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	var got string
+	fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+		got = call[3]
+		_, err := fx.st.AddSupervisorInput(ctx, call[3])
+		return "", err
+	}
+	h := fx.handler()
+	apiBody[board.APITimeline](t, apiPostRaw(t, h, "/api/v1/message", `{"text":"\ud83d\ude00 hi"}`, token, true))
+	if got != "😀 hi" {
+		t.Fatalf("the supervisor got %q", got)
+	}
+	apiBody[board.APITimeline](t, apiPostRaw(t, h, "/api/v1/message", `{"text":"\\ud800"}`, token, true))
+	if got != `\ud800` {
+		t.Fatalf("the supervisor got %q for an escaped backslash", got)
+	}
+}
+
+func TestAPISendMessageIsAcceptedWhenTheTimelineCannotBeRead(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fx.options.Control = func(_ context.Context, call ...string) (string, error) {
+		if _, err := fx.st.AddSupervisorInput(context.Background(), call[3]); err != nil {
+			return "", err
+		}
+		cancel()
+		return "", nil
+	}
+	req := httptest.NewRequest("POST", "/api/v1/message", strings.NewReader(`{"text":"hello"}`))
+	req = req.WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Hand-CSRF", token)
+	req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+	rec := httptest.NewRecorder()
+	fx.handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/v1/message = %d:\n%s", rec.Code, rec.Body.String())
+	}
+	var env struct {
+		Version int             `json:"version"`
+		Fleet   board.APIFleet  `json:"fleet"`
+		Cursor  string          `json:"cursor"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	var data struct {
+		Accepted bool `json:"accepted"`
+	}
+	if err := json.Unmarshal(env.Data, &data); err != nil || !data.Accepted {
+		t.Fatalf("data = %s, err %v", env.Data, err)
+	}
+	if env.Cursor == "" || env.Fleet.Name != "golden" {
+		t.Fatalf("envelope = %+v", env)
+	}
+	pending, err := fx.st.PendingSupervisorInputs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].Body != "hello" {
+		t.Fatalf("pending = %+v", pending)
+	}
+}
+
 func TestAPIMutationGolden(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -386,9 +547,19 @@ func TestAPIMutationGolden(t *testing.T) {
 	}{
 		{"decision-answered", "/api/v1/decision/d1/answer", map[string]string{"choice": "1. Yes, keep it", "note": "keep the docs"}},
 		{"report-acked", "/api/v1/report/r1/ack", nil},
+		{"message-sent", "/api/v1/message", map[string]string{"text": "hello from the desktop"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fx := apiFixture(t, func() time.Time { return frozen })
+			if c.name == "message-sent" {
+				fx.options.Control = func(ctx context.Context, call ...string) (string, error) {
+					if len(call) == 4 && call[2] == "--text" {
+						_, err := fx.st.AddSupervisorInput(ctx, call[3])
+						return "", err
+					}
+					return "", nil
+				}
+			}
 			rec := apiPost(t, fx.handler(), c.path, c.body, token, true)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("POST %s = %d:\n%s", c.path, rec.Code, rec.Body.String())

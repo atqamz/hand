@@ -115,7 +115,7 @@ func (a *App) rail(c *ui.Context, p palette) {
 		})
 		ui.Spacer(c)
 		if a.Model != nil {
-			ui.Text(c, "Answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
+			ui.Text(c, "Messages, answers and acks go to the board.").FontSize(12).TextColor(p.neutral).Padding(8, 16, 14)
 		}
 	})
 }
@@ -222,13 +222,18 @@ func (a *App) actionCard(c *ui.Context, p palette) {
 	if a.ActionErr == "" {
 		return
 	}
-	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(p.failBG).
-		Border(1, p.fail).Children(func() {
-		ui.Text(c, "The action did not go through").FontSize(15).Bold().TextColor(p.fail)
+	title, bg, tone := "The action did not go through", p.failBG, p.fail
+	if a.ActionWarn {
+		title, bg, tone = "The action went through", p.waitBG, p.wait
+	}
+	ui.Column(c).Gap(8).Padding(14).Radius(10).Background(bg).
+		Border(1, tone).Children(func() {
+		ui.Text(c, title).FontSize(15).Bold().TextColor(tone)
 		ui.Text(c, a.ActionErr).FontSize(13)
 		ui.Row(c).Gap(8).Children(func() {
 			if ui.Button(c.Key("dismiss-action"), "Dismiss").Clicked() {
 				a.ActionErr = ""
+				a.ActionWarn = false
 			}
 			if ui.Button(c.Key("retry-action"), "Refresh").Clicked() {
 				a.Retry()
@@ -372,6 +377,8 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			ui.Badge(c, "live").Background(p.passBG).TextColor(p.pass)
 		}
 	})
+	a.actionCard(c, p)
+	a.composer(c, p)
 	if w := a.Timeline.Working; w != nil {
 		ui.Row(c).Gap(8).Padding(10, 12).Radius(8).Background(p.accentBG).Children(func() {
 			ui.Textf(c, "%s is working", w.Ref).FontSize(14).TextColor(p.accent)
@@ -414,6 +421,43 @@ func (a *App) timelineScreen(c *ui.Context, p palette) {
 			a.Older()
 		}
 	}
+}
+
+func (a *App) composer(c *ui.Context, p palette) {
+	ui.Column(c).Gap(8).Padding(12).Radius(10).Background(p.card).
+		Border(1, p.line).Children(func() {
+		ui.TextArea(c, &a.Draft).Label("Message").
+			Placeholder("Message the supervisor").Lines(2, 8).Disabled(a.Busy).
+			OnChange(func() { a.saveDraft() }).
+			OnTextKey(func(k ui.TextKey) bool {
+				if k.Key != ui.KeyEnter || k.Mods != 0 {
+					return false
+				}
+				a.Draft = k.Text()
+				a.saveDraft()
+				a.Send()
+				return true
+			})
+		if a.DraftErr != "" {
+			ui.Text(c, a.DraftErr).FontSize(12).TextColor(p.fail)
+		}
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Text(c, "Enter sends · Shift+Enter starts a new line.").FontSize(12).
+				TextColor(p.neutral).Grow(1)
+			if ui.Button(c.Key("composer:clear"), "Clear").
+				Disabled(a.Busy || (a.Draft == "" && a.DraftErr == "")).Clicked() {
+				a.ClearDraft()
+			}
+			label := "Send"
+			if a.Busy {
+				label = "Sending…"
+			}
+			if ui.Button(c.Key("composer:send"), label).
+				Disabled(a.Busy || strings.TrimSpace(a.Draft) == "").Clicked() {
+				a.Send()
+			}
+		})
+	})
 }
 
 func (a *App) tasksScreen(c *ui.Context, p palette) {

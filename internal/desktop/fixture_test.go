@@ -35,6 +35,8 @@ type fixture struct {
 	actionEntered chan struct{}
 	choice        string
 	answerNote    string
+	sentText      string
+	stale         bool
 	stall         string
 	nameIn        chan struct{}
 	block         chan struct{}
@@ -207,6 +209,21 @@ func (f *fixture) AckReport(ctx context.Context, id, ref string) (desktop.Report
 	return d, nil
 }
 
+func (f *fixture) SendMessage(ctx context.Context, id, text string) (desktop.Sent, error) {
+	f.note("send:" + id)
+	f.mu.Lock()
+	f.sentText = text
+	f.mu.Unlock()
+	f.stallAction()
+	if f.action != nil {
+		return desktop.Sent{}, f.action
+	}
+	tl := f.timeline[id]
+	tl.Entries = append([]desktop.Entry{{Role: "operator", Text: text, At: "2026-11-01T05:00:00Z", Queued: true}}, tl.Entries...)
+	f.timeline[id] = tl
+	return desktop.Sent{Timeline: tl, Fresh: !f.stale}, nil
+}
+
 func (f *fixture) dropNeed(id, ref string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -310,6 +327,7 @@ func errorFixture() *fixture {
 func newApp(t *testing.T, f *fixture) *desktop.App {
 	t.Helper()
 	app := desktop.New(func() (desktop.ReadModel, error) { return f, nil })
+	app.DraftDir = t.TempDir()
 	app.Boot()
 	if app.Err != "" && f.fail == nil {
 		t.Fatalf("boot: %s", app.Err)

@@ -559,10 +559,11 @@ func TestNewLocalUsesHOME(t *testing.T) {
 }
 
 type mutations struct {
-	mu      sync.Mutex
-	badCSRF bool
-	body    string
-	csrf    []string
+	mu       sync.Mutex
+	badCSRF  bool
+	accepted bool
+	body     string
+	csrf     []string
 }
 
 func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
@@ -613,6 +614,8 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 			name = "decision-answered"
 		case "/api/v1/report/r1/ack":
 			name = "report-acked"
+		case "/api/v1/message":
+			name = "message-sent"
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			io.WriteString(w, `{"error":{"status":404,"code":"not_found","message":"not found"}}`)
@@ -624,7 +627,13 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.body = string(b)
+		accepted := m.accepted
 		m.mu.Unlock()
+		if name == "message-sent" && accepted {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","data":{"accepted":true}}`)
+			return
+		}
 		data, err := os.ReadFile(filepath.Join("..", "board", "testdata", "api", name+".json"))
 		if err != nil {
 			t.Error(err)
@@ -666,6 +675,49 @@ func TestHTTPClientAnswersAndAcks(t *testing.T) {
 	}
 	if rd.Report.AckedBy != "operator (desktop)" || rd.Report.AckedAt == "" {
 		t.Fatalf("report = %+v", rd.Report)
+	}
+}
+
+func TestHTTPClientSendsAMessage(t *testing.T) {
+	srv, m := mutationServer(t)
+	c := goldenClient(t, srv.URL)
+	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tl := sent.Timeline
+	if !sent.Fresh || len(tl.Entries) == 0 || tl.Entries[0].Role != "operator" || tl.Entries[0].Text != "hello from the desktop" || !tl.Entries[0].Queued {
+		t.Fatalf("sent = %+v", sent)
+	}
+	m.mu.Lock()
+	body, csrf := m.body, append([]string(nil), m.csrf...)
+	m.mu.Unlock()
+	if !strings.Contains(body, `"text":"hello from the desktop"`) {
+		t.Fatalf("request body = %q", body)
+	}
+	if len(csrf) != 1 || csrf[0] != testToken {
+		t.Fatalf("CSRF headers = %v", csrf)
+	}
+}
+
+func TestHTTPClientReportsAnAcceptedMessageWithoutATimeline(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.accepted = true
+	m.mu.Unlock()
+	c := goldenClient(t, srv.URL)
+	sent, err := c.SendMessage(context.Background(), fleetID, "hello from the desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Fresh || len(sent.Timeline.Entries) != 0 {
+		t.Fatalf("sent = %+v", sent)
+	}
+	m.mu.Lock()
+	body := m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"text":"hello from the desktop"`) {
+		t.Fatalf("request body = %q", body)
 	}
 }
 
