@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,6 +27,8 @@ const (
 	apiVersion = 1
 	apiPrefix  = "/api/v1"
 )
+
+var supervisorRef = regexp.MustCompile(`^s[1-9][0-9]*$`)
 
 type APIFleet struct {
 	ID   string `json:"id"`
@@ -425,6 +428,16 @@ type apiKeysBody struct {
 	After    *int64   `json:"after"`
 }
 
+type apiControlBody struct {
+	Ref string `json:"ref"`
+}
+
+// APIControlAccepted is a control's answer when it ran but the status could
+// not be read back; the client warns and refreshes instead of reporting failure.
+type APIControlAccepted struct {
+	Accepted bool `json:"accepted"`
+}
+
 // APIMessageAccepted is the message mutation's answer when the board queued
 // the text but could not read the conversation back.
 type APIMessageAccepted struct {
@@ -550,6 +563,14 @@ func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string
 		b.apiFail(w, http.StatusForbidden, "forbidden", "the board's controls are off")
 		return
 	}
+	args := []string{"supervisor", action}
+	if action == "stop" || action == "interrupt" {
+		ref, ok := b.apiControlRef(w, r)
+		if !ok {
+			return
+		}
+		args = append(args, "--expect", ref)
+	}
 	if action == "start" {
 		if _, ok, err := b.st.LatestSupervisor(ctx); err != nil {
 			b.apiFailErr(w, err)
@@ -559,11 +580,48 @@ func (b *Board) apiControl(w http.ResponseWriter, r *http.Request, action string
 			return
 		}
 	}
-	if _, err := b.o.Control(ctx, "supervisor", action); err != nil {
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiStatusData(ctx) })
+	if _, err := b.o.Control(ctx, args...); err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
+	b.apiControlOK(w, f, ctx)
+}
+
+func (b *Board) apiControlRef(w http.ResponseWriter, r *http.Request) (string, bool) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with the supervisor the status showed")
+		return "", false
+	}
+	var in apiControlBody
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := dec.Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with the supervisor the status showed")
+		return "", false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with the supervisor the status showed")
+		return "", false
+	}
+	if !supervisorRef.MatchString(in.Ref) {
+		b.apiFail(w, http.StatusBadRequest, "bad_request", "send one JSON object with the supervisor the status showed")
+		return "", false
+	}
+	return in.Ref, true
+}
+
+func (b *Board) apiControlOK(w http.ResponseWriter, f state.Fleet, ctx context.Context) {
+	out, err := b.apiStatusData(ctx)
+	if err != nil {
+		b.apiOK(w, f, "", APIControlAccepted{Accepted: true})
+		return
+	}
+	b.apiOK(w, f, "", out)
 }
 
 func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
@@ -601,11 +659,16 @@ func (b *Board) apiKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	args := []string{"supervisor", "keys", "--revision", strconv.FormatInt(*in.Revision, 10), "--screen", in.Digest, "--after", strconv.FormatInt(*in.After, 10)}
+	f, err := b.st.Fleet(ctx)
+	if err != nil {
+		b.apiFailErr(w, err)
+		return
+	}
 	if _, err := b.o.Control(ctx, append(args, in.Keys...)...); err != nil {
 		b.apiFailErr(w, err)
 		return
 	}
-	b.apiMutationOK(w, ctx, func() (any, error) { return b.apiStatusData(ctx) })
+	b.apiControlOK(w, f, ctx)
 }
 
 // apiMessageText rejects the text a JSON decoder would quietly change: invalid

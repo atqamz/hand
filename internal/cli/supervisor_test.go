@@ -863,6 +863,24 @@ func TestResumeWaitsForTheScreenToSettle(t *testing.T) {
 	}
 }
 
+func TestStopAndInterruptRefuseAnotherSupervisor(t *testing.T) {
+	h, rt := newSupervisorFixture(t)
+	startClaudeSupervisor(h)
+	if _, errOut, code := h.run("supervisor", "stop", "--expect", "s2"); code != 3 || !strings.Contains(errOut, "s2 is on screen, but s1 is running now; refresh and try again") {
+		t.Fatalf("stop --expect s2: code=%d stderr=%q", code, errOut)
+	}
+	has(t, "after the refused stop", h.ok("supervisor", "show"), "status: running")
+	before := rt.keysSent()
+	if _, errOut, code := h.run("supervisor", "interrupt", "--expect", "s2"); code != 3 || !strings.Contains(errOut, "refresh and try again") {
+		t.Fatalf("interrupt --expect s2: code=%d stderr=%q", code, errOut)
+	}
+	if got := rt.keysSent(); !slices.Equal(got, before) {
+		t.Fatalf("a refused interrupt sent %q", got[len(before):])
+	}
+	has(t, "interrupt", h.ok("supervisor", "interrupt", "--expect", "s1"), "supervisor: s1", "keys: esc")
+	has(t, "stop", h.ok("supervisor", "stop", "--expect", "s1"), "supervisor: s1", "status: stopped")
+}
+
 func TestInterruptSendsEscOnAFreshRevision(t *testing.T) {
 	h, rt := newSupervisorFixture(t)
 	startClaudeSupervisor(h)

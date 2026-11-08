@@ -535,9 +535,9 @@ func (a *App) Supervise(action string) {
 	if sup == nil || !canSupervise(sup, action) {
 		return
 	}
-	model, fleet := a.Model, a.Fleet.ID
-	a.runControl(action, func(ctx context.Context) (Status, error) {
-		return model.Supervise(ctx, fleet, action)
+	model, fleet, ref := a.Model, a.Fleet.ID, sup.Ref
+	a.runControl(action, func(ctx context.Context) (Control, error) {
+		return model.Supervise(ctx, fleet, action, ref)
 	})
 }
 
@@ -551,7 +551,7 @@ func (a *App) Press(key string) {
 	}
 	keys := *sup.Keys
 	model, fleet := a.Model, a.Fleet.ID
-	a.runControl("key:"+key, func(ctx context.Context) (Status, error) {
+	a.runControl("key:"+key, func(ctx context.Context) (Control, error) {
 		return model.PressKeys(ctx, fleet, []string{key}, keys.Revision, keys.Digest, keys.Pressed)
 	})
 }
@@ -581,16 +581,21 @@ func canSupervise(sup *Supervisor, action string) bool {
 	return false
 }
 
-func (a *App) runControl(name string, call func(context.Context) (Status, error)) {
+func (a *App) runControl(name string, call func(context.Context) (Control, error)) {
 	id, ctx, cancel := a.nextLoad()
 	post := a.Post
 	a.Busy, a.BusyAction = true, name
-	applied := func(st Status) {
+	applied := func(c Control) {
 		if id != a.loadID {
 			return
 		}
 		a.Busy, a.BusyAction = false, ""
-		a.Status = st
+		if c.Stale {
+			a.ActionErr = "the action went through, but the fleet status could not be read; refresh to see it"
+			a.ActionWarn = true
+			return
+		}
+		a.Status = c.Status
 	}
 	failed := func(err error) {
 		if id != a.loadID {

@@ -562,9 +562,12 @@ type mutations struct {
 	mu       sync.Mutex
 	badCSRF  bool
 	accepted bool
-	body     string
-	csrf     []string
-	paths    []string
+	// controlAccepted answers a supervisor control with the accepted envelope
+	// the board sends when it ran the action but could not read the status.
+	controlAccepted bool
+	body            string
+	csrf            []string
+	paths           []string
 }
 
 func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
@@ -632,9 +635,9 @@ func mutationServer(t *testing.T) (*httptest.Server, *mutations) {
 		}
 		m.mu.Lock()
 		m.body = string(b)
-		accepted := m.accepted
+		accepted, control := m.accepted, m.controlAccepted
 		m.mu.Unlock()
-		if name == "message-sent" && accepted {
+		if (name == "message-sent" && accepted) || (name == "status" && control) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			io.WriteString(w, `{"version":1,"fleet":{"id":"`+fleetID+`","name":"golden"},"cursor":"c","generated_at":"2026-11-01T05:00:00Z","data":{"accepted":true}}`)
 			return
@@ -730,20 +733,20 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 	srv, m := mutationServer(t)
 	c := goldenClient(t, srv.URL)
 	ctx := context.Background()
-	st, err := c.Supervise(ctx, fleetID, "stop")
+	ctl, err := c.Supervise(ctx, fleetID, "stop", "s1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Supervisor == nil || st.Supervisor.Ref != "s1" {
-		t.Fatalf("status = %+v", st)
+	if ctl.Stale || ctl.Status.Supervisor == nil || ctl.Status.Supervisor.Ref != "s1" {
+		t.Fatalf("control = %+v", ctl)
 	}
 	digest := "0123456789abcdef0123456789abcdef"
-	st, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2)
+	ctl, err = c.PressKeys(ctx, fleetID, []string{"down", "enter"}, 6, digest, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Supervisor == nil {
-		t.Fatalf("status = %+v", st)
+	if ctl.Stale || ctl.Status.Supervisor == nil {
+		t.Fatalf("control = %+v", ctl)
 	}
 	m.mu.Lock()
 	body, csrf, paths := m.body, append([]string(nil), m.csrf...), append([]string(nil), m.paths...)
@@ -758,8 +761,32 @@ func TestHTTPClientPostsSupervisorControls(t *testing.T) {
 		!strings.Contains(body, `"digest":"`+digest+`"`) || !strings.Contains(body, `"after":2`) {
 		t.Fatalf("keys body = %q", body)
 	}
-	if _, err := c.Supervise(ctx, fleetID, "nope"); err == nil {
+	if _, err := c.Supervise(ctx, fleetID, "nope", ""); err == nil {
 		t.Fatal("an unknown control was sent")
+	}
+	if _, err := c.Supervise(ctx, fleetID, "stop", ""); err == nil {
+		t.Fatal("stop without the displayed supervisor was sent")
+	}
+}
+
+func TestHTTPClientReportsAControlThatOutranItsStatus(t *testing.T) {
+	srv, m := mutationServer(t)
+	m.mu.Lock()
+	m.controlAccepted = true
+	m.mu.Unlock()
+	c := goldenClient(t, srv.URL)
+	ctl, err := c.Supervise(context.Background(), fleetID, "interrupt", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ctl.Stale || ctl.Status.Supervisor != nil {
+		t.Fatalf("control = %+v", ctl)
+	}
+	m.mu.Lock()
+	body := m.body
+	m.mu.Unlock()
+	if !strings.Contains(body, `"ref":"s1"`) {
+		t.Fatalf("interrupt body = %q", body)
 	}
 }
 

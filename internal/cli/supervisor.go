@@ -767,8 +767,17 @@ func runningSupervisor(ctx context.Context, st *state.Store) (state.Supervisor, 
 	return sup, nil
 }
 
+func supervisorOnScreen(sup state.Supervisor, ref string) error {
+	if ref == "" || state.SupervisorRef(sup.ID) == ref {
+		return nil
+	}
+	return fmt.Errorf("%w: %s is on screen, but %s is running now; refresh and try again", state.ErrConflict, ref, state.SupervisorRef(sup.ID))
+}
+
 func cmdSupervisorStop(r *runner, args []string) error {
-	if _, err := parse(flags("supervisor stop"), args, 0); err != nil {
+	fs := flags("supervisor stop")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
+	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
@@ -779,6 +788,9 @@ func cmdSupervisorStop(r *runner, args []string) error {
 		defer unlock()
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
+			return err
+		}
+		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
 		unlockGeneration, ok, err := r.guardGeneration(ctx, st, sup)
@@ -1533,12 +1545,22 @@ func typeIn(ctx context.Context, c luvus.Client, sup state.Supervisor, text stri
 }
 
 func cmdSupervisorInterrupt(r *runner, args []string) error {
-	if _, err := parse(flags("supervisor interrupt"), args, 0); err != nil {
+	fs := flags("supervisor interrupt")
+	expect := fs.String("expect", "", "the supervisor the operator saw; refuse when another one is running")
+	if _, err := parse(fs, args, 0); err != nil {
 		return err
 	}
 	return r.withSupervisor(func(ctx context.Context, st *state.Store, c luvus.Client, _ luvus.Capabilities) error {
+		unlock, _, err := r.supervisorLock(true)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 		sup, err := runningSupervisor(ctx, st)
 		if err != nil {
+			return err
+		}
+		if err := supervisorOnScreen(sup, *expect); err != nil {
 			return err
 		}
 		presses := 1

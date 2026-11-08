@@ -547,46 +547,114 @@ func TestAPISupervisorControls(t *testing.T) {
 		return "", nil
 	}
 	h := fx.handler()
-	for _, action := range []string{"start", "resume", "stop", "interrupt", "force"} {
-		rec := apiPost(t, h, "/api/v1/supervisor/"+action, nil, token, true)
+	for _, c := range []struct {
+		action string
+		body   any
+		want   []string
+	}{
+		{"start", nil, []string{"supervisor", "start"}},
+		{"resume", nil, []string{"supervisor", "resume"}},
+		{"stop", map[string]string{"ref": "s1"}, []string{"supervisor", "stop", "--expect", "s1"}},
+		{"interrupt", map[string]string{"ref": "s1"}, []string{"supervisor", "interrupt", "--expect", "s1"}},
+		{"force", nil, []string{"supervisor", "force"}},
+	} {
+		rec := apiPost(t, h, "/api/v1/supervisor/"+c.action, c.body, token, true)
 		env, got := apiBody[board.APIStatus](t, rec)
 		if env.Cursor == "" || env.Version != 1 || env.Fleet.Name != "golden" {
-			t.Fatalf("%s envelope = %+v", action, env)
+			t.Fatalf("%s envelope = %+v", c.action, env)
 		}
-		if len(calls) == 0 || !slices.Equal(calls[len(calls)-1], []string{"supervisor", action}) {
-			t.Fatalf("%s called %q", action, calls)
+		if len(calls) == 0 || !slices.Equal(calls[len(calls)-1], c.want) {
+			t.Fatalf("%s called %q, want %q", c.action, calls, c.want)
 		}
 		_, again := apiInto[board.APIStatus](t, h, "/api/v1/status")
 		a, _ := json.Marshal(got)
 		b, _ := json.Marshal(again)
 		if !bytes.Equal(a, b) {
-			t.Fatalf("%s and the GET disagree:\n%s\n%s", action, a, b)
+			t.Fatalf("%s and the GET disagree:\n%s\n%s", c.action, a, b)
 		}
 	}
-	if len(calls) != len([]string{"start", "resume", "stop", "interrupt", "force"}) {
+	if len(calls) != 5 {
 		t.Fatalf("controls called %q", calls)
+	}
+}
+
+func TestAPISupervisorControlIsAcceptedWhenTheStatusCannotBeRead(t *testing.T) {
+	for _, c := range []struct {
+		name, path, body string
+	}{
+		{"interrupt", "/api/v1/supervisor/interrupt", `{"ref":"s1"}`},
+		{"keys", "/api/v1/supervisor/keys", `{"keys":["enter"],"revision":7,"digest":"0123456789abcdef0123456789abcdef","after":0}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fx := apiFixture(t, func() time.Time { return frozen })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			fx.options.Control = func(context.Context, ...string) (string, error) {
+				cancel()
+				return "", nil
+			}
+			req := httptest.NewRequest("POST", c.path, strings.NewReader(c.body))
+			req = req.WithContext(ctx)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Hand-CSRF", token)
+			req.AddCookie(&http.Cookie{Name: "hand_board", Value: token})
+			rec := httptest.NewRecorder()
+			fx.handler().ServeHTTP(rec, req)
+			env, got := apiBody[struct {
+				Accepted bool `json:"accepted"`
+			}](t, rec)
+			if !got.Accepted || env.Cursor == "" || env.Fleet.Name != "golden" {
+				t.Fatalf("answer = %+v, envelope = %+v", got, env)
+			}
+		})
 	}
 }
 
 func TestAPISupervisorControlRefusals(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
+	body := func(action string) any {
+		if action == "stop" || action == "interrupt" {
+			return map[string]string{"ref": "s1"}
+		}
+		return nil
+	}
 	for _, action := range []string{"start", "resume", "stop", "interrupt", "force"} {
 		path := "/api/v1/supervisor/" + action
-		testAPIError(t, apiPost(t, h, path, nil, "", false), http.StatusUnauthorized, "unauthorized")
-		csrf := testAPIError(t, apiPost(t, h, path, nil, "", true), http.StatusForbidden, "csrf_required")
+		testAPIError(t, apiPost(t, h, path, body(action), "", false), http.StatusUnauthorized, "unauthorized")
+		csrf := testAPIError(t, apiPost(t, h, path, body(action), "", true), http.StatusForbidden, "csrf_required")
 		if strings.Contains(csrf.Message, "/") {
 			t.Fatalf("%s CSRF refusal names a path: %q", action, csrf.Message)
 		}
-		testAPIError(t, apiPost(t, h, path, nil, "wrong", true), http.StatusForbidden, "csrf_required")
-		if got := apiPost(t, h, path, nil, token, true); got.Code != http.StatusOK {
+		testAPIError(t, apiPost(t, h, path, body(action), "wrong", true), http.StatusForbidden, "csrf_required")
+		if got := apiPost(t, h, path, body(action), token, true); got.Code != http.StatusOK {
 			t.Fatalf("%s = %d:\n%s", action, got.Code, got.Body.String())
+		}
+	}
+	for _, action := range []string{"stop", "interrupt"} {
+		path := "/api/v1/supervisor/" + action
+		before := len(fx.called())
+		for _, bad := range []any{
+			nil,
+			map[string]string{},
+			map[string]string{"ref": ""},
+			map[string]string{"ref": "s0"},
+			map[string]string{"ref": "1"},
+			map[string]string{"ref": "s1x"},
+		} {
+			testAPIError(t, apiPost(t, h, path, bad, token, true), http.StatusBadRequest, "bad_request")
+		}
+		for _, raw := range []string{`{"ref":"s1"} {}`, `{"ref":"s1"} trailing`} {
+			testAPIError(t, apiPostRaw(t, h, path, raw, token, true), http.StatusBadRequest, "bad_request")
+		}
+		if got := len(fx.called()); got != before {
+			t.Fatalf("%s ran a refused request: %q", action, fx.called())
 		}
 	}
 
 	fx.fail = fmt.Errorf("%w: supervisor s1 is not running", state.ErrConflict)
 	for _, action := range []string{"stop", "interrupt", "force"} {
-		conflict := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/"+action, nil, token, true), http.StatusConflict, "conflict")
+		conflict := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/"+action, body(action), token, true), http.StatusConflict, "conflict")
 		if strings.Contains(conflict.Message, "/") {
 			t.Fatalf("%s conflict names a path: %q", action, conflict.Message)
 		}
@@ -594,7 +662,7 @@ func TestAPISupervisorControlRefusals(t *testing.T) {
 	fx.fail = fmt.Errorf("%w: there is no supervisor to resume", state.ErrNotFound)
 	testAPIError(t, apiPost(t, h, "/api/v1/supervisor/resume", nil, token, true), http.StatusNotFound, "not_found")
 	fx.fail = fmt.Errorf("cannot stop from /home/me/fleet: the supervisor is gone")
-	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/stop", nil, token, true), http.StatusInternalServerError, "internal")
+	err := testAPIError(t, apiPost(t, h, "/api/v1/supervisor/stop", body("stop"), token, true), http.StatusInternalServerError, "internal")
 	if strings.Contains(err.Message, "/") || !strings.Contains(err.Message, "the supervisor is gone") {
 		t.Fatalf("control error = %q", err.Message)
 	}
@@ -610,7 +678,7 @@ func TestAPISupervisorControlRefusals(t *testing.T) {
 	}
 
 	ctl := board.New(fx.st, token, board.Options{Controls: true})
-	testAPIError(t, apiPost(t, ctl, "/api/v1/supervisor/stop", nil, token, true), http.StatusForbidden, "forbidden")
+	testAPIError(t, apiPost(t, ctl, "/api/v1/supervisor/stop", body("stop"), token, true), http.StatusForbidden, "forbidden")
 
 	fresh := newFixture(t)
 	testAPIError(t, apiPost(t, fresh.handler(), "/api/v1/supervisor/start", nil, token, true), http.StatusConflict, "conflict")

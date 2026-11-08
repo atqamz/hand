@@ -225,6 +225,31 @@ func TestASupervisorControlAppliesTheReturnedStatus(t *testing.T) {
 	}
 }
 
+func TestASupervisorControlWarnsWhenTheStatusCannotBeRead(t *testing.T) {
+	f := statusWith(t, func(sup *desktop.Supervisor) {
+		sup.Status, sup.Live, sup.Resumable, sup.Blocked, sup.Keys = "running", true, false, false, nil
+	})
+	f.controlStale = true
+	app := newApp(t, f)
+	before := f.count("status:" + fleetID)
+	tt := newTester(app)
+	click(t, tt, "Stop")
+	tt.Frame()
+	mustText(t, tt, "The action went through", "the fleet status could not be read", "s1 claude sonnet low · running")
+	if app.Status.Supervisor == nil || app.Status.Supervisor.Status != "running" || app.Busy {
+		t.Fatalf("status = %+v, busy = %v", app.Status.Supervisor, app.Busy)
+	}
+	f.mu.Lock()
+	ref := f.controlRef
+	f.mu.Unlock()
+	if ref != "s1" {
+		t.Fatalf("the control sent ref %q", ref)
+	}
+	if got := f.count("status:" + fleetID); got != before {
+		t.Fatalf("the window re-read the status: %d reads, want %d", got, before)
+	}
+}
+
 func TestNeedsScreen(t *testing.T) {
 	app := newApp(t, goldenFixture(t))
 	tt := newTester(app)

@@ -186,18 +186,21 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after either 
 
 ### The supervisor controls
 
-`POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` take no body. Each runs the same path as the console button it mirrors and answers the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
+`POST /api/v1/supervisor/{start,resume,stop,interrupt,force}` run the same path as the console button they mirror and answer the `Status` the GET serves, built after the control ran, so a client replaces its status with the returned data and needs no second read.
 
 - **start** runs `supervisor start` with no profile, copying the last supervisor's harness, model and effort, like the console's "same as sN". There must be an earlier supervisor to copy: with none, the answer is `409 conflict`, and while one is live it is `409 conflict` too. Start a first supervisor from the CLI, which can choose the harness.
 - **resume** continues the last session under a new `sN`; it follows the CLI's rules, so a running supervisor or nothing to resume is a conflict or a not-found.
-- **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`. They stop and interrupt exactly as the console buttons do.
+- **stop** and **interrupt** need a running supervisor; anything else is `409 conflict`. They take one JSON object, the ref the client's `Status` showed: `{"ref": "s1"}`. The board runs `supervisor stop --expect s1` or `supervisor interrupt --expect s1`, so a control binds to the supervisor on screen and is `409 conflict` when another one runs by then, rather than stopping or interrupting the replacement.
 - **force** is the blocked screen's "Type queued messages anyway": it types the queued messages, or else the wakes, into the prompt. It follows the CLI: a supervisor that is not blocked gets its queued input delivered normally and the answer is still `200`.
 
+Start, resume and force take no body. When a control ran but the board could not read the status back, the answer is `200` with `{"accepted": true}` instead of a `Status`: the action went through, so a client warns that the status is stale and asks for a refresh rather than reporting a failed action. It keeps the screen it has and needs no second read to report the outcome.
+
+- `400 bad_request`: stop or interrupt without one JSON object, or with a ref that is not `sN`.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
-- `409 conflict`: the supervisor is in a state the control refuses.
+- `409 conflict`: the supervisor is in a state the control refuses, or another supervisor is running than the one the request names.
 - `404 not_found`: there is nothing to resume.
 - `500 internal`: the control failed; the message keeps no path.
-- `200` with the updated `Status`.
+- `200` with the updated `Status`, or `{"accepted": true}` when the status could not be read.
 
 ### Pressing keys
 
@@ -212,7 +215,7 @@ A client that shows the fleet status re-reads `GET /api/v1/status` after either 
 - `400 bad_request`: a body that is not one JSON object, an empty key sequence, a key outside the set, a negative revision or `after`, or a digest that is not 32 lowercase hex characters.
 - `403 forbidden`: the board has its controls off, or the request is not on a loopback board.
 - `409 conflict`: the screen changed since the given revision, or a key was pressed after the given sequence; nothing was sent.
-- `200` with the updated `Status`.
+- `200` with the updated `Status`, or `{"accepted": true}` when the press went through but the status could not be read; then the client warns and refreshes.
 
 **The keys decision.** The API carries no `Ask` DTO and no option labels, question or screen text. While the supervisor is blocked, `Status.supervisor.keys` carries only the revision, digest and pressed sequence the guard needs, and a client shows the fixed seven-key toolbar only in that state; the operator reads the ask itself on the board's Screen page. This is the smallest contract that keeps the stale-screen guards, and the digest is the same non-reversible value the web form already sends, not screen content.
 
