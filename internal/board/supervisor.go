@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/atqamz/hand/internal/harness"
-	"github.com/atqamz/hand/internal/luvus"
 	"github.com/atqamz/hand/internal/state"
 	"github.com/atqamz/hand/internal/transcript"
 )
@@ -55,122 +54,73 @@ func (b *Board) fleet(w http.ResponseWriter, r *http.Request) {
 	b.render(w, http.StatusOK, "index.html", data)
 }
 
-func (b *Board) stripData(ctx context.Context) map[string]any {
-	data := map[string]any{}
-	if b.statusData(ctx, data, url.Values{}) != nil {
+func (b *Board) stripData(ctx context.Context) *statusView {
+	sv, err := b.buildSupervisor(ctx, url.Values{})
+	if err != nil {
 		return nil
 	}
-	b.gaugeData(ctx, data)
-	return data
+	v := b.buildStatus(ctx, sv)
+	return &v
 }
 
 func (b *Board) fleetData(ctx context.Context, q url.Values) (map[string]any, error) {
-	data := map[string]any{"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls, "Token": b.csrf(ctx), "Live": true}
+	device := ""
 	if s, ok := ctx.Value(sessionKey{}).(session); ok && s.Device != nil {
-		data["Session"] = "phone"
+		device = "phone"
 	}
 	f, err := b.facts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	data["facts"] = f
 	projects, err := b.st.Projects(ctx)
 	if err != nil {
 		return nil, err
 	}
-	data["Multi"] = len(projects) > 1
-	for _, part := range []func(context.Context, map[string]any, url.Values) error{b.statusData, b.timelineData, b.queueData, b.tasksData} {
-		if err := part(ctx, data, q); err != nil {
-			return nil, err
-		}
+	sv, err := b.buildSupervisor(ctx, q)
+	if err != nil {
+		return nil, err
 	}
-	b.gaugeData(ctx, data)
+	c := viewContext{
+		Controls: b.o.Controls,
+		Base:     b.o.Base,
+		Token:    b.csrf(ctx),
+		Session:  device,
+		Multi:    len(projects) > 1,
+		Titles:   b.refTitle(ctx),
+		Local:    b.local(),
+	}
+	needs, err := b.buildNeeds(ctx, f, sv, c)
+	if err != nil {
+		return nil, err
+	}
+	data := map[string]any{
+		"Title": "board", "All": q.Get("all") == "1", "Controls": b.o.Controls,
+		"Token": c.Token, "Live": true, "Base": c.Base, "Titles": c.Titles, "Local": c.Local,
+		"Multi": c.Multi, "Console": buildConsole(sv, c), "Needs": needs,
+	}
+	if device != "" {
+		data["Session"] = device
+	}
+	if err := b.timelineData(ctx, data, q, sv); err != nil {
+		return nil, err
+	}
+	status := b.buildStatus(ctx, sv)
+	status.Worst, status.WorstText, status.WorstWord, status.WorstCount = needs.Worst, needs.WorstText, needs.WorstWord, needs.WorstCount
+	data["Status"] = status
+	if err := b.tasksData(ctx, data, q, f); err != nil {
+		return nil, err
+	}
 	return data, nil
 }
 
 func (b *Board) history(w http.ResponseWriter, r *http.Request) {
-	data := map[string]any{"Title": "conversation", "Page": "log", "Fleets": b.fleets(r.Context()), "StripData": b.stripData(r.Context())}
-	if err := b.timelineData(r.Context(), data, r.URL.Query()); err != nil {
+	data := map[string]any{"Title": "conversation", "Page": "log", "Fleets": b.fleets(r.Context())}
+	if err := b.timelineData(r.Context(), data, r.URL.Query(), supervisorView{}); err != nil {
 		b.failErr(w, err)
 		return
 	}
-	if strip, ok := data["StripData"].(map[string]any); ok && strip != nil {
-		b.gaugeData(r.Context(), strip)
-	}
+	data["StripData"] = b.stripData(r.Context())
 	b.render(w, http.StatusOK, "log.html", data)
-}
-
-func (b *Board) gaugeData(ctx context.Context, data map[string]any) {
-	// Status comes from the transcript cache: pages that do not render the
-	// conversation must not pay for a harness export.
-	if b.o.Transcript == nil {
-		return
-	}
-	sup, ok, err := b.st.LatestSupervisor(ctx)
-	if err != nil || !ok {
-		return
-	}
-	st := b.o.Transcript.Status(sup.Harness, sup.Session)
-	text, level, pct := gauge(st)
-	data["Gauge"], data["Compactions"] = map[string]any{"Text": text, "Level": level, "Pct": pct}, st.Compactions
-}
-
-func (b *Board) statusData(ctx context.Context, data map[string]any, q url.Values) error {
-	sup, ok, err := b.st.LatestSupervisor(ctx)
-	if err != nil {
-		return err
-	}
-	pending, err := b.st.PendingSupervisorInputs(ctx)
-	if err != nil {
-		return err
-	}
-	profiles := b.profiles()
-	data["Pending"], data["Profiles"], data["Keys"] = len(pending), profiles, keyButtons()
-	data["Chosen"], data["NoneStartable"] = chosenProfile(profiles), noneStartable(profiles)
-	data["Pick"] = q.Get("pick") == "1" || !ok
-	data["Pill"], data["PillLabel"] = "neutral", "No supervisor"
-	data["AgentState"], data["ComposerHint"] = "none", "No supervisor is running; your message waits."
-	if ok {
-		data["Sup"], data["Ref"] = sup, state.SupervisorRef(sup.ID)
-		resumable := sup
-		if !sup.Live() {
-			if started, found, err := b.st.LastStartedSupervisor(ctx); err != nil {
-				return err
-			} else if found {
-				resumable = started
-				if started.Switching() {
-					data["Drop"] = started.SwitchText()
-				}
-			}
-		}
-		data["Resumable"] = !sup.Live() && resumable.Session != ""
-		if sup.Status == state.AttemptRunning {
-			b.live(ctx, sup, data)
-			if _, held, err := b.st.SupervisorHold(ctx, sup); err != nil {
-				return err
-			} else if held {
-				data["Held"] = true
-			}
-		}
-		data["Pill"], data["PillLabel"] = pill(sup, data)
-		data["AgentState"], data["ComposerHint"] = hint(sup, data)
-		if sup.Status == state.AttemptRunning {
-			data["Switchable"], data["SwitchProfiles"] = true, b.profilesFor(sup.Harness)
-			data["Current"] = b.picker(sup.Harness)
-			data["OtherHarnesses"] = b.choices(sup.Harness)
-			note, err := b.st.ModelNote(ctx, state.SupervisorRef(sup.ID), sup.Model, sup.Effort)
-			if err != nil {
-				return err
-			}
-			data["ModelNote"] = note
-		}
-	}
-	if data["Pick"] == true {
-		data["StartHarnesses"] = b.choices("")
-	}
-	label, _ := data["PillLabel"].(string)
-	data["Line"] = strings.ToLower(lineWord(label))
-	return nil
 }
 
 func lineWord(label string) string {
@@ -223,19 +173,17 @@ func short(n int64) string {
 	return out + unit
 }
 
-func pill(sup state.Supervisor, data map[string]any) (string, string) {
-	_, stale := data["Stale"]
-	blocked, _ := data["Blocked"].(bool)
+func pill(sup state.Supervisor, live paneState, held bool) (string, string) {
 	switch {
-	case sup.Status == state.AttemptRunning && stale:
+	case sup.Status == state.AttemptRunning && live.Stale != "":
 		return "failing", "unreachable"
-	case blocked:
+	case live.Blocked:
 		return "failing", "blocked"
-	case data["Held"] == true:
+	case held:
 		return "failing", "held"
 	case sup.Status == state.AttemptLaunching:
 		return "neutral", "launching"
-	case sup.Status == state.AttemptRunning && data["Agent"] == "working":
+	case sup.Status == state.AttemptRunning && live.Agent == "working":
 		return "working", "working"
 	case sup.Status == state.AttemptRunning:
 		return "ready", "ready"
@@ -245,12 +193,10 @@ func pill(sup state.Supervisor, data map[string]any) (string, string) {
 	return "failing", sup.Status
 }
 
-func hint(sup state.Supervisor, data map[string]any) (string, string) {
+func hint(sup state.Supervisor, live paneState, held bool) (string, string) {
 	ref := state.SupervisorRef(sup.ID)
-	_, stale := data["Stale"]
-	blocked, _ := data["Blocked"].(bool)
 	agent := "ready"
-	if data["Agent"] == "working" {
+	if live.Agent == "working" {
 		agent = "working"
 	}
 	switch {
@@ -260,13 +206,13 @@ func hint(sup state.Supervisor, data map[string]any) (string, string) {
 		return "none", once(ref, "stopped", sup.Reason) + "; your message waits."
 	case sup.Status != state.AttemptRunning:
 		return "none", "No supervisor is running; your message waits."
-	case stale:
+	case live.Stale != "":
 		return "none", "Luvus restarted; your message waits."
-	case blocked:
+	case live.Blocked:
 		return "blocked", ref + " is waiting on a screen in Needs; your message waits too."
 	case sup.Switching():
 		return agent, ref + " switches to " + sup.SwitchText() + " after this turn; your message waits."
-	case data["Held"] == true:
+	case held:
 		return "blocked", ref + " did not answer the resume note; your message waits. Switch to another model from the model menu."
 	}
 	return agent, ""
@@ -312,36 +258,6 @@ func elapsed(d time.Duration) string {
 		return strconv.Itoa(m) + "m"
 	}
 	return strconv.Itoa(m/60) + "h " + strconv.Itoa(m%60) + "m"
-}
-
-func (b *Board) live(ctx context.Context, sup state.Supervisor, data map[string]any) {
-	caps, err := b.o.Luvus.Check(ctx)
-	if err != nil || caps.ServerGeneration != sup.ServerGeneration {
-		data["Stale"] = staleServer
-		return
-	}
-	ag, err := b.o.Luvus.Explain(ctx, sup.PaneID)
-	if err != nil {
-		data["Stale"] = staleServer
-		return
-	}
-	data["Agent"], data["Hint"] = ag.Status, ag.Hint
-	if ag.Status == "idle" || ag.Status == "done" {
-		if s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines); err == nil && s.TerminalID == sup.TerminalID {
-			if line, ok := harness.Limit(sup.Harness, s.Text); ok {
-				data["Limited"], _, _ = strings.Cut(line, " (~")
-			}
-		}
-	}
-	if ag.Status != "blocked" {
-		return
-	}
-	s, err := b.o.Luvus.Read(ctx, sup.PaneID, luvus.ScreenLines)
-	if err != nil || s.TerminalID != sup.TerminalID {
-		data["Stale"] = staleServer
-		return
-	}
-	data["Blocked"], data["Screen"], data["Revision"], data["Digest"] = true, s.Text, s.ContentRevision, luvus.ScreenDigest(s.Text)
 }
 
 type modelView struct {
@@ -547,7 +463,7 @@ func noneStartable(ps []profile) string {
 	return text
 }
 
-func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values) error {
+func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Values, sv supervisorView) error {
 	sup, ok, err := b.st.LatestSupervisor(ctx)
 	if err != nil {
 		return err
@@ -559,7 +475,7 @@ func (b *Board) timelineData(ctx context.Context, data map[string]any, q url.Val
 	if note != "" {
 		data["Note"] = note
 	}
-	if _, stale := data["Stale"]; ok && sup.Status == state.AttemptRunning && data["Agent"] == "working" && !stale {
+	if ok && sup.Status == state.AttemptRunning && sv.Agent == "working" && sv.Stale == "" {
 		w, err := b.working(ctx, sup)
 		if err != nil {
 			return err

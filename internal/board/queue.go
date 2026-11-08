@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"math"
-	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -154,10 +153,12 @@ func blockedPrompt(screen string) prompt {
 	return p
 }
 
-var severity = map[string]struct {
+type severityRank struct {
 	rank       int
 	tone, word string
-}{
+}
+
+var severity = map[string]severityRank{
 	"blocked":   {0, "fail", "BLOCKED"},
 	"worker":    {1, "fail", "BLOCKED"},
 	"failure":   {2, "fail", "FAILED"},
@@ -186,197 +187,6 @@ func (w waiting) Rank() int { return severity[w.Kind].rank }
 func (w waiting) Tone() string { return severity[w.Kind].tone }
 
 func (w waiting) Word() string { return severity[w.Kind].word }
-
-func (b *Board) queueData(ctx context.Context, data map[string]any, _ url.Values) error {
-	counts, err := b.st.CountTasks(ctx)
-	if err != nil {
-		return err
-	}
-	var waits []waiting
-	total := 0
-	add := func(w waiting) {
-		total++
-		w.Title = clip(w.Title, titleRunes)
-		waits = append(waits, w)
-	}
-	sup, live := data["Sup"].(state.Supervisor)
-	if blocked, _ := data["Blocked"].(bool); blocked && live {
-		hint, _ := data["Hint"].(string)
-		screen, _ := data["Screen"].(string)
-		rev, _ := data["Revision"].(int64)
-		dig, _ := data["Digest"].(string)
-		title := hint
-		if title == "" {
-			title = blockedAsking
-		}
-		pressed, err := b.st.LastKeys(ctx, state.SupervisorRef(sup.ID))
-		if err != nil {
-			return err
-		}
-		w := waiting{Kind: "blocked", Ref: state.SupervisorRef(sup.ID), Title: title, Hint: hint, Screen: lastLines(screen, screenLines), Revision: rev, Digest: dig, Pressed: pressed, Sup: &sup, Prompt: blockedPrompt(screen)}
-		if w.Prompt.Headline != "" {
-			w.Title = w.Prompt.Headline
-		}
-		add(w)
-	}
-	if line, _ := data["Limited"].(string); line != "" && live {
-		add(waiting{Kind: "limited", Ref: state.SupervisorRef(sup.ID), Title: line, Sup: &sup})
-	}
-	supervised := live && sup.Status == state.AttemptRunning
-	liveAttempts, err := b.st.LiveAttempts(ctx)
-	if err != nil {
-		return err
-	}
-	signals, err := b.signals(ctx, liveAttempts)
-	if err != nil {
-		return err
-	}
-	workers, err := b.workers(ctx, liveAttempts, signals, supervised, true)
-	if err != nil {
-		return err
-	}
-	for _, w := range workers {
-		add(w)
-	}
-	decisions, err := b.st.OpenDecisions(ctx, 0, maxWaits)
-	if err != nil {
-		return err
-	}
-	asked, err := b.st.OpenDecisionCount(ctx, 0)
-	if err != nil {
-		return err
-	}
-	tasks := map[int64]state.Task{}
-	task := func(id int64) (state.Task, error) {
-		if t, ok := tasks[id]; ok {
-			return t, nil
-		}
-		t, err := b.st.Task(ctx, id)
-		tasks[id] = t
-		return t, err
-	}
-	for _, d := range decisions {
-		t, err := task(d.TaskID)
-		if err != nil {
-			return err
-		}
-		add(waiting{Kind: "decision", Ref: state.DecisionRef(d.ID), Title: d.Headline(), Task: t, Decision: &d})
-	}
-	total += asked - len(decisions)
-	f, _ := data["facts"].(facts)
-	failures, err := b.failures(ctx, f)
-	if err != nil {
-		return err
-	}
-	for _, w := range failures {
-		add(w)
-	}
-	kept, err := b.st.KeptAttempts(ctx)
-	if err != nil {
-		return err
-	}
-	for _, a := range kept {
-		t, err := task(a.TaskID)
-		if err != nil {
-			return err
-		}
-		add(waiting{Kind: "kept", Ref: state.AttemptRef(a.ID), Title: "Worktree kept: " + a.Kept, Task: t, Attempt: &a})
-	}
-	if text, cmd := b.artifactWarning(); text != "" {
-		add(waiting{Kind: "artifacts", Title: text, Command: cmd})
-	}
-	unread, err := b.st.Reports(ctx, state.ReportFilter{Unacked: true, Oldest: true}, maxWaits)
-	if err != nil {
-		return err
-	}
-	unacked, err := b.st.UnackedReportCount(ctx)
-	if err != nil {
-		return err
-	}
-	for _, r := range unread {
-		t, err := task(r.TaskID)
-		if err != nil {
-			return err
-		}
-		_, rest, _ := strings.Cut(strings.TrimSpace(r.Body), "\n")
-		excerpt, cut := excerptOf(rest)
-		add(waiting{Kind: "report", Ref: state.ReportRef(r.ID), Title: markers.Replace(r.Summary()), Task: t, Report: &r, Excerpt: excerpt, Cut: cut})
-	}
-	total += unacked - len(unread)
-	resume := live && sup.Session != "" && (sup.Status == state.AttemptInterrupted || sup.Status == state.AttemptExited)
-	if resume {
-		add(waiting{Kind: "resume", Ref: state.SupervisorRef(sup.ID), Title: "The supervisor stopped unexpectedly", Sup: &sup})
-	}
-	if !supervised && !resume {
-		pending, _ := data["Pending"].(int)
-		waitsOnOne := len(liveAttempts) > 0 || pending > 0
-		if !waitsOnOne {
-			cursor := int64(0)
-			if live {
-				cursor = sup.WakeCursor
-			}
-			answered, err := b.st.EventsAfter(ctx, cursor, []string{"decision.answered"}, 1)
-			if err != nil {
-				return err
-			}
-			waitsOnOne = len(answered) > 0
-		}
-		if waitsOnOne {
-			add(waiting{Kind: "nosup", Title: "Work is waiting for a supervisor"})
-		}
-	}
-	agent, _ := data["Agent"].(string)
-	limited, _ := data["Limited"].(string)
-	_, stale := data["Stale"]
-	if pending, _ := data["Pending"].(int); supervised && !sup.Switching() && pending == 0 && (agent == "idle" || agent == "done") && limited == "" && !stale {
-		u, err := b.st.Unwatched(ctx, true)
-		if err != nil {
-			return err
-		}
-		if u.Stalls > 0 {
-			tasks := strconv.Itoa(len(u.Tasks)) + " active task"
-			if len(u.Tasks) != 1 {
-				tasks += "s"
-			}
-			add(waiting{Kind: "stalled", Ref: state.SupervisorRef(sup.ID), Title: "Supervisor idle for " + u.IdleFor() + " with " + tasks + " and no running attempt", Sup: &sup})
-		}
-	}
-	data["Active"], data["Inbox"] = counts[state.StatusActive], counts[state.StatusInbox]
-	if len(waits) == 0 {
-		cleared, err := b.st.RecentEventsOf(ctx, []string{"decision.answered", "report.acked", "supervisor.keys", "attempt.keys"}, 1)
-		if err != nil {
-			return err
-		}
-		if len(cleared) > 0 {
-			data["Cleared"] = cleared[0].At
-		}
-		var parts []string
-		if n := len(liveAttempts); n > 0 {
-			parts = append(parts, strconv.Itoa(n)+" running")
-		}
-		if n := counts[state.StatusInbox]; n > 0 {
-			parts = append(parts, strconv.Itoa(n)+" inbox")
-		}
-		data["Summary"] = strings.Join(parts, " · ")
-	}
-	slices.SortStableFunc(waits, func(x, y waiting) int { return x.Rank() - y.Rank() })
-	waits = waits[:min(len(waits), maxWaits)]
-	data["Waits"], data["More"], data["Waiting"] = waits, total-len(waits), total
-	data["Worst"], data["WorstText"], data["WorstWord"], data["WorstCount"] = "", "", "", total
-	if len(waits) > 0 {
-		data["Worst"], data["WorstText"], data["WorstWord"] = waits[0].Kind, strings.TrimSpace(waits[0].Ref+" "+waits[0].Title), "waiting"
-		if waits[0].Tone() == "fail" {
-			n := 0
-			for _, w := range waits {
-				if w.Word() == waits[0].Word() {
-					n++
-				}
-			}
-			data["WorstWord"], data["WorstCount"] = strings.ToLower(waits[0].Word()), n
-		}
-	}
-	return nil
-}
 
 func (b *Board) signals(ctx context.Context, live []state.Attempt) (map[int64]state.Event, error) {
 	out, err := b.st.AttemptSignals(ctx)
