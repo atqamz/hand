@@ -42,7 +42,13 @@ cargo tauri android build --debug --apk --target aarch64
 
 The APK lands at `src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`. It is signed with the Android debug key; `apksigner verify --print-certs` reports `CN=Android Debug`. For an emulator, replace `aarch64` with `x86_64` and install the same path with `adb install -r`.
 
+The build generates the Kotlin activity classes. Once they exist, `cd src-tauri/gen/android && ./gradlew :app:testUniversalDebugUnitTest` runs the JVM test of the window-inset arithmetic.
+
 Measured on 2026-11-05 on Linux x86_64 with 22 cores and warm SDK, Gradle and cargo caches: 1m36s for the `aarch64` debug APK with iroh in `target/`, 1m14s for the `x86_64` one, and a 127 MiB APK with debug symbols. The SDK, NDK, JDK, Gradle and Rust caches took about 12 GB.
+
+## Window insets
+
+The app draws edge to edge. Tauri hands the web view over before it is attached, so `MainActivity` wraps it in a `FrameLayout` and installs the insets listener one main-loop turn later; the padding follows the status bar or the display cutout at the top and the larger of the navigation bar and the keyboard at the bottom, on every insets change. It zeroes those insets on their way to the web view so the WebView's own safe-area and visual-viewport handling does not pad the Board a second time; the Board's pages carry no safe-area CSS, and the shell owns this. The scanner overlay stays a separate child of the content view and keeps its own bottom inset.
 
 ## Host tests
 

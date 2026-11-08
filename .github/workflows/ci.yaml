@@ -138,6 +138,9 @@ jobs:
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
           cargo tauri android build --debug --apk --target aarch64
+      - name: Test the window-inset arithmetic
+        run: ./gradlew :app:testUniversalDebugUnitTest
+        working-directory: src-tauri/gen/android
       - name: Check the APK's signer
         run: |
           apk=src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
