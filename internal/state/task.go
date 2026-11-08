@@ -36,13 +36,13 @@ type Task struct {
 	FinishedAt string
 }
 
-const taskSelect = `SELECT id, project, title, goal, status, created_at, updated_at FROM task`
+const taskSelect = `SELECT t.id, t.project, t.title, t.goal, t.status, t.created_at, t.updated_at, CASE WHEN t.status IN ('done', 'abandoned') THEN COALESCE(f.at, t.updated_at) ELSE '' END FROM task t LEFT JOIN (SELECT task_id, max(at) AS at FROM event WHERE kind IN ('task.done', 'task.abandoned') GROUP BY task_id) f ON f.task_id = t.id`
 
 type scanner interface{ Scan(...any) error }
 
 func scanTask(row scanner) (Task, error) {
 	var t Task
-	err := row.Scan(&t.ID, &t.Project, &t.Title, &t.Goal, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Project, &t.Title, &t.Goal, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.FinishedAt)
 	return t, err
 }
 
@@ -75,7 +75,7 @@ func (s *Store) AddTask(ctx context.Context, project, title, goal string) (Task,
 }
 
 func (s *Store) Task(ctx context.Context, id int64) (Task, error) {
-	t, err := scanTask(s.db.QueryRowContext(ctx, taskSelect+` WHERE id = ?`, id))
+	t, err := scanTask(s.db.QueryRowContext(ctx, taskSelect+` WHERE t.id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, fmt.Errorf("%w: task %s", ErrNotFound, TaskRef(id))
 	}
@@ -93,12 +93,12 @@ func (s *Store) Tasks(ctx context.Context, want []string, limit int) ([]Task, er
 	}
 	q, args := taskSelect, []any{}
 	if len(want) > 0 {
-		q += ` WHERE status IN (` + strings.TrimSuffix(strings.Repeat("?,", len(want)), ",") + `)`
+		q += ` WHERE t.status IN (` + strings.TrimSuffix(strings.Repeat("?,", len(want)), ",") + `)`
 		for _, st := range want {
 			args = append(args, st)
 		}
 	}
-	q += ` ORDER BY id LIMIT ?`
+	q += ` ORDER BY t.id LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -234,7 +234,7 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 	}
 	var out Task
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE t.id = ?`, id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: task %s", ErrNotFound, TaskRef(id))
 		}
@@ -272,6 +272,9 @@ func (s *Store) Transition(ctx context.Context, id int64, to string, delivered .
 			return fmt.Errorf("%w: task %s changed concurrently", ErrConflict, TaskRef(id))
 		}
 		cur.Status, cur.UpdatedAt = to, now
+		if to == StatusDone || to == StatusAbandoned {
+			cur.FinishedAt = now
+		}
 		out = cur
 		if err := emit(tx, now, "task."+to, id, from+"->"+to); err != nil {
 			return err
@@ -296,7 +299,7 @@ func (s *Store) Deliver(ctx context.Context, id int64, refs ...string) (Task, []
 	var out Task
 	var added []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE id = ?`, id))
+		cur, err := scanTask(tx.QueryRow(taskSelect+` WHERE t.id = ?`, id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: task %s", ErrNotFound, TaskRef(id))
 		}

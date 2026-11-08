@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,7 +110,11 @@ func harden(w http.ResponseWriter) {
 func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	harden(w)
 	if viaFunnel(r) && !strings.HasPrefix(r.URL.Path, "/static/") {
-		hostFail(w, http.StatusForbidden, funnelRefusal)
+		if hostAPIPath(r.URL.Path) {
+			hostAPIFail(w, http.StatusForbidden, "forbidden", funnelRefusal)
+		} else {
+			hostFail(w, http.StatusForbidden, funnelRefusal)
+		}
 		return
 	}
 	h.mux.ServeHTTP(proxied{w, installable(r)}, r)
@@ -150,17 +155,32 @@ func (h *Host) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *Host) fleet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	api := hostAPIPath(r.URL.Path)
 	if !state.FleetID.MatchString(id) {
-		hostFail(w, http.StatusNotFound, "fleet not found")
+		if api {
+			hostAPIFail(w, http.StatusNotFound, "not_found", "fleet not found")
+		} else {
+			hostFail(w, http.StatusNotFound, "fleet not found")
+		}
 		return
 	}
 	f, err := h.handler(id)
 	switch {
 	case errors.Is(err, state.ErrNotFound):
-		hostFail(w, http.StatusNotFound, "fleet not found")
+		if api {
+			hostAPIFail(w, http.StatusNotFound, "not_found", "fleet not found")
+		} else {
+			hostFail(w, http.StatusNotFound, "fleet not found")
+		}
 	case err != nil:
 		log.Printf("board: fleet %s did not open: %v", id, err)
-		if h.o.Loopback && !forwarded(r) {
+		if api {
+			if h.o.Loopback && !forwarded(r) {
+				hostAPIFail(w, http.StatusInternalServerError, "internal", Scrub(err.Error()))
+			} else {
+				hostAPIFail(w, http.StatusNotFound, "not_found", "fleet not found")
+			}
+		} else if h.o.Loopback && !forwarded(r) {
 			hostFail(w, http.StatusInternalServerError, Scrub(err.Error()))
 		} else {
 			hostFail(w, http.StatusNotFound, "fleet not found")
@@ -417,6 +437,21 @@ func hostPage(w http.ResponseWriter, status int, name string, data map[string]an
 	data["Base"] = ""
 	data["Fleet"] = "hand"
 	renderPage(w, status, name, data)
+}
+
+func hostAPIPath(path string) bool {
+	if apiPath(path) {
+		return true
+	}
+	_, rest, ok := strings.Cut(strings.TrimPrefix(path, "/"), "/")
+	return ok && apiPath("/"+rest)
+}
+
+func hostAPIFail(w http.ResponseWriter, status int, code, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(APIErrorResponse{Error: APIError{Status: status, Code: code, Message: Scrub(msg)}})
 }
 
 func hostFail(w http.ResponseWriter, status int, msg string) {

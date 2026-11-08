@@ -830,7 +830,7 @@ func (b *Board) lifecycle(ctx context.Context) ([]chatItem, error) {
 		default:
 			text = once(ref, kind, detail)
 		}
-		out = append(out, chatItem{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref})
+		out = append(out, chatItem{Entry: transcript.Entry{Role: "hand", Text: text, At: e.At}, Ref: ref, Kind: e.Kind})
 	}
 	return out, nil
 }
@@ -846,6 +846,7 @@ type chatItem struct {
 	transcript.Entry
 	No                  int
 	Ref, Model, Day     string
+	Kind                string
 	Delivered, Delivery string
 	Clock               bool
 	Input               int64

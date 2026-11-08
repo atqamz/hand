@@ -277,6 +277,22 @@ func TestSearchTasks(t *testing.T) {
 	if tasks[0].FinishedAt != "2026-10-04T12:00:00Z" {
 		t.Errorf("finished at = %q", tasks[0].FinishedAt)
 	}
+	all, err := s.Tasks(ctx, done, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range all {
+		if task.FinishedAt == "" {
+			t.Errorf("%s finished time is empty", TaskRef(task.ID))
+		}
+	}
+	now, err := s.Task(ctx, all[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if now.FinishedAt != all[0].FinishedAt {
+		t.Errorf("Task finished at = %q, Tasks = %q", now.FinishedAt, all[0].FinishedAt)
+	}
 	for _, q := range []TaskQuery{{Limit: 0}, {Limit: 1, Statuses: []string{"later"}}, {Limit: 1, Since: "yesterday"}, {Limit: 1, Until: "2026-13-01"}} {
 		if _, _, err := s.SearchTasks(ctx, q); !errors.Is(err, ErrInvalid) {
 			t.Errorf("SearchTasks(%+v) err = %v, want ErrInvalid", q, err)

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -235,6 +237,33 @@ func TestAPICursorFollowsTheData(t *testing.T) {
 	}
 }
 
+func TestACursorMovesWhenTheFleetIsRenamed(t *testing.T) {
+	fx := apiFixture(t, func() time.Time { return frozen })
+	h := fx.handler()
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if _, err := fx.st.RenameFleet(context.Background(), "renamed"); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(h, "GET", "/api/v1/status?since="+url.QueryEscape(env.Cursor), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a fleet rename left the cursor unchanged (%d):\n%s", rec.Code, rec.Body.String())
+	}
+	var next struct {
+		Fleet  board.APIFleet  `json:"fleet"`
+		Cursor string          `json:"cursor"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Cursor == env.Cursor {
+		t.Fatal("the cursor did not move with the fleet name")
+	}
+	if next.Fleet.Name != "renamed" {
+		t.Fatalf("fleet name = %q", next.Fleet.Name)
+	}
+}
+
 func TestACursorMovesWhenOnlyATranscriptLineArrives(t *testing.T) {
 	fx := apiFixture(t, func() time.Time { return frozen })
 	h := fx.handler()
@@ -312,6 +341,12 @@ func TestAPIAuthContract(t *testing.T) {
 	testAPIError(t, request(h, "GET", "/api/v1/nope", nil, true), http.StatusNotFound, "not_found")
 	foreign := base64.RawURLEncoding.EncodeToString([]byte("f00000000e0bb\x00" + strconv.FormatUint(42, 16)))
 	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(foreign), nil, true), http.StatusBadRequest, "bad_cursor")
+	env, _ := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	encoded, tag, _ := strings.Cut(env.Cursor, ".")
+	raw, _ := base64.RawURLEncoding.DecodeString(encoded)
+	fleet, _, _ := strings.Cut(string(raw), "\x00")
+	forged := base64.RawURLEncoding.EncodeToString([]byte(fleet+"\x0000")) + "." + tag
+	testAPIError(t, request(h, "GET", "/api/v1/status?since="+url.QueryEscape(forged), nil, true), http.StatusBadRequest, "bad_cursor")
 	head := request(h, "HEAD", "/api/v1/status", nil, true)
 	if head.Code != http.StatusOK || head.Header().Get("X-Hand-Cursor") == "" {
 		t.Fatalf("HEAD /api/v1/status = %d, cursor %q", head.Code, head.Header().Get("X-Hand-Cursor"))
@@ -419,6 +454,9 @@ func TestAPINeverReturnsScreenText(t *testing.T) {
 		if err := fx.st.NoteAttempt(ctx, 1, "limited", "You've hit your limit · resets 3pm"); err != nil {
 			t.Fatal(err)
 		}
+		if err := fx.st.NoteSupervisor(ctx, 1, "blocked", `copilot does not have model "SECRET-SCREEN-TEXT" and runs on auto instead; check the screen`); err != nil {
+			t.Fatal(err)
+		}
 		h := fx.handler()
 		for _, c := range []string{
 			"/api/v1/status", "/api/v1/timeline", "/api/v1/tasks",
@@ -517,6 +555,16 @@ func TestAPIComposedTextLosesHostPaths(t *testing.T) {
 	if strings.Contains(attempt.Attempt.Reason, "/very/long") || !strings.Contains(attempt.Attempt.Reason, "t1-a1") {
 		t.Fatalf("attempt reason = %q", attempt.Attempt.Reason)
 	}
+	if _, err := fx.st.EndSupervisor(ctx, 1, state.AttemptInterrupted, "launch failed at /very/long/path/supervisor.log"); err != nil {
+		t.Fatal(err)
+	}
+	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	if status.Supervisor == nil {
+		t.Fatal("the status has no supervisor")
+	}
+	if strings.Contains(status.Supervisor.Reason, "/very/long") || !strings.Contains(status.Supervisor.Reason, "supervisor.log") {
+		t.Fatalf("supervisor reason = %q", status.Supervisor.Reason)
+	}
 }
 
 func TestAPIThroughTheFleetPrefix(t *testing.T) {
@@ -550,6 +598,41 @@ func TestAPIThroughTheFleetPrefix(t *testing.T) {
 	testAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 }
 
+func TestAPIThroughTheFleetPrefixReportsOpenFailuresAsJSON(t *testing.T) {
+	id := "f00000000e0aa"
+	home := t.TempDir()
+	links := func() ([]board.FleetLink, error) { return []board.FleetLink{{ID: id, Name: "golden"}}, nil }
+	host := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return home, nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return nil, nil, errors.New("cannot open /very/long/path/hand.db")
+		},
+		List: links,
+	})
+	req := httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	rec := httptest.NewRecorder()
+	host.ServeHTTP(rec, req)
+	body := testAPIError(t, rec, http.StatusInternalServerError, "internal")
+	if strings.Contains(body.Message, "/very/long") {
+		t.Fatalf("open failure names a path: %q", body.Message)
+	}
+	missing := board.NewHost(board.HostOptions{
+		Loopback: true,
+		Resolve:  func(string) (string, error) { return home, nil },
+		Open: func(string, string) (http.Handler, io.Closer, error) {
+			return nil, nil, state.ErrNotFound
+		},
+		List: links,
+	})
+	req = httptest.NewRequest("GET", "/"+id+"/api/v1/status", nil)
+	req.AddCookie(&http.Cookie{Name: "hand_board_" + id, Value: token})
+	rec = httptest.NewRecorder()
+	missing.ServeHTTP(rec, req)
+	testAPIError(t, rec, http.StatusNotFound, "not_found")
+}
+
 func sceneHandler(t *testing.T, sc scene) (*fixture, http.Handler) {
 	t.Helper()
 	codex := t.TempDir()
@@ -579,171 +662,291 @@ func TestWebAndAPIAgree(t *testing.T) {
 				testAPIError(t, request(h, "GET", "/api/v1/status", nil, true), http.StatusForbidden, "forbidden")
 				return
 			}
-			page := get(t, h, "/")
-			_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
-			m := regexp.MustCompile(`<div class="status-line" data-agent="([^"]*)" data-hint="([^"]*)">`).FindStringSubmatch(page)
-			if m == nil {
-				t.Fatal("the status line is missing")
-			}
-			if html.UnescapeString(m[1]) != status.AgentState || html.UnescapeString(m[2]) != status.ComposerHint {
-				t.Fatalf("status line = %q/%q, API = %q/%q", m[1], m[2], status.AgentState, status.ComposerHint)
-			}
-			waiting := regexp.MustCompile(`data-waiting="(\d+)"`).FindStringSubmatch(page)
-			if waiting == nil || waiting[1] != strconv.Itoa(status.Needs.Waiting) {
-				t.Fatalf("waiting = %v, API = %d", waiting, status.Needs.Waiting)
-			}
-			worst := regexp.MustCompile(`class="badge needs-count" href="#needs" data-worst="([^"]*)"`).FindStringSubmatch(page)
-			if status.Needs.Worst == "" && worst != nil {
-				t.Fatalf("HTML worst = %q, API has none", worst[1])
-			}
-			if status.Needs.Worst != "" && (worst == nil || worst[1] != status.Needs.Worst) {
-				t.Fatalf("worst = %v, API = %q", worst, status.Needs.Worst)
-			}
-			blocks := strings.Split(page, `<details class="wait"`)[1:]
-			if len(blocks) != len(status.Needs.Items) {
-				t.Fatalf("%d waits in HTML, %d in API", len(blocks), len(status.Needs.Items))
-			}
-			for i, item := range status.Needs.Items {
-				kind := regexp.MustCompile(`^ data-kind="([^"]*)"`).FindStringSubmatch(blocks[i])
-				word := regexp.MustCompile(`class="badge code" data-tone="([^"]*)">([^<]+)<`).FindStringSubmatch(blocks[i])
-				if kind == nil || kind[1] != item.Kind || word == nil || word[1] != item.Tone || word[2] != item.Word {
-					t.Fatalf("wait %d = %v/%v, API = %q/%q/%q", i, kind, word, item.Kind, item.Tone, item.Word)
-				}
-			}
-
-			_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks")
-			rows := 0
-			for _, g := range tasks.Groups {
-				rows += len(g.Tasks)
-			}
-			if rows != strings.Count(page, `class="row check task-row"`) {
-				t.Fatalf("%d task rows in HTML, %d in API", strings.Count(page, `class="row check task-row"`), rows)
-			}
-			groups := regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`).FindAllStringSubmatch(page, -1)
-			if len(groups) != len(tasks.Groups) {
-				t.Fatalf("%d task groups in HTML, %d in API", len(groups), len(tasks.Groups))
-			}
-			for i, g := range tasks.Groups {
-				if groups[i][1] != g.Name || groups[i][2] != strconv.Itoa(g.Count) {
-					t.Fatalf("group %d = %v, API = %q/%d", i, groups[i], g.Name, g.Count)
-				}
-			}
-			var taskRows []board.APITaskRow
-			for _, g := range tasks.Groups {
-				taskRows = append(taskRows, g.Tasks...)
-				for _, row := range g.Tasks {
-					if !strings.Contains(page, `data-state="`+row.State+`"`) || !strings.Contains(page, "/task/"+row.Ref) || !strings.Contains(page, html.EscapeString(row.Title)) {
-						t.Fatalf("task %s is not in the page as the API says", row.Ref)
-					}
-				}
-			}
-
-			_, timeline := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
-			sup, you := 0, 0
-			for _, e := range timeline.Entries {
-				switch e.Role {
-				case "supervisor":
-					sup++
-					if e.Ref != "" && !strings.Contains(page, ">"+html.EscapeString(e.Ref)+"<") {
-						t.Fatalf("supervisor entry %s is not in the page", e.Ref)
-					}
-				case "hand", "wakes":
-				default:
-					you++
-				}
-			}
-			if sup != strings.Count(page, `class="card from-sup"`) || you != strings.Count(page, `class="card from-you"`) {
-				t.Fatalf("timeline HTML sup=%d you=%d, API sup=%d you=%d", strings.Count(page, `class="card from-sup"`), strings.Count(page, `class="card from-you"`), sup, you)
-			}
-			if (timeline.Working != nil) != strings.Contains(page, `class="working"`) {
-				t.Fatalf("timeline working = %v, HTML = %v", timeline.Working != nil, strings.Contains(page, `class="working"`))
-			}
-
-			for _, row := range taskRows {
-				if row.Status == state.StatusDone || row.Status == state.StatusAbandoned {
-					if row.FinishedAt == "" {
-						t.Fatalf("task %s is %s but its row has no finished_at", row.Ref, row.Status)
-					}
-				}
-				detailPage := get(t, h, "/task/"+row.Ref)
-				_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
-				if detail.Task.Ref != row.Ref || !strings.Contains(detailPage, html.EscapeString(detail.Task.Title)) || !strings.Contains(detailPage, detail.Task.Status) {
-					t.Fatalf("task %s detail disagrees with its page", row.Ref)
-				}
-				if got, want := strings.Count(detailPage, `class="card report"`), len(detail.Reports); got != want {
-					t.Fatalf("task %s has %d reports in HTML, %d in API", row.Ref, got, want)
-				}
-				if got, want := strings.Count(detailPage, `class="row wrap decision"`), len(detail.Decisions); got != want {
-					t.Fatalf("task %s has %d decisions in HTML, %d in API", row.Ref, got, want)
-				}
-				if (detail.Plan != nil) != strings.Contains(detailPage, `data-role="plan"`) {
-					t.Fatalf("task %s plan = %v, HTML = %v", row.Ref, detail.Plan != nil, strings.Contains(detailPage, `data-role="plan"`))
-				}
-				if (detail.Waits != nil) != strings.Contains(detailPage, "Waits until") {
-					t.Fatalf("task %s waits = %v, HTML = %v", row.Ref, detail.Waits != nil, strings.Contains(detailPage, "Waits until"))
-				}
-				for _, d := range detail.Delivered {
-					if !strings.Contains(detailPage, html.EscapeString(d.Ref)) {
-						t.Fatalf("task %s deliverable %q is not in its page", row.Ref, d.Ref)
-					}
-				}
-				if got, want := strings.Count(detailPage, `class="row check"`), len(detail.Attempts); got != want {
-					t.Fatalf("task %s has %d attempts in HTML, %d in API", row.Ref, got, want)
-				}
-				if got, want := strings.Count(detailPage, `<li class="event">`), len(detail.Events); got != want {
-					t.Fatalf("task %s has %d events in HTML, %d in API", row.Ref, got, want)
-				}
-				for _, e := range detail.Events {
-					if !strings.Contains(detailPage, `datetime="`+e.At+`"`) || !strings.Contains(detailPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
-						t.Fatalf("task %s event %d is not in its page", row.Ref, e.Seq)
-					}
-				}
-				for _, a := range detail.Attempts {
-					if a.Ref == row.Ref || !strings.Contains(detailPage, `/attempt/`+a.Ref) {
-						t.Fatalf("task %s attempt row names %s", row.Ref, a.Ref)
-					}
-				}
-			}
-
-			for _, row := range taskRows {
-				if row.Attempt == nil {
-					continue
-				}
-				attemptPage := get(t, h, "/attempt/"+row.Attempt.Ref)
-				_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/"+row.Attempt.Ref)
-				if attempt.Attempt.Ref != row.Attempt.Ref || attempt.Task.Ref != row.Ref || !strings.Contains(attemptPage, attempt.Attempt.Status) || !strings.Contains(attemptPage, html.EscapeString(attempt.Task.Title)) {
-					t.Fatalf("attempt %s disagrees with its page", row.Attempt.Ref)
-				}
-				if got, want := strings.Count(attemptPage, `class="card report"`), len(attempt.Reports); got != want {
-					t.Fatalf("attempt %s has %d reports in HTML, %d in API", row.Attempt.Ref, got, want)
-				}
-				for _, e := range attempt.Events {
-					if !strings.Contains(attemptPage, `datetime="`+e.At+`"`) || !strings.Contains(attemptPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
-						t.Fatalf("attempt %s event %d is not in its page", row.Attempt.Ref, e.Seq)
-					}
-				}
-			}
-
-			for _, item := range status.Needs.Items {
-				if item.Decision == "" {
-					continue
-				}
-				decisionPage := get(t, h, "/decision/"+item.Decision)
-				_, decision := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/"+item.Decision)
-				if !strings.Contains(decisionPage, html.EscapeString(decision.Decision.Headline)) || !strings.Contains(decisionPage, decision.Decision.Status) || !strings.Contains(decisionPage, html.EscapeString(decision.Task.Title)) {
-					t.Fatalf("decision %s disagrees with its page", item.Decision)
-				}
-			}
-			for _, item := range status.Needs.Items {
-				if item.Report == "" {
-					continue
-				}
-				_, report := apiInto[board.APIReportDetail](t, h, "/api/v1/report/"+item.Report)
-				reportPage := get(t, h, "/task/"+report.Report.Task)
-				if !strings.Contains(reportPage, `id="`+item.Report+`"`) || !strings.Contains(reportPage, html.EscapeString(report.Task.Title)) {
-					t.Fatalf("report %s disagrees with its task page", item.Report)
-				}
-			}
+			agreeWebAndAPI(t, h)
 		})
+	}
+	t.Run("two attempts", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		ctx := context.Background()
+		if _, err := fx.st.EndAttempt(ctx, 1, state.AttemptStopped, "superseded"); err != nil {
+			t.Fatal(err)
+		}
+		extra, err := fx.st.AddAttempt(ctx, state.AttemptSpec{TaskID: 1, Harness: "codex", Model: "gpt-6-luna", Effort: "low", Argv: []string{"/bin/codex", "x"}}, filepath.Join(t.TempDir(), "worktrees"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fx.st.AttemptRunning(ctx, extra.ID, state.Terminal{ServerGeneration: "gen-2", TerminalID: "t2", PaneID: "4", PID: 2, StartMarker: "2"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fx.st.EndAttempt(ctx, extra.ID, state.AttemptInterrupted, "launch failed at /very/long/path/worktrees"); err != nil {
+			t.Fatal(err)
+		}
+		agreeWebAndAPI(t, fx.handler())
+	})
+	t.Run("history limits", func(t *testing.T) {
+		fx := apiFixture(t, func() time.Time { return frozen })
+		ctx := context.Background()
+		unread, err := fx.st.Reports(ctx, state.ReportFilter{TaskID: 1, Unacked: true}, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range unread {
+			if _, err := fx.st.AckReport(ctx, r.ID, "operator"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := range 51 {
+			r, err := fx.st.AddReport(ctx, 1, state.ReportProgress, fmt.Sprintf("progress %d", i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := fx.st.AckReport(ctx, r.ID, "operator"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		h := fx.handler()
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/t1")
+		if !detail.MoreReports || !detail.MoreEvents {
+			t.Fatalf("history limits = reports %v, events %v", detail.MoreReports, detail.MoreEvents)
+		}
+		_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/a1")
+		if !attempt.MoreReports || !attempt.MoreEvents {
+			t.Fatalf("attempt history limits = reports %v, events %v", attempt.MoreReports, attempt.MoreEvents)
+		}
+		agreeWebAndAPI(t, h)
+	})
+}
+
+func deliveredItems(page string) int {
+	i := strings.Index(page, "<h3>Delivered</h3>")
+	if i < 0 {
+		return 0
+	}
+	j := strings.Index(page[i:], "</ul>")
+	if j < 0 {
+		return -1
+	}
+	return strings.Count(page[i:i+j], "<li>")
+}
+
+func transcriptItems(page string) int {
+	i := strings.Index(page, "<h3>Transcript</h3>")
+	if i < 0 {
+		return 0
+	}
+	j := strings.Index(page[i:], "<h3>Timeline</h3>")
+	if j < 0 {
+		return -1
+	}
+	return strings.Count(page[i:i+j], `<li class="event">`)
+}
+
+func agreeWebAndAPI(t *testing.T, h http.Handler) {
+	t.Helper()
+	page := get(t, h, "/")
+	_, status := apiInto[board.APIStatus](t, h, "/api/v1/status")
+	m := regexp.MustCompile(`<div class="status-line" data-agent="([^"]*)" data-hint="([^"]*)">`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("the status line is missing")
+	}
+	if html.UnescapeString(m[1]) != status.AgentState || html.UnescapeString(m[2]) != status.ComposerHint {
+		t.Fatalf("status line = %q/%q, API = %q/%q", m[1], m[2], status.AgentState, status.ComposerHint)
+	}
+	waiting := regexp.MustCompile(`data-waiting="(\d+)"`).FindStringSubmatch(page)
+	if waiting == nil || waiting[1] != strconv.Itoa(status.Needs.Waiting) {
+		t.Fatalf("waiting = %v, API = %d", waiting, status.Needs.Waiting)
+	}
+	worst := regexp.MustCompile(`class="badge needs-count" href="#needs" data-worst="([^"]*)"`).FindStringSubmatch(page)
+	if status.Needs.Worst == "" && worst != nil {
+		t.Fatalf("HTML worst = %q, API has none", worst[1])
+	}
+	if status.Needs.Worst != "" && (worst == nil || worst[1] != status.Needs.Worst) {
+		t.Fatalf("worst = %v, API = %q", worst, status.Needs.Worst)
+	}
+	blocks := strings.Split(page, `<details class="wait"`)[1:]
+	if len(blocks) != len(status.Needs.Items) {
+		t.Fatalf("%d waits in HTML, %d in API", len(blocks), len(status.Needs.Items))
+	}
+	for i, item := range status.Needs.Items {
+		kind := regexp.MustCompile(`^ data-kind="([^"]*)"`).FindStringSubmatch(blocks[i])
+		word := regexp.MustCompile(`class="badge code" data-tone="([^"]*)">([^<]+)<`).FindStringSubmatch(blocks[i])
+		if kind == nil || kind[1] != item.Kind || word == nil || word[1] != item.Tone || word[2] != item.Word {
+			t.Fatalf("wait %d = %v/%v, API = %q/%q/%q", i, kind, word, item.Kind, item.Tone, item.Word)
+		}
+	}
+
+	_, tasks := apiInto[board.APITasks](t, h, "/api/v1/tasks")
+	rows := 0
+	for _, g := range tasks.Groups {
+		rows += len(g.Tasks)
+	}
+	if rows != strings.Count(page, `class="row check task-row"`) {
+		t.Fatalf("%d task rows in HTML, %d in API", strings.Count(page, `class="row check task-row"`), rows)
+	}
+	groups := regexp.MustCompile(`<h3 class="group">([^<]+) <span class="badge">(\d+)</span></h3>`).FindAllStringSubmatch(page, -1)
+	if len(groups) != len(tasks.Groups) {
+		t.Fatalf("%d task groups in HTML, %d in API", len(groups), len(tasks.Groups))
+	}
+	for i, g := range tasks.Groups {
+		if groups[i][1] != g.Name || groups[i][2] != strconv.Itoa(g.Count) {
+			t.Fatalf("group %d = %v, API = %q/%d", i, groups[i], g.Name, g.Count)
+		}
+	}
+	var taskRows []board.APITaskRow
+	var attemptCases []struct{ task, ref string }
+	for _, g := range tasks.Groups {
+		taskRows = append(taskRows, g.Tasks...)
+		for _, row := range g.Tasks {
+			if !strings.Contains(page, `data-state="`+row.State+`"`) || !strings.Contains(page, "/task/"+row.Ref) || !strings.Contains(page, html.EscapeString(row.Title)) {
+				t.Fatalf("task %s is not in the page as the API says", row.Ref)
+			}
+		}
+	}
+
+	_, all := apiInto[board.APITasks](t, h, "/api/v1/tasks?all=1")
+	for _, g := range all.Groups {
+		for _, row := range g.Tasks {
+			if (row.Status == state.StatusDone || row.Status == state.StatusAbandoned) && row.FinishedAt == "" {
+				t.Fatalf("task %s is %s but its all=1 row has no finished_at", row.Ref, row.Status)
+			}
+		}
+	}
+
+	_, timeline := apiInto[board.APITimeline](t, h, "/api/v1/timeline")
+	sup, you := 0, 0
+	for _, e := range timeline.Entries {
+		switch e.Role {
+		case "supervisor":
+			sup++
+			if e.Ref != "" && !strings.Contains(page, ">"+html.EscapeString(e.Ref)+"<") {
+				t.Fatalf("supervisor entry %s is not in the page", e.Ref)
+			}
+		case "hand", "wakes":
+		default:
+			you++
+		}
+	}
+	if sup != strings.Count(page, `class="card from-sup"`) || you != strings.Count(page, `class="card from-you"`) {
+		t.Fatalf("timeline HTML sup=%d you=%d, API sup=%d you=%d", strings.Count(page, `class="card from-sup"`), strings.Count(page, `class="card from-you"`), sup, you)
+	}
+	if (timeline.Working != nil) != strings.Contains(page, `class="working"`) {
+		t.Fatalf("timeline working = %v, HTML = %v", timeline.Working != nil, strings.Contains(page, `class="working"`))
+	}
+
+	for _, row := range taskRows {
+		if row.Status == state.StatusDone || row.Status == state.StatusAbandoned {
+			if row.FinishedAt == "" {
+				t.Fatalf("task %s is %s but its row has no finished_at", row.Ref, row.Status)
+			}
+		}
+		detailPage := get(t, h, "/task/"+row.Ref)
+		_, detail := apiInto[board.APITaskDetail](t, h, "/api/v1/task/"+row.Ref)
+		if detail.Task.Ref != row.Ref || !strings.Contains(detailPage, html.EscapeString(detail.Task.Title)) || !strings.Contains(detailPage, detail.Task.Status) {
+			t.Fatalf("task %s detail disagrees with its page", row.Ref)
+		}
+		if got, want := strings.Count(detailPage, `class="card report"`), len(detail.Reports); got != want {
+			t.Fatalf("task %s has %d reports in HTML, %d in API", row.Ref, got, want)
+		}
+		if got, want := strings.Count(detailPage, `class="row wrap decision"`), len(detail.Decisions); got != want {
+			t.Fatalf("task %s has %d decisions in HTML, %d in API", row.Ref, got, want)
+		}
+		if (detail.Plan != nil) != strings.Contains(detailPage, `data-role="plan"`) {
+			t.Fatalf("task %s plan = %v, HTML = %v", row.Ref, detail.Plan != nil, strings.Contains(detailPage, `data-role="plan"`))
+		}
+		if (detail.Waits != nil) != strings.Contains(detailPage, "Waits until") {
+			t.Fatalf("task %s waits = %v, HTML = %v", row.Ref, detail.Waits != nil, strings.Contains(detailPage, "Waits until"))
+		}
+		if detail.Waits != nil && detail.Waits.Note != "" && !strings.Contains(detailPage, html.EscapeString(detail.Waits.Note)) {
+			t.Fatalf("task %s waits note is not in its page", row.Ref)
+		}
+		for _, d := range detail.Delivered {
+			if !strings.Contains(detailPage, html.EscapeString(d.Ref)) {
+				t.Fatalf("task %s deliverable %q is not in its page", row.Ref, d.Ref)
+			}
+		}
+		if got := deliveredItems(detailPage); got != len(detail.Delivered) {
+			t.Fatalf("task %s has %d deliverables in HTML, %d in API", row.Ref, got, len(detail.Delivered))
+		}
+		if got := strings.Count(detailPage, `data-tone="neutral">REPORT`); got != len(detail.Unread) {
+			t.Fatalf("task %s has %d unread reports in HTML, %d in API", row.Ref, got, len(detail.Unread))
+		}
+		if detail.MoreReports != strings.Contains(detailPage, "Older reports are not shown") {
+			t.Fatalf("task %s more_reports = %v", row.Ref, detail.MoreReports)
+		}
+		if detail.MoreEvents != strings.Contains(detailPage, "Only the latest 50 events are shown.") {
+			t.Fatalf("task %s more_events = %v", row.Ref, detail.MoreEvents)
+		}
+		if got, want := strings.Count(detailPage, `class="row check"`), len(detail.Attempts); got != want {
+			t.Fatalf("task %s has %d attempts in HTML, %d in API", row.Ref, got, want)
+		}
+		if got, want := strings.Count(detailPage, `<li class="event">`), len(detail.Events); got != want {
+			t.Fatalf("task %s has %d events in HTML, %d in API", row.Ref, got, want)
+		}
+		for _, e := range detail.Events {
+			if !strings.Contains(detailPage, `datetime="`+e.At+`"`) || !strings.Contains(detailPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+				t.Fatalf("task %s event %d is not in its page", row.Ref, e.Seq)
+			}
+		}
+		for _, a := range detail.Attempts {
+			if a.Ref == row.Ref || !strings.Contains(detailPage, `/attempt/`+a.Ref) {
+				t.Fatalf("task %s attempt row names %s", row.Ref, a.Ref)
+			}
+			attemptCases = append(attemptCases, struct{ task, ref string }{row.Ref, a.Ref})
+		}
+	}
+
+	for _, row := range attemptCases {
+		attemptPage := get(t, h, "/attempt/"+row.ref)
+		_, attempt := apiInto[board.APIAttemptDetail](t, h, "/api/v1/attempt/"+row.ref)
+		if attempt.Attempt.Ref != row.ref || attempt.Task.Ref != row.task || !strings.Contains(attemptPage, attempt.Attempt.Status) || !strings.Contains(attemptPage, html.EscapeString(attempt.Task.Title)) {
+			t.Fatalf("attempt %s disagrees with its page", row.ref)
+		}
+		if got, want := strings.Count(attemptPage, `class="card report"`), len(attempt.Reports); got != want {
+			t.Fatalf("attempt %s has %d reports in HTML, %d in API", row.ref, got, want)
+		}
+		if got := deliveredItems(attemptPage); got != len(attempt.Delivered) {
+			t.Fatalf("attempt %s has %d deliverables in HTML, %d in API", row.ref, got, len(attempt.Delivered))
+		}
+		if attempt.MoreReports != strings.Contains(attemptPage, "Older reports are not shown") {
+			t.Fatalf("attempt %s more_reports = %v", row.ref, attempt.MoreReports)
+		}
+		if attempt.MoreEvents != strings.Contains(attemptPage, "Only the latest 50 events are shown.") {
+			t.Fatalf("attempt %s more_events = %v", row.ref, attempt.MoreEvents)
+		}
+		if attempt.Transcript.Shown != strings.Contains(attemptPage, "<h3>Transcript</h3>") {
+			t.Fatalf("attempt %s transcript shown = %v", row.ref, attempt.Transcript.Shown)
+		}
+		if attempt.Transcript.More != strings.Contains(attemptPage, "Only the latest 50 entries are shown.") {
+			t.Fatalf("attempt %s transcript more = %v", row.ref, attempt.Transcript.More)
+		}
+		if got := transcriptItems(attemptPage); got != len(attempt.Transcript.Turns) {
+			t.Fatalf("attempt %s has %d transcript turns in HTML, %d in API", row.ref, got, len(attempt.Transcript.Turns))
+		}
+		for _, e := range attempt.Events {
+			if !strings.Contains(attemptPage, `datetime="`+e.At+`"`) || !strings.Contains(attemptPage, `>`+strings.NewReplacer(".", " ", "_", " ").Replace(e.Kind)+`<`) {
+				t.Fatalf("attempt %s event %d is not in its page", row.ref, e.Seq)
+			}
+		}
+	}
+
+	for _, item := range status.Needs.Items {
+		if item.Decision == "" {
+			continue
+		}
+		decisionPage := get(t, h, "/decision/"+item.Decision)
+		_, decision := apiInto[board.APIDecisionDetail](t, h, "/api/v1/decision/"+item.Decision)
+		if !strings.Contains(decisionPage, html.EscapeString(decision.Decision.Headline)) || !strings.Contains(decisionPage, decision.Decision.Status) || !strings.Contains(decisionPage, html.EscapeString(decision.Task.Title)) {
+			t.Fatalf("decision %s disagrees with its page", item.Decision)
+		}
+	}
+	for _, item := range status.Needs.Items {
+		if item.Report == "" {
+			continue
+		}
+		_, report := apiInto[board.APIReportDetail](t, h, "/api/v1/report/"+item.Report)
+		reportPage := get(t, h, "/task/"+report.Report.Task)
+		if !strings.Contains(reportPage, `id="`+item.Report+`"`) || !strings.Contains(reportPage, html.EscapeString(report.Task.Title)) {
+			t.Fatalf("report %s disagrees with its task page", item.Report)
+		}
 	}
 }

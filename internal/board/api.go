@@ -2,6 +2,8 @@ package board
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"hash/fnv"
@@ -512,7 +514,7 @@ func (b *Board) apiSince(w http.ResponseWriter, r *http.Request) (state.Fleet, s
 	if since == "" {
 		return f, "", true
 	}
-	if !apiDecodeCursor(f.ID, since) {
+	if !b.apiDecodeCursor(f.ID, since) {
 		b.apiFail(w, http.StatusBadRequest, "bad_cursor", "the change cursor is not one this board issued")
 		return state.Fleet{}, "", false
 	}
@@ -526,8 +528,9 @@ func (b *Board) apiOK(w http.ResponseWriter, f state.Fleet, since string, data a
 		return
 	}
 	sum := fnv.New64a()
+	_, _ = sum.Write([]byte(f.Name + "\x00"))
 	_, _ = sum.Write(raw)
-	cursor := apiEncodeCursor(f.ID, sum.Sum64())
+	cursor := b.apiEncodeCursor(f.ID, sum.Sum64())
 	w.Header().Set("X-Hand-Cursor", cursor)
 	if since != "" && since == cursor {
 		w.WriteHeader(http.StatusNotModified)
@@ -579,21 +582,36 @@ func apiCode(status int) string {
 	return "internal"
 }
 
-func apiEncodeCursor(fleet string, sum uint64) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(fleet + "\x00" + strconv.FormatUint(sum, 16)))
+func (b *Board) apiCursorTag(payload string) []byte {
+	mac := hmac.New(sha256.New, []byte(b.token))
+	_, _ = mac.Write([]byte(payload))
+	return mac.Sum(nil)[:16]
 }
 
-func apiDecodeCursor(fleet, cursor string) bool {
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+func (b *Board) apiEncodeCursor(fleet string, sum uint64) string {
+	payload := fleet + "\x00" + strconv.FormatUint(sum, 16)
+	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + base64.RawURLEncoding.EncodeToString(b.apiCursorTag(payload))
+}
+
+func (b *Board) apiDecodeCursor(fleet, cursor string) bool {
+	head, tag, ok := strings.Cut(cursor, ".")
+	if !ok {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(head)
 	if err != nil {
+		return false
+	}
+	got, err := base64.RawURLEncoding.DecodeString(tag)
+	if err != nil || !hmac.Equal(got, b.apiCursorTag(string(raw))) {
 		return false
 	}
 	id, text, ok := strings.Cut(string(raw), "\x00")
 	if !ok || id != fleet {
 		return false
 	}
-	_, err = strconv.ParseUint(text, 16, 64)
-	return err == nil
+	n, err := strconv.ParseUint(text, 16, 64)
+	return err == nil && strconv.FormatUint(n, 16) == text
 }
 
 func (b *Board) apiStatusData(ctx context.Context) (APIStatus, error) {
@@ -811,7 +829,7 @@ func apiSupervisor(v supervisorView) *APISupervisor {
 		Pending:   v.Pending,
 		Resumable: v.Resumable,
 		Held:      v.Held,
-		Reason:    v.Sup.Reason,
+		Reason:    Scrub(v.Sup.Reason),
 	}
 	if out.Ref == "" {
 		out.Ref = state.SupervisorRef(v.Sup.ID)
@@ -844,9 +862,7 @@ func apiNeed(w waiting) APINeed {
 	switch w.Kind {
 	case "blocked", "worker", "limited":
 	default:
-		if !strings.HasPrefix(w.Title, "api error: ") {
-			out.Title = w.Title
-		}
+		out.Title = w.Title
 	}
 	if w.Task.ID != 0 {
 		out.Task = state.TaskRef(w.Task.ID)
@@ -870,10 +886,14 @@ func apiNeed(w waiting) APINeed {
 }
 
 func apiEntry(c chatItem) APIEntry {
+	text := c.Text
+	if screenKinds[c.Kind] || strings.Contains(text, "api error: ") {
+		text = ""
+	}
 	out := APIEntry{
 		Role:      c.Role,
 		At:        c.At,
-		Text:      c.Text,
+		Text:      text,
 		No:        c.No,
 		Ref:       c.Ref,
 		Model:     c.Model,
