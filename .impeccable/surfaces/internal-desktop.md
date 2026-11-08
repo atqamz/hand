@@ -28,7 +28,7 @@ related_targets:
 - **Job:** answer "is anything paged?" without a browser, and open one task, attempt, decision or report to read it.
 - **Constraints:**
   - the window is a client, never a second owner of state: it reads `/api/v1` over loopback and writes nothing;
-  - it lists a fleet only when its link, its `hand.db` and its `board.token` are there, and names it from the board when the board answers;
+  - it lists a fleet when its link resolves and its `hand.db` is there, names it from the board when the board answers, and shows a fleet whose `board.token` is missing or unreadable with the `hand open` fix;
   - the credential is the token the board already writes, `board.token` in the fleet home, sent as the fleet's session cookie `hand_board_<fleet id>`. The desktop reads it; it never prints it, never adds it to a URL and never changes the API or the board's auth;
   - the board address is `board.addr` in `$SECONDHAND_HOME`, the file `hand open` writes, and it must be a loopback address, because the API answers nowhere else;
   - opening and closing the window start and stop nothing: the board, the watcher and the fleet keep running;

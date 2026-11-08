@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/atqamz/hand/internal/desktop"
 	"github.com/egoist/mygo/ui"
@@ -138,6 +139,175 @@ func TestReportScreen(t *testing.T) {
 	click(t, tt, "Needs")
 	click(t, tt, "Cookie fixed")
 	mustText(t, tt, "r1", "Cookie fixed", "All tests pass.", "Open task")
+}
+
+func TestBackFromAttemptRestoresTheTask(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	click(t, tt, "a1")
+	mustText(t, tt, "Brief")
+	click(t, tt, "Back")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Plan · p1")
+	mustNotText(t, tt, "The board could not be read")
+	click(t, tt, "Back")
+	mustText(t, tt, "Write docs")
+}
+
+func TestBackFromTheDecisionTaskReturnsToTheDecision(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Keep the old cookie name?")
+	click(t, tt, "Open task")
+	mustText(t, tt, "Plan · p1")
+	click(t, tt, "Back")
+	if app.Screen != desktop.DecisionScreen || app.Ref != "d1" {
+		t.Fatalf("Back left %v %q, want the decision d1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Options", "d1")
+	click(t, tt, "Back")
+	if app.Screen != desktop.NeedsScreen {
+		t.Fatalf("Back left %v, want Needs", app.Screen)
+	}
+	mustText(t, tt, "FAILED")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+func TestBackFromATaskReportReturnsToTheTask(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "All tests pass.")
+	click(t, tt, "Back")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Plan · p1")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+func TestBackFromATaskDecisionReturnsToTheTask(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	click(t, tt, "Keep the old cookie name?")
+	mustText(t, tt, "Options")
+	click(t, tt, "Back")
+	if app.Screen != desktop.TaskScreen || app.Ref != "t1" {
+		t.Fatalf("Back left %v %q, want the task t1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Plan · p1")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+func TestBackFromAnAttemptReportReturnsToTheAttempt(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Tasks")
+	click(t, tt, "Fix login")
+	click(t, tt, "a1")
+	click(t, tt, "Cookie fixed")
+	mustText(t, tt, "All tests pass.")
+	click(t, tt, "Back")
+	if app.Screen != desktop.AttemptScreen || app.Ref != "a1" {
+		t.Fatalf("Back left %v %q, want the attempt a1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "Brief", "20m")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+func TestBackFromAReportsTaskReturnsToTheReport(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	tt := newTester(app)
+	click(t, tt, "Needs")
+	click(t, tt, "Cookie fixed")
+	click(t, tt, "Open task")
+	mustText(t, tt, "Plan · p1")
+	click(t, tt, "Back")
+	if app.Screen != desktop.ReportScreen || app.Ref != "r1" {
+		t.Fatalf("Back left %v %q, want the report r1", app.Screen, app.Ref)
+	}
+	mustText(t, tt, "All tests pass.")
+	mustNotText(t, tt, "The board could not be read")
+}
+
+func TestRefreshReadsTheScreenAgain(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	st := f.status[fleetID]
+	st.Line = "the fleet changed"
+	f.status[fleetID] = st
+	click(t, tt, "Refresh")
+	mustText(t, tt, "the fleet changed")
+}
+
+func waitPost(t *testing.T, posted <-chan func()) func() {
+	t.Helper()
+	select {
+	case fn := <-posted:
+		return fn
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never posted the load")
+		return nil
+	}
+}
+
+func TestAHungBoardDoesNotFreezeTheWindow(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	f.block, f.entered = make(chan struct{}), make(chan struct{}, 1)
+	click(t, tt, "Refresh")
+	select {
+	case <-f.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the window never read the board")
+	}
+	waitPost(t, posted)()
+	mustText(t, tt, "Reading the board")
+	close(f.block)
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "Status", "agent working")
+	mustNotText(t, tt, "Reading the board")
+}
+
+func TestAFailedFetchShowsTheErrorOffTheRenderPath(t *testing.T) {
+	f := goldenFixture(t)
+	app := newApp(t, f)
+	tt := newTester(app)
+	posted := make(chan func(), 4)
+	app.Post = func(fn func()) { posted <- fn }
+	f.fail = &desktop.APIError{Status: 503, Code: "unavailable", Message: "the board is restarting"}
+	click(t, tt, "Refresh")
+	waitPost(t, posted)()
+	mustText(t, tt, "Reading the board")
+	waitPost(t, posted)()
+	tt.Frame()
+	mustText(t, tt, "the board is restarting")
+	mustNotText(t, tt, "Reading the board")
+}
+
+func TestFleetSwitchUpdatesTheTitle(t *testing.T) {
+	app := newApp(t, goldenFixture(t))
+	var titles []string
+	app.OnFleet = func(f desktop.Fleet) { titles = append(titles, f.ID) }
+	tt := newTester(app)
+	click(t, tt, "second")
+	if len(titles) == 0 || titles[len(titles)-1] != secondID {
+		t.Fatalf("titles = %v, want the second fleet", titles)
+	}
 }
 
 func TestEmptyStates(t *testing.T) {

@@ -24,12 +24,17 @@ type App struct {
 	Connect func() (ReadModel, error)
 	Model   ReadModel
 	Context context.Context
+	// Post runs fetched state on the window's thread and repaints it. Nil
+	// reads inline, as the tests and Boot do.
+	Post    func(func())
+	OnFleet func(Fleet)
 
 	Fleets []Fleet
 	Fleet  Fleet
 
-	Screen Screen
-	Ref    string
+	Screen  Screen
+	Ref     string
+	Loading bool
 
 	Status   Status
 	Timeline Timeline
@@ -39,8 +44,14 @@ type App struct {
 	Decision DecisionDetail
 	Report   ReportDetail
 
-	Err  string
-	back []Screen
+	Err    string
+	loadID int
+	back   []backStep
+}
+
+type backStep struct {
+	Screen Screen
+	Ref    string
 }
 
 func New(connect func() (ReadModel, error)) *App {
@@ -102,6 +113,9 @@ func (a *App) SelectFleet(id string) {
 	a.Screen, a.Ref, a.back = StatusScreen, "", nil
 	a.Timeline, a.Tasks = Timeline{}, Tasks{}
 	a.Task, a.Attempt, a.Decision, a.Report = TaskDetail{}, AttemptDetail{}, DecisionDetail{}, ReportDetail{}
+	if a.OnFleet != nil {
+		a.OnFleet(a.Fleet)
+	}
 	a.Reload()
 }
 
@@ -127,7 +141,7 @@ func (a *App) OpenRef(ref string) {
 	default:
 		return
 	}
-	a.back = append(a.back, a.Screen)
+	a.back = append(a.back, backStep{Screen: a.Screen, Ref: a.Ref})
 	a.Screen, a.Ref = s, ref
 	a.Reload()
 }
@@ -137,9 +151,9 @@ func (a *App) Back() {
 		a.Show(StatusScreen)
 		return
 	}
-	s := a.back[len(a.back)-1]
+	step := a.back[len(a.back)-1]
 	a.back = a.back[:len(a.back)-1]
-	a.Screen = s
+	a.Screen, a.Ref = step.Screen, step.Ref
 	a.Reload()
 }
 
@@ -155,37 +169,92 @@ func (a *App) Reload() {
 	if a.Model == nil || a.Fleet.ID == "" {
 		return
 	}
+	a.loadID++
+	id := a.loadID
 	a.Err = ""
-	if st, err := a.Model.Status(a.Context, a.Fleet.ID); err != nil {
-		a.Status = Status{}
-		a.Err = friendly(err)
+	post := a.Post
+	if post == nil {
+		a.Loading = false
+		a.apply(fetch(a.Model, a.Context, a.Fleet.ID, a.Screen, a.Ref))
 		return
-	} else {
-		a.Status = st
 	}
-	a.loadScreen()
+	a.Loading = true
+	post(func() {})
+	model, ctx, fleet, screen, ref := a.Model, a.Context, a.Fleet.ID, a.Screen, a.Ref
+	go func() {
+		l := fetch(model, ctx, fleet, screen, ref)
+		post(func() {
+			if id != a.loadID {
+				return
+			}
+			a.Loading = false
+			a.apply(l)
+		})
+	}()
 }
 
-func (a *App) loadScreen() {
-	var err error
-	switch a.Screen {
+type loaded struct {
+	Screen   Screen
+	StatusOK bool
+	Status   Status
+	Timeline Timeline
+	Tasks    Tasks
+	Task     TaskDetail
+	Attempt  AttemptDetail
+	Decision DecisionDetail
+	Report   ReportDetail
+	Err      string
+}
+
+func fetch(model ReadModel, ctx context.Context, fleet string, screen Screen, ref string) loaded {
+	l := loaded{Screen: screen}
+	st, err := model.Status(ctx, fleet)
+	if err != nil {
+		l.Err = friendly(err)
+		return l
+	}
+	l.StatusOK, l.Status = true, st
+	switch screen {
 	case StatusScreen, NeedsScreen:
-		return
 	case TimelineScreen:
-		a.Timeline, err = a.Model.Timeline(a.Context, a.Fleet.ID, 0)
+		l.Timeline, err = model.Timeline(ctx, fleet, 0)
 	case TasksScreen:
-		a.Tasks, err = a.Model.Tasks(a.Context, a.Fleet.ID, true)
+		l.Tasks, err = model.Tasks(ctx, fleet, true)
 	case TaskScreen:
-		a.Task, err = a.Model.Task(a.Context, a.Fleet.ID, a.Ref)
+		l.Task, err = model.Task(ctx, fleet, ref)
 	case AttemptScreen:
-		a.Attempt, err = a.Model.Attempt(a.Context, a.Fleet.ID, a.Ref)
+		l.Attempt, err = model.Attempt(ctx, fleet, ref)
 	case DecisionScreen:
-		a.Decision, err = a.Model.Decision(a.Context, a.Fleet.ID, a.Ref)
+		l.Decision, err = model.Decision(ctx, fleet, ref)
 	case ReportScreen:
-		a.Report, err = a.Model.Report(a.Context, a.Fleet.ID, a.Ref)
+		l.Report, err = model.Report(ctx, fleet, ref)
 	}
 	if err != nil {
-		a.Err = friendly(err)
+		l.Err = friendly(err)
+	}
+	return l
+}
+
+func (a *App) apply(l loaded) {
+	a.Err = l.Err
+	if !l.StatusOK {
+		a.Status = Status{}
+		return
+	}
+	a.Status = l.Status
+	switch l.Screen {
+	case TimelineScreen:
+		a.Timeline = l.Timeline
+	case TasksScreen:
+		a.Tasks = l.Tasks
+	case TaskScreen:
+		a.Task = l.Task
+	case AttemptScreen:
+		a.Attempt = l.Attempt
+	case DecisionScreen:
+		a.Decision = l.Decision
+	case ReportScreen:
+		a.Report = l.Report
 	}
 }
 

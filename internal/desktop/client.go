@@ -136,14 +136,13 @@ func localFleets(root string) ([]Fleet, map[string]string, error) {
 		if err != nil {
 			continue
 		}
-		token := filepath.Join(home, "board.token")
-		if _, err := os.Stat(token); err != nil {
-			continue
-		}
 		if info, err := os.Stat(filepath.Join(home, "hand.db")); err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		tokens[id] = token
+		token := filepath.Join(home, "board.token")
+		if _, err := os.Stat(token); err == nil {
+			tokens[id] = token
+		}
 		fleets = append(fleets, Fleet{ID: id, Name: id})
 	}
 	sort.Slice(fleets, func(i, j int) bool { return fleets[i].ID < fleets[j].ID })
@@ -164,18 +163,18 @@ func fleetHome(dir, id string) (string, error) {
 
 func readBoardToken(path string) (string, error) {
 	if path == "" {
-		return "", errors.New("this fleet has no board.token yet; open it once with `hand open`")
+		return "", errors.New("no board.token yet; open it once with `hand open` in that fleet")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("board.token cannot be read: %w", err)
 	}
 	token := strings.TrimSpace(string(b))
 	if len(token) != 48 {
-		return "", errors.New("this fleet's board.token is not a board token; delete it and open the fleet again")
+		return "", errors.New("board.token is not a board token; delete it and open the fleet again")
 	}
 	if _, err := hex.DecodeString(token); err != nil {
-		return "", errors.New("this fleet's board.token is not a board token; delete it and open the fleet again")
+		return "", errors.New("board.token is not a board token; delete it and open the fleet again")
 	}
 	return token, nil
 }
@@ -244,7 +243,7 @@ func (c *HTTPClient) get(ctx context.Context, fleet, path string, out any) (Enve
 	}
 	token, err := c.Token(fleet)
 	if err != nil {
-		return Envelope{}, err
+		return Envelope{}, fmt.Errorf("fleet %s: %w", fleet, err)
 	}
 	u := c.Base + "/" + fleet + "/api/v1" + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

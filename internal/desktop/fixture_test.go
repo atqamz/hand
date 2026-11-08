@@ -26,6 +26,8 @@ type fixture struct {
 	decision map[string]desktop.DecisionDetail
 	report   map[string]desktop.ReportDetail
 	fail     error
+	block    chan struct{}
+	entered  chan struct{}
 }
 
 func (f *fixture) Fleets() []desktop.Fleet { return append([]desktop.Fleet(nil), f.fleets...) }
@@ -43,6 +45,12 @@ func (f *fixture) Name(ctx context.Context, id string) (string, error) {
 }
 
 func (f *fixture) Status(ctx context.Context, id string) (desktop.Status, error) {
+	if f.block != nil {
+		if f.entered != nil {
+			f.entered <- struct{}{}
+		}
+		<-f.block
+	}
 	if f.fail != nil {
 		return desktop.Status{}, f.fail
 	}

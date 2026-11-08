@@ -24,17 +24,22 @@ func main() {
 	if *fleet != "" {
 		app.OpenFleet(*fleet)
 	}
-	title := "Hand"
-	if app.Fleet.ID != "" && app.Fleet.Name != "" {
-		title += " · " + app.Fleet.Name
-	}
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{
-			Title: title, Width: 1100, Height: 760, MinWidth: 780, MinHeight: 480,
+		win := mygo.NewWindow(mygo.WindowOptions{
+			Title: windowTitle(app.Fleet), Width: 1100, Height: 760, MinWidth: 780, MinHeight: 480,
 			Content: ui.View(app.View),
 		})
+		app.Post = win.Update
+		app.OnFleet = func(f desktop.Fleet) { win.SetTitle(windowTitle(f)) }
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func windowTitle(f desktop.Fleet) string {
+	if f.ID != "" && f.Name != "" {
+		return "Hand · " + f.Name
+	}
+	return "Hand"
 }

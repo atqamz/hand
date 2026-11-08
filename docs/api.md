@@ -1,6 +1,6 @@
 # JSON API
 
-The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the planned desktop app: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
+The board serves the read model behind its pages as JSON on the same loopback server, under `/api/v1`. It is for a local client, such as the desktop window: a second window on the fleet, never a second owner of its state. The web pages do not use it, and no page, template, stylesheet or script changes because of it.
 
 The API is read-only in v1. It never returns `last_screen`, a terminal screen, or text parsed from one, and it never contains a token or a form token.
 

@@ -170,6 +170,8 @@ func (a *App) body(c *ui.Context, p palette) {
 			switch {
 			case a.Err != "":
 				a.errorCard(c, p)
+			case a.Loading:
+				a.emptyCard(c, p, "Reading the board", "The window waits for the board to answer; Refresh reads again.")
 			case a.Model == nil || a.Fleet.ID == "":
 				a.emptyCard(c, p, "Nothing to show", "Register a fleet, start its board with `hand open`, then refresh.")
 			case a.Screen == StatusScreen:
