@@ -1,6 +1,5 @@
 {{define "supervisor.html"}}{{template "head" .}}{{template "top" .}}<main class="thread sup-page">
 <p class="crumbs">{{if .Controls}}<a href="/">Fleets</a> / {{end}}<a href="{{.Base}}/">{{.Fleet}}</a> / supervisor</p>
-<header class="thread-head"><h2 class="thread-title">Supervisor{{with .Screen.Ref}} <span class="ref">{{.}}</span>{{end}}</h2></header>
 <section class="sup-screen" data-region="sup">{{template "region-sup" .Screen}}</section>
 </main>
 {{template "foot" .}}{{end}}

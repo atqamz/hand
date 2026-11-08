@@ -447,7 +447,7 @@ func scenes() []scene {
 			_, _ = fx.st.AddSupervisorInput(ctx, "when t7 lands, rerun t10")
 		}},
 		{"f00000000e016", "screen", func(t *testing.T, fx *fixture) {
-			fx.screen = "Which file should I change?\n◉ internal/board/board.go\n◯ internal/board/supervisor.go\n◯ internal/board/queue.go\nselect · n note · ↑/↓ move · esc cancel"
+			fx.screen = "Which file should I change?\n❯ ◉ internal/board/board.go\n◯ internal/board/supervisor.go\n◯ internal/board/queue.go\nselect · n note · ↑/↓ move · esc cancel"
 			supervised("blocked", "Which file should I change?", 640000, nil)(t, fx)
 		}},
 		{"f00000000e012", "documents", func(t *testing.T, fx *fixture) {

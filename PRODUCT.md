@@ -44,7 +44,7 @@ Success means two things: daily work never needs a terminal, and nothing importa
   - the rail (a sheet on a phone): Board, Tasks, Conversation, Screen, Phone and the fleets this browser can open;
   - Needs: the open items in severity bands, with the keys of a blocked screen and the choice list of a decision;
   - the supervisor pane: Start, Resume, New session, Stop, Interrupt, the conversation (the calm view, plus messages still queued) and the message box, with a separator that resizes it;
-  - the Screen page: the supervisor's pane as it is, with its revision and digest, the fixed keys and an Ask card that presses a numbered option or steps down to one;
+  - the Screen page: the supervisor's pane as it is, with its revision and digest, the fixed keys and an Ask card that presses a numbered option or moves the cursor to one;
   - Tasks: the task list on the fleet page, and the Tasks page that searches every task;
   - the task page: plan, reports and events;
   - the attempt page: its brief, launch line, reports and events;

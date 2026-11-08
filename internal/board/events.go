@@ -32,6 +32,7 @@ type version struct {
 	screen      string
 	digest      string
 	revision    int64
+	screenNote  string
 	entries     uint64
 	note        string
 	context     transcript.Status
@@ -61,6 +62,7 @@ func (b *Board) version(ctx context.Context, screen bool) (version, error) {
 			v.agent, v.hint, v.limited, v.stale = live.Agent, live.Hint, live.Limited, live.Stale
 			if screen {
 				v.screen, v.digest, v.revision = live.Screen, live.Digest, live.Revision
+				v.screenNote = live.ScreenNote
 			} else if live.Blocked {
 				v.revision = live.Revision
 			}

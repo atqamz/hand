@@ -34,6 +34,7 @@ var digest = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 var (
 	circleOption = regexp.MustCompile(`^(?:[❯›]\s*)?([◯◉○●])\s*(.+)$`)
+	circleFocus  = regexp.MustCompile(`^[❯›]\s`)
 	askHint      = regexp.MustCompile(`↑/↓|\besc cancel\b|·\s*n note`)
 	dialogFooter = regexp.MustCompile(`(?i)↑/↓|\bselect\b|\besc\b.{0,12}\bcancel\b|\btab\b.{0,12}\bamend\b`)
 )
@@ -111,20 +112,38 @@ func circleAsk(screen string) *askCard {
 	for start > 0 && circleOption.FindStringSubmatch(text(start-1)) != nil {
 		start--
 	}
-	var out []askChoice
+	focus := -1
+	out := make([]askChoice, 0, end-start+1)
 	for k := start; k <= end; k++ {
-		m := circleOption.FindStringSubmatch(text(k))
-		keys := "enter"
-		if n := len(out); n > 0 {
-			keys = strings.TrimSpace(strings.Repeat("down ", n) + "enter")
+		t := text(k)
+		m := circleOption.FindStringSubmatch(t)
+		if circleFocus.MatchString(t) {
+			focus = k - start
 		}
-		out = append(out, askChoice{Label: strings.TrimSpace(m[2]), Field: "keys", Value: keys})
+		out = append(out, askChoice{Label: strings.TrimSpace(m[2])})
+	}
+	if focus < 0 {
+		return nil
+	}
+	for i := range out {
+		out[i].Field, out[i].Value = "keys", circleKeys(focus, i)
 	}
 	question := askQuestion(lines, clean[start])
 	if question == "" {
 		return nil
 	}
 	return &askCard{Question: question, Options: out}
+}
+
+func circleKeys(focus, row int) string {
+	n, step := row-focus, "down"
+	if n < 0 {
+		n, step = -n, "up"
+	}
+	if n == 0 {
+		return "enter"
+	}
+	return strings.TrimSpace(strings.Repeat(step+" ", n) + "enter")
 }
 
 func askQuestion(lines []string, stop int) string {
@@ -164,7 +183,8 @@ func dialogAsk(screen string) *askCard {
 	var clean []int
 	for i, raw := range lines {
 		t := strings.TrimSpace(boxEdge.ReplaceAllString(raw, ""))
-		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || dialogFooter.MatchString(t) {
+		opt := numbered.MatchString(t) || circleOption.MatchString(t)
+		if t == "" || strings.Trim(t, "─━╭╮╰╯┌┐└┘│┃ ") == "" || boxRule.MatchString(t) || hintLine.MatchString(t) || askHint.MatchString(t) || (!opt && dialogFooter.MatchString(t)) {
 			continue
 		}
 		clean = append(clean, i)
@@ -193,22 +213,26 @@ func dialogAsk(screen string) *askCard {
 	case numbered.MatchString(text(start)):
 		for k := start; k <= end; k++ {
 			m := numbered.FindStringSubmatch(text(k))
-			if m == nil || m[1] != strconv.Itoa(k-start+1) {
+			if m == nil || m[1] != strconv.Itoa(k-start+1) || !slices.Contains(state.SupervisorKeys, m[1]) {
 				return nil
 			}
 			out = append(out, askChoice{Label: m[2], Field: "key", Value: m[1]})
 		}
 	case circleOption.MatchString(text(start)):
+		focus := 0
 		for k := start; k <= end; k++ {
-			m := circleOption.FindStringSubmatch(text(k))
+			t := text(k)
+			m := circleOption.FindStringSubmatch(t)
 			if m == nil {
 				return nil
 			}
-			keys := "enter"
-			if n := len(out); n > 0 {
-				keys = strings.TrimSpace(strings.Repeat("down ", n) + "enter")
+			if circleFocus.MatchString(t) {
+				focus = k - start
 			}
-			out = append(out, askChoice{Label: strings.TrimSpace(m[2]), Field: "keys", Value: keys})
+			out = append(out, askChoice{Label: strings.TrimSpace(m[2])})
+		}
+		for i := range out {
+			out[i].Field, out[i].Value = "keys", circleKeys(focus, i)
 		}
 	default:
 		return nil
@@ -1102,7 +1126,7 @@ func (b *Board) start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Board) keys(w http.ResponseWriter, r *http.Request) {
-	b.press(w, r, "supervisor", "")
+	b.press(w, r, "supervisor", "", b.o.Base+"/supervisor")
 }
 
 func (b *Board) attemptKeys(w http.ResponseWriter, r *http.Request) {
@@ -1111,10 +1135,10 @@ func (b *Board) attemptKeys(w http.ResponseWriter, r *http.Request) {
 		b.fail(w, http.StatusBadRequest, "press keys on an attempt shown by this page")
 		return
 	}
-	b.press(w, r, "attempt", ref)
+	b.press(w, r, "attempt", ref, b.o.Base+"/")
 }
 
-func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target string) {
+func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target, next string) {
 	if !b.allowed(w) {
 		return
 	}
@@ -1157,7 +1181,7 @@ func (b *Board) press(w http.ResponseWriter, r *http.Request, group, target stri
 		b.failErr(w, err)
 		return
 	}
-	b.done(w, r, b.o.Base+"/", "Sent "+strings.Join(keys, " ")+" to "+to)
+	b.done(w, r, next, "Sent "+strings.Join(keys, " ")+" to "+to)
 }
 
 func (b *Board) send(w http.ResponseWriter, r *http.Request) {

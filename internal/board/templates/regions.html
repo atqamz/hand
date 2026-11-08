@@ -1,4 +1,5 @@
-{{define "region-sup"}}{{if .NoSupervisor}}<p class="quiet">No supervisor is running. Start one from the <a href="{{.Base}}/">board</a>.</p>
+{{define "region-sup"}}<header class="thread-head"><h2 class="thread-title">Supervisor{{with .Ref}} <span class="ref">{{.}}</span>{{end}}</h2></header>
+{{if .NoSupervisor}}<p class="quiet">No supervisor is running. Start one from the <a href="{{.Base}}/">board</a>.</p>
 {{else}}{{with .ScreenNote}}<p class="quiet">{{.}}</p>
 {{end}}{{if .Screen}}<pre class="screen"><code>{{.Screen}}</code></pre>
 <p class="meta screen-meta">revision {{.Revision}} · {{.Digest}}</p>

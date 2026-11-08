@@ -71,7 +71,7 @@ func TestTheSupervisorPageWithoutASupervisorIsAnEmptyState(t *testing.T) {
 func TestAnOmpCardOffersOneSequencePerOption(t *testing.T) {
 	fx := newFixture(t)
 	fx.status, fx.hint = "blocked", "Pick one"
-	fx.screen = "Which approach should I take?\n◉ Fast\n◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
+	fx.screen = "Which approach should I take?\n❯ ◉ Fast\n  ◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	ask := askBlock(get(t, fx.handler(), "/supervisor"))
 	if ask == "" {
@@ -106,7 +106,7 @@ func TestAnIdleScreenWithoutADialogOffersNoAskCard(t *testing.T) {
 func TestAnIdleDialogOffersItsOptions(t *testing.T) {
 	fx := newFixture(t)
 	fx.status, fx.hint = "idle", ""
-	fx.screen = "Which approach should I take?\n◉ Fast\n◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
+	fx.screen = "Which approach should I take?\n❯ ◉ Fast\n  ◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
 	fx.supervisor(t, state.AttemptRunning, "gen-1")
 	ask := askBlock(get(t, fx.handler(), "/supervisor"))
 	if ask == "" {
@@ -139,6 +139,9 @@ func TestPressesTakeAnOrderedSequence(t *testing.T) {
 	res := post(h, "/supervisor/keys", url.Values{"revision": {"7"}, "keys": {"down down enter"}})
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("sequence press = %d", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); loc != "/supervisor" {
+		t.Fatalf("sequence press returned to %q", loc)
 	}
 	want := []string{"supervisor", "keys", "--revision", "7", "down", "down", "enter"}
 	if got := fx.called(); len(got) != 1 || !slices.Equal(got[0], want) {
@@ -216,4 +219,93 @@ func TestTheScreenRegionFollowsTheRevision(t *testing.T) {
 	if len(evs) == 0 {
 		t.Fatal("the screen region did not change")
 	}
+}
+
+func TestACircleCardStepsFromTheCursor(t *testing.T) {
+	for _, status := range []string{"blocked", "idle"} {
+		t.Run(status, func(t *testing.T) {
+			fx := newFixture(t)
+			fx.status, fx.hint = status, "Pick one"
+			fx.screen = "Which approach?\n  ◉ Fast\n❯ ◯ Correct\nselect · n note · ↑/↓ move · esc cancel"
+			fx.supervisor(t, state.AttemptRunning, "gen-1")
+			ask := askBlock(get(t, fx.handler(), "/supervisor"))
+			if ask == "" {
+				t.Fatal("the dialog has no ask card")
+			}
+			contains(t, "cursor on the second row", ask,
+				`<button name="keys" value="up enter">Fast</button>`,
+				`<button name="keys" value="enter">Correct</button>`)
+		})
+	}
+}
+
+func TestATranscriptBulletAloneIsNotAnAskCard(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Trust this folder?"
+	fx.screen = "Trust this folder?\n● Fixed login"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/supervisor")
+	contains(t, "transcript bullet", body, `<pre class="screen"><code>Trust this folder?`, `data-screen-keys`)
+	lacks(t, "transcript bullet", body, `<div class="ask">`, `data-ask`, "Fixed login</button>")
+}
+
+func TestAnOptionThatReadsLikeAFooterKeepsItsButton(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "idle", ""
+	fx.screen = "Which files should I upload?\n1. Select files\n2. Cancel\nEnter to select · Esc to cancel"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	ask := askBlock(get(t, fx.handler(), "/supervisor"))
+	if ask == "" {
+		t.Fatal("the dialog has no ask card")
+	}
+	contains(t, "footer-like option", ask,
+		`<button name="key" value="1">Select files</button>`,
+		`<button name="key" value="2">Cancel</button>`)
+}
+
+func TestAnOptionTheBoardCannotPressIsNotAButton(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "idle", ""
+	fx.screen = "Which file?\n1. main.go\n2. util.go\n3. test.go\n4. other.go\nEnter to select · Esc to cancel"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/supervisor")
+	lacks(t, "four options", body, `name="key" value="4"`, `data-ask`)
+	contains(t, "four options", body, `data-screen-keys`, `name="key" value="1"`)
+}
+
+func TestTheScreenHeadingFollowsTheSupRegion(t *testing.T) {
+	fx := newFixture(t)
+	fx.status = "blocked"
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	sup := region(get(t, fx.handler(), "/supervisor"), "sup")
+	contains(t, "screen region", sup,
+		`<header class="thread-head"><h2 class="thread-title">Supervisor <span class="ref">s1</span></h2></header>`)
+}
+
+func TestTheScreenNoteFollowsTheStream(t *testing.T) {
+	fx := newFixture(t)
+	fx.readErr = errors.New("luvus did not answer")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	base := serve(t, quick(fx.st, fx.options))
+	ch, _ := stream(t, base+"/events?page=supervisor")
+	if names := eventNames(first(t, ch, 2)); !slices.Equal(names, []string{"status", "sup"}) {
+		t.Fatalf("initial events = %q", names)
+	}
+	fx.mu.Lock()
+	fx.readErr = errors.New("the pipe closed")
+	fx.mu.Unlock()
+	evs := until(t, ch, arrives("sup", "the pipe closed"))
+	if len(evs) == 0 {
+		t.Fatal("the screen note did not change the region")
+	}
+}
+
+func TestTheFourOptionAskScreenIsNotAnAskCard(t *testing.T) {
+	fx := newFixture(t)
+	fx.status, fx.hint = "blocked", "Pick one"
+	fx.screen = capture(t, "askq")
+	fx.supervisor(t, state.AttemptRunning, "gen-1")
+	body := get(t, fx.handler(), "/supervisor")
+	lacks(t, "four options", body, `data-ask`, `name="key" value="4"`, "Cleanup</button>")
+	contains(t, "four options", body, `data-screen-keys`, "Delete the build folder?")
 }
