@@ -30,11 +30,15 @@ func main() {
 			Content: ui.View(app.View),
 		})
 		app.Post = win.Update
-		app.OnFleet = func(f desktop.Fleet) { win.SetTitle(windowTitle(f)) }
+		app.OnFleet = func(f desktop.Fleet) { setFleetTitle(win.SetTitle, f) }
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setFleetTitle(set func(string), f desktop.Fleet) {
+	set(windowTitle(f))
 }
 
 func windowTitle(f desktop.Fleet) string {
